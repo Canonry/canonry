@@ -1,8 +1,10 @@
-import { Fragment, useId, type KeyboardEvent } from 'react'
+import { Fragment, useId, type KeyboardEvent, type ReactNode } from 'react'
 
 export interface SegmentedRadioOption<T extends string> {
   value: T
   label: string
+  /** Replaces the visible label; the label remains the accessible name and tooltip. */
+  icon?: ReactNode
   /** Read after the label by assistive tech, for a choice its label alone does not explain. */
   description?: string
 }
@@ -55,11 +57,12 @@ export function SegmentedRadioGroup<T extends string>({
               role="radio"
               aria-checked={checked}
               aria-describedby={descriptionId}
+              title={option.icon ? option.label : undefined}
               tabIndex={checked ? 0 : -1}
               onClick={() => onChange(option.value)}
               className={`segmented-option pointer-coarse:min-h-11 ${checked ? 'segmented-option-active' : ''}`}
             >
-              {option.label}
+              {option.icon ? <><span aria-hidden="true">{option.icon}</span><span className="sr-only">{option.label}</span></> : option.label}
             </button>
             {/* A sibling, not a child: inside the button it would join the option's name. */}
             {option.description ? <span id={descriptionId} className="sr-only">{option.description}</span> : null}

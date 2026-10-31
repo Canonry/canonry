@@ -6,6 +6,10 @@ const stylesPath = resolve(import.meta.dirname, '../src/styles.css')
 const tailwindRoot = resolve(import.meta.dirname, '../node_modules/tailwindcss')
 
 async function loadTailwindStylesheet(id: string) {
+  if (id === './geist.css') {
+    const path = resolve(dirname(stylesPath), id)
+    return { path, base: dirname(path), content: await readFile(path, 'utf8') }
+  }
   if (id !== 'tailwindcss' && !id.startsWith('tailwindcss/')) {
     throw new Error(`Unexpected stylesheet import: ${id}`)
   }

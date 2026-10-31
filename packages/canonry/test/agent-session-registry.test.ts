@@ -38,10 +38,10 @@ import { registerAeroFaux, type AeroFaux } from './helpers/aero-faux.js'
 // during the turn; telemetry reports the catalog actually sent to the model.
 const SKILL_DOC_TOOL_COUNT = 5
 const AERO_READ_TOOL_COUNT =
-  canonryMcpTools.filter((t) => t.tier === 'core' && t.access === 'read' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name)).length +
+  canonryMcpTools.filter((t) => t.tier === 'core' && t.access === 'read' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name) && !t.requiresConnectionProfile).length +
   SKILL_DOC_TOOL_COUNT
 const AERO_ALL_TOOL_COUNT =
-  canonryMcpTools.filter((t) => t.tier === 'core' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name)).length + SKILL_DOC_TOOL_COUNT
+  canonryMcpTools.filter((t) => t.tier === 'core' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name) && !t.requiresConnectionProfile).length + SKILL_DOC_TOOL_COUNT
 // Once a turn is acquired, the project shape pins the tools it names. These
 // test projects have no plan, so the Simple shape pins the visibility report.
 const SIMPLE_SHAPE_PINNED_COUNT = 1

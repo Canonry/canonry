@@ -1,5 +1,5 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BingCoverageSummaryDto } from '@canonry/canonry-contracts'
 import { ApiClient } from '../src/client.js'
@@ -78,8 +78,7 @@ describe('Bing coverage MCP transport', () => {
       expect(loaded.isError).not.toBe(true)
     }
     expect((await client.listTools()).tools.map(tool => tool.name)).not.toContain('canonry_bing_coverage')
-    const refused = await client.callTool({ name: 'canonry_bing_coverage', arguments: { project: 'simple' } })
-    expect(refused.isError).toBe(true)
+    await expect(client.callTool({ name: 'canonry_bing_coverage', arguments: { project: 'simple' } })).rejects.toMatchObject({ code: -32602, message: 'Tool canonry_bing_coverage not found' })
     expect(requests).toHaveLength(0)
   })
 

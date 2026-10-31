@@ -200,6 +200,8 @@ declare global {
         showAgentBar?: boolean
         /** Runtime rollout selection for the first-open setup experience. */
         onboardingMode?: OnboardingMode
+        /** Present only as `icon`: the deployment shows the plugin icon, not the mascot. */
+        brandMark?: 'icon'
       }
       /** Present only when this deployment lets viewer accounts use Aero. */
       agent?: {
@@ -322,6 +324,12 @@ export function shouldShowDashboardResourceLinks(): boolean {
 export function shouldShowDashboardLocalAgentSetup(): boolean {
   if (typeof window === 'undefined') return true
   return window.__CANONRY_CONFIG__?.dashboard?.showLocalAgentSetup !== false
+}
+
+/** Whether this deployment shows the plugin icon instead of the mascot (`dashboard.brandMark: icon`). */
+export function dashboardShowsIconMark(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.__CANONRY_CONFIG__?.dashboard?.brandMark === 'icon'
 }
 
 /**

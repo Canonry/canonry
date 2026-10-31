@@ -240,46 +240,46 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
       </div>
 
       {error && (
-        <Card className="surface-card p-4 mb-4 border-negative-800/60">
-          <p className="text-sm text-negative">{error}</p>
+        <Card className="surface-card p-4 mb-4 bg-negative-soft">
+          <p className="text-copy-14 text-negative">{error}</p>
         </Card>
       )}
       {activeRun && (
-        <Card className="surface-card p-4 mb-4 border-info-800/60">
+        <Card className="surface-card p-4 mb-4 bg-info-soft">
           <div className="flex items-start gap-3">
             <Loader2 className="h-5 w-5 text-info-400 animate-spin shrink-0 mt-0.5" aria-hidden />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-medium text-heading">
+                <p className="text-copy-14-strong text-heading">
                   Extract running
                 </p>
                 <ToneBadge tone="neutral">{activeRun.status}</ToneBadge>
-                <span className="text-sm text-secondary tabular-nums">
+                <span className="text-label-14 text-secondary tabular-nums">
                   {formatElapsed(activeRun.startedAt ?? null, activeRun.createdAt)} elapsed · refreshing every 3s
                 </span>
                 <span className="sr-only">now={now}</span>
               </div>
-              <p className="text-sm text-secondary mt-1">Refreshing this project from the current Common Crawl release.</p>
+              <p className="text-copy-14 text-secondary mt-1">Refreshing this project from the current Common Crawl release.</p>
             </div>
           </div>
         </Card>
       )}
       {justCompletedRun && !activeRun && (
-        <Card className={`surface-card p-4 mb-4 ${justCompletedRun.status === 'failed' ? 'border-negative-800/60' : 'border-positive-800/60'}`}>
+        <Card className={`surface-card p-4 mb-4 ${justCompletedRun.status === 'failed' ? 'bg-negative-soft' : 'bg-positive-soft'}`}>
           <div className="flex items-start gap-3">
             {justCompletedRun.status === 'failed' ? (
-              <span className="h-5 w-5 shrink-0 mt-0.5 text-negative-400 text-lg leading-none" aria-hidden>!</span>
+              <span className="h-5 w-5 shrink-0 mt-0.5 text-negative-400 text-label-18" aria-hidden>!</span>
             ) : (
               <CheckCircle2 className="h-5 w-5 text-positive-400 shrink-0 mt-0.5" aria-hidden />
             )}
             <div className="flex-1">
-              <p className={`text-sm font-medium ${justCompletedRun.status === 'failed' ? 'text-negative' : 'text-positive'}`}>
+              <p className={`text-copy-14-strong ${justCompletedRun.status === 'failed' ? 'text-negative' : 'text-positive'}`}>
                 {justCompletedRun.status === 'failed' ? 'Extract failed' : 'Extract complete'}
               </p>
               {justCompletedRun.error
-                ? <p className="text-sm text-secondary mt-1">{summarizeRunError(justCompletedRun.error)}</p>
+                ? <p className="text-copy-14 text-secondary mt-1">{summarizeRunError(justCompletedRun.error)}</p>
                 : justCompletedRun.status !== 'failed'
-                  ? <p className="text-sm text-secondary mt-1">Backlinks refreshed from the cached release.</p>
+                  ? <p className="text-copy-14 text-secondary mt-1">Backlinks refreshed from the cached release.</p>
                   : null}
             </div>
           </div>
@@ -294,7 +294,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     if (loading) {
       return (
         <Card className="surface-card p-6">
-          <p className="text-sm text-muted">Loading backlinks…</p>
+          <p className="text-copy-14 text-muted">Loading backlinks…</p>
         </Card>
       )
     }
@@ -313,14 +313,14 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
       return (
         <Card className="surface-card p-6">
           <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-bg-elevated text-secondary">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-bg-elevated text-secondary">
               <Link2 className="h-5 w-5" aria-hidden />
             </div>
             <div className="flex-1">
               {!latestSync && (
                 <>
-                  <h3 className="text-base font-semibold text-heading">No release sync yet</h3>
-                  <p className="text-sm text-muted mt-1">
+                  <h3 className="text-heading-16 text-heading">No release sync yet</h3>
+                  <p className="text-copy-14 text-muted mt-1">
                     Run a workspace release sync to populate backlinks for every project in this workspace.
                   </p>
                   {!isEmbed() && !publicDemo && (
@@ -334,8 +334,8 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               )}
               {hasRunningSync && (
                 <>
-                  <h3 className="text-base font-semibold text-heading">Sync in progress</h3>
-                  <p className="text-sm text-muted mt-1">
+                  <h3 className="text-heading-16 text-heading">Sync in progress</h3>
+                  <p className="text-copy-14 text-muted mt-1">
                     A workspace release sync is running ({latestSync.status}
                     {latestSync.phaseDetail ? ` — ${latestSync.phaseDetail}` : ''}). Backlinks will appear here once it finishes.
                   </p>
@@ -350,8 +350,8 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               )}
               {hasFailedSync && (
                 <>
-                  <h3 className="text-base font-semibold text-heading">Last sync failed</h3>
-                  <p className="text-sm text-muted mt-1">
+                  <h3 className="text-heading-16 text-heading">Last sync failed</h3>
+                  <p className="text-copy-14 text-muted mt-1">
                     {latestSync.error ?? 'The workspace release sync failed. Retry from the Backlinks admin page.'}
                   </p>
                   {!isEmbed() && !publicDemo && (
@@ -365,8 +365,8 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               )}
               {hasReadySync && !hasRunningSync && !hasEmptySummary && !justFailed && (
                 <>
-                  <h3 className="text-base font-semibold text-heading">No backlinks yet for this project</h3>
-                  <p className="text-sm text-secondary mt-1">Release <code className="text-neutral">{latestSync.release}</code> is ready. Run an extract for this project.</p>
+                  <h3 className="text-heading-16 text-heading">No backlinks yet for this project</h3>
+                  <p className="text-copy-14 text-secondary mt-1">Release <code className="text-neutral">{latestSync.release}</code> is ready. Run an extract for this project.</p>
                   {!isEmbed() && !publicDemo && (
                     <div className="mt-4 flex items-center gap-3 flex-wrap">
                       <Button type="button" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
@@ -380,8 +380,8 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               )}
               {justFailed && (
                 <>
-                  <h3 className="text-base font-semibold text-heading">Last extract failed</h3>
-                  <p className="text-sm text-secondary mt-1">See the error above, then check the workspace source before retrying.</p>
+                  <h3 className="text-heading-16 text-heading">Last extract failed</h3>
+                  <p className="text-copy-14 text-secondary mt-1">See the error above, then check the workspace source before retrying.</p>
                   {!isEmbed() && !publicDemo && (
                     <div className="mt-4 flex items-center gap-3 flex-wrap">
                       <Button asChild type="button" size="sm">
@@ -393,8 +393,8 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               )}
               {hasEmptySummary && (
                 <>
-                  <h3 className="text-base font-semibold text-heading">No referring domains found</h3>
-                  <p className="text-sm text-secondary mt-1">The latest release found no referring domains for {summary!.targetDomain}. Try a newer release or re-run this extract.</p>
+                  <h3 className="text-heading-16 text-heading">No referring domains found</h3>
+                  <p className="text-copy-14 text-secondary mt-1">The latest release found no referring domains for {summary!.targetDomain}. Try a newer release or re-run this extract.</p>
                   {!isEmbed() && !publicDemo && (
                     <div className="mt-4 flex items-center gap-3 flex-wrap">
                       <Button asChild type="button" size="sm">
@@ -475,7 +475,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
           </div>
         </div>
 
-        <p className="text-xs text-muted mt-2">
+        <p className="text-copy-13 text-muted mt-2">
           <span className="text-secondary">Common Crawl</span> · {windowNoun}{' '}
           <code className="text-secondary">{summary.release}</code> · queried {relativeTime(summary.queriedAt)}
           {hiddenCount > 0 && <> · {hiddenCount} excluded domain{hiddenCount === 1 ? '' : 's'}</>}
@@ -517,11 +517,11 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
         <div className="mt-4">
           <p className="eyebrow eyebrow-soft mb-2">Top referring domains</p>
           <Card className="surface-card overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-label-14">
               <thead>
-                <tr className="border-b border-base text-left text-xs uppercase tracking-wide text-faint">
-                  <th className="px-4 py-2 font-medium">Domain</th>
-                  <th className="px-4 py-2 text-right font-medium">{countLabel}</th>
+                <tr className="border-b border-base text-left text-label-12 normal-case text-faint">
+                  <th className="px-4 py-2 text-label-12-strong">Domain</th>
+                  <th className="px-4 py-2 text-right text-label-12-strong">{countLabel}</th>
                 </tr>
               </thead>
               <tbody>
@@ -532,7 +532,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                   </tr>
                 ))}
                 {pageRows.length === 0 && (
-                  <tr><td className="px-4 py-4 text-sm text-muted" colSpan={2}>
+                  <tr><td className="px-4 py-4 text-label-14 text-muted" colSpan={2}>
                     {hiddenCount > 0 && visibleTotal === 0
                       ? `Every referring domain in this ${windowNoun} was a crawler/proxy host (${hiddenCount} hidden).`
                       : `No referring domains in this ${windowNoun}.`}

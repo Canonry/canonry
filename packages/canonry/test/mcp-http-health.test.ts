@@ -81,3 +81,39 @@ it.each([
   const actual = mcpHttpHealth(app, '/canonry/api/v1', { publicUrl, hasAccounts: true, authorizationPath: '/canonry/oauth/authorize' })
   expect(actual).toEqual({ status: 'available', hosted: { status: 'unavailable', reason } })
 })
+
+it('offers the Canonry plugin only on a ready instance, with this workspace', async () => {
+  const app = Fastify()
+  onTestFinished(() => app.close())
+  const prefix = '/api/v1'
+  const authorizationPath = '/oauth/authorize'
+  mountTransport(app, prefix)
+  app.get(authorizationPath, async () => ({}))
+  for (const url of [authorizationPath, `${authorizationPath}/consent`, '/oauth/token', '/oauth/register']) app.post(url, async () => ({}))
+  app.get('/.well-known/oauth-authorization-server', async () => ({}))
+  app.get(`/.well-known/oauth-protected-resource${prefix}/mcp`, async () => ({}))
+  await app.ready()
+  const hosted = { publicUrl: 'https://tenant.example/', hasAccounts: true, authorizationPath }
+  const gateway = 'https://mcp.example/mcp'
+
+  // Blank workspace: the instance's public host, which the gateway accepts.
+  expect(mcpHttpHealth(app, prefix, { ...hosted, plugin: { url: gateway } })).toEqual({
+    status: 'available',
+    hosted: { status: 'ready', url: 'https://tenant.example/api/v1/mcp', plugin: { gatewayUrl: gateway, workspace: 'tenant.example' } },
+  })
+  // An operator-named registry ID wins over the host, trimmed.
+  expect(mcpHttpHealth(app, prefix, { ...hosted, plugin: { url: gateway, workspace: ' tenant-one ' } })).toEqual({
+    status: 'available',
+    hosted: { status: 'ready', url: 'https://tenant.example/api/v1/mcp', plugin: { gatewayUrl: gateway, workspace: 'tenant-one' } },
+  })
+  // No gateway, or one that is not a clean HTTPS URL: direct connection only.
+  for (const plugin of [undefined, null, { url: 'http://mcp.example/mcp' }, { url: 'https://mcp.example/mcp?key=secret' }, { url: 'not-a-url' }]) {
+    expect(mcpHttpHealth(app, prefix, { ...hosted, plugin })).toEqual({
+      status: 'available', hosted: { status: 'ready', url: 'https://tenant.example/api/v1/mcp' },
+    })
+  }
+  // Without hosted sign-in the plugin cannot sign anyone in, so it is not offered.
+  expect(mcpHttpHealth(app, prefix, { ...hosted, hasAccounts: false, plugin: { url: gateway } })).toEqual({
+    status: 'available', hosted: { status: 'unavailable', reason: 'account-required' },
+  })
+})

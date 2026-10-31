@@ -40,6 +40,9 @@ import {
   type SiteAuditRunRequest,
   siteCrawlAuditFactorSchema,
   siteCrawlCriticalDefectSchema,
+  siteCrawlUrlVersionFilterSchema,
+  SiteCrawlUrlVersionFilters,
+  type SiteCrawlUrlVersionFilter,
   siteHealthLinkKindSchema,
   siteHealthTemplateDetectionSchema,
   SiteHealthLinkKinds,
@@ -182,6 +185,16 @@ function parseSiteHealthState(value: unknown): SiteHealthState | null {
   return allowed.data
 }
 
+/** Closed vocabulary like `healthState`; an absent value keeps every crawled address. */
+function parseUrlVersionFilter(value: unknown): SiteCrawlUrlVersionFilter {
+  if (value === undefined || value === '') return SiteCrawlUrlVersionFilters.include
+  const allowed = siteCrawlUrlVersionFilterSchema.safeParse(value)
+  if (!allowed.success) {
+    throw validationError(`"urlVersions" must be one of: ${siteCrawlUrlVersionFilterSchema.options.join(', ')}`)
+  }
+  return allowed.data
+}
+
 function parseBoolean(value: unknown): boolean | null {
   if (value === true || value === 'true' || value === '1') return true
   if (value === false || value === 'false' || value === '0') return false
@@ -290,6 +303,7 @@ function mapCrawlPage(row: typeof siteCrawlPages.$inferSelect): SiteCrawlPageDto
     linkScoreNormalized: row.linkScoreNormalized,
     healthState: deriveSiteHealthState(row),
     healthReason: deriveSiteHealthReason(row),
+    urlVersionOf: row.urlVersionOf ?? null,
   }
 }
 
@@ -804,12 +818,19 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
 
   const inventorySummaryFor = (scope: CrawlDetailScope | null): SiteCrawlInventorySummaryDto | null => {
     if (!scope) return null
-    const groups = crawlReasonGroups(and(eq(siteCrawlPages.projectId, scope.projectId),
-      eq(siteCrawlPages.runId, scope.runId), eq(siteCrawlPages.attemptId, scope.attemptId)))
+    const inScope = and(eq(siteCrawlPages.projectId, scope.projectId),
+      eq(siteCrawlPages.runId, scope.runId), eq(siteCrawlPages.attemptId, scope.attemptId))
+    const groups = crawlReasonGroups(inScope)
     const total = groups.reduce((sum, group) => sum + group.pages, 0)
     const eligible = groups.reduce((sum, group) => sum + (group.inventoryEligible ? group.pages : 0), 0)
+    const urlVersions = app.db.select({ value: count() }).from(siteCrawlPages)
+      .where(and(inScope, isNotNull(siteCrawlPages.urlVersionOf))).get()?.value ?? 0
+    // Skipped without a fetch, so counted on the attempt rather than as rows.
+    const urlVersionsNotFetched = app.db.select({ value: siteCrawlAttempts.urlVersionsSkipped }).from(siteCrawlAttempts)
+      .where(and(eq(siteCrawlAttempts.projectId, scope.projectId), eq(siteCrawlAttempts.runId, scope.runId),
+        eq(siteCrawlAttempts.id, scope.attemptId))).get()?.value ?? 0
     return { scope: 'selected-snapshot', total, eligible, excluded: total - eligible,
-      excludedReasons: reasonCounts(groups.filter(group => !group.inventoryEligible)) }
+      excludedReasons: reasonCounts(groups.filter(group => !group.inventoryEligible)), urlVersions, urlVersionsNotFetched }
   }
 
   /**
@@ -2135,6 +2156,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       indexabilityState?: string
       healthState?: string
       auditState?: string
+      urlVersions?: string
       nodeKey?: string
       sort?: string
     }
@@ -2171,6 +2193,11 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     if (request.query.fetchState) filters.push(eq(siteCrawlPages.fetchState, request.query.fetchState))
     if (request.query.indexabilityState) filters.push(eq(siteCrawlPages.indexabilityState, request.query.indexabilityState))
     if (request.query.auditState) filters.push(eq(siteCrawlPages.auditState, request.query.auditState))
+    // A URL version is a copy of another page that the audit did not score.
+    // The dashboard lists pages only; `only` reads the set-aside copies.
+    const urlVersions = parseUrlVersionFilter(request.query.urlVersions)
+    if (urlVersions === SiteCrawlUrlVersionFilters.exclude) filters.push(isNull(siteCrawlPages.urlVersionOf))
+    if (urlVersions === SiteCrawlUrlVersionFilters.only) filters.push(isNotNull(siteCrawlPages.urlVersionOf))
     const healthState = parseSiteHealthState(request.query.healthState)
     const limit = parseBoundedLimit(request.query.limit, 100, 200)
     const sort = ['score-desc', 'score-asc', 'path'].includes(request.query.sort ?? '') ? request.query.sort : 'url'
@@ -2178,6 +2205,8 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       projectId: project.id, runId: snapshot.runId, attemptId: snapshot.attemptId, requestedDate: requestedDate ?? null,
       nodeKey: request.query.nodeKey || null, inventoryEligible, fetchState: request.query.fetchState || null,
       indexabilityState: request.query.indexabilityState || null, auditState: request.query.auditState || null,
+      // Absent for the default, so a cursor issued before this filter existed still matches.
+      ...(urlVersions === SiteCrawlUrlVersionFilters.include ? {} : { urlVersions }),
       healthState, sort,
     })).digest('base64url')
     const offset = decodeCrawlPageCursor(request.query.cursor, selectionKey)

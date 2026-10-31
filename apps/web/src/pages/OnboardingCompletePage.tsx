@@ -79,9 +79,9 @@ export function OnboardingCompletePage({
       <OnboardingProgress current="done" outcomes={outcomes} />
       <div className="mx-auto mt-8 max-w-2xl">
         <header>
-          <p className="break-words text-sm text-secondary">{projectName}</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-heading">Project saved</h1>
-          <p className="mt-3 text-base text-secondary" role="status">
+          <p className="break-words text-copy-14 text-secondary">{projectName}</p>
+          <h1 className="mt-2 text-heading-32 text-heading">Project saved</h1>
+          <p className="mt-3 text-copy-16 text-secondary" role="status">
             {sweepOutcome === undefined ? 'Latest AI Visibility check complete.'
               : sweepOutcome === 'partial' ? 'Latest AI Visibility check has partial results.'
               : sweepOutcome === 'queued' ? 'AI Visibility check queued.'
@@ -91,8 +91,8 @@ export function OnboardingCompletePage({
               : sweepOutcome === 'unknown' ? 'AI Visibility status unconfirmed.'
               : 'No AI Visibility check yet.'}
           </p>
-          {sweep.hasEarlierResults ? <p className="mt-2 text-sm text-secondary">Earlier AI results remain available.</p> : null}
-          {scan.hasEarlierResults ? <p className="mt-2 text-sm text-secondary">Earlier page health results remain available.</p> : null}
+          {sweep.hasEarlierResults ? <p className="mt-2 text-copy-14 text-secondary">Earlier AI results remain available.</p> : null}
+          {scan.hasEarlierResults ? <p className="mt-2 text-copy-14 text-secondary">Earlier page health results remain available.</p> : null}
           <div className="mt-6 flex flex-wrap gap-3">
             <Button asChild className={TOUCH_TARGET}>
               <Link to="/projects/$projectName" params={{ projectName }} replace aria-label={`Open project ${projectName}`} onClick={() => trackNextAction('open_project')}>
@@ -179,8 +179,8 @@ export function runOutcome(query: {
 /** Compact for a mouse on a desktop; 44px tall for touch and narrow screens. */
 const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
 /** A summary keeps the browser's disclosure marker, so its text is centred by padding, not flex. */
-const SUMMARY_CLASS = `min-h-9 cursor-pointer py-2 text-sm font-medium text-heading pointer-coarse:py-3 max-md:py-3 ${TOUCH_TARGET}`
-const ROW_LINK_CLASS = `flex min-h-9 items-center justify-between gap-3 py-2 text-sm font-medium text-heading ${TOUCH_TARGET}`
+const SUMMARY_CLASS = `min-h-9 cursor-pointer py-2 text-label-14-strong text-heading pointer-coarse:py-3 max-md:py-3 ${TOUCH_TARGET}`
+const ROW_LINK_CLASS = `flex min-h-9 items-center justify-between gap-3 py-2 text-label-14-strong text-heading ${TOUCH_TARGET}`
 
 const DATA_SOURCES = [
   { label: 'Search Console', action: 'connect_search_console', to: '/projects/$projectName/search-console' },
@@ -189,11 +189,11 @@ const DATA_SOURCES = [
 ] as const
 
 function OptionalSetup({ projectName, onAction }: { projectName: string; onAction: (action: OnboardingNextAction) => void }) {
-  const linkClass = `inline-flex min-h-9 items-center text-sm font-medium text-link underline-offset-4 hover:underline ${TOUCH_TARGET}`
+  const linkClass = `inline-flex min-h-9 items-center text-label-14-strong text-link underline-offset-4 hover:underline ${TOUCH_TARGET}`
 
   return (
     <section aria-labelledby="onb-options-heading" className="mt-8">
-      <h2 id="onb-options-heading" className="mb-2 text-sm font-medium text-secondary">Optional setup</h2>
+      <h2 id="onb-options-heading" className="mb-2 text-heading-14 text-secondary">Optional setup</h2>
       <ul className="divide-y divide-default border-y border-default">
         <li>
           {/* Agent setup has its own page, which leads with a hosted server's URL and shows local install commands only where the deployment allows them. */}

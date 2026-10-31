@@ -166,6 +166,22 @@ commands if hosted setup needs attention. `showResourceLinks: false` hides
 repository documentation links while retaining the ChatGPT and Claude help
 links.
 
+### Brand mark
+
+The dashboard shows the Canonry mascot in the browser tab, the sidebar, and its
+sign-in screen. For a client deployment, show the Canonry icon instead: the
+canary on a white tile, as in the plugin listings and on the OAuth sign-in pages.
+
+```yaml
+dashboard:
+  brandMark: icon
+```
+
+For containers, set `CANONRY_DASHBOARD_BRAND_MARK=icon` and restart. The
+environment value overrides YAML; `mascot` restores the default. Blank or
+unrecognized values fall back to YAML, then `mascot`. This changes presentation
+only.
+
 ### Managed run kinds
 
 Use `dashboard.managedRunKinds` for a deployment where your team runs work for
@@ -313,6 +329,38 @@ Canonry ignores the `font` key in `embed.theme` and `X-Canonry-Embed-Theme`.
 All dashboards use the bundled Geist fonts. They do not load Google Fonts or
 fonts from the host page. The `mode`, `bg`, `fg`, and `accent` theme keys remain
 available.
+
+### Embedded query editing
+
+An embedded dashboard is read-only, with one exception. When the fronting proxy
+lets a dashboard's clients manage their own queries, the dashboard can add and
+remove that project's tracked queries.
+
+Two things turn this on:
+
+- The proxy sends `X-Canonry-Embed-Query-Limit: <n>` on the dashboard's
+  requests. The value is the plan's query limit, a whole number from 1 to
+  1000. With this header, the dashboard shows its Queries tab, and the embed
+  tab allowlist lets it read `/projects/:name/query-tracking`.
+- The proxy sends query changes with an API key that holds only the
+  `embed.queries.write` scope and is scoped to that one project.
+
+A key with `embed.queries.write` can call only
+`POST /projects/:name/query-tracking/preview` and
+`POST /projects/:name/query-tracking/commit`. Every write it sends must carry
+the limit header. Canonry then applies these rules:
+
+- Each request is one change: add one written query, or remove one query by
+  id. Wording edits, saved research, discovery results, templates,
+  audiences, contexts, and classification are refused.
+- Only simple projects accept these changes. An advanced portfolio stays with
+  the operator.
+- A change cannot take the query list past the limit. Canonry checks the
+  limit at review and again at save. Removals stay allowed when the list is
+  already over the limit.
+
+A caller that holds `*` or `measurement-plan.write` keeps full authority on
+these routes, and the embed rules do not apply to it.
 
 ---
 

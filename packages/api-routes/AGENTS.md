@@ -426,6 +426,9 @@ Every read-time competitor reader scores stored answers with the names the proje
 
 - The auth plugin does API key and session validation. It exports `hashApiKey()` (sha256 of a raw `cnry_…` token → `api_keys.key_hash`) and `requireScope()`; both are reused by `keys.ts`.
 - Every path that renews a named-account session must reissue its browser cookie in the same response, including public session reads and native OAuth consent. A renewed database row alone leaves the browser dropping the cookie at its prior expiry. Use the host's cookie path and `cookieIsSecure` request/proxy fallback; preserve the existing idle and absolute lifetimes.
+- `GET /mcp/profile` (and its automatic `HEAD`) is the sole OAuth identity read outside transport envelopes. It stays inside the MCP audience, requires a named account and instance-wide `read`, and returns only user ID/name, configured issuer/resource and read scope. Never admit OAuth tokens to general REST routes.
+- OAuth refresh requires the grant's explicit `client_id` and confidential secret when configured. Code redemption and refresh consumption plus token issuance commit in one immediate transaction. `oauth_grants` identifies an authorization across every rotation; revoking either currently valid token revokes that grant's tokens and internal delegated keys, never another user's grant. Expired or already-revoked tokens are no-ops at `/oauth/revoke`; refresh replay at `/oauth/token` remains a security event. Revoked token rows retain lineage so an authenticated refresh replay revokes the whole family (RFC 9700); wrong client/secret/resource attempts cannot revoke it. Explicit revoke authenticates clients before looking up tokens (RFC 7009). A token-only request that cannot authenticate its client returns the same 200 as an unknown token without changing the grant. Repeated revocation never changes the original revocation or refresh-consumption timestamps.
+- OAuth and internal delegated credentials retain only consented scopes after a role change; an empty intersection is refused, never promoted to `read`. Internal keys linked by `delegatedOAuthGrantId` expire one hour after `createdAt` even if transport cleanup fails; malformed or future creation times fail closed. Ordinary API keys keep their existing lifetime.
 - OAuth hosts set `authorizationPath` inside their session-cookie base path. Metadata advertises it; legacy root authorize/login/consent URLs redirect with HTTP 307, preserving method and query. Never widen a tenant cookie to the host root to repair subpath sign-in.
 - The `onRequest` hook also enforces the **global read-only gate**: a read-only key (`isReadOnlyKey(scopes)` from contracts — has `read`, no `*`/`*.write`) is rejected on every mutating HTTP method (POST/PUT/PATCH/DELETE) with `403`; GET/HEAD/OPTIONS pass. Method-based, so a new write route is read-only-protected automatically — see "Deployment posture and key authority" above (the read-only keys bullet in "Operational guidance").
 - It also exports `requirePaidReadScope()`, the gate for GETs that SPEND (they call a provider live on the caller's behalf rather than returning stored data): an ALLOW list of `*` / `ads.write` / `ads.approve` / `ads.activate`, so a read-only key, a key scoped to something unrelated, and an empty scope list are all refused. Pair it with `requireAdminSession()` — the scope gate returns early for a signed-in person, so alone it would let a viewer spend.
@@ -1050,3 +1053,17 @@ Advanced non-project domain metrics require exact host footprints; path/entity
 Properties can use explicit keyword metrics. Domain intelligence cannot substitute
 a broader domain for a Property. Saved evidence defaults to the latest completed
 or partial job for the selected profile, independently of the latest refresh state.
+
+Competitor discovery and keyword gaps are whole-domain project research for both
+Simple and Advanced projects. Neither provider endpoint can promise an exact-host,
+Property, group or market footprint; reject those scopes with project-scope recovery
+instead of widening them. The saved profile explicitly names up to five competitor
+root domains for gaps; each target/competitor pair reserves a shared and a missing
+task under the same immutable intent. Comparison domains, locale, capability and
+row limit are execution identity. `/seo/competitors` and `/seo/keyword-gaps` read
+only stored evidence. Gap `shared` includes `outranked`. Both competitive reads sort the full saved
+result before pagination, after gap filtering; use the shared contracts comparators.
+Omitted sort preserves stored order, and missing metrics stay last both ways. Missing describes the provider database, not an exhaustive Google
+absence; saved row totals never stand for provider-wide totals. Legacy task blobs
+without the new result arrays read as empty. Market-ranking comparisons use the
+shared `marketRankingRow` projection, including nullable best rival and rank gap.

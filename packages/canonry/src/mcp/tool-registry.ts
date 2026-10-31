@@ -1,4 +1,4 @@
-import { agentJourneysQuerySchema, journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
+import { agentJourneysQuerySchema, mcpProfileDtoSchema, journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -9,7 +9,7 @@ import {
 import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/canonry-contracts'
 import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS, WINDOW_SETS } from '@canonry/canonry-contracts'
 import { insightSeveritySchema } from '@canonry/canonry-contracts'
-import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
+import type { ToolAnnotations } from '@modelcontextprotocol/server'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
   AGENT_MEMORY_VALUE_MAX_BYTES,
@@ -142,7 +142,7 @@ import {
 } from './schema.js'
 import type { CanonryMcpTier } from './toolkits.js'
 import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
-import { seoContextSchema, seoStatusSchema, seoProfileListSchema, seoProfileSchema, seoQuoteSchema, seoRunSchema, seoRunListSchema, seoRunDetailSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoMarketRankingListSchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoMarketRankingSummarySchema, seoEvidenceQuerySchema, seoProfileInputSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, SEO_RUN_SCOPE, SEO_WRITE_SCOPE } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoStatusSchema, seoProfileListSchema, seoProfileSchema, seoQuoteSchema, seoRunSchema, seoRunListSchema, seoRunDetailSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoCompetitorListSchema, seoCompetitorQuerySchema, seoKeywordGapListSchema, seoKeywordGapQuerySchema, seoMarketRankingListSchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoMarketRankingSummarySchema, seoEvidenceQuerySchema, seoProfileInputSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, SEO_RUN_SCOPE, SEO_WRITE_SCOPE } from '@canonry/canonry-contracts'
 
 export type McpToolAccess = 'read' | 'write'
 
@@ -158,6 +158,8 @@ export interface CanonryMcpTool<
   requiredScope?: string
   /** Internal surface: customer roles/scopes alone never authorize it. */
   requiresOperator?: boolean
+  /** Requires an instance-wide named identity and configured OAuth resource. */
+  requiresConnectionProfile?: boolean
   tier: CanonryMcpTier
   inputSchema: TSchema
   inputJsonSchema: unknown
@@ -170,14 +172,16 @@ export interface CanonryMcpTool<
 
 const readAnnotations = (openWorldHint?: boolean): ToolAnnotations => ({
   readOnlyHint: true,
-  ...(openWorldHint ? { openWorldHint } : {}),
+  idempotentHint: true,
+  destructiveHint: false,
+  openWorldHint: Boolean(openWorldHint),
 })
 
 const writeAnnotations = (opts: { idempotentHint: boolean; destructiveHint?: boolean; openWorldHint?: boolean }): ToolAnnotations => ({
   readOnlyHint: false,
   idempotentHint: opts.idempotentHint,
   destructiveHint: Boolean(opts.destructiveHint),
-  ...(opts.openWorldHint ? { openWorldHint: opts.openWorldHint } : {}),
+  openWorldHint: opts.openWorldHint ?? true,
 })
 
 export function toolOperationAccess(tool: Pick<CanonryMcpTool, 'openApiOperations' | 'access'>): OperationAccess {
@@ -1182,7 +1186,8 @@ const technicalAeoCrawlPagesInputSchema = z.object({
   inventoryEligible: z.boolean().optional().describe('Filter Canonry technical-inventory eligibility. This is not actual Google index coverage.'),
   fetchState: z.string().min(1).optional().describe('Filter crawler fetch state, for example html, redirect, non-html, or fetch-error.'),
   indexabilityState: z.string().min(1).optional().describe('Filter crawler-derived indexability state. This is not Google index coverage.'),
-  auditState: z.string().min(1).optional().describe('Filter audit state.'),
+  auditState: z.string().min(1).optional().describe('Filter audit state. url-version marks a URL version: fetched and classified, not scored.'),
+  urlVersions: z.enum(['include', 'exclude', 'only']).optional().describe('URL versions are parameter addresses whose canonical names the same path, so the site marks them as copies of that page; the audit does not score them or count them in fixes. include (default) keeps every address, exclude lists pages only (the dashboard view), only lists the URL versions with urlVersionOf. Once a few addresses with one parameter pattern prove to be copies, the crawl stops fetching that pattern; those have no rows and inventorySummary.urlVersionsNotFetched counts them.'),
   sort: z.enum(['url', 'path', 'score-asc', 'score-desc']).optional(),
   cursor: z.string().min(1).optional().describe('Opaque cursor from the previous crawl-pages result.'),
   limit: z.number().int().positive().max(200).optional(),
@@ -1288,6 +1293,8 @@ const sentimentBackfillInputSchema = sentimentBackfillRequestSchema.extend({ pro
 
 const seoIdInputSchema = projectInputSchema.extend({ id: z.string().min(1) })
 const seoEvidenceInputSchema = seoEvidenceQuerySchema.extend({ project: projectNameSchema })
+const seoCompetitorInputSchema = seoCompetitorQuerySchema.extend({ project: projectNameSchema })
+const seoKeywordGapInputSchema = seoKeywordGapQuerySchema.extend({ project: projectNameSchema })
 const seoMarketRankingInputSchema = seoMarketRankingQuerySchema.extend({ project: projectNameSchema })
 const seoMarketRankingSummaryInputSchema = seoMarketRankingSummaryQuerySchema.extend({ project: projectNameSchema })
 
@@ -1435,8 +1442,26 @@ const rawCanonryMcpTools = [
     handler: (client, input) => { const { project, ...query } = input; return client.getSeoRankedKeywords(project, query) },
   }),
   defineTool({
+    name: 'canonry_seo_competitors', title: 'SEO organic competitors',
+    description: 'Read saved whole-domain organic competitor discovery only. No provider calls or automatic competitor pins. Preserve target, location, language, source date and runId while paging. Shared-search counts and traffic are provider database estimates; saved rows are bounded by the profile limit. Optional sort orders all saved rows before paging; a leading minus descends, missing values stay last, and omission preserves source order. Preserve sort while paging.',
+    access: 'read', tier: 'seo',
+    inputSchema: seoCompetitorInputSchema, outputSchema: seoCompetitorListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/competitors'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoCompetitors(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_keyword_gaps', title: 'SEO keyword gaps',
+    description: 'Read saved whole-domain organic search comparisons only. No provider calls. kind=shared includes all searches where both domains rank, including outranked; missing means the source database has a rival rank and no target rank; outranked means the rival ranks higher. rankGap is target rank minus rival rank and null without both. Preserve exact targets, locale, source date and runId while paging. Results are a bounded source sample, not all possible opportunities. Optional sort orders all filtered rows before paging; a leading minus descends, missing values stay last, and omission preserves source order. Preserve sort while paging.',
+    access: 'read', tier: 'seo',
+    inputSchema: seoKeywordGapInputSchema, outputSchema: seoKeywordGapListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/keyword-gaps'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoKeywordGaps(project, query) },
+  }),
+  defineTool({
     name: 'canonry_seo_market_rankings', title: 'SEO market rankings',
-    description: "Read stored SEO data only. No provider calls. The site's Google position for each tracked non-brand query in each market, searched from that market's location; these are the same tracked queries AI visibility measures, and searchText is the exact text searched. searchStatus says how each search ended: a null rank in a completed or partial row means not in the checked results (depth, lower when only part of the results came back); a failed or cancelled row has no rank because the search returned nothing. outcome says where each row landed (page-1, ranks-11-20, ranks-21-plus, not-ranked, partly-checked for a partial search without the site, failed, cancelled) and rivalAhead whether a tracked competitor ranks above the site. Filter with marketKey, regionKey, outcome (needs-work = off page 1 with a result) and q; sort=rank puts the closest to page 1 first. Keep runId fixed while paging.",
+    description: "Read stored SEO data only. No provider calls. The site's Google position for each tracked non-brand query in each market, searched from that market's location; these are the same tracked queries AI visibility measures, and searchText is the exact text searched. searchStatus says how each search ended: a null rank in a completed or partial row means not in the checked results (depth, lower when only part of the results came back); a failed or cancelled row has no rank because the search returned nothing. outcome says where each row landed (page-1, ranks-11-20, ranks-21-plus, not-ranked, partly-checked for a partial search without the site, failed, cancelled) and rivalAhead whether a tracked competitor ranks above the site. topCompetitor is the best tracked rival; rankGap is target rank minus rival rank and null without both. Filter with marketKey, regionKey, outcome (needs-work = off page 1 with a result) and q; sort=rank puts the closest to page 1 first. Keep runId fixed while paging.",
     access: 'read', tier: 'seo',
     inputSchema: seoMarketRankingInputSchema, outputSchema: seoMarketRankingListSchema,
     annotations: readAnnotations(),
@@ -1571,6 +1596,19 @@ const rawCanonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/query-tracking/commit'],
     handler: (client, input) => client.commitQueryTracking(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_mcp_profile',
+    requiresConnectionProfile: true,
+    title: 'Read the connected Canonry identity',
+    description: 'Read the signed-in user identity, effective read scope and instance audience. Requires a named user connection; an unbound API key has no user profile.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: emptyInputSchema,
+    outputSchema: mcpProfileDtoSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/mcp/profile'],
+    handler: (client) => client.getMcpProfile(),
   }),
   defineTool({
     name: 'canonry_projects_list',
@@ -2420,7 +2458,7 @@ const rawCanonryMcpTools = [
     access: 'write',
     tier: 'bing',
     inputSchema: projectInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: false }),
     openApiOperations: ['GET /api/v1/projects/{name}/bing/coverage'],
     handler: (client, input) => client.bingCoverage(input.project),
   }),
@@ -4096,7 +4134,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_technical_aeo_crawl_pages',
     title: 'List Technical AEO crawl pages',
-    description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary gives whole-snapshot eligible/excluded counts and disjoint excluded reasons; healthReasonCounts covers the filtered list before paging. Use these exact counts, never infer canonical-away from unknown indexability. healthReason distinguishes terminal redirects from canonical-to-other pages. Default runSelection reports same-date ambiguity and selects complete or most-pages evidence on the latest scan date. Read one bounded, cursor-paged list of canonical crawl nodes. Filter crawler-derived indexability and audit state, then follow nextCursor; this is technical inventory eligibility, not a claim about Google index coverage. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
+    description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary gives whole-snapshot eligible/excluded counts, disjoint excluded reasons, and urlVersions (parameter copies of a page the audit did not score; pass urlVersions=exclude to list pages only); healthReasonCounts covers the filtered list before paging. Use these exact counts, never infer canonical-away from unknown indexability. healthReason distinguishes terminal redirects from canonical-to-other pages. Default runSelection reports same-date ambiguity and selects complete or most-pages evidence on the latest scan date. Read one bounded, cursor-paged list of canonical crawl nodes. Filter crawler-derived indexability and audit state, then follow nextCursor; this is technical inventory eligibility, not a claim about Google index coverage. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoCrawlPagesInputSchema,
@@ -4109,6 +4147,7 @@ const rawCanonryMcpTools = [
       fetchState: input.fetchState,
       indexabilityState: input.indexabilityState,
       auditState: input.auditState,
+      urlVersions: input.urlVersions,
       sort: input.sort,
       cursor: input.cursor,
       limit: input.limit,

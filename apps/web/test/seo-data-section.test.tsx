@@ -26,6 +26,10 @@ const advanced: SeoProfile = {
   targets: [{ kind: 'host', value: 'fr.example.com', includeSubdomains: false }],
   capabilities: ['ranked-keywords'],
 }
+const research: SeoProfile = {
+  ...simple, id: 'research', name: 'Organic research', capabilities: ['competitor-discovery', 'keyword-gaps'], keywords: [],
+  competitors: [{ kind: 'domain', value: 'rival.com', includeSubdomains: true }],
+}
 const context: SeoContext = {
   available: true, reason: null, access: { canRun: true, canWrite: true },
   connections: [{ id: 'managed', label: 'Managed SEO source', provider: 'dataforseo', capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence'] }],
@@ -50,7 +54,7 @@ function overview(profile: SeoProfile, latestRun: SeoRun = { ...saved, id: `save
     profiles: [profile], latestRun, evidenceRunId: `saved-${profile.id}`, evidenceRun: { ...saved, id: `saved-${profile.id}`, profileId: profile.id, capabilities: profile.capabilities, scope: profile.scope, locationCode: profile.locationCode, languageCode: profile.languageCode },
     status: { available: true, reason: null, capabilities: profile.capabilities, profileCount: 2, latestRunId: latestRun.id, latestRunStatus: latestRun.status, lastCompletedAt: source.collectedAt },
     summary: { target: profile.targets[0], organicKeywords: 721, inTop10: 123, estimatedOrganicTraffic: 98.4, provenance: source },
-    keywordMetricsCount: 1, domainIntelligenceCount: 1, rankedKeywordCount: 1, marketRankingCount: 0,
+    keywordMetricsCount: 1, domainIntelligenceCount: 1, rankedKeywordCount: 1, marketRankingCount: 0, competitorCount: 0, keywordGapCount: 0,
   }
 }
 function json(value: unknown, status = 200) {
@@ -116,6 +120,96 @@ test('profile selection pins SDK evidence and renders server values, zero, and m
   expect(router.state.location.search.seoProfileId).toBe('advanced')
   const advancedRead = reads.find(url => url.pathname.endsWith('/ranked-keywords') && url.searchParams.get('profileId') === 'advanced')!
   expect(advancedRead.searchParams.get('runId')).toBe('saved-advanced')
+})
+
+test('organic research reads saved evidence and filters gap pages without starting a refresh', async () => {
+  const reads: URL[] = []
+  vi.stubGlobal('fetch', async (request: Request) => {
+    expect(request.method).toBe('GET')
+    const url = new URL(request.url)
+    reads.push(url)
+    if (url.pathname.endsWith('/context')) return json({ ...context, access: { canRun: false, canWrite: false } })
+    if (url.pathname.endsWith('/profiles')) return json({ profiles: [research] })
+    if (url.pathname.endsWith('/overview')) return json({ ...overview(research), summary: null, competitorCount: 1, keywordGapCount: 26 })
+    if (url.pathname.endsWith('/competitors')) return json({ runId: 'saved-research', total: 1, limit: 25, offset: 0, items: [{ target: research.targets[0], domain: 'rival.com', sharedKeywords: 0, averagePosition: null, organicKeywords: 300, estimatedOrganicTraffic: 1250, provenance: source }] })
+    if (url.pathname.endsWith('/keyword-gaps')) return json({ runId: 'saved-research', total: url.searchParams.get('kind') === 'missing' ? 0 : 26, limit: 25, offset: Number(url.searchParams.get('offset')), items: url.searchParams.get('kind') === 'missing' ? [] : [{ target: research.targets[0], competitor: research.competitors![0], keyword: 'organic comparison', targetRankOrganic: 13, competitorRankOrganic: 4, targetUrl: 'https://example.com/ranking', competitorUrl: 'https://rival.com/ranking', searchVolume: 0, keywordDifficulty: null, cpcUsd: null, kind: 'outranked', rankGap: 9, provenance: source }] })
+    throw new Error(`Unexpected research request ${url.pathname}`)
+  })
+  await mount('research')
+  const competitors = await screen.findByRole('table', { name: 'Organic competitors, from the selected refresh' })
+  expect(within(competitors).getByText('rival.com')).not.toBeNull()
+  expect(within(competitors).getByText('0')).not.toBeNull()
+  expect(within(competitors).getByLabelText('Not supplied')).not.toBeNull()
+  expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Edit profile' })).toBeNull()
+  for (const [label, sort] of [['Competitor', 'domain'], ['Shared searches', 'shared'], ['Avg. position', 'position'], ['Est. organic traffic', 'traffic']]) {
+    const button = within(competitors).getByRole('button', { name: label, exact: true })
+    for (const [value, direction] of [[sort, 'ascending'], [`-${sort}`, 'descending']]) {
+      button.focus()
+      fireEvent.click(button)
+      await waitFor(() => expect(reads.at(-1)!.searchParams.get('sort')).toBe(value))
+      expect(button.closest('th')?.getAttribute('aria-sort')).toBe(direction)
+      expect(document.activeElement).toBe(button)
+    }
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Search gaps', exact: true }))
+  const gaps = await screen.findByRole('table', { name: 'Search gaps, from the selected refresh' })
+  expect(within(gaps).getByText('+9')).not.toBeNull()
+  expect(within(gaps).getByRole('link', { name: 'https://rival.com/ranking', hidden: true })).not.toBeNull()
+  expect(Object.fromEntries(reads.find(url => url.pathname.endsWith('/keyword-gaps'))!.searchParams)).toEqual({ profileId: 'research', runId: 'saved-research', limit: '25', offset: '0' })
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  await waitFor(() => expect(reads.at(-1)!.searchParams.get('offset')).toBe('25'))
+  for (const [label, sort] of [['Search', 'keyword'], ['Comparison', 'kind'], ['Your rank', 'target-rank'], ['Competitor rank', 'competitor-rank'], ['Rank gap', 'rank-gap'], ['Monthly searches', 'volume']]) {
+    const button = within(gaps).getByRole('button', { name: label, exact: true })
+    for (const [value, direction] of [[sort, 'ascending'], [`-${sort}`, 'descending']]) {
+      button.focus()
+      fireEvent.click(button)
+      await waitFor(() => expect(reads.at(-1)!.searchParams.get('sort')).toBe(value))
+      expect(Object.fromEntries(reads.at(-1)!.searchParams)).toEqual({ profileId: 'research', runId: 'saved-research', limit: '25', offset: '0', sort: value })
+      expect(button.closest('th')?.getAttribute('aria-sort')).toBe(direction)
+      expect(document.activeElement).toBe(button)
+    }
+  }
+  fireEvent.change(screen.getByRole('combobox', { name: 'Show search gaps' }), { target: { value: 'missing' } })
+  await screen.findByRole('heading', { name: 'No matching comparisons' })
+  expect(Object.fromEntries(reads.at(-1)!.searchParams)).toEqual({ profileId: 'research', runId: 'saved-research', limit: '25', offset: '0', kind: 'missing', sort: '-volume' })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Show search gaps' }), { target: { value: 'shared' } })
+  await screen.findByText('organic comparison')
+  expect(reads.at(-1)!.searchParams.get('kind')).toBe('shared')
+  expect(reads.at(-1)!.searchParams.get('sort')).toBe('-volume')
+})
+
+test('research profile editor saves explicit comparison domains and respects narrower scope capabilities', async () => {
+  const writes: SeoProfileInput[] = []
+  const configured = { ...context, connections: [{ ...context.connections[0]!, capabilities: research.capabilities }], scopes: [
+    { ...context.scopes[0]!, capabilities: research.capabilities },
+    { ...context.scopes[1]!, capabilities: ['keyword-metrics'], reason: 'Domain research requires project scope.' },
+  ] }
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const url = new URL(request.url)
+    if (request.method === 'PUT') { const input = await request.json() as SeoProfileInput; writes.push(input); return json({ ...research, ...input, revision: 2 }) }
+    if (url.pathname.endsWith('/context')) return json(configured)
+    if (url.pathname.endsWith('/profiles')) return json({ profiles: [research] })
+    if (url.pathname.endsWith('/overview')) return json({ ...overview(research), summary: null })
+    if (url.pathname.endsWith('/competitors')) return json({ runId: 'saved-research', total: 0, limit: 25, offset: 0, items: [] })
+    throw new Error(`Unexpected editor request ${request.method} ${url.pathname}`)
+  })
+  await mount('research')
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit profile' }))
+  const form = screen.getByRole('form', { name: 'Edit SEO profile' })
+  const comparisons = within(form).getByRole<HTMLTextAreaElement>('textbox', { name: /^Comparison domains/ })
+  expect(comparisons.value).toBe('rival.com')
+  fireEvent.change(comparisons, { target: { value: 'rival.com\nsecond.com' } })
+  fireEvent.change(within(form).getByRole('spinbutton', { name: /^Result limit/ }), { target: { value: '50' } })
+  fireEvent.click(within(form).getByRole('button', { name: 'Save profile' }))
+  await waitFor(() => expect(writes).toHaveLength(1))
+  expect(writes[0]).toMatchObject({ capabilities: research.capabilities, limit: 50, scope: { kind: 'project' }, competitors: [{ kind: 'domain', value: 'rival.com', includeSubdomains: true }, { kind: 'domain', value: 'second.com', includeSubdomains: true }] })
+  await waitFor(() => expect(screen.queryByRole('form')).toBeNull())
+  fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }))
+  fireEvent.change(screen.getByRole('combobox', { name: /^Measurement scope/ }), { target: { value: 'property:property-fr' } })
+  expect(screen.getByRole<HTMLInputElement>('checkbox', { name: 'Search gaps' }).disabled).toBe(true)
+  expect(screen.getByRole<HTMLInputElement>('checkbox', { name: 'Organic competitors' }).checked).toBe(false)
+  expect(screen.queryByRole('textbox', { name: /^Comparison domains/ })).toBeNull()
 })
 
 test.each([SeoRunStatuses.completed, SeoRunStatuses.partial, null])('selected profile freshness uses its %s evidence, never another profile completion', async status => {
@@ -282,7 +376,7 @@ test.each(['project', 'path Property'])('a new keyword-only profile for %s saves
     if (created && url.pathname.endsWith('/overview')) return json({
       status: { available: true, reason: null, capabilities: ['keyword-metrics'], profileCount: 1, latestRunId: null, latestRunStatus: null, lastCompletedAt: null },
       profiles: [created], latestRun: null, evidenceRun: null, evidenceRunId: null, summary: null,
-      keywordMetricsCount: 0, domainIntelligenceCount: 0, rankedKeywordCount: 0, marketRankingCount: 0,
+      keywordMetricsCount: 0, domainIntelligenceCount: 0, rankedKeywordCount: 0, marketRankingCount: 0, competitorCount: 0, keywordGapCount: 0,
     } satisfies SeoOverview)
     throw new Error(`Unexpected profile creation request ${request.method} ${url.pathname}`)
   })
@@ -480,11 +574,11 @@ function marketRow(queryText: string, values: Partial<SeoMarketRankingRow> = {})
   return {
     marketKey: 'harbor', marketLabel: 'Harbor, Coast', regionKey: 'coast', regionLabel: 'Coast Metro', queryId: queryText, queryText, queryClass: 'non-brand',
     searchText: queryText, locationLabel: 'Harbor, TX', target: markets.targets[0]!, rankOrganic: null, rankAbsolute: null, url: null, depth: 50,
-    searchStatus: 'completed', outcome: 'not-ranked', rivalAhead: false, competitors: [], provenance: marketSource, ...values,
+    searchStatus: 'completed', outcome: 'not-ranked', rivalAhead: false, competitors: [], topCompetitor: null, rankGap: null, provenance: marketSource, ...values,
   }
 }
 const marketRows = [
-  marketRow('apartments near the harbor', { rankOrganic: 11, rankAbsolute: 14, url: 'https://example.com/harbor', outcome: 'ranks-11-20', rivalAhead: true, competitors: [{ domain: 'rival.com', rankOrganic: 3 }, { domain: 'other.com', rankOrganic: 30 }] }),
+  marketRow('apartments near the harbor', { rankOrganic: 11, rankAbsolute: 14, url: 'https://example.com/harbor', outcome: 'ranks-11-20', rivalAhead: true, topCompetitor: { domain: 'rival.com', rankOrganic: 3 }, rankGap: 8, competitors: [{ domain: 'rival.com', rankOrganic: 3 }, { domain: 'other.com', rankOrganic: 30 }] }),
   marketRow('lofts with parking', { depth: 30, searchStatus: 'partial', outcome: 'partly-checked' }),
   marketRow('pet friendly lofts', { outcome: 'failed', searchStatus: 'failed', depth: 0, provenance: null }),
 ]
@@ -579,7 +673,9 @@ test('queries open on what needs work, closest to page 1, and every filter, orde
 
   const [ranked, partial, failed] = within(table).getAllByRole('row').slice(1)
   expect(within(ranked!).getAllByRole('cell')[0]!.textContent).toBe('11')
-  expect(within(ranked!).getAllByRole('cell')[1]!.textContent).toBe('rival.com#3Ahead')
+  expect(within(ranked!).getAllByRole('cell')[1]!.textContent).toBe('rival.comAhead')
+  expect(within(ranked!).getAllByRole('cell')[2]!.textContent).toBe('3')
+  expect(within(ranked!).getAllByRole('cell')[3]!.textContent).toBe('+8')
   expect(within(partial!).getAllByRole('cell')[0]!.textContent).toBe('Not in top 30')
   expect(within(partial!).getByRole('button', { name: 'Only the top 30 of 50 results came back for this search, so ranks past 30 are unknown.' })).not.toBeNull()
   expect(within(partial!).getAllByRole('cell')[1]!.textContent).toBe('None in top 30')
@@ -591,7 +687,7 @@ test('queries open on what needs work, closest to page 1, and every filter, orde
     fireEvent.click(button)
     expect(button.getAttribute('aria-expanded')).toBe('true')
     const details = document.getElementById(button.getAttribute('aria-controls')!)!
-    expect(details.querySelector('td')!.getAttribute('colspan')).toBe('4')
+    expect(details.querySelector('td')!.getAttribute('colspan')).toBe('6')
     return details
   }
   const rankedDetails = open(ranked!, 'apartments near the harbor')

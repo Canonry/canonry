@@ -10,6 +10,7 @@ import { ToneBadge } from '../shared/ToneBadge.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { formatTimestamp } from '../../lib/format-helpers.js'
 import { fetchSentimentEvidence, fetchSentimentJob, fetchSentimentSettings, isEmbed, previewSentimentBackfill, submitSentimentBackfill, updateSentimentSettings } from '../../api.js'
+import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
 import { sentimentQueryKey, useSentiment } from '../../queries/sentiment.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
@@ -507,24 +508,24 @@ export function SentimentQueryScore({ queryId, sourceSnapshotIds = [], queryClas
   const row = matches.length === 1 ? matches[0] : undefined
   const value = location === undefined ? row : row?.locations.find(item => item.location === location)
   // With no source evidence the class summaries are never requested, so a pending query here would never settle.
-  if (!row || !value) return <span className="text-sm text-secondary">{scope.hasSourceEvidence && parent?.isPending && (queryId || sourceSnapshotIds.length) ? 'Loading…' : 'Unavailable'}</span>
+  if (!row || !value) return <span className="text-label-14 text-secondary">{scope.hasSourceEvidence && parent?.isPending && (queryId || sourceSnapshotIds.length) ? 'Loading…' : 'Unavailable'}</span>
   const selection: SentimentSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row.queryClass, queryId: row.queryId, executionNodeKey: row.executionNodeKey ?? undefined, ...(location === undefined ? {} : { location: location ?? 'none' }) }
   // A non-brand row shows only its unfavorable and mixed answers, as the Sentiment block does: its favorable share runs near 100%.
   if (row.queryClass === 'non-brand') {
-    if (value.state === 'unsupported') return <span className="text-sm text-secondary">Unavailable</span>
+    if (value.state === 'unsupported') return <span className="text-label-14 text-secondary">Unavailable</span>
     const { unfavorable, mixed } = value.coverage.counts
     if (unfavorable === 0 && mixed === 0) {
-      const label = showLabel && <span className="block text-sm font-normal text-secondary">{SENTIMENT_COPY.nonBrand.rowLabel}</span>
+      const label = showLabel && <span className="block text-label-14 text-secondary">{SENTIMENT_COPY.nonBrand.rowLabel}</span>
       // Only a final read establishes "none"; an unrated, pending, failed, canceled or partial row says its state.
-      if (!isFinal(value)) return <span className="text-sm text-secondary">{label}<span>{stateText(value)}</span></span>
-      return <span className="text-sm text-muted">{label}<span aria-hidden="true" title={SENTIMENT_COPY.nonBrand.rowNone}>{EM_DASH}</span><span className="sr-only">{SENTIMENT_COPY.nonBrand.rowNone}</span></span>
+      if (!isFinal(value)) return <span className="text-label-14 text-secondary">{label}<span>{stateText(value)}</span></span>
+      return <span className="text-label-14 text-muted">{label}<span aria-hidden="true" title={SENTIMENT_COPY.nonBrand.rowNone}>{EM_DASH}</span><span className="sr-only">{SENTIMENT_COPY.nonBrand.rowNone}</span></span>
     }
-    return <Button type="button" variant="ghost" className="h-auto min-h-11 flex-col items-start gap-0 px-1" aria-label={`View unfavorable and mixed answers for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence({ ...selection, outcome: CRITICISM_OUTCOMES }, `${row.queryText}, unfavorable and mixed`, event.currentTarget) }}>
-      {showLabel && <span className="text-sm font-normal text-secondary">{SENTIMENT_COPY.nonBrand.rowLabel}</span>}{unfavorable > 0 && <span className="text-sm text-negative">{unfavorable} unfavorable</span>}{mixed > 0 && <span className="text-sm text-caution">{mixed} mixed</span>}{value.provisional && <span className="text-xs font-normal text-caution">Provisional</span>}
+    return <Button type="button" variant="ghost" className="h-auto pointer-coarse:min-h-11 flex-col items-start gap-0 px-1" aria-label={`View unfavorable and mixed answers for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence({ ...selection, outcome: CRITICISM_OUTCOMES }, `${row.queryText}, unfavorable and mixed`, event.currentTarget) }}>
+      {showLabel && <span className="text-label-14 text-secondary">{SENTIMENT_COPY.nonBrand.rowLabel}</span>}{unfavorable > 0 && <span className="text-label-14 text-negative">{unfavorable} unfavorable</span>}{mixed > 0 && <span className="text-label-14 text-caution">{mixed} mixed</span>}{value.provisional && <span className="text-label-12 text-caution">Provisional</span>}
     </Button>
   }
-  return <Button type="button" variant="ghost" className="h-auto min-h-11 flex-col items-start gap-0 px-1" aria-label={`View ${CLASS_LABEL[row.queryClass]} sentiment evidence for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, row.queryText, event.currentTarget) }}>
-    {showLabel && <span className="text-sm font-normal text-secondary">Favorable</span>}<span className="font-mono text-primary">{value.score.favorableDisplay}</span><span className="text-sm font-normal text-secondary">{value.coverage.judged} judged</span>{value.provisional && <span className="text-xs font-normal text-caution">Provisional</span>}
+  return <Button type="button" variant="ghost" className="h-auto pointer-coarse:min-h-11 flex-col items-start gap-0 px-1" aria-label={`View ${CLASS_LABEL[row.queryClass]} sentiment evidence for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, row.queryText, event.currentTarget) }}>
+    {showLabel && <span className="text-label-14 text-secondary">Favorable</span>}<span className="font-mono text-primary">{value.score.favorableDisplay}</span><span className="text-label-14 text-secondary">{value.coverage.judged} judged</span>{value.provisional && <span className="text-label-12 text-caution">Provisional</span>}
   </Button>
 }
 
@@ -554,15 +555,15 @@ export function SentimentAnswerOutcome({ queryId, sourceSnapshotIds, queryClass,
   const row = rows.length === 1 ? rows[0] : undefined
   const assessments = row?.assessments?.filter(item => sourceSnapshotIds.includes(item.sourceSnapshotId)
     && item.provider === provider && item.location === location && (model === undefined || item.servedModel === model)) ?? []
-  return <div role="group" className="text-sm text-secondary" aria-label={`${provider || 'Saved answer'} sentiment`}>
-    {showLabel && <span className="block text-sm text-secondary">Sentiment</span>}
+  return <div role="group" className="text-label-14 text-secondary" aria-label={`${provider || 'Saved answer'} sentiment`}>
+    {showLabel && <span className="block text-label-14 text-secondary">Sentiment</span>}
     {!assessments.length ? <span>{scope.hasSourceEvidence && query?.isPending && sourceSnapshotIds.length ? 'Loading…' : 'Unavailable'}</span> : assessments.map(item => {
       const label = assessmentLabel(item)
       const tone = outcomeTone(item.outcome)
-      const content = <>{showSubjects && <span>{item.subjectLabel} · </span>}<ToneBadge tone={tone} className="max-w-full shrink-0 rounded-none border-0 bg-transparent p-0 text-sm font-normal tracking-normal [overflow-wrap:normal]">{label}</ToneBadge></>
+      const content = <>{showSubjects && <span>{item.subjectLabel} · </span>}<ToneBadge tone={tone} className="max-w-full shrink-0 rounded-none border-0 bg-transparent p-0 text-label-14 [overflow-wrap:normal]">{label}</ToneBadge></>
       const selection: SentimentEvidenceSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row!.queryClass, queryId: row!.queryId, executionNodeKey: row!.executionNodeKey ?? undefined, assessmentId: item.assessmentId ?? undefined }
       return <div key={JSON.stringify([item.sourceSnapshotId, item.subjectId, item.assessmentId])} className="flex items-center gap-1">
-        {item.assessmentId ? <Button type="button" variant="ghost" className="h-auto min-h-11 flex-wrap justify-start whitespace-normal px-1 text-left text-sm" aria-label={`View ${item.provider} sentiment evidence for ${item.subjectLabel}: ${label}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, `${row!.queryText} · ${item.provider} · ${item.subjectLabel}`, event.currentTarget) }}>{content}</Button> : <span>{content}</span>}
+        {item.assessmentId ? <Button type="button" variant="ghost" className="h-auto pointer-coarse:min-h-11 flex-wrap justify-start whitespace-normal px-1 text-left text-button-14" aria-label={`View ${item.provider} sentiment evidence for ${item.subjectLabel}: ${label}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, `${row!.queryText} · ${item.provider} · ${item.subjectLabel}`, event.currentTarget) }}>{content}</Button> : <span>{content}</span>}
         {item.reason && <InfoTooltip text={item.reason} />}
       </div>
     })}
@@ -570,21 +571,22 @@ export function SentimentAnswerOutcome({ queryId, sourceSnapshotIds, queryClass,
 }
 
 function SentimentEvidenceContent({ item }: { item: SentimentEvidenceItem }) {
-  return <article className="space-y-4 border-b border-default py-5 text-sm text-secondary">
-    <div className="flex flex-wrap items-center gap-2"><strong className="text-primary">{item.subject.displayName}</strong><ToneBadge tone={outcomeTone(item.outcome)}>{outcomeLabel(item.outcome)}</ToneBadge><span>{CLASS_LABEL[item.context.queryClass]}</span><span>{providerDisplayName(item.context.provider)}</span><span>{item.context.servedModel ?? 'Source model unavailable'}</span><span>{item.context.location ?? 'No location'}</span></div>
+  const engine = providerDisplayName(item.context.provider)
+  return <article className="space-y-4 border-b border-default py-5 text-label-14 text-secondary">
+    <div className="flex flex-wrap items-center gap-2"><strong className="text-primary">{item.subject.displayName}</strong><ToneBadge tone={outcomeTone(item.outcome)}>{outcomeLabel(item.outcome)}</ToneBadge><span>{CLASS_LABEL[item.context.queryClass]}</span><span>Answered by <span className="text-primary">{engine}</span>{item.context.servedModel ? ` (${item.context.servedModel})` : ''}</span><span>{item.context.location ?? 'No location'}</span></div>
     {item.reason && <p>{item.reason}</p>}
     <section><h3 className="mb-2 text-heading">Conclusion evidence</h3>{item.conclusion.length ? item.conclusion.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No valid conclusion evidence is available.</p>}</section>
     <section><h3 className="mb-2 text-heading">Complaint evidence</h3>{item.complaint?.length ? item.complaint.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No complaint was identified.</p>}</section>
-    <details><summary className="cursor-pointer">Original source answer</summary><p className="mt-2 whitespace-pre-wrap break-words text-primary">{item.sourceText}</p></details>
+    <details><summary className="cursor-pointer">Original answer from {engine}</summary><div className="mt-2 break-words text-primary"><AnswerMarkdown headingLevel={4}>{item.sourceText}</AnswerMarkdown></div></details>
     <details><summary className="cursor-pointer">Assessment provenance</summary><dl className="mt-3 space-y-2 break-all"><dt>Query</dt><dd>{item.context.queryText}</dd><dt>Subject</dt><dd>{item.subject.displayName} ({item.subject.id})</dd><dt>Run</dt><dd>{item.runId}</dd><dt>Revision</dt><dd>{item.context.revision ?? 'Unavailable'}</dd><dt>Evaluator</dt><dd>{item.returnedModel ?? 'Unavailable'}</dd><dt>Evaluation definition</dt><dd>{item.evaluationDefinitionId}</dd><dt>Source snapshot</dt><dd>{item.sourceSnapshotId}</dd><dt>Source hash</dt><dd>{item.sourceTextHash}</dd>{item.context.usageEdges.map((edge, index) => <div key={index}><dt>Assignment</dt><dd>Target {edge.targetId}; Property {edge.propertyId ?? 'None'}; market {edge.marketId ?? 'None'}; {edge.queryClass}</dd></div>)}</dl></details>
   </article>
 }
 function SentimentQueryEvidence({ projectName, selection }: { projectName: string; selection: SentimentEvidenceSelection }) {
   const [cursor, setCursor] = useState<string | undefined>()
   const query = useQuery({ queryKey: sentimentQueryKey(projectName, 'evidence', selection, cursor), queryFn: () => fetchSentimentEvidence(projectName, selection, cursor), retry: false })
-  if (query.isPending) return <p role="status" className="mt-4 text-sm text-secondary">Loading sentiment evidence…</p>
-  if (query.isError) return <p role="alert" className="mt-4 text-sm text-secondary">Could not load sentiment evidence. <Button variant="outline" onClick={() => { void query.refetch() }}>Retry evidence</Button></p>
-  return <>{query.data.items.length ? query.data.items.map(item => <SentimentEvidenceContent key={item.assessmentId} item={item} />) : <p className="mt-4 text-sm text-secondary">No stored sentiment evidence for this query and scope.</p>}
+  if (query.isPending) return <p role="status" className="mt-4 text-copy-14 text-secondary">Loading sentiment evidence…</p>
+  if (query.isError) return <p role="alert" className="mt-4 text-copy-14 text-secondary">Could not load sentiment evidence. <Button variant="outline" onClick={() => { void query.refetch() }}>Retry evidence</Button></p>
+  return <>{query.data.items.length ? query.data.items.map(item => <SentimentEvidenceContent key={item.assessmentId} item={item} />) : <p className="mt-4 text-copy-14 text-secondary">No stored sentiment evidence for this query and scope.</p>}
     <div className="mt-3 flex gap-2">{cursor && <Button variant="outline" onClick={() => setCursor(undefined)}>First evidence page</Button>}{query.data.nextCursor && <Button variant="outline" onClick={() => setCursor(query.data.nextCursor ?? undefined)}>Next evidence page</Button>}</div>
   </>
 }
@@ -603,7 +605,7 @@ function SentimentJobDetails({ projectName, job }: { projectName: string; job: S
   return <details onToggle={event => setOpen(event.currentTarget.open)}><summary>Job details</summary>{job.cancellationReason && <p>{job.cancellationReason}</p>}{Object.entries(job.counts).filter(([, count]) => count > 0).map(([state, count]) => <p key={state}>{outcomeLabel(state)}: {count}</p>)}<p>Attempts: {job.attemptCount}</p>{open && job.attemptCount > 0 && <SentimentJobAttempts projectName={projectName} jobId={job.id} />}</details>
 }
 export function SentimentJobs({ projectName, jobs }: { projectName: string; jobs: SentimentJobSummary[] }) {
-  return <details className="mt-6 text-sm text-secondary"><summary className="cursor-pointer">Recent sentiment jobs</summary>{jobs.length === 0 ? <p className="mt-2">No sentiment jobs have been submitted.</p> : <div className="data-table-wrapper mt-3"><table className="data-table" aria-label="Sentiment jobs"><thead><tr><th>Submitted</th><th>State</th><th>Selected</th><th>Details</th></tr></thead><tbody>{jobs.map(job => <tr key={job.id}><td>{formatTimestamp(job.createdAt)}</td><td>{outcomeLabel(job.state)}</td><td>{job.selected}</td><td><SentimentJobDetails projectName={projectName} job={job} /></td></tr>)}</tbody></table></div>}</details>
+  return <details className="mt-6 text-label-14 text-secondary"><summary className="cursor-pointer">Recent sentiment jobs</summary>{jobs.length === 0 ? <p className="mt-2">No sentiment jobs have been submitted.</p> : <div className="data-table-wrapper mt-3"><table className="data-table" aria-label="Sentiment jobs"><thead><tr><th>Submitted</th><th>State</th><th>Selected</th><th>Details</th></tr></thead><tbody>{jobs.map(job => <tr key={job.id}><td>{formatTimestamp(job.createdAt)}</td><td>{outcomeLabel(job.state)}</td><td>{job.selected}</td><td><SentimentJobDetails projectName={projectName} job={job} /></td></tr>)}</tbody></table></div>}</details>
 }
 /** Plain labels for the server's backfill skip reasons; a reason this build does not know still reads through. */
 const SENTIMENT_SKIP_REASON_LABELS: Readonly<Record<string, string>> = {
@@ -668,7 +670,7 @@ function SentimentSettingsEditor({ projectName, settings, selection, runOptions 
     return submitSentimentBackfill(projectName, preview.previewToken, key.current)
   }, onSuccess: async () => { reset(); await refresh() }, onError: refresh })
   const pending = save.isPending || inspect.isPending || submit.isPending
-  return <div className="mt-5 space-y-5 text-sm text-secondary">
+  return <div className="mt-5 space-y-5 text-label-14 text-secondary">
     <dl className="definition-list"><div><dt>Evaluator</dt><dd>{settings.model} · {settings.provider === 'openrouter' ? 'OpenRouter' : 'TypeSafe'}</dd></div></dl>
     <p>{settings.disclosure}</p>{!settings.ready && <p>{settings.readinessReasons.join('; ') || 'An operator must configure sentiment on this installation.'}</p>}
     <form className="space-y-3" onSubmit={event => { event.preventDefault(); save.mutate() }}><label className="flex items-center gap-2"><input type="checkbox" checked={enabled} disabled={pending} onChange={event => { setEnabled(event.target.checked); reset() }} />Enable project sentiment</label><p>Enabling applies to future completed checks. Past checks require an explicit backfill.</p><WriteButton type="submit" disabled={pending}>{save.isPending ? 'Saving…' : 'Save sentiment settings'}</WriteButton>{save.isError && <p role="alert">{describeError(save.error)}</p>}{save.isSuccess && <p role="status">Sentiment settings saved.</p>}</form>

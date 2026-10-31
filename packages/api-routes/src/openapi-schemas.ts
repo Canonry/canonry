@@ -1,3 +1,4 @@
+import { mcpProfileDtoSchema } from '@canonry/canonry-contracts'
 import { gbpLocalPostDtoSchema, gbpLocalPostListSchema, gbpLocalPostAttemptSchema, gbpLiveReviewsSchema, gbpLocalPostCreateSchema } from '@canonry/canonry-contracts'
 /**
  * Centralized OpenAPI schema registry for canonry's API responses.
@@ -25,7 +26,7 @@ import { gbpLocalPostDtoSchema, gbpLocalPostListSchema, gbpLocalPostAttemptSchem
  */
 import { z, type ZodType } from 'zod'
 import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
-import { seoContextSchema, seoStatusSchema, seoProfileSchema, seoProfileListSchema, seoProfileInputSchema, seoQuoteSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, seoRunSchema, seoRunDetailSchema, seoRunListSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoMarketRankingListSchema, seoMarketRankingSummarySchema } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoStatusSchema, seoProfileSchema, seoProfileListSchema, seoProfileInputSchema, seoQuoteSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, seoRunSchema, seoRunDetailSchema, seoRunListSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoCompetitorListSchema, seoKeywordGapListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoMarketRankingListSchema, seoMarketRankingSummarySchema } from '@canonry/canonry-contracts'
 import { sentimentSummarySchema, sentimentSettingsSchema, sentimentSettingsUpdateSchema, sentimentEvidencePageSchema, sentimentComparisonSchema, sentimentBackfillPreviewSchema, sentimentBackfillRequestSchema, sentimentJobsSchema, sentimentJobSchema } from '@canonry/canonry-contracts'
 import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema } from '@canonry/canonry-contracts'
@@ -328,9 +329,10 @@ import {
   userListDtoSchema,
   visibilityCompareDtoSchema,
   visibilityStatsDtoSchema,
-  wordpressAuditPageDtoSchema,
+  wordpressAuditDtoSchema,
   wordpressBulkMetaResultDtoSchema,
   wordpressDiffDtoSchema,
+  wordpressLlmsTxtDtoSchema,
   wordpressManualAssistDtoSchema,
   wordpressOnboardResultDtoSchema,
   wordpressPageDetailDtoSchema,
@@ -363,6 +365,8 @@ const SCHEMA_TABLE = {
   SeoRunList: seoRunListSchema,
   SeoOverview: seoOverviewSchema,
   SeoKeywordMetricsList: seoKeywordMetricsListSchema,
+  SeoCompetitorList: seoCompetitorListSchema,
+  SeoKeywordGapList: seoKeywordGapListSchema,
   SeoDomainIntelligenceList: seoDomainIntelligenceListSchema,
   SeoRankedKeywordList: seoRankedKeywordListSchema,
   SeoMarketRankingList: seoMarketRankingListSchema,
@@ -467,6 +471,7 @@ const SCHEMA_TABLE = {
   ResultsClearResponse: resultsClearResponseSchema,
   DoctorReportDto: doctorReportSchema,
   InstanceStatusDto: instanceStatusDtoSchema,
+  McpProfileDto: mcpProfileDtoSchema,
   GA4AiReferralDailyDto: ga4AiReferralDailyDtoSchema,
   GA4AiReferralHistoryEntry: ga4AiReferralHistoryEntrySchema,
   GA4MeasurementAnalysisDto: gaMeasurementAnalysisDtoSchema,
@@ -689,9 +694,10 @@ const SCHEMA_TABLE = {
   LoginRequest: loginRequestSchema,
   VisibilityCompareDto: visibilityCompareDtoSchema,
   VisibilityStatsDto: visibilityStatsDtoSchema,
-  WordpressAuditPageDto: wordpressAuditPageDtoSchema,
+  WordpressAuditDto: wordpressAuditDtoSchema,
   WordpressBulkMetaResultDto: wordpressBulkMetaResultDtoSchema,
   WordpressDiffDto: wordpressDiffDtoSchema,
+  WordpressLlmsTxtDto: wordpressLlmsTxtDtoSchema,
   WordpressManualAssistDto: wordpressManualAssistDtoSchema,
   WordpressOnboardResultDto: wordpressOnboardResultDtoSchema,
   WordpressPageDetailDto: wordpressPageDetailDtoSchema,

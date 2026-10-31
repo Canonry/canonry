@@ -40,6 +40,14 @@ export const ADS_APPROVE_SCOPE = 'ads.approve'
 /** Grants execution of a separately approved OpenAI Ads activation manifest. */
 export const ADS_ACTIVATE_SCOPE = 'ads.activate'
 
+/**
+ * Lets an embedded dashboard's clients add and remove their project's
+ * tracked queries, and nothing else. It is restricted: a key holding it
+ * reaches only the query-tracking review and save routes, which then apply the
+ * dashboard's query limit and the one-change rule.
+ */
+export const EMBED_QUERIES_WRITE_SCOPE = 'embed.queries.write'
+
 /** Grants live, quota-consuming reads from Google Ads and Tag Manager. */
 export const GOOGLE_MARKETING_LIVE_READ_SCOPE = 'google-marketing.read-live'
 
@@ -64,7 +72,7 @@ function grantsWrite(scope: string): boolean {
 /** Named mutation grants constrained to explicit routes; null means legacy broad access. */
 export function restrictedWriteScopes(scopes: readonly string[]): readonly string[] | null {
   const writes = scopes.filter(grantsWrite)
-  const restricted = new Set([ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE, RESEARCH_RUN_SCOPE, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, GBP_POSTS_WRITE_SCOPE])
+  const restricted = new Set([ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE, RESEARCH_RUN_SCOPE, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, GBP_POSTS_WRITE_SCOPE, EMBED_QUERIES_WRITE_SCOPE])
   return writes.length > 0 && writes.every(scope => restricted.has(scope)) ? writes : null
 }
 

@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 import { Check, Copy, ExternalLink } from 'lucide-react'
-import { HostedMcpStatuses, HostedMcpUnavailableReasons, McpTransportStatuses, type HostedMcpUnavailableReason, type UiAction } from '@canonry/canonry-contracts'
+import { HostedMcpStatuses, HostedMcpUnavailableReasons, McpTransportStatuses, type HostedMcpUnavailableReason, type McpPluginConnection, type UiAction } from '@canonry/canonry-contracts'
 
 import { getPublicBase, isEmbed, isPublicDemo, shouldShowDashboardLocalAgentSetup, shouldShowDashboardResourceLinks } from '../api.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
@@ -15,6 +15,8 @@ const MCP_GUIDE = 'https://github.com/Canonry/canonry/blob/main/docs/mcp.md'
 const PLUGIN_GUIDE = 'https://github.com/Canonry/canonry/blob/main/docs/plugins.md'
 const CHATGPT_GUIDE = 'https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt'
 const CLAUDE_GUIDE = 'https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp'
+/** The read-only remote plugin in this repository's Codex marketplace; it signs in through the shared gateway. */
+const PLUGIN_INSTALL_COMMAND = 'codex plugin marketplace add Canonry/canonry\ncodex plugin add canonry-remote@canonry'
 
 const HOSTED_REQUIREMENTS: Record<HostedMcpUnavailableReason, string> = {
   [HostedMcpUnavailableReasons['public-url-required']]: 'Configure this instance’s public URL before connecting a hosted client.',
@@ -60,17 +62,17 @@ function CopyText({ label, value, showText = false, secondary = false, action = 
 
   return (
     <div className="min-w-0 space-y-3">
-      {showText ? <pre className="overflow-x-auto rounded-md border border-default bg-bg p-3 text-sm text-heading"><code>{value}</code></pre> : null}
-      <Button type="button" className="min-h-11" variant={secondary ? 'outline' : 'default'} onClick={asyncHandler(copy)}>
+      {showText ? <pre className="overflow-x-auto material-base p-3 text-copy-14 text-heading"><code>{value}</code></pre> : null}
+      <Button type="button" className="pointer-coarse:min-h-11" variant={secondary ? 'outline' : 'default'} onClick={asyncHandler(copy)}>
         {copied ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
         {label}
       </Button>
-      {copied ? <p role="status" className="text-sm text-secondary">Copied.</p> : null}
+      {copied ? <p role="status" className="text-copy-14 text-secondary">Copied.</p> : null}
       {!showText || copyFailed ? (
-        <details open={copyFailed || undefined} className="text-sm text-secondary">
+        <details open={copyFailed || undefined} className="text-label-14 text-secondary">
           <summary className="min-h-11 w-fit cursor-pointer py-3">{copyFailed ? 'Copy unavailable. Select the text below.' : 'Preview text'}</summary>
           <label htmlFor={id} className="sr-only">{label} text</label>
-          <textarea id={id} readOnly rows={copyFailed && showText ? 3 : 8} value={value} className="mt-2 w-full rounded-md border border-default bg-bg p-3 text-sm leading-6 text-heading" />
+          <textarea id={id} readOnly rows={copyFailed && showText ? 3 : 8} value={value} className="mt-2 w-full rounded-md border border-default bg-bg p-3 text-copy-14 text-heading" />
         </details>
       ) : null}
     </div>
@@ -83,8 +85,8 @@ export function AgentSetupPage() {
     return (
       <div className="page-container">
         <h1 className="page-title">Agent setup</h1>
-        <p className="mt-3 text-sm text-secondary">Open Agent setup in your own Canonry instance to connect your agent.</p>
-        {shouldShowDashboardResourceLinks() ? <a className="mt-4 inline-block text-sm underline" href={MCP_GUIDE} target="_blank" rel="noopener noreferrer">Read the connection guide</a> : null}
+        <p className="mt-3 text-copy-14 text-secondary">Open Agent setup in your own Canonry instance to connect your agent.</p>
+        {shouldShowDashboardResourceLinks() ? <a className="mt-4 inline-block text-label-14 underline" href={MCP_GUIDE} target="_blank" rel="noopener noreferrer">Read the connection guide</a> : null}
       </div>
     )
   }
@@ -114,7 +116,7 @@ function AgentConnectionSetup() {
   }
   const setupPrompt = hosted ? `Help me connect this existing Canonry instance to ChatGPT or Claude Desktop using its remote MCP URL: ${hosted.url}
 
-Use the client's remote MCP connection flow with OAuth sign-in. For Claude, choose Register automatically if asked how to register the OAuth client. Have me sign in to Canonry in the browser and review the requested access before approving it. Keep passwords, API keys, browser sessions, and other credentials out of chat. Do not install software, run local commands, create another instance, or broaden access.
+Use the client's remote MCP connection flow with OAuth sign-in. For Claude, set the OAuth client option to Register automatically; Claude's published identity is not supported here, and on Team or Enterprise plans an Owner adds custom connectors. Have me sign in to Canonry in the browser and review the requested access before approving it. Keep passwords, API keys, browser sessions, and other credentials out of chat. Do not install software, run local commands, create another instance, or broaden access.
 
 ChatGPT guide: ${CHATGPT_GUIDE}
 Claude guide: ${CLAUDE_GUIDE}
@@ -133,8 +135,8 @@ After authorization, enable the connection in this conversation. Call canonry_he
       <div className="max-w-3xl">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default pb-5">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-heading">Your Canonry instance</p>
-            <p className="mt-1 break-all text-sm text-secondary">{instanceUrl}</p>
+            <p className="text-copy-14-strong text-heading">Your Canonry instance</p>
+            <p className="mt-1 break-all text-copy-14 text-secondary">{instanceUrl}</p>
           </div>
           <ToneBadge tone={hosted ? 'positive' : requirement || apiStatus?.state === 'error' ? 'caution' : 'neutral'}>
             {hosted ? 'Hosted setup configured' : health.isPending ? 'Checking hosted setup' : requirement ? 'Hosted setup needs attention' : 'Hosted setup not confirmed'}
@@ -142,43 +144,84 @@ After authorization, enable the connection in this conversation. Call canonry_he
         </div>
 
         {hosted && setupPrompt ? (
-          <>
-            <section className="py-6" aria-labelledby="agent-connect-title">
-              <h2 id="agent-connect-title" className="text-lg font-semibold text-heading">1. Add Canonry to your client</h2>
-              <p className="mt-2 mb-4 max-w-prose text-sm leading-6 text-secondary">Add this URL to your client’s remote connector settings. No local installation is needed.</p>
-              <CopyText key={hosted.url} label="Copy MCP URL" value={hosted.url} showText />
-              <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm leading-6 text-secondary">
-                <a href={CHATGPT_GUIDE} target="_blank" rel="noopener noreferrer" className="underline">ChatGPT setup guide</a>
-                <a href={CLAUDE_GUIDE} target="_blank" rel="noopener noreferrer" className="underline">Claude Desktop setup guide</a>
-              </div>
-              <p className="mt-2 text-sm leading-6 text-secondary">Choose OAuth authentication and “Register automatically” if asked.</p>
-              <div className="mt-4"><CopyText key={setupPrompt} label="Copy setup prompt" value={setupPrompt} secondary /></div>
-            </section>
-
-            <section className="border-t border-default py-6" aria-labelledby="agent-authorize-title">
-              <h2 id="agent-authorize-title" className="text-lg font-semibold text-heading">2. Sign in and approve access</h2>
-              <p className="mt-2 max-w-prose text-sm leading-6 text-secondary">Sign in with your Canonry account and review the requested access. After approving it, return to your client and enable the connection for your conversation.</p>
-            </section>
-
-            <section className="border-t border-default py-6" aria-labelledby="agent-verify-title">
-              <h2 id="agent-verify-title" className="text-lg font-semibold text-heading">3. Verify the connection</h2>
-              <p className="mt-2 mb-4 max-w-prose text-sm leading-6 text-secondary">Server configuration is ready. Use this prompt to confirm your agent can read your projects without starting work or using provider quota.</p>
-              <VerificationPrompt target={hosted.url} />
-            </section>
-          </>
+          hosted.plugin ? (
+            <>
+              <PluginSetup plugin={hosted.plugin} />
+              <details className="border-t border-default py-3 text-label-14">
+                <summary className="min-h-11 w-fit cursor-pointer py-3 text-label-14-strong text-heading">Connect directly (Claude and other MCP clients)</summary>
+                <DirectConnectionSteps url={hosted.url} setupPrompt={setupPrompt} />
+              </details>
+            </>
+          ) : <DirectConnectionSteps url={hosted.url} setupPrompt={setupPrompt} />
         ) : (
           <section className="py-6" aria-labelledby="agent-requirements-title">
-            <h2 id="agent-requirements-title" className="text-lg font-semibold text-heading">Before you connect a hosted client</h2>
-            <p className="mt-2 max-w-prose text-sm leading-6 text-secondary">
+            <h2 id="agent-requirements-title" className="text-heading-20 text-heading">Before you connect a hosted client</h2>
+            <p className="mt-2 max-w-prose text-copy-14 text-secondary">
               {requirementMessage}
             </p>
-            {showResourceLinks ? <a href={MCP_GUIDE} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm underline">Read the connection guide <ExternalLink className="size-3.5" aria-hidden="true" /></a> : null}
+            {showResourceLinks ? <a href={MCP_GUIDE} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-11 items-center gap-2 text-label-14 underline">Read the connection guide <ExternalLink className="size-3.5" aria-hidden="true" /></a> : null}
           </section>
         )}
 
         {showLocalAgentSetup ? <LocalConnectionSetup instanceUrl={instanceUrl} showResourceLinks={showResourceLinks} /> : null}
       </div>
     </div>
+  )
+}
+
+/** Shared-gateway plugin path; the workspace is this instance's own registration, so the steps are specific to it. */
+function PluginSetup({ plugin }: { plugin: McpPluginConnection }) {
+  return (
+    <section className="py-6" aria-labelledby="agent-plugin-title">
+      <h2 id="agent-plugin-title" className="text-heading-20 text-heading">Use the Canonry plugin</h2>
+      <p className="mt-2 max-w-prose text-copy-14 text-secondary">For the ChatGPT desktop app and Codex. The plugin opens this workspace with your Canonry sign-in and reads stored results only.</p>
+      <ol className="mt-5 space-y-6">
+        <li className="space-y-3">
+          <h3 className="text-label-14-strong text-heading">1. Install the plugin</h3>
+          <p className="max-w-prose text-copy-14 text-secondary">Add the Canonry marketplace, then install Canonry. In Codex, run:</p>
+          <CopyText label="Copy plugin install commands" value={PLUGIN_INSTALL_COMMAND} showText secondary />
+        </li>
+        <li className="space-y-3">
+          <h3 className="text-label-14-strong text-heading">2. Enter this workspace</h3>
+          <p className="max-w-prose text-copy-14 text-secondary">When Canonry asks which workspace to open, enter:</p>
+          <CopyText key={plugin.workspace} label="Copy workspace" value={plugin.workspace} showText secondary />
+        </li>
+        <li className="space-y-2">
+          <h3 className="text-label-14-strong text-heading">3. Sign in and approve access</h3>
+          <p className="max-w-prose text-copy-14 text-secondary">Sign in with your Canonry account for this workspace and approve read access. The plugin cannot start sweeps or change settings.</p>
+        </li>
+      </ol>
+    </section>
+  )
+}
+
+/** The instance's own hosted MCP URL with client OAuth; the only path without a registered gateway. */
+function DirectConnectionSteps({ url, setupPrompt }: { url: string; setupPrompt: string }) {
+  return (
+    <>
+      <section className="py-6" aria-labelledby="agent-connect-title">
+        <h2 id="agent-connect-title" className="text-heading-20 text-heading">1. Add Canonry to your client</h2>
+        <p className="mt-2 mb-4 max-w-prose text-copy-14 text-secondary">Add this URL to your client’s remote connector settings. No local installation is needed.</p>
+        <CopyText key={url} label="Copy MCP URL" value={url} showText />
+        <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-label-14 text-secondary">
+          <a href={CHATGPT_GUIDE} target="_blank" rel="noopener noreferrer" className="underline">ChatGPT setup guide</a>
+          <a href={CLAUDE_GUIDE} target="_blank" rel="noopener noreferrer" className="underline">Claude Desktop setup guide</a>
+        </div>
+        <p className="mt-2 max-w-prose text-copy-14 text-secondary">Choose OAuth. In Claude, set the OAuth client to “Register automatically”. On Claude Team and Enterprise plans, an Owner adds the connector first.</p>
+        <div className="mt-4"><CopyText key={setupPrompt} label="Copy setup prompt" value={setupPrompt} secondary /></div>
+      </section>
+
+      <section className="border-t border-default py-6" aria-labelledby="agent-authorize-title">
+        <h2 id="agent-authorize-title" className="text-heading-20 text-heading">2. Sign in and approve access</h2>
+        <p className="mt-2 max-w-prose text-copy-14 text-secondary">Sign in with your Canonry account and review the requested access. After approving it, return to your client and enable the connection for your conversation.</p>
+      </section>
+
+      <section className="border-t border-default py-6" aria-labelledby="agent-verify-title">
+        <h2 id="agent-verify-title" className="text-heading-20 text-heading">3. Verify the connection</h2>
+        <p className="mt-2 mb-4 max-w-prose text-copy-14 text-secondary">Server configuration is ready. Use this prompt to confirm your agent can read your projects without starting work or using provider quota.</p>
+        <VerificationPrompt target={url} />
+      </section>
+    </>
   )
 }
 
@@ -199,20 +242,20 @@ Use an installed Canonry runtime whose private configuration already points to t
 
 ${resources}Preserve existing client connections, credentials, and access. Do not create another Canonry instance, bootstrap a config, or create projects. Keep secrets and configuration contents out of chat. Ask before changing client configuration or installing software. Reload the client if needed, then verify with stored reads only. Do not run scans, sweeps, research, live provider checks, or other writes.`
   return (
-    <details className="border-t border-default py-3 text-sm">
-      <summary className="min-h-11 w-fit cursor-pointer py-3 font-medium text-heading">Local plugins and other MCP clients</summary>
+    <details className="border-t border-default py-3 text-label-14">
+      <summary className="min-h-11 w-fit cursor-pointer py-3 text-label-14-strong text-heading">Local plugins and other MCP clients</summary>
       <div className="space-y-4 py-4">
-        <p className="max-w-prose leading-6 text-secondary">For an agent running on your computer, use a Canonry runtime whose private configuration already points to this instance. The plugin does not inherit your browser connection.</p>
+        <p className="max-w-prose text-copy-14 text-secondary">For an agent running on your computer, use a Canonry runtime whose private configuration already points to this instance. The plugin does not inherit your browser connection.</p>
         <CopyText label="Copy local setup prompt" value={prompt} secondary />
-        <label className="block font-medium text-heading" htmlFor="agent-client">Your client</label>
-        <select id="agent-client" className="h-11 max-w-full rounded-md border border-default bg-bg px-3 text-sm text-heading" value={client} onChange={event => {
+        <label className="block text-label-14-strong text-heading" htmlFor="agent-client">Your client</label>
+        <select id="agent-client" className="h-11 max-w-full rounded-md border border-default bg-bg px-3 text-label-14 text-heading" value={client} onChange={event => {
           const value = event.target.value
           if (value === 'codex' || value === 'claude' || value === 'other') setClient(value)
         }}>
           {Object.entries(LOCAL_CLIENTS).map(([value, entry]) => <option key={value} value={value}>{entry.label}</option>)}
         </select>
         <CopyText key={client} label={client === 'other' ? 'Copy MCP command' : 'Copy install commands'} value={LOCAL_CLIENTS[client].command} showText secondary />
-        <p className="leading-6 text-secondary">{client === 'other' ? 'Add this executable as a stdio MCP server in your client.' : 'Reload your client after installing the plugin.'} Keep one Canonry connection per instance.</p>
+        <p className="text-copy-14 text-secondary">{client === 'other' ? 'Add this executable as a stdio MCP server in your client.' : 'Reload your client after installing the plugin.'} Keep one Canonry connection per instance.</p>
         {showResourceLinks ? <a href={PLUGIN_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 underline">Runtime and plugin instructions <ExternalLink className="size-3.5" aria-hidden="true" /></a> : null}
         <VerificationPrompt target={instanceUrl} local />
       </div>

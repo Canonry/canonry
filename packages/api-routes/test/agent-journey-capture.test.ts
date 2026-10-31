@@ -26,7 +26,7 @@ describe('durable agent request capture', () => {
   beforeEach(() => {
     db = createClient(':memory:')
     // Exercise an installed database upgrade, not only a fresh table bootstrap.
-    migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 197))
+    migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 200))
     db.insert(projects).values({ id: 'project', name: 'example', displayName: 'Example', canonicalDomain: 'https://Example.com', country: 'US', language: 'en', createdAt: NOW, updatedAt: NOW }).run()
     for (const sourceId of ['source', 'second']) db.insert(trafficSources).values({ id: sourceId, projectId: 'project', sourceType: TrafficSourceTypes['cloud-run'], displayName: sourceId, status: 'connected', createdAt: NOW, updatedAt: NOW }).run()
     migrate(db)

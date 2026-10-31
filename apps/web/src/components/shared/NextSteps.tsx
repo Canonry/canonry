@@ -84,15 +84,15 @@ export function NextSteps({ projectName }: { projectName: string }) {
   const steps = buildNextSteps()
   return (
     <section aria-labelledby="next-steps-heading" className="mt-6 border-t border-default pt-5">
-      <h2 id="next-steps-heading" className="text-sm font-medium text-heading">What else this project can do</h2>
+      <h2 id="next-steps-heading" className="text-heading-14 text-heading">What else this project can do</h2>
       <ul className="mt-3 divide-y divide-default">
         {steps.map(({ id, icon: Icon, label, detail, action, to, href }) => (
           <li key={id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3">
             <Icon className="size-4 shrink-0 text-muted" aria-hidden="true" />
-            <span className="min-w-36 text-sm font-medium text-heading">{label}</span>
-            <span className="min-w-0 flex-1 text-sm text-secondary">{detail}</span>
+            <span className="min-w-36 text-label-14-strong text-heading">{label}</span>
+            <span className="min-w-0 flex-1 text-label-14 text-secondary">{detail}</span>
             {to ? (
-              <Link to={to} params={{ projectName }} className="text-sm font-medium text-link underline-offset-4 hover:underline">
+              <Link to={to} params={{ projectName }} className="text-label-14-strong text-link underline-offset-4 hover:underline">
                 {action}
                 <span className="sr-only"> {label}</span>
               </Link>
@@ -101,7 +101,7 @@ export function NextSteps({ projectName }: { projectName: string }) {
                 href={href}
                 target="_blank"
                 rel="noreferrer"
-                className="text-sm font-medium text-link underline-offset-4 hover:underline"
+                className="text-label-14-strong text-link underline-offset-4 hover:underline"
               >
                 {action}
                 <span className="sr-only"> {label}</span>

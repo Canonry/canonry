@@ -20,6 +20,24 @@ export const dashboardManagedRunKindsSchema = z.array(schedulableRunKindSchema).
 export const agentProviderSchema = agentProviderIdSchema.nullish()
 export const agentModelSchema = z.string().trim().min(1).nullish()
 
+/**
+ * The shared MCP gateway an operator registered this instance with, so Agent
+ * setup can show Canonry plugin instructions for this workspace. `workspace`
+ * is what a user enters at the gateway; blank uses this instance's public host.
+ */
+export const mcpGatewayConfigSchema = z.object({
+  url: z.url().refine(value => {
+    try {
+      const parsed = new URL(value)
+      return parsed.protocol === 'https:' && !parsed.username && !parsed.password && !parsed.search && !parsed.hash
+    } catch {
+      return false
+    }
+  }),
+  workspace: z.string().trim().min(1).max(253).nullish(),
+}).strict().nullish()
+export type McpGatewayConfig = NonNullable<z.infer<typeof mcpGatewayConfigSchema>>
+
 /** Host-only trust anchor. No API, account role, or key scope can modify it. */
 export function resolveOperatorApiKeyIds(source: NodeJS.ProcessEnv): string[] {
   const raw = source.CANONRY_OPERATOR_KEY_IDS?.trim()
@@ -453,3 +471,4 @@ export function getAnswerServiceEnv(
   return providers
 }
 export * from './seo.js'
+export * from './mcp-gateway.js'

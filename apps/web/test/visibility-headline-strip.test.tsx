@@ -37,11 +37,11 @@ const EARLIER_YEAR_RUN = { id: 'run-0', createdAt: '2025-12-28T12:00:00.000Z', c
 const EARLIER_YEAR_DATE = 'Dec 28, 2025'
 const CLASS_LABEL = { 'non-brand': 'Non-brand queries', branded: 'Branded queries', unknown: 'Unclassified queries' } as const
 
-const VALUE_CLASS = 'text-3xl font-semibold tabular-nums text-heading'
-const DETAIL_CLASS = 'text-sm tabular-nums text-secondary'
+const VALUE_CLASS = 'text-heading-32 tabular-nums text-heading'
+const DETAIL_CLASS = 'text-label-14 tabular-nums text-secondary'
 // The left-out answers flag, pulled back so its icon lines up with the count above.
 const FLAG_CLASS = '-ml-2 flex'
-const REASON_CLASS = 'text-lg text-secondary'
+const REASON_CLASS = 'text-label-18 text-secondary'
 
 function rate(numerator: number, denominator: number): VisibilityReportRate {
   return { numerator, denominator, rate: numerator / denominator }
@@ -205,9 +205,9 @@ describe('headline strip', () => {
     for (const label of [MENTION_LABEL, CITATION_LABEL, REACH_LABEL] as const) {
       expect(tile(label).className).toBe('report-headline-tile')
     }
-    expect(valueRow(MENTION_LABEL)).toEqual([['66.7%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['Down 8.3 pts', 'text-sm text-negative']])
-    expect(valueRow(CITATION_LABEL)).toEqual([['66.7%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['Up 16.7 pts', 'text-sm text-positive']])
-    expect(valueRow(REACH_LABEL)).toEqual([['100%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['No change', 'text-sm text-secondary']])
+    expect(valueRow(MENTION_LABEL)).toEqual([['66.7%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['Down 8.3 pts', 'text-label-14 text-negative']])
+    expect(valueRow(CITATION_LABEL)).toEqual([['66.7%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['Up 16.7 pts', 'text-label-14 text-positive']])
+    expect(valueRow(REACH_LABEL)).toEqual([['100%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['No change', 'text-label-14 text-secondary']])
     // One supporting line under the value, and nothing else.
     expect(cell(REACH_LABEL).map(([, className]) => className)).toEqual(['report-headline-value', DETAIL_CLASS])
     expect(cell(REACH_LABEL).at(-1)).toEqual(['12 of 12 properties', DETAIL_CLASS])
@@ -221,8 +221,8 @@ describe('headline strip', () => {
       citationCoverage: change(CURRENT.citationCoverage, rate(2401, 3600)),
     }
     render(<VisibilityReportView report={headlineReport({ comparison })} onSelectionChange={() => {}} />)
-    expect(valueRow(MENTION_LABEL).at(-1)).toEqual(['Up <0.1 pts', 'text-sm text-positive'])
-    expect(valueRow(CITATION_LABEL).at(-1)).toEqual(['Down <0.1 pts', 'text-sm text-negative'])
+    expect(valueRow(MENTION_LABEL).at(-1)).toEqual(['Up <0.1 pts', 'text-label-14 text-positive'])
+    expect(valueRow(CITATION_LABEL).at(-1)).toEqual(['Down <0.1 pts', 'text-label-14 text-negative'])
   })
 
   it('prints a line only for a missing previous value, not for an unavailable or inapplicable current value', () => {
@@ -234,7 +234,7 @@ describe('headline strip', () => {
       propertyReach: { state: 'unavailable', reason: 'not-applicable' },
     }
     render(<VisibilityReportView report={headlineReport({ comparison })} onSelectionChange={() => {}} />)
-    expect(valueRow(MENTION_LABEL).at(-1)).toEqual([REPORT_CHANGE_COPY.previousUnavailable, 'text-sm text-secondary'])
+    expect(valueRow(MENTION_LABEL).at(-1)).toEqual([REPORT_CHANGE_COPY.previousUnavailable, 'text-label-14 text-secondary'])
     expect(cell(CITATION_LABEL)).toEqual(figure(CITATION_LABEL))
     expect(cell(REACH_LABEL)).toEqual(figure(REACH_LABEL))
   })
@@ -286,7 +286,7 @@ describe('headline strip', () => {
     const comparison: VisibilityReportComparison = { ...MOVED, mentionCoverage: { state: 'unavailable', reason: 'current-unavailable' } }
     render(<VisibilityReportView report={headlineReport({ summary: { mentionCoverage: NOT_MEASURED }, comparison })} onSelectionChange={() => {}} />)
     expect(cell(MENTION_LABEL)).toEqual([[`Not measured · ${REPORT_CLASS_NOUN['non-brand']}`, REASON_CLASS]])
-    expect(valueRow(CITATION_LABEL).at(-1)).toEqual(['Up 16.7 pts', 'text-sm text-positive'])
+    expect(valueRow(CITATION_LABEL).at(-1)).toEqual(['Up 16.7 pts', 'text-label-14 text-positive'])
   })
 
   it('shows the server rate over attributable answers and, under it, the answers it left out', () => {
@@ -392,7 +392,7 @@ describe('headline strip', () => {
     expect(strip().dataset.columns).toBe('2')
     expect(within(strip()).getAllByText(/answers$/, { selector: 'dt span' }).map(term => term.textContent)).toEqual(['Mentioned answers', 'Cited answers'])
     expect(within(strip()).queryByText(REACH_LABEL)).toBeNull()
-    expect(valueRow('Mentioned answers').at(-1)).toEqual(['Down 8.3 pts', 'text-sm text-negative'])
+    expect(valueRow('Mentioned answers').at(-1)).toEqual(['Down 8.3 pts', 'text-label-14 text-negative'])
   })
 
   it('toggles trend series from the checkbox legend without ever emptying the chart', () => {

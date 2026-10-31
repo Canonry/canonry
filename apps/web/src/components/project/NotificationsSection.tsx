@@ -121,11 +121,11 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
       </div>
 
       {canManage && adding && (
-        <div className="mb-3 rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-3">
+        <div className="mb-3 material-base p-4 space-y-3">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-secondary">Webhook URL</label>
+            <label className="text-label-12-strong text-secondary">Webhook URL</label>
             <input
-              className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+              className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
               type="url"
               placeholder="https://hooks.example.com/canonry"
               value={webhookUrl}
@@ -133,7 +133,7 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-secondary">Trigger on</label>
+            <label className="text-label-12-strong text-secondary">Trigger on</label>
             <div className="flex flex-wrap gap-3">
               {NOTIFICATION_EVENTS.map(evt => (
                 <label key={evt.value} className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -143,12 +143,12 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
                     checked={selectedEvents.includes(evt.value)}
                     onChange={() => toggleEvent(evt.value)}
                   />
-                  <span className="text-sm text-neutral">{evt.label}</span>
+                  <span className="text-label-14 text-neutral">{evt.label}</span>
                 </label>
               ))}
             </div>
           </div>
-          {error && <p className="text-negative-400 text-sm">{error}</p>}
+          {error && <p className="text-negative-400 text-copy-14">{error}</p>}
           <div className="flex gap-2 justify-end">
             <Button type="button" variant="outline" size="sm" onClick={() => { setAdding(false); setError(null) }}>Cancel</Button>
             <Button
@@ -186,14 +186,14 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
               {notifs.map(n => (
                 <tr key={n.id}>
                   <td className="evidence-query-cell">
-                    <span className="font-mono text-xs text-neutral break-all" title={n.urlHost}>
+                    <span className="text-label-12-mono text-neutral break-all" title={n.urlHost}>
                       {n.urlDisplay ?? n.url}
                     </span>
                   </td>
                   <td>
                     <div className="flex flex-wrap gap-1">
                       {n.events.map(evt => (
-                        <span key={evt} className="inline-flex items-center rounded-full border border-strong bg-surface-inset px-2 py-0.5 text-[10px] font-medium text-secondary uppercase tracking-wide">
+                        <span key={evt} className="inline-flex items-center rounded-full border border-strong bg-surface-inset px-2 py-0.5 text-label-12-strong text-secondary normal-case">
                           {evt.replace('.', ' ')}
                         </span>
                       ))}
@@ -233,7 +233,7 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
               ))}
             </tbody>
           </table>
-          {error && <p className="text-negative-400 text-sm mt-2">{error}</p>}
+          {error && <p className="text-negative-400 text-copy-14 mt-2">{error}</p>}
         </div>
       )}
     </section>

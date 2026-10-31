@@ -26,6 +26,7 @@ const EMBED_ENV = [
   'CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT',
   'CANONRY_DASHBOARD_MANAGED_RUN_KINDS',
   'CANONRY_ONBOARDING_MODE',
+  'CANONRY_DASHBOARD_BRAND_MARK',
 ] as const
 
 interface Built {
@@ -39,11 +40,12 @@ async function buildServer(
   embed?: CanonryConfig['embed'],
   withIndexHtml = true,
   configPatch: Partial<CanonryConfig> = {},
+  indexHtml = FIXTURE_HTML,
 ): Promise<Built> {
   const tmpDir = path.join(os.tmpdir(), `canonry-embed-${crypto.randomUUID()}`)
   const assetsDir = path.join(tmpDir, 'assets')
   fs.mkdirSync(assetsDir, { recursive: true })
-  if (withIndexHtml) fs.writeFileSync(path.join(assetsDir, 'index.html'), FIXTURE_HTML)
+  if (withIndexHtml) fs.writeFileSync(path.join(assetsDir, 'index.html'), indexHtml)
   // A real static asset so we can assert the framing header is NOT set on it.
   fs.writeFileSync(path.join(assetsDir, 'app.js'), 'console.log(1)')
 
@@ -315,6 +317,44 @@ describe('server embed mode (#716)', () => {
         const response = await app.inject({ method: 'GET', url })
         expect(response.statusCode).toBe(200)
         expect(response.body.match(/window\.__CANONRY_CONFIG__=(.*?)<\/script>/)?.[1]).toBe(expectedConfig)
+      }
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it.each([
+    [undefined, undefined, false],
+    [undefined, 'icon', true],
+    [undefined, 'mascot', false],
+    ['icon', undefined, true],
+    [' ICON ', 'mascot', true],
+    ['mascot', 'icon', false],
+    ['invalid', 'icon', true],
+    ['', undefined, false],
+  ] as const)('brand mark env=%s config=%s shows the plugin icon only when chosen', async (env, configured, icon) => {
+    // The tab icons as the Vite build writes them (relative to <base href>).
+    const tabIcons = '<link rel="icon" type="image/svg+xml" href="./favicon.svg" />'
+      + '<link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png" />'
+      + '<link rel="apple-touch-icon" href="./apple-touch-icon.png" />'
+    if (env !== undefined) process.env.CANONRY_DASHBOARD_BRAND_MARK = env
+    const { app, cleanup } = await buildServer(undefined, true, {
+      dashboard: { ...(configured === undefined ? {} : { brandMark: configured }) },
+    }, `<!doctype html><html><head>${tabIcons}<title>canonry</title></head><body><div id="root"></div></body></html>`)
+    try {
+      for (const url of ['/', '/projects/acme']) {
+        const response = await app.inject({ method: 'GET', url })
+        expect(response.statusCode).toBe(200)
+        expect(response.body.match(/window\.__CANONRY_CONFIG__=(.*?)<\/script>/)?.[1])
+          .toBe(JSON.stringify(icon ? { dashboard: { brandMark: 'icon' } } : {}))
+        const hrefs = [...response.body.matchAll(/<link rel="(?:icon|apple-touch-icon)"[^>]*href="\.\/([^"]+)"/g)].map(match => match[1])
+        expect(hrefs).toEqual(icon
+          ? ['canonry-icon-favicon.svg', 'canonry-icon-32.png', 'canonry-icon-touch.png']
+          : ['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png'])
+        // The dashboard build ships whatever the document points at.
+        for (const href of hrefs) {
+          expect(fs.existsSync(new URL(`../../../apps/web/public/${href}`, import.meta.url)), href).toBe(true)
+        }
       }
     } finally {
       await cleanup()
@@ -699,6 +739,36 @@ describe('server embed mode (#716)', () => {
         headers: { 'x-canonry-embed-render-token': 'render.jwt.token' },
       })
       expect(res.body).toContain('"renderToken":"render.jwt.token"')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('ON: a per-request X-Canonry-Embed-Query-Limit header turns on the client Queries tab', async () => {
+    const { app, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/projects/acme',
+        headers: { 'x-canonry-embed-query-limit': '10' },
+      })
+      expect(res.body).toContain('"queries":{"limit":10}')
+      const bad = await app.inject({
+        method: 'GET',
+        url: '/projects/acme',
+        headers: { 'x-canonry-embed-query-limit': '10; drop' },
+      })
+      expect(bad.body).not.toContain('"queries"')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('OFF: the X-Canonry-Embed-Query-Limit header is ignored (no embed block)', async () => {
+    const { app, cleanup } = await buildServer()
+    try {
+      const res = await app.inject({ method: 'GET', url: '/', headers: { 'x-canonry-embed-query-limit': '10' } })
+      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
     } finally {
       await cleanup()
     }

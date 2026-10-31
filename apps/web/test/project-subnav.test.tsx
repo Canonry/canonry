@@ -1,8 +1,6 @@
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
-import { readFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
-import { compile } from 'tailwindcss'
+import { compileAppStyles } from './compiled-app-css.js'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { ProjectSubnav, type ProjectPageTab } from '../src/pages/ProjectPage.js'
@@ -188,16 +186,7 @@ test('font or label width changes remeasure the available tab budget', async () 
 })
 
 test('compiled navigation styles prevent wrapping without hiding the overflow menu', async () => {
-  const stylesheet = resolve(import.meta.dirname, '../src/styles.css')
-  const compiler = await compile(await readFile(stylesheet, 'utf8'), {
-    from: stylesheet,
-    base: dirname(stylesheet),
-    loadStylesheet: async id => {
-      const path = resolve(import.meta.dirname, '../node_modules/tailwindcss', id === 'tailwindcss' ? 'index.css' : `${id.slice('tailwindcss/'.length)}.css`)
-      return { path, base: dirname(path), content: await readFile(path, 'utf8') }
-    },
-  })
-  const css = compiler.build([])
+  const css = await compileAppStyles([])
   const rule = (name: string) => css.match(new RegExp(`\\.${name} \\{([^}]+)`))![1]
   expect(rule('project-subnav')).toContain('flex-wrap: nowrap')
   expect(rule('project-subnav')).not.toContain('overflow: hidden')

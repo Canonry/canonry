@@ -1,6 +1,6 @@
 {
   "name": "@canonry/canonry",
-  "version": "7.69.0",
+  "version": "7.80.0",
   "type": "module",
   "description": "Self-hosted AI visibility (AEO) platform: track how ChatGPT, Claude, Gemini, and Perplexity cite your domain, join it with Search Console, GA4, server-side traffic, and paid media, and fix what you find through agent tools (CLI, REST, MCP). Local SQLite.",
   "keywords": [
@@ -66,13 +66,15 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",
-    "@canonry/aeo-audit": "7.4.1",
+    "@canonry/aeo-audit": "7.5.0",
+    "@earendil-works/pi-agent-core": "1.3.0",
+    "@earendil-works/pi-ai": "1.3.0",
     "@fastify/rate-limit": "^11.2.1",
     "@fastify/static": "^10.1.6",
     "@google/genai": "^2.30.0",
-    "@earendil-works/pi-agent-core": "1.3.0",
-    "@earendil-works/pi-ai": "1.3.0",
-    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@modelcontextprotocol/node": "^2.1.2",
+    "@modelcontextprotocol/server": "^2.4.0",
     "@types/better-sqlite3": "^9.6.0",
     "better-sqlite3": "^13.0.3",
     "chrome-remote-interface": "^0.34.0",
@@ -91,7 +93,6 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@canonry/canonry-web": "workspace:*",
     "@canonry/canonry-api-client": "workspace:*",
     "@canonry/canonry-api-routes": "workspace:*",
     "@canonry/canonry-config": "workspace:*",
@@ -110,6 +111,7 @@
     "@canonry/canonry-integration-google-tag-manager": "workspace:*",
     "@canonry/canonry-integration-openai-ads": "workspace:*",
     "@canonry/canonry-integration-traffic": "workspace:*",
+    "@canonry/canonry-integration-typesafe": "workspace:*",
     "@canonry/canonry-integration-wordpress": "workspace:*",
     "@canonry/canonry-intelligence": "workspace:*",
     "@canonry/canonry-provider-answer-services": "workspace:*",
@@ -121,9 +123,11 @@
     "@canonry/canonry-provider-openai": "workspace:*",
     "@canonry/canonry-provider-openrouter": "workspace:*",
     "@canonry/canonry-provider-perplexity": "workspace:*",
+    "@canonry/canonry-web": "workspace:*",
+    "@modelcontextprotocol/core": "^2.4.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "tsup": "^9.0.0",
     "tsx": "^4.23.15",
-    "@canonry/canonry-integration-typesafe": "workspace:*",
     "typescript": "6.0.3"
   }
 }

@@ -123,7 +123,11 @@ describe('latest-run command usage', () => {
   })
 
   it.each([
-    { hosted: { status: 'ready', url: 'https://canonry.example/team/api/v1/mcp' }, expected: 'Hosted MCP: ready\n  URL: https://canonry.example/team/api/v1/mcp' },
+    { hosted: { status: 'ready', url: 'https://canonry.example/team/api/v1/mcp' }, expected: 'Hosted MCP: ready\n  URL: https://canonry.example/team/api/v1/mcp\n' },
+    {
+      hosted: { status: 'ready', url: 'https://canonry.example/team/api/v1/mcp', plugin: { gatewayUrl: 'https://mcp.example/mcp', workspace: 'canonry.example' } },
+      expected: 'Hosted MCP: ready\n  URL: https://canonry.example/team/api/v1/mcp\n  Canonry plugin: https://mcp.example/mcp (workspace canonry.example)',
+    },
     { hosted: { status: 'unavailable', reason: 'account-required' }, expected: 'Hosted MCP: unavailable\n  Create a Canonry account to authorize your agent.' },
   ])('status --all reports hosted readiness even before the first project: $hosted.status', async ({ hosted, expected }) => {
     mockGetStatus.mockResolvedValue({ mcp: { status: 'available', hosted }, projects: [] })

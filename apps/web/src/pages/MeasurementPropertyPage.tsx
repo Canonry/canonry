@@ -128,7 +128,7 @@ function MentionSignal({ row }: { row: AnswerRow }) {
     return (
       <span className="inline-flex flex-col items-start gap-0.5">
         <ToneBadge tone="neutral">Not measured</ToneBadge>
-        <span className="text-xs text-muted">No mention signal for this Property</span>
+        <span className="text-label-12 text-muted">No mention signal for this Property</span>
       </span>
     )
   }
@@ -136,7 +136,7 @@ function MentionSignal({ row }: { row: AnswerRow }) {
     return (
       <span className="inline-flex flex-col items-start gap-0.5">
         <ToneBadge tone="neutral">Not mentioned</ToneBadge>
-        <span className="inline-flex items-center gap-1 text-xs text-muted">
+        <span className="inline-flex items-center gap-1 text-label-12 text-muted">
           {DIFFERENT_SUBJECT_COPY.label}
           <InfoTooltip text={DIFFERENT_SUBJECT_COPY.property} />
         </span>
@@ -159,7 +159,7 @@ function CitationSignal({ row }: { row: AnswerRow }) {
     return (
       <span className="inline-flex flex-col items-start gap-0.5">
         <ToneBadge tone="neutral">Not measured</ToneBadge>
-        <span className="text-xs text-muted">Sources were not fully captured</span>
+        <span className="text-label-12 text-muted">Sources were not fully captured</span>
       </span>
     )
   }
@@ -168,14 +168,14 @@ function CitationSignal({ row }: { row: AnswerRow }) {
 
 function AnswerSources({ row }: { row: AnswerRow }) {
   if (row.cited === null && row.sources.length === 0) {
-    return <p className="py-2 text-sm text-secondary">The sources for this answer were not fully captured, so none can be shown.</p>
+    return <p className="py-2 text-copy-14 text-secondary">The sources for this answer were not fully captured, so none can be shown.</p>
   }
   if (row.sources.length === 0) {
-    return <p className="py-2 text-sm text-secondary">This answer returned no source URLs at all.</p>
+    return <p className="py-2 text-copy-14 text-secondary">This answer returned no source URLs at all.</p>
   }
   return (
     <details className="mt-2" data-answer-sources>
-      <summary className="min-h-11 cursor-pointer py-3 text-sm text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{ANSWER_SOURCES_LABEL} ({row.sources.length})</summary>
+      <summary className="min-h-11 cursor-pointer py-3 text-label-14 text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{ANSWER_SOURCES_LABEL} ({row.sources.length})</summary>
       <div className="overflow-x-auto">
       <table className="evidence-table min-w-[420px]">
         <caption className="sr-only">Source URLs for {row.queryText}</caption>
@@ -223,19 +223,19 @@ function AnswerText({ project, targetKey, resultId }: { project: string; targetK
 
   if (query.isPending) {
     return (
-      <p className="py-2 text-sm text-secondary" role="status" aria-live="polite">Loading the answer&hellip;</p>
+      <p className="py-2 text-copy-14 text-secondary" role="status" aria-live="polite">Loading the answer&hellip;</p>
     )
   }
   if (query.isError) {
     return (
-      <p className="py-2 text-sm text-secondary" role="alert">Could not load this answer.</p>
+      <p className="py-2 text-copy-14 text-secondary" role="alert">Could not load this answer.</p>
     )
   }
   const answer = query.data?.answer
   if (answer === null || answer === undefined || answer.trim() === '') {
     // A measured answer with no stored text is not the same as an empty answer,
     // and neither is worth dressing up as one.
-    return <p className="py-2 text-sm text-secondary">This answer was measured, but its text was not stored.</p>
+    return <p className="py-2 text-copy-14 text-secondary">This answer was measured, but its text was not stored.</p>
   }
   return (
     <div className="py-2">
@@ -257,8 +257,8 @@ function MetricCell({ metric, signal, emphasis = false }: { metric: MetricValue;
   if (metric.state === 'unavailable') {
     return (
       <span className="inline-flex flex-col gap-0.5">
-        <span className={emphasis ? 'text-lg font-semibold text-secondary' : 'text-sm font-medium text-secondary'}>Not measured</span>
-        <span className="text-sm text-secondary">{reasonText(metric)}</span>
+        <span className={emphasis ? 'text-label-18-strong text-secondary' : 'text-label-14-strong text-secondary'}>Not measured</span>
+        <span className="text-label-14 text-secondary">{reasonText(metric)}</span>
       </span>
     )
   }
@@ -272,8 +272,8 @@ function MetricCell({ metric, signal, emphasis = false }: { metric: MetricValue;
   const excluded = excludedAnswersFlag(metric, signal)
   return (
     <span className="inline-flex flex-col gap-0.5 tabular-nums">
-      <span className={emphasis ? 'text-lg font-semibold text-heading' : 'text-sm font-medium text-primary'}>{percent}</span>
-      {counted ? <span className="text-xs text-muted">{counted}</span> : null}
+      <span className={emphasis ? 'text-label-18-strong text-heading' : 'text-label-14-strong text-primary'}>{percent}</span>
+      {counted ? <span className="text-label-12 text-muted">{counted}</span> : null}
       {excluded ? <span className="-ml-2 flex"><InfoTooltip tone="caution" placement="bottom" label={excluded.label} text={excluded.text} /></span> : null}
     </span>
   )
@@ -366,7 +366,7 @@ function MarketLink({
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Competitive comparison</p>
-          <h2 id="property-market" className="text-base font-semibold text-heading">
+          <h2 id="property-market" className="text-heading-16 text-heading">
             Measured at the market level
             <InfoTooltip text="Competitors are attached to a market rather than to a single Property, because one building has nobody to be compared against. Share of voice and competitor pressure are reported for the market this Property sits in." />
           </h2>
@@ -377,9 +377,9 @@ function MarketLink({
       </div>
       <ul className="flex flex-wrap gap-2">
         {groups.map(group => (
-          <li key={group.stableKey} className="rounded-md border border-default px-3 py-1.5 text-sm text-strong">
+          <li key={group.stableKey} className="rounded-md border border-default px-3 py-1.5 text-label-14 text-strong">
             {group.label}
-            <span className="ml-2 text-xs text-muted">
+            <span className="ml-2 text-label-12 text-muted">
               {group.competitors.length} {group.competitors.length === 1 ? 'competitor' : 'competitors'}
             </span>
           </li>
@@ -417,7 +417,7 @@ function CoverageHeroRow({ label, metric, signal, failed = false }: { label: str
     return (
       <div className="aeo-hero-row">
         <p className="aeo-hero-row-label">{label}</p>
-        <p className="aeo-hero-row-value text-base font-semibold text-secondary">{failed ? 'Unavailable' : '…'}</p>
+        <p className="aeo-hero-row-value text-copy-16-strong text-secondary">{failed ? 'Unavailable' : '…'}</p>
         {failed ? <div /> : <div className="aeo-hero-row-bar" aria-hidden="true" />}
         <p className="aeo-hero-row-detail">{failed ? 'Could not be loaded' : 'Loading'}</p>
       </div>
@@ -432,7 +432,7 @@ function CoverageHeroRow({ label, metric, signal, failed = false }: { label: str
     return (
       <div className="aeo-hero-row">
         <p className="aeo-hero-row-label">{label}</p>
-        <p className="aeo-hero-row-value text-base font-semibold text-secondary">Not measured</p>
+        <p className="aeo-hero-row-value text-copy-16-strong text-secondary">Not measured</p>
         <div />
         <p className="aeo-hero-row-detail">{reason === 'Not measured' ? '' : reason}</p>
       </div>
@@ -516,7 +516,7 @@ function BrandContrast({
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">The gap</p>
-          <h2 id="property-brand-contrast" className="text-base font-semibold text-heading">
+          <h2 id="property-brand-contrast" className="text-heading-16 text-heading">
             Named versus not named
             <InfoTooltip text="Branded queries already contain your name, so an answer engine has an easy path back to you. Non-brand queries describe the need instead, and that is the demand you have to earn. Each row is measured only over the queries assigned to this Property in that class; a class with no assigned query reads Not measured rather than 0%." />
           </h2>
@@ -536,16 +536,16 @@ function BrandContrast({
             {rows.map(({ queryClass, row, isError }) => (
               <tr key={queryClass}>
                 <td>
-                  <span className="block font-medium text-heading">{CLASS_LABELS[queryClass].headline}</span>
-                  <span className="mt-0.5 block text-xs text-muted">{CLASS_LABELS[queryClass].technical}</span>
+                  <span className="block text-label-14-strong text-heading">{CLASS_LABELS[queryClass].headline}</span>
+                  <span className="mt-0.5 block text-label-12 text-muted">{CLASS_LABELS[queryClass].technical}</span>
                   {row && isError ? (
-                    <span className="mt-2 flex flex-wrap items-center gap-2 text-sm text-caution">
+                    <span className="mt-2 flex flex-wrap items-center gap-2 text-label-14 text-caution">
                       <span role="status">Refresh failed.</span>
                       <Button
                         type="button"
                         size="sm"
                         variant="ghost"
-                        className="h-11 px-3 text-sm md:h-11"
+                        className="h-11 px-3 text-button-14 md:h-11"
                         onClick={() => onRetry(queryClass)}
                       >
                         Retry {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()}
@@ -560,13 +560,13 @@ function BrandContrast({
                   </>
                 ) : isError ? (
                   <td colSpan={2}>
-                    <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
+                    <div className="flex flex-wrap items-center gap-3 text-label-14 text-secondary">
                       <span role="alert">Could not load {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()}.</span>
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="h-11 px-4 text-sm md:h-11"
+                        className="h-11 px-4 text-button-14 md:h-11"
                         onClick={() => onRetry(queryClass)}
                       >
                         Retry {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()}
@@ -575,8 +575,8 @@ function BrandContrast({
                   </td>
                 ) : (
                   <>
-                    <td><span className="text-sm text-secondary">Loading…</span></td>
-                    <td><span className="text-sm text-secondary">Loading…</span></td>
+                    <td><span className="text-label-14 text-secondary">Loading…</span></td>
+                    <td><span className="text-label-14 text-secondary">Loading…</span></td>
                   </>
                 )}
               </tr>
@@ -593,18 +593,18 @@ function ProviderBreakdown({ row, queryClass, isError }: { row: PropertyRow | un
     <section aria-labelledby="property-providers" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <h2 id="property-providers" className="text-base font-semibold text-heading">
+          <h2 id="property-providers" className="text-heading-16 text-heading">
             Which engines answer for this Property
             <InfoTooltip text="Each row is measured over the queries that engine actually answered for this Property, so the rows are a split of the same population rather than parts that add up to the Property total. An engine that answered nothing for this Property is absent instead of shown at 0%." />
           </h2>
         </div>
       </div>
       {row === undefined && isError ? (
-        <p className="text-sm text-secondary">Details for {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} are unavailable. Retry that query type above.</p>
+        <p className="text-copy-14 text-secondary">Details for {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} are unavailable. Retry that query type above.</p>
       ) : row === undefined ? (
-        <p className="text-sm text-secondary">Loading…</p>
+        <p className="text-copy-14 text-secondary">Loading…</p>
       ) : row.providers.length === 0 ? (
-        <p className="text-sm text-secondary">
+        <p className="text-copy-14 text-secondary">
           No answer engine has measured {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} for this Property.
           {row.mentionCoverage.state === 'unavailable' ? ` ${reasonText(row.mentionCoverage)}.` : ''}
         </p>
@@ -616,7 +616,7 @@ function ProviderBreakdown({ row, queryClass, isError }: { row: PropertyRow | un
             <tbody>
               {row.providers.map(provider => (
                 <tr key={provider.provider}>
-                  <td className="font-medium text-heading">{provider.provider}</td>
+                  <td className="text-label-14-strong text-heading">{provider.provider}</td>
                   <td><MetricCell metric={provider.mentionCoverage} signal="mentioned" /></td>
                   <td><MetricCell metric={provider.citationCoverage} signal="cited" /></td>
                 </tr>
@@ -680,7 +680,7 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
     <section aria-labelledby="property-named-instead" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <h2 id="property-named-instead" className="text-base font-semibold text-heading">
+          <h2 id="property-named-instead" className="text-heading-16 text-heading">
             Named instead of this Property
             <InfoTooltip text="Counted from the answers that did not name this Property, so a name here is one an engine recommended in its place. Occurrences count answers, not positions: an engine naming the same rival in two answers counts twice, and one naming it twice in a single answer counts once." />
           </h2>
@@ -688,7 +688,7 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
         {competitors.length > 0 ? <p className="supporting-copy">{query.data?.total ?? competitors.length} named</p> : null}
       </div>
       {competitors.length === 0 ? (
-        <p className="text-sm text-secondary">
+        <p className="text-copy-14 text-secondary">
           No rival was named in the answers this Property missed. Nothing to compete with here yet.
         </p>
       ) : (
@@ -740,14 +740,14 @@ function AssignedQuestions({ questions, queryClass }: { questions: readonly stri
     <section aria-labelledby="property-questions" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <h2 id="property-questions" className="text-base font-semibold text-heading">
+          <h2 id="property-questions" className="text-heading-16 text-heading">
             {CLASS_LABELS[queryClass].technical} assigned to this Property
           </h2>
         </div>
         <p className="supporting-copy">{questions.length} assigned</p>
       </div>
       {questions.length === 0 ? (
-        <p className="text-sm text-secondary">
+        <p className="text-copy-14 text-secondary">
           No {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} are assigned. Add one in advanced measurement setup to measure this class.
         </p>
       ) : (
@@ -768,7 +768,7 @@ function PropertyUrls({ urls }: { urls: readonly string[] }) {
     <section aria-labelledby="property-urls" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <h2 id="property-urls" className="text-base font-semibold text-heading">
+          <h2 id="property-urls" className="text-heading-16 text-heading">
             URLs that count as this Property
             <InfoTooltip text="A cited source URL is credited to this Property when it matches one of these. The most specific matcher wins, so a URL covered by two Properties at the same specificity is flagged for review instead of being credited to either." />
           </h2>
@@ -776,7 +776,7 @@ function PropertyUrls({ urls }: { urls: readonly string[] }) {
         <p className="supporting-copy">{urls.length} configured</p>
       </div>
       {urls.length === 0 ? (
-        <p className="text-sm text-secondary">No URLs are configured for this Property.</p>
+        <p className="text-copy-14 text-secondary">No URLs are configured for this Property.</p>
       ) : (
         <div className="overflow-x-auto rounded-md border border-default">
           <table className="evidence-table min-w-[420px]">
@@ -854,7 +854,7 @@ function CitedOnOtherQueries({
     <section aria-labelledby="property-other-queries" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
-          <h2 id="property-other-queries" className="text-base font-semibold text-heading">{OTHER_QUERIES_COPY.heading}</h2>
+          <h2 id="property-other-queries" className="text-heading-16 text-heading">{OTHER_QUERIES_COPY.heading}</h2>
           <InfoTooltip text={OTHER_QUERIES_COPY.help} />
         </div>
         {query.data ? (
@@ -864,14 +864,14 @@ function CitedOnOtherQueries({
         ) : null}
       </div>
       {query.isPending ? (
-        <p className="text-sm text-secondary">Loading…</p>
+        <p className="text-copy-14 text-secondary">Loading…</p>
       ) : query.isError && rows.length === 0 ? (
-        <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
+        <div className="flex flex-wrap items-center gap-3 text-label-14 text-secondary">
           <span role="alert">{OTHER_QUERIES_COPY.loadError}</span>
-          <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-sm md:h-11" onClick={() => { void query.refetch() }}>Retry</Button>
+          <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-button-14 md:h-11" onClick={() => { void query.refetch() }}>Retry</Button>
         </div>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-secondary">{OTHER_QUERIES_COPY.empty}</p>
+        <p className="text-copy-14 text-secondary">{OTHER_QUERIES_COPY.empty}</p>
       ) : (
         <>
           <div className="overflow-x-auto rounded-md border border-default">
@@ -894,8 +894,8 @@ function CitedOnOtherQueries({
                     <Fragment key={key}>
                       <tr>
                         <td className="text-secondary">
-                          <span className="block text-sm font-medium text-heading">{row.queryText}</span>
-                          <span className="mt-1 block text-xs text-muted">{[row.provider, row.location].filter(Boolean).join(' · ')}</span>
+                          <span className="block text-label-14-strong text-heading">{row.queryText}</span>
+                          <span className="mt-1 block text-label-12 text-muted">{[row.provider, row.location].filter(Boolean).join(' · ')}</span>
                         </td>
                         <td>
                           <ul className="space-y-1">
@@ -905,7 +905,7 @@ function CitedOnOtherQueries({
                                   to="/projects/$projectName/properties/$targetKey"
                                   params={{ projectName: project, targetKey: key }}
                                   search={carryVisibilitySearch}
-                                  className="text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
+                                  className="text-label-14 text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
                                 >
                                   {targetLabels.get(key) ?? key}
                                 </Link>
@@ -917,15 +917,15 @@ function CitedOnOtherQueries({
                           <ul className="space-y-1">
                             {row.sources.map(source => <li key={source.sourceUrl} className="min-w-0"><SourceLink url={source.sourceUrl} /></li>)}
                           </ul>
-                          {row.sourcesTruncated ? <span className="mt-1 block text-xs text-muted">{row.sourceCount} pages in total</span> : null}
-                          {row.evidenceComplete ? null : <span className="mt-1 block text-xs text-muted">{OTHER_QUERIES_COPY.partlySaved}</span>}
+                          {row.sourcesTruncated ? <span className="mt-1 block text-label-12 text-muted">{row.sourceCount} pages in total</span> : null}
+                          {row.evidenceComplete ? null : <span className="mt-1 block text-label-12 text-muted">{OTHER_QUERIES_COPY.partlySaved}</span>}
                         </td>
                         <td className="text-right">
                           <Button
                             type="button"
                             size="sm"
                             variant="ghost"
-                            className="h-auto min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto"
+                            className="h-auto pointer-coarse:min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto"
                             aria-expanded={open}
                             aria-label={open ? `Hide the answer for ${row.queryText}` : `Read the answer for ${row.queryText}`}
                             aria-controls={open ? detailId : undefined}
@@ -953,12 +953,12 @@ function CitedOnOtherQueries({
             </table>
           </div>
           {query.hasNextPage ? (
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-secondary">
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-label-14 text-secondary">
               <span>Showing {rows.length} of {total}</span>
               <Button
                 size="sm"
                 variant="outline"
-                className="h-11 px-4 text-sm md:h-11"
+                className="h-11 px-4 text-button-14 md:h-11"
                 disabled={query.isFetchingNextPage}
                 onClick={() => { void query.fetchNextPage() }}
               >
@@ -1145,7 +1145,7 @@ export function MeasurementPropertyPage() {
       to="/projects/$projectName"
       params={{ projectName: project }}
       search={carryVisibilitySearch}
-      className="inline-flex items-center gap-1 text-xs text-muted hover:text-strong"
+      className="inline-flex items-center gap-1 text-label-12 text-muted hover:text-strong"
     >
       <ArrowLeft className="size-3.5" aria-hidden="true" />
       Back to AI Visibility
@@ -1153,7 +1153,7 @@ export function MeasurementPropertyPage() {
   )
 
   if (!hasRouteParams) {
-    return <div className="page-container"><p className="text-sm text-muted">Missing project name or Property key in URL.</p></div>
+    return <div className="page-container"><p className="text-copy-14 text-muted">Missing project name or Property key in URL.</p></div>
   }
 
   // A child route the subnav never renders, so a direct link is the only way in.
@@ -1161,7 +1161,7 @@ export function MeasurementPropertyPage() {
     return (
       <div className="page-container space-y-3">
         {backLink}
-        <p className="text-sm text-muted">This view is not available here.</p>
+        <p className="text-copy-14 text-muted">This view is not available here.</p>
       </div>
     )
   }
@@ -1184,12 +1184,12 @@ export function MeasurementPropertyPage() {
     return (
       <div className="page-container space-y-3">
         {backLink}
-        <p role="alert" className="text-sm text-negative">Could not load this Property.</p>
+        <p role="alert" className="text-copy-14 text-negative">Could not load this Property.</p>
         <Button
           type="button"
           size="sm"
           variant="outline"
-          className="h-11 px-4 text-sm md:h-11"
+          className="h-11 px-4 text-button-14 md:h-11"
           onClick={() => {
             void planQuery.refetch()
             void brandedQuery.refetch()
@@ -1206,12 +1206,12 @@ export function MeasurementPropertyPage() {
     return (
       <div className="page-container space-y-3">
         {backLink}
-        <p role="status" className="text-sm text-secondary">
+        <p role="status" className="text-copy-14 text-secondary">
           {planV2
             ? 'This Property is not in the published setup. It may have been renamed or removed.'
             : 'A Property page needs a published advanced measurement setup. Republish setup from the project Portfolio tab.'}
         </p>
-        <Button asChild type="button" variant="outline" className="h-11 px-4 text-sm md:h-11">
+        <Button asChild type="button" variant="outline" className="h-11 px-4 text-button-14 md:h-11">
           <Link to="/projects/$projectName/portfolio" params={{ projectName: project }}>
             {canWrite ? (legacyPlan ? 'Republish setup' : 'Open measurement setup') : 'View measurement setup'}
           </Link>
@@ -1267,12 +1267,12 @@ export function MeasurementPropertyPage() {
 
       {needsMeasurement ? (
         <section className="flex flex-wrap items-center justify-between gap-3 border-y border-default py-4" aria-label="Measurement next step">
-          <p className="text-sm text-secondary">
+          <p className="text-copy-14 text-secondary">
             {isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : canWrite
               ? `Run a measurement from the project overview to collect this Property’s coverage and source evidence.${hasLastResults ? ' AI Visibility still shows the last results.' : ''}`
               : 'This Property needs a new measurement before coverage and source evidence are available.'}
           </p>
-          <Button asChild type="button" className="h-11 px-4 text-sm md:h-11">
+          <Button asChild type="button" className="h-11 px-4 text-button-14 md:h-11">
             <Link to="/projects/$projectName" params={{ projectName: project }} search={hasLastResults ? lastResultsSearch : carryVisibilitySearch}>
               {hasLastResults ? 'See the last results' : canWrite ? 'Go to AI Visibility' : 'View AI Visibility'}
             </Link>
@@ -1282,7 +1282,7 @@ export function MeasurementPropertyPage() {
 
       <div className="flex flex-wrap items-end gap-4 border-y border-default py-4">
         <div className="space-y-1">
-          <label htmlFor="property-query-class" className="block text-sm font-medium text-heading">Query type</label>
+          <label htmlFor="property-query-class" className="block text-label-14-strong text-heading">Query type</label>
           <select
             id="property-query-class"
             value={queryClass}
@@ -1290,7 +1290,7 @@ export function MeasurementPropertyPage() {
               const next: QueryClass = event.target.value === 'branded' ? 'branded' : 'non-brand'
               void navigate({ to: '.', search: previous => patchVisibilitySelection(previous, { queryClass: next }) })
             }}
-            className="h-11 rounded-md border border-default bg-surface px-3 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-mono-400"
+            className="h-11 rounded-md border border-default bg-surface px-3 text-label-14 text-primary focus:outline-none focus:ring-2 focus:ring-mono-400"
           >
             <option value="non-brand">{CLASS_LABELS['non-brand'].technical}</option>
             <option value="branded">{CLASS_LABELS.branded.technical}</option>
@@ -1321,7 +1321,7 @@ export function MeasurementPropertyPage() {
       <section aria-labelledby="property-evidence" className="page-section-divider">
         <div className="section-head section-head-inline">
           <div>
-            <h2 id="property-evidence" className="text-base font-semibold text-heading">
+            <h2 id="property-evidence" className="text-heading-16 text-heading">
               Answers the engines gave
               <InfoTooltip text="One row per answer an engine gave for the queries assigned to this Property in the displayed measurement. Mentioned and cited are independent: an answer can name this Property without linking it, or link it without naming it. Answers that did neither are listed first, because those are what a gap is made of. Where the answer text was not stored the mention reads Not measured, never a zero. Open a row to read what the engine actually said, followed by the source URLs it returned, this Property's own first. The answer is where a miss becomes actionable: a query this Property was not named in may still have named a sibling building." />
             </h2>
@@ -1329,25 +1329,25 @@ export function MeasurementPropertyPage() {
           {evidenceRows.length > 0 ? <p className="supporting-copy">{evidenceRows.length} of {evidenceTotal}</p> : null}
         </div>
         {selectedClassUnavailable ? (
-          <p className="text-sm text-secondary">Evidence for {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} is unavailable. Retry that query type above.</p>
+          <p className="text-copy-14 text-secondary">Evidence for {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} is unavailable. Retry that query type above.</p>
         ) : evidenceQuery.isPending && evidenceRows.length === 0 ? (
-          <p className="text-sm text-secondary">Loading evidence…</p>
+          <p className="text-copy-14 text-secondary">Loading evidence…</p>
         ) : evidenceQuery.isError && evidenceRows.length === 0 ? (
-          <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
+          <div className="flex flex-wrap items-center gap-3 text-label-14 text-secondary">
             <span role="alert">Evidence could not be loaded.</span>
-            <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-sm md:h-11" onClick={() => { void evidenceQuery.refetch() }}>Retry evidence</Button>
+            <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-button-14 md:h-11" onClick={() => { void evidenceQuery.refetch() }}>Retry evidence</Button>
           </div>
         ) : evidenceState === 'not_measured' ? (
           // Not measured is not "no evidence". Saying "none" here would report
           // an absent measurement as a measured result.
-          <p className="text-sm text-secondary">{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Not measured yet. Run a measurement to collect the answers for this Property.'}</p>
+          <p className="text-copy-14 text-secondary">{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Not measured yet. Run a measurement to collect the answers for this Property.'}</p>
         ) : evidenceShapeMismatch ? (
-          <p role="alert" className="text-sm text-caution">
+          <p role="alert" className="text-copy-14 text-caution">
             This measurement was returned in an older format, so the answers cannot be shown here.
             The numbers above are unaffected.
           </p>
         ) : evidenceRows.length === 0 ? (
-          <p className="text-sm text-secondary">No answers matched this Property in the displayed measurement.</p>
+          <p className="text-copy-14 text-secondary">No answers matched this Property in the displayed measurement.</p>
         ) : (
           <>
             <div className="property-answer-table-container overflow-x-auto rounded-md border border-default">
@@ -1371,8 +1371,8 @@ export function MeasurementPropertyPage() {
                       <Fragment key={key}>
                         <tr className="property-answer-summary">
                           <td className="text-secondary">
-                            <h3 className="text-sm font-medium text-heading">{item.queryText}</h3>
-                            <span className="mt-1 block text-xs text-muted">
+                            <h3 className="text-heading-14 text-heading">{item.queryText}</h3>
+                            <span className="mt-1 block text-label-12 text-muted">
                               {[item.provider, item.location].filter(Boolean).join(' · ')}
                             </span>
                             {item.historical || item.bridged ? (
@@ -1387,7 +1387,7 @@ export function MeasurementPropertyPage() {
                               type="button"
                               size="sm"
                               variant="ghost"
-                              className="h-auto min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto"
+                              className="h-auto pointer-coarse:min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto"
                               aria-expanded={expanded}
                               aria-label={expanded ? `Hide the answer for ${item.queryText}` : `Read the answer for ${item.queryText}`}
                               aria-controls={expanded ? detailId : undefined}
@@ -1419,13 +1419,13 @@ export function MeasurementPropertyPage() {
               </table>
             </div>
             {evidenceQuery.hasNextPage ? (
-              <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-secondary">
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-label-14 text-secondary">
                 <span>Showing {evidenceRows.length} of {evidenceTotal}</span>
                 {evidenceQuery.isFetchNextPageError ? <span role="alert">Could not load more evidence.</span> : null}
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-11 px-4 text-sm md:h-11"
+                  className="h-11 px-4 text-button-14 md:h-11"
                   disabled={evidenceQuery.isFetchingNextPage}
                   onClick={() => { void evidenceQuery.fetchNextPage() }}
                 >

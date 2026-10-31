@@ -57,7 +57,7 @@ export function ManagedSweepStatus({ projectName, kind = RunKinds['answer-visibi
   const unavailableSweep = !nextSync || missingSchedule || !schedule?.enabled
 
   return (
-    <p className="text-sm text-secondary" role="status">
+    <p className="text-copy-14 text-secondary" role="status">
       {scan ? <>
         {running && <span className="text-neutral">Scan running… · </span>}
         {nextSync && nextRun ? <>

@@ -40,6 +40,8 @@ const expectedToolNames = [
   'canonry_seo_keyword_metrics',
   'canonry_seo_domain_intelligence',
   'canonry_seo_ranked_keywords',
+  'canonry_seo_competitors',
+  'canonry_seo_keyword_gaps',
   'canonry_seo_market_rankings',
   'canonry_seo_market_summary',
   'canonry_sentiment_settings',
@@ -56,6 +58,7 @@ const expectedToolNames = [
   'canonry_query_tracking_workspace',
   'canonry_query_tracking_preview',
   'canonry_query_tracking_commit',
+  'canonry_mcp_profile',
   'canonry_projects_list',
   'canonry_project_get',
   'canonry_project_delete_preview',
@@ -814,9 +817,9 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(196)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(199)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
-    const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
+    const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator && !tool.requiresConnectionProfile).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
   })
 
@@ -826,6 +829,7 @@ describe('MCP tool registry', () => {
     }
     const coreNames = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
     expect(coreNames).toEqual([
+      'canonry_mcp_profile',
       'canonry_projects_list',
       'canonry_project_get',
       'canonry_project_overview',
@@ -1193,7 +1197,9 @@ describe('MCP tool registry', () => {
     expect(annotations.canonry_schedule_set).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_schedule_delete).toMatchObject({ idempotentHint: false, destructiveHint: true })
     expect(annotations.canonry_insight_dismiss).toMatchObject({ idempotentHint: true, destructiveHint: false })
-    expect(annotations.canonry_agent_webhook_attach).toMatchObject({ idempotentHint: true, destructiveHint: false })
+    expect(annotations.canonry_agent_webhook_attach).toMatchObject({ idempotentHint: true, destructiveHint: false, openWorldHint: true })
+    expect(annotations.canonry_content_brief).toMatchObject({ readOnlyHint: false, openWorldHint: true })
+    expect(annotations.canonry_sentiment_configure).toMatchObject({ readOnlyHint: false, openWorldHint: true })
     expect(annotations.canonry_agent_webhook_detach).toMatchObject({ idempotentHint: true, destructiveHint: true })
     expect(annotations.canonry_measurement_discovery).toMatchObject({
       idempotentHint: false,

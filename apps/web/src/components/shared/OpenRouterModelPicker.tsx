@@ -125,17 +125,17 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
     const added = selected.includes(route)
     const detailId = `${id}-${modelId}`
     return (
-      <label key={modelId} data-model-id={modelId} className="flex min-h-11 items-center gap-3 py-2 text-sm text-secondary">
+      <label key={modelId} data-model-id={modelId} className="flex min-h-11 items-center gap-3 py-2 text-label-14 text-secondary">
         <input type="checkbox" aria-label={title} aria-describedby={detailId} checked={added || draft.includes(route)} disabled={added} onChange={event => toggle(route, event.target.checked)} />
         <span className="min-w-0 flex-1 truncate text-heading">{title}</span>
-        <span id={detailId} className="shrink-0 truncate text-sm">{added ? 'Added' : detail}</span>
+        <span id={detailId} className="shrink-0 truncate text-label-14">{added ? 'Added' : detail}</span>
       </label>
     )
   }
 
   const manualEntry = (
     <div className="flex flex-wrap items-end gap-2">
-      <label className="min-w-0 flex-1 text-sm text-secondary">Model ID<input className="setup-input mt-1 w-full" value={manual} placeholder="vendor/model" onChange={event => setManual(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); if (manual.trim()) addManual() } }} /></label>
+      <label className="min-w-0 flex-1 text-label-14 text-secondary">Model ID<input className="setup-input mt-1 w-full" value={manual} placeholder="vendor/model" onChange={event => setManual(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); if (manual.trim()) addManual() } }} /></label>
       <Button type="button" variant="outline" disabled={busy || !manual.trim()} onClick={addManual}>Add ID</Button>
     </div>
   )
@@ -149,7 +149,7 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
     >
       {catalogEmpty ? (
         <>
-          <p className="text-sm text-secondary">
+          <p className="text-copy-14 text-secondary">
             Couldn't load OpenRouter's model list. Check the OpenRouter key in{' '}
             {/* In the setup wizard a new tab keeps the operator on this step while they fix the key. */}
             <Link to="/settings" className="text-link hover:underline" {...(inline ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>Settings</Link>
@@ -161,12 +161,12 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
         <>
           {recommended.length > 0 && (
             <fieldset disabled={busy} className="divide-y divide-default">
-              <legend className="mb-1 text-sm font-medium text-heading">Recommended</legend>
+              <legend className="mb-1 text-label-14-strong text-heading">Recommended</legend>
               {recommended.map(model => modelRow(model.id, names.get(model.id) ?? model.id, `Maker of ${model.engine}`))}
             </fieldset>
           )}
           {recommended.length > 0 && (
-            <button type="button" className="text-sm text-secondary underline decoration-border-strong underline-offset-4 hover:text-heading" aria-expanded={browsing} aria-controls={`${id}-browse`} onClick={() => setBrowsing(value => !value)}>
+            <button type="button" className="text-button-14 text-secondary underline decoration-border-strong underline-offset-4 hover:text-heading" aria-expanded={browsing} aria-controls={`${id}-browse`} onClick={() => setBrowsing(value => !value)}>
               {browsing ? 'Hide the full list' : `Browse all ${catalog.knownModels.length} models`}
             </button>
           )}
@@ -191,19 +191,19 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
                   })}
                 </div>
               )}
-              <label className="block text-sm text-secondary">Search OpenRouter models<input className="setup-input mt-1 w-full" type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>
+              <label className="block text-label-14 text-secondary">Search OpenRouter models<input className="setup-input mt-1 w-full" type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>
               <fieldset disabled={busy} className="max-h-64 overflow-y-auto divide-y divide-default">
                 <legend className="sr-only">OpenRouter models</legend>
                 {matches.map(model => modelRow(model.id, model.displayName, model.id))}
-                {matches.length === 0 && <p className="py-3 text-sm text-secondary">{search.trim() ? `No models match "${search.trim()}".` : `No ${vendor ?? ''} models in OpenRouter's list.`}</p>}
+                {matches.length === 0 && <p className="py-3 text-copy-14 text-secondary">{search.trim() ? `No models match "${search.trim()}".` : `No ${vendor ?? ''} models in OpenRouter's list.`}</p>}
               </fieldset>
               {manualEntry}
             </div>
           )}
         </>
       )}
-      {candidateNames.length > 0 && <p className="break-words text-sm text-secondary">Selected: {candidateNames.join(', ')}</p>}
-      {error && <p role="alert" className="text-sm text-negative">{error}</p>}
+      {candidateNames.length > 0 && <p className="break-words text-copy-14 text-secondary">Selected: {candidateNames.join(', ')}</p>}
+      {error && <p role="alert" className="text-copy-14 text-negative">{error}</p>}
       <div className="flex gap-2">
         <Button type="button" disabled={busy || candidates.length === 0} onClick={submit}>
           {inline
@@ -218,7 +218,7 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
   if (inline) return panel
   return <div className="space-y-3">
     {trigger === 'link'
-      ? <button type="button" className="block w-fit text-sm text-secondary underline decoration-border-strong underline-offset-4 hover:text-heading disabled:opacity-50" disabled={disabled} aria-expanded={open} aria-controls={id} onClick={() => { setOpen(value => !value); setDraft([]); setError(null) }}>{triggerLabel}</button>
+      ? <button type="button" className="block w-fit text-button-14 text-secondary underline decoration-border-strong underline-offset-4 hover:text-heading disabled:opacity-50" disabled={disabled} aria-expanded={open} aria-controls={id} onClick={() => { setOpen(value => !value); setDraft([]); setError(null) }}>{triggerLabel}</button>
       : <Button type="button" variant="outline" disabled={disabled} aria-expanded={open} aria-controls={id} onClick={() => { setOpen(value => !value); setDraft([]); setError(null) }}>{triggerLabel}</Button>}
     {open && panel}
   </div>

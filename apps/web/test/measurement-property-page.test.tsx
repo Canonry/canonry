@@ -22,6 +22,7 @@ import {
 } from '@canonry/canonry-api-client/react-query'
 import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
+import { compileAppStyles, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
 
 const TARGET_KEY = 'harbor-house'
 const RUN_ID = 'run-synthetic'
@@ -785,9 +786,11 @@ describe('Property page', () => {
     expect(within(branded).getAllByText('Not measured')).toHaveLength(2)
     expect(within(branded).getAllByText('No queries of this type are assigned')).toHaveLength(2)
     expect(within(branded).queryByText(/%$/)).toBeNull()
-    for (const reason of within(branded).getAllByText('No queries of this type are assigned')) {
-      expect(reason.className).toContain('text-sm')
-      expect(reason.className).toContain('text-secondary')
+    const reasons = within(branded).getAllByText('No queries of this type are assigned')
+    const rules = parseCompiledCss(await compileAppStyles(reasons.flatMap(element => [...element.classList])))
+    for (const reason of reasons) {
+      expect(compiledElementProperty(rules, reason, 'font-size')).toBe('14px')
+      expect(compiledElementProperty(rules, reason, 'color')).toBe('var(--color-text-secondary)')
     }
   })
 

@@ -36,7 +36,7 @@ export type SeoContext = {
         id: string;
         label: string;
         provider: 'dataforseo';
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     }>;
     scopes: Array<{
         kind: 'project' | 'group' | 'market' | 'property';
@@ -45,7 +45,7 @@ export type SeoContext = {
         planRevision?: number;
         supported: boolean;
         reason: string | null;
-        capabilities?: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities?: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     }>;
     access: {
         canRun: boolean;
@@ -56,7 +56,7 @@ export type SeoContext = {
 export type SeoStatus = {
     available: boolean;
     reason: string | null;
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     profileCount: number;
     latestRunId: string | null;
     latestRunStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required' | null;
@@ -66,8 +66,13 @@ export type SeoStatus = {
 export type SeoProfile = {
     name: string;
     connectionId: string;
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     targets: Array<{
+        kind: 'domain' | 'host';
+        value: string;
+        includeSubdomains: boolean;
+    }>;
+    competitors?: Array<{
         kind: 'domain' | 'host';
         value: string;
         includeSubdomains: boolean;
@@ -101,8 +106,13 @@ export type SeoProfileList = {
     profiles: Array<{
         name: string;
         connectionId: string;
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
         targets: Array<{
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        }>;
+        competitors?: Array<{
             kind: 'domain' | 'host';
             value: string;
             includeSubdomains: boolean;
@@ -136,8 +146,13 @@ export type SeoProfileList = {
 export type SeoProfileInput = {
     name: string;
     connectionId: string;
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     targets: Array<{
+        kind: 'domain' | 'host';
+        value: string;
+        includeSubdomains: boolean;
+    }>;
+    competitors?: Array<{
         kind: 'domain' | 'host';
         value: string;
         includeSubdomains: boolean;
@@ -174,7 +189,7 @@ export type SeoQuote = {
         value: string;
         includeSubdomains: boolean;
     }>;
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     availability: 'ready' | 'unavailable';
     reason: string | null;
 };
@@ -197,7 +212,7 @@ export type SeoRun = {
     languageCode: string;
     cancelRequested: boolean;
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     scope: {
         kind: 'project' | 'group' | 'market' | 'property';
         key?: string;
@@ -221,7 +236,7 @@ export type SeoRunDetail = {
     languageCode: string;
     cancelRequested: boolean;
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     scope: {
         kind: 'project' | 'group' | 'market' | 'property';
         key?: string;
@@ -236,11 +251,19 @@ export type SeoRunDetail = {
     error: string | null;
     tasks: Array<{
         id: string;
-        capability: 'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings';
+        capability: 'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps';
         target: {
             kind: 'domain' | 'host';
             value: string;
             includeSubdomains: boolean;
+        } | null;
+        comparison: {
+            competitor: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            mode: 'shared' | 'missing';
         } | null;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
         error: string | null;
@@ -365,12 +388,71 @@ export type SeoRunDetail = {
                 sourceUpdatedAt: string | null;
             } | null;
         }>;
+        competitors: Array<{
+            target: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            domain: string;
+            sharedKeywords: number | null;
+            averagePosition: number | null;
+            organicKeywords: number | null;
+            estimatedOrganicTraffic: number | null;
+            provenance: {
+                provider: 'dataforseo';
+                dataset: string;
+                engine: 'google';
+                locationCode: number;
+                languageCode: string;
+                device: 'unspecified' | 'desktop' | 'mobile';
+                collectedAt: string;
+                sourceUpdatedAt: string | null;
+            };
+        }>;
+        keywordGaps: Array<{
+            target: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            competitor: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            keyword: string;
+            targetRankOrganic: number | null;
+            competitorRankOrganic: number;
+            targetUrl: string | null;
+            competitorUrl: string | null;
+            searchVolume: number | null;
+            /**
+             * Provider difficulty score on a 0–100 scale; not a percentage.
+             */
+            keywordDifficulty: number | null;
+            cpcUsd: number | null;
+            kind: 'shared' | 'missing' | 'outranked';
+            rankGap: number | null;
+            provenance: {
+                provider: 'dataforseo';
+                dataset: string;
+                engine: 'google';
+                locationCode: number;
+                languageCode: string;
+                device: 'unspecified' | 'desktop' | 'mobile';
+                collectedAt: string;
+                sourceUpdatedAt: string | null;
+            };
+        }>;
     };
     resultCounts: {
         keywordMetrics: number;
         domainIntelligence: number;
         rankedKeywords: number;
         marketRankings: number;
+        competitors: number;
+        keywordGaps: number;
     };
     resultsTruncated: boolean;
 };
@@ -385,7 +467,7 @@ export type SeoRunList = {
         languageCode: string;
         cancelRequested: boolean;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
         scope: {
             kind: 'project' | 'group' | 'market' | 'property';
             key?: string;
@@ -405,7 +487,7 @@ export type SeoOverview = {
     status: {
         available: boolean;
         reason: string | null;
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
         profileCount: number;
         latestRunId: string | null;
         latestRunStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required' | null;
@@ -414,8 +496,13 @@ export type SeoOverview = {
     profiles: Array<{
         name: string;
         connectionId: string;
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
         targets: Array<{
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        }>;
+        competitors?: Array<{
             kind: 'domain' | 'host';
             value: string;
             includeSubdomains: boolean;
@@ -453,7 +540,7 @@ export type SeoOverview = {
         languageCode: string;
         cancelRequested: boolean;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
         scope: {
             kind: 'project' | 'group' | 'market' | 'property';
             key?: string;
@@ -477,7 +564,7 @@ export type SeoOverview = {
         languageCode: string;
         cancelRequested: boolean;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
         scope: {
             kind: 'project' | 'group' | 'market' | 'property';
             key?: string;
@@ -515,6 +602,8 @@ export type SeoOverview = {
     domainIntelligenceCount: number;
     rankedKeywordCount: number;
     marketRankingCount: number;
+    competitorCount: number;
+    keywordGapCount: number;
 };
 
 export type SeoKeywordMetricsList = {
@@ -538,6 +627,77 @@ export type SeoKeywordMetricsList = {
             searchVolume: number | null;
         }>;
         coreKeyword: string | null;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified' | 'desktop' | 'mobile';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    }>;
+};
+
+export type SeoCompetitorList = {
+    runId: string | null;
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        domain: string;
+        sharedKeywords: number | null;
+        averagePosition: number | null;
+        organicKeywords: number | null;
+        estimatedOrganicTraffic: number | null;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified' | 'desktop' | 'mobile';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    }>;
+};
+
+export type SeoKeywordGapList = {
+    runId: string | null;
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        competitor: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        keyword: string;
+        targetRankOrganic: number | null;
+        competitorRankOrganic: number;
+        targetUrl: string | null;
+        competitorUrl: string | null;
+        searchVolume: number | null;
+        /**
+         * Provider difficulty score on a 0–100 scale; not a percentage.
+         */
+        keywordDifficulty: number | null;
+        cpcUsd: number | null;
+        kind: 'shared' | 'missing' | 'outranked';
+        rankGap: number | null;
         provenance: {
             provider: 'dataforseo';
             dataset: string;
@@ -659,6 +819,11 @@ export type SeoMarketRankingList = {
         } | null;
         outcome: 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'partly-checked' | 'failed' | 'cancelled';
         rivalAhead: boolean;
+        topCompetitor: {
+            domain: string;
+            rankOrganic: number;
+        } | null;
+        rankGap: number | null;
     }>;
 };
 
@@ -6106,6 +6271,10 @@ export type InstanceStatusDto = {
         hosted?: {
             status: 'ready';
             url: string;
+            plugin?: {
+                gatewayUrl: string;
+                workspace: string;
+            };
         } | {
             status: 'unavailable';
             reason: 'public-url-required' | 'https-required' | 'public-host-required' | 'public-path-mismatch' | 'oauth-unavailable' | 'account-required' | 'transport-unavailable';
@@ -6150,6 +6319,18 @@ export type InstanceStatusDto = {
     }>;
 };
 
+export type McpProfileDto = {
+    userId: string;
+    displayName: string;
+    instance: {
+        issuer: string;
+        resource: string;
+    };
+    scopes: [
+        'read'
+    ];
+};
+
 export type Ga4AiReferralDailyDto = {
     days: Array<{
         date: string;
@@ -6191,7 +6372,7 @@ export type Ga4AiReferralHistoryEntry = {
     trafficClass: 'organic' | 'paid';
     landingPage: string;
     sessions: number;
-    users: number;
+    users?: number;
     sourceDimension: 'session' | 'first_user' | 'manual_utm';
 };
 
@@ -16146,6 +16327,8 @@ export type SiteCrawlPagesResponseDto = {
             pages: number;
             exampleUrl: string;
         }>;
+        urlVersions: number;
+        urlVersionsNotFetched: number;
     } | null;
     healthReasonCounts?: Array<{
         healthReason: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
@@ -16179,6 +16362,7 @@ export type SiteCrawlPagesResponseDto = {
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
         healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+        urlVersionOf: string | null;
     }>;
 };
 
@@ -16248,6 +16432,8 @@ export type SiteCrawlSummaryDto = {
             pages: number;
             exampleUrl: string;
         }>;
+        urlVersions: number;
+        urlVersionsNotFetched: number;
     } | null;
     runStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | null;
     requestedRootUrl: string | null;
@@ -16359,6 +16545,7 @@ export type SiteHealthChangesResponseDto = {
             linkScoreNormalized: number | null;
             healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
             healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+            urlVersionOf: string | null;
         } | null;
         after: {
             nodeKey: string;
@@ -16384,6 +16571,7 @@ export type SiteHealthChangesResponseDto = {
             linkScoreNormalized: number | null;
             healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
             healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+            urlVersionOf: string | null;
         } | null;
     } | {
         entity: 'link';
@@ -16492,6 +16680,7 @@ export type SiteHealthPathResponseDto = {
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
         healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+        urlVersionOf: string | null;
     }>;
     edges: Array<{
         edgeKey: string;
@@ -16579,6 +16768,7 @@ export type SiteHealthSubgraphResponseDto = {
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
         healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+        urlVersionOf: string | null;
         distance: number;
         relationToFocus: 'focus' | 'inbound' | 'outbound' | 'both' | 'transitive';
     }>;
@@ -18142,19 +18332,28 @@ export type VisibilityStatsDto = {
     };
 };
 
-export type WordpressAuditPageDto = {
-    slug: string;
-    title: string;
-    status: string;
-    wordCount: number;
-    seo: {
-        title: string | null;
-        description: string | null;
-        noindex: boolean | null;
-        writable: boolean;
-        writeTargets: Array<string>;
-    };
-    schemaPresent: boolean;
+export type WordpressAuditDto = {
+    env: 'live' | 'staging';
+    pages: Array<{
+        slug: string;
+        title: string;
+        status: string;
+        wordCount: number;
+        seo: {
+            title: string | null;
+            description: string | null;
+            noindex: boolean | null;
+            writable: boolean;
+            writeTargets: Array<string>;
+        };
+        schemaPresent: boolean;
+        issues: Array<{
+            slug: string;
+            severity: 'high' | 'medium' | 'low';
+            code: 'noindex' | 'missing-seo-title' | 'missing-meta-description' | 'missing-schema' | 'thin-content';
+            message: string;
+        }>;
+    }>;
     issues: Array<{
         slug: string;
         severity: 'high' | 'medium' | 'low';
@@ -18242,6 +18441,12 @@ export type WordpressDiffDto = {
         noindex: boolean;
         schema: boolean;
     };
+};
+
+export type WordpressLlmsTxtDto = {
+    env: 'live' | 'staging';
+    url: string;
+    content: string | null;
 };
 
 export type WordpressManualAssistDto = {
@@ -18994,6 +19199,128 @@ export type GetApiV1ProjectsByNameSeoRankedKeywordsResponses = {
 };
 
 export type GetApiV1ProjectsByNameSeoRankedKeywordsResponse = GetApiV1ProjectsByNameSeoRankedKeywordsResponses[keyof GetApiV1ProjectsByNameSeoRankedKeywordsResponses];
+
+export type GetApiV1ProjectsByNameSeoCompetitorsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+        /**
+         * Sort the complete saved result before pagination: domain, shared searches, average position or estimated traffic. Prefix with - for descending. Missing values stay last in both directions. Omitted preserves stored order.
+         */
+        sort?: 'domain' | '-domain' | 'shared' | '-shared' | 'position' | '-position' | 'traffic' | '-traffic';
+    };
+    url: '/api/v1/projects/{name}/seo/competitors';
+};
+
+export type GetApiV1ProjectsByNameSeoCompetitorsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoCompetitorsError = GetApiV1ProjectsByNameSeoCompetitorsErrors[keyof GetApiV1ProjectsByNameSeoCompetitorsErrors];
+
+export type GetApiV1ProjectsByNameSeoCompetitorsResponses = {
+    /**
+     * Saved organic competitor evidence.
+     */
+    200: SeoCompetitorList;
+};
+
+export type GetApiV1ProjectsByNameSeoCompetitorsResponse = GetApiV1ProjectsByNameSeoCompetitorsResponses[keyof GetApiV1ProjectsByNameSeoCompetitorsResponses];
+
+export type GetApiV1ProjectsByNameSeoKeywordGapsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+        /**
+         * shared includes outranked; missing and outranked select that exact kind. Omitted returns all saved comparisons.
+         */
+        kind?: 'shared' | 'missing' | 'outranked';
+        /**
+         * Sort after filtering and before pagination: keyword, kind, target rank, competitor rank, rank gap or monthly search volume. Prefix with - for descending. Missing values stay last in both directions. Omitted preserves stored order.
+         */
+        sort?: 'keyword' | '-keyword' | 'kind' | '-kind' | 'target-rank' | '-target-rank' | 'competitor-rank' | '-competitor-rank' | 'rank-gap' | '-rank-gap' | 'volume' | '-volume';
+    };
+    url: '/api/v1/projects/{name}/seo/keyword-gaps';
+};
+
+export type GetApiV1ProjectsByNameSeoKeywordGapsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoKeywordGapsError = GetApiV1ProjectsByNameSeoKeywordGapsErrors[keyof GetApiV1ProjectsByNameSeoKeywordGapsErrors];
+
+export type GetApiV1ProjectsByNameSeoKeywordGapsResponses = {
+    /**
+     * Saved keyword comparison evidence.
+     */
+    200: SeoKeywordGapList;
+};
+
+export type GetApiV1ProjectsByNameSeoKeywordGapsResponse = GetApiV1ProjectsByNameSeoKeywordGapsResponses[keyof GetApiV1ProjectsByNameSeoKeywordGapsResponses];
 
 export type GetApiV1ProjectsByNameSeoMarketRankingsData = {
     body?: never;
@@ -32108,7 +32435,7 @@ export type GetApiV1ProjectsByNameWordpressLlmsTxtResponses = {
     /**
      * llms.txt returned.
      */
-    200: string;
+    200: WordpressLlmsTxtDto;
 };
 
 export type GetApiV1ProjectsByNameWordpressLlmsTxtResponse = GetApiV1ProjectsByNameWordpressLlmsTxtResponses[keyof GetApiV1ProjectsByNameWordpressLlmsTxtResponses];
@@ -32184,7 +32511,7 @@ export type GetApiV1ProjectsByNameWordpressAuditResponses = {
     /**
      * WordPress audit returned.
      */
-    200: Array<WordpressAuditPageDto>;
+    200: WordpressAuditDto;
 };
 
 export type GetApiV1ProjectsByNameWordpressAuditResponse = GetApiV1ProjectsByNameWordpressAuditResponses[keyof GetApiV1ProjectsByNameWordpressAuditResponses];
@@ -33893,6 +34220,39 @@ export type GetApiV1DoctorResponses = {
 };
 
 export type GetApiV1DoctorResponse = GetApiV1DoctorResponses[keyof GetApiV1DoctorResponses];
+
+export type GetApiV1McpProfileData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/mcp/profile';
+};
+
+export type GetApiV1McpProfileErrors = {
+    /**
+     * Authentication required or invalid.
+     */
+    401: ErrorEnvelope;
+    /**
+     * An instance-wide named account with read scope is required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * MCP OAuth resource is not configured.
+     */
+    501: ErrorEnvelope;
+};
+
+export type GetApiV1McpProfileError = GetApiV1McpProfileErrors[keyof GetApiV1McpProfileErrors];
+
+export type GetApiV1McpProfileResponses = {
+    /**
+     * Authenticated MCP connection profile.
+     */
+    200: McpProfileDto;
+};
+
+export type GetApiV1McpProfileResponse = GetApiV1McpProfileResponses[keyof GetApiV1McpProfileResponses];
 
 export type GetApiV1StatusData = {
     body?: never;
@@ -36231,9 +36591,13 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
          */
         healthState?: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
         /**
-         * Filter by audit state.
+         * Filter by audit state. A URL version has `url-version`: it was fetched and classified but not scored.
          */
         auditState?: string;
+        /**
+         * URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Once a few addresses with the same parameter pattern prove to be copies, the crawl stops fetching that pattern: those have no rows and `inventorySummary.urlVersionsNotFetched` counts them. Scans made before URL versions were set aside have none.
+         */
+        urlVersions?: 'include' | 'exclude' | 'only';
         /**
          * Sort order. Defaults to `url`.
          */
@@ -36252,7 +36616,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesErrors = {
     /**
-     * Invalid date, conflicting runId/date, or invalid cursor identity.
+     * Invalid date, conflicting runId/date, invalid urlVersions, or invalid cursor identity.
      */
     400: ErrorEnvelope;
     /**

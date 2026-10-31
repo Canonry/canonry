@@ -1,0 +1,29 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "canonry": {
+      "type": "streamable-http",
+      "url": "https://mcp.canonry.ai/mcp",
+      "extensions": {
+        "com.openai": {
+          "auth": {
+            "type": "oauth",
+            "client": {
+              "mode": "provided",
+              "clientId": "canonry-chatgpt",
+              "tokenEndpointAuthMethod": "none"
+            },
+            "baseScopes": [
+              "read"
+            ],
+            "defaultScopes": [
+              "read",
+              "offline_access"
+            ],
+            "oidcEnabled": false
+          }
+        }
+      }
+    }
+  }
+}

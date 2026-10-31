@@ -1,17 +1,20 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { apiKeys, projects, runs, users } from '@canonry/canonry-db'
+import { apiKeys, oauthGrants, projects, runs, users } from '@canonry/canonry-db'
 import {
   ADS_ACTIVATE_SCOPE,
   ADS_APPROVE_SCOPE,
   ADS_WRITE_SCOPE,
   authRequired,
   authInvalid,
+  EMBED_QUERY_LIMIT_HEADER,
+  EMBED_QUERIES_WRITE_SCOPE,
   forbidden,
   isReadOnlyKey,
   intersectScopes,
   normalizeIdTokens,
+  parseEmbedQueryLimit,
   READ_ONLY_SCOPE,
   READ_SEMANTIC_OPERATIONS,
   matchOperationTemplate,
@@ -83,6 +86,8 @@ export interface AuthedApiKey {
  */
 export interface AuthPrincipal {
   kind: 'api-key' | 'user'
+  /** Present for OAuth bearers and the internal keys they delegate. */
+  oauthGrantId?: string | null
   id: string
   name: string
   scopes: string[]
@@ -206,6 +211,13 @@ function isPaidReadRoute(request: FastifyRequest): boolean {
  */
 function isTransportEnvelopeRoute(request: FastifyRequest): boolean {
   return request.routeOptions.config.transportEnvelope === true
+}
+
+/** The connection profile is a read inside the MCP audience, not a transport exemption. */
+function isMcpAuthorizationRoute(request: FastifyRequest): boolean {
+  return isTransportEnvelopeRoute(request)
+    || ((request.method === 'GET' || request.method === 'HEAD')
+      && matchOperationTemplate('GET', request.routeOptions.url ?? request.url) === 'GET /api/v1/mcp/profile')
 }
 
 /**
@@ -496,6 +508,9 @@ export function shouldSkipAuth(url: string): boolean {
   return false
 }
 
+/** OAuth-backed internal MCP credentials cannot outlive their transport cleanup indefinitely. */
+export const MCP_DELEGATED_KEY_MAX_AGE_MS = 60 * 60 * 1000
+
 /** Reading the install's account list. */
 export const USERS_READ_SCOPE = 'users.read'
 
@@ -508,10 +523,21 @@ function scopesForRole(role: UserRole, researchAllowViewers = false): string[] {
     : researchAllowViewers ? [READ_ONLY_SCOPE, RESEARCH_RUN_SCOPE] : [READ_ONLY_SCOPE]
 }
 
+/** Delegation must retain an actual consented scope after the account's role changes. */
+function delegatedScopesForRole(role: UserRole, requested: readonly string[], researchAllowViewers = false): string[] {
+  // The shared helper preserves a read fallback for legacy callers. Delegated
+  // consent cannot acquire that fallback when no requested scope survives.
+  const effective = intersectScopes(scopesForRole(role, researchAllowViewers), requested)
+    .filter(scope => requested.includes(WILDCARD_SCOPE) || requested.includes(scope))
+  if (effective.length === 0) throw forbidden('This credential no longer has any authorized scopes.')
+  return effective
+}
+
 /** What an OAuth access token resolved to. */
 export interface ResolvedOAuthToken {
   userId: string
   clientId: string
+  grantId?: string | null
   scope: string | null
 }
 
@@ -680,6 +706,27 @@ function isTechnicalAeoRead(request: FastifyRequest, url: string): boolean {
     || rest === 'technical-aeo/dead-links'
 }
 
+/**
+ * A query write from an embedded dashboard's own restricted key. The key's
+ * restricted grant and the route's declared write scope already pin it to the
+ * two query-tracking writes (see `applyScopedWriteGates`), and those routes
+ * apply the dashboard's limit. Any other write from the iframe stays refused.
+ */
+function isEmbedQueryWrite(request: FastifyRequest): boolean {
+  return request.routeOptions.config.writeScope === EMBED_QUERIES_WRITE_SCOPE
+    && (principalScopes(request) ?? []).includes(EMBED_QUERIES_WRITE_SCOPE)
+}
+
+/**
+ * The Queries tab reads its query workspace only when the render proxy says
+ * the agency lets this dashboard's clients manage their own queries. The header
+ * comes from the proxy, never from the end client.
+ */
+function isEmbedQueryRead(request: FastifyRequest, url: string): boolean {
+  if (parseEmbedQueryLimit(request.headers[EMBED_QUERY_LIMIT_HEADER]) === undefined) return false
+  return projectRouteRest(url) === 'query-tracking'
+}
+
 function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readonly string[] | undefined): void {
   const policy = requestEmbedProjectTabs(request, configuredTabs)
   // `undefined` is the only "nothing to enforce" value now. An empty ARRAY is
@@ -701,7 +748,7 @@ function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readon
   // key and no header, so no client could be created on any embed instance that
   // had tabs configured. The header is what identifies the render proxy; nothing
   // else sets it.
-  if (policy.fromEmbedSurface && WRITE_METHODS.has(request.method)) {
+  if (policy.fromEmbedSurface && WRITE_METHODS.has(request.method) && !isEmbedQueryWrite(request)) {
     throw forbidden('This endpoint is not available in embed mode.')
   }
 
@@ -712,6 +759,7 @@ function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readon
 
   const url = request.url.split('?')[0]!
   if (isProjectShellRead(request, url)) return
+  if (isEmbedQueryRead(request, url)) return
   if (tabs.includes('overview') && isOverviewRead(url)) return
   if (tabs.includes('technical-aeo') && isTechnicalAeoRead(request, url)) return
 
@@ -852,35 +900,20 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
         // wider REST surface would let a connector approved for one thing act
         // on everything the person can reach. Checked before the token is even
         // looked up, so a non-MCP route cannot be probed with one.
-        const granted = isTransportEnvelopeRoute(request)
+        const granted = isMcpAuthorizationRoute(request)
           ? opts.resolveOAuthToken?.(token) ?? null
           : null
         if (granted) {
           const account = app.db.select().from(users).where(eq(users.id, granted.userId)).get()
           if (!account) throw authInvalid()
-          // Authority is the INTERSECTION of what the person can do and what
-          // they granted the client. Taking the role alone was a privilege
-          // escalation: an admin approving a `scope=read` connector handed it
-          // full admin, including minting root api keys.
-          const roleScopes = scopesForRole(account.role, opts.researchAllowViewers)
           // `offline_access` governs refresh tokens, not API authority.
-          const requested = (granted.scope ?? '')
+          const requested = (granted.scope ?? READ_ONLY_SCOPE)
             .split(/\s+/)
             .filter(part => part.length > 0 && part !== 'offline_access')
-          // The role is a CEILING, the grant is the request, and the effective
-          // authority is the smaller of the two. A literal set intersection is
-          // wrong here because an admin's role scope is the wildcard `*`, which
-          // does not textually contain `read` — intersecting would leave an
-          // admin who granted `scope=read` with no authority at all.
-          // An EMPTY set is not "no authority" — isReadOnlyKey([]) is false,
-          // because empty means "no read-only marker", so an empty set reads as
-          // NOT read-only and widens the catalog. A grant that intersects
-          // nothing must therefore floor at read, never at nothing: otherwise
-          // the narrowest possible grant to the least privileged account yields
-          // the WIDEST tool surface.
-          const effective = intersectScopes(roleScopes, requested)
+          const effective = delegatedScopesForRole(account.role, requested, opts.researchAllowViewers)
           request.principal = {
             kind: 'user',
+            oauthGrantId: granted.grantId,
             id: account.id,
             name: account.name,
             scopes: effective,
@@ -946,10 +979,17 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       ? app.db.select().from(users).where(eq(users.id, key.delegatedUserId)).get()
       : undefined
     if (key.delegatedUserId && !delegatedUser) throw authInvalid()
-    if (delegatedUser) scopes = intersectScopes(scopesForRole(delegatedUser.role, opts.researchAllowViewers), scopes)
+    if (key.delegatedOAuthGrantId) {
+      const age = Date.now() - Date.parse(key.createdAt)
+      if (!Number.isFinite(age) || age < 0 || age >= MCP_DELEGATED_KEY_MAX_AGE_MS) throw authInvalid()
+      const grant = app.db.select().from(oauthGrants).where(eq(oauthGrants.id, key.delegatedOAuthGrantId)).get()
+      if (!grant || grant.revokedAt || grant.userId !== key.delegatedUserId) throw authInvalid()
+    }
+    if (delegatedUser) scopes = delegatedScopesForRole(delegatedUser.role, scopes, opts.researchAllowViewers)
     request.apiKey = { id: key.id, name: key.name, scopes, projectId: key.projectId ?? null }
     request.principal = {
       kind: 'api-key',
+      oauthGrantId: key.delegatedOAuthGrantId,
       id: key.id,
       name: key.name,
       scopes,

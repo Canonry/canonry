@@ -296,7 +296,7 @@ export function TechnicalAeoSection({
 
   if (scoreQuery.isLoading) {
     return (
-      <div className={`flex min-h-40 items-center justify-center gap-2 text-sm text-secondary ${integrated ? '' : 'mt-6'}`} role="status">
+      <div className={`flex min-h-40 items-center justify-center gap-2 text-label-14 text-secondary ${integrated ? '' : 'mt-6'}`} role="status">
         <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
         Loading page health...
       </div>
@@ -307,18 +307,18 @@ export function TechnicalAeoSection({
     return (
       <>
         <section
-          className={`flex flex-col gap-4 rounded-lg border border-negative bg-negative-soft px-5 py-5 sm:flex-row sm:items-center sm:justify-between ${integrated ? '' : 'mt-6'}`}
+          className={`flex flex-col gap-4 rounded-md border border-negative bg-negative-soft px-5 py-5 sm:flex-row sm:items-center sm:justify-between ${integrated ? '' : 'mt-6'}`}
           role="alert"
         >
           <div className="flex min-w-0 gap-3">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-negative" aria-hidden="true" />
             <div>
               {integrated ? (
-                <h3 className="font-semibold text-negative">Page health could not load</h3>
+                <h3 className="text-heading-14 text-negative">Page health could not load</h3>
               ) : (
-                <h2 className="font-semibold text-negative">Page health could not load</h2>
+                <h2 className="text-heading-14 text-negative">Page health could not load</h2>
               )}
-              <p className="mt-1 text-sm text-secondary">The saved audit could not be read. Try loading it again.</p>
+              <p className="mt-1 text-copy-14 text-secondary">The saved audit could not be read. Try loading it again.</p>
             </div>
           </div>
           <Button
@@ -343,10 +343,10 @@ export function TechnicalAeoSection({
     if (integrated) {
       return (
         <>
-          <section className="rounded-lg border border-default bg-surface-subtle px-5 py-7 text-center">
+          <section className="material-base px-5 py-7 text-center">
             <ScanSearch className="mx-auto size-7 text-muted" aria-hidden="true" />
-            <h2 className="mt-3 text-base font-semibold text-heading">Page health unavailable</h2>
-            <p className="mx-auto mt-2 max-w-md text-sm text-secondary">
+            <h2 className="mt-3 text-heading-16 text-heading">Page health unavailable</h2>
+            <p className="mx-auto mt-2 max-w-md text-copy-14 text-secondary">
               {managedScanForViewer ? MANAGED_SCANS_COPY : 'Run a new Site Health scan to calculate page-level technical findings.'}
             </p>
           </section>
@@ -357,7 +357,7 @@ export function TechnicalAeoSection({
     return (
       <Card className="surface-card mt-6 p-8 text-center">
         <ScanSearch className="mx-auto mb-3 h-8 w-8 text-muted" aria-hidden="true" />
-        <h2 className="text-base font-semibold text-heading">No Technical AEO audit yet</h2>
+        <h2 className="text-heading-16 text-heading">No Technical AEO audit yet</h2>
         <p className="supporting-copy mx-auto mt-2 max-w-md">
           A technical AEO audit crawls your sitemap and scores every page for structured data, AI-readable content,
           crawler access, freshness, and more, then rolls it up into one site score.
@@ -375,7 +375,7 @@ export function TechnicalAeoSection({
           </div>
         )}
         {auditBusy ? (
-          <p className="mt-3 text-xs text-muted" role="status" aria-live="polite">
+          <p className="mt-3 text-copy-13 text-muted" role="status" aria-live="polite">
             The dashboard will refresh automatically when the audit finishes.
           </p>
         ) : null}
@@ -423,7 +423,7 @@ export function TechnicalAeoSection({
                 the agent instructions forbid ("never present a bounded first
                 scan as a full-site result"), so the label carries the caveat
                 rather than leaving it to a separate banner. */}
-            <p className="text-sm font-medium text-secondary">{partialScan ? 'Score so far' : 'Site score'}</p>
+            <p className="text-copy-14-strong text-secondary">{partialScan ? 'Score so far' : 'Site score'}</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span
                 aria-label={partialScan
@@ -431,15 +431,15 @@ export function TechnicalAeoSection({
                   : `Site score ${score.aggregateScore} out of 100`}
                 className={`inline-flex items-baseline gap-1 font-mono tabular-nums ${scoreTextClass(score.aggregateScore)}`}
               >
-                <span className="text-3xl font-semibold">{score.aggregateScore}</span>
-                <span className="text-sm text-muted">/100</span>
+                <span className="text-heading-32">{score.aggregateScore}</span>
+                <span className="text-label-14 text-muted">/100</span>
               </span>
               <ToneBadge tone={scoreTone(score.aggregateScore)}>{statusLabel(score.aggregateScore)}</ToneBadge>
               {partialScan ? <ToneBadge tone="caution">Part of the site</ToneBadge> : null}
               {deltaLabel ? <ToneBadge tone={deltaTone}>{deltaLabel}</ToneBadge> : null}
             </div>
           </div>
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm tabular-nums text-secondary">
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-copy-14 tabular-nums text-secondary">
             <span>{score.pagesAudited} page{score.pagesAudited === 1 ? '' : 's'} checked</span>
             <span aria-hidden="true" className="text-faint">·</span>
             {/* This counts checks with at least one page below pass, while the
@@ -456,14 +456,14 @@ export function TechnicalAeoSection({
           </p>
         </section>
       ) : (
-        <section className="surface-card flex flex-wrap items-start justify-between gap-6 rounded-lg border border-default bg-surface p-6">
+        <section className="surface-card flex flex-wrap items-start justify-between gap-6 material-base p-6">
         <div className="min-w-0">
           <p className="eyebrow eyebrow-soft">{viewingHistorical ? 'Technical AEO history' : 'Technical AEO'}</p>
           <div className="mt-1 flex flex-wrap items-baseline gap-3">
-            <span className={`text-4xl font-semibold tabular-nums ${scoreTextClass(score.aggregateScore)}`}>
+            <span className={`text-heading-40 tabular-nums ${scoreTextClass(score.aggregateScore)}`}>
               {score.aggregateScore}
             </span>
-            <span className="text-lg text-muted">/ 100</span>
+            <span className="text-label-18 text-muted">/ 100</span>
             <ToneBadge tone={scoreTone(score.aggregateScore)}>{statusLabel(score.aggregateScore)}</ToneBadge>
             {deltaLabel ? <ToneBadge tone={deltaTone}>{deltaLabel}</ToneBadge> : null}
             {auditBusy ? <ToneBadge tone="neutral">{auditStatusLabel}</ToneBadge> : null}
@@ -471,7 +471,7 @@ export function TechnicalAeoSection({
           <p className="supporting-copy mt-2 tabular-nums">
             {score.pagesDiscovered} URL{score.pagesDiscovered === 1 ? '' : 's'} in sitemap · {score.pagesAudited} audited · {score.pagesSkipped} skipped · {score.pagesErrored} errored
           </p>
-          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted">
+          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-copy-13 text-muted">
             <span className="text-faint">Sitemap:</span>
             <a
               href={score.sitemapUrl ?? '#'}
@@ -484,10 +484,10 @@ export function TechnicalAeoSection({
             <InfoTooltip text="Every audit re-reads this sitemap, so pages you add or remove are picked up on the next run. Discovered/audited counts and the score reflect the sitemap at the time of the latest run. Override it with `canonry technical-aeo run <project> --sitemap-url <url>`." />
           </p>
           {score.auditedAt ? (
-            <p className="mt-0.5 text-xs text-faint">Audited {new Date(score.auditedAt).toLocaleString()}</p>
+            <p className="mt-0.5 text-copy-13 text-faint">Audited {new Date(score.auditedAt).toLocaleString()}</p>
           ) : null}
           {auditBusy ? (
-            <p className="mt-1 text-xs text-muted" role="status" aria-live="polite">
+            <p className="mt-1 text-copy-13 text-muted" role="status" aria-live="polite">
               Results refresh automatically when this audit finishes.
             </p>
           ) : null}
@@ -498,7 +498,7 @@ export function TechnicalAeoSection({
               aria-label="View a Technical AEO audit"
               value={selectedRunId ?? ''}
               onChange={(event) => setSelectedRunId(event.target.value || null)}
-              className="min-h-11 rounded-md border border-base bg-bg px-3 text-sm text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+              className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
             >
               <option value="">Latest Technical AEO audit</option>
               {[...trendPoints].reverse().slice(1).map((point) => (
@@ -586,12 +586,12 @@ export function TechnicalAeoSection({
         {integrated ? (
           <div>
             <div className="flex items-center gap-1.5">
-              <h3 className="text-base font-semibold text-heading">
+              <h3 className="text-heading-16 text-heading">
                 {compactCopy ? 'Checks' : 'Technical findings'}
               </h3>
               <InfoTooltip text={FACTOR_STATUS_HELP} />
             </div>
-            <p className="mt-1 max-w-2xl text-sm text-secondary">
+            <p className="mt-1 max-w-2xl text-copy-14 text-secondary">
               {compactCopy
                 ? hasAnyRecommendations
                   ? 'Open a check to see affected pages and recommended fixes.'
@@ -641,7 +641,7 @@ export function TechnicalAeoSection({
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
-                            className="flex min-h-11 w-full items-center gap-2 text-left font-medium text-strong outline-none hover:text-primary focus-visible:text-primary focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mono-400"
+                            className="flex min-h-11 w-full items-center gap-2 text-left text-button-14 text-strong outline-none hover:text-primary focus-visible:text-primary focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mono-400"
                             aria-expanded={expanded}
                             onClick={() => setExpandedFactor(expanded ? null : f.id)}
                           >
@@ -688,36 +688,36 @@ export function TechnicalAeoSection({
                           <div className={`grid gap-5 border-t border-subtle pt-4 ${hasTwoDetailColumns ? 'lg:grid-cols-2' : ''}`}>
                             {hasRecommendations && issue ? (
                               <section aria-labelledby={`technical-finding-${f.id}-fixes`}>
-                                <h4 id={`technical-finding-${f.id}-fixes`} className="text-sm font-semibold text-heading">
+                                <h4 id={`technical-finding-${f.id}-fixes`} className="text-heading-14 text-heading">
                                   Recommended fixes
                                 </h4>
                                 <ol className="mt-2 list-decimal space-y-1.5 pl-5 marker:text-muted">
                                   {issue.topRecommendations.map((rec, i) => (
-                                    <li key={i} className="pl-1 text-sm text-secondary">{rec}</li>
+                                    <li key={i} className="pl-1 text-label-14 text-secondary">{rec}</li>
                                   ))}
                                 </ol>
                                 {integrated && typeof f.sharePct === 'number' ? (
-                                  <p className="mt-3 text-xs text-muted">{factorShareOfScoreLabel(f.sharePct, 'site')}</p>
+                                  <p className="mt-3 text-copy-13 text-muted">{factorShareOfScoreLabel(f.sharePct, 'site')}</p>
                                 ) : null}
                               </section>
                             ) : belowPassTotal === 0 ? (
-                              <p className="text-sm text-secondary">Every audited page passes this check.</p>
+                              <p className="text-copy-14 text-secondary">Every audited page passes this check.</p>
                             ) : null}
 
                             {belowPassTotal > 0 ? (
                               <section aria-labelledby={`technical-finding-${f.id}-pages`}>
-                                <h4 id={`technical-finding-${f.id}-pages`} className="text-sm font-semibold text-heading">
+                                <h4 id={`technical-finding-${f.id}-pages`} className="text-heading-14 text-heading">
                                   Affected pages ({belowPassTotal})
                                 </h4>
                                 {integrated && pagesQuery.isLoading ? (
-                                  <div className="mt-3 flex items-center gap-2 text-sm text-secondary" role="status">
+                                  <div className="mt-3 flex items-center gap-2 text-label-14 text-secondary" role="status">
                                     <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
                                     Loading affected pages...
                                   </div>
                                 ) : integrated && pagesQuery.error ? (
                                   <div className="mt-3" role="alert">
-                                    <p className="text-sm font-medium text-negative">Affected pages could not load</p>
-                                    <p className="mt-1 text-sm text-secondary">Try the page-level audit read again.</p>
+                                    <p className="text-copy-14-strong text-negative">Affected pages could not load</p>
+                                    <p className="mt-1 text-copy-14 text-secondary">Try the page-level audit read again.</p>
                                     <Button
                                       type="button"
                                       variant="secondary"
@@ -737,7 +737,7 @@ export function TechnicalAeoSection({
                                 ) : belowPass.length > 0 ? (
                                   <ul className="mt-2 space-y-1.5">
                                     {belowPass.slice(0, FACTOR_DRILLDOWN_PAGE_CAP).map((row) => (
-                                      <li key={row.url} className="flex min-w-0 items-center gap-2 text-sm">
+                                      <li key={row.url} className="flex min-w-0 items-center gap-2 text-label-14">
                                         <span className={`w-8 shrink-0 text-right font-mono tabular-nums ${scoreTextClass(row.score)}`}>{row.score}</span>
                                         <a
                                           href={row.url}
@@ -752,15 +752,15 @@ export function TechnicalAeoSection({
                                     ))}
                                   </ul>
                                 ) : (
-                                  <p className="mt-2 text-sm text-secondary">Page details are not available in the loaded audit sample.</p>
+                                  <p className="mt-2 text-copy-14 text-secondary">Page details are not available in the loaded audit sample.</p>
                                 )}
                                 {belowPass.length > FACTOR_DRILLDOWN_PAGE_CAP ? (
-                                  <p className="mt-2 text-xs text-muted">
+                                  <p className="mt-2 text-copy-13 text-muted">
                                     + {belowPass.length - FACTOR_DRILLDOWN_PAGE_CAP} more below pass
                                   </p>
                                 ) : null}
                                 {pagesCapped && (!integrated || (!pagesQuery.isLoading && !pagesQuery.error)) ? (
-                                  <p className="mt-2 text-xs text-muted">Showing the worst {allPages.length} audited pages.</p>
+                                  <p className="mt-2 text-copy-13 text-muted">Showing the worst {allPages.length} audited pages.</p>
                                 ) : null}
                               </section>
                             ) : null}
@@ -780,14 +780,14 @@ export function TechnicalAeoSection({
         <section className="border-t border-default pt-5" aria-labelledby="onboarding-page-evidence-heading">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
             <div className="min-w-0">
-              <h3 id="onboarding-page-evidence-heading" className="text-base font-semibold text-heading">
+              <h3 id="onboarding-page-evidence-heading" className="text-heading-16 text-heading">
                 {onboardingEvidenceNeedsFix ? 'First page to fix' : 'Example audited page'}
               </h3>
               <a
                 href={onboardingEvidencePage.url}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-1 block max-w-2xl truncate font-mono text-sm text-link outline-none hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-400"
+                className="mt-1 block max-w-2xl truncate text-label-14-mono text-link outline-none hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-400"
                 title={onboardingEvidencePage.url}
               >
                 {onboardingEvidencePage.url}
@@ -816,21 +816,21 @@ export function TechnicalAeoSection({
               <InfoTooltip text="Factors scoring below pass across the most pages, ranked by site-wide impact. Fixing one of these typically lifts many pages at once." />
             </h2>
           </div>
-          <div className="mt-3 divide-y divide-mono-800/60 overflow-hidden rounded-lg border border-default">
+          <div className="mt-3 divide-y divide-mono-800/60 overflow-hidden material-base">
             {score.crossCuttingIssues.map((issue) => {
               return (
                 <div key={issue.factorId} className="p-4">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="text-sm font-medium text-heading">{issue.factorName}</span>
+                    <span className="text-label-14-strong text-heading">{issue.factorName}</span>
                     <ToneBadge tone={scoreTone(issue.avgScore)}>{statusLabel(issue.avgScore)}</ToneBadge>
-                    <span className="text-xs tabular-nums text-muted">
+                    <span className="text-label-12 tabular-nums text-muted">
                       avg {issue.avgScore} · affects {issue.affectedPages} of {issue.totalPages} pages ({formatPercent(issue.affectedPct, RatioUnits.percent)})
                     </span>
                   </div>
                   {issue.topRecommendations.length > 0 ? (
                     <ul className="mt-2 space-y-1">
                       {issue.topRecommendations.map((rec, i) => (
-                        <li key={i} className="flex gap-2 text-sm text-secondary">
+                        <li key={i} className="flex gap-2 text-label-14 text-secondary">
                           <span className="select-none text-faint">→</span>
                           <span>{rec}</span>
                         </li>
@@ -936,7 +936,7 @@ export function TechnicalAeoSection({
               itemLabel={pagesTable.hasQuery ? 'matches' : 'rows'}
             />
             {pagesCapped ? (
-              <p className="mt-2 text-xs text-faint">Showing the worst {allPages.length} of {score.pagesAudited} audited pages.</p>
+              <p className="mt-2 text-copy-13 text-faint">Showing the worst {allPages.length} of {score.pagesAudited} audited pages.</p>
             ) : null}
           </>
         )}

@@ -38,8 +38,8 @@ export class ErrorBoundary extends Component<Props, State> {
           <div className="rounded-full bg-negative-950/40 p-3">
             <AlertTriangle className="size-6 text-negative-400" />
           </div>
-          <h2 className="text-lg font-semibold text-heading">Something went wrong</h2>
-          <p className="text-sm text-secondary max-w-md">
+          <h2 className="text-heading-20 text-heading">Something went wrong</h2>
+          <p className="text-copy-14 text-secondary max-w-md">
             {this.state.error.message || 'An unexpected error occurred while rendering this page.'}
           </p>
           <div className="flex gap-3 mt-2">

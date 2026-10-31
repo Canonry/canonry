@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import {
-  SeoAdapterOutcomes, SeoCapabilities, SeoProviders, SeoTargetKinds,
-  dollarsToMicros, emptySeoResults, normalizeHostname, registrableDomain, seoDeviceSchema, seoProfileInputSchema, seoRankingSettingsSchema, validationError,
+  SeoAdapterOutcomes, SeoCapabilities, SeoKeywordGapModes, SeoProviders, SeoTargetKinds,
+  dollarsToMicros, emptySeoResults, normalizeHostname, registrableDomain, seoDeviceSchema, seoKeywordGapModeSchema, seoProfileInputSchema, seoRankingSettingsSchema, validationError,
   type SeoAdapter, type SeoAdapterEstimate, type SeoAdapterRequest, type SeoAdapterResult,
   type SeoResults, type SeoTarget,
 } from '@canonry/canonry-contracts'
@@ -14,6 +14,8 @@ const ENDPOINTS = {
   [SeoCapabilities['domain-intelligence']]: 'dataforseo_labs/google/domain_rank_overview/live',
   [SeoCapabilities['ranked-keywords']]: 'dataforseo_labs/google/ranked_keywords/live',
   [SeoCapabilities['market-rankings']]: 'serp/google/organic/live/advanced',
+  [SeoCapabilities['competitor-discovery']]: 'dataforseo_labs/google/competitors_domain/live',
+  [SeoCapabilities['keyword-gaps']]: 'dataforseo_labs/google/domain_intersection/live',
 } as const
 
 /** DataForSEO accepts a SERP keyword of up to 700 characters, counted after it decodes escapes: the text as searched. */
@@ -116,6 +118,27 @@ function taskPayload(request: SeoAdapterRequest): Record<string, unknown> {
   const host = targetHost(target)
   const domain = registrableDomain(host)
   switch (request.capability) {
+    case SeoCapabilities['competitor-discovery']:
+      if (target.kind !== SeoTargetKinds.domain) throw validationError('Competitor discovery requires a whole-domain scope.')
+      return {
+        ...common, target: host, limit: request.limit, offset: 0, item_types: ['organic'],
+        include_clickstream_data: false, ignore_synonyms: false, exclude_domains: [host],
+        order_by: ['intersections,desc'],
+      }
+    case SeoCapabilities['keyword-gaps']: {
+      const comparison = request.comparison
+      if (target.kind !== SeoTargetKinds.domain || !comparison || comparison.competitor.kind !== SeoTargetKinds.domain) {
+        throw validationError('Keyword gaps require a whole-domain target and comparison domain.')
+      }
+      if (!seoKeywordGapModeSchema.safeParse(comparison.mode).success) throw validationError('Choose shared or missing searches for keyword gaps.')
+      const competitor = targetHost(comparison.competitor)
+      if (competitor === host) throw validationError('Choose a comparison domain different from the target.')
+      return {
+        ...common, target1: competitor, target2: host, intersections: comparison.mode === SeoKeywordGapModes.shared,
+        limit: request.limit, offset: 0, item_types: ['organic'], include_serp_info: true,
+        include_clickstream_data: false, order_by: ['keyword_data.keyword_info.search_volume,desc'],
+      }
+    }
     case SeoCapabilities['domain-intelligence']:
       if (target.kind !== SeoTargetKinds.domain) throw validationError('Domain intelligence requires a whole-domain scope.')
       return { ...common, target: host, limit: 1, ignore_synonyms: false }
@@ -151,6 +174,8 @@ function appendResults(target: SeoResults, source: SeoResults): void {
   target.domainIntelligence.push(...source.domainIntelligence)
   target.rankedKeywords.push(...source.rankedKeywords)
   target.marketRankings.push(...source.marketRankings)
+  target.competitors.push(...source.competitors)
+  target.keywordGaps.push(...source.keywordGaps)
 }
 
 /** Construction is local and free. Configuration never probes the account. */

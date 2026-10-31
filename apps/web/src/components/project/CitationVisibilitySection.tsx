@@ -202,24 +202,24 @@ export function CitationVisibilitySection({
   let body: React.ReactNode
   if (visibilityQuery.isError) {
     body = (
-      <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
+      <div className="flex flex-wrap items-center gap-3 text-label-14 text-secondary">
         {/* The SDK throws the API's error envelope; its message says why. */}
         <span>Could not load engine results: {extractErrorMessage(visibilityQuery.error)}</span>
         <Button type="button" size="sm" variant="outline" onClick={() => { void visibilityQuery.refetch() }}>Retry</Button>
       </div>
     )
   } else if (!data) {
-    body = <p role="status" className="text-sm text-secondary">Loading engine results…</p>
+    body = <p role="status" className="text-copy-14 text-secondary">Loading engine results…</p>
   } else if (data.status === 'no-data') {
     body = (
-      <p className="text-sm text-secondary">
+      <p className="text-copy-14 text-secondary">
         {data.reason === 'no-queries'
           ? 'Add queries to start tracking AI citations.'
           : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Engine results appear after the first AI Visibility check.'}
       </p>
     )
   } else if (!active) {
-    body = <p className="text-sm text-secondary">No engine answers yet.</p>
+    body = <p className="text-copy-14 text-secondary">No engine answers yet.</p>
   }
 
   const details: React.ReactNode[] = []
@@ -322,7 +322,7 @@ export function CitationVisibilitySection({
                   <span className="sr-only"> · {SPOKEN_CLASS[active.key]}</span>
                 </span>
               ) : (
-                <span className="text-[13px] text-secondary">No competitors tracked</span>
+                <span className="text-label-13 text-secondary">No competitors tracked</span>
               )}
             </p>
           </>

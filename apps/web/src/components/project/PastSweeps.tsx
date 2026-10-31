@@ -43,7 +43,7 @@ export function PastSweeps({ runs, projectName, collapsed = false }: { runs: rea
         </summary>
         <div className="av-card-body">
           {runs.length === 0 ? (
-            <p className="text-sm text-secondary">No checks yet.</p>
+            <p className="text-copy-14 text-secondary">No checks yet.</p>
           ) : (
             <table className="av-grid av-grid-dense av-grid-sweeps" aria-labelledby={titleId}>
               <thead className="sr-only">
@@ -67,13 +67,13 @@ export function PastSweeps({ runs, projectName, collapsed = false }: { runs: rea
                           {run.startedAt}
                         </RunDetailLink>
                       </th>
-                      {showKind ? <td className="text-[13px] text-secondary">{run.kindLabel}</td> : null}
-                      <td className="text-[13px] text-secondary">{run.triggerLabel}</td>
-                      {showLocation ? <td className="text-[13px] text-secondary">{run.location ?? 'No location'}</td> : null}
-                      <td className="text-[13px] text-secondary">{run.duration}</td>
+                      {showKind ? <td className="text-label-13 text-secondary">{run.kindLabel}</td> : null}
+                      <td className="text-label-13 text-secondary">{run.triggerLabel}</td>
+                      {showLocation ? <td className="text-label-13 text-secondary">{run.location ?? 'No location'}</td> : null}
+                      <td className="text-label-13 text-secondary">{run.duration}</td>
                       <td>
                         <span className={`av-status ${status.tone}`}>{status.word}</span>
-                        {showDetail && run.statusDetail ? <span className="ml-2 text-[13px] text-secondary">{run.statusDetail}</span> : null}
+                        {showDetail && run.statusDetail ? <span className="ml-2 text-label-13 text-secondary">{run.statusDetail}</span> : null}
                       </td>
                     </tr>
                   )

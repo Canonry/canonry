@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight, X } from 'lucide-react'
+import { dashboardShowsIconMark } from '../../api.js'
 import type { UpdateAvailable } from '../../view-models.js'
 
 interface BrandLockupProps {
@@ -11,6 +12,23 @@ interface BrandLockupProps {
 }
 
 const BUBBLE_EXIT_MS = 220
+
+/**
+ * The Canonry mark beside the wordmark. Deployments with `dashboard.brandMark:
+ * icon` (client instances) show the plugin icon, whose white tile keeps its
+ * edge on light surfaces through `.brand-icon-tile`; the rest show the mascot.
+ */
+export function BrandMarkImage({ className }: { className: string }) {
+  const icon = dashboardShowsIconMark()
+  return (
+    <img
+      className={icon ? `${className} brand-icon-tile` : className}
+      src={icon ? './canonry-icon.svg' : './favicon.svg'}
+      alt=""
+      aria-hidden="true"
+    />
+  )
+}
 
 export function BrandLockup({ compact = false, version, updateAvailable, onDismissUpdate }: BrandLockupProps) {
   const showVersion = !compact && version && version !== 'unknown'
@@ -40,7 +58,7 @@ export function BrandLockup({ compact = false, version, updateAvailable, onDismi
         className="brand-lockup brand-lockup-compact"
         aria-label="Canonry home"
       >
-        <img className="brand-icon" src="./favicon.svg" alt="" aria-hidden="true" />
+        <BrandMarkImage className="brand-icon" />
         <span className="brand-copy">
           <span className="brand-mark">Canonry</span>
         </span>
@@ -60,7 +78,7 @@ export function BrandLockup({ compact = false, version, updateAvailable, onDismi
         aria-label="Canonry home"
         tabIndex={-1}
       >
-        <img className="brand-icon" src="./favicon.svg" alt="" aria-hidden="true" />
+        <BrandMarkImage className="brand-icon" />
       </Link>
       <div className="brand-copy">
         <Link to="/" className="brand-mark">Canonry</Link>

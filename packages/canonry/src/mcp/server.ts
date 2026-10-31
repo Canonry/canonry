@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { CLIENT_INFO_META_KEY, McpServer } from '@modelcontextprotocol/server'
 import { z } from 'zod'
 import { isReadOnlyKey, restrictedWriteScopes, RESEARCH_RUN_SCOPE, OperationAccesses, upgradeCaveatFor } from '@canonry/canonry-contracts'
 import { createApiClient, runWithUsageTags, type ApiClient, type ServerUpdateAvailable } from '../client.js'
@@ -21,6 +21,8 @@ export interface CanonryMcpServerOptions {
   credentialScopes?: readonly string[]
   /** Host-derived authority from auth or /keys/self. Missing means denied. */
   operator?: boolean
+  /** Verified profile availability for this credential and configured instance. */
+  connectionProfile?: boolean
   eager?: boolean
   /**
    * Restrict this server to a union of tiers.
@@ -106,7 +108,7 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
   ;(server as unknown as WithValidate).validateToolInput = async (_tool, args) => args
 
   const entries: DynamicCatalogEntry[] = []
-  for (const registryTool of getCanonryMcpTools(scope, options.tiers, options.credentialScopes, options.operator)) {
+  for (const registryTool of getCanonryMcpTools(scope, options.tiers, options.credentialScopes, options.operator, options.connectionProfile)) {
     const tool = registryTool as CanonryMcpTool
     const handler = tool.handler as (client: ApiClient, input: unknown) => Promise<unknown>
     const registered = server.registerTool(
@@ -118,14 +120,19 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
         outputSchema: tool.outputSchema ? mcpOutputSchema(tool.outputSchema) : undefined,
         annotations: tool.annotations,
       },
-      async (input: unknown) => withToolErrors(async () => {
+      async (input: unknown, context) => withToolErrors(async () => {
         const parsed = tool.inputSchema.parse(input ?? {})
+        const envelope = context.mcpReq.envelope
+        const identity = envelope && CLIENT_INFO_META_KEY in envelope ? envelope[CLIENT_INFO_META_KEY] : undefined
+        const clientName = typeof identity === 'object' && identity !== null && 'name' in identity && typeof identity.name === 'string'
+          ? identity.name : server.server.getClientVersion()?.name
         // Label every API request this tool call makes, so the server can
         // attribute it to the tool and to the MCP client that asked for it.
         return runWithUsageTags(client, {
           mcpTool: tool.name,
           mcpCall: randomUUID(),
-          mcpClient: server.server.getClientVersion()?.name,
+          mcpClient: clientName,
+          signal: context.mcpReq.signal,
         }, () => handler(client, parsed))
       }),
     )
@@ -177,8 +184,8 @@ function registerMetaTools(
     {
       title: 'Guide a Canonry workflow',
       description: 'Start here: route an intent to available stored-evidence tools, separately listed actions requiring approval, and workflow guidance. No provider calls or installation required. Optionally include full toolkit details.',
-      inputSchema: helpInputSchema.shape,
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+      inputSchema: helpInputSchema,
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (input: unknown) => {
       try {
@@ -200,9 +207,9 @@ function registerMetaTools(
     'canonry_load_toolkit',
     {
       title: 'Load a Canonry MCP toolkit',
-      description: 'Register a toolkit\'s tools for this session and emit one notifications/tools/list_changed. Idempotent. Loaded toolkits remain loaded for the rest of the session. Wait for this call to return before calling any newly enabled tool — pipelining the call with a tools/call on the same connection can race the registration and fail with "MCP error -32602: Tool ... disabled".',
-      inputSchema: loadToolkitInputSchema.shape,
-      annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false },
+      description: 'Register a toolkit\'s tools for this session and emit one notifications/tools/list_changed. Idempotent. Loaded toolkits remain loaded for the rest of the session. Wait for this call to return before calling any newly enabled tool — pipelining the call with a tools/call on the same connection can race the registration and fail with "Tool ... disabled".',
+      inputSchema: loadToolkitInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (input: unknown) => withToolErrors(async () => {
       const parsed = loadToolkitInputSchema.parse(input ?? {})
@@ -216,10 +223,12 @@ export function getCanonryMcpTools(
   tiers?: readonly CanonryMcpTier[],
   credentialScopes?: readonly string[],
   operator = false,
+  connectionProfile = false,
 ) {
   const readOnly = scope === 'read-only' || (credentialScopes !== undefined && isReadOnlyKey(credentialScopes))
   const restricted = credentialScopes && restrictedWriteScopes(credentialScopes)
-  const authorized = canonryMcpTools.filter(tool => !tool.requiresOperator || operator)
+  const authorized = canonryMcpTools.filter(tool => (!tool.requiresOperator || operator)
+    && (!tool.requiresConnectionProfile || connectionProfile))
   const byScope = scope === 'stored-only'
     ? authorized.filter(tool => toolOperationAccess(tool) === OperationAccesses.stored)
     : readOnly

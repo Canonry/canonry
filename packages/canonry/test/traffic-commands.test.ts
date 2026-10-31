@@ -57,6 +57,7 @@ describe('traffic CLI commands', () => {
 
     const app = await createServer({
       config: config as Parameters<typeof createServer>[0]['config'],
+      configPath,
       db,
       logger: false,
     })

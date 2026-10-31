@@ -7,6 +7,22 @@ describe('direct ApiClient stored-only transport boundaries', () => {
     vi.restoreAllMocks()
   })
 
+  it('isolates explicit client policy from ordinary clients and process flags', async () => {
+    delete process.env.CANONRY_STORED_ONLY
+    const requests: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      requests.push(input instanceof Request ? input.url : String(input))
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+    const restricted = new ApiClient('http://127.0.0.1:9', 'test-key', { skipProbe: true, storedOnly: true })
+    const ordinary = new ApiClient('http://127.0.0.1:9', 'test-key', { skipProbe: true })
+    await expect(restricted.triggerRun('acme')).rejects.toMatchObject({ code: 'STORED_ONLY_REFUSED' })
+    await expect(restricted.streamPost('/projects/acme/agent/stream', {})).rejects.toMatchObject({ code: 'STORED_ONLY_REFUSED' })
+    expect(requests).toEqual([])
+    await ordinary.triggerRun('acme')
+    expect(requests).toEqual(['http://127.0.0.1:9/api/v1/projects/acme/runs'])
+  })
+
   it('refuses streamPost before opening a socket', async () => {
     process.env.CANONRY_STORED_ONLY = '1'
     const fetchSpy = vi.spyOn(globalThis, 'fetch')

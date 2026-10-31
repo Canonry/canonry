@@ -56,7 +56,6 @@ async function chartTokenDefaults(): Promise<Map<string, string>> {
 // must bridge to.
 const BRIDGED: Array<[string, string]> = [
   [CHART_TOOLTIP_STYLE.contentStyle.backgroundColor as string, '--chart-tooltip-bg'],
-  [CHART_TOOLTIP_STYLE.contentStyle.border as string, '--chart-tooltip-border'],
   [CHART_TOOLTIP_STYLE.labelStyle.color as string, '--chart-tooltip-label'],
   [CHART_TOOLTIP_STYLE.itemStyle.color as string, '--chart-tooltip-item'],
   [CHART_AXIS_TICK.fill, '--chart-neutral-text-dim'],

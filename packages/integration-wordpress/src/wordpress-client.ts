@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import type {
+  WordpressAuditDto,
   WordpressAuditIssueDto,
   WordpressAuditPageDto,
   WordpressBulkMetaEntryResultDto,
@@ -7,6 +8,7 @@ import type {
   WordpressDiffDto,
   WordpressDiffPageDto,
   WordpressEnv,
+  WordpressLlmsTxtDto,
   WordpressManualAssistDto,
   WordpressPageDetailDto,
   WordpressPageSummaryDto,
@@ -1012,7 +1014,7 @@ export async function getSchemaStatus(
 export async function getLlmsTxt(
   connection: WordpressClientConnection,
   env?: WordpressEnv,
-): Promise<{ env: WordpressEnv; url: string; content: string | null }> {
+): Promise<WordpressLlmsTxtDto> {
   const site = resolveEnvironment(connection, env)
   const url = `${site.siteUrl}/llms.txt`
   return {
@@ -1079,7 +1081,7 @@ export async function buildManualSchemaUpdate(
 export async function runAudit(
   connection: WordpressClientConnection,
   env?: WordpressEnv,
-): Promise<{ env: WordpressEnv; pages: WordpressAuditPageDto[]; issues: WordpressAuditIssueDto[] }> {
+): Promise<WordpressAuditDto> {
   const site = resolveEnvironment(connection, env)
   const pages = await listPages(connection, site.env)
   const plugins = await listActivePlugins(connection, site.env)

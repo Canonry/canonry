@@ -1030,6 +1030,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'OAuth client registry for the remote MCP surface. Credentials, not content: the secret is stored as a digest and nothing about a client is a public DTO.',
   },
+  oauthGrants: {
+    kind: 'internal-only',
+    reason: 'Durable OAuth authorization lineage and revocation state; not a public account or identity DTO.',
+  },
   oauthAuthorizationCodes: {
     kind: 'internal-only',
     reason: 'In-flight OAuth codes, 60s TTL and single use. Exposing any of this would defeat the flow it implements.',

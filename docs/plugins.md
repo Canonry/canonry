@@ -16,6 +16,26 @@ legacy `.mcp.json`. The portable files are canonical; the compatibility files
 are generated adapters. Marketplaces remain client-owned and intentionally
 outside the Agent Plugins specification.
 
+## Remote read-only variant
+
+`plugins/canonry-remote/` is a separate source package for the public gateway at
+`https://mcp.canonry.ai/mcp`. It uses a pre-registered OAuth public client,
+workspace selection and existing instance login. Each grant reads one instance.
+Both repository marketplaces list it as `canonry-remote`. Codex and the ChatGPT
+desktop app install it with `codex plugin marketplace add Canonry/canonry` and
+`codex plugin add canonry-remote@canonry`; Claude Code installs it with `claude
+plugin marketplace add Canonry/canonry` and `claude plugin install
+canonry-remote@canonry`. Each client signs in with its own pre-registered public
+client: `canonry-chatgpt` (ChatGPT's HTTPS callback and Codex's loopback
+callback) and `canonry-claude-code` (a native client whose loopback callback
+port changes per sign-in). It is not yet
+submitted to the OpenAI plugin directory or an Anthropic directory.
+A hosted instance registered with the gateway shows these steps and its own
+workspace on **Agent setup** ([MCP](mcp.md#connect-with-the-canonry-plugin)).
+See its [preparation notes](../plugins/canonry-remote/README.md) and the
+[gateway runbook](../apps/mcp-gateway/README.md). The local installation below
+continues to use `plugins/canonry/`.
+
 ## Codex brand assets
 
 The plugin tile Codex renders comes from `interface` in

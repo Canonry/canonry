@@ -35,7 +35,7 @@ export function Hint({
         <span
           id={id}
           role="tooltip"
-          className={`absolute z-50 w-64 rounded border border-strong bg-bg-elevated px-3 py-2 text-xs font-normal leading-relaxed text-strong shadow-lg ${
+          className={`material-tooltip absolute z-50 w-64 px-3 py-2 text-copy-13 text-secondary ${
             placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'
           } left-1/2 -translate-x-1/2 whitespace-normal`}
         >

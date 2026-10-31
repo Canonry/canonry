@@ -58,10 +58,9 @@ const SheetContent = React.forwardRef<
       <Dialog.Content
         ref={ref}
         className={cn(
-          'fixed z-50 flex flex-col bg-bg px-5 py-4 shadow-2xl overflow-hidden',
-          'max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:max-h-[88vh] max-md:rounded-t-2xl max-md:border-t',
-          'md:inset-y-0 md:right-0 md:h-full md:border-l',
-          'border-base',
+          'material-modal fixed z-50 flex flex-col px-5 py-4 overflow-hidden',
+          'max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:max-h-[88vh] max-md:rounded-b-none',
+          'md:inset-y-0 md:right-0 md:h-full md:rounded-none',
           className,
         )}
         style={{ width: `min(${width}px, 100vw)` }}
@@ -93,7 +92,7 @@ const SheetTitle = React.forwardRef<
   React.ElementRef<typeof Dialog.Title>,
   React.ComponentPropsWithoutRef<typeof Dialog.Title>
 >(({ className, ...props }, ref) => (
-  <Dialog.Title ref={ref} className={cn('text-lg font-medium text-primary', className)} {...props} />
+  <Dialog.Title ref={ref} className={cn('text-heading-20 text-primary', className)} {...props} />
 ))
 SheetTitle.displayName = Dialog.Title.displayName
 
@@ -101,7 +100,7 @@ const SheetDescription = React.forwardRef<
   React.ElementRef<typeof Dialog.Description>,
   React.ComponentPropsWithoutRef<typeof Dialog.Description>
 >(({ className, ...props }, ref) => (
-  <Dialog.Description ref={ref} className={cn('text-sm text-muted', className)} {...props} />
+  <Dialog.Description ref={ref} className={cn('text-copy-14 text-secondary', className)} {...props} />
 ))
 SheetDescription.displayName = Dialog.Description.displayName
 

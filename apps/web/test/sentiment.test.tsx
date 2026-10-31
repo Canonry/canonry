@@ -516,13 +516,19 @@ describe('sentiment presentation', () => {
   it('shows verbatim quotations and a truthful empty complaint in the evidence drawer', async () => {
     const item = evidenceItem()
     const page = renderScope(<SentimentAnswerOutcome queryId="q" sourceSnapshotIds={['snapshot']} queryClass="branded" provider="openai" location="Chicago" />, {
-      branded: summaryWithAssessments([assessment({ assessmentId: 'a', sourceSnapshotId: 'snapshot' })]), evidence: [{ ...item, sourceText: 'North Hall is excellent. A factual follow-up mentions parking.' }],
+      branded: summaryWithAssessments([assessment({ assessmentId: 'a', sourceSnapshotId: 'snapshot' })]), evidence: [{ ...item, sourceText: '## North Hall reviews\n\nNorth Hall is **excellent**. A factual follow-up mentions parking.' }],
     })
     try {
       fireEvent.click(await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' }))
       const dialog = await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · openai · North Hall' })
       await within(dialog).findByText('definition-a')
       expect([...dialog.querySelectorAll('blockquote')].map(node => node.textContent)).toEqual(['North Hall is excellent.'])
+      // The engine that answered is named, and its answer renders as formatted text, not raw Markdown.
+      expect(dialog.textContent).toContain('Answered by OpenAI (source-model)')
+      const answer = [...dialog.querySelectorAll('details')].find(node => node.querySelector('summary')?.textContent === 'Original answer from OpenAI')!
+      expect(answer.querySelector('h4')?.textContent).toBe('North Hall reviews')
+      expect(answer.querySelector('strong')?.textContent).toBe('excellent')
+      expect(answer.textContent).not.toMatch(/##|\*\*/)
       expect(dialog.textContent).toContain('No complaint was identified.')
       expect(within(dialog).getByText('hash')).toBeTruthy()
       const requests = page.requests.filter(url => url.pathname.endsWith('/evidence'))
@@ -1755,7 +1761,7 @@ describe('sentiment bar styles', () => {
     expect(compiledDeclarationValues(css, '.sentiment-class', 'grid-template-columns')).toContain(headlines['grid-template-columns'])
     expect(compiledDeclarations(css, '.sentiment-headlines-columns')).toMatchObject({ display: 'grid', 'grid-column': '1 / -1', 'grid-template-columns': 'subgrid' })
     for (const selector of ['.sentiment-headlines-columns', '.mention-share-row-head']) {
-      expect(compiledDeclarations(css, selector)).toMatchObject({ 'text-transform': 'uppercase', 'font-size': '10px', 'letter-spacing': '0.08em', color: 'var(--color-text-muted)' })
+      expect(compiledDeclarations(css, selector)).toMatchObject({ 'text-transform': 'none', 'font-size': '12px', 'line-height': '16px', 'letter-spacing': 'normal', color: 'var(--color-text-muted)' })
       expect(resolvedCompiledProperty(css, selector, 'font-weight')).toBe('500')
     }
     for (const [name, column] of [['favorable', '3'], ['ratings', '4']] as const) {
@@ -1810,7 +1816,7 @@ describe('sentiment bar styles', () => {
   it('floats the Details panel under its button, on screen and past the section clip', async () => {
     const css = parseCompiledCss(await compileAppStyles([]))
     const panel = compiledDeclarations(css, '.sentiment-class-details')
-    expect(panel).toMatchObject({ position: 'absolute', top: '100%', 'z-index': '10', 'max-width': '100%', 'background-color': 'var(--color-bg-elevated)' })
+    expect(panel).toMatchObject({ position: 'absolute', top: '100%', 'z-index': '10', 'max-width': '100%', 'background-color': 'var(--color-bg)', 'border-radius': 'var(--radius-material-menu)', 'box-shadow': 'var(--shadow-material-menu)' })
     expect(cssLengthPx(panel.right!, css)).toBe(0)
     expect(cssLengthPx(panel.width!, css)).toBeGreaterThan(0)
     expect(panel).not.toHaveProperty('display')

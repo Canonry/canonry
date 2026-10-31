@@ -371,7 +371,7 @@ function AutoModeLoading() {
           <p className="page-subtitle">Checking the projects already on this install.</p>
         </div>
       </div>
-      <div className="flex items-center gap-3 rounded-lg border border-default bg-surface p-4 text-sm text-secondary" role="status">
+      <div className="flex items-center gap-3 material-base p-4 text-label-14 text-secondary" role="status">
         <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
         Loading projects…
       </div>
@@ -388,9 +388,9 @@ function AutoModeRetry({ onRetry }: { onRetry: () => void }) {
           <p className="page-subtitle">Canonry could not confirm whether this install already has a project.</p>
         </div>
       </div>
-      <div className="rounded-lg border border-negative bg-negative-soft p-4" role="alert" tabIndex={-1}>
-        <p className="text-sm font-medium text-heading">Setup is paused to protect existing projects.</p>
-        <p className="mt-1 text-sm text-secondary">Check the connection or sign in again, then retry.</p>
+      <div className="rounded-md border border-negative bg-negative-soft p-4" role="alert" tabIndex={-1}>
+        <p className="text-copy-14-strong text-heading">Setup is paused to protect existing projects.</p>
+        <p className="mt-1 text-copy-14 text-secondary">Check the connection or sign in again, then retry.</p>
         <Button type="button" className="mt-4" variant="secondary" onClick={onRetry}>
           Retry project check
         </Button>
@@ -525,7 +525,7 @@ function SiteHealthOnboardingPageBody({
     return (
       <div className="page-container max-w-3xl" aria-busy="true" aria-live="polite">
         <OnboardingProgress current="site" />
-        <div className="mt-8 flex items-center gap-3 text-sm text-secondary" role="status">
+        <div className="mt-8 flex items-center gap-3 text-label-14 text-secondary" role="status">
           <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
           Loading Site Health setup…
         </div>
@@ -542,8 +542,8 @@ function SiteHealthOnboardingPageBody({
             <p className="page-subtitle">Canonry could not load the project for this Site Health scan.</p>
           </div>
         </div>
-        <div className="rounded-lg border border-negative bg-negative-soft p-4" role="alert">
-          <p className="text-sm text-secondary">Check the connection or sign in again, then retry.</p>
+        <div className="rounded-md border border-negative bg-negative-soft p-4" role="alert">
+          <p className="text-copy-14 text-secondary">Check the connection or sign in again, then retry.</p>
           <Button type="button" className="mt-4" variant="secondary" onClick={() => { void projectsQuery.refetch() }}>
             Retry project check
           </Button>
@@ -615,7 +615,7 @@ function SiteHealthOnboardingPageBody({
         fallback={(
           <div className="space-y-5">
             <OnboardingProgress current="site" />
-            <div className="flex min-h-72 items-center justify-center gap-3 text-sm text-secondary" role="status">
+            <div className="flex min-h-72 items-center justify-center gap-3 text-label-14 text-secondary" role="status">
               <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
               Loading Site Health…
             </div>
@@ -1084,9 +1084,9 @@ function PlatformSetupPageBody({
             <p className="page-subtitle">{createdProject.displayName || createdProject.name} is ready. The Site Health scan needs another try.</p>
           </div>
         </div>
-        <div ref={errorRef} className="rounded-lg border border-negative bg-negative-soft p-4" role="alert" tabIndex={-1}>
-          <p className="text-sm font-medium text-heading">{dispatchError}</p>
-          <p className="mt-1 text-sm text-secondary">You can retry the scan or continue setup and retry from Site Health.</p>
+        <div ref={errorRef} className="rounded-md border border-negative bg-negative-soft p-4" role="alert" tabIndex={-1}>
+          <p className="text-copy-14-strong text-heading">{dispatchError}</p>
+          <p className="mt-1 text-copy-14 text-secondary">You can retry the scan or continue setup and retry from Site Health.</p>
           <div className="mt-4 flex flex-wrap gap-3">
             <Button type="button" onClick={retryDispatch}>Retry Site Health scan</Button>
             <Button type="button" variant="secondary" onClick={() => { void openSiteHealthSetup(createdProject) }}>Continue setup</Button>
@@ -1100,26 +1100,26 @@ function PlatformSetupPageBody({
     <div className="page-container max-w-xl py-8 md:py-12">
       {!skipSiteScan ? <OnboardingProgress current="site" /> : null}
       <header className={`mb-8 ${skipSiteScan ? '' : 'mt-8'}`}>
-        <h1 id="site-map-setup-title" className="text-2xl font-semibold tracking-[-0.025em] text-heading">
+        <h1 id="site-map-setup-title" className="text-heading-24 text-heading">
           {skipSiteScan ? 'Create a project' : 'Scan your site'}
         </h1>
-        <p className="mt-2 max-w-lg text-sm leading-6 text-secondary">
+        <p className="mt-2 max-w-lg text-copy-14 text-secondary">
           {skipSiteScan
             ? 'Add a public domain, then choose the queries you want to track. No site scan will run.'
             : 'Enter your public website to see its pages, structure, internal links, and Technical AEO scores.'}
         </p>
       </header>
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-[13px] text-secondary">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-label-13 text-secondary">
         <p>Draft fields use tab storage when available. Scan permission resets on reload.</p>
         <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={resetDraft}>Reset draft</Button>
       </div>
       <form aria-labelledby="site-map-setup-title" className="space-y-6" onSubmit={asyncHandler(submit)} noValidate>
         <div className="grid gap-2">
-          <label className="text-sm font-medium text-heading" htmlFor="launchpad-domain">Website URL</label>
+          <label className="text-label-14-strong text-heading" htmlFor="launchpad-domain">Website URL</label>
           <input
             id="launchpad-domain"
-            className={`h-10 w-full rounded-md border border-strong bg-bg-elevated/50 px-3 text-base text-heading outline-none transition placeholder:text-muted focus:border-mono-500 focus:ring-1 focus:ring-mono-500 md:h-9 md:text-sm ${TOUCH_TARGET}`}
+            className={`h-10 w-full rounded-md border border-strong bg-bg-elevated/50 px-3 text-label-16 text-heading outline-none transition placeholder:text-muted focus:border-mono-500 focus:ring-1 focus:ring-mono-500 md:h-9 md:text-label-14 ${TOUCH_TARGET}`}
             type="text"
             inputMode="url"
             autoComplete="url"
@@ -1136,14 +1136,14 @@ function PlatformSetupPageBody({
               setCreateConflict(false)
             }}
           />
-          <p id="launchpad-domain-hint" className="text-sm text-secondary">
+          <p id="launchpad-domain-hint" className="text-copy-14 text-secondary">
             {skipSiteScan ? (
               <>
                 A public domain is still required.{' '}
                 <Link
                   to="/setup"
                   search={{ experience: 'platform' }}
-                  className="font-medium text-link underline-offset-4 hover:underline"
+                  className="text-copy-14-strong text-link underline-offset-4 hover:underline"
                 >
                   Map with Site Health instead
                 </Link>
@@ -1154,22 +1154,22 @@ function PlatformSetupPageBody({
                 <Link
                   to="/setup"
                   search={{ experience: 'platform', onboarding: 'first-run', siteScan: 'skip' }}
-                  className="font-medium text-link underline-offset-4 hover:underline"
+                  className="text-copy-14-strong text-link underline-offset-4 hover:underline"
                 >
                   Set up without a site scan
                 </Link>
               </>
             )}
           </p>
-          {domain && !identity ? <p id="launchpad-domain-error" className="text-sm text-negative" role="alert">Enter a public domain, such as example.com.</p> : null}
+          {domain && !identity ? <p id="launchpad-domain-error" className="text-copy-14 text-negative" role="alert">Enter a public domain, such as example.com.</p> : null}
         </div>
 
         <details className="group border-y border-default">
-          <summary className={`flex min-h-9 cursor-pointer list-none items-center justify-between gap-4 py-2 text-sm [&::-webkit-details-marker]:hidden ${TOUCH_TARGET}`}>
+          <summary className={`flex min-h-9 cursor-pointer list-none items-center justify-between gap-4 py-2 text-label-14 [&::-webkit-details-marker]:hidden ${TOUCH_TARGET}`}>
             {/* Nothing behind this is advanced: it is the project name Canonry
                 is about to create and the locale it will measure in. Both are
                 worth seeing before the scan starts. */}
-            <span className="font-medium text-heading">Project name and locale</span>
+            <span className="text-label-14-strong text-heading">Project name and locale</span>
             <span className="flex items-center gap-2 text-secondary">
               {localeLabel}
               <ChevronDown className="size-4 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
@@ -1178,10 +1178,10 @@ function PlatformSetupPageBody({
           <div className="space-y-5 border-t border-default py-4">
             {identity ? (
               <div>
-                <p className="mb-3 text-sm font-medium text-heading">Project</p>
+                <p className="mb-3 text-copy-14-strong text-heading">Project</p>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="grid gap-2">
-                    <label className="text-sm text-secondary" htmlFor="launchpad-project-name">Project name</label>
+                    <label className="text-label-14 text-secondary" htmlFor="launchpad-project-name">Project name</label>
                     <input
                       id="launchpad-project-name"
                       className="setup-input h-10"
@@ -1191,7 +1191,7 @@ function PlatformSetupPageBody({
                     />
                   </div>
                   <div className="grid gap-2">
-                    <label className="text-sm text-secondary" htmlFor="launchpad-display-name">Display name</label>
+                    <label className="text-label-14 text-secondary" htmlFor="launchpad-display-name">Display name</label>
                     <input
                       id="launchpad-display-name"
                       className="setup-input h-10"
@@ -1205,10 +1205,10 @@ function PlatformSetupPageBody({
             ) : null}
 
             <div>
-              <p className="mb-3 text-sm font-medium text-heading">Locale</p>
+              <p className="mb-3 text-copy-14-strong text-heading">Locale</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="grid gap-2">
-                  <label className="text-sm text-secondary" htmlFor="launchpad-country">Country</label>
+                  <label className="text-label-14 text-secondary" htmlFor="launchpad-country">Country</label>
                   <select
                     id="launchpad-country"
                     className="setup-input h-10"
@@ -1221,7 +1221,7 @@ function PlatformSetupPageBody({
                   </select>
                 </div>
                 <div className="grid gap-2">
-                  <label className="text-sm text-secondary" htmlFor="launchpad-language">Language</label>
+                  <label className="text-label-14 text-secondary" htmlFor="launchpad-language">Language</label>
                   <select
                     id="launchpad-language"
                     className="setup-input h-10"
@@ -1238,7 +1238,7 @@ function PlatformSetupPageBody({
           </div>
         </details>
 
-        {!skipSiteScan ? <p className="text-sm text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages. A limited scan describes the pages reached, not the whole site.</p> : null}
+        {!skipSiteScan ? <p className="text-copy-14 text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages. A limited scan describes the pages reached, not the whole site.</p> : null}
         {!skipSiteScan ? (
           <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2">
             <input
@@ -1249,7 +1249,7 @@ function PlatformSetupPageBody({
               aria-label="Allow Canonry to scan this public site."
             />
             <span className="flex items-center gap-1.5">
-              <span className="text-sm leading-5 text-heading">Allow Canonry to scan this public site.</span>
+              <span className="text-label-14 text-heading">Allow Canonry to scan this public site.</span>
               <InfoTooltip text={CRAWL_CONSENT_HELP} />
             </span>
           </label>
@@ -1257,7 +1257,7 @@ function PlatformSetupPageBody({
 
         {visibleError ? (
           <div ref={errorRef} className="rounded-md border border-negative bg-negative-soft p-3" role="alert" tabIndex={-1}>
-            <p className="text-sm font-medium text-heading">{visibleError}</p>
+            <p className="text-copy-14-strong text-heading">{visibleError}</p>
             {createConflict ? (
               <Button type="button" variant="secondary" size="sm" className="mt-3" onClick={cancel}>View projects</Button>
             ) : null}
@@ -1274,13 +1274,13 @@ function PlatformSetupPageBody({
               ? <><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> {skipSiteScan ? 'Creating project…' : 'Mapping site…'}</>
               : skipSiteScan ? 'Create project' : 'Scan site'}
           </Button>
-          {phase === 'dispatching' ? <span className="text-center text-sm text-secondary" role="status">Opening Site Health when the scan is ready.</span> : null}
+          {phase === 'dispatching' ? <span className="text-center text-label-14 text-secondary" role="status">Opening Site Health when the scan is ready.</span> : null}
         </div>
       </form>
 
       <section className="mt-8 border-t border-default pt-6" aria-labelledby="agent-setup-title">
-        <p id="agent-setup-title" className="text-sm font-medium text-heading">Use your agent instead</p>
-        <p className="mt-1 text-sm leading-5 text-secondary">{showLocalAgentSetup ? 'Connect your agent to this instance, or copy a request for a new local installation.' : 'Connect ChatGPT or Claude Desktop to this instance.'}</p>
+        <p id="agent-setup-title" className="text-copy-14-strong text-heading">Use your agent instead</p>
+        <p className="mt-1 text-copy-14 text-secondary">{showLocalAgentSetup ? 'Connect your agent to this instance, or copy a request for a new local installation.' : 'Connect ChatGPT or Claude Desktop to this instance.'}</p>
         <div className="mt-3 flex flex-wrap items-center gap-1">
           <Button asChild variant="secondary" size="sm">
             <Link to="/agent-setup">Agent setup</Link>
@@ -1315,14 +1315,14 @@ function PlatformSetupPageBody({
               aria-describedby="telemetry-detail"
             />
             <span className="grid gap-0.5">
-              <span id="telemetry-title" className="text-sm leading-5 text-heading">Share anonymous product telemetry</span>
-              <span id="telemetry-detail" className="max-w-[70ch] text-sm leading-5 text-secondary">
+              <span id="telemetry-title" className="text-label-14 text-heading">Share anonymous product telemetry</span>
+              <span id="telemetry-detail" className="max-w-[70ch] text-label-14 text-secondary">
                 Helps prioritize improvements. Canonry does not send raw domains, URLs, queries, answer content, or credentials.
               </span>
             </span>
           </label>
-          {telemetryMutation.isPending ? <p className="mt-1 text-sm text-secondary" role="status">Saving preference…</p> : null}
-          {telemetryError ? <p className="mt-1 text-sm text-negative" role="alert">{telemetryError}</p> : null}
+          {telemetryMutation.isPending ? <p className="mt-1 text-copy-14 text-secondary" role="status">Saving preference…</p> : null}
+          {telemetryError ? <p className="mt-1 text-copy-14 text-negative" role="alert">{telemetryError}</p> : null}
         </section>
       ) : null}
     </div>

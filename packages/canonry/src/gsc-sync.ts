@@ -27,6 +27,8 @@ interface GscSyncOptions {
   days?: number
   full?: boolean
   config: CanonryConfig
+  /** Persists a refreshed access token; defaults to the active config.yaml. */
+  saveConfigPatch?: (patch: Partial<CanonryConfig>) => void
 }
 
 export async function executeGscSync(
@@ -77,7 +79,8 @@ export async function executeGscSync(
         tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
         updatedAt: new Date().toISOString(),
       })
-      saveConfigPatch(opts.config)
+      const persistConfigPatch = opts.saveConfigPatch ?? saveConfigPatch
+      persistConfigPatch(opts.config)
     }
 
     // Determine date range.

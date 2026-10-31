@@ -233,12 +233,12 @@ export function AiTrafficHistoryPanel({
   const measuredAnything = totals.crawlers > 0 || totals.fetches > 0 || totals.visits > 0
 
   if (events.isLoading) {
-    return <p className="text-sm text-secondary">Loading AI traffic history…</p>
+    return <p className="text-copy-14 text-secondary">Loading AI traffic history…</p>
   }
   if (events.isError) {
     return (
       <div className="flex items-center gap-1.5">
-        <p role="alert" className="text-sm text-negative">Could not load AI traffic history.</p>
+        <p role="alert" className="text-copy-14 text-negative">Could not load AI traffic history.</p>
         <InfoTooltip text="The request failed, so this is not a reading of zero activity. Retry, or check the traffic source." />
       </div>
     )
@@ -256,7 +256,7 @@ export function AiTrafficHistoryPanel({
     const connectedButSilent = !noSourceConnected && coverageStart === null
     return (
       <div className="flex items-center gap-1.5">
-        <p className="text-sm text-secondary">
+        <p className="text-copy-14 text-secondary">
           {noSourceConnected
             ? 'No server-side traffic source connected yet.'
             : connectedButSilent
@@ -307,15 +307,15 @@ export function AiTrafficHistoryPanel({
           of UTC during their afternoon, contradicting the chart directly below.
           Labelled for what it actually is, and marked when still filling. */}
       {points.length > 0 && (
-        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 pb-3 mb-4 border-b border-default text-xs text-muted">
-          <span className="text-secondary font-semibold">Latest day (UTC)</span>
-          <span><span className="text-heading font-semibold tabular-nums mr-1">
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 pb-3 mb-4 border-b border-default text-label-12 text-muted">
+          <span className="text-secondary text-label-12-strong">Latest day (UTC)</span>
+          <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
             {num(points[points.length - 1]!.crawlerContentHits).toLocaleString()}</span>pages crawled</span>
-          <span><span className="text-heading font-semibold tabular-nums mr-1">
+          <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
             {num(points[points.length - 1]!.aiUserFetchHits).toLocaleString()}</span>page fetches</span>
-          <span><span className="text-heading font-semibold tabular-nums mr-1">
+          <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
             {num(points[points.length - 1]!.aiReferralLandedHits).toLocaleString()}</span>visits, server</span>
-          <span><span className="text-heading font-semibold tabular-nums mr-1">
+          <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
             {gaByDate.get(points[points.length - 1]!.bucket)?.toLocaleString() ?? '—'}</span>visits, GA4</span>
           <span className="text-faint">still filling</span>
         </div>
@@ -325,11 +325,11 @@ export function AiTrafficHistoryPanel({
         {/* Tooltip is a SIBLING of the heading: nesting an interactive button
             inside <h3> changes the heading's accessible name. */}
         <div className="flex items-center gap-1.5">
-          <h3 className="text-sm font-semibold text-heading">Machines reading your site</h3>
+          <h3 className="text-heading-14 text-heading">Machines reading your site</h3>
           <InfoTooltip text="Crawlers index pages for later. Page fetches happen while an engine is answering someone. Both are machines, not people." />
         </div>
         <div className="flex items-center gap-4">
-        <label className="flex items-center gap-1.5 text-xs text-secondary cursor-pointer">
+        <label className="flex items-center gap-1.5 text-label-12 text-secondary cursor-pointer">
           <input
             type="checkbox"
             checked={showFetches}
@@ -338,7 +338,7 @@ export function AiTrafficHistoryPanel({
           />
           Page fetches
         </label>
-        <label className="flex items-center gap-1.5 text-xs text-secondary cursor-pointer">
+        <label className="flex items-center gap-1.5 text-label-12 text-secondary cursor-pointer">
           <input
             type="checkbox"
             checked={showTrend}
@@ -363,7 +363,7 @@ export function AiTrafficHistoryPanel({
           {unmeasured && (
             <ReferenceArea x1={unmeasured.from} x2={unmeasured.to} fill="var(--color-overlay-hover)"
                            fillOpacity={0.5} stroke="none"
-                           label={{ value: 'not measured', position: 'insideTop', fontSize: 10, fill: 'var(--chart-neutral-text-dim, #71717a)' }} />
+                           label={{ value: 'not measured', position: 'insideTop', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
           )}
           <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14} />
           <Area type="monotone" dataKey="crawlerContentHits" name="Pages crawled"
@@ -385,7 +385,7 @@ export function AiTrafficHistoryPanel({
 
       <div className="flex items-center justify-between gap-3 mt-5 mb-2">
         <div className="flex items-center gap-1.5">
-          <h3 className="text-sm font-semibold text-heading">People arriving from AI</h3>
+          <h3 className="text-heading-14 text-heading">People arriving from AI</h3>
           <InfoTooltip text="Two independent counts of the same thing. Server reads your own logs and misses nothing a browser blocks, but cannot see a page served from cache. GA4 needs the browser to run a tag. They rarely match, and neither is the correction of the other." />
         </div>
         <MetricsWindowPicker
@@ -410,7 +410,7 @@ export function AiTrafficHistoryPanel({
           {unmeasured && (
             <ReferenceArea x1={unmeasured.from} x2={unmeasured.to} fill="var(--color-overlay-hover)"
                            fillOpacity={0.5} stroke="none"
-                           label={{ value: 'not measured', position: 'insideTop', fontSize: 10, fill: 'var(--chart-neutral-text-dim, #71717a)' }} />
+                           label={{ value: 'not measured', position: 'insideTop', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
           )}
           <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14} />
           {visitSource !== 'ga4' && (

@@ -65,7 +65,7 @@ export function highlightTermsInText(text: string, terms: string[] | HighlightTe
   if (allTerms.length === 0) {
     return segments.map((seg, i) =>
       seg.type === 'bold'
-        ? React.createElement('strong', { key: `b-${i}`, className: 'text-strong font-semibold' }, seg.value)
+        ? React.createElement('strong', { key: `b-${i}`, className: 'text-strong' }, seg.value)
         : seg.value,
     ).filter(Boolean) as ReactNode[]
   }
@@ -80,7 +80,7 @@ export function highlightTermsInText(text: string, terms: string[] | HighlightTe
   if (sources.length === 0) {
     return segments.map((seg, i) =>
       seg.type === 'bold'
-        ? React.createElement('strong', { key: `b-${i}`, className: 'text-strong font-semibold' }, seg.value)
+        ? React.createElement('strong', { key: `b-${i}`, className: 'text-strong' }, seg.value)
         : seg.value,
     ).filter(Boolean) as ReactNode[]
   }
@@ -108,11 +108,11 @@ export function highlightTermsInText(text: string, terms: string[] | HighlightTe
         const cls = termClassMap.get(brandKeyFromText(part)) ?? 'answer-highlight'
         return seg.type === 'bold'
           ? React.createElement('mark', { key: `hl-${si}-${pi}`, className: cls },
-              React.createElement('strong', { className: 'text-strong font-semibold' }, part))
+              React.createElement('strong', { className: 'text-strong' }, part))
           : React.createElement('mark', { key: `hl-${si}-${pi}`, className: cls }, part)
       }
       return seg.type === 'bold'
-        ? React.createElement('strong', { key: `b-${si}-${pi}`, className: 'text-strong font-semibold' }, part)
+        ? React.createElement('strong', { key: `b-${si}-${pi}`, className: 'text-strong' }, part)
         : part
     })
   }).filter(Boolean) as ReactNode[]

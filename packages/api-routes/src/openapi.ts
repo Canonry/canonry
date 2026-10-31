@@ -13,6 +13,9 @@ import {
   runKindSchema,
   runStatusSchema,
   sentimentOutcomeSchema,
+  seoKeywordGapKindSchema,
+  seoKeywordGapSortSchema,
+  seoCompetitorSortSchema,
   seoMarketRankingFilterSchema,
   seoMarketRankingSortSchema,
   operationAccess,
@@ -1010,9 +1013,33 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get', path: '/api/v1/projects/{name}/seo/competitors',
+    summary: 'Read stored organic search competitors', tags: ['seo'],
+    description: 'Stored whole-domain organic competitor discovery only; never calls a provider. Available for Simple and Advanced project profiles. Each row names its target and source locale. Results are bounded provider database observations, not an exhaustive competitor inventory or a market/Property measurement.',
+    parameters: [nameParameter, ...seoEvidenceParameters, { name: 'sort', in: 'query', description: 'Sort the complete saved result before pagination: domain, shared searches, average position or estimated traffic. Prefix with - for descending. Missing values stay last in both directions. Omitted preserves stored order.', schema: { type: 'string', enum: [...seoCompetitorSortSchema.options] } }],
+    responses: {
+      200: jsonResponse('Saved organic competitor evidence.', 'SeoCompetitorList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/keyword-gaps',
+    summary: 'Read stored organic keyword comparisons', tags: ['seo'],
+    description: 'Stored whole-domain comparisons only; never calls a provider. Missing means the source database has a competitor ranking and no target ranking, not absence from Google. Shared includes outranked searches where both domains rank; outranked selects only those with the competitor ahead. Filters apply before pagination; total counts saved rows, not the full provider keyword universe. A signed rankGap is target position minus competitor position and is null when the target is missing.',
+    parameters: [nameParameter, ...seoEvidenceParameters, { name: 'kind', in: 'query', description: 'shared includes outranked; missing and outranked select that exact kind. Omitted returns all saved comparisons.', schema: { type: 'string', enum: [...seoKeywordGapKindSchema.options] } }, { name: 'sort', in: 'query', description: 'Sort after filtering and before pagination: keyword, kind, target rank, competitor rank, rank gap or monthly search volume. Prefix with - for descending. Missing values stay last in both directions. Omitted preserves stored order.', schema: { type: 'string', enum: [...seoKeywordGapSortSchema.options] } }],
+    responses: {
+      200: jsonResponse('Saved keyword comparison evidence.', 'SeoKeywordGapList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+    },
+  },
+  {
     method: 'get', path: '/api/v1/projects/{name}/seo/market-rankings',
     summary: 'Read stored market rankings', tags: ['seo'],
-    description: "Stored evidence only; never calls a provider. The project's position for each tracked non-brand query, searched on Google from its market's location. searchStatus says how each search ended: in a completed or partial row a null rank means the site was not in the checked results (depth, which is lower when only part of the results came back); a failed or cancelled search keeps its rows with no rank. outcome says where each row landed (a partial search without the site is partly-checked, never not-ranked) and rivalAhead whether a tracked competitor ranks above the site.",
+    description: "Stored evidence only; never calls a provider. The project's position for each tracked non-brand query, searched on Google from its market's location. searchStatus says how each search ended: in a completed or partial row a null rank means the site was not in the checked results (depth, which is lower when only part of the results came back); a failed or cancelled search keeps its rows with no rank. outcome says where each row landed (a partial search without the site is partly-checked, never not-ranked) and rivalAhead whether a tracked competitor ranks above the site. topCompetitor is the best tracked rival, and rankGap is the target position minus that rival position, null when either rank is unavailable.",
     parameters: [
       nameParameter, ...seoEvidenceParameters,
       { name: 'marketKey', in: 'query', description: 'Only rows for this market (an Advanced market key or a Simple location label).', schema: stringSchema },
@@ -1051,7 +1078,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'put', path: '/api/v1/projects/{name}/seo/profiles/{id}',
     summary: 'Save an SEO profile', tags: ['seo'],
-    description: "Requires seo.write and an administrator session. Saving never starts provider work. Scope, locale, targets, capabilities, keywords and row limit are identity parameters.",
+    description: "Requires seo.write and an administrator session. Saving never starts provider work. Scope, locale, targets, comparison competitors, capabilities, keywords and row limit are identity parameters. Keyword gaps requires one to five explicit competitor root domains; shared and missing datasets are reserved separately for each target/competitor pair. Competitor discovery and keyword gaps support project scope with whole-domain targets only, including Advanced projects.",
     parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Exact project-scoped identifier.', schema: stringSchema }],
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SeoProfileInput' } } } },
     responses: {
@@ -6212,8 +6239,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['wordpress'],
     parameters: [nameParameter, wordpressEnvQueryParameter],
     responses: {
-      // Returns raw text/plain content of llms.txt.
-      200: { description: 'llms.txt returned.', content: { 'text/plain': { schema: { type: 'string' } } } },
+      200: jsonResponse('llms.txt returned.', 'WordpressLlmsTxtDto'),
       400: errorResponse('Invalid environment or missing connection.'),
       404: errorResponse('Project not found.'),
     },
@@ -6252,7 +6278,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['wordpress'],
     parameters: [nameParameter, wordpressEnvQueryParameter],
     responses: {
-      200: jsonArrayResponse('WordPress audit returned.', 'WordpressAuditPageDto'),
+      200: jsonResponse('WordPress audit returned.', 'WordpressAuditDto'),
       400: errorResponse('Invalid environment or missing connection.'),
       404: errorResponse('Project not found.'),
     },
@@ -7031,6 +7057,19 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Doctor report returned.', 'DoctorReportDto'),
       400: errorResponse('Invalid report month.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/mcp/profile',
+    summary: 'Read the authenticated MCP connection profile',
+    description: 'Identifies the named account within this configured MCP resource and its effective instance-wide read scope. Accepts MCP-audience OAuth tokens without granting access to other REST routes. Direct API keys without a named account are refused.',
+    tags: ['mcp'],
+    responses: {
+      200: jsonResponse('Authenticated MCP connection profile.', 'McpProfileDto'),
+      401: errorResponse('Authentication required or invalid.'),
+      403: errorResponse('An instance-wide named account with read scope is required.'),
+      501: errorResponse('MCP OAuth resource is not configured.'),
     },
   },
   {
@@ -8107,13 +8146,14 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'indexabilityState', in: 'query', description: 'Filter by crawler-derived indexability state; this is not Google index coverage.', schema: stringSchema },
       { name: 'nodeKey', in: 'query', description: 'Return only the page with this node key. Combined with a filter it answers whether that exact page is in the filtered set, without paging through the list.', schema: stringSchema },
       { name: 'healthState', in: 'query', description: 'Filter by the derived Site Health state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.', schema: { type: 'string', enum: ['eligible', 'hidden', 'resource', 'redirect', 'failed', 'unchecked'] } },
-      { name: 'auditState', in: 'query', description: 'Filter by audit state.', schema: stringSchema },
+      { name: 'auditState', in: 'query', description: 'Filter by audit state. A URL version has `url-version`: it was fetched and classified but not scored.', schema: stringSchema },
+      { name: 'urlVersions', in: 'query', description: 'URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Once a few addresses with the same parameter pattern prove to be copies, the crawl stops fetching that pattern: those have no rows and `inventorySummary.urlVersionsNotFetched` counts them. Scans made before URL versions were set aside have none.', schema: { type: 'string', enum: ['include', 'exclude', 'only'] } },
       { name: 'sort', in: 'query', description: 'Sort order. Defaults to `url`.', schema: { type: 'string', enum: ['url', 'path', 'score-asc', 'score-desc'] } },
       crawlCursorParameter,
       crawlLimitParameter,
     ],
     responses: {
-      400: errorResponse('Invalid date, conflicting runId/date, or invalid cursor identity.'),
+      400: errorResponse('Invalid date, conflicting runId/date, invalid urlVersions, or invalid cursor identity.'),
       200: jsonResponse('Crawl pages returned.', 'SiteCrawlPagesResponseDto'),
       404: errorResponse('Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.'),
     },
