@@ -1,18 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { agentJourneyCaptureDays, agentJourneyEvents, createClient, migrate, MIGRATION_VERSIONS, projects, trafficSources } from '@canonry/canonry-db'
+import { agentJourneyCaptureDays, agentJourneyEvents, aiUserFetchEventsHourly, aiUserFetchLikelyFakeHourly, createClient, migrate, MIGRATION_VERSIONS, projects, rawEventSamples, trafficSources } from '@canonry/canonry-db'
 import { AGENT_JOURNEY_DAILY_EVENT_LIMIT, TrafficEventConfidences, TrafficEvidenceKinds, TrafficSourceTypes, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import { normalizeCloudRunLogEntry } from '@canonry/canonry-integration-cloud-run'
 import { enforceAgentJourneyRetention, recordAgentJourneyBatch } from '../src/agent-journey-capture.js'
 import { writeTrafficEventBatch } from '../src/traffic-event-ingest.js'
+import chatgptUserRanges from '../../integration-traffic/src/ip-ranges/chatgpt-user.json' with { type: 'json' }
 
 const NOW = '2026-10-27T12:00:00.000Z'
 const SECRET = 'agent-capture-secret-used-only-in-tests'
+const CHATGPT_UA = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot'
+// An address inside OpenAI's bundled list, so a range refresh cannot turn these requests into likely fakes.
+const VERIFIED_IP = (() => {
+  const prefix = chatgptUserRanges.prefixes.find(entry => 'ipv4Prefix' in entry) as { ipv4Prefix: string }
+  const [address, bits] = prefix.ipv4Prefix.split('/')
+  const octets = address!.split('.').map(Number)
+  if (Number(bits) < 32) octets[3] = octets[3]! + 1
+  return octets.join('.')
+})()
 function event(id: string, overrides: Partial<NormalizedTrafficRequest> = {}): NormalizedTrafficRequest {
   return {
     sourceType: TrafficSourceTypes['cloud-run'], evidenceKind: TrafficEvidenceKinds['raw-request'], confidence: TrafficEventConfidences.observed,
     eventId: id, observedAt: NOW, method: 'GET', requestUrl: 'https://example.com/', host: 'example.com', path: '/',
-    queryString: null, status: 200, userAgent: 'ChatGPT-User/1.0', remoteIp: '198.51.100.20', referer: null,
+    queryString: null, status: 200, userAgent: CHATGPT_UA, remoteIp: VERIFIED_IP, referer: null,
     latencyMs: 17, requestSizeBytes: null, responseSizeBytes: null, providerResource: { type: null, labels: {} }, providerLabels: {}, ...overrides,
   }
 }
@@ -39,11 +49,11 @@ describe('durable agent request capture', () => {
     expect(capture([first, event('b')])).toEqual({ eventsStored: 1 })
     const rows = db.select().from(agentJourneyEvents).all()
     expect(rows).toHaveLength(2)
-    expect(rows[0]).toMatchObject({ path: '/rooms', status: 404, latencyMs: 17, agentId: 'openai-chatgpt-user', correlationBasis: 'ip-ua', verificationStatus: 'claimed_unverified' })
+    expect(rows[0]).toMatchObject({ path: '/rooms', status: 404, latencyMs: 17, agentId: 'openai-chatgpt-user', correlationBasis: 'ip-ua', verificationStatus: 'verified', trust: 'verified', trustReasons: ['ip-in-published-list', 'documented-user-agent'] })
     expect(rows[0]?.verificationManifest).toMatchObject({ source: expect.any(String), version: expect.any(String), id: expect.any(String) })
     expect(rows[0]?.correlationKey).toBe(rows[1]?.correlationKey)
-    expect(JSON.stringify(rows)).not.toContain('198.51.100.20')
-    expect(JSON.stringify(rows)).not.toContain('ChatGPT-User/1.0')
+    expect(JSON.stringify(rows)).not.toContain(VERIFIED_IP)
+    expect(JSON.stringify(rows)).not.toContain(CHATGPT_UA)
     expect(db.select().from(agentJourneyCaptureDays).all()).toMatchObject([{ day: '2026-10-27', storedEvents: 2, capped: false }])
   })
 
@@ -56,7 +66,7 @@ describe('durable agent request capture', () => {
         timestamp: NOW,
         httpRequest: {
           requestUrl, requestMethod: 'GET', status: 200,
-          userAgent: 'ChatGPT-User/1.0', remoteIp: '198.51.100.20',
+          userAgent: CHATGPT_UA, remoteIp: VERIFIED_IP,
         },
       })
       if (!normalized) throw new Error('Synthetic Cloud Run request did not normalize')
@@ -101,6 +111,39 @@ describe('durable agent request capture', () => {
     const rows = db.select().from(agentJourneyEvents).all()
     expect(rows.filter(row => row.correlationBasis === 'unlinked')).toHaveLength(5)
     expect(new Set(rows.map(row => row.correlationKey)).size).toBe(7)
+  })
+
+  it('never stores likely fake requests or lets them use the daily cap, and counts them beside AI user fetches', () => {
+    const fakes = [
+      event('probe', { remoteIp: null, path: '/.env', status: 404 }),
+      event('odd', { remoteIp: null, userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ChatGPT-User/1.0; +https://openai.com/bot)' }),
+    ]
+    expect(capture([...fakes, event('real', { remoteIp: null })])).toEqual({ eventsStored: 1 })
+    expect(db.select({ trust: agentJourneyEvents.trust, trustReasons: agentJourneyEvents.trustReasons }).from(agentJourneyEvents).all())
+      .toEqual([{ trust: 'likely_real', trustReasons: ['no-ip', 'documented-user-agent'] }])
+    expect(db.select().from(agentJourneyCaptureDays).get()).toMatchObject({ storedEvents: 1, capped: false })
+
+    const result = writeTrafficEventBatch({
+      db, projectId: 'project', sourceId: 'source', events: [...fakes.map(fake => ({ ...fake, eventId: `push-${fake.eventId}` })), event('push-verified')], receivedAt: NOW,
+      receiptTtlMs: 600_000, sampleLimit: 100, sourceUpdate: { lastSyncedAt: NOW }, journeyKeySecret: SECRET,
+      validateSource: () => {},
+    })
+    expect(result).toMatchObject({ acceptedEvents: 3, aiUserFetchHits: 1, unknownHits: 0 })
+    expect(db.select({ hits: aiUserFetchEventsHourly.hits }).from(aiUserFetchEventsHourly).all()).toEqual([{ hits: 1 }])
+    expect(db.select({ reason: aiUserFetchLikelyFakeHourly.reason, hits: aiUserFetchLikelyFakeHourly.hits, botId: aiUserFetchLikelyFakeHourly.botId })
+      .from(aiUserFetchLikelyFakeHourly).orderBy(aiUserFetchLikelyFakeHourly.reason).all()).toEqual([
+      { reason: 'scanner-path', hits: 1, botId: 'openai-chatgpt-user' },
+      { reason: 'unusual-user-agent', hits: 1, botId: 'openai-chatgpt-user' },
+    ])
+    // Samples keep the trust verdict so a likely fake can still be reviewed.
+    const probeSample = db.select().from(rawEventSamples).all().find(sample => sample.pathNormalized === '/.env')
+    expect(probeSample?.classifierDetailsJson).toMatchObject({ aiUserFetch: { trust: 'likely_fake', trustReasons: ['scanner-path', 'no-ip', 'documented-user-agent'] } })
+    // A redelivery adds nothing.
+    writeTrafficEventBatch({
+      db, projectId: 'project', sourceId: 'source', events: [{ ...fakes[0]!, eventId: 'push-probe' }], receivedAt: NOW,
+      receiptTtlMs: 600_000, sampleLimit: 100, sourceUpdate: { lastSyncedAt: NOW }, journeyKeySecret: SECRET, validateSource: () => {},
+    })
+    expect(db.select({ hits: aiUserFetchLikelyFakeHourly.hits }).from(aiUserFetchLikelyFakeHourly).all().reduce((sum, row) => sum + row.hits, 0)).toBe(2)
   })
 
   it('stores no events or daily identifiers without the configured secret', () => {

@@ -2,6 +2,7 @@ import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 
 afterEach(cleanup)
 
@@ -302,6 +303,36 @@ test('puts the GA4 overview first, then AI traffic history, and loads GA4 withou
       || String(arg).includes('Rendered more hooks than during the previous render'),
     ),
   ).toBe(false)
+})
+
+test('Server activity shows AI hits without likely fakes and names the excluded count only when there is one', async () => {
+  const totals = (aiUserFetchHits: number, aiUserFetchLikelyFakeHits: number) => ({
+    crawlerHits: 40, crawlerContentHits: 30, crawlerInfraHits: 10, crawlerSegments: { content: 30, sitemap: 5, robots: 5, asset: 0, other: 0 },
+    aiUserFetchHits, aiUserFetchLikelyFakeHits, aiReferralHits: 3, aiReferralLandedHits: 2, aiReferralRedirectedHits: 1, sampleCount: 9,
+  })
+  const source = (id: string, displayName: string, totals24h: ReturnType<typeof totals>) => ({
+    id, projectId: 'p1', sourceType: 'cloudflare', displayName, status: 'connected', lastSyncedAt: null, totals24h, latestRun: null,
+  })
+  onTestFinished(mockConnectedGa({
+    '/traffic/status': () => jsonResponse({ sources: [source('edge', 'Website edge', totals(5, 12)), source('logs', 'Server logs', totals(8, 0))] }),
+  }))
+  // Source rows link to their detail page, so this render needs a router.
+  const rootRoute = createRootRoute({ component: () => <ActivitySection projectName="test-project" /> })
+  const routeTree = rootRoute.addChildren([
+    createRoute({ getParentRoute: () => rootRoute, path: '/traffic' }),
+    createRoute({ getParentRoute: () => rootRoute, path: '/traffic/$projectName/$sourceId' }),
+  ])
+  const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ['/'] }) })
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>)
+  await screen.findByRole('heading', { name: 'Server activity' })
+  const table = await within(sectionByHeading('Server activity')).findByRole('table')
+  const edge = within(table).getByRole('row', { name: /Website edge/ })
+  const logs = within(table).getByRole('row', { name: /Server logs/ })
+  // The headline is the API's count; likely fakes are never added to it.
+  expect(within(edge).getAllByRole('cell')[3]!.textContent).toBe('5')
+  expect(within(edge).getByRole('button', { name: /^Excludes 12 likely fake requests\. They claimed to be an AI agent but look fake/ })).toBeTruthy()
+  expect(within(logs).getAllByRole('cell')[3]!.textContent).toBe('8')
+  expect(within(logs).queryByRole('button', { name: /likely fake/ })).toBeNull()
 })
 
 test('renders the five disjoint channel figures the API sent, AI share from the channel breakdown', async () => {

@@ -12,6 +12,7 @@ import {
   crawlerEventsHourly,
   crawlerVerificationManifestsHourly,
   aiUserFetchEventsHourly,
+  aiUserFetchLikelyFakeHourly,
   aiUserFetchVerificationManifestsHourly,
   aiReferralEventsHourly,
   rawEventSamples,
@@ -4112,7 +4113,7 @@ describe('POST /traffic/sources/:id/backfill', () => {
       const stableBefore = evidenceSnapshot(h.db)
       const stableOnly = (snapshot: ReturnType<typeof evidenceSnapshot>) => Object.fromEntries(Object.entries(snapshot).map(([name, values]) => [name, values.filter(value => value.includes('/outside-window') || value.includes('/peer-window') || value.includes('/foreign-window'))]))
       events.push(
-        buildEvent({ eventId: 'replace-user-1', userAgent: 'ChatGPT-User/1.0', remoteIp: '104.210.139.193', path: '/new-user', observedAt: fromBase(25) }),
+        buildEvent({ eventId: 'replace-user-1', userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: '104.210.139.193', path: '/new-user', observedAt: fromBase(25) }),
         buildEvent({ eventId: 'replace-referral-1', userAgent: 'Mozilla/5.0', path: '/new-referral', queryString: 'utm_source=chatgpt.com', observedAt: fromBase(30) }),
       )
       // Backfill the same window. Replace mode should reset to hits=2,
@@ -4756,6 +4757,7 @@ describe('GET /traffic/sources/:id', () => {
         crawlerInfraHits: 0,
         crawlerSegments: { content: 0, sitemap: 0, robots: 0, asset: 0, other: 0 },
         aiUserFetchHits: 0,
+        aiUserFetchLikelyFakeHits: 0,
         aiReferralHits: 0,
         aiReferralLandedHits: 0,
         aiReferralRedirectedHits: 0,
@@ -4777,13 +4779,16 @@ describe('GET /traffic/sources/:id', () => {
     const events: NormalizedTrafficRequest[] = [
       buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
       buildEvent({
-        userAgent: 'Mozilla/5.0 ChatGPT-User/1.0',
+        userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
         remoteIp: '104.210.139.193',
         path: '/',
         status: 200,
         observedAt: fromBase(5),
       }),
-      buildEvent({ userAgent: 'Mozilla/5.0 ChatGPT-User/1.0', path: '/pricing', status: 200, observedAt: fromBase(10) }),
+      // No IP: likely real (published user agent), whatever the bundled list's date.
+      buildEvent({ userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: null, path: '/pricing', status: 200, observedAt: fromBase(10) }),
+      // Same agent claim asking for a secret file: likely fake, counted apart.
+      buildEvent({ userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: null, path: '/.env', status: 404, observedAt: fromBase(12) }),
     ]
     const h = await buildHarness(events)
     try {
@@ -4818,7 +4823,10 @@ describe('GET /traffic/sources/:id', () => {
       const body = JSON.parse(detail.payload)
       expect(body.totals24h.crawlerHits).toBe(1)
       expect(body.totals24h.aiUserFetchHits).toBe(2)
+      expect(body.totals24h.aiUserFetchLikelyFakeHits).toBe(1)
       expect(body.totals24h.aiReferralHits).toBe(0)
+      expect(h.db.select({ reason: aiUserFetchLikelyFakeHourly.reason, hits: aiUserFetchLikelyFakeHourly.hits }).from(aiUserFetchLikelyFakeHourly).all())
+        .toEqual([{ reason: 'scanner-path', hits: 1 }])
     } finally { await h.close() }
   })
 
@@ -5277,7 +5285,7 @@ describe('GET /traffic/events', () => {
     const events: NormalizedTrafficRequest[] = [
       buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
       buildEvent({
-        userAgent: 'Mozilla/5.0 ChatGPT-User/1.0',
+        userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
         remoteIp: '104.210.139.193',
         path: '/',
         status: 200,
@@ -5347,7 +5355,7 @@ describe('GET /traffic/events', () => {
 
     const events: NormalizedTrafficRequest[] = [
       buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
-      buildEvent({ userAgent: 'Mozilla/5.0 ChatGPT-User/1.0', path: '/', status: 200, observedAt: fromBase(5) }),
+      buildEvent({ userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: null, path: '/', status: 200, observedAt: fromBase(5) }),
     ]
     const h = await buildHarness(events)
     try {
@@ -5819,7 +5827,7 @@ describe('crawler-hit content/infra segmentation', () => {
       h.db.insert(aiUserFetchEventsHourly).values({
         projectId: source.projectId, sourceId: source.id, tsHour: '2026-05-06T12:00:00.000Z',
         botId: 'openai-chatgpt-user', operator: 'OpenAI', verificationStatus: 'claimed_unverified',
-        pathNormalized: '/fetch', status: 200, hits: 2, sampledUserAgent: 'ChatGPT-User/1.0',
+        pathNormalized: '/fetch', status: 200, hits: 2, sampledUserAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
         createdAt: '2026-05-07T13:45:00.000Z', updatedAt: '2026-05-07T13:45:00.000Z',
       }).run()
       h.db.insert(aiReferralEventsHourly).values({

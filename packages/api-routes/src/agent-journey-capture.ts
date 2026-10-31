@@ -52,6 +52,7 @@ function persistAgentJourneyBatch(db: CaptureDb, input: CaptureInput): CaptureRe
       sourceEventId, ts: request.ts, correlationKey, correlationBasis,
       agentId: request.agentId, operator: request.operator, product: request.product,
       verificationStatus: request.verificationStatus, verificationManifest: request.verificationManifest,
+      trust: request.trust, trustReasons: request.trustReasons,
       host: request.host, path: request.path, method: request.method, status: request.status,
       latencyMs: request.latencyMs, createdAt: input.now,
     }).onConflictDoNothing().run()

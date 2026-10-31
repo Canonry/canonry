@@ -1924,8 +1924,8 @@ cnry traffic agent-journey <project> <journey-id> --since 2026-10-20 --until 202
 ```
 
 These commands follow recorded user-triggered agent requests, separately from
-AI-referred browser visitors. Both accept `--agent <id>`, `--verification
-verified|claimed_unverified|unknown_ai_like`, and `--target-key <key>` in addition
+AI-referred browser visitors. Both accept `--agent <id>`, `--trust
+verified|likely_real|unknown`, and `--target-key <key>` in addition
 to the window/source selectors. The default window is 24 hours; the maximum is
 31 days. Keep selectors unchanged when opening a detail or requesting another
 page. Reads over 20,000 selected source/agent events require a narrower window.
@@ -1933,7 +1933,10 @@ Limits are 1 to 200. JSON matches the API response;
 JSONL streams a `journey` or an `event` with its full scope and coverage context.
 
 IP and user-agent grouping is inferred and can merge tasks. Requests without
-an IP stay unlinked; operator verification does not prove a user session.
+an IP stay unlinked; trust does not prove a user session. Each request carries
+`trust` and `trustReasons`: verified by the operator's published IP list, likely
+real (unchecked, but the operator's published user agent), or unknown. Likely
+fake requests are counted in `coverage.likelyFakeRequests` and never listed.
 The API reports retention, inactivity gap, daily caps and source gaps. Advanced
 Properties match the current plan's URL coverage, not the historical user's
 intent. Keep its plan revision and unavailable dimensions with the evidence.

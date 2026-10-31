@@ -4,19 +4,19 @@ import { getBoolean, getString, parseIntegerOption, requirePositional, requirePr
 import type { AgentJourneyCommandOptions } from '../commands/agent-journeys.js'
 import { usageError } from '../cli-error.js'
 
-const AGENT_JOURNEY_FLAGS = '[--since <ISO>] [--until <ISO>] [--source <id>] [--agent <id>] [--verification <status>] [--target-key <key>] [--limit <n>] [--offset 0] [--format json|jsonl]'
+const AGENT_JOURNEY_FLAGS = '[--since <ISO>] [--until <ISO>] [--source <id>] [--agent <id>] [--trust verified|likely_real|unknown] [--target-key <key>] [--limit <n>] [--offset 0] [--format json|jsonl]'
 const AGENT_JOURNEYS_USAGE = `canonry traffic agent-journeys <project> ${AGENT_JOURNEY_FLAGS}`
 const AGENT_JOURNEY_USAGE = `canonry traffic agent-journey <project> <journey-id> ${AGENT_JOURNEY_FLAGS}`
 const agentJourneyOptions = {
   since: stringOption(), until: stringOption(), source: stringOption(), agent: stringOption(),
-  verification: stringOption(), 'target-key': stringOption(), limit: stringOption(), offset: stringOption(),
+  trust: stringOption(), 'target-key': stringOption(), limit: stringOption(), offset: stringOption(),
 }
 
 function readAgentJourneyOptions(input: CliCommandInput, command: string, usage: string): AgentJourneyCommandOptions {
   return {
     since: getString(input.values, 'since'), until: getString(input.values, 'until'),
     sourceId: getString(input.values, 'source'), agentId: getString(input.values, 'agent'),
-    verificationStatus: getString(input.values, 'verification'), targetKey: getString(input.values, 'target-key'),
+    trust: getString(input.values, 'trust'), targetKey: getString(input.values, 'target-key'),
     limit: parseIntegerOption(input, 'limit', { command, usage, message: '--limit must be an integer' }),
     offset: parseIntegerOption(input, 'offset', { command, usage, message: '--offset must be an integer' }),
     format: input.format,
@@ -27,7 +27,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['traffic', 'agent-journeys'],
     usage: AGENT_JOURNEYS_USAGE,
-    help: 'Stored user-triggered agent request sequences, with verification, correlation and coverage limits. No provider calls. Default limit: 50 journeys.',
+    help: 'Stored user-triggered agent request sequences, with trust levels, correlation and coverage limits. Likely fake requests are counted, not listed. No provider calls. Default limit: 50 journeys.',
     options: agentJourneyOptions,
     run: async input => {
       const { trafficAgentJourneys } = await import('../commands/agent-journeys.js')

@@ -3,11 +3,11 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useRouterState, useSearch } from '@tanstack/react-router'
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight, Filter } from 'lucide-react'
 import {
-  AgentJourneyAttributions, AgentJourneyCorrelationBases, JourneyEventFilters, JourneyKeyBases,
-  JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY, JOURNEY_VISIT_IDLE_MINUTES, RatioUnits, UserRoles, VerificationStatuses, formatPercent, isJourneyWriteMethod,
-  type AgentJourney, type AgentJourneyContext, type AgentJourneyEvent, type AgentJourneysQuery, type JourneyDetailResponse,
+  AgentJourneyAttributions, AgentJourneyCorrelationBases, AgentTrustLevels, JourneyEventFilters, JourneyKeyBases,
+  JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY, JOURNEY_VISIT_IDLE_MINUTES, RatioUnits, UserRoles, formatPercent, isJourneyWriteMethod,
+  type AgentJourney, type AgentJourneyContext, type AgentJourneyEvent, type AgentJourneysQuery, type AgentTrustReason, type JourneyDetailResponse,
   type JourneyEntryClass, type JourneyEventFilter, type JourneyPartialSources, type JourneyVisitDto, type JourneysQuery,
-  type JourneysResponse, type VerificationStatus,
+  type JourneysResponse, type StoredAgentTrust,
 } from '@canonry/canonry-contracts'
 import type { JourneySummaryResponse } from '@canonry/canonry-api-client'
 import {
@@ -24,6 +24,7 @@ import { useAccount } from '../../contexts/account-context.js'
 import { extractErrorMessage } from '../../lib/extract-error-message.js'
 import { formatSweepDay, formatSweepInstant, formatTimestamp, localTimeZoneLabel } from '../../lib/format-helpers.js'
 import { trackUiAction, trackUiFilterChange } from '../../lib/ui-telemetry.js'
+import { LIKELY_FAKE_HELP, TRUST_LABELS, trustReasonLabel } from '../../lib/agent-trust-copy.js'
 
 /**
  * Project Journeys: AI-referred visitors and the agent requests made on a
@@ -56,11 +57,6 @@ const ENTRY_LABELS: Record<JourneyEntryClass, string> = {
 }
 const SOURCE_LABELS: Record<string, string> = {
   cloudflare: 'Cloudflare', vercel: 'Vercel', 'cloud-run': 'Cloud Run', wordpress: 'WordPress',
-}
-const VERIFICATION_LABELS: Record<VerificationStatus, string> = {
-  [VerificationStatuses.verified]: 'Verified operator',
-  [VerificationStatuses.claimed_unverified]: 'Unverified identity',
-  [VerificationStatuses.unknown_ai_like]: 'Unknown identity',
 }
 const ATTRIBUTION_LABELS: Record<AgentJourneyEvent['attribution'], string> = {
   [AgentJourneyAttributions.matched]: 'Matched',
@@ -574,7 +570,7 @@ function AgentRequests({ projectName }: { projectName: string }) {
   const [windowEnd, setWindowEnd] = useState(() => new Date().toISOString())
   const [sourceId, setSourceId] = useState('')
   const [agent, setAgent] = useState<{ id: string; label: string } | null>(null)
-  const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | ''>('')
+  const [trust, setTrust] = useState<StoredAgentTrust | ''>('')
   const [targetKey, setTargetKey] = useState('')
   const [propertySearch, setPropertySearch] = useState('')
   const [offset, setOffset] = useState(0)
@@ -586,7 +582,7 @@ function AgentRequests({ projectName }: { projectName: string }) {
     until: windowEnd,
     sourceId: sourceId || undefined,
     agentId: agent?.id,
-    verificationStatus: verificationStatus || undefined,
+    trust: trust || undefined,
     targetKey: targetKey || undefined,
   }
   const query = useQuery({
@@ -604,14 +600,15 @@ function AgentRequests({ projectName }: { projectName: string }) {
   const selectedProperty = properties.find(property => property.key === targetKey)
   const selectedSource = sources.find(source => source.sourceId === sourceId)
   const resetPage = () => { setOffset(0); setSelectedId(null) }
-  const filtered = Boolean(sourceId || verificationStatus || targetKey || agent)
+  const filtered = Boolean(sourceId || trust || targetKey || agent)
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 text-sm text-secondary">
           {data ? <p role="status"><span className="tabular-nums text-heading">{data.totalJourneys.toLocaleString()}</span> request sequences · <span className="tabular-nums text-heading">{data.observedRequests.toLocaleString()}</span> recorded requests</p> : <p>Requests made by AI assistants on a person's behalf</p>}
-          <InfoTooltip placement="bottom" text="Requests from agents acting for a person. An inferred sequence groups the same network address and agent within an inactivity window; shared infrastructure can combine different tasks. Operator verification does not verify a user session. Requests do not prove clicks or completed tasks." />
+          <InfoTooltip placement="bottom" text="Requests from agents acting for a person. Verified means the request came from an IP the company publishes. Likely real and Unknown are estimates from the user agent, the requested path and that IP check. An inferred sequence groups the same network address and agent within an inactivity window; shared infrastructure can combine different tasks. Requests do not prove clicks or completed tasks." />
+          {data && data.coverage.likelyFakeRequests > 0 && <InfoTooltip placement="bottom" label={`${data.coverage.likelyFakeRequests.toLocaleString()} likely fake`} text={`${plural(data.coverage.likelyFakeRequests, 'likely fake request')}. ${LIKELY_FAKE_HELP}`} />}
           {data && !data.coverage.recordingEnabled && <InfoTooltip placement="bottom" tone="caution" label="Recording off" text="Recording off. Agent request recording is not enabled on this instance. Saved sequences remain available." />}
           {data && data.coverage.cappedSourceDays.length > 0 && <InfoTooltip placement="bottom" tone="caution" label="Some requests missing" text="Some requests missing. A source reached its daily recording limit. See capture coverage for the affected days and sources." />}
         </div>
@@ -627,12 +624,10 @@ function AgentRequests({ projectName }: { projectName: string }) {
                 </select>
               </label>
               <label className="grid gap-1 text-sm text-secondary">
-                Identity
-                <select className={SELECT_CLASS} value={verificationStatus} onChange={event => { trackUiFilterChange('other'); setVerificationStatus(event.target.value as VerificationStatus | ''); resetPage() }}>
-                  <option value="">All identities</option>
-                  <option value={VerificationStatuses.verified}>Verified operators</option>
-                  <option value={VerificationStatuses.claimed_unverified}>Unverified identities</option>
-                  <option value={VerificationStatuses.unknown_ai_like}>Unknown identities</option>
+                Trust
+                <select className={SELECT_CLASS} value={trust} onChange={event => { trackUiFilterChange('other'); setTrust(event.target.value as StoredAgentTrust | ''); resetPage() }}>
+                  <option value="">All trust levels</option>
+                  {Object.values(AgentTrustLevels).filter((level): level is StoredAgentTrust => level !== AgentTrustLevels.likely_fake).map(level => <option key={level} value={level}>{TRUST_LABELS[level]}</option>)}
                 </select>
               </label>
               {properties.length > 0 && (
@@ -651,7 +646,7 @@ function AgentRequests({ projectName }: { projectName: string }) {
                   </div>
                 </details>
               )}
-              {filtered && <Button size="sm" variant="outline" onClick={() => { trackUiFilterChange('other'); setSourceId(''); setVerificationStatus(''); setTargetKey(''); setAgent(null); resetPage() }}>Clear filters</Button>}
+              {filtered && <Button size="sm" variant="outline" onClick={() => { trackUiFilterChange('other'); setSourceId(''); setTrust(''); setTargetKey(''); setAgent(null); resetPage() }}>Clear filters</Button>}
             </div>
           </details>
           <PeriodControl label="Period" options={AGENT_PERIODS} value={hours} onChange={value => { trackUiFilterChange('window'); setWindowEnd(new Date().toISOString()); resetPage(); update({ agentHours: value === '24' ? undefined : value }) }} />
@@ -659,7 +654,7 @@ function AgentRequests({ projectName }: { projectName: string }) {
       </div>
       {filtered && <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-secondary">
         {sourceId && <span>Source: <span className="text-heading">{selectedSource?.label ?? sourceId}</span></span>}
-        {verificationStatus && <span>Identity: <span className="text-heading">{VERIFICATION_LABELS[verificationStatus]}</span></span>}
+        {trust && <span>Trust: <span className="text-heading">{TRUST_LABELS[trust]}</span></span>}
         {targetKey && <span>Property: <span className="text-heading">{selectedProperty?.label ?? targetKey}</span></span>}
         {agent && <span>Agent: <span className="text-heading">{agent.label}</span></span>}
       </p>}
@@ -677,7 +672,7 @@ function AgentRequests({ projectName }: { projectName: string }) {
                 <div className="overflow-x-auto rounded-md border border-default">
                   <table className="w-full min-w-[44rem] text-sm" aria-label="Agent request sequences">
                     <thead className="bg-surface-subtle text-left text-[13px] text-secondary">
-                      <tr><th scope="col" className="px-3 py-2 font-medium">Agent</th><th scope="col" className="px-3 py-2 font-medium">Identity</th><th scope="col" className="px-3 py-2 font-medium">First request</th><th scope="col" className="px-3 py-2 font-medium">Started</th><th scope="col" className="px-3 py-2 text-right font-medium">Requests</th></tr>
+                      <tr><th scope="col" className="px-3 py-2 font-medium">Agent</th><th scope="col" className="px-3 py-2 font-medium">Trust</th><th scope="col" className="px-3 py-2 font-medium">First request</th><th scope="col" className="px-3 py-2 font-medium">Started</th><th scope="col" className="px-3 py-2 text-right font-medium">Requests</th></tr>
                     </thead>
                     <tbody className="divide-y divide-default">
                       {data.journeys.map(journey => {
@@ -694,7 +689,7 @@ function AgentRequests({ projectName }: { projectName: string }) {
                                 </button>
                               </td>
                               <td className="px-3 py-2.5 align-top">
-                                {journey.verificationStatuses.map(status => <span key={status} className={`block ${status === VerificationStatuses.verified ? 'text-heading' : 'text-secondary'}`}>{VERIFICATION_LABELS[status]}</span>)}
+                                {journey.trustLevels.map(level => <span key={level} className={`block ${level === AgentTrustLevels.unknown ? 'text-secondary' : 'text-heading'}`}>{TRUST_LABELS[level]}</span>)}
                                 <span className="block text-[13px] text-secondary">{journey.correlationBasis === AgentJourneyCorrelationBases['ip-ua'] ? 'Inferred sequence' : 'Unlinked request'}</span>
                               </td>
                               <td className="px-3 py-2.5 align-top"><span className="block text-[13px] text-secondary">{journey.firstHost ?? 'Host not recorded'}</span><span className="break-all font-mono text-[13px] text-heading">{journey.firstPath}</span></td>
@@ -737,6 +732,7 @@ function AgentSequence({ projectName, journey, selection, onSelectAgent }: { pro
         </p>
         <Button size="sm" variant="outline" onClick={onSelectAgent}>Only {journey.product}</Button>
       </div>
+      {query.data && query.data.events.length > 0 && <TrustReasons operator={journey.operator} events={query.data.events} />}
       {query.isPending ? <p role="status" className="text-sm text-secondary">Loading requests…</p>
         : query.isError ? <ReadFailure what="these requests" error={query.error} retry={() => { void query.refetch() }} />
           : (
@@ -762,6 +758,23 @@ function AgentSequence({ projectName, journey, selection, onSelectAgent }: { pro
             </>
           )}
     </div>
+  )
+}
+
+/** The trust level and its reasons for the requests on this page, as the API stored them. */
+function TrustReasons({ operator, events }: { operator: string; events: AgentJourneyEvent[] }) {
+  const groups = new Map<StoredAgentTrust, Set<AgentTrustReason>>()
+  for (const event of events) {
+    const reasons = groups.get(event.trust) ?? new Set<AgentTrustReason>()
+    for (const reason of event.trustReasons) reasons.add(reason)
+    groups.set(event.trust, reasons)
+  }
+  return (
+    <ul className="space-y-1 text-sm">
+      {[...groups].map(([level, reasons]) => (
+        <li key={level}><span className="text-heading">{TRUST_LABELS[level]}</span><span className="text-secondary">: {[...reasons].map(reason => trustReasonLabel(reason, operator)).join(' · ')}</span></li>
+      ))}
+    </ul>
   )
 }
 

@@ -7,7 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { parse } from 'yaml'
 import { agentJourneyDetailResponseSchema, agentJourneysResponseSchema } from '@canonry/canonry-contracts'
-import { createClient, migrate, apiKeys, runs, trafficSources, rawEventSamples, projects, agentJourneyEvents } from '@canonry/canonry-db'
+import { createClient, migrate, apiKeys, runs, trafficSources, rawEventSamples, projects, agentJourneyEvents, aiUserFetchLikelyFakeHourly } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { createCanonryMcpServer } from '../src/mcp/server.js'
@@ -98,8 +98,10 @@ describe('traffic CLI commands', () => {
     const common = {
       projectId: project.id, sourceId: 'agent-source', correlationKey: 'private-correlation-key', correlationBasis: 'ip-ua',
       agentId: 'chatgpt-user', operator: 'OpenAI', product: 'ChatGPT', verificationStatus: 'claimed_unverified',
-      host: 'example.com', latencyMs: 12, createdAt: at,
-    }
+      trust: 'unknown', trustReasons: ['ip-outside-old-list'], host: 'example.com', latencyMs: 12, createdAt: at,
+    } as const
+    // Counted beside the sequences, never listed.
+    db.insert(aiUserFetchLikelyFakeHourly).values({ projectId: project.id, sourceId: 'agent-source', tsHour: at, botId: 'chatgpt-user', operator: 'OpenAI', reason: 'scanner-path', hits: 4, createdAt: at, updatedAt: at }).run()
     db.insert(agentJourneyEvents).values([
       { ...common, id: 'agent-event-1', sourceEventId: 'raw-1', ts: at, method: 'GET', path: '/rooms', status: 200 },
       { ...common, id: 'agent-event-2', sourceEventId: 'raw-2', ts: '2026-10-20T12:01:00.000Z', method: 'GET', path: '/api/availability', status: 200 },
@@ -129,8 +131,8 @@ describe('traffic CLI commands', () => {
   it.each(['simple', 'advanced'] as const)('preserves %s agent request evidence and uncertainty through CLI JSON, JSONL and paged text', async mode => {
     await seedAgentRequests(mode)
     const targetKey = mode === 'advanced' ? 'booking' : undefined
-    const query = { since: '2026-10-20', until: '2026-10-20', sourceId: 'agent-source', agentId: 'chatgpt-user', verificationStatus: 'claimed_unverified' as const, targetKey }
-    const args = ['--since', query.since, '--until', query.until, '--source', query.sourceId, '--agent', query.agentId, '--verification', query.verificationStatus]
+    const query = { since: '2026-10-20', until: '2026-10-20', sourceId: 'agent-source', agentId: 'chatgpt-user', trust: 'unknown' as const, targetKey }
+    const args = ['--since', query.since, '--until', query.until, '--source', query.sourceId, '--agent', query.agentId, '--trust', query.trust]
     if (targetKey) args.push('--target-key', targetKey)
     const expected = await client.trafficAgentJourneys('test-proj', query)
     const listing = await invokeCli(['--stored-only', 'traffic', 'agent-journeys', 'test-proj', ...args, '--format', 'json'])
@@ -138,7 +140,8 @@ describe('traffic CLI commands', () => {
     expect(parseJsonOutput(listing.stdout)).toEqual(expected)
     expect(expected.scope).toMatchObject({ mode, targetKey: targetKey ?? null, planRevision: mode === 'advanced' ? 1 : null, attribution: mode === 'advanced' ? 'current-plan-url' : 'project' })
     expect(expected.journeys).toHaveLength(1)
-    expect(expected.journeys[0]).toMatchObject({ requestCount: 3, errorCount: 1, correlation: 'inferred', verificationStatuses: ['claimed_unverified'] })
+    expect(expected.journeys[0]).toMatchObject({ requestCount: 3, errorCount: 1, correlation: 'inferred', trustLevels: ['unknown'] })
+    expect(expected.coverage.likelyFakeRequests).toBe(4)
     const id = expected.journeys[0]!.id
     const detail = await client.trafficAgentJourney('test-proj', id, { ...query, limit: 1, offset: 1 })
     const detailArgs = ['traffic', 'agent-journey', 'test-proj', id, ...args, '--limit', '1', '--offset', '1']
@@ -148,7 +151,9 @@ describe('traffic CLI commands', () => {
     expect(json.stdout).not.toContain('private-correlation-key')
     const text = await invokeCli(detailArgs)
     expect(text.stdout).toContain('Inferred sequence from IP and user agent')
-    expect(text.stdout).toContain('claimed_unverified')
+    expect(text.stdout).toContain('unknown (ip-outside-old-list)')
+    expect(text.stdout).toContain('trust unknown')
+    expect(text.stdout).toContain('Likely fake requests in this window (counted, not listed): 4')
     expect(text.stdout).toContain('GET  200  example.com/api/availability')
     expect(text.stdout).toContain('More: --offset 2')
     expect(text.stdout).toContain('do not establish task success')
@@ -188,7 +193,7 @@ describe('traffic CLI commands', () => {
     await mcp.connect(clientTransport)
     try {
       const targetKey = mode === 'advanced' ? 'booking' : undefined
-      const query = { since: '2026-10-20', until: '2026-10-20', sourceId: 'agent-source', agentId: 'chatgpt-user', verificationStatus: 'claimed_unverified' as const, targetKey }
+      const query = { since: '2026-10-20', until: '2026-10-20', sourceId: 'agent-source', agentId: 'chatgpt-user', trust: 'unknown' as const, targetKey }
       const result = await mcp.callTool({ name: 'canonry_traffic_agent_journeys', arguments: { project: 'test-proj', ...query } })
       expect(result.isError).not.toBe(true)
       const listing = agentJourneysResponseSchema.parse(result.structuredContent)
@@ -205,7 +210,8 @@ describe('traffic CLI commands', () => {
   })
 
   it.each([
-    [['agent-journeys', 'test-proj', '--verification', 'probably']],
+    [['agent-journeys', 'test-proj', '--trust', 'probably']],
+    [['agent-journeys', 'test-proj', '--trust', 'likely_fake']],
     [['agent-journeys', 'test-proj', '--limit', '201']],
     [['agent-journey', 'test-proj']],
   ])('rejects invalid agent journey arguments %j', async args => {

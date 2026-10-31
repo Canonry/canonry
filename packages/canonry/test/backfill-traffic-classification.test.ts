@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   aiUserFetchEventsHourly,
+  aiUserFetchLikelyFakeHourly,
   aiUserFetchVerificationManifestsHourly,
   crawlerEventsHourly,
   crawlerVerificationManifestsHourly,
@@ -158,6 +159,20 @@ describe('backfill traffic-classification', () => {
       hits: 1,
     })
     expect(db.select().from(aiUserFetchVerificationManifestsHourly).all()).toHaveLength(0)
+  })
+
+  it('replays likely fake agent claims into their own count, never into AI user fetch hits', async () => {
+    const chatgpt = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot'
+    const realId = seedSample('unknown', chatgpt, '2026-05-18T12:05:00.000Z')
+    const oddId = seedSample('unknown', 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ChatGPT-User/1.0; +https://openai.com/bot)', '2026-05-18T12:10:00.000Z')
+
+    await backfillTrafficClassificationCommand({ project: 'demo' })
+
+    expect(db.select({ id: rawEventSamples.id, eventType: rawEventSamples.eventType }).from(rawEventSamples).all()
+      .filter(row => row.id === realId || row.id === oddId).map(row => row.eventType)).toEqual(['ai-user-fetch', 'ai-user-fetch'])
+    expect(db.select({ hits: aiUserFetchEventsHourly.hits }).from(aiUserFetchEventsHourly).where(eq(aiUserFetchEventsHourly.botId, 'openai-chatgpt-user')).all()).toEqual([{ hits: 1 }])
+    expect(db.select({ tsHour: aiUserFetchLikelyFakeHourly.tsHour, reason: aiUserFetchLikelyFakeHourly.reason, hits: aiUserFetchLikelyFakeHourly.hits }).from(aiUserFetchLikelyFakeHourly).all())
+      .toEqual([{ tsHour: '2026-05-18T12:00:00.000Z', reason: 'unusual-user-agent', hits: 1 }])
   })
 
   it('is idempotent — second run finds no work to do', async () => {

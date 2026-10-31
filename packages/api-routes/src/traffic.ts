@@ -18,6 +18,7 @@ import {
   crawlerEventsHourly,
   crawlerVerificationManifestsHourly,
   aiUserFetchEventsHourly,
+  aiUserFetchLikelyFakeHourly,
   aiUserFetchVerificationManifestsHourly,
   aiReferralEventsHourly,
   rawEventSamples,
@@ -139,6 +140,7 @@ import {
 import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import { enforceJourneyRetention, recordJourneyBatch } from './journeys.js'
 import { recordAgentJourneyBatch } from './agent-journey-capture.js'
+import { addLikelyFakeAgentHits, clearLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
@@ -1472,6 +1474,7 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           ),
         )
         .run()
+      clearLikelyFakeAgentHits(tx, { sourceId: sourceRow.id, windowStart: windowStartIso, windowEnd: windowEndIso })
       tx
         .delete(aiReferralEventsHourly)
         .where(
@@ -1646,6 +1649,7 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
             .run()
         }
       }
+      addLikelyFakeAgentHits(tx, { projectId: project.id, sourceId: sourceRow.id, buckets: report.aiUserFetchLikelyFakeHourly, now: finishedAt })
 
       for (const bucket of report.aiReferralEventsHourly) {
         tx
@@ -4092,6 +4096,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         }
         aiUserFetchBucketRows += 1
       }
+      addLikelyFakeAgentHits(tx, { projectId: project.id, sourceId: sourceRow.id, buckets: report.aiUserFetchLikelyFakeHourly, now: finishedAt })
 
       for (const bucket of report.aiReferralEventsHourly) {
         const status = bucket.status ?? 0
@@ -4607,6 +4612,17 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       )
       .get()
 
+    const likelyFakeTotals = app.db
+      .select({ total: sql<number>`COALESCE(SUM(${aiUserFetchLikelyFakeHourly.hits}), 0)` })
+      .from(aiUserFetchLikelyFakeHourly)
+      .where(
+        and(
+          eq(aiUserFetchLikelyFakeHourly.sourceId, row.id),
+          gte(aiUserFetchLikelyFakeHourly.tsHour, since),
+        ),
+      )
+      .get()
+
     // `aiReferralHits` keeps its full-count contract. `landed` is what a
     // surface may call sessions: the COUNTABLE rows (no redirect hops, no
     // static subresource fetches) — the same predicate the report and
@@ -4661,6 +4677,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         crawlerInfraHits: sumInfraHits(crawlerSegments),
         crawlerSegments,
         aiUserFetchHits: Number(aiUserFetchTotals?.total ?? 0),
+        aiUserFetchLikelyFakeHits: Number(likelyFakeTotals?.total ?? 0),
         aiReferralHits: Number(aiTotals?.total ?? 0),
         aiReferralLandedHits: Number(aiTotals?.landed ?? 0),
         aiReferralRedirectedHits: Number(aiTotals?.total ?? 0) - Number(aiTotals?.nonhop ?? 0),

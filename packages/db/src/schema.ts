@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { AgentJourneyCorrelationBasis, CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, RunSyncSummary, SiteCrawlIssueEvidence, SnapshotUsage, VerificationStatus } from '@canonry/canonry-contracts'
+import type { AgentJourneyCorrelationBasis, AgentTrustReason, StoredAgentTrust, CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, RunSyncSummary, SiteCrawlIssueEvidence, SnapshotUsage, VerificationStatus } from '@canonry/canonry-contracts'
 import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GaSearchLandingStatus, GaSearchLandingWindow, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@canonry/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
@@ -2711,6 +2711,27 @@ export const aiUserFetchEventsHourly = sqliteTable('ai_user_fetch_events_hourly'
   index('idx_ai_user_fetch_hourly_path').on(table.projectId, table.pathNormalized),
 ])
 
+// Requests that claimed a user-triggered AI agent but were judged likely fake
+// (secret or admin paths, a user agent unlike the operator's published string,
+// or an IP outside a current published list). Kept apart from
+// ai_user_fetch_events_hourly so no reader of AI agent hits can include them.
+// `reason` is the request's first trust reason.
+export const aiUserFetchLikelyFakeHourly = sqliteTable('ai_user_fetch_likely_fake_hourly', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  tsHour: text('ts_hour').notNull(),
+  botId: text('bot_id').notNull(),
+  operator: text('operator').notNull(),
+  reason: text('reason').$type<AgentTrustReason>().notNull(),
+  hits: integer('hits').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.sourceId, table.tsHour, table.botId, table.reason] }),
+  index('idx_ai_user_fetch_likely_fake_project_ts').on(table.projectId, table.tsHour),
+  index('idx_ai_user_fetch_likely_fake_source_ts').on(table.sourceId, table.tsHour),
+])
+
 // Manifest provenance for on-demand user-fetch rollups. As with crawler
 // provenance, absence of a sidecar row means legacy/unattributed evidence.
 export const aiUserFetchVerificationManifestsHourly = sqliteTable('ai_user_fetch_verification_manifests_hourly', {
@@ -2911,6 +2932,8 @@ export const agentJourneyEvents = sqliteTable('agent_journey_events', {
   product: text('product').notNull(),
   verificationStatus: text('verification_status').$type<VerificationStatus>().notNull(),
   verificationManifest: text('verification_manifest', { mode: 'json' }).$type<TrafficVerificationManifest | null>(),
+  trust: text('trust').$type<StoredAgentTrust>().notNull(),
+  trustReasons: text('trust_reasons', { mode: 'json' }).$type<AgentTrustReason[]>().notNull(),
   host: text('host'),
   path: text('path').notNull(),
   method: text('method'),

@@ -186,7 +186,7 @@ const agentJourneyParameters: OpenApiParameter[] = [
   { name: 'until', in: 'query', description: 'Inclusive timestamp or UTC date (end of day). Defaults to now. Pin both bounds from the list when opening detail.', schema: stringSchema },
   { name: 'sourceId', in: 'query', description: 'Project-owned source. Sequences never link across sources.', schema: stringSchema },
   { name: 'agentId', in: 'query', description: 'Classified user-triggered agent ID.', schema: stringSchema },
-  { name: 'verificationStatus', in: 'query', description: 'Keep requests with this operator verification status; does not verify session continuity.', schema: { type: 'string', enum: ['verified', 'claimed_unverified', 'unknown_ai_like'] } },
+  { name: 'trust', in: 'query', description: 'Keep requests at this agent trust level. verified: IP in the operator\'s published list. likely_real: no IP check was possible but the user agent matches the operator\'s published string. unknown: anything else that was not judged likely fake. Likely fake requests are counted in coverage.likelyFakeRequests, never listed. Trust does not verify session continuity.', schema: { type: 'string', enum: ['verified', 'likely_real', 'unknown'] } },
   { name: 'targetKey', in: 'query', description: 'Keep requests attributed to this Property using current-plan URL matchers. Market, query, and model attribution are unavailable.', schema: stringSchema },
   { name: 'limit', in: 'query', description: 'Page size: sequences on list, requests on detail. Defaults to 50 and 100 respectively.', schema: { type: 'integer', minimum: 1, maximum: 200 } },
   { name: 'offset', in: 'query', description: 'Items to skip, default 0.', schema: { type: 'integer', minimum: 0 } },

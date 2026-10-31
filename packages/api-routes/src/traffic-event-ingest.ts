@@ -19,6 +19,7 @@ import {
 } from './raw-event-sample-retention.js'
 import { recordJourneyBatch } from './journeys.js'
 import { recordAgentJourneyBatch } from './agent-journey-capture.js'
+import { addLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 
 // Signatures expire after five minutes. Keep receipts for one additional
 // replay window so clock skew and an edge retry cannot double-count, without
@@ -331,6 +332,7 @@ export function writeTrafficEventBatch(
         }
         aiUserFetchBucketRows += 1
       }
+      addLikelyFakeAgentHits(tx, { projectId: opts.projectId, sourceId: opts.sourceId, buckets: report.aiUserFetchLikelyFakeHourly, now: opts.receivedAt })
 
       for (const bucket of report.aiReferralEventsHourly) {
         const status = bucket.status ?? 0

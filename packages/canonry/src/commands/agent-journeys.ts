@@ -10,8 +10,8 @@ import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
-export type AgentJourneyCommandOptions = Omit<AgentJourneysQuery, 'verificationStatus'> & {
-  verificationStatus?: string
+export type AgentJourneyCommandOptions = Omit<AgentJourneysQuery, 'trust'> & {
+  trust?: string
   format?: string
 }
 
@@ -25,7 +25,7 @@ function journeyQuery({ format: _format, ...selection }: AgentJourneyCommandOpti
 
 function printJourneyContext(context: AgentJourneyContext): void {
   const { scope, coverage } = context
-  console.log(`Scope: ${scope.project} (${scope.mode}), source ${scope.sourceId ?? 'all'}, agent ${scope.agentId ?? 'all'}, verification ${scope.verificationStatus ?? 'all'}`)
+  console.log(`Scope: ${scope.project} (${scope.mode}), source ${scope.sourceId ?? 'all'}, agent ${scope.agentId ?? 'all'}, trust ${scope.trust ?? 'all'}`)
   console.log(`Window: ${context.windowStart} to ${context.windowEnd}; sequences are bounded by this window.`)
   const revision = scope.planRevision === null ? '' : `, revision ${scope.planRevision}`
   console.log(`Property: ${scope.targetKey ?? 'all'}; attribution ${scope.attribution}${revision}`)
@@ -36,10 +36,11 @@ function printJourneyContext(context: AgentJourneyContext): void {
     for (const limitation of source.limitations) console.log(`Source ${source.sourceId} (${source.sourceType}): ${limitation}`)
   }
   for (const capped of coverage.cappedSourceDays) console.log(`Daily cap reached: ${capped.sourceId} on ${capped.day}`)
+  if (coverage.likelyFakeRequests > 0) console.log(`Likely fake requests in this window (counted, not listed): ${coverage.likelyFakeRequests}`)
 }
 
 function printJourney(journey: AgentJourney): void {
-  console.log(`${journey.id}  ${journey.product} (${journey.operator}, ${journey.agentId})  ${journey.verificationStatuses.join(', ')}`)
+  console.log(`${journey.id}  ${journey.product} (${journey.operator}, ${journey.agentId})  trust ${journey.trustLevels.join(', ')}`)
   console.log(`  ${journey.startedAt} to ${journey.endedAt}  ${journey.requestCount} requests, ${journey.errorCount} HTTP errors  source ${journey.sourceId}`)
   console.log(`  ${journey.firstHost ?? '(host unavailable)'}${journey.firstPath} → ${journey.lastPath}`)
   console.log(journey.correlationBasis === AgentJourneyCorrelationBases['ip-ua']
@@ -76,7 +77,7 @@ export async function trafficAgentJourney(project: string, journeyId: string, op
   printJourney(result.journey)
   console.log('Recorded requests; paths and HTTP status do not establish task success.')
   for (const event of result.events) {
-    console.log(`  ${event.ts}  ${event.method ?? '-'}  ${event.status ?? '-'}  ${event.host ?? '(host unavailable)'}${event.path}  ${event.latencyMs === null ? '-' : `${event.latencyMs}ms`}  ${event.verificationStatus}  Property ${event.targetKey ?? '-'} (${event.attribution})`)
+    console.log(`  ${event.ts}  ${event.method ?? '-'}  ${event.status ?? '-'}  ${event.host ?? '(host unavailable)'}${event.path}  ${event.latencyMs === null ? '-' : `${event.latencyMs}ms`}  ${event.trust} (${event.trustReasons.join(', ')})  Property ${event.targetKey ?? '-'} (${event.attribution})`)
   }
   console.log(`Requests shown: ${result.events.length} of ${result.totalEvents}`)
   if (result.offset + result.events.length < result.totalEvents) console.log(`More: --offset ${result.offset + result.events.length}`)

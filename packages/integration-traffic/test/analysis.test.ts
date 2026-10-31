@@ -594,7 +594,7 @@ describe('traffic analysis', () => {
     // distinct UA from GPTBot/OAI-SearchBot precisely so operators can split
     // these two signals. classifyCrawler must return null so the same event
     // doesn't get double-counted into both buckets.
-    const evt = event({ userAgent: 'Mozilla/5.0 ChatGPT-User/1.0' })
+    const evt = event({ userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot' })
     expect(classifyCrawler(evt)).toBeNull()
     expect(classifyAiUserFetch(evt)).toMatchObject({
       botId: 'openai-chatgpt-user',
@@ -635,7 +635,7 @@ describe('traffic analysis', () => {
     // `src/ip-ranges/chatgpt-user.json`. UA match + IP match should upgrade
     // `claimed_unverified` → `verified`.
     expect(classifyAiUserFetch(event({
-      userAgent: 'Mozilla/5.0 ChatGPT-User/1.0',
+      userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
       remoteIp: '104.210.139.193',
     }))).toMatchObject({
       botId: 'openai-chatgpt-user',
@@ -704,7 +704,7 @@ describe('traffic analysis', () => {
     // split rule pair (`mistral-ai-user` / `mistral-bot`) keeps the two
     // operational signals disjoint, mirroring OpenAI's GPTBot vs.
     // ChatGPT-User split.
-    const userEvent = event({ userAgent: 'Mozilla/5.0 MistralAI-User/1.0' })
+    const userEvent = event({ userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; MistralAI-User/1.0; +https://docs.mistral.ai/robots)' })
     expect(classifyCrawler(userEvent)).toBeNull()
     expect(classifyAiUserFetch(userEvent)).toMatchObject({
       botId: 'mistral-ai-user',
@@ -829,13 +829,13 @@ describe('traffic analysis', () => {
         eventId: 'cu-1',
         observedAt: '2026-05-01T13:05:00.000Z',
         path: '/blog/post-1',
-        userAgent: 'Mozilla/5.0 ChatGPT-User/1.0',
+        userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
       }),
       event({
         eventId: 'cu-2',
         observedAt: '2026-05-01T13:10:00.000Z',
         path: '/blog/post-1',
-        userAgent: 'Mozilla/5.0 ChatGPT-User/1.0',
+        userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
       }),
       event({
         eventId: 'gpt-1',

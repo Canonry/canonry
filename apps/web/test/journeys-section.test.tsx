@@ -11,11 +11,11 @@ import { jsonResponse as json } from './mock-fetch.js'
 // The browser owns selection, paging and layout of API values. Grouping,
 // request classification and authorization are exercised by the API suite.
 const context: AgentJourneyContext = {
-  scope: { project: 'example', sourceId: null, agentId: null, verificationStatus: null, targetKey: null, mode: 'simple', planRevision: null, attribution: 'project', unavailableDimensions: ['market', 'query', 'query-class', 'model', 'task'] },
+  scope: { project: 'example', sourceId: null, agentId: null, trust: null, targetKey: null, mode: 'simple', planRevision: null, attribution: 'project', unavailableDimensions: ['market', 'query', 'query-class', 'model', 'task'] },
   windowStart: '2026-10-26T13:00:00.000Z', windowEnd: '2026-10-27T13:00:00.000Z', properties: [],
   coverage: {
     recordingEnabled: true, retentionDays: 30, idleMinutes: 30, dailyEventLimit: 10_000, windowBounded: true,
-    cappedSourceDays: [{ sourceId: 'edge', day: '2026-10-27' }],
+    cappedSourceDays: [{ sourceId: 'edge', day: '2026-10-27' }], likelyFakeRequests: 3,
     sources: [{ sourceId: 'edge', sourceType: 'cloudflare', label: 'Website edge', limitations: ['Requests blocked before the collector may be absent.'] }],
     limitations: ['Shared provider addresses may combine different tasks.'],
   },
@@ -25,14 +25,14 @@ const journeys: AgentJourneysResponse = {
   journeys: [{
     id: 'request-one', sourceId: 'edge', agentId: 'chatgpt-user', operator: 'OpenAI', product: 'ChatGPT-User',
     correlationBasis: 'ip-ua', correlation: 'inferred', startedAt: '2026-10-27T12:01:00.000Z', endedAt: '2026-10-27T12:07:00.000Z',
-    firstHost: 'example.com', firstPath: '/rooms', lastPath: '/booking', requestCount: 55, errorCount: 2, verificationStatuses: ['verified'], targetKeys: [],
+    firstHost: 'example.com', firstPath: '/rooms', lastPath: '/booking', requestCount: 55, errorCount: 2, trustLevels: ['verified'], targetKeys: [],
   }],
 }
 const detail: AgentJourneyDetailResponse = {
   ...context, journey: journeys.journeys[0]!, totalEvents: 55, limit: 50, offset: 0,
   events: [
-    { id: 'request-one', ts: '2026-10-27T12:01:00.000Z', host: 'example.com', path: '/rooms', method: 'GET', status: 200, latencyMs: null, verificationStatus: 'verified', verificationManifest: null, targetKey: null, attribution: 'not-configured' },
-    { id: 'request-two', ts: '2026-10-27T12:02:00.000Z', host: 'example.com', path: '/api/availability', method: 'GET', status: 302, latencyMs: 10, verificationStatus: 'verified', verificationManifest: null, targetKey: null, attribution: 'not-configured' },
+    { id: 'request-one', ts: '2026-10-27T12:01:00.000Z', host: 'example.com', path: '/rooms', method: 'GET', status: 200, latencyMs: null, verificationStatus: 'verified', verificationManifest: null, trust: 'verified', trustReasons: ['ip-in-published-list', 'documented-user-agent'], targetKey: null, attribution: 'not-configured' },
+    { id: 'request-two', ts: '2026-10-27T12:02:00.000Z', host: 'example.com', path: '/api/availability', method: 'GET', status: 302, latencyMs: 10, verificationStatus: 'verified', verificationManifest: null, trust: 'verified', trustReasons: ['ip-in-published-list', 'documented-user-agent'], targetKey: null, attribution: 'not-configured' },
   ],
 }
 const visitorSummary: JourneySummaryResponse = {
@@ -259,13 +259,17 @@ test('agent request sequences open and page through the SDK with the server wind
   expect(screen.getByRole('status').textContent).toBe('27 request sequences · 146 recorded requests')
   expect(within(table).getByText('55')).not.toBeNull()
   expect(within(table).getByText('2 errors')).not.toBeNull()
-  expect(within(table).getByText('Verified operator')).not.toBeNull()
+  expect(within(table).getByText('Verified')).not.toBeNull()
   expect(within(table).getByText('Inferred sequence')).not.toBeNull()
+  // Likely fakes are counted by the API and never listed.
+  expect(screen.getByText('3 likely fake')).not.toBeNull()
+  expect(screen.getByRole('button', { name: /^3 likely fake requests\. These requests claimed to be an AI agent but look fake/ })).not.toBeNull()
   expect(screen.getByRole('button', { name: /^Some requests missing\. A source reached its daily recording limit/ })).not.toBeNull()
   const opener = within(table).getByRole('button', { name: /ChatGPT-User sequence/ })
   fireEvent.click(opener)
   const requests = await screen.findByRole('table', { name: 'ChatGPT-User recorded requests' })
   expect(opener.getAttribute('aria-expanded')).toBe('true')
+  expect(screen.getByText(": IP on OpenAI's published list · User agent matches OpenAI's published one")).not.toBeNull()
   const rows = within(requests).getAllByRole('row').slice(1)
   expect(rows.map(row => [...row.querySelectorAll('td')].slice(1).map(cell => cell.textContent))).toEqual([
     ['GET', 'example.com/rooms', '-', '200'], ['GET', 'example.com/api/availability', '10 ms', '302'],
@@ -279,10 +283,10 @@ test('agent request sequences open and page through the SDK with the server wind
   await waitFor(() => expect(router.state.location.search).toMatchObject({ journeyView: 'agents', agentHours: '168' }))
 })
 
-test('Advanced Property, source and identity filters reach list and detail without treating market as known', async () => {
+test('Advanced Property, source and trust filters reach list and detail without treating market as known', async () => {
   const properties = [{ key: 'hotel', label: 'Hotel' }, { key: 'cafe', label: 'Cafe' }]
   const reads = responses(url => {
-    const scope: AgentJourneyContext['scope'] = { ...context.scope, mode: 'advanced', planRevision: 8, attribution: 'current-plan-url', targetKey: url.searchParams.get('targetKey'), sourceId: url.searchParams.get('sourceId'), verificationStatus: 'verified' }
+    const scope: AgentJourneyContext['scope'] = { ...context.scope, mode: 'advanced', planRevision: 8, attribution: 'current-plan-url', targetKey: url.searchParams.get('targetKey'), sourceId: url.searchParams.get('sourceId'), trust: 'verified' }
     return json(url.pathname.endsWith('/request-one')
       ? { ...detail, scope, properties, events: [{ ...detail.events[0]!, targetKey: 'cafe', attribution: 'matched' }] }
       : { ...journeys, scope, properties })
@@ -294,14 +298,17 @@ test('Advanced Property, source and identity filters reach list and detail witho
   fireEvent.change(screen.getByRole('searchbox', { name: 'Find a property' }), { target: { value: 'cafe' } })
   fireEvent.click(screen.getByRole('button', { name: 'Cafe' }))
   fireEvent.change(screen.getByRole('combobox', { name: 'Source' }), { target: { value: 'edge' } })
-  fireEvent.change(screen.getByRole('combobox', { name: 'Identity' }), { target: { value: 'verified' } })
-  await waitFor(() => expect(reads.some(url => url.searchParams.get('targetKey') === 'cafe' && url.searchParams.get('sourceId') === 'edge' && url.searchParams.get('verificationStatus') === 'verified')).toBe(true))
-  expect(screen.getByRole('option', { name: 'Unknown identities' })).not.toBeNull()
+  const trust = screen.getByRole('combobox', { name: 'Trust' })
+  // Likely fakes are never listed, so they are not a filter choice.
+  expect(within(trust).getAllByRole('option').map(option => option.textContent)).toEqual(['All trust levels', 'Verified', 'Likely real', 'Unknown'])
+  fireEvent.change(trust, { target: { value: 'verified' } })
+  await waitFor(() => expect(reads.some(url => url.searchParams.get('targetKey') === 'cafe' && url.searchParams.get('sourceId') === 'edge' && url.searchParams.get('trust') === 'verified')).toBe(true))
+  expect(screen.getByText('Trust:')).not.toBeNull()
   fireEvent.click(await screen.findByRole('button', { name: /ChatGPT-User sequence/ }))
   const requests = await screen.findByRole('table', { name: 'ChatGPT-User recorded requests' })
   expect(within(requests).getByText('Cafe')).not.toBeNull()
   const request = lastRead(reads, '/request-one')!
-  expect(Object.fromEntries(request.searchParams)).toMatchObject({ sourceId: 'edge', verificationStatus: 'verified', targetKey: 'cafe', since: context.windowStart, until: context.windowEnd })
+  expect(Object.fromEntries(request.searchParams)).toMatchObject({ sourceId: 'edge', trust: 'verified', targetKey: 'cafe', since: context.windowStart, until: context.windowEnd })
   expect(request.searchParams.has('marketKey')).toBe(false)
   fireEvent.click(screen.getByText('Capture coverage'))
   expect(screen.getByText('Property attribution uses URL matches in plan revision 8.')).not.toBeNull()

@@ -1094,6 +1094,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Hourly rollup consumed via /traffic/events composite, not directly mapped to a DTO.',
   },
+  aiUserFetchLikelyFakeHourly: {
+    kind: 'internal-only',
+    reason: 'Hourly likely fake agent totals consumed as source totals24h and agent journey coverage counts, not directly mapped to a DTO.',
+  },
   aiUserFetchVerificationManifestsHourly: {
     kind: 'internal-only',
     reason: 'Per-manifest AI user-fetch provenance consumed via /traffic/events composite, not directly mapped to a DTO.',

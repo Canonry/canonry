@@ -1,12 +1,12 @@
-import { and, asc, eq, gte, lte } from 'drizzle-orm'
+import { and, asc, eq, gte, lte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { agentJourneyCaptureDays, agentJourneyEvents, trafficSources, type DatabaseClient } from '@canonry/canonry-db'
+import { agentJourneyCaptureDays, agentJourneyEvents, aiUserFetchLikelyFakeHourly, trafficSources, type DatabaseClient } from '@canonry/canonry-db'
 import {
   AGENT_JOURNEY_DAILY_EVENT_LIMIT, AGENT_JOURNEY_IDLE_MINUTES, AGENT_JOURNEY_READ_EVENT_LIMIT, AGENT_JOURNEY_RETENTION_DAYS,
-  AgentJourneyAttributions, AgentJourneyCorrelationBases, TrafficSourceTypes, TrafficSourceStatuses,
+  AgentJourneyAttributions, AgentJourneyCorrelationBases, AgentTrustLevels, TrafficSourceTypes, TrafficSourceStatuses,
   agentJourneysQuerySchema, compareText, formatValidationIssues, notFound, resolveMeasurementTarget, trafficSourceTypeSchema, validationError,
   type AgentJourney, type AgentJourneyContext, type AgentJourneyDetailResponse, type AgentJourneyEvent,
-  type AgentJourneysQuery, type AgentJourneysResponse, type MeasurementTargetUrlMatcher, type TrafficSourceType,
+  type AgentJourneysQuery, type AgentJourneysResponse, type MeasurementTargetUrlMatcher, type StoredAgentTrust, type TrafficSourceType,
 } from '@canonry/canonry-contracts'
 import { requireAdminSession } from './auth.js'
 import { resolveProject } from './helpers.js'
@@ -21,9 +21,17 @@ const SOURCE_LIMITS: Record<TrafficSourceType, string[]> = {
   [TrafficSourceTypes['generic-log']]: ['Coverage is limited to the requests supplied by this log source.'],
 }
 
+const STORED_TRUST_ORDER: readonly StoredAgentTrust[] = [AgentTrustLevels.verified, AgentTrustLevels.likely_real, AgentTrustLevels.unknown]
+
 type EventRow = typeof agentJourneyEvents.$inferSelect
 interface Sequence { rows: EventRow[]; events: AgentJourneyEvent[]; summary: AgentJourney }
 interface Target { stableKey: string; label: string; urls: MeasurementTargetUrlMatcher[] }
+
+function hourStart(iso: string): string {
+  const date = new Date(iso)
+  date.setUTCMinutes(0, 0, 0)
+  return date.toISOString()
+}
 
 function parseSelection(raw: Record<string, unknown>): AgentJourneysQuery {
   const input = { ...raw }
@@ -48,11 +56,11 @@ function eventDto(row: EventRow, targets: Target[], hasPlan: boolean): AgentJour
   return {
     id: row.id, ts: row.ts, host: row.host, path: row.path, method: row.method,
     status: row.status, latencyMs: row.latencyMs, verificationStatus: row.verificationStatus,
-    verificationManifest: row.verificationManifest, targetKey, attribution,
+    verificationManifest: row.verificationManifest, trust: row.trust, trustReasons: row.trustReasons, targetKey, attribution,
   }
 }
 
-/** Group stored requests before narrowing Property/verification, so filters cannot join separate sequences. */
+/** Group stored requests before narrowing Property/trust, so filters cannot join separate sequences. */
 function sequences(rows: EventRow[], targets: Target[], hasPlan: boolean, query: AgentJourneysQuery): Sequence[] {
   const active = new Map<string, EventRow[]>()
   const groups: EventRow[][] = []
@@ -69,7 +77,7 @@ function sequences(rows: EventRow[], targets: Target[], hasPlan: boolean, query:
   for (const group of groups) {
     const events = group.map(row => eventDto(row, targets, hasPlan)).filter(event =>
       (!query.targetKey || event.targetKey === query.targetKey)
-      && (!query.verificationStatus || event.verificationStatus === query.verificationStatus))
+      && (!query.trust || event.trust === query.trust))
     if (events.length === 0) continue
     const first = events[0]!
     const last = events.at(-1)!
@@ -81,7 +89,7 @@ function sequences(rows: EventRow[], targets: Target[], hasPlan: boolean, query:
       startedAt: first.ts, endedAt: last.ts, firstHost: first.host, firstPath: first.path, lastPath: last.path,
       requestCount: events.length,
       errorCount: events.filter(event => event.status !== null && event.status >= 400 && event.status <= 599).length,
-      verificationStatuses: [...new Set(events.map(event => event.verificationStatus))].sort(compareText),
+      trustLevels: STORED_TRUST_ORDER.filter(level => events.some(event => event.trust === level)),
       targetKeys: [...new Set(events.flatMap(event => event.targetKey ? [event.targetKey] : []))].sort(compareText),
     } })
   }
@@ -111,10 +119,15 @@ function readSequences(db: DatabaseClient, name: string, query: AgentJourneysQue
   const capFilters = [eq(agentJourneyCaptureDays.projectId, project.id), eq(agentJourneyCaptureDays.capped, true), gte(agentJourneyCaptureDays.day, windowStart.slice(0, 10)), lte(agentJourneyCaptureDays.day, windowEnd.slice(0, 10))]
   if (query.sourceId) capFilters.push(eq(agentJourneyCaptureDays.sourceId, query.sourceId))
   const cappedSourceDays = db.select({ sourceId: agentJourneyCaptureDays.sourceId, day: agentJourneyCaptureDays.day }).from(agentJourneyCaptureDays).where(and(...capFilters)).orderBy(asc(agentJourneyCaptureDays.day), asc(agentJourneyCaptureDays.sourceId)).all()
+  // Same selectors as the stored requests; the hourly totals bound the window to whole hours.
+  const fakeFilters = [eq(aiUserFetchLikelyFakeHourly.projectId, project.id), gte(aiUserFetchLikelyFakeHourly.tsHour, hourStart(windowStart)), lte(aiUserFetchLikelyFakeHourly.tsHour, windowEnd)]
+  if (query.sourceId) fakeFilters.push(eq(aiUserFetchLikelyFakeHourly.sourceId, query.sourceId))
+  if (query.agentId) fakeFilters.push(eq(aiUserFetchLikelyFakeHourly.botId, query.agentId))
+  const likelyFake = db.select({ total: sql<number>`COALESCE(SUM(${aiUserFetchLikelyFakeHourly.hits}), 0)` }).from(aiUserFetchLikelyFakeHourly).where(and(...fakeFilters)).get()
   const context: AgentJourneyContext = {
     scope: {
       project: project.name, sourceId: query.sourceId ?? null, agentId: query.agentId ?? null,
-      verificationStatus: query.verificationStatus ?? null, targetKey: query.targetKey ?? null,
+      trust: query.trust ?? null, targetKey: query.targetKey ?? null,
       mode: active ? 'advanced' : 'simple', planRevision: active?.version.revision ?? null,
       attribution: active ? 'current-plan-url' : 'project',
       unavailableDimensions: ['market', 'query', 'query-class', 'model', 'task'],
@@ -123,6 +136,7 @@ function readSequences(db: DatabaseClient, name: string, query: AgentJourneysQue
     coverage: {
       recordingEnabled, retentionDays: AGENT_JOURNEY_RETENTION_DAYS, idleMinutes: AGENT_JOURNEY_IDLE_MINUTES,
       dailyEventLimit: AGENT_JOURNEY_DAILY_EVENT_LIMIT, windowBounded: true, cappedSourceDays,
+      likelyFakeRequests: Number(likelyFake?.total ?? 0),
       sources: sources.map(source => ({
         sourceId: source.id, sourceType: trafficSourceTypeSchema.parse(source.sourceType), label: source.displayName,
         limitations: [
@@ -136,10 +150,11 @@ function readSequences(db: DatabaseClient, name: string, query: AgentJourneysQue
       limitations: [
         'Requests are observed; IP and user-agent sequences are inferred, not confirmed user sessions. Shared egress can merge tasks and changing IPs can split them.',
         'Operator verification does not identify a user, task, or model. Unknown browser agents are not detected.',
+        'Trust levels other than verified are heuristics over the IP check, the user agent and the path. Likely fake requests (paths that look for credential or admin files, a user agent unlike the operator\'s published string, or an IP outside a current published list) are counted, not listed.',
         'Only retained requests inside this window are shown. Query strings, bodies and sensitive path segments are omitted. Static assets are excluded.',
         'HTTP responses do not establish clicks, intent, or business outcomes. External browsing and browser-only interactions are not observed.',
         'Requests with identical timestamps have a stable display order, not a proven causal order.',
-        ...(active ? ['Property attribution uses the current plan and retained URL paths; it is not historical market or query attribution. Property and verification filters retain only matching requests.'] : []),
+        ...(active ? ['Property attribution uses the current plan and retained URL paths; it is not historical market or query attribution. Property and trust filters retain only matching requests.'] : []),
       ],
     },
   }

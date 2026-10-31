@@ -1,10 +1,12 @@
 import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import { AiReferralTrafficClasses, hostOf } from '@canonry/canonry-contracts'
-import { classifyAiReferral, classifyAiUserFetch, classifyCrawler, isSelfTraffic } from './classifier.js'
+import { AgentTrustLevels } from '@canonry/canonry-contracts'
+import { classifyAiReferral, classifyAiUserFetches, classifyCrawler, isSelfTraffic } from './classifier.js'
 import type {
   AiReferralEventHourlyBucket,
   AiReferralEvidenceType,
   AiUserFetchEventHourlyBucket,
+  AiUserFetchLikelyFakeHourlyBucket,
   BuildTrafficProbeReportOptions,
   ClassifiedAiReferral,
   CrawlerEventHourlyBucket,
@@ -162,6 +164,10 @@ function sortAiUserFetchBuckets(a: AiUserFetchEventHourlyBucket, b: AiUserFetchE
     String(a.status).localeCompare(String(b.status))
 }
 
+function sortLikelyFakeBuckets(a: AiUserFetchLikelyFakeHourlyBucket, b: AiUserFetchLikelyFakeHourlyBucket): number {
+  return a.tsHour.localeCompare(b.tsHour) || a.botId.localeCompare(b.botId) || a.reason.localeCompare(b.reason)
+}
+
 function sortReferralBuckets(a: AiReferralEventHourlyBucket, b: AiReferralEventHourlyBucket): number {
   return a.tsHour.localeCompare(b.tsHour) ||
     a.product.localeCompare(b.product) ||
@@ -191,6 +197,7 @@ export function buildTrafficProbeReport(
     : DEFAULT_AI_REFERRAL_SESSION_WINDOW_MS
   const crawlerBuckets = new Map<string, CrawlerEventHourlyBucket>()
   const aiUserFetchBuckets = new Map<string, AiUserFetchEventHourlyBucket>()
+  const likelyFakeBuckets = new Map<string, AiUserFetchLikelyFakeHourlyBucket>()
   const aiReferralBuckets = new Map<string, AiReferralEventHourlyBucket>()
   const aiReferralSessions = new Map<string, AiReferralSession>()
   const topBots = new Map<string, { fields: { botId: string; operator: string }; hits: number }>()
@@ -205,9 +212,11 @@ export function buildTrafficProbeReport(
   // counts. The dropped count is surfaced in `totals.selfTrafficExcluded`.
   const includedEvents = events.filter((event) => !isSelfTraffic(event))
   const selfTrafficExcluded = events.length - includedEvents.length
+  const userFetches = classifyAiUserFetches(includedEvents)
 
   let crawlerHits = 0
   let aiUserFetchHits = 0
+  let aiUserFetchLikelyFakeHits = 0
   let aiReferralHits = 0
   let aiReferralPaidSessions = 0
   let aiReferralOrganicSessions = 0
@@ -218,7 +227,7 @@ export function buildTrafficProbeReport(
     const tsHour = hourBucket(event.observedAt)
     const pathNormalized = normalizeTrafficPathPattern(event.path)
     const crawler = classifyCrawler(event)
-    const aiUserFetch = classifyAiUserFetch(event)
+    const aiUserFetch = userFetches.get(event) ?? null
     const aiReferral = classifyAiReferral(event)
 
     if (crawler) {
@@ -255,7 +264,15 @@ export function buildTrafficProbeReport(
       incrementBucket(topCrawlerPaths, pathNormalized, { pathNormalized })
     }
 
-    if (aiUserFetch) {
+    if (aiUserFetch?.trust === AgentTrustLevels.likely_fake) {
+      // Not an AI agent visit: counted on its own, never as an AI user fetch.
+      aiUserFetchLikelyFakeHits += 1
+      const reason = aiUserFetch.trustReasons[0]!
+      const key = [tsHour, aiUserFetch.botId, reason].join('\t')
+      const existing = likelyFakeBuckets.get(key)
+      if (existing) existing.hits += 1
+      else likelyFakeBuckets.set(key, { tsHour, botId: aiUserFetch.botId, operator: aiUserFetch.operator, reason, hits: 1 })
+    } else if (aiUserFetch) {
       aiUserFetchHits += 1
       const key = [
         tsHour,
@@ -373,6 +390,7 @@ export function buildTrafficProbeReport(
       selfTrafficExcluded,
       crawlerHits,
       aiUserFetchHits,
+      aiUserFetchLikelyFakeHits,
       aiReferralSessions: aiReferralSessions.size,
       aiReferralPaidSessions,
       aiReferralOrganicSessions,
@@ -381,6 +399,7 @@ export function buildTrafficProbeReport(
     },
     crawlerEventsHourly: [...crawlerBuckets.values()].sort(sortCrawlerBuckets),
     aiUserFetchEventsHourly: [...aiUserFetchBuckets.values()].sort(sortAiUserFetchBuckets),
+    aiUserFetchLikelyFakeHourly: [...likelyFakeBuckets.values()].sort(sortLikelyFakeBuckets),
     aiReferralEventsHourly: [...aiReferralBuckets.values()].sort(sortReferralBuckets),
     topBots: topEntries(topBots, 10),
     topCrawlerPaths: topEntries(topCrawlerPaths, 10),

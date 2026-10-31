@@ -5030,7 +5030,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   },
   {
     version: 200,
-    name: 'agent-journey-events',
+    name: 'agent-journeys-and-agent-trust',
     statements: [
       `CREATE TABLE IF NOT EXISTS agent_journey_events (
         id TEXT PRIMARY KEY,
@@ -5045,6 +5045,8 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         product TEXT NOT NULL,
         verification_status TEXT NOT NULL,
         verification_manifest TEXT,
+        trust TEXT NOT NULL,
+        trust_reasons TEXT NOT NULL,
         host TEXT,
         path TEXT NOT NULL,
         method TEXT,
@@ -5065,6 +5067,20 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         PRIMARY KEY(project_id, source_id, day)
       )`,
       `CREATE INDEX IF NOT EXISTS idx_agent_journey_capture_days_day ON agent_journey_capture_days(day)`,
+      `CREATE TABLE IF NOT EXISTS ai_user_fetch_likely_fake_hourly (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        source_id TEXT NOT NULL REFERENCES traffic_sources(id) ON DELETE CASCADE,
+        ts_hour TEXT NOT NULL,
+        bot_id TEXT NOT NULL,
+        operator TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        hits INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(project_id, source_id, ts_hour, bot_id, reason)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ai_user_fetch_likely_fake_project_ts ON ai_user_fetch_likely_fake_hourly(project_id, ts_hour)`,
+      `CREATE INDEX IF NOT EXISTS idx_ai_user_fetch_likely_fake_source_ts ON ai_user_fetch_likely_fake_hourly(source_id, ts_hour)`,
     ],
   },
 ]

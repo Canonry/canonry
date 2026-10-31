@@ -1,4 +1,6 @@
 import type {
+  AgentTrust,
+  AgentTrustReason,
   AiReferralTrafficClass,
   NormalizedTrafficRequest,
   TrafficVerificationManifest,
@@ -13,6 +15,13 @@ export interface AiCrawlerRule {
   product: string
   purpose: string
   userAgentPatterns: RegExp[]
+  /**
+   * The operator's published FULL user-agent string(s), for user-triggered
+   * agents only. Set it only when the operator labels the string as the full
+   * string (not an example). A matching request whose user agent differs is
+   * judged likely fake. Leave it unset when no exact string is published.
+   */
+  documentedUserAgents?: RegExp[]
 }
 
 export interface AiReferrerRule {
@@ -43,6 +52,9 @@ export interface ClassifiedAiUserFetch {
   verificationStatus: CrawlerVerificationStatus
   verificationManifest: TrafficVerificationManifest | null
   matchedUserAgent: string
+  trust: AgentTrust
+  /** Display order; never empty. */
+  trustReasons: AgentTrustReason[]
 }
 
 export interface ClassifiedAiReferral {
@@ -81,6 +93,15 @@ export interface AiUserFetchEventHourlyBucket {
   status: number | null
   hits: number
   sampledUserAgent: string | null
+}
+
+/** Likely fake agent requests, keyed by their first reason. Kept out of AI user fetch buckets. */
+export interface AiUserFetchLikelyFakeHourlyBucket {
+  tsHour: string
+  botId: string
+  operator: string
+  reason: AgentTrustReason
+  hits: number
 }
 
 export interface AiReferralEventHourlyBucket {
@@ -125,7 +146,10 @@ export interface TrafficProbeReport {
     /** Self-traffic events (Canonry's own tooling) dropped before rollup. */
     selfTrafficExcluded: number
     crawlerHits: number
+    /** Requests from user-triggered agents, excluding likely fake ones. */
     aiUserFetchHits: number
+    /** Requests that claim a user-triggered agent but are judged likely fake. */
+    aiUserFetchLikelyFakeHits: number
     aiReferralSessions: number
     /** Sessions carrying paid-attribution UTM evidence. Sums with `aiReferralOrganicSessions` to `aiReferralSessions`. */
     aiReferralPaidSessions: number
@@ -136,6 +160,7 @@ export interface TrafficProbeReport {
   }
   crawlerEventsHourly: CrawlerEventHourlyBucket[]
   aiUserFetchEventsHourly: AiUserFetchEventHourlyBucket[]
+  aiUserFetchLikelyFakeHourly: AiUserFetchLikelyFakeHourlyBucket[]
   aiReferralEventsHourly: AiReferralEventHourlyBucket[]
   topBots: Array<{ botId: string; operator: string; hits: number }>
   topCrawlerPaths: Array<{ pathNormalized: string; hits: number }>

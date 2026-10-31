@@ -27,6 +27,7 @@ import {
 } from './ActivityParts.js'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { likelyFakeAgentHitsNote } from '../../lib/agent-trust-copy.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import {
   GA_SEARCH_LANDING_DEFAULT_WINDOW,
@@ -199,7 +200,12 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
                     <ToneBadge tone={toneFromTrafficSourceStatus(s.status)}>{s.status}</ToneBadge>
                   </td>
                   <td className="py-2 pl-4 text-right tabular-nums text-primary">{s.totals24h.crawlerHits.toLocaleString('en-US')}</td>
-                  <td className="py-2 pl-4 text-right tabular-nums text-primary">{s.totals24h.aiUserFetchHits.toLocaleString('en-US')}</td>
+                  <td className="py-2 pl-4 text-right tabular-nums text-primary">
+                    <span className="inline-flex items-center justify-end gap-1">
+                      {s.totals24h.aiUserFetchHits.toLocaleString('en-US')}
+                      {s.totals24h.aiUserFetchLikelyFakeHits > 0 && <InfoTooltip text={likelyFakeAgentHitsNote(s.totals24h.aiUserFetchLikelyFakeHits)} />}
+                    </span>
+                  </td>
                   <td className="py-2 pl-4 text-right tabular-nums text-primary">{s.totals24h.aiReferralLandedHits.toLocaleString('en-US')}</td>
                   <td className="py-2 pl-4 text-right text-secondary">{s.lastSyncedAt ? relativeTime(s.lastSyncedAt) : 'never'}</td>
                   <td className="py-2 pl-3 text-right">

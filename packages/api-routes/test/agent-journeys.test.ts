@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { agentJourneyCaptureDays, agentJourneyEvents, apiKeys, createClient, measurementPlans, measurementPlanVersions, migrate, projects, trafficSources } from '@canonry/canonry-db'
+import { agentJourneyCaptureDays, agentJourneyEvents, aiUserFetchLikelyFakeHourly, apiKeys, createClient, measurementPlans, measurementPlanVersions, migrate, projects, trafficSources } from '@canonry/canonry-db'
 import { agentJourneyDetailResponseSchema, agentJourneysResponseSchema, canonicalMeasurementPlanJson, canonicalMeasurementPlanV2Json, compileMeasurementPlan, type AgentJourneysResponse } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
@@ -20,6 +20,7 @@ describe('observed agent journeys', () => {
     db.insert(agentJourneyEvents).values({ id, projectId: 'project', sourceId: 'source', sourceEventId: id,
       ts: `2026-10-27T${time}.000Z`, correlationKey: 'private-correlation-key', correlationBasis: 'ip-ua',
       agentId: 'openai-chatgpt-user', operator: 'OpenAI', product: 'ChatGPT', verificationStatus: 'claimed_unverified',
+      trust: 'unknown', trustReasons: ['ip-outside-old-list'],
       host: 'northstar.example', path: '/', method: 'GET', status: 200, latencyMs: 42, createdAt: NOW, ...overrides }).run()
   }
   async function list(selection = ''): Promise<AgentJourneysResponse> {
@@ -49,7 +50,7 @@ describe('observed agent journeys', () => {
     const first = await list('limit=1')
     expect(first).toMatchObject({ observedRequests: 4, totalJourneys: 2, offset: 0, journeys: [{ id: 'd', requestCount: 1, errorCount: 0, correlation: 'inferred' }] })
     const next = await list('limit=1&offset=1')
-    expect(next.journeys).toMatchObject([{ id: 'a', firstPath: '/rooms', lastPath: '/booking', requestCount: 3, errorCount: 1, startedAt: '2026-10-27T10:00:00.000Z', endedAt: '2026-10-27T10:02:00.000Z', verificationStatuses: ['claimed_unverified'] }])
+    expect(next.journeys).toMatchObject([{ id: 'a', firstPath: '/rooms', lastPath: '/booking', requestCount: 3, errorCount: 1, startedAt: '2026-10-27T10:00:00.000Z', endedAt: '2026-10-27T10:02:00.000Z', trustLevels: ['unknown'] }])
     const response = await app.inject(`${BASE}/a?${WINDOW}&limit=2&offset=1`)
     expect(response.statusCode).toBe(200)
     const detail = agentJourneyDetailResponseSchema.parse(response.json())
@@ -64,17 +65,22 @@ describe('observed agent journeys', () => {
     expect(late.journey.id).toBe('late')
   })
 
-  it('keeps no-IP events, source boundaries and operator verification separate from session inference', async () => {
-    event('a', '10:00:00', { verificationStatus: 'verified' })
-    event('b', '10:01:00', { verificationStatus: 'verified' })
+  it('keeps no-IP events, source boundaries and agent trust separate from session inference', async () => {
+    const verified = { verificationStatus: 'verified', trust: 'verified', trustReasons: ['ip-in-published-list', 'documented-user-agent'] } as const
+    event('a', '10:00:00', verified)
+    event('b', '10:01:00', verified)
     event('c', '10:01:00', { sourceId: 'second' })
     event('u1', '10:02:00', { correlationBasis: 'unlinked' })
     event('u2', '10:03:00', { correlationBasis: 'unlinked' })
     const body = await list()
     expect(body).toMatchObject({ observedRequests: 5, totalJourneys: 4 })
     expect(body.journeys.map(row => [row.id, row.correlation, row.requestCount])).toEqual([['u2', 'unlinked', 1], ['u1', 'unlinked', 1], ['c', 'inferred', 1], ['a', 'inferred', 2]])
-    const verified = await list('verificationStatus=verified')
-    expect(verified).toMatchObject({ observedRequests: 2, totalJourneys: 1, journeys: [{ correlation: 'inferred', requestCount: 2 }] })
+    const onlyVerified = await list('trust=verified')
+    expect(onlyVerified).toMatchObject({ scope: { trust: 'verified' }, observedRequests: 2, totalJourneys: 1, journeys: [{ correlation: 'inferred', requestCount: 2, trustLevels: ['verified'] }] })
+    const detail = agentJourneyDetailResponseSchema.parse((await app.inject(`${BASE}/a?${WINDOW}&trust=verified`)).json())
+    expect(detail.events.map(e => [e.id, e.trust, e.trustReasons])).toEqual([['a', 'verified', ['ip-in-published-list', 'documented-user-agent']], ['b', 'verified', ['ip-in-published-list', 'documented-user-agent']]])
+    expect((await list('trust=unknown')).observedRequests).toBe(3)
+    expect((await list('trust=likely_real')).totalJourneys).toBe(0)
     expect((await app.inject(`${BASE}/a?${WINDOW}&sourceId=second`)).statusCode).toBe(404)
     expect((await app.inject(`${BASE}?${WINDOW}&sourceId=foreign`)).statusCode).toBe(404)
   })
@@ -112,6 +118,26 @@ describe('observed agent journeys', () => {
     expect(db.select().from(agentJourneyCaptureDays).all()).toHaveLength(1)
   })
 
+  it('counts likely fake requests from hourly totals with the same window, source and agent selectors', async () => {
+    const fake = (sourceId: string, tsHour: string, botId: string, reason: 'scanner-path' | 'unusual-user-agent', hits: number) =>
+      db.insert(aiUserFetchLikelyFakeHourly).values({ projectId: 'project', sourceId, tsHour, botId, operator: 'OpenAI', reason, hits, createdAt: NOW, updatedAt: NOW }).run()
+    fake('source', '2026-10-27T09:00:00.000Z', 'openai-chatgpt-user', 'scanner-path', 5)
+    fake('source', '2026-10-27T09:00:00.000Z', 'openai-chatgpt-user', 'unusual-user-agent', 2)
+    fake('second', '2026-10-27T11:00:00.000Z', 'claude-user', 'scanner-path', 3)
+    fake('source', '2026-10-26T23:00:00.000Z', 'openai-chatgpt-user', 'scanner-path', 100)
+    db.insert(aiUserFetchLikelyFakeHourly).values({ projectId: 'other', sourceId: 'foreign', tsHour: '2026-10-27T09:00:00.000Z', botId: 'openai-chatgpt-user', operator: 'OpenAI', reason: 'scanner-path', hits: 40, createdAt: NOW, updatedAt: NOW }).run()
+    event('a', '10:00:00')
+    const body = await list()
+    // Counted, never listed: the one stored request is the only sequence.
+    expect(body).toMatchObject({ observedRequests: 1, totalJourneys: 1, coverage: { likelyFakeRequests: 10 } })
+    expect((await list('sourceId=second')).coverage.likelyFakeRequests).toBe(3)
+    expect((await list('agentId=openai-chatgpt-user')).coverage.likelyFakeRequests).toBe(7)
+    // A window starting mid-hour still counts that hour's bucket.
+    const midHour = agentJourneysResponseSchema.parse((await app.inject(`${BASE}?since=2026-10-27T09:30:00.000Z&until=2026-10-27T10:30:00.000Z`)).json())
+    expect(midHour.coverage.likelyFakeRequests).toBe(7)
+    expect(body.coverage.limitations.join(' ')).toContain('Likely fake requests')
+  })
+
   it('refuses an oversized selection rather than exposing an incomplete timeline or an incorrect total', async () => {
     db.transaction(() => {
       for (let i = 0; i < 20_001; i++) event(`bulk-${i}`, '10:00:00', { sourceId: i < 10_000 ? 'source' : 'second', ts: `2026-10-${i < 20_000 ? '27' : '26'}T10:00:00.000Z` })
@@ -123,7 +149,7 @@ describe('observed agent journeys', () => {
     expect(narrower).toMatchObject({ observedRequests: 10000, totalJourneys: 1, journeys: [{ requestCount: 10000 }] })
   })
 
-  it.each(['limit=0', 'offset=-1', 'until=2026-10-01', 'since=2026-08-01', 'since=invalid', 'marketKey=harbor', 'queryClass=non-brand', 'targetKey=absent'])('rejects unsupported or invalid scope: %s', async selection => {
+  it.each(['limit=0', 'offset=-1', 'until=2026-10-01', 'since=2026-08-01', 'since=invalid', 'marketKey=harbor', 'queryClass=non-brand', 'targetKey=absent', 'trust=likely_fake', 'verificationStatus=verified'])('rejects unsupported or invalid scope: %s', async selection => {
     const params = new URLSearchParams(WINDOW)
     new URLSearchParams(selection).forEach((value, key) => params.set(key, value))
     const response = await app.inject(`${BASE}?${params}`)

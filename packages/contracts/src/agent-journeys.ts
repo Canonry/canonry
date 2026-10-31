@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { trafficSourceTypeSchema, trafficVerificationManifestSchema, verificationStatusSchema } from './traffic.js'
+import { agentTrustReasonSchema, agentTrustSchema, trafficSourceTypeSchema, trafficVerificationManifestSchema, verificationStatusSchema } from './traffic.js'
 
 export const AGENT_JOURNEY_RETENTION_DAYS = 30
 export const AGENT_JOURNEY_DAILY_EVENT_LIMIT = 10_000
@@ -11,6 +11,10 @@ export const agentJourneyCorrelationBasisSchema = z.enum(['ip-ua', 'unlinked'])
 export const AgentJourneyCorrelationBases = agentJourneyCorrelationBasisSchema.enum
 export type AgentJourneyCorrelationBasis = z.infer<typeof agentJourneyCorrelationBasisSchema>
 
+/** Likely fake agent requests are counted, never stored as journey events. */
+export const storedAgentTrustSchema = agentTrustSchema.exclude(['likely_fake'])
+export type StoredAgentTrust = z.infer<typeof storedAgentTrustSchema>
+
 const instant = z.union([z.iso.datetime({ offset: true }), z.iso.date()])
 /** All selectors are read identity; limit/offset tune pagination only. */
 export const agentJourneysQuerySchema = z.object({
@@ -18,7 +22,7 @@ export const agentJourneysQuerySchema = z.object({
   until: instant.optional(),
   sourceId: z.string().min(1).max(256).optional(),
   agentId: z.string().min(1).max(128).optional(),
-  verificationStatus: verificationStatusSchema.optional(),
+  trust: storedAgentTrustSchema.optional(),
   targetKey: z.string().min(1).max(128).optional(),
   limit: z.number().int().min(1).max(200).optional(),
   offset: z.number().int().min(0).optional(),
@@ -38,6 +42,8 @@ export const agentJourneyEventSchema = z.object({
   latencyMs: z.number().nonnegative().nullable(),
   verificationStatus: verificationStatusSchema,
   verificationManifest: trafficVerificationManifestSchema.nullable(),
+  trust: storedAgentTrustSchema,
+  trustReasons: z.array(agentTrustReasonSchema),
   targetKey: z.string().nullable(),
   attribution: agentJourneyAttributionSchema,
 })
@@ -60,7 +66,8 @@ export const agentJourneySchema = z.object({
   requestCount: z.number().int().nonnegative(),
   /** HTTP 400–599 only; neither other statuses nor paths prove task success. */
   errorCount: z.number().int().nonnegative(),
-  verificationStatuses: z.array(verificationStatusSchema),
+  /** Distinct trust levels across the sequence's retained requests. */
+  trustLevels: z.array(storedAgentTrustSchema),
   targetKeys: z.array(z.string()),
 })
 export type AgentJourney = z.infer<typeof agentJourneySchema>
@@ -70,7 +77,7 @@ const agentJourneyContextSchema = z.object({
     project: z.string(),
     sourceId: z.string().nullable(),
     agentId: z.string().nullable(),
-    verificationStatus: verificationStatusSchema.nullable(),
+    trust: storedAgentTrustSchema.nullable(),
     targetKey: z.string().nullable(),
     mode: z.enum(['simple', 'advanced']),
     planRevision: z.number().int().nullable(),
@@ -87,6 +94,8 @@ const agentJourneyContextSchema = z.object({
     dailyEventLimit: z.number().int(),
     windowBounded: z.literal(true),
     cappedSourceDays: z.array(z.object({ sourceId: z.string(), day: z.string() })),
+    /** Likely fake agent requests in the window (same source and agent selectors), counted from hourly totals. */
+    likelyFakeRequests: z.number().int().nonnegative(),
     sources: z.array(z.object({
       sourceId: z.string(),
       sourceType: trafficSourceTypeSchema,

@@ -17606,6 +17606,8 @@ export type TrafficSamplesResponse = {
                     version?: string | null;
                 } | null;
                 matchedUserAgent?: string | null;
+                trust?: 'verified' | 'likely_real' | 'unknown' | 'likely_fake' | null;
+                trustReasons?: Array<'ip-in-published-list' | 'ip-outside-published-list' | 'ip-outside-old-list' | 'no-ip' | 'no-published-list' | 'documented-user-agent' | 'unusual-user-agent' | 'scanner-path' | 'same-client-scanned'> | null;
                 purpose?: string | null;
             } | null;
             aiUserFetch: {
@@ -17619,6 +17621,8 @@ export type TrafficSamplesResponse = {
                     version?: string | null;
                 } | null;
                 matchedUserAgent?: string | null;
+                trust?: 'verified' | 'likely_real' | 'unknown' | 'likely_fake' | null;
+                trustReasons?: Array<'ip-in-published-list' | 'ip-outside-published-list' | 'ip-outside-old-list' | 'no-ip' | 'no-published-list' | 'documented-user-agent' | 'unusual-user-agent' | 'scanner-path' | 'same-client-scanned'> | null;
             } | null;
             aiReferral: {
                 operator?: string | null;
@@ -17680,7 +17684,7 @@ export type AgentJourneysResponse = {
         project: string;
         sourceId: string | null;
         agentId: string | null;
-        verificationStatus: 'verified' | 'claimed_unverified' | 'unknown_ai_like' | null;
+        trust: 'verified' | 'likely_real' | 'unknown' | null;
         targetKey: string | null;
         mode: 'simple' | 'advanced';
         planRevision: number | null;
@@ -17703,6 +17707,7 @@ export type AgentJourneysResponse = {
             sourceId: string;
             day: string;
         }>;
+        likelyFakeRequests: number;
         sources: Array<{
             sourceId: string;
             sourceType: 'cloud-run' | 'wordpress' | 'cloudflare' | 'vercel' | 'generic-log';
@@ -17730,7 +17735,7 @@ export type AgentJourneysResponse = {
         lastPath: string;
         requestCount: number;
         errorCount: number;
-        verificationStatuses: Array<'verified' | 'claimed_unverified' | 'unknown_ai_like'>;
+        trustLevels: Array<'verified' | 'likely_real' | 'unknown'>;
         targetKeys: Array<string>;
     }>;
 };
@@ -17740,7 +17745,7 @@ export type AgentJourneyDetailResponse = {
         project: string;
         sourceId: string | null;
         agentId: string | null;
-        verificationStatus: 'verified' | 'claimed_unverified' | 'unknown_ai_like' | null;
+        trust: 'verified' | 'likely_real' | 'unknown' | null;
         targetKey: string | null;
         mode: 'simple' | 'advanced';
         planRevision: number | null;
@@ -17763,6 +17768,7 @@ export type AgentJourneyDetailResponse = {
             sourceId: string;
             day: string;
         }>;
+        likelyFakeRequests: number;
         sources: Array<{
             sourceId: string;
             sourceType: 'cloud-run' | 'wordpress' | 'cloudflare' | 'vercel' | 'generic-log';
@@ -17786,7 +17792,7 @@ export type AgentJourneyDetailResponse = {
         lastPath: string;
         requestCount: number;
         errorCount: number;
-        verificationStatuses: Array<'verified' | 'claimed_unverified' | 'unknown_ai_like'>;
+        trustLevels: Array<'verified' | 'likely_real' | 'unknown'>;
         targetKeys: Array<string>;
     };
     totalEvents: number;
@@ -17806,6 +17812,8 @@ export type AgentJourneyDetailResponse = {
             source: string;
             version: string;
         } | null;
+        trust: 'verified' | 'likely_real' | 'unknown';
+        trustReasons: Array<'ip-in-published-list' | 'ip-outside-published-list' | 'ip-outside-old-list' | 'no-ip' | 'no-published-list' | 'documented-user-agent' | 'unusual-user-agent' | 'scanner-path' | 'same-client-scanned'>;
         targetKey: string | null;
         attribution: 'matched' | 'unmatched' | 'ambiguous' | 'unknown-host' | 'redacted' | 'not-configured';
     }>;
@@ -17914,6 +17922,7 @@ export type TrafficSourceDetailDto = {
             other: number;
         };
         aiUserFetchHits: number;
+        aiUserFetchLikelyFakeHits: number;
         aiReferralHits: number;
         aiReferralLandedHits: number;
         aiReferralRedirectedHits: number;
@@ -18016,6 +18025,7 @@ export type TrafficStatusResponse = {
                 other: number;
             };
             aiUserFetchHits: number;
+            aiUserFetchLikelyFakeHits: number;
             aiReferralHits: number;
             aiReferralLandedHits: number;
             aiReferralRedirectedHits: number;
@@ -35417,9 +35427,9 @@ export type GetApiV1ProjectsByNameTrafficAgentJourneysData = {
          */
         agentId?: string;
         /**
-         * Keep requests with this operator verification status; does not verify session continuity.
+         * Keep requests at this agent trust level. verified: IP in the operator's published list. likely_real: no IP check was possible but the user agent matches the operator's published string. unknown: anything else that was not judged likely fake. Likely fake requests are counted in coverage.likelyFakeRequests, never listed. Trust does not verify session continuity.
          */
-        verificationStatus?: 'verified' | 'claimed_unverified' | 'unknown_ai_like';
+        trust?: 'verified' | 'likely_real' | 'unknown';
         /**
          * Keep requests attributed to this Property using current-plan URL matchers. Market, query, and model attribution are unavailable.
          */
@@ -35492,9 +35502,9 @@ export type GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdData = {
          */
         agentId?: string;
         /**
-         * Keep requests with this operator verification status; does not verify session continuity.
+         * Keep requests at this agent trust level. verified: IP in the operator's published list. likely_real: no IP check was possible but the user agent matches the operator's published string. unknown: anything else that was not judged likely fake. Likely fake requests are counted in coverage.likelyFakeRequests, never listed. Trust does not verify session continuity.
          */
-        verificationStatus?: 'verified' | 'claimed_unverified' | 'unknown_ai_like';
+        trust?: 'verified' | 'likely_real' | 'unknown';
         /**
          * Keep requests attributed to this Property using current-plan URL matchers. Market, query, and model attribution are unavailable.
          */

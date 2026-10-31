@@ -36,6 +36,7 @@ import {
   useSyncServerTrafficSource,
 } from '../queries/server-traffic.js'
 import { localTimeZoneLabel } from '../lib/format-helpers.js'
+import { likelyFakeAgentHitsNote } from '../lib/agent-trust-copy.js'
 import {
   bucketForChartClick,
   filterTrafficEvents,
@@ -413,7 +414,7 @@ export function TrafficSourceDetailPage() {
           <TrafficKpi
             label="AI user fetches"
             value={detail.totals24h.aiUserFetchHits}
-            tooltip="ChatGPT-User/Perplexity-User fetches initiated by a real user in an AI surface."
+            tooltip={`Requests from AI assistants fetching a page for a person (ChatGPT-User, Claude-User, Perplexity-User and others). ${likelyFakeAgentHitsNote(detail.totals24h.aiUserFetchLikelyFakeHits)}`}
           />
           <TrafficKpi
             label="AI referral sessions"

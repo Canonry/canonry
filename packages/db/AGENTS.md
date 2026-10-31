@@ -129,6 +129,11 @@ and contain no raw IP or user agent. `correlation_key` is a private HMAC, never
 an API field or a verified session identity. Daily source counters enforce the
 capture cap atomically; replayed events consume no capacity. Both tables cascade
 with the source/project and are pruned after 30 days by the traffic retention sweep.
+Each event stores its agent `trust` level and `trust_reasons`. Likely fake
+requests are never stored there. The same migration adds
+`ai_user_fetch_likely_fake_hourly`, which counts them by source, hour, agent and
+first reason. It is separate from `ai_user_fetch_events_hourly` so no reader of
+AI agent hits can include them.
 
 Traffic delivery adapters use `traffic_event_receipts` for durable idempotency.
 Claim `(source_id, event_id)` in the same transaction as rollup writes and

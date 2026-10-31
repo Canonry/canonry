@@ -1,6 +1,7 @@
 import { mcpProfileRoutes } from './mcp-profile.js'
 export { registerAgentConversationRoutes } from './agent-conversations.js'
 export { blockedAddressReason, stripIpv6Brackets } from './egress-policy.js'
+export { addLikelyFakeAgentHits, clearLikelyFakeAgentHits, type LikelyFakeAgentBucket } from './likely-fake-agent-rollup.js'
 import type { FastifyInstance, FastifyError } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
 import type { DatabaseClient } from '@canonry/canonry-db'

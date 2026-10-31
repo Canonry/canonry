@@ -2920,7 +2920,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_agent_journeys',
     title: 'List agent journeys',
-    description: 'Read stored user-triggered agent request sequences with operator verification, inferred or unlinked correlation, and source/retention/cap limits. IP and user-agent grouping does not prove a single user task. Simple and Advanced projects use the same evidence; targetKey filters URL matches against the current plan, not historical task intent. No provider calls or writes.',
+    description: 'Read stored user-triggered agent request sequences with trust levels (verified by published IP list, likely real, or unknown), inferred or unlinked correlation, and source/retention/cap limits. Likely fake requests are counted in coverage.likelyFakeRequests, never listed. IP and user-agent grouping does not prove a single user task. Simple and Advanced projects use the same evidence; targetKey filters URL matches against the current plan, not historical task intent. No provider calls or writes.',
     access: 'read', tier: 'traffic', inputSchema: agentJourneysQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/traffic/agent-journeys'],
     handler: (client, input) => { const { project, ...query } = input; return client.trafficAgentJourneys(project, query) },
@@ -2928,7 +2928,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_agent_journey',
     title: 'Read an agent journey',
-    description: 'Read the ordered request timeline for an id from canonry_traffic_agent_journeys. Preserve the list window and selectors. Requests include time, host, masked path, method, status, latency, verification and Property attribution. HTTP responses do not prove business outcomes; no prompt, private reasoning or off-site browsing is recorded. No provider calls or writes.',
+    description: 'Read the ordered request timeline for an id from canonry_traffic_agent_journeys. Preserve the list window and selectors. Requests include time, host, masked path, method, status, latency, verification, trust level with reasons, and Property attribution. HTTP responses do not prove business outcomes; no prompt, private reasoning or off-site browsing is recorded. No provider calls or writes.',
     access: 'read', tier: 'traffic', inputSchema: agentJourneysQuerySchema.extend({ project: projectNameSchema, journeyId: z.string().min(1) }), annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/traffic/agent-journeys/{journeyId}'],
     handler: (client, input) => { const { project, journeyId, ...query } = input; return client.trafficAgentJourney(project, journeyId, query) },

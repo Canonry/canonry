@@ -1,9 +1,9 @@
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { backfillProjectAnswerMentions, competitorIdentityColumns, createRunCompetitorResolver, readMarketCompetitorNames, refreshSnapshotMentionIdentity } from '@canonry/canonry-api-routes'
+import { addLikelyFakeAgentHits, backfillProjectAnswerMentions, competitorIdentityColumns, createRunCompetitorResolver, readMarketCompetitorNames, refreshSnapshotMentionIdentity } from '@canonry/canonry-api-routes'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@canonry/canonry-contracts'
 import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@canonry/canonry-db'
-import { computeCompetitorOverlap, countsAsMention, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, openRouterRouteModel, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@canonry/canonry-contracts'
+import { AgentTrustLevels, computeCompetitorOverlap, countsAsMention, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, openRouterRouteModel, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@canonry/canonry-contracts'
 import { classifyAiUserFetch, classifyCrawler } from '@canonry/canonry-integration-traffic'
 import { OPENAI_RETRIEVAL_CONTRACT, reparseStoredResult as reparseOpenAIStoredResult } from '@canonry/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@canonry/canonry-provider-claude'
@@ -1261,7 +1261,15 @@ export async function backfillTrafficClassificationCommand(opts?: {
         .where(eq(rawEventSamples.id, snap.id))
         .run()
 
-      if (userFetch) {
+      if (userFetch?.trust === AgentTrustLevels.likely_fake) {
+        // Same split as live ingest: likely fake agent requests never join AI user fetch hits.
+        addLikelyFakeAgentHits(tx, {
+          projectId: snap.projectId,
+          sourceId: snap.sourceId,
+          buckets: [{ tsHour: tsHourIso, botId: userFetch.botId, operator: userFetch.operator, reason: userFetch.trustReasons[0]!, hits: 1 }],
+          now,
+        })
+      } else if (userFetch) {
         tx.insert(aiUserFetchEventsHourly).values({
           projectId: snap.projectId,
           sourceId: snap.sourceId,

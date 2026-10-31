@@ -6,7 +6,7 @@ function request(id: string, overrides: Partial<NormalizedTrafficRequest> = {}):
   return {
     sourceType: TrafficSourceTypes['cloud-run'], evidenceKind: TrafficEvidenceKinds['raw-request'], confidence: TrafficEventConfidences.observed,
     eventId: id, observedAt: '2026-10-27T10:00:00Z', method: 'GET', requestUrl: 'https://example.com/', host: 'example.com', path: '/',
-    queryString: null, status: 200, userAgent: 'ChatGPT-User/1.0', remoteIp: '198.51.100.20', referer: null,
+    queryString: null, status: 200, userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: '198.51.100.20', referer: null,
     latencyMs: null, requestSizeBytes: null, responseSizeBytes: null, providerResource: { type: null, labels: {} }, providerLabels: {},
     ...overrides,
   }
