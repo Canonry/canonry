@@ -178,6 +178,11 @@ test('shared stylesheet primitives consume semantic tokens', async () => {
     expect(ruleFor(css, selector)).toContain('background-color: var(--color-bg)')
   }
   expect(ruleFor(css, '.page-section-divider')).toContain('border-color: var(--color-border-subtle)')
+  // A tab's first section sits under the tab bar's own line: no second rule and no empty band.
+  const firstSection = ruleFor(css, '.project-subnav + .page-section-divider')
+  expect(firstSection).toContain('border-top-width: 0px')
+  expect(firstSection).toContain('margin-top: 0px')
+  expect(firstSection).toContain('padding-top: 0px')
   expect(ruleFor(css, '.sidebar-link')).toContain('background-color: var(--color-surface-inset-hover)')
   expect(ruleFor(css, '.sidebar-link-active')).toContain('background-color: var(--color-surface-active)')
 })
