@@ -7,6 +7,7 @@ import type {
   NotificationEvent,
   RatingWebhookPayload,
   ReviewWebhookPayload,
+  UnrecognizedAgentWebhookPayload,
   WebhookPayload,
 } from '@canonry/canonry-contracts'
 
@@ -81,6 +82,7 @@ export type AnyNotificationPayload =
   | HealthWebhookPayload
   | ReviewWebhookPayload
   | RatingWebhookPayload
+  | UnrecognizedAgentWebhookPayload
 
 const HEALTH_EVENTS: ReadonlySet<NotificationEvent> = new Set([
   'health.degraded', 'health.recovered', 'health.urgent', 'health.urgent-resolved',
@@ -344,10 +346,30 @@ function ratingView(payload: RatingWebhookPayload): AlertView {
   }
 }
 
+function unrecognizedAgentView(payload: UnrecognizedAgentWebhookPayload): AlertView {
+  const { project, agents } = payload
+  const line = (agent: UnrecognizedAgentWebhookPayload['agents'][number]): string => {
+    const hits = `${agent.hits} hit${agent.hits === 1 ? '' : 's'}`
+    return agent.sampleUserAgent ? `${agent.name}: ${hits}, ${snippet(agent.sampleUserAgent, 120)}` : `${agent.name}: ${hits}`
+  }
+  const single = agents.length === 1 ? agents[0]! : null
+  return {
+    severity: AlertSeverities.info,
+    category: CANONRY_ALERT_CATEGORY,
+    title: single ? `${project.name}: new bot, ${single.name}` : `${project.name}: ${agents.length} new bots`,
+    body: `Bots or agents Canonry does not recognize yet.\n${single ? line(single) : bulletList(agents.map(line))}`,
+    fields: [{ label: AlertFieldLabels.next, value: `cnry traffic unrecognized ${project.name}` }],
+    url: payload.dashboardUrl,
+    footer: project.canonicalDomain,
+    timestamp: agents.reduce((latest, agent) => (agent.lastSeenAt > latest ? agent.lastSeenAt : latest), agents[0]?.lastSeenAt ?? ''),
+  }
+}
+
 /** Project any notification payload onto the neutral view. */
 export function toAlertView(payload: AnyNotificationPayload): AlertView {
   if (isHealth(payload)) return healthView(payload)
   if (payload.event === 'review.negative') return reviewView(payload as ReviewWebhookPayload)
   if (payload.event === 'review.rating-dropped') return ratingView(payload as RatingWebhookPayload)
+  if (payload.event === 'traffic.agent.discovered') return unrecognizedAgentView(payload as UnrecognizedAgentWebhookPayload)
   return runView(payload as WebhookPayload | InsightWebhookPayload)
 }

@@ -102,6 +102,7 @@ const EVENT_DESCRIPTIONS: Record<string, string> = {
   'health.urgent-resolved': 'The urgent problems that were reported have cleared (the website check and the scheduled health pass each send their own)',
   'review.negative': "A new or edited Google review at or below the project's negative-review threshold, 3 stars by default (Business Profile reviews, or the public listing when Google has not enabled review access)",
   'review.rating-dropped': "A location's public Google rating fell (sent for locations without Business Profile review access)",
+  'traffic.agent.discovered': 'A bot or agent no Canonry rule recognizes showed up in server-side traffic (first seen in the last 7 days, at least 3 hits, after the first week of recorded traffic), once per name',
 }
 
 export function listEvents(format?: string, target = 'local'): void | Promise<void> {

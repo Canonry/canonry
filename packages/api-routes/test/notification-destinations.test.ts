@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 import { HEALTH_NO_LONGER_URGENT } from '@canonry/canonry-contracts'
-import type { HealthWebhookPayload, RatingWebhookPayload, ReviewWebhookPayload, WebhookPayload } from '@canonry/canonry-contracts'
+import type { HealthWebhookPayload, RatingWebhookPayload, ReviewWebhookPayload, UnrecognizedAgentWebhookPayload, WebhookPayload } from '@canonry/canonry-contracts'
 import { AlertSeverities, AlertFieldLabels, CANONRY_ALERT_CATEGORY, toAlertView } from '../src/notifications/alert.js'
 import {
   DESTINATION_ADAPTERS,
@@ -309,6 +309,46 @@ test('several negative reviews render as one list', () => {
   ].join('\n'))
   expect(view.url).toBe('https://canonry.test/projects/harborline-hotel')
   expect(view.timestamp).toBe('2026-09-25T08:00:00.000Z')
+})
+
+const agentPayload = (count: number): UnrecognizedAgentWebhookPayload => ({
+  source: 'canonry',
+  event: 'traffic.agent.discovered',
+  project: { name: 'harborline-hotel', canonicalDomain: 'harborline.test' },
+  agents: Array.from({ length: count }, (_, i) => ({
+    name: i === 0 ? 'exampleagent' : `agent${i}`,
+    hits: 12 - i,
+    firstSeenAt: '2026-10-29T08:00:00.000Z',
+    lastSeenAt: `2026-10-30T1${i}:00:00.000Z`,
+    sampleUserAgent: i === 0 ? 'ExampleAgent/2.0 (+https://agent.example/about)' : null,
+    samplePath: '/rooms',
+  })),
+  dashboardUrl: 'https://canonry.test/projects/harborline-hotel',
+})
+
+test('a new bot names itself, its hits and its user agent, and says how to see the rest', () => {
+  const view = toAlertView(agentPayload(1))
+  expect(view).toMatchObject({
+    severity: AlertSeverities.info,
+    category: CANONRY_ALERT_CATEGORY,
+    title: 'harborline-hotel: new bot, exampleagent',
+    body: 'Bots or agents Canonry does not recognize yet.\nexampleagent: 12 hits, ExampleAgent/2.0 (+https://agent.example/about)',
+    fields: [{ label: AlertFieldLabels.next, value: 'cnry traffic unrecognized harborline-hotel' }],
+    url: 'https://canonry.test/projects/harborline-hotel',
+    footer: 'harborline.test',
+    timestamp: '2026-10-30T10:00:00.000Z',
+  })
+  expect(renderDiscord(view).embeds[0]!.title).toContain('harborline-hotel: new bot, exampleagent')
+})
+
+test('several new bots render as one capped list', () => {
+  const view = toAlertView(agentPayload(12))
+  expect(view.title).toBe('harborline-hotel: 12 new bots')
+  const lines = view.body!.split('\n')
+  expect(lines[0]).toBe('Bots or agents Canonry does not recognize yet.')
+  expect(lines[1]).toBe('• exampleagent: 12 hits, ExampleAgent/2.0 (+https://agent.example/about)')
+  expect(lines[2]).toBe('• agent1: 11 hits')
+  expect(lines.at(-1)).toBe('• …and 2 more')
 })
 
 test('a rating drop names both values and what to do about it', () => {

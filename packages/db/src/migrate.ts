@@ -5058,6 +5058,19 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_unrecognized_agent_hourly_project_name ON unrecognized_agent_events_hourly(project_id, agent_name)`,
     ],
   },
+  {
+    version: 202,
+    name: 'unrecognized-agent-notify-state',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS unrecognized_agent_notify_state (
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        agent_name   TEXT NOT NULL,
+        state        TEXT NOT NULL,
+        recorded_at  TEXT NOT NULL,
+        PRIMARY KEY (project_id, agent_name)
+      )`,
+    ],
+  },
 ]
 
 /**

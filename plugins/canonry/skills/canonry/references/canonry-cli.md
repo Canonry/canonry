@@ -1249,6 +1249,8 @@ Reviews sync from the v4 Reviews API when Google has enabled it for the Cloud pr
 
 Review webhooks: subscribe with `cnry notify add <project> --webhook <url> --events review.negative,review.rating-dropped`. `review.negative` is sent once per new or edited review at or below the project's threshold, 3 stars by default (`cnry project update <project> --negative-review-max-stars <1-4|default>`, or `spec.negativeReviewMaxStars` in `canonry apply`); `review.rating-dropped` when a location's public rating falls (Places fallback only). Lowering the threshold also stops alerts already queued; raising it applies to new and edited reviews only. A location's first sync records a baseline and sends nothing, a review older than 30 days never alerts, and nothing is held for a webhook added later. Discord and Slack URLs get a formatted message.
 
+New-bot webhooks: subscribe with `cnry notify add <project> --webhook <url> --events traffic.agent.discovered`. Every 15 minutes Canonry sends one message per project naming the self-identified bots and agents no rule recognizes that were first seen in the last 7 days and reached 3 hits (the names `cnry traffic unrecognized` lists). Each name is sent once. Names first seen earlier never alert, and neither do the bots seen in a project's first 7 days of recorded traffic, which are a baseline. Nothing is held for a webhook added later. Discord and Slack URLs get a formatted message.
+
 ## Google Ads + Google Tag Manager conversion integrity
 
 `google-ads` and `gtm` are separate first-class namespaces. **`ads` remains
