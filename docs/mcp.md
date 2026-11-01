@@ -787,6 +787,13 @@ excludes unknown requests; select `unknown` explicitly. `sourceId`, inclusive IS
 page stored samples. Sample rows are not visits. Project/source scope only, for
 Simple and Advanced projects. Viewers and embeds are denied.
 
+`canonry_traffic_unrecognized_agents` lists self-identified bots and agents that no
+classifier rule names yet, in the traffic toolkit: summed by the name in their user
+agent, busiest first, with hits, first and last seen hours, an example user agent
+and path, and sources. Browsers, generic HTTP tools, static files and writes are left
+out. `sourceId`, inclusive `since`/`until` (default the last 30 days) and `limit`
+(1 to 500) filter. Stored rows only, no provider call. Viewers and embeds are denied.
+
 `canonry_journeys_summary`, `canonry_journeys_list` and `canonry_journey_get` read
 stored AI visitor journeys in the traffic toolkit: visitors with an AI-referred visit,
 followed from their first one, their later visits and entries, and one visitor's
