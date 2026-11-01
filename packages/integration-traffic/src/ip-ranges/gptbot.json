@@ -1,6 +1,6 @@
 {
   "_source": "https://openai.com/gptbot.json",
-  "creationTime": "2025-10-30T11:00:00.000000",
+  "creationTime": "2026-09-22T02:00:07.000000",
   "prefixes": [
     {
       "ipv4Prefix": "132.196.86.0/24"
@@ -9,16 +9,7 @@
       "ipv4Prefix": "172.182.202.0/25"
     },
     {
-      "ipv4Prefix": "172.182.204.0/24"
-    },
-    {
       "ipv4Prefix": "172.182.207.0/25"
-    },
-    {
-      "ipv4Prefix": "172.182.214.0/24"
-    },
-    {
-      "ipv4Prefix": "172.182.215.0/24"
     },
     {
       "ipv4Prefix": "20.125.66.80/28"
