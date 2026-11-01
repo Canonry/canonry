@@ -5126,6 +5126,18 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_ai_user_fetch_likely_fake_source_ts ON ai_user_fetch_likely_fake_hourly(source_id, ts_hour)`,
     ],
   },
+  {
+    version: 204,
+    name: 'traffic-reclassification-state',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS traffic_reclassification_state (
+        id            TEXT PRIMARY KEY,
+        fingerprint   TEXT NOT NULL,
+        completed_at  TEXT NOT NULL,
+        result_json   TEXT
+      )`,
+    ],
+  },
 ]
 
 /**

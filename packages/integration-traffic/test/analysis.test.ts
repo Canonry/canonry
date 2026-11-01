@@ -274,6 +274,28 @@ describe('traffic analysis', () => {
     })
   })
 
+  it('classifies signed ExaSearchBot traffic as Exa search, unverified', () => {
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; ExaSearchBot/1.0; +https://crawler.exa.ai/)',
+    }))).toMatchObject({
+      botId: 'exa-searchbot',
+      operator: 'Exa',
+      purpose: 'search',
+      verificationStatus: 'claimed_unverified',
+      verificationManifest: null,
+    })
+  })
+
+  it('classifies Meta AI search indexing as a crawler and Meta AI user fetches as user fetches', () => {
+    expect(classifyCrawler(event({
+      userAgent: 'meta-webindexer/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)',
+    }))).toMatchObject({ botId: 'meta-webindexer', operator: 'Meta', purpose: 'search', verificationStatus: 'claimed_unverified' })
+
+    const fetcher = event({ userAgent: 'meta-externalfetcher/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)' })
+    expect(classifyAiUserFetch(fetcher)).toMatchObject({ botId: 'meta-externalfetcher', operator: 'Meta' })
+    expect(classifyCrawler(fetcher)).toBeNull()
+  })
+
   it('classifies grok.com referer as an AI referral from Grok', () => {
     expect(classifyAiReferral(event({ referer: 'https://grok.com/chat/abc' }))).toMatchObject({
       product: 'Grok',

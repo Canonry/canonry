@@ -43,6 +43,22 @@ describe('unrecognizedAgentName', () => {
     expect(unrecognizedAgentName({ userAgent: 'ExampleAgent/2.0', path: '/llms.txt', method: 'HEAD' })).toBe('exampleagent')
   })
 
+  it('names a phrase without a version by the whole phrase, and Apple link previews by what they are', () => {
+    expect(unrecognizedAgentName({ userAgent: 'Chrome Privacy Preserving Prefetch Proxy' })).toBe('chrome-privacy-preserving-prefetch-proxy')
+    expect(unrecognizedAgentName({ userAgent: 'Sucuri Server Side Scanner' })).toBe('sucuri-server-side-scanner')
+    expect(unrecognizedAgentName({
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_1) AppleWebKit/601.2.4 (KHTML, like Gecko) Version/9.0.1 Safari/601.2.4 facebookexternalhit/1.1 Facebot Twitterbot/1.0',
+    })).toBe('imessage-link-preview')
+    // X's own crawler keeps its name.
+    expect(unrecognizedAgentName({ userAgent: 'Mozilla/5.0 (compatible; Twitterbot/1.0)' })).toBe('twitterbot')
+  })
+
+  it('names nobody for a URL, a pasted header or the Ruby http.rb library', () => {
+    expect(unrecognizedAgentName({ userAgent: 'http://example.com/wp-admin/install.php?step=1' })).toBeNull()
+    expect(unrecognizedAgentName({ userAgent: `User-Agent:${CHROME}` })).toBeNull()
+    expect(unrecognizedAgentName({ userAgent: 'http.rb/5.2.0' })).toBeNull()
+  })
+
   it('names nobody for browsers, generic HTTP tools, static files and writes', () => {
     for (const userAgent of [CHROME, 'Mozilla/5.0', 'Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Trident/5.0)', 'Mozilla/5.0 (Linux; Android 10; CUBOT X30) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36', 'curl/8.7.1', 'python-requests/2.32.3', 'Python/3.12 aiohttp/3.9.5', 'Go-http-client/2.0', 'node', '', null]) {
       expect(unrecognizedAgentName({ userAgent }), String(userAgent)).toBeNull()

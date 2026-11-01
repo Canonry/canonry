@@ -12,6 +12,12 @@ import type { AiCrawlerRule, AiReferrerRule } from './types.js'
  */
 export const SELF_TRAFFIC_USER_AGENT_PATTERNS: RegExp[] = [
   /AINYC-AEO-Audit\//i,
+  // The site-liveness check (api-routes site-reachability.ts).
+  /^Canonry site-liveness \(/i,
+  // The content engine checking that a post it published went live.
+  /CanonryPublicationVerifier\//i,
+  // Agency operations fetching a client's WordPress media and posts.
+  /canonry-agency-ops\//i,
 ]
 
 export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
@@ -183,6 +189,24 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     userAgentPatterns: [/meta-externalagent/i],
   },
   {
+    // Indexes pages for Meta AI search, which cites and links them in
+    // Meta AI answers. Meta publishes no IP list for its crawlers.
+    id: 'meta-webindexer',
+    operator: 'Meta',
+    product: 'meta-webindexer',
+    purpose: 'search',
+    userAgentPatterns: [/meta-webindexer/i],
+  },
+  {
+    // Fetches a link a person asked Meta AI about, so Meta says it may
+    // bypass robots.txt.
+    id: 'meta-externalfetcher',
+    operator: 'Meta',
+    product: 'meta-externalfetcher',
+    purpose: 'user-agent',
+    userAgentPatterns: [/meta-externalfetcher/i],
+  },
+  {
     id: 'ccbot',
     operator: 'Common Crawl',
     product: 'CCBot',
@@ -274,6 +298,16 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     product: 'YouBot',
     purpose: 'search',
     userAgentPatterns: [/YouBot\//i],
+  },
+  {
+    // Exa's search index for AI applications. Like YouBot it signs requests
+    // (Web Bot Auth) instead of publishing an IP list, so hits stay
+    // claimed_unverified.
+    id: 'exa-searchbot',
+    operator: 'Exa',
+    product: 'ExaSearchBot',
+    purpose: 'search',
+    userAgentPatterns: [/ExaSearchBot\//i],
   },
   // Classic search-engine crawlers. Not strictly "AI" by training origin,
   // but the same audience: machine traffic indexing the site for query
@@ -376,6 +410,8 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
   'Bytespider',
   'Applebot/',
   'meta-externalagent',
+  'meta-webindexer',
+  'meta-externalfetcher',
   'CCBot/',
   'cohere-ai',
   'Diffbot',
@@ -388,6 +424,7 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
   'Grok-Bot/',
   'GrokBot/',
   'YouBot/',
+  'ExaSearchBot/',
   'Googlebot',
   'bingbot/',
   'DuckDuckBot',

@@ -429,7 +429,8 @@ describe('hasVerificationDataFor', () => {
   ]
   const RULES_WITHOUT_RANGES = [
     'parallel-shap-user', 'mistral-ai-training', 'mistral-bot', 'deepseek', 'bytespider',
-    'meta-externalagent', 'you-youbot', 'cohere-ai', 'diffbot', 'xai-grok-bot', 'yandexbot', 'baiduspider',
+    'meta-externalagent', 'meta-webindexer', 'meta-externalfetcher', 'you-youbot', 'exa-searchbot', 'cohere-ai',
+    'diffbot', 'xai-grok-bot', 'yandexbot', 'baiduspider',
   ]
 
   it('lists every rule exactly once', () => {
