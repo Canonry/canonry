@@ -11,8 +11,8 @@ an agent reading `serverInfo`, that they had the platform when they have a sampl
 name, and the MCP `serverInfo.name` all say AI Visibility Check.
 
 Attribution runs the other way, and deliberately: every surface points back at the open-source project. The header
-byline, the footer (with the install command), the MCP `initialize` instructions, the `self_host` tool, and the
-bundled skills all name Canonry and link to it. Keep that; a sample that does not lead anywhere is just a toy.
+byline, the footer (with the install command), the MCP `initialize` instructions, and the `self_host` tool all name
+Canonry and link to it. Keep that; a sample that does not lead anywhere is just a toy.
 
 ## Boundaries
 
@@ -22,8 +22,8 @@ bundled skills all name Canonry and link to it. Keep that; a sample that does no
   comes from `@canonry/val-kit`.
 - **The kit is the shared core; this Val is the product surface.** `@canonry/val-kit` owns the visibility contracts,
   brand matcher, evidence runner, share of voice, and Gemini adapter; the URL and Turnstile guards; both `CheckStore`
-  implementations; check-record identity and the generic admission/lease machinery; MCP framing and the generated skill
-  resources; and the design tokens and mark. What stays here is what this Val IS: its HTTP routes and response policy,
+  implementations; check-record identity and the generic admission/lease machinery; MCP framing; and the design tokens
+  and mark. What stays here is what this Val IS: its HTTP routes and response policy,
   the check runner's phases and every sentence a visitor reads, the Technical AEO adapter, its MCP tool surface, and its
   HTML. The admission test is mechanical — a module that references a visibility or site-health phase, string, or the
   product's own offering is not generic, whatever else is true of it. Moving one here is not a fork: delete the local
@@ -60,9 +60,6 @@ bundled skills all name Canonry and link to it. Keep that; a sample that does no
   the numbers it qualified — anyone who scrolled read fabrication as measurement, and it advertised three engines this
   Val does not run. A fresh check is a single Gemini snapshot; there is no history to draw and none may be invented.
 - Never present the Val as the full platform. Bounds stay stated on the surface that shows the number.
-- The bundled skills are generated into the KIT (`packages/val-kit/src/mcp/skills/`), not into this directory. Edit
-  `skills/<name>/` at the repository root, then run `node scripts/sync-val-town-skills.mjs` and commit the result. CI
-  runs it with `--check`. Never hand-edit a generated module.
 
 ## MCP endpoint
 
@@ -80,8 +77,10 @@ checks the UI shows.
 - **It blocks.** Execution is request-bound (`AbortSignal.timeout(45_000)`); there is no background queue, so
   returning a check ID early would kill the work with the request.
 - **Anonymous, on purpose.** Everything reachable here is already public: `/api/checks/:id` serves any check without a
-  credential, and the skills ship in a public npm package. A token would gate nothing and would make the endpoint
-  useless as something an agent is simply pointed at.
+  credential. A token would gate nothing and would make the endpoint useless as something an agent is simply pointed
+  at.
+- **No resources.** The endpoint serves tools only. `resources/list` answers with an empty list and `resources/read`
+  with "not found", because clients probe both at startup and a method-not-found reads as a broken server.
 - **Two protocol eras.** Revision `2026-07-28` removed sessions and the GET stream; every shipping client still opens
   with `initialize`. Both work. Keep the strict mirrored-header checks keyed off the version the caller declared, or
   legacy clients break.
@@ -455,7 +454,6 @@ flowchart LR
     S --> Q[Val-scoped SQLite]
     Q --> B
     Q --> M[MCP endpoint /mcp]
-    K[canonry + aero skills] --> M
     M --> N[Any MCP client]
 ```
 
@@ -481,7 +479,7 @@ apps/vals/ai-visibility-check/
 ```
 
 Everything the tree no longer lists — `visibility/`, `security/`, `storage/`, check-record identity and the lease
-machinery, MCP framing, the generated skills, and the design tokens — is `@canonry/val-kit`, imported by subpath.
+machinery, MCP framing, and the design tokens — is `@canonry/val-kit`, imported by subpath.
 
 ## Dependencies
 
@@ -538,8 +536,7 @@ In-memory storage and no Turnstile, so the UI and `/mcp` both work without crede
 ## Verification
 
 Run `pnpm --filter @canonry/val-kit build` from the repository root, then `deno task check`, `deno task lint`, and
-`deno task test` from this directory, plus `node scripts/sync-val-town-skills.mjs --check` from the root. Those three
-tasks validate the DEV graph. Vals have no CI/CD, so nothing runs them for you.
+`deno task test` from this directory. Those three tasks validate the DEV graph. Vals have no CI/CD, so nothing runs them for you.
 
 `deno task check:prod` validates the PRODUCTION graph instead (plain `deno.json`, `--frozen`). It cannot pass until
 the pinned kit version is on public npm — before that it fails with `npm package '@canonry/val-kit' does not exist` —
@@ -553,7 +550,7 @@ Set in Val Town: `VAL_TOWN_ENV=production`, `GEMINI_API_KEY`, `CANONRY_QUOTA_SAL
 tool; `CANONRY_MCP_PER_CLIENT_DAILY_LIMIT` sets its daily per-caller allowance (default 2).
 
 Public checks are disabled when the production quota salt or Turnstile configuration is absent, so an unconfigured
-deployment serves reads and skills but refuses to spend.
+deployment serves reads but refuses to spend.
 
 ## Release order
 
@@ -571,12 +568,11 @@ deployment serves reads and skills but refuses to spend.
 > reviewed commit. The override is only needed to CREATE the lock: once the lock
 > pins the version with its integrity hash, `--frozen` resolves from the lock and
 > the policy does not apply, so later checks and deploys need no flag and no config.
-3. Regenerate the skill mirror with `node scripts/sync-val-town-skills.mjs`.
-4. Run the verification commands above, including `deno task check:prod`.
-5. Run `vt push --dry-run` and review the file plan. The push reads `.vt/state.json` from this directory, so deploy
+3. Run the verification commands above, including `deno task check:prod`.
+4. Run `vt push --dry-run` and review the file plan. The push reads `.vt/state.json` from this directory, so deploy
    from a machine where `vt` is already linked to the production Val.
-6. Run `vt push` only after approval.
-7. Request `/healthz` and confirm `{"ok":true}`.
+5. Run `vt push` only after approval.
+6. Request `/healthz` and confirm `{"ok":true}`.
 
 `vt push` makes the Val match this directory. It deletes remote-only files, so do not edit production in the Val Town
 editor.

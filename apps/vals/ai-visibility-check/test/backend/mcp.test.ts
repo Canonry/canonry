@@ -272,7 +272,7 @@ Deno.test('initialize falls back to the newest supported version for an unknown 
     method: 'initialize',
     params: { protocolVersion: '1999-01-01', capabilities: {} },
   })
-  equal((body?.result as Record<string, unknown>).protocolVersion, '2026-07-28')
+  equal((body!.result as Record<string, unknown>).protocolVersion, '2026-07-28')
 })
 
 Deno.test('initialize honours a version declared only in the header', async () => {
@@ -282,13 +282,13 @@ Deno.test('initialize honours a version declared only in the header', async () =
   const { body } = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { capabilities: {} } }, {
     headers: { 'mcp-protocol-version': '2025-06-18' },
   })
-  equal((body?.result as Record<string, unknown>).protocolVersion, '2025-06-18')
+  equal((body!.result as Record<string, unknown>).protocolVersion, '2025-06-18')
 })
 
 Deno.test('initialize with nothing declared anywhere negotiates the newest version', async () => {
   const { app } = createHarness()
   const { body } = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { capabilities: {} } })
-  equal((body?.result as Record<string, unknown>).protocolVersion, '2026-07-28')
+  equal((body!.result as Record<string, unknown>).protocolVersion, '2026-07-28')
 })
 
 Deno.test('a modern request needs no handshake at all', async () => {
@@ -297,18 +297,18 @@ Deno.test('a modern request needs no handshake at all', async () => {
     headers: { 'mcp-protocol-version': '2026-07-28', 'mcp-method': 'tools/list' },
   })
   equal(status, 200)
-  const tools = (body?.result as { tools: Array<{ name: string }> }).tools
-  equal(tools.length, 7)
+  const tools = (body!.result as { tools: Array<{ name: string }> }).tools
+  equal(tools.length, 5)
   truthy(tools.some((tool) => tool.name === 'get_ai_visibility'), 'visibility tool must be listed')
 })
 
 Deno.test('tools/list advertises every tool with an input schema', async () => {
   const { app } = createHarness()
   const { body } = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
-  const tools = (body?.result as { tools: Array<{ name: string; description: string; inputSchema: unknown }> }).tools
+  const tools = (body!.result as { tools: Array<{ name: string; description: string; inputSchema: unknown }> }).tools
   equal(
     tools.map((tool) => tool.name).sort().join(','),
-    'get_ai_visibility,get_check,get_site_health,list_skills,read_skill,self_host,start_check',
+    'get_ai_visibility,get_check,get_site_health,self_host,start_check',
   )
   for (const tool of tools) truthy(tool.inputSchema, `${tool.name} must declare an inputSchema`)
   // The handler returns siteMap; an agent only discovers it by reading this.
@@ -316,67 +316,14 @@ Deno.test('tools/list advertises every tool with an input schema', async () => {
   truthy(siteHealth?.description.includes('siteMap'), 'get_site_health must advertise the link graph it returns')
 })
 
-Deno.test('resources/list advertises unique readable documents with entry points first', async () => {
+Deno.test('resources are answered empty, not refused, for clients that probe them', async () => {
   const { app } = createHarness()
   const { body } = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'resources/list' })
-  const resources = (body?.result as { resources: Array<{ uri: string; name: string; mimeType: string }> }).resources
-
-  equal(new Set(resources.map((resource) => resource.uri)).size, resources.length, 'resource URIs must be unique')
-  equal(at(resources, 0).uri, 'canonry-skill://aero/SKILL.md')
-  equal(at(resources, 1).uri, 'canonry-skill://canonry/SKILL.md')
-  truthy(resources.every((resource) => resource.mimeType === 'text/markdown'), 'skills are markdown')
-  truthy(
-    resources.some((resource) => resource.name === 'canonry/references/canonry-cli.md'),
-    'the chunked CLI reference must still appear as one resource',
-  )
-  truthy(
-    resources.some((resource) => resource.uri === 'canonry-skill://aero/references/regression-playbook.md'),
-    'the regression reference must be discoverable',
-  )
-  for (const resource of resources) {
-    const { body: readBody } = await rpc(app, {
-      jsonrpc: '2.0', id: 2, method: 'resources/read', params: { uri: resource.uri },
-    })
-    equal(readBody?.error, undefined, `${resource.uri} must be readable`)
-    const content = at((readBody?.result as { contents: Array<{ uri: string; mimeType: string; text: string }> }).contents, 0)
-    equal(content.uri, resource.uri)
-    equal(content.mimeType, 'text/markdown')
-    truthy(content.text.trim(), `${resource.uri} must contain its document`)
-  }
-})
-
-Deno.test('resources/read returns a whole skill document, including a chunked one', async () => {
-  const { app } = createHarness()
-  const { body } = await rpc(app, {
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'resources/read',
-    params: { uri: 'canonry-skill://canonry/references/canonry-cli.md' },
+  equal((body!.result as { resources: unknown[] }).resources.length, 0)
+  const { body: readBody } = await rpc(app, {
+    jsonrpc: '2.0', id: 2, method: 'resources/read', params: { uri: 'canonry-skill://aero/SKILL.md' },
   })
-  const contents = at((body?.result as { contents: Array<{ text: string; mimeType: string }> }).contents, 0)
-  equal(contents.mimeType, 'text/markdown')
-  includes(contents.text, '# Canonry CLI Reference')
-  // Reassembled across the two generated modules the 80,000-char cap forced.
-  truthy(contents.text.length > 90_000, `expected the full reference, got ${contents.text.length} characters`)
-})
-
-Deno.test('resources/read reports an unknown URI instead of returning empty content', async () => {
-  const { app } = createHarness()
-  const { body } = await rpc(app, {
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'resources/read',
-    params: { uri: 'canonry-skill://aero/nope.md' },
-  })
-  equal((body?.error as { code: number }).code, -32602)
-})
-
-Deno.test('read_skill resolves a bare reference path as well as a full URI', async () => {
-  const { app } = createHarness()
-  const { body } = await rpc(app, call('read_skill', { uri: 'aero/references/regression-playbook.md' }))
-  const result = body?.result as { content: Array<{ text: string }>; isError?: boolean }
-  equal(result.isError, undefined)
-  truthy(at(result.content, 0).text.length > 1000, 'expected the reference body')
+  equal((readBody!.error as { code: number }).code, -32602)
 })
 
 Deno.test('get_check reports mention and citation as separate rates with their scope', async () => {
@@ -456,7 +403,7 @@ Deno.test('get_site_health returns per-page findings from the bounded sample', a
 Deno.test('an expired check is no longer readable over MCP', async () => {
   const { app } = createHarness([completedRecord({ expiresAt: '2026-02-01T00:00:00.000Z' })])
   const { body } = await rpc(app, call('get_check', { checkId: '11111111-2222-4333-8444-555555555555' }))
-  equal((body?.result as { isError?: boolean }).isError, true)
+  equal((body!.result as { isError?: boolean }).isError, true)
 })
 
 Deno.test('a running check reports that it is running instead of an empty result', async () => {
@@ -471,7 +418,7 @@ Deno.test('start_check is advertised only when the host enables it', async () =>
   const enabled = createHarness()
   const names = async (h: ReturnType<typeof createHarness>) => {
     const { body } = await rpc(h.app, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
-    return (body?.result as { tools: Array<{ name: string }> }).tools.map((tool) => tool.name)
+    return (body!.result as { tools: Array<{ name: string }> }).tools.map((tool) => tool.name)
   }
   truthy((await names(enabled)).includes('start_check'), 'expected start_check when enabled')
 
@@ -502,10 +449,10 @@ Deno.test('start_check reuses a cached check instead of spending again', async (
 Deno.test('start_check spends its own bucket, not the browser allowance', async () => {
   const { app, store } = createHarness([], { mcpPerClientDailyLimit: 1, perClientDailyLimit: 3 })
   const first = await rpc(app, call('start_check', { domain: 'one.example' }))
-  equal((first.body?.result as { isError?: boolean }).isError, undefined)
+  equal((first.body!.result as { isError?: boolean }).isError, undefined)
 
   const second = await rpc(app, call('start_check', { domain: 'two.example' }))
-  equal((second.body?.result as { isError?: boolean }).isError, true, 'the MCP limit of 1 must bind')
+  equal((second.body!.result as { isError?: boolean }).isError, true, 'the MCP limit of 1 must bind')
 
   const subjects = [...store.quota.keys()].join(',')
   truthy(subjects.includes('mcp:'), `expected an mcp-prefixed quota subject, got ${subjects}`)
@@ -515,7 +462,7 @@ Deno.test('start_check refuses a private or malformed host', async () => {
   const { app, dispatched } = createHarness([])
   for (const domain of ['localhost', '127.0.0.1', 'not a domain']) {
     const { body } = await rpc(app, call('start_check', { domain }))
-    equal((body?.result as { isError?: boolean }).isError, true, `${domain} must be refused`)
+    equal((body!.result as { isError?: boolean }).isError, true, `${domain} must be refused`)
   }
   equal(dispatched.length, 0, 'a refused domain must never reach the runner')
 })
@@ -523,7 +470,7 @@ Deno.test('start_check refuses a private or malformed host', async () => {
 Deno.test('start_check is unavailable when the host disables it', async () => {
   const { app, dispatched } = createHarness([], { mcpStartChecksEnabled: false })
   const { body } = await rpc(app, call('start_check', { domain: 'fresh.example' }))
-  equal((body?.result as { isError?: boolean }).isError, true)
+  equal((body!.result as { isError?: boolean }).isError, true)
   equal(dispatched.length, 0)
 })
 
@@ -559,7 +506,7 @@ Deno.test('a notification method sent with an id is rejected rather than left ha
   const { app } = createHarness()
   const { status, body } = await rpc(app, { jsonrpc: '2.0', id: 4, method: 'notifications/initialized' })
   equal(status, 400)
-  equal((body?.error as { code: number }).code, -32600)
+  equal((body!.error as { code: number }).code, -32600)
 })
 
 Deno.test('a modern request whose headers disagree with its body is refused', async () => {
@@ -568,7 +515,7 @@ Deno.test('a modern request whose headers disagree with its body is refused', as
     headers: { 'mcp-protocol-version': '2026-07-28', 'mcp-method': 'tools/call', 'mcp-name': 'get_site_health' },
   })
   equal(status, 400)
-  equal((body?.error as { code: number }).code, -32020, 'header/body mismatch is HeaderMismatch')
+  equal((body!.error as { code: number }).code, -32020, 'header/body mismatch is HeaderMismatch')
 })
 
 Deno.test('a legacy request is not held to the modern mirrored-header rules', async () => {
@@ -595,7 +542,7 @@ Deno.test('an unknown method answers 404 so a client can tell this endpoint from
   const { app } = createHarness()
   const { status, body } = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'completion/complete' })
   equal(status, 404)
-  equal((body?.error as { code: number }).code, -32601)
+  equal((body!.error as { code: number }).code, -32601)
 })
 
 Deno.test('an unknown notification is accepted with 202, never answered with 404', async () => {

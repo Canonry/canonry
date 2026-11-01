@@ -235,12 +235,6 @@ jobs:
           fi
           pnpm plugin:check --base-ref "$BASE_REF"
 
-      # The Val Town mirror is generated from `skills/`, so a skill edit that
-      # skips the sync ships a Val serving stale playbooks. Nothing else catches
-      # it: the generated modules compile and the Deno suite passes either way.
-      - name: Verify the Val Town skill mirror is in sync
-        run: pnpm val:skills:check
-
   version-guard:
     # Catches the release hazard CI is otherwise structurally blind to.
     #
