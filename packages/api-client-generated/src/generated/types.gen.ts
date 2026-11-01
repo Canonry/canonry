@@ -3258,6 +3258,7 @@ export type AdsActivateTreeResponse = {
             endTime?: number | null;
             lifetimeSpendLimitMicros?: number;
             locationIds?: Array<string>;
+            excludedLocationIds?: Array<string>;
             biddingType?: 'impressions' | 'clicks';
             conversionEventSettingIds?: Array<string>;
             campaignId?: string;
@@ -3613,6 +3614,7 @@ export type AdsCampaignListResponse = {
         lifetimeSpendLimitMicros?: number | null;
         conversionEventSettingIds: Array<string>;
         locationIds?: Array<string>;
+        excludedLocationIds?: Array<string>;
         adGroups: Array<{
             id: string;
             campaignId: string;
@@ -3898,6 +3900,7 @@ export type AdsOperationReconcileResponse = {
             endTime?: number | null;
             lifetimeSpendLimitMicros?: number;
             locationIds?: Array<string>;
+            excludedLocationIds?: Array<string>;
             biddingType?: 'impressions' | 'clicks';
             conversionEventSettingIds?: Array<string>;
             campaignId?: string;
@@ -3939,6 +3942,7 @@ export type AdsOperationResponse = {
             endTime?: number | null;
             lifetimeSpendLimitMicros?: number;
             locationIds?: Array<string>;
+            excludedLocationIds?: Array<string>;
             biddingType?: 'impressions' | 'clicks';
             conversionEventSettingIds?: Array<string>;
             campaignId?: string;
@@ -4008,6 +4012,7 @@ export type AdsUnresolvedOperationListResponse = {
             endTime?: number | null;
             lifetimeSpendLimitMicros?: number;
             locationIds?: Array<string>;
+            excludedLocationIds?: Array<string>;
             biddingType?: 'impressions' | 'clicks';
             conversionEventSettingIds?: Array<string>;
             campaignId?: string;
@@ -30455,6 +30460,10 @@ export type PostApiV1ProjectsByNameAdsCampaignsData = {
          * Tracking parameters appended to click URLs under this entity, as a bare query string (utm_source=chatgpt&utm_medium=cpc). Supports the {campaign_id}, {ad_group_id}, {ad_id}, {ad_account_id} and {oppref} macros. Levels combine; on a duplicate key the destination URL wins, then ad, ad group, campaign.
          */
         landingPageQueryStringTemplate?: string;
+        /**
+         * Locations carved OUT of the targeted set, for example postal codes excluded from a market. Targeting replaces rather than merges upstream, so an update naming only one half of the geography has the other carried over from the live campaign.
+         */
+        excludedLocationIds?: Array<string>;
     };
     path: {
         /**
@@ -30632,6 +30641,10 @@ export type PostApiV1ProjectsByNameAdsCampaignsByIdData = {
          * Tracking parameters appended to click URLs under this entity, as a bare query string. Null clears them.
          */
         landingPageQueryStringTemplate?: string | null;
+        /**
+         * Locations carved OUT of the targeted set; an empty array clears the carve-out. Targeting replaces rather than merges upstream, so the untouched half of the geography is carried over from the live campaign.
+         */
+        excludedLocationIds?: Array<string>;
     };
     path: {
         /**

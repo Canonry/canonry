@@ -138,6 +138,15 @@ export interface OpenAiAdsCampaignTargetingRequest {
   locations: {
     include: OpenAiAdsLocationTargetRequest[]
   }
+  /**
+   * Locations carved OUT of the included set. VERIFIED LIVE 2026-09-29: a
+   * market include with postal-code exclusions was accepted on an ACTIVE
+   * campaign. Upstream also accepts `excluded_locations.countries`; only the
+   * id form is modelled here because only it has been exercised.
+   */
+  excluded_locations?: {
+    include: OpenAiAdsLocationTargetRequest[]
+  }
 }
 
 /**
@@ -198,6 +207,10 @@ export interface OpenAiAdsTargeting {
   locations?: {
     include?: OpenAiAdsLocationTarget[]
     exclude?: OpenAiAdsLocationTarget[]
+  }
+  /** Reads back the carve-out set written as `excluded_locations`. */
+  excluded_locations?: {
+    include?: OpenAiAdsLocationTarget[]
   }
 }
 

@@ -1715,6 +1715,8 @@ export async function createServer(opts: {
     endTime: entity.end_time,
     lifetimeSpendLimitMicros: entity.budget?.lifetime_spend_limit_micros ?? null,
     locationIds: entity.targeting?.locations?.include?.map((location) => location.id) ?? [],
+    excludedLocationIds:
+      entity.targeting?.excluded_locations?.include?.map((location) => location.id) ?? [],
     biddingType: entity.bidding_type,
     conversionEventSettingIds: entity.conversion_event_setting_ids,
     landingPageQueryStringTemplate: parseLandingPageQueryStringTemplate(entity.landing_page_configuration),
@@ -1746,6 +1748,14 @@ export async function createServer(opts: {
   const landingPageConfigurationUpdate = (template: string | null | undefined) =>
     template === undefined ? undefined : template === null ? null : { query_string_template: template };
 
+  /** Upstream targeting REPLACES, so every geo write sends the complete object. */
+  const campaignTargeting = (locationIds: string[], excludedLocationIds?: string[]) => ({
+    locations: { include: locationIds.map((id) => ({ id })) },
+    ...(excludedLocationIds === undefined || excludedLocationIds.length === 0
+      ? {}
+      : { excluded_locations: { include: excludedLocationIds.map((id) => ({ id })) } }),
+  });
+
   const adsOperator = {
     uploadImage: async (apiKey: string, imageUrl: string) => {
       const result = await uploadImageFromUrl(apiKey, imageUrl);
@@ -1760,6 +1770,7 @@ export async function createServer(opts: {
       endTime?: number;
       lifetimeSpendLimitMicros: number;
       locationIds: string[];
+      excludedLocationIds?: string[];
       biddingType: AdsCampaignBiddingType;
       conversionEventSettingIds?: string[];
       landingPageQueryStringTemplate?: string;
@@ -1772,7 +1783,7 @@ export async function createServer(opts: {
       budget: { lifetime_spend_limit_micros: input.lifetimeSpendLimitMicros },
       bidding_type: input.biddingType,
       conversion_event_setting_ids: input.conversionEventSettingIds,
-      targeting: { locations: { include: input.locationIds.map((id) => ({ id })) } },
+      targeting: campaignTargeting(input.locationIds, input.excludedLocationIds),
       landing_page_configuration: input.landingPageQueryStringTemplate === undefined
         ? undefined
         : { query_string_template: input.landingPageQueryStringTemplate },
@@ -1784,6 +1795,7 @@ export async function createServer(opts: {
       endTime?: number | null;
       lifetimeSpendLimitMicros?: number;
       locationIds?: string[];
+      excludedLocationIds?: string[];
       landingPageQueryStringTemplate?: string | null;
     }) => adsCampaignEntityResult(await updateCampaign(apiKey, id, {
       name: input.name,
@@ -1795,7 +1807,7 @@ export async function createServer(opts: {
         : { lifetime_spend_limit_micros: input.lifetimeSpendLimitMicros },
       targeting: input.locationIds === undefined
         ? undefined
-        : { locations: { include: input.locationIds.map((locationId) => ({ id: locationId })) } },
+        : campaignTargeting(input.locationIds, input.excludedLocationIds),
       landing_page_configuration: landingPageConfigurationUpdate(input.landingPageQueryStringTemplate),
     })),
     activateCampaign: async (apiKey: string, id: string) =>
