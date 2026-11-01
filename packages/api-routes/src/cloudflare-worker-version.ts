@@ -5,7 +5,7 @@ import { CLOUDFLARE_PAGE_VIEWS_VERSION_SUFFIX } from '@canonry/canonry-integrati
  * Worker's edge-side filter, payload shape, or auth header set changes so the
  * doctor check can identify deployments still running an older revision.
  */
-export const CURRENT_CLOUDFLARE_WORKER_VERSION = '1.0.1'
+export const CURRENT_CLOUDFLARE_WORKER_VERSION = '1.1.0'
 
 /**
  * The version a Worker generated with these options reports. A Worker that
