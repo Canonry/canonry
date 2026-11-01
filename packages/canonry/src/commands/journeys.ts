@@ -1,4 +1,5 @@
 import {
+  formatDayDuration,
   formatPercent,
   formatValidationIssues,
   JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY,
@@ -65,7 +66,7 @@ export async function journeysSummary(project: string, opts: JourneyWindowOption
   console.log(`AI visitors: ${result.aiVisitors} (IP and user agent ${result.keyBasis.ipUa}, user agent only ${result.keyBasis.ua})`)
   console.log(`AI visits: ${result.aiVisits}`)
   const rate = formatPercent(result.returnRate)
-  const median = result.medianDaysToReturn === null ? '' : `, median ${result.medianDaysToReturn.toFixed(1)} days to return`
+  const median = result.medianDaysToReturn === null ? '' : `, median ${formatDayDuration(result.medianDaysToReturn)} to return`
   console.log(`Came back later: ${result.returningVisitors} (${rate})${median}`)
   const via = (Object.entries(result.returnedVia) as [JourneyEntryClass, number][]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
   if (via.length > 0) console.log(`Later visits by entry: ${via.map(([cls, n]) => `${cls} ${n}`).join(', ')}`)

@@ -4,7 +4,7 @@ import { Link, useNavigate, useRouterState, useSearch } from '@tanstack/react-ro
 import { AlertTriangle, ChevronDown, ChevronRight, Filter } from 'lucide-react'
 import {
   AgentJourneyAttributions, AgentTrustLevels, JourneyEventFilters, JourneyKeyBases,
-  JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY, JOURNEY_VISIT_IDLE_MINUTES, RatioUnits, UserRoles, formatDayDuration, formatPercent, isJourneyWriteMethod, pathWithoutQuery,
+  JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY, JOURNEY_VISIT_IDLE_MINUTES, RatioUnits, UserRoles, formatDayDuration, formatPercent, pathWithoutQuery,
   type AgentJourney, type AgentJourneyContext, type AgentJourneyEvent, type AgentJourneysQuery, type AgentTrustReason, type JourneyDetailResponse,
   type JourneyEntryClass, type JourneyEventFilter, type JourneyPartialSources, type JourneyVisitDto, type JourneysQuery,
   type JourneysResponse, type StoredAgentTrust,
@@ -75,12 +75,15 @@ const TRUST_TONES: Record<StoredAgentTrust, string> = {
 
 const plural = (count: number, word: string) => `${count.toLocaleString()} ${word}${count === 1 ? '' : 's'}`
 const visitName = (visit: Pick<JourneyVisitDto, 'entryName' | 'entryClass'>) => visit.entryName ?? ENTRY_LABELS[visit.entryClass]
-/** How a visit arrived, said once: "Google, paid search" reads "Google · Paid", never "Paid, paid". */
+/** How a visit arrived, said once: "Google, paid search" reads "Google · Paid" and an unnamed paid search "Search · Paid", never "Paid, paid". */
 const visitChannel = (visit: Pick<JourneyVisitDto, 'entryName' | 'entryClass' | 'paid'>) => {
+  if (!visit.entryName) return visit.paid && visit.entryClass !== 'paid' ? 'Paid' : null
   const channel = visit.paid && visit.entryClass !== 'paid' ? `${ENTRY_LABELS[visit.entryClass]}, paid` : ENTRY_LABELS[visit.entryClass]
   return channel === visitName(visit) ? null : channel
 }
 const timeOnly = (iso: string) => formatSweepInstant(iso, iso)
+/** The method to print before a path: every method but GET. */
+const shownMethod = (method: string | null) => (method && method.toUpperCase() !== 'GET' ? method.toUpperCase() : null)
 
 function useJourneysSearch() {
   const search = useSearch({ strict: false }) as JourneysSearch
@@ -307,6 +310,7 @@ function VisitorTable({ projectName, data, engines, engine, returned, openKey, o
   const filtered = Boolean(engine || returned)
   const first = data.totalVisitors === 0 ? 0 : data.offset + 1
   const last = data.offset + data.visitors.length
+  const openOffPage = openKey !== null && !data.visitors.some(visitor => visitor.visitorKey === openKey)
   return (
     <section aria-label="AI-referred visitors" className="min-w-0 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -334,6 +338,15 @@ function VisitorTable({ projectName, data, engines, engine, returned, openKey, o
           </div>
         </details>
       </div>
+      {openKey && openOffPage && (
+        <div className="rounded-md border border-default bg-surface-subtle px-4 py-4 sm:px-8">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-label-13 text-secondary">This visitor is not on this page of the list.</p>
+            <Button size="sm" variant="outline" onClick={() => onToggle(null)}>Close</Button>
+          </div>
+          <VisitorDetail projectName={projectName} visitorKey={openKey} partialSources={data.partialSources} />
+        </div>
+      )}
       {data.visitors.length === 0 ? <p className="rounded-md border border-default p-5 text-copy-14 text-secondary">No visitors match these filters.</p> : (
         <div className="overflow-x-auto rounded-md border border-default">
           <table className="w-full min-w-[42rem]" aria-label="AI-referred visitors">
@@ -520,13 +533,13 @@ function VisitPages({ visit, events, loading, onToggleEvents }: {
 }) {
   return (
     <div className="space-y-2">
-      {visit.events.length === 0 ? <p className="text-copy-13 text-secondary">No pages recorded for this visit.</p> : (
+      {visit.events.length === 0 ? <p className="text-copy-13 text-secondary">{events === JourneyEventFilters.pages ? 'No pages recorded for this visit.' : 'No requests recorded for this visit.'}</p> : (
         <ol aria-label={`${visitName(visit)} visit requests`} className="space-y-1">
           {visit.events.map((event, index) => (
             <li key={`${event.ts}:${index}`} className="flex items-baseline gap-3">
               <time dateTime={event.ts} className="w-20 shrink-0 text-label-13 tabular-nums text-secondary">{timeOnly(event.ts)}</time>
               <span className="min-w-0 break-all text-label-13-mono text-heading">
-                {isJourneyWriteMethod(event.method) && <span className="text-secondary">{event.method} </span>}{event.path}
+                {shownMethod(event.method) && <span className="text-secondary">{shownMethod(event.method)} </span>}{event.path}
               </span>
               {event.status !== null && event.status >= 400 && <span className="text-label-13 tabular-nums text-caution">{event.status}</span>}
             </li>
@@ -534,7 +547,7 @@ function VisitPages({ visit, events, loading, onToggleEvents }: {
         </ol>
       )}
       <button type="button" disabled={loading} onClick={onToggleEvents} className={`rounded text-label-13 text-link hover:underline disabled:opacity-50 ${FOCUS_RING}`}>
-        {events === JourneyEventFilters.pages ? `Show all ${plural(visit.requestCount, 'request')}` : 'Show pages only'}
+        {events === JourneyEventFilters.pages ? `Show all ${plural(visit.requestCount, 'request')}` : 'Show fewer requests'}
       </button>
     </div>
   )
@@ -749,7 +762,7 @@ function AgentSequence({ projectName, journey, selection, onSelectAgent }: { pro
                     {query.data.events.map(event => (
                       <tr key={event.id}>
                         <td className="whitespace-nowrap py-1.5 pr-3 align-top text-label-13 tabular-nums text-secondary"><time dateTime={event.ts}>{new Date(event.ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' })}</time></td>
-                        <td className="break-all py-1.5 pr-3 align-top text-label-13-mono text-heading">{isJourneyWriteMethod(event.method) && <span className="text-secondary">{event.method} </span>}<span className="text-secondary">{event.host ?? ''}</span>{event.path}</td>
+                        <td className="break-all py-1.5 pr-3 align-top text-label-13-mono text-heading">{shownMethod(event.method) && <span className="text-secondary">{shownMethod(event.method)} </span>}<span className="text-secondary">{event.host ?? ''}</span>{event.path}</td>
                         {query.data.scope.mode === 'advanced' && <td className="py-1.5 pr-3 align-top text-label-13 text-heading">{event.targetKey ? query.data.properties.find(property => property.key === event.targetKey)?.label ?? event.targetKey : ATTRIBUTION_LABELS[event.attribution]}</td>}
                         <td className="whitespace-nowrap py-1.5 pr-3 text-right align-top text-label-13 tabular-nums text-secondary">{event.latencyMs === null ? '-' : `${event.latencyMs} ms`}</td>
                         <td className={`py-1.5 text-right align-top text-label-13 tabular-nums ${event.status !== null && event.status >= 400 ? 'text-caution' : 'text-secondary'}`}>{event.status ?? '-'}</td>

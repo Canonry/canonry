@@ -549,7 +549,7 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
       returningVisitors: returning,
       returnRate: visitors.length ? roundRatio(returning / visitors.length, RatioUnits.fraction) : null,
       returnedVia,
-      medianDaysToReturn: days === null ? null : Math.round(days * 10) / 10,
+      medianDaysToReturn: days === null ? null : Math.round(days * 10_000) / 10_000,
       byEngine: [...engines].map(([engine, v]) => ({ engine, ...v })).sort((a, b) => b.visitors - a.visitors || a.engine.localeCompare(b.engine)),
       keyBasis: {
         ipUa: visitors.filter(v => v.keyBasis === JourneyKeyBases['ip-ua']).length,

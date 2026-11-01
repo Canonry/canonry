@@ -370,7 +370,7 @@ export const journeySummaryResponseSchema = z.object({
   returnRate: fraction().nullable(),
   /** Later visits of those visitors, by how they came back. */
   returnedVia: z.record(journeyEntryClassSchema, z.number().int()),
-  /** Median days from a visitor's first AI visit to their first later visit; null with none. */
+  /** Median days from a visitor's first AI visit to their first later visit, to 0.0001 day; null with none. */
   medianDaysToReturn: z.number().nullable(),
   byEngine: z.array(z.object({ engine: z.string(), visitors: z.number().int(), returningVisitors: z.number().int() })),
   keyBasis: z.object({ ipUa: z.number().int(), ua: z.number().int() }),

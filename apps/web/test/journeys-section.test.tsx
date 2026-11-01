@@ -32,7 +32,7 @@ const detail: AgentJourneyDetailResponse = {
   ...context, journey: journeys.journeys[0]!, totalEvents: 55, limit: 50, offset: 0,
   events: [
     { id: 'request-one', ts: '2026-10-27T12:01:00.000Z', host: 'example.com', path: '/rooms', method: 'GET', status: 200, latencyMs: null, verificationStatus: 'verified', verificationManifest: null, trust: 'verified', trustReasons: ['ip-in-published-list', 'documented-user-agent'], targetKey: null, attribution: 'not-configured' },
-    { id: 'request-two', ts: '2026-10-27T12:02:00.000Z', host: 'example.com', path: '/api/availability', method: 'GET', status: 302, latencyMs: 10, verificationStatus: 'verified', verificationManifest: null, trust: 'verified', trustReasons: ['ip-in-published-list', 'documented-user-agent'], targetKey: null, attribution: 'not-configured' },
+    { id: 'request-two', ts: '2026-10-27T12:02:00.000Z', host: 'example.com', path: '/api/availability', method: 'HEAD', status: 302, latencyMs: 10, verificationStatus: 'verified', verificationManifest: null, trust: 'verified', trustReasons: ['ip-in-published-list', 'documented-user-agent'], targetKey: null, attribution: 'not-configured' },
   ],
 }
 const visitorSummary: JourneySummaryResponse = {
@@ -149,6 +149,13 @@ test('a median return under a day reads in hours', async () => {
   expect(screen.getByText('Median time to return').nextElementSibling?.textContent).toBe('2 hours')
 })
 
+test('a median return under an hour reads in minutes', async () => {
+  visitorResponses({ summary: { ...visitorSummary, medianDaysToReturn: 0.0403 } })
+  await mount()
+  await screen.findByRole('table', { name: 'AI-referred visitors' })
+  expect(screen.getByText('Median time to return').nextElementSibling?.textContent).toBe('58 minutes')
+})
+
 test('visitor rows show the first AI visit, its landing page without tracking codes, the way back, visits and last seen', async () => {
   visitorResponses({ list: () => ({ ...visitors, visitors: [{ ...visitors.visitors[0]!, visits: [{ ...aiVisit, landingPath: '/rooms?utm_source=chatgpt.com' }, searchVisit, directVisit] }] }) })
   await mount()
@@ -237,6 +244,21 @@ test('no visitor opens by default; an opened one lists its visits top to bottom,
   expect(within(requests).getByText('404').className).toContain('text-caution')
 })
 
+test('a visitor opened from a link who is not on this page of the list still opens, and closes', async () => {
+  const offPage = { ...visitorDetail, visitor: { ...visitor, visitorKey: 'visitor-two' }, totalVisits: 1, visits: [{ ...searchVisit, entryName: null, paid: true, events: [] }] }
+  const reads = responses(url => url.pathname.endsWith('/journeys/visitor-two') ? json(offPage)
+    : url.pathname.endsWith('/journeys/summary') ? json(visitorSummary) : json(visitors))
+  const router = await mount('/projects/example/journeys?journeyVisitor=visitor-two')
+  await screen.findByText('This visitor is not on this page of the list.')
+  const visits = await screen.findByRole('table', { name: 'Visits in time order' })
+  expect(lastRead(reads, '/visitor-two')).toBeDefined()
+  // An unnamed paid search says its class once.
+  expect(within(visits).getAllByRole('row')[1]!.querySelectorAll('td')[1]!.textContent).toBe('Search · Paid')
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  await waitFor(() => expect((router.state.location.search as Record<string, unknown>).journeyVisitor).toBeUndefined())
+  expect(screen.queryByText('This visitor is not on this page of the list.')).toBeNull()
+})
+
 test('show all requests switches the server filter, and later visits page the open visitor', async () => {
   const reads = visitorResponses({ detail: url => url.searchParams.get('offset') === '12'
     ? { ...visitorDetail, offset: 12, visits: [{ ...directVisit, events: [{ ts: directVisit.startedAt, method: 'GET', path: '/', status: null, kind: 'page', aiTouch: false }] }] }
@@ -246,7 +268,7 @@ test('show all requests switches the server filter, and later visits page the op
   fireEvent.click(within(within(visits).getAllByRole('row')[1]!).getByRole('button'))
   fireEvent.click(await screen.findByRole('button', { name: 'Show all 6 requests' }))
   await waitFor(() => expect(lastRead(reads, '/visitor-one')?.searchParams.get('events')).toBe('all'))
-  await screen.findByRole('button', { name: 'Show pages only' })
+  await screen.findByRole('button', { name: 'Show fewer requests' })
   fireEvent.click(screen.getByRole('button', { name: 'Later visits' }))
   await waitFor(() => expect(lastRead(reads, '/visitor-one')?.searchParams.get('offset')).toBe('12'))
   await waitFor(() => {
@@ -297,7 +319,7 @@ test('agent visits open and page through the SDK with the server window and coun
   expect(screen.getByText(": IP on OpenAI's published list · User agent matches OpenAI's published one")).not.toBeNull()
   const rows = within(requests).getAllByRole('row').slice(1)
   expect(rows.map(row => [...row.querySelectorAll('td')].slice(1).map(cell => cell.textContent))).toEqual([
-    ['example.com/rooms', '-', '200'], ['example.com/api/availability', '10 ms', '302'],
+    ['example.com/rooms', '-', '200'], ['HEAD example.com/api/availability', '10 ms', '302'],
   ])
   expect(Object.fromEntries(lastRead(reads, '/request-one')!.searchParams)).toEqual({ since: context.windowStart, until: context.windowEnd, limit: '50', offset: '0' })
   fireEvent.click(screen.getByRole('button', { name: 'Later requests' }))

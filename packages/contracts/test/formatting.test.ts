@@ -757,7 +757,9 @@ test('formatZonedTimestamp keeps the configured timezone, including daylight sav
 
 describe('formatDayDuration', () => {
   test('says a span in the unit a person would use', () => {
-    expect(formatDayDuration(0)).toBe('1 minute')
+    expect(formatDayDuration(0)).toBe('under a minute')
+    expect(formatDayDuration(0.0003)).toBe('under a minute')
+    expect(formatDayDuration(1 / 1_440)).toBe('1 minute')
     expect(formatDayDuration(40 / 1_440)).toBe('40 minutes')
     expect(formatDayDuration(1 / 24)).toBe('1 hour')
     expect(formatDayDuration(0.1)).toBe('2 hours')

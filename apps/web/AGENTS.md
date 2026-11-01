@@ -58,7 +58,8 @@ The list is one full-width table: first AI visit, landing page, came back
 through, visits, last seen. Landing pages read `pathWithoutQuery`, with the
 recorded path in `title`; back-to-back return visits through one channel read
 once with a count (`Google ×2`). No visitor opens by default. A row opens in
-place (`journeyVisitor`) into that visitor's visits, top to bottom (when, came
+place (`journeyVisitor`; a linked visitor not on the current page opens above
+the list) into that visitor's visits, top to bottom (when, came
 from, landing page, pages), and a visit opens to its requests. The visits load
 `events=pages` from the API and offer every request on demand; never filter
 requests in the browser. Request counts, the visitor key and user agent, and
@@ -66,7 +67,7 @@ capture coverage live in an opened visit, `Technical details` and `About this
 data`; the default view shows no source plumbing or time-zone labels. Keep null
 metrics unavailable, matching uncertainty explicit, and source gaps and capped
 days visible. Never name what a request did ("form submit", "booking"): print
-method and path. Visitor reads are project-wide for both Simple and Advanced
+the path, with its method when that is not GET. Visitor reads are project-wide for both Simple and Advanced
 portfolios; they do not establish Property or market scope.
 
 The Agent requests view uses the generated list/detail reads and renders their counts without

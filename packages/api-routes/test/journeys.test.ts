@@ -262,7 +262,8 @@ describe('AI visitor journeys', () => {
         returningVisitors: 1,
         returnRate: 0.5,
         returnedVia: { ai: 0, search: 1, social: 0, paid: 0, referral: 0, direct: 0 },
-        medianDaysToReturn: 2,
+        // 47 hours, to 0.0001 day.
+        medianDaysToReturn: 1.9583,
         byEngine: [{ engine: 'ChatGPT', visitors: 1, returningVisitors: 1 }, { engine: 'Perplexity', visitors: 1, returningVisitors: 0 }],
         keyBasis: { ipUa: 0, ua: 2 },
         partialSources: [],
