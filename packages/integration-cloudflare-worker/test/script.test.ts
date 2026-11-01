@@ -517,6 +517,56 @@ describe('generateWorkerScript page views', () => {
   })
 })
 
+describe('generateWorkerScript unlisted agents', () => {
+  const AGENT_UA = 'ExampleAgent/2.0 (+https://agent.example/about)'
+
+  function agentRequest(url: string, userAgent: string, method = 'GET'): GeneratedRequest & { method: string } {
+    return { ...request(url, undefined, userAgent), method }
+  }
+
+  it('forwards self-identified bots and agents the keyword list does not name', () => {
+    const shouldForward = generatedShouldForward()
+    for (const userAgent of [
+      'meta-externalfetcher/1.1',
+      'Example-User/1.0',
+      'Mozilla/5.0 (compatible; Example-User/1.0; +https://agent.example/about)',
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/120.0.0.0 Safari/537.36',
+    ]) {
+      expect(shouldForward(agentRequest('https://example.com/products/tank', userAgent)), userAgent).toBe(true)
+    }
+  })
+
+  it('forwards agents reading text files, sitemaps, feeds and PDFs, and HEAD requests', () => {
+    const shouldForward = generatedShouldForward()
+    for (const path of ['/', '/llms.txt', '/robots.txt', '/sitemap.xml', '/guide.pdf']) {
+      expect(shouldForward(agentRequest(`https://example.com${path}`, AGENT_UA)), path).toBe(true)
+    }
+    expect(shouldForward(agentRequest('https://example.com/rooms', AGENT_UA, 'HEAD'))).toBe(true)
+  })
+
+  it('does not forward browsers, generic HTTP tools, static files or writes', () => {
+    const shouldForward = generatedShouldForward()
+    for (const userAgent of [
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36',
+      'Mozilla/5.0',
+      'curl/8.7.1',
+      'python-requests/2.32.3',
+      'Python/3.12 aiohttp/3.9.5',
+      'Go-http-client/2.0',
+      'axios/1.7.2',
+      'Dalvik/2.1.0 (Linux; U; Android 13; Pixel 7 Build/TQ3A.230805.001)',
+      'node',
+      '',
+    ]) {
+      expect(shouldForward(agentRequest('https://example.com/rooms', userAgent)), userAgent).toBe(false)
+    }
+    for (const path of ['/hero.png', '/app.js', '/site.css', '/font.woff2']) {
+      expect(shouldForward(agentRequest(`https://example.com${path}`, AGENT_UA)), path).toBe(false)
+    }
+    expect(shouldForward(agentRequest('https://example.com/rooms', AGENT_UA, 'POST'))).toBe(false)
+  })
+})
+
 describe('DEFAULT_BOT_LIST', () => {
   it('includes the canonical AI UA tokens', () => {
     expect(DEFAULT_BOT_LIST.uaKeywords).toEqual(

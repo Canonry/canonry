@@ -16,6 +16,7 @@ import {
   trafficSources,
 } from '@canonry/canonry-db'
 import { and, eq } from 'drizzle-orm'
+import { trafficSampleClassifierSchema } from '@canonry/canonry-contracts'
 import { backfillTrafficClassificationCommand } from '../src/commands/backfill.js'
 
 describe('backfill traffic-classification', () => {
@@ -169,10 +170,34 @@ describe('backfill traffic-classification', () => {
     await backfillTrafficClassificationCommand({ project: 'demo' })
 
     expect(db.select({ id: rawEventSamples.id, eventType: rawEventSamples.eventType }).from(rawEventSamples).all()
-      .filter(row => row.id === realId || row.id === oddId).map(row => row.eventType)).toEqual(['ai-user-fetch', 'ai-user-fetch'])
+      .filter(row => row.id === realId || row.id === oddId).map(row => row.eventType)).toEqual(['ai_user_fetch', 'ai_user_fetch'])
     expect(db.select({ hits: aiUserFetchEventsHourly.hits }).from(aiUserFetchEventsHourly).where(eq(aiUserFetchEventsHourly.botId, 'openai-chatgpt-user')).all()).toEqual([{ hits: 1 }])
     expect(db.select({ tsHour: aiUserFetchLikelyFakeHourly.tsHour, reason: aiUserFetchLikelyFakeHourly.reason, hits: aiUserFetchLikelyFakeHourly.hits }).from(aiUserFetchLikelyFakeHourly).all())
       .toEqual([{ tsHour: '2026-05-18T12:00:00.000Z', reason: 'unusual-user-agent', hits: 1 }])
+  })
+
+  it('stores reclassified samples with the type and classifier details sample reads use', async () => {
+    const userFetchId = seedSample('unknown', 'Mozilla/5.0 (compatible; Claude-User/1.0)', '2026-05-18T15:00:00.000Z')
+    const crawlerId = seedSample('unknown', 'Mozilla/5.0 GPTBot/1.2', '2026-05-18T15:10:00.000Z')
+
+    await backfillTrafficClassificationCommand({ project: 'demo' })
+
+    const userFetch = db.select().from(rawEventSamples).where(eq(rawEventSamples.id, userFetchId)).get()
+    // The stored value, not the wire kind 'ai-user-fetch' that sample reads never match.
+    expect(userFetch?.eventType).toBe('ai_user_fetch')
+    expect(trafficSampleClassifierSchema.parse(userFetch?.classifierDetailsJson)).toMatchObject({
+      crawler: null,
+      aiUserFetch: { botId: 'claude-user', operator: 'Anthropic', verificationStatus: 'claimed_unverified', verificationManifest: null },
+      aiReferral: null,
+    })
+
+    const crawler = db.select().from(rawEventSamples).where(eq(rawEventSamples.id, crawlerId)).get()
+    expect(crawler?.eventType).toBe('crawler')
+    expect(trafficSampleClassifierSchema.parse(crawler?.classifierDetailsJson)).toMatchObject({
+      crawler: { botId: 'openai-gptbot', operator: 'OpenAI', purpose: 'training', verificationManifest: null },
+      aiUserFetch: null,
+      aiReferral: null,
+    })
   })
 
   it('is idempotent — second run finds no work to do', async () => {

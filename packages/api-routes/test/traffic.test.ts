@@ -11,6 +11,7 @@ import {
   trafficSources,
   crawlerEventsHourly,
   crawlerVerificationManifestsHourly,
+  unrecognizedAgentEventsHourly,
   aiUserFetchEventsHourly,
   aiUserFetchLikelyFakeHourly,
   aiUserFetchVerificationManifestsHourly,
@@ -4147,6 +4148,41 @@ describe('POST /traffic/sources/:id/backfill', () => {
         { kind: TrafficEventKinds['ai-user-fetch'], pathNormalized: '/new-user', hits: 1 },
         { kind: TrafficEventKinds.crawler, pathNormalized: '/blog/foo', hits: 2 },
       ])
+    } finally {
+      await h.close()
+      vi.useRealTimers()
+    }
+  })
+
+  it('stores unrecognized agents from a pull sync and replaces them on backfill', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ eventId: 'agent-1', userAgent: 'ExampleAgent/2.0', path: '/rooms', observedAt: fromBase(1) }),
+      buildEvent({ eventId: 'agent-2', userAgent: 'ExampleAgent/2.0', path: '/rooms', observedAt: fromBase(20) }),
+      buildEvent({ eventId: 'agent-asset', userAgent: 'ExampleAgent/2.0', path: '/logo.png', observedAt: fromBase(21) }),
+      buildEvent({ eventId: 'agent-curl', userAgent: 'curl/8.7.1', path: '/rooms', observedAt: fromBase(22) }),
+    ]
+    const h = await buildHarness(events, { bypassTimeFilter: true })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      const stored = () => h.db.select().from(unrecognizedAgentEventsHourly).all().map(row => ({ name: row.agentName, hour: row.tsHour, hits: row.hits, path: row.sampledPath }))
+      const expected = [{ name: 'exampleagent', hour: baseTime.toISOString(), hits: 2, path: '/rooms' }]
+
+      await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: { sinceMinutes: 120 } })
+      expect(stored()).toEqual(expected)
+
+      const submitRes = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`, payload: { days: 1 } })
+      expect((await waitForRunComplete(h.db, JSON.parse(submitRes.payload).runId)).status).toBe(RunStatuses.completed)
+      expect(stored()).toEqual(expected)
     } finally {
       await h.close()
       vi.useRealTimers()

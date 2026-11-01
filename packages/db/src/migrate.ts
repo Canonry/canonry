@@ -5029,7 +5029,50 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
+    // The traffic-classification backfill stored reclassified AI user-fetch
+    // samples as the wire kind 'ai-user-fetch' instead of the stored
+    // 'ai_user_fetch', so sample reads never returned them. A no-op once fixed.
     version: 200,
+    name: 'raw-event-samples-user-fetch-event-type',
+    statements: [
+      `UPDATE raw_event_samples SET event_type = 'ai_user_fetch' WHERE event_type = 'ai-user-fetch'`,
+    ],
+  },
+  {
+    version: 201,
+    name: 'unrecognized-agent-events-hourly',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS unrecognized_agent_events_hourly (
+        project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        source_id           TEXT NOT NULL REFERENCES traffic_sources(id) ON DELETE CASCADE,
+        ts_hour             TEXT NOT NULL,
+        agent_name          TEXT NOT NULL,
+        hits                INTEGER NOT NULL DEFAULT 0,
+        sampled_user_agent  TEXT,
+        sampled_path        TEXT,
+        created_at          TEXT NOT NULL,
+        updated_at          TEXT NOT NULL,
+        PRIMARY KEY (project_id, source_id, ts_hour, agent_name)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_unrecognized_agent_hourly_project_ts ON unrecognized_agent_events_hourly(project_id, ts_hour)`,
+      `CREATE INDEX IF NOT EXISTS idx_unrecognized_agent_hourly_project_name ON unrecognized_agent_events_hourly(project_id, agent_name)`,
+    ],
+  },
+  {
+    version: 202,
+    name: 'unrecognized-agent-notify-state',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS unrecognized_agent_notify_state (
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        agent_name   TEXT NOT NULL,
+        state        TEXT NOT NULL,
+        recorded_at  TEXT NOT NULL,
+        PRIMARY KEY (project_id, agent_name)
+      )`,
+    ],
+  },
+  {
+    version: 203,
     name: 'agent-journeys-and-agent-trust',
     statements: [
       `CREATE TABLE IF NOT EXISTS agent_journey_events (

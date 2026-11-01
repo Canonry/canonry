@@ -11,9 +11,14 @@ import type {
   ClassifiedAiReferral,
   CrawlerEventHourlyBucket,
   TrafficProbeReport,
+  UnrecognizedAgentEventHourlyBucket,
 } from './types.js'
+import { unrecognizedAgentName } from './unlisted-agents.js'
 
 const DEFAULT_SAMPLE_LIMIT = 25
+// Bounds what a burst of random user agents can write per batch; the busiest
+// names are kept.
+const MAX_UNRECOGNIZED_AGENT_NAMES = 200
 const DEFAULT_AI_REFERRAL_SESSION_WINDOW_MS = 60_000
 const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const LONG_HEX_SEGMENT = /^[0-9a-f]{16,}$/i
@@ -199,6 +204,7 @@ export function buildTrafficProbeReport(
   const aiUserFetchBuckets = new Map<string, AiUserFetchEventHourlyBucket>()
   const likelyFakeBuckets = new Map<string, AiUserFetchLikelyFakeHourlyBucket>()
   const aiReferralBuckets = new Map<string, AiReferralEventHourlyBucket>()
+  const unrecognizedAgentBuckets = new Map<string, UnrecognizedAgentEventHourlyBucket>()
   const aiReferralSessions = new Map<string, AiReferralSession>()
   const topBots = new Map<string, { fields: { botId: string; operator: string }; hits: number }>()
   const topCrawlerPaths = new Map<string, { fields: { pathNormalized: string }; hits: number }>()
@@ -325,7 +331,21 @@ export function buildTrafficProbeReport(
       }
     }
 
-    if (!crawler && !aiUserFetch && !aiReferral) unknownHits += 1
+    if (!crawler && !aiUserFetch && !aiReferral) {
+      unknownHits += 1
+      const agentName = unrecognizedAgentName(event)
+      if (agentName) {
+        const key = `${tsHour}\t${agentName}`
+        const existing = unrecognizedAgentBuckets.get(key)
+        if (existing) {
+          existing.hits += 1
+          existing.sampledUserAgent = event.userAgent ?? existing.sampledUserAgent
+          existing.sampledPath = pathNormalized
+        } else {
+          unrecognizedAgentBuckets.set(key, { tsHour, agentName, hits: 1, sampledUserAgent: event.userAgent ?? '', sampledPath: pathNormalized })
+        }
+      }
+    }
 
     // Keep the most-recent `sampleLimit` events by iteration order, not the
     // first ones we see. Pulls run timestamp-asc, so a FIFO retention would
@@ -400,6 +420,7 @@ export function buildTrafficProbeReport(
     aiUserFetchEventsHourly: [...aiUserFetchBuckets.values()].sort(sortAiUserFetchBuckets),
     aiUserFetchLikelyFakeHourly: [...likelyFakeBuckets.values()].sort(sortLikelyFakeBuckets),
     aiReferralEventsHourly: [...aiReferralBuckets.values()].sort(sortReferralBuckets),
+    unrecognizedAgentEventsHourly: busiestUnrecognizedAgents(unrecognizedAgentBuckets),
     topBots: topEntries(topBots, 10),
     topCrawlerPaths: topEntries(topCrawlerPaths, 10),
     topAiUserFetchBots: topEntries(topAiUserFetchBots, 10),
@@ -408,6 +429,20 @@ export function buildTrafficProbeReport(
     topAiReferralLandingPaths: topEntries(topAiReferralLandingPaths, 10),
     samples,
   }
+}
+
+function busiestUnrecognizedAgents(buckets: Map<string, UnrecognizedAgentEventHourlyBucket>): UnrecognizedAgentEventHourlyBucket[] {
+  const hitsByName = new Map<string, number>()
+  for (const bucket of buckets.values()) hitsByName.set(bucket.agentName, (hitsByName.get(bucket.agentName) ?? 0) + bucket.hits)
+  const kept = new Set(
+    [...hitsByName.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, MAX_UNRECOGNIZED_AGENT_NAMES)
+      .map(([name]) => name),
+  )
+  return [...buckets.values()]
+    .filter((bucket) => kept.has(bucket.agentName))
+    .sort((a, b) => a.tsHour.localeCompare(b.tsHour) || a.agentName.localeCompare(b.agentName))
 }
 
 function incrementBucket<T extends Record<string, string>>(

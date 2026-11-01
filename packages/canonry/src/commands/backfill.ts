@@ -2,8 +2,8 @@ import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { addLikelyFakeAgentHits, backfillProjectAnswerMentions, competitorIdentityColumns, createRunCompetitorResolver, readMarketCompetitorNames, refreshSnapshotMentionIdentity } from '@canonry/canonry-api-routes'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@canonry/canonry-contracts'
-import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@canonry/canonry-db'
-import { AgentTrustLevels, computeCompetitorOverlap, countsAsMention, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, openRouterRouteModel, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@canonry/canonry-contracts'
+import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, RawEventSampleEventTypes, rawEventSamples, runs } from '@canonry/canonry-db'
+import { AgentTrustLevels, computeCompetitorOverlap, countsAsMention, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, openRouterRouteModel, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEvidenceKinds, TrafficSourceTypes } from '@canonry/canonry-contracts'
 import { classifyAiUserFetch, classifyCrawler } from '@canonry/canonry-integration-traffic'
 import { OPENAI_RETRIEVAL_CONTRACT, reparseStoredResult as reparseOpenAIStoredResult } from '@canonry/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@canonry/canonry-provider-claude'
@@ -1093,11 +1093,13 @@ function stringifyStoredSnapshotEnvelope(
 // 'unknown'` and the hourly rollups under-count those bots forever.
 //
 // This command walks every `event_type='unknown'` sample, re-runs
-// `classifyCrawler` against it, and for each new match:
+// `classifyAiUserFetch` and `classifyCrawler` against it, and for each new
+// match:
 //
-//   1. Updates the sample's `event_type` to 'crawler'.
-//   2. Bumps the corresponding `crawler_events_hourly` bucket
-//      (INSERT-OR-UPDATE on the primary key).
+//   1. Updates the sample's stored `event_type` ('ai_user_fetch' or
+//      'crawler') and its classifier details, as live ingest writes them.
+//   2. Bumps the corresponding `ai_user_fetch_events_hourly` or
+//      `crawler_events_hourly` bucket (INSERT-OR-UPDATE on the primary key).
 //
 // AI-referral re-classification is out of scope: the classifier needs
 // the full `referer` / `queryString` / `requestUrl` to evaluate UTM and
@@ -1168,7 +1170,7 @@ export async function backfillTrafficClassificationCommand(opts?: {
     .select({ n: sql<number>`count(*)` })
     .from(rawEventSamples)
     .where(and(
-      eq(rawEventSamples.eventType, 'unknown'),
+      eq(rawEventSamples.eventType, RawEventSampleEventTypes.unknown),
       inArray(rawEventSamples.projectId, projectIds),
     ))
     .get()
@@ -1186,7 +1188,7 @@ export async function backfillTrafficClassificationCommand(opts?: {
     })
     .from(rawEventSamples)
     .where(and(
-      eq(rawEventSamples.eventType, 'unknown'),
+      eq(rawEventSamples.eventType, RawEventSampleEventTypes.unknown),
       inArray(rawEventSamples.projectId, projectIds),
     ))
     .all()
@@ -1256,8 +1258,17 @@ export async function backfillTrafficClassificationCommand(opts?: {
       // decision. Update the sample and aggregate atomically, and
       // leave the added hit without a provenance sidecar so reads report it as
       // unattributed rather than claiming that a manifest checked this request.
+      // Store the same type and classifier details live ingest writes, so the
+      // sample reads back under its new kind. No manifest checked this replay.
       tx.update(rawEventSamples)
-        .set({ eventType: userFetch ? TrafficEventKinds['ai-user-fetch'] : TrafficEventKinds.crawler })
+        .set({
+          eventType: userFetch ? RawEventSampleEventTypes.aiUserFetch : RawEventSampleEventTypes.crawler,
+          classifierDetailsJson: {
+            crawler: userFetch ? null : { ...classified, verificationManifest: null },
+            aiUserFetch: userFetch ? { ...userFetch, verificationManifest: null } : null,
+            aiReferral: null,
+          },
+        })
         .where(eq(rawEventSamples.id, snap.id))
         .run()
 
@@ -1337,7 +1348,7 @@ export async function backfillTrafficClassificationCommand(opts?: {
       .select({ n: sql<number>`count(*)` })
       .from(rawEventSamples)
       .where(and(
-        eq(rawEventSamples.eventType, 'unknown'),
+        eq(rawEventSamples.eventType, RawEventSampleEventTypes.unknown),
         inArray(rawEventSamples.projectId, projectIds),
       ))
       .get()

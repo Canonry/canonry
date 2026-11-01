@@ -25,6 +25,7 @@ import {
   runs,
   schedules,
   trafficEventReceipts,
+  unrecognizedAgentEventsHourly,
   type DatabaseClient,
 } from '@canonry/canonry-db'
 import {
@@ -149,7 +150,9 @@ import { failedOutcome, reportFeatureOutcome, withFeatureOutcome, type FeatureOu
 import { currentOutcomeAttribution } from './request-context.js'
 import {
   DIRECT_PUSH_RECEIPT_TTL_MS,
+  rawEventSampleEventType,
   writeTrafficEventBatch,
+  writeUnrecognizedAgentBuckets,
 } from './traffic-event-ingest.js'
 import {
   enforceGlobalRawEventSampleRetention,
@@ -1495,6 +1498,16 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           ),
         )
         .run()
+      tx
+        .delete(unrecognizedAgentEventsHourly)
+        .where(
+          and(
+            eq(unrecognizedAgentEventsHourly.sourceId, sourceRow.id),
+            gte(unrecognizedAgentEventsHourly.tsHour, windowStartIso),
+            lte(unrecognizedAgentEventsHourly.tsHour, windowEndIso),
+          ),
+        )
+        .run()
 
       for (const bucket of report.crawlerEventsHourly) {
         const status = bucket.status ?? 0
@@ -1674,16 +1687,12 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           .run()
       }
 
+      writeUnrecognizedAgentBuckets(tx, { projectId: project.id, sourceId: sourceRow.id, buckets: report.unrecognizedAgentEventsHourly, now: finishedAt })
+
       for (const sample of report.samples) {
         const sampleTimestamp = retainedRawEventSampleTimestamp(sample.observedAt, rawSampleCutoff)
         if (!sampleTimestamp) continue
-        const eventType = sample.crawler
-          ? 'crawler'
-          : sample.aiUserFetch
-            ? 'ai_user_fetch'
-            : sample.aiReferral
-              ? 'ai_referral'
-              : 'unknown'
+        const eventType = rawEventSampleEventType(sample)
         const refererHost = (() => {
           if (!sample.referer) return null
           try {
@@ -4148,16 +4157,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         aiReferralBucketRows += 1
       }
 
+      writeUnrecognizedAgentBuckets(tx, { projectId: project.id, sourceId: sourceRow.id, buckets: report.unrecognizedAgentEventsHourly, now: finishedAt })
+
       for (const sample of report.samples) {
         const sampleTimestamp = retainedRawEventSampleTimestamp(sample.observedAt, rawSampleCutoff)
         if (!sampleTimestamp) continue
-        const eventType = sample.crawler
-          ? 'crawler'
-          : sample.aiUserFetch
-            ? 'ai_user_fetch'
-            : sample.aiReferral
-              ? 'ai_referral'
-              : 'unknown'
+        const eventType = rawEventSampleEventType(sample)
         const refererHost = (() => {
           if (!sample.referer) return null
           try {

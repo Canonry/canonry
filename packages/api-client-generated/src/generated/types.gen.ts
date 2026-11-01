@@ -12990,7 +12990,7 @@ export type NotificationDto = {
     url: string;
     urlDisplay: string;
     urlHost: string;
-    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped'>;
+    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered'>;
     enabled: boolean;
     source?: string;
     webhookSecret?: string;
@@ -13670,7 +13670,7 @@ export type ProjectConfig = {
             id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered'>;
         }>;
         google?: {
             gsc?: {
@@ -13754,7 +13754,7 @@ export type ProjectConfigExport = {
             id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered'>;
         }>;
         google?: {
             gsc?: {
@@ -17632,6 +17632,26 @@ export type TrafficSamplesResponse = {
                 trafficClass?: 'organic' | 'paid' | null;
             } | null;
         };
+    }>;
+};
+
+export type TrafficUnrecognizedAgentsResponse = {
+    scope: {
+        project: string;
+        sourceId: string | null;
+    };
+    windowStart: string;
+    windowEnd: string;
+    totalAgents: number;
+    totalHits: number;
+    agents: Array<{
+        name: string;
+        hits: number;
+        firstSeenAt: string;
+        lastSeenAt: string;
+        sampleUserAgent: string | null;
+        samplePath: string | null;
+        sourceIds: Array<string>;
     }>;
 };
 
@@ -35547,6 +35567,61 @@ export type GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponses = {
 };
 
 export type GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponse = GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponses[keyof GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponses];
+
+export type GetApiV1ProjectsByNameTrafficUnrecognizedAgentsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Restrict to a traffic source in this project.
+         */
+        sourceId?: string;
+        /**
+         * Inclusive ISO timestamp or date, default 30 days before until.
+         */
+        since?: string;
+        /**
+         * Inclusive ISO timestamp or date, default now.
+         */
+        until?: string;
+        /**
+         * Most names returned, busiest first, default 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/traffic/unrecognized-agents';
+};
+
+export type GetApiV1ProjectsByNameTrafficUnrecognizedAgentsErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Unavailable to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTrafficUnrecognizedAgentsError = GetApiV1ProjectsByNameTrafficUnrecognizedAgentsErrors[keyof GetApiV1ProjectsByNameTrafficUnrecognizedAgentsErrors];
+
+export type GetApiV1ProjectsByNameTrafficUnrecognizedAgentsResponses = {
+    /**
+     * Unrecognized bots and agents in the window.
+     */
+    200: TrafficUnrecognizedAgentsResponse;
+};
+
+export type GetApiV1ProjectsByNameTrafficUnrecognizedAgentsResponse = GetApiV1ProjectsByNameTrafficUnrecognizedAgentsResponses[keyof GetApiV1ProjectsByNameTrafficUnrecognizedAgentsResponses];
 
 export type GetApiV1ProjectsByNameJourneysSummaryData = {
     body?: never;

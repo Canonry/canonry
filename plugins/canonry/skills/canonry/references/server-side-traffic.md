@@ -1304,3 +1304,16 @@ direct push up to 100 per source per UTC hour. There is no universal hourly cap.
 totals; `traffic status` already reports last-24h sample counts per source across
 all kinds. The new read excludes unknown requests by default and requires them
 explicitly with `--kind unknown`. Viewers and embeds cannot read sample rows.
+
+### Spot new bots and agents
+
+`cnry traffic unrecognized <project>` lists self-identified bots and agents that
+no rule names yet, summed by the name in their user agent (for example
+`meta-externalfetcher` or `example-user`), busiest first, with first and last
+seen hours and an example user agent and path. The default window is the last 30
+days. People's browsers, generic HTTP tools (curl, python-requests and the
+like), static files and writes are left out, so the list is agents rather than
+scripts. Every source records them; the Cloudflare Worker forwards them from
+version 1.1.0. A name that keeps showing up is a candidate for a classifier rule.
+Agents that drive a normal browser (their user agent is plain Chrome) look like
+people and never appear here.

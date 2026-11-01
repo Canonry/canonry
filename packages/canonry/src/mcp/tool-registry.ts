@@ -1,4 +1,4 @@
-import { agentJourneysQuerySchema, mcpProfileDtoSchema, journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
+import { agentJourneysQuerySchema, mcpProfileDtoSchema, journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, trafficUnrecognizedAgentsQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -2932,6 +2932,14 @@ const rawCanonryMcpTools = [
     access: 'read', tier: 'traffic', inputSchema: agentJourneysQuerySchema.extend({ project: projectNameSchema, journeyId: z.string().min(1) }), annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/traffic/agent-journeys/{journeyId}'],
     handler: (client, input) => { const { project, journeyId, ...query } = input; return client.trafficAgentJourney(project, journeyId, query) },
+  }),
+  defineTool({
+    name: 'canonry_traffic_unrecognized_agents',
+    title: 'List unrecognized bots and agents',
+    description: 'Server-side traffic from self-identified bots and agents that no classifier rule names yet, summed by the name in their user agent, busiest first, with first and last seen hours and an example user agent. Default window 30 days. Browsers, generic HTTP tools, static files and writes are left out. Use it to spot new AI agents. No provider call or write.',
+    access: 'read', tier: 'traffic', inputSchema: trafficUnrecognizedAgentsQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/unrecognized-agents'],
+    handler: (client, input) => { const { project, ...query } = input; return client.trafficUnrecognizedAgents(project, query) },
   }),
   defineTool({
     name: 'canonry_journeys_summary',

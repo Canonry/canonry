@@ -9,6 +9,9 @@ Instances remain authoritative for user identity, roles, permissions and data.
   tool arguments or arbitrary headers.
 - Keep the public consent page and its headers free of workspace directories.
   Accept a slug or registered host only as a registry lookup, never a destination.
+- A resent copy of an accepted workspace choice (a double click) gets the first
+  submit's handoff only when the browser cookie, CSRF value and workspace match.
+  It never runs a second workspace check or creates a second login state.
 - Keep outer and upstream issuers, audiences, state, PKCE and token families
   separate. Identity is `(tenant ID, immutable instance user ID)`, never email.
 - Use `oidc-provider` for outer OAuth and the official MCP SDK for transport.

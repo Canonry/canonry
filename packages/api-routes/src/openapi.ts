@@ -7710,6 +7710,21 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/traffic/unrecognized-agents',
+    summary: 'List bots and agents no classifier rule recognizes',
+    description: 'Server-side traffic from self-identified bots and agents that no rule names yet, summed by the name in their user agent, busiest first. Browsers, generic HTTP tools (curl, python-requests and the like), static files and writes are left out. Stored hourly rows only. Signed-in viewers and embedded dashboards cannot read it. No provider calls or writes.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'sourceId', in: 'query', description: 'Restrict to a traffic source in this project.', schema: stringSchema },
+      { name: 'since', in: 'query', description: 'Inclusive ISO timestamp or date, default 30 days before until.', schema: stringSchema },
+      { name: 'until', in: 'query', description: 'Inclusive ISO timestamp or date, default now.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Most names returned, busiest first, default 100.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
+    ],
+    responses: { 200: jsonResponse('Unrecognized bots and agents in the window.', 'TrafficUnrecognizedAgentsResponse'), 400: errorResponse('Invalid selection.'), 403: errorResponse('Unavailable to this principal.'), 404: errorResponse('Project not found.') },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/journeys/summary',
     summary: 'Summarize stored AI visitor journeys',
     description: 'Visitors whose first AI-referred visit started in the window (default the last 30 days): how many came back in a later visit, through which channel (search, direct, social, paid, referral, another AI visit), and how long after. Built from server-side traffic with no site code. A visitor is a keyed hash of IP and user agent (user agent alone where the provider reports no IP); keyBasis counts each kind. `partialSources` names project sources whose logs miss later visits (the Cloudflare Worker forwards only AI and bot requests). Stored rows only, 180-day retention. No provider calls or writes.',

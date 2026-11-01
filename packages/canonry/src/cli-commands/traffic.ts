@@ -410,6 +410,18 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['traffic', 'unrecognized'],
+    usage: 'canonry traffic unrecognized <project> [--source <id>] [--since <ISO>] [--until <ISO>] [--limit 100] [--format json|jsonl]',
+    help: 'Bots and agents no rule recognizes yet, by the name in their user agent, busiest first. Default window: last 30 days. Stored rows only, no provider calls.',
+    options: { source: stringOption(), since: stringOption(), until: stringOption(), limit: stringOption() },
+    run: async input => {
+      const { trafficUnrecognized } = await import('../commands/traffic.js')
+      const project = requireProject(input, 'traffic.unrecognized', 'canonry traffic unrecognized <project>')
+      const limit = parseIntegerOption(input, 'limit', { command: 'traffic.unrecognized', usage: 'canonry traffic unrecognized <project>', message: '--limit must be an integer' })
+      await trafficUnrecognized(project, { sourceId: getString(input.values, 'source'), since: getString(input.values, 'since'), until: getString(input.values, 'until'), limit, format: input.format })
+    },
+  },
+  {
     path: ['traffic', 'events'],
     usage: 'canonry traffic events <project> [--kind crawler|ai-user-fetch|ai-referral|all] [--source <id>] [--since-minutes 1440] [--since <iso>] [--until <iso>] [--limit 500] [--granularity hour|day] [--format json]',
     options: {

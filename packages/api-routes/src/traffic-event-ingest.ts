@@ -1,18 +1,20 @@
 import crypto from 'node:crypto'
 import { and, eq, gte, lt, lte, sql } from 'drizzle-orm'
-import type { DatabaseClient } from '@canonry/canonry-db'
+import type { DatabaseClient, RawEventSampleEventType } from '@canonry/canonry-db'
 import {
   aiReferralEventsHourly,
   aiUserFetchEventsHourly,
   aiUserFetchVerificationManifestsHourly,
   crawlerEventsHourly,
   crawlerVerificationManifestsHourly,
+  RawEventSampleEventTypes,
   rawEventSamples,
   trafficEventReceipts,
   trafficSources,
+  unrecognizedAgentEventsHourly,
 } from '@canonry/canonry-db'
 import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
-import { buildTrafficProbeReport } from '@canonry/canonry-integration-traffic'
+import { buildTrafficProbeReport, type UnrecognizedAgentEventHourlyBucket } from '@canonry/canonry-integration-traffic'
 import {
   enforceRawEventSampleRetention,
   retainedRawEventSampleTimestamp,
@@ -25,6 +27,53 @@ import { addLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 // replay window so clock skew and an edge retry cannot double-count, without
 // retaining a full day of high-volume event ids.
 export const DIRECT_PUSH_RECEIPT_TTL_MS = 10 * 60_000
+
+/** The stored sample type for a classified request; the first matching kind wins. */
+export function rawEventSampleEventType(sample: { crawler: unknown; aiUserFetch: unknown; aiReferral: unknown }): RawEventSampleEventType {
+  if (sample.crawler) return RawEventSampleEventTypes.crawler
+  if (sample.aiUserFetch) return RawEventSampleEventTypes.aiUserFetch
+  if (sample.aiReferral) return RawEventSampleEventTypes.aiReferral
+  return RawEventSampleEventTypes.unknown
+}
+
+type TrafficWriteTransaction = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0]
+
+/** Add a report's unrecognized-agent buckets to the hourly table; an hour already stored sums. */
+export function writeUnrecognizedAgentBuckets(
+  tx: TrafficWriteTransaction,
+  opts: { projectId: string, sourceId: string, buckets: readonly UnrecognizedAgentEventHourlyBucket[], now: string },
+): void {
+  for (const bucket of opts.buckets) {
+    tx
+      .insert(unrecognizedAgentEventsHourly)
+      .values({
+        projectId: opts.projectId,
+        sourceId: opts.sourceId,
+        tsHour: bucket.tsHour,
+        agentName: bucket.agentName,
+        hits: bucket.hits,
+        sampledUserAgent: bucket.sampledUserAgent,
+        sampledPath: bucket.sampledPath,
+        createdAt: opts.now,
+        updatedAt: opts.now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          unrecognizedAgentEventsHourly.projectId,
+          unrecognizedAgentEventsHourly.sourceId,
+          unrecognizedAgentEventsHourly.tsHour,
+          unrecognizedAgentEventsHourly.agentName,
+        ],
+        set: {
+          hits: sql`${unrecognizedAgentEventsHourly.hits} + ${bucket.hits}`,
+          sampledUserAgent: bucket.sampledUserAgent,
+          sampledPath: bucket.sampledPath,
+          updatedAt: opts.now,
+        },
+      })
+      .run()
+  }
+}
 
 type TrafficSourceRow = typeof trafficSources.$inferSelect
 type TrafficSourceIngestUpdate = Partial<Pick<
@@ -380,6 +429,13 @@ export function writeTrafficEventBatch(
         aiReferralBucketRows += 1
       }
 
+      writeUnrecognizedAgentBuckets(tx, {
+        projectId: opts.projectId,
+        sourceId: opts.sourceId,
+        buckets: report.unrecognizedAgentEventsHourly,
+        now: opts.receivedAt,
+      })
+
       const hourlySampleLimit = Math.max(0, Math.floor(opts.sampleLimit))
       const remainingSamplesByHour = new Map<string, number>()
       for (const sample of report.samples) {
@@ -405,13 +461,7 @@ export function writeTrafficEventBatch(
           continue
         }
 
-        const eventType = sample.crawler
-          ? 'crawler'
-          : sample.aiUserFetch
-            ? 'ai_user_fetch'
-            : sample.aiReferral
-              ? 'ai_referral'
-              : 'unknown'
+        const eventType = rawEventSampleEventType(sample)
         const refererHost = (() => {
           if (!sample.referer) return null
           try {

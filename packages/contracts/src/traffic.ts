@@ -843,6 +843,39 @@ export const trafficSamplesQuerySchema = z.object({
 }).strict()
 export type TrafficSamplesQuery = z.infer<typeof trafficSamplesQuerySchema>
 
+export const trafficUnrecognizedAgentsQuerySchema = z.object({
+  sourceId: z.string().min(1).optional(),
+  since: z.union([z.iso.datetime({ offset: true }), z.iso.date()], { error: 'Expected an ISO timestamp or YYYY-MM-DD date' }).optional(),
+  until: z.union([z.iso.datetime({ offset: true }), z.iso.date()], { error: 'Expected an ISO timestamp or YYYY-MM-DD date' }).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+}).strict()
+export type TrafficUnrecognizedAgentsQuery = z.infer<typeof trafficUnrecognizedAgentsQuerySchema>
+
+/** A bot or agent no classifier rule recognizes, named from its user agent. */
+export const trafficUnrecognizedAgentSchema = z.object({
+  name: z.string(),
+  hits: z.number().int().nonnegative(),
+  /** Earliest stored hour with a hit for this name, in any window. */
+  firstSeenAt: z.string(),
+  /** Latest hour with a hit in the window. */
+  lastSeenAt: z.string(),
+  sampleUserAgent: z.string().nullable(),
+  samplePath: z.string().nullable(),
+  sourceIds: z.array(z.string()),
+})
+export type TrafficUnrecognizedAgent = z.infer<typeof trafficUnrecognizedAgentSchema>
+
+export const trafficUnrecognizedAgentsResponseSchema = z.object({
+  scope: z.object({ project: z.string(), sourceId: z.string().nullable() }),
+  windowStart: z.string(),
+  windowEnd: z.string(),
+  /** Every name with a hit in the window; `agents` holds the busiest `limit` of them. */
+  totalAgents: z.number().int().nonnegative(),
+  totalHits: z.number().int().nonnegative(),
+  agents: z.array(trafficUnrecognizedAgentSchema),
+})
+export type TrafficUnrecognizedAgentsResponse = z.infer<typeof trafficUnrecognizedAgentsResponseSchema>
+
 // Stored classifier evidence may come from an install upgraded within the
 // retention window. Inner fields may be absent or null; unknown fields are stripped.
 const sampleUserFetchSchema = z.object({

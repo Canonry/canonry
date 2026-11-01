@@ -276,6 +276,7 @@ import { openRouterModels } from "./agent/pi-models.js";
 import { SCHEDULE_SPREAD_MS, Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
 import { startReviewDeliveryLoop } from "./review-webhook-delivery.js";
+import { startUnrecognizedAgentAlertLoop } from "./unrecognized-agent-alerts.js";
 import { startProviderBatchPoller } from "./provider-batch-poller.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
@@ -1996,6 +1997,7 @@ export async function createServer(opts: {
 
   let stopSiteLiveness: (() => void) | null = null;
   let stopReviewDeliveries: (() => void) | null = null;
+  let stopUnrecognizedAgentAlerts: (() => void) | null = null;
   let stopProviderBatchPoller: (() => void) | null = null;
   let stopInstallState: (() => void) | null = null;
 
@@ -4334,6 +4336,9 @@ export async function createServer(opts: {
       // Review alerts whose send failed retry on their own schedule, not only
       // when the next GBP sync dispatches alerts.
       stopReviewDeliveries = startReviewDeliveryLoop(() => notifier.drainDueReviewDeliveries());
+      // New bots and agents in traffic alert on their own schedule; every
+      // source type writes them, including direct push, which never syncs.
+      stopUnrecognizedAgentAlerts = startUnrecognizedAgentAlertLoop(() => notifier.dispatchUnrecognizedAgentAlerts());
       // Resumes every batch a previous process left outstanding, and finalizes
       // the runs boot recovery handed to it.
       stopProviderBatchPoller = startProviderBatchPoller({ db: opts.db, registry, runner: jobRunner });
@@ -4374,6 +4379,8 @@ export async function createServer(opts: {
     stopSiteLiveness = null;
     stopReviewDeliveries?.();
     stopReviewDeliveries = null;
+    stopUnrecognizedAgentAlerts?.();
+    stopUnrecognizedAgentAlerts = null;
     stopProviderBatchPoller?.();
     stopProviderBatchPoller = null;
     stopInstallState?.();
