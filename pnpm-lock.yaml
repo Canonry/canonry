@@ -942,19 +942,6 @@ importers:
         specifier: ^7.40.0
         version: 7.40.0(@aws-sdk/credential-provider-node@3.972.87)(@smithy/signature-v4@5.7.4)(undici@8.12.3)(ws@8.22.0)(zod@4.6.7)
 
-  packages/val-kit:
-    dependencies:
-      '@google/genai':
-        specifier: 2.30.0
-        version: 2.30.0(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))
-    devDependencies:
-      tsup:
-        specifier: ^9.0.0
-        version: 9.0.0(jiti@2.7.0)(postcss@8.5.31)(tsx@4.23.15)(typescript@6.0.3)(yaml@2.9.1)
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-
   packages/wordpress-traffic-logger-plugin: {}
 
 packages:

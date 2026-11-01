@@ -188,7 +188,7 @@ Separate jobs in `ci.yml` cover the checks in `pnpm verify`:
 - `pnpm run lint`
 - `pnpm run test`
 
-CI also runs build, Deno, and release guards. `pnpm verify` does not replace those additional checks.
+CI also runs build and release guards. `pnpm verify` does not replace those additional checks.
 
 ### Typecheck compilers
 

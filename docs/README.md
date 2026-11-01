@@ -26,9 +26,6 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`deployment.md`](deployment.md) | current | operators | Current deployment and runtime guidance |
 | [`aero-evaluation.md`](aero-evaluation.md) | current | contributors | Analyst replay tests and offline evaluation of captured native turns |
 | [`testing.md`](testing.md) | current | contributors | Validation and test workflow guidance |
-| [`../apps/vals/ai-visibility-check/README.md`](../apps/vals/ai-visibility-check/README.md) | current | contributors, operators | Public Val Town sample, local Deno validation, and manual release order |
-| [`../apps/vals/brand-perception-check/AGENTS.md`](../apps/vals/brand-perception-check/AGENTS.md) | current | contributors, operators | The branded-question Val: verdict-with-verbatim-evidence rules, its one-phase budget, and the release order that gates its first deploy |
-| [`../packages/val-kit/AGENTS.md`](../packages/val-kit/AGENTS.md) | current | contributors | `@canonry/val-kit`: the Vals' shared host kit — module boundaries, dev vs production graph, and the manual publish gate |
 | [`plugins.md`](plugins.md) | current | agent users | Portable Agent Plugin structure, client adapters, installation, coexistence, and security boundaries |
 | [`mcp.md`](mcp.md) | current | operators, agent users, contributors | MCP stdio adapter rationale, setup, auth model, safety rules, and limitations |
 | [`mcp-gateway-contract.md`](mcp-gateway-contract.md) | current | gateway engineers | Instance OAuth, identity, stored-read policy, modern/legacy transport, and synthetic integration contract |

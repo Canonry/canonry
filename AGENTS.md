@@ -13,7 +13,6 @@ This file holds only the rules every change must follow. Every package and app h
 ```text
 apps/api/, apps/worker/   Cloud Run API and worker entry points (import packages/api-routes)
 apps/web/                 Vite SPA, bundled into packages/canonry/assets/ (also read PRODUCT.md, DESIGN.md)
-apps/vals/*/              Public Deno/Val Town samples on @canonry/val-kit
 packages/canonry/         Publishable npm package: CLI + server + SPA (+ src/mcp/AGENTS.md, src/agent/AGENTS.md)
 packages/api-routes/      Shared Fastify route plugins (+ src/doctor/AGENTS.md, src/discovery/AGENTS.md)
 packages/contracts/       DTOs, enums, config schema, error codes, shared utilities
@@ -22,7 +21,6 @@ packages/db/              Drizzle ORM schema, migrations, client (SQLite/Postgre
 packages/intelligence/    Insight and health analysis over snapshots
 packages/provider-*/      Answer-engine adapters (gemini, openai, claude, perplexity, local, cdp)
 packages/integration-*/   Third-party integrations (Google, GA4, Bing, OpenAI ads, Cloudflare, WordPress, ...)
-packages/val-kit/         Published host kit for the Vals (@canonry/val-kit)
 skills/, plugins/         Canonical agent skills and the portable plugin (rules for both: plugins/AGENTS.md)
 docs/                     Architecture, data model, setup guides, testing
 ```
@@ -44,12 +42,11 @@ Key types, scope gates, read-only keys, `keys.write`, and what a multi-tenant mi
 - During local iteration, do not run tests, test watchers, or `pnpm verify`. Run tests only after changes are finalized and ready for push or review.
 - At final validation, run `pnpm check`, affected package **tests, typechecks, and type-aware lint**. Include dependent packages for shared runtime, contract, dependency, DB, or auth changes. Reuse passing results while their inputs remain unchanged. For owner changes, `pnpm verify` is optional locally, not a per-push requirement.
 - Before opening an outside code PR (including drafts), run `pnpm check` and `pnpm verify`. Follow [CONTRIBUTING.md](CONTRIBUTING.md#before-submitting-a-pr) and the [PR template](.github/pull_request_template.md): 1–3 summary bullets, security review, styling checks, and exact-head results. Missing or failed required checks block submission without an explicit maintainer exception.
-- Build and smoke affected CLI/API/MCP/UI surfaces; smoke installed tarballs for packaging changes. Check SDK/plugin/Val drift; fix its source.
+- Build and smoke affected CLI/API/MCP/UI surfaces; smoke installed tarballs for packaging changes. Check SDK/plugin drift; fix its source.
 - Fetch and integrate the latest target, resolve conflicts, and review the full PR diff. At final validation, rerun only checks whose inputs changed. Recheck release versions against the target tip and npm.
 - Never hand-merge a generated file. On a conflict, take either side, rerun its generator on the merged sources, and commit the result: `pnpm gen` (API client) or `pnpm plugin:sync` (plugin mirrors).
 - After pushing, match the tested SHA to the remote branch and PR head; require GitHub `MERGEABLE` before handoff or merge. Report commands, results, SHA, and blockers; failed or unrun required checks block readiness. Skipped owner CI proves nothing.
 - Outside work runs full CI; `arberx` validation is local. All releases stay enabled. Hooks remain staged lint and drift only. Docs/config: diff/live checks; no new tests needed.
-- Vals remain manual; see [Val kit rules](packages/val-kit/AGENTS.md).
 - Merge traps and commands: [Testing Guide](docs/testing.md#before-merging).
 
 ## Commands
@@ -98,10 +95,7 @@ When proposing work, requesting feedback, or showcasing changes:
 ## Dependency Boundary
 
 - `packages/api-routes/` must not import from `apps/*`.
-- `packages/canonry/` and `packages/val-kit/` are the only publishable artifacts — the product package and the Vals'
-  shared host kit. Every other package is internal and bundled via tsup.
-- `packages/val-kit/` must stay runtime-neutral (web standards + Deno-compatible): it is consumed by the Val Town Vals,
-  not by the Node server, so it must not import `packages/canonry/`, `packages/db/`, or anything Node-only.
+- `packages/canonry/` is the only publishable artifact. Every other package is internal and bundled via tsup.
 - All internal packages use `@canonry/canonry-*` naming convention.
 - Keep environment parsing in `packages/config`, provider logic in `packages/provider-*/`, and route plugins in `packages/api-routes` (no app-level concerns; thin handlers).
 - Keep the canonry app independent from the audit package repo except for the published npm dependency.

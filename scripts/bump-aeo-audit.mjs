@@ -24,19 +24,19 @@
 //   GITHUB_OUTPUT         when set, the script appends `changed`/`from`/`to`/
 //                         `canonry_from`/`canonry_to`/`version_note` step outputs.
 //
-// The script only edits manifests. It never runs `pnpm install` or Deno, so
-// the caller controls when the pnpm and Val Town lockfiles are regenerated.
+// The script only edits manifests. It never runs `pnpm install`, so the caller
+// controls when the lockfile is regenerated.
 
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join } from 'node:path'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const DEP = '@canonry/aeo-audit'
-// The local Canonry runtime and Val Town's self-contained production host use
-// the full-crawl engine. apps/worker has no audit-engine dependency.
+// The local Canonry runtime uses the full-crawl engine. apps/worker has no
+// audit-engine dependency.
 const DEP_TARGETS = [
   {
     path: 'packages/canonry/package.json',
@@ -45,64 +45,6 @@ const DEP_TARGETS = [
   },
 ]
 
-// Val Town ignores an import map, so every Val import is fully qualified in
-// source: `npm:@canonry/aeo-audit@7.1.0`, repeated in each file that imports
-// the engine. That is N places to drift instead of one, so the bump SWEEPS the
-// tree rather than editing a manifest key. A new file that imports the engine
-// is picked up with no change here, which is the point.
-// `test` is in the list because deno.dev.lock resolves the DEV graph, which
-// includes the val's tests. Sweeping only src leaves a test importing the old
-// version, the dev lock then disagrees with the pin, and CI fails in the Val
-// job alone: the dependency-contract test scans src and stays green.
-const VAL_SOURCE_ROOTS = [
-  'apps/vals/ai-visibility-check/src',
-  'apps/vals/ai-visibility-check/test',
-  'apps/vals/ai-visibility-check/main.http.tsx',
-]
-const VAL_SPECIFIER = new RegExp(`npm:${DEP.replace('/', '\\/')}@\\d+\\.\\d+\\.\\d+`, 'g')
-
-/** Every `.ts`/`.tsx` file under the Val roots. */
-function valSourceFiles() {
-  const files = []
-  for (const root of VAL_SOURCE_ROOTS) {
-    const absRoot = join(repoRoot, root)
-    if (!existsSync(absRoot)) continue
-    if (statSync(absRoot).isFile()) {
-      files.push(root)
-      continue
-    }
-    for (const entry of readdirSync(absRoot, { recursive: true, withFileTypes: true })) {
-      if (!entry.isFile() || !/\.tsx?$/.test(entry.name)) continue
-      files.push(relative(repoRoot, join(entry.parentPath ?? entry.path, entry.name)))
-    }
-  }
-  return files.sort()
-}
-
-/**
- * Rewrite every inline engine specifier to `version`. Returns the files it
- * touched. Throws when nothing references the engine at all, because a silent
- * no-op would leave the Val on an old engine while Canonry moved.
- */
-function rewriteValSpecifiers(version) {
-  const touched = []
-  let seen = 0
-  for (const relPath of valSourceFiles()) {
-    const absPath = join(repoRoot, relPath)
-    const before = readFileSync(absPath, 'utf8')
-    const matches = before.match(VAL_SPECIFIER)
-    if (!matches) continue
-    seen += matches.length
-    const after = before.replace(VAL_SPECIFIER, `npm:${DEP}@${version}`)
-    if (after === before) continue
-    writeFileSync(absPath, after)
-    touched.push(relPath)
-  }
-  if (seen === 0) {
-    throw new Error(`No \`npm:${DEP}@<version>\` specifier found under ${VAL_SOURCE_ROOTS.join(', ')}`)
-  }
-  return touched
-}
 // Published package + native-plugin manifests that must stay in lockstep (see
 // AGENTS.md → Versioning and scripts/sync-canonry-plugin.mjs).
 const VERSION_MANIFESTS = [
@@ -144,7 +86,7 @@ function resolveLatestVersion() {
 }
 
 function bumpPatch(version) {
-  const match = /^(\d+)\.(\d+)\.(\d+)(.*)$/.exec(version)
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version)
   if (!match) throw new Error(`Cannot patch-bump non-semver version: "${version}"`)
   const [, major, minor, patch] = match
   return `${major}.${minor}.${Number(patch) + 1}`
@@ -193,15 +135,11 @@ function main() {
     }
   }).filter(({ current, next }) => current !== next)
 
-  // A manifest already at the target does not mean the Val is: the two are
-  // written in different places and can drift independently.
-  const valDrift = rewriteValSpecifiers(target)
-  if (dependencyChanges.length === 0 && valDrift.length === 0) {
+  if (dependencyChanges.length === 0) {
     console.log(`${DEP} already synchronized at ${currentSpec} — nothing to bump.`)
     emitOutput({ changed: 'false', from: currentVersion, to: target })
     return
   }
-  for (const relPath of valDrift) console.log(`${relPath}: ${DEP} -> ${target}`)
 
   for (const change of dependencyChanges) {
     replaceField(change.path, DEP, change.current, change.next)
@@ -234,10 +172,7 @@ function main() {
     version_note: versionNote,
   })
 
-  console.log(
-    `\nBumped ${DEP} ${currentVersion} -> ${target}. Next: run \`pnpm install\`, then refresh apps/vals/ai-visibility-check/deno.lock ` +
-      `with \`deno check --allow-import main.http.tsx\` from apps/vals/ai-visibility-check.`,
-  )
+  console.log(`\nBumped ${DEP} ${currentVersion} -> ${target}. Next: run \`pnpm install\`.`)
 }
 
 main()

@@ -47,7 +47,7 @@ packages/provider-*/      Provider adapters (Gemini, OpenAI, Claude, local)
 apps/web/                 Vite SPA source (bundled into packages/canonry/assets/)
 ```
 
-`@canonry/canonry` is the application package; `@canonry/val-kit` is published independently for Val Town hosts. All other packages are private workspace dependencies under `@canonry` and are bundled by tsup at build time.
+`@canonry/canonry` is the application package. All other packages are private workspace dependencies under `@canonry` and are bundled by tsup at build time.
 
 ## Guidelines
 

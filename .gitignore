@@ -27,7 +27,3 @@ package-lock.json
 
 # npm pack output — a release tarball is never source
 *.tgz
-
-# Val Town CLI local state — a machine's pid, last-run time, and branch cursor.
-# It churns on every push and means nothing on another machine.
-apps/vals/*/.vt/
