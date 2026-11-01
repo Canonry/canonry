@@ -378,6 +378,15 @@ describe('sessionizeJourneyRequests', () => {
     expect(result).toMatchObject({ visits: [], events: [], visitors: [], dropped: 3 })
   })
 
+  it('puts a page before its background call logged at the same instant', () => {
+    const result = sessionizeJourneyRequests(requests('2026-10-18T10:00:00Z', [
+      [0, { path: '/location/_payload.json', referer: 'https://www.example.com/?utm_source=chatgpt.com' }],
+      [0, fromChatGpt],
+    ]), new Map(), { ...OPTIONS, newId: ids() })
+    expect(result.visits.map(v => [v.entry.entryName, v.landingPath, v.requestCount, v.pageCount])).toEqual([['ChatGPT', '/?utm_source=chatgpt.com', 2, 1]])
+    expect(result.dropped).toBe(0)
+  })
+
   it('never lets a late background call become a stored visit\'s first request', () => {
     const state = new Map<string, JourneyVisitorState>([['v1', {
       firstAiAt: '2026-10-18T10:00:00.000Z', firstAiEngine: 'ChatGPT', lastAiAt: '2026-10-18T10:00:00.000Z',

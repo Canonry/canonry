@@ -1193,7 +1193,7 @@ function emitTrafficClassificationReport(
   console.log(`  Unrecognized rows:   ${result.unrecognized.examined} examined, ${result.unrecognized.moved} moved to a bot (${result.unrecognized.movedHits} hits), ${result.unrecognized.renamed} renamed, ${result.unrecognized.removed} removed`)
   console.log(`  Fake agent hits:     ${result.agentHits.moved} hourly rows moved to likely fake (${result.agentHits.movedHits} hits)`)
   console.log(`  Agent requests:      ${result.agentRequests.removed} removed (${result.agentRequests.probes} asked for a scanner path)`)
-  console.log(`  Journeys:            ${result.journeys.visitorsRemoved} visitors and ${result.journeys.visitsRemoved} visits removed, ${result.journeys.visitsRelanded} visits now start at their first page`)
+  console.log(`  Journeys:            ${result.journeys.visitorsRemoved} visitors and ${result.journeys.visitsRemoved} visits removed, ${result.journeys.visitsRelanded} visits now start at a different page`)
   if (Object.keys(result.byBot).length > 0) {
     console.log(`  By bot:`)
     const sorted = Object.entries(result.byBot).sort(([, a], [, b]) => b - a)

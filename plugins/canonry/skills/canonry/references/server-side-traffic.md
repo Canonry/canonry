@@ -1246,8 +1246,11 @@ and raw samples keep their classification for review. With a Property filter,
 the trust rules change, a server checks stored traffic again once after
 startup (`cnry backfill traffic-classification` runs the same pass on demand):
 hourly agent rows for a scanner path move to the likely fake counts, and stored
-agent requests from a probing client are removed. Hourly rows keep no IP, so
-older hours get the burst rule only through stored agent requests.
+agent requests from a probing client (same IP and user agent) are removed when
+the probe itself was stored. Earlier rules already flagged some probes and
+never stored them, so their clients' other stored requests stay. Hourly rows
+keep no IP, so older hours get the burst rule only through stored agent
+requests.
 
 Preserve the
 response's retention, daily-cap and source limitations; missing requests do
@@ -1278,8 +1281,11 @@ every source and needs no site snippet or goal setup. Read it with
 
 - A background call (an API or JSON request) never starts a visit or counts as
   arriving from an AI engine. It carries its page's referer and utm tags, so the
-  page that made it is the arrival. Calls seen without their page (the page was
-  logged under another key) are not a visitor.
+  page that made it is the arrival. Calls seen without their page are not a
+  visitor or an arrival: the page was logged under another key, or not logged
+  at all (served from a cache the logs never see). Journeys stored under the
+  earlier rule are corrected once after startup, or with
+  `cnry backfill traffic-classification`.
 - A visitor key is an HMAC of IP and user agent under the install secret
   `journeys.visitorKeySecret` (generated on first `serve` and saved in
   config.yaml, or `CANONRY_JOURNEY_KEY_SECRET`). No IP is stored. Changing the

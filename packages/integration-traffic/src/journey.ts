@@ -400,7 +400,8 @@ export function sessionizeJourneyRequests(
   let capped = 0
 
   for (const [visitorKey, list] of byVisitor) {
-    list.sort((a, b) => (a.observedAt < b.observedAt ? -1 : a.observedAt > b.observedAt ? 1 : 0))
+    // At the same instant a page comes before its background calls: the page made them.
+    list.sort((a, b) => (a.observedAt < b.observedAt ? -1 : a.observedAt > b.observedAt ? 1 : Number(a.kind === 'data') - Number(b.kind === 'data')))
     const prior = state.get(visitorKey)
     // A background call carries its page's referer and utm tags, so only the
     // page counts as arriving from an AI engine.

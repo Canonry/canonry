@@ -94,6 +94,41 @@ describe('correctBackgroundCallJourneys', () => {
     expect(correctBackgroundCallJourneys(db, { dryRun: false, now: NOW })).toEqual({ visitors: 0, visitorsRemoved: 0, visitsRemoved: 0, visitsRelanded: 0 })
   })
 
+  it('finds a hidden arrival even when the visitor has a later one, and settles a call logged with its page', () => {
+    // A call took the arrival; the tagged page a moment later is the real one. A new arrival comes on day 40.
+    visitor('hidden-arrival', 0, 40 * DAY)
+    visit('hidden-arrival', 'hidden-arrival-1', AI_ENTRY, [[0, '/api/cart', 'data', true], [10, '/?utm_source=chatgpt.com', 'page', false]])
+    visit('hidden-arrival', 'hidden-arrival-2', AI_ENTRY, [[40 * DAY, '/menu?utm_source=chatgpt.com', 'page', true]])
+    // A call opened a visit two days after an arrival: its tagged page is a step, not a new arrival.
+    visitor('step', 0, 2 * DAY)
+    visit('step', 'step-1', AI_ENTRY, [[0, '/?utm_source=chatgpt.com', 'page', true]])
+    visit('step', 'step-2', AI_ENTRY, [[2 * DAY, '/api/cart', 'data', true], [2 * DAY + 10, '/menu?utm_source=chatgpt.com', 'page', false]])
+    // A call logged at the same instant as its page, and stored as the visit's first request.
+    visitor('same-instant', 0)
+    visit('same-instant', 'same-instant-1', AI_ENTRY, [[0, '/api/cart', 'data', true], [0, '/?utm_source=chatgpt.com', 'page', false]])
+
+    expect(correctBackgroundCallJourneys(db, { dryRun: false, now: NOW })).toEqual({ visitors: 8, visitorsRemoved: 2, visitsRemoved: 4, visitsRelanded: 5 })
+
+    expect(visitsOf('hidden-arrival')).toEqual([
+      { id: 'hidden-arrival-1', landingPath: '/?utm_source=chatgpt.com', startedAt: at(10), requestCount: 1, pageCount: 1 },
+      { id: 'hidden-arrival-2', landingPath: '/menu?utm_source=chatgpt.com', startedAt: at(40 * DAY), requestCount: 1, pageCount: 1 },
+    ])
+    expect(eventsOf('hidden-arrival-1')).toEqual([{ path: '/?utm_source=chatgpt.com', aiTouch: true }])
+    expect(visitorOf('hidden-arrival')).toMatchObject({ firstAiAt: at(10), lastAiAt: at(40 * DAY), firstAiEngine: 'ChatGPT' })
+
+    const stepVisit = db.select().from(journeyVisits).where(eq(journeyVisits.id, 'step-2')).get()
+    expect(stepVisit).toMatchObject({ entryClass: 'direct', entryName: null, landingPath: '/menu?utm_source=chatgpt.com', startedAt: at(2 * DAY + 10), requestCount: 1 })
+    expect(eventsOf('step-2')).toEqual([{ path: '/menu?utm_source=chatgpt.com', aiTouch: false }])
+    expect(visitorOf('step')).toMatchObject({ firstAiAt: at(0), lastAiAt: at(0), lastSeenAt: at(2 * DAY + 10) })
+
+    expect(visitsOf('same-instant')).toEqual([{ id: 'same-instant-1', landingPath: '/?utm_source=chatgpt.com', startedAt: at(0), requestCount: 2, pageCount: 1 }])
+    expect(db.select({ path: journeyEvents.path, aiTouch: journeyEvents.aiTouch }).from(journeyEvents).where(eq(journeyEvents.visitId, 'same-instant-1')).orderBy(asc(journeyEvents.path)).all())
+      .toEqual([{ path: '/?utm_source=chatgpt.com', aiTouch: true }, { path: '/api/cart', aiTouch: false }])
+
+    // A call kept at the same instant as its page is not read again.
+    expect(correctBackgroundCallJourneys(db, { dryRun: false, now: NOW })).toEqual({ visitors: 0, visitorsRemoved: 0, visitsRemoved: 0, visitsRelanded: 0 })
+  })
+
   it('limits the correction to the given projects', () => {
     expect(correctBackgroundCallJourneys(db, { projectIds: ['other'], dryRun: false, now: NOW })).toEqual({ visitors: 0, visitorsRemoved: 0, visitsRemoved: 0, visitsRelanded: 0 })
     expect(visitorOf('calls-only')).toBeDefined()
