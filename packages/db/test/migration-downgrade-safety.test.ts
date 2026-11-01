@@ -44,6 +44,11 @@ const REVIEWED_DATA_STATEMENTS: ReadonlyMap<number, readonly RegExp[]> = new Map
     /^DELETE FROM dashboard_sessions WHERE api_key_id IN \( SELECT id FROM api_keys WHERE \(delegated_user_id IS NOT NULL AND name = 'mcp-session:' \|\| delegated_user_id\) OR \(delegated_user_id IS NULL AND name GLOB 'mcp-session:\*'\) \)$/i,
     /^UPDATE api_keys SET revoked_at = COALESCE\(revoked_at, strftime\('[^']+', 'now'\)\) WHERE \(delegated_user_id IS NOT NULL AND name = 'mcp-session:' \|\| delegated_user_id\) OR \(delegated_user_id IS NULL AND name GLOB 'mcp-session:\*'\)$/i,
   ]],
+  // v200 rewrites only samples stored as the wire kind 'ai-user-fetch', which
+  // no reader ever matched, to 'ai_user_fetch', which every binary reads.
+  [200, [
+    /^UPDATE raw_event_samples SET event_type = 'ai_user_fetch' WHERE event_type = 'ai-user-fetch'$/i,
+  ]],
 ])
 
 test(`every migration after v${DOWNGRADE_BASELINE} has additive schema or reviewed data changes (downgrade-safe)`, () => {

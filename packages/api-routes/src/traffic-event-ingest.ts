@@ -1,12 +1,13 @@
 import crypto from 'node:crypto'
 import { and, eq, gte, lt, lte, sql } from 'drizzle-orm'
-import type { DatabaseClient } from '@canonry/canonry-db'
+import type { DatabaseClient, RawEventSampleEventType } from '@canonry/canonry-db'
 import {
   aiReferralEventsHourly,
   aiUserFetchEventsHourly,
   aiUserFetchVerificationManifestsHourly,
   crawlerEventsHourly,
   crawlerVerificationManifestsHourly,
+  RawEventSampleEventTypes,
   rawEventSamples,
   trafficEventReceipts,
   trafficSources,
@@ -23,6 +24,14 @@ import { recordJourneyBatch } from './journeys.js'
 // replay window so clock skew and an edge retry cannot double-count, without
 // retaining a full day of high-volume event ids.
 export const DIRECT_PUSH_RECEIPT_TTL_MS = 10 * 60_000
+
+/** The stored sample type for a classified request; the first matching kind wins. */
+export function rawEventSampleEventType(sample: { crawler: unknown; aiUserFetch: unknown; aiReferral: unknown }): RawEventSampleEventType {
+  if (sample.crawler) return RawEventSampleEventTypes.crawler
+  if (sample.aiUserFetch) return RawEventSampleEventTypes.aiUserFetch
+  if (sample.aiReferral) return RawEventSampleEventTypes.aiReferral
+  return RawEventSampleEventTypes.unknown
+}
 
 type TrafficSourceRow = typeof trafficSources.$inferSelect
 type TrafficSourceIngestUpdate = Partial<Pick<
@@ -395,13 +404,7 @@ export function writeTrafficEventBatch(
           continue
         }
 
-        const eventType = sample.crawler
-          ? 'crawler'
-          : sample.aiUserFetch
-            ? 'ai_user_fetch'
-            : sample.aiReferral
-              ? 'ai_referral'
-              : 'unknown'
+        const eventType = rawEventSampleEventType(sample)
         const refererHost = (() => {
           if (!sample.referer) return null
           try {
