@@ -238,7 +238,7 @@ Deno.test('initialize falls back to the newest supported version for an unknown 
     method: 'initialize',
     params: { protocolVersion: '1999-01-01', capabilities: {} },
   })
-  equal((body?.result as Record<string, unknown>).protocolVersion, '2026-07-28')
+  equal((body!.result as Record<string, unknown>).protocolVersion, '2026-07-28')
 })
 
 Deno.test('initialize honours a version declared only in the header', async () => {
@@ -246,16 +246,16 @@ Deno.test('initialize honours a version declared only in the header', async () =
   const { body } = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { capabilities: {} } }, {
     headers: { 'mcp-protocol-version': '2025-06-18' },
   })
-  equal((body?.result as Record<string, unknown>).protocolVersion, '2025-06-18')
+  equal((body!.result as Record<string, unknown>).protocolVersion, '2025-06-18')
 })
 
 Deno.test('tools/list advertises every tool with an input schema', async () => {
   const { app } = createHarness()
   const { body } = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
-  const tools = (body?.result as { tools: Array<{ name: string; description: string; inputSchema: unknown }> }).tools
+  const tools = (body!.result as { tools: Array<{ name: string; description: string; inputSchema: unknown }> }).tools
   equal(
     tools.map((tool) => tool.name).sort().join(','),
-    'get_brand_perception,get_check,read_skill,self_host,start_check',
+    'get_brand_perception,get_check,self_host,start_check',
   )
   for (const tool of tools) truthy(tool.inputSchema, `${tool.name} must declare an inputSchema`)
   // An agent only learns the scope rule by reading the catalog, so it is in the
@@ -265,41 +265,14 @@ Deno.test('tools/list advertises every tool with an input schema', async () => {
   truthy(perception?.description.includes('Branded scope'), 'the branded scope must be advertised')
 })
 
-Deno.test('resources/list advertises unique readable documents with entry points first', async () => {
+Deno.test('resources are answered empty, not refused, for clients that probe them', async () => {
   const { app } = createHarness()
   const { body } = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'resources/list' })
-  const resources = (body?.result as { resources: Array<{ uri: string; name: string; mimeType: string }> }).resources
-
-  equal(new Set(resources.map((resource) => resource.uri)).size, resources.length, 'resource URIs must be unique')
-  equal(at(resources, 0).uri, 'canonry-skill://aero/SKILL.md')
-  equal(at(resources, 1).uri, 'canonry-skill://canonry/SKILL.md')
-  truthy(resources.every((resource) => resource.mimeType === 'text/markdown'), 'skills are markdown')
-  truthy(
-    resources.some((resource) => resource.uri === 'canonry-skill://canonry/references/canonry-cli.md'),
-    'the CLI reference must be discoverable',
-  )
-  truthy(
-    resources.some((resource) => resource.uri === 'canonry-skill://aero/references/regression-playbook.md'),
-    'the regression reference must be discoverable',
-  )
-  for (const resource of resources) {
-    const { body: readBody } = await rpc(app, {
-      jsonrpc: '2.0', id: 2, method: 'resources/read', params: { uri: resource.uri },
-    })
-    equal(readBody?.error, undefined, `${resource.uri} must be readable`)
-    const content = at((readBody?.result as { contents: Array<{ uri: string; mimeType: string; text: string }> }).contents, 0)
-    equal(content.uri, resource.uri)
-    equal(content.mimeType, 'text/markdown')
-    truthy(content.text.trim(), `${resource.uri} must contain its document`)
-  }
-})
-
-Deno.test('read_skill resolves a bare reference path as well as a full URI', async () => {
-  const { app } = createHarness()
-  const { body } = await rpc(app, call('read_skill', { uri: 'aero/references/regression-playbook.md' }))
-  const result = body?.result as { content: Array<{ text: string }>; isError?: boolean }
-  equal(result.isError, undefined)
-  truthy(at(result.content, 0).text.length > 1000, 'expected the reference body')
+  equal((body!.result as { resources: unknown[] }).resources.length, 0)
+  const { body: readBody } = await rpc(app, {
+    jsonrpc: '2.0', id: 2, method: 'resources/read', params: { uri: 'canonry-skill://aero/SKILL.md' },
+  })
+  equal((readBody!.error as { code: number }).code, -32602)
 })
 
 Deno.test('get_check reports the verdict counts with their branded scope', async () => {
@@ -361,7 +334,7 @@ Deno.test('an uncached domain is reported as a miss and starts no paid work', as
   const before = store.checks.size
   const { body } = await rpc(app, call('get_check', { domain: 'never-checked.example' }))
 
-  equal((body?.result as { isError?: boolean }).isError, true)
+  equal((body!.result as { isError?: boolean }).isError, true)
   includes(JSON.stringify(toolPayload(body!)), 'No cached check')
   equal(store.checks.size, before, 'a read must never queue a check')
 })
@@ -369,7 +342,7 @@ Deno.test('an uncached domain is reported as a miss and starts no paid work', as
 Deno.test('an expired check is no longer readable over MCP', async () => {
   const { app } = createHarness([completedRecord({ expiresAt: '2026-02-01T00:00:00.000Z' })])
   const { body } = await rpc(app, call('get_check', { checkId: '11111111-2222-4333-8444-555555555555' }))
-  equal((body?.result as { isError?: boolean }).isError, true)
+  equal((body!.result as { isError?: boolean }).isError, true)
 })
 
 Deno.test('a running check reports that it is running instead of an empty result', async () => {
@@ -384,7 +357,7 @@ Deno.test('start_check is advertised only when the host enables it', async () =>
   const enabled = createHarness()
   const names = async (h: ReturnType<typeof createHarness>) => {
     const { body } = await rpc(h.app, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
-    return (body?.result as { tools: Array<{ name: string }> }).tools.map((tool) => tool.name)
+    return (body!.result as { tools: Array<{ name: string }> }).tools.map((tool) => tool.name)
   }
   truthy((await names(enabled)).includes('start_check'), 'expected start_check when enabled')
 
@@ -415,10 +388,10 @@ Deno.test('start_check reuses a cached check instead of spending again', async (
 Deno.test('start_check spends its own bucket, not the browser allowance', async () => {
   const { app, store } = createHarness([], { mcpPerClientDailyLimit: 1, perClientDailyLimit: 3 })
   const first = await rpc(app, call('start_check', { domain: 'one.example' }))
-  equal((first.body?.result as { isError?: boolean }).isError, undefined)
+  equal((first.body!.result as { isError?: boolean }).isError, undefined)
 
   const second = await rpc(app, call('start_check', { domain: 'two.example' }))
-  equal((second.body?.result as { isError?: boolean }).isError, true, 'the MCP limit of 1 must bind')
+  equal((second.body!.result as { isError?: boolean }).isError, true, 'the MCP limit of 1 must bind')
 
   const subjects = [...store.quota.keys()].join(',')
   truthy(subjects.includes('mcp:'), `expected an mcp-prefixed quota subject, got ${subjects}`)
@@ -428,7 +401,7 @@ Deno.test('start_check refuses a private or malformed host', async () => {
   const { app, dispatched } = createHarness([])
   for (const domain of ['localhost', '127.0.0.1', 'not a domain']) {
     const { body } = await rpc(app, call('start_check', { domain }))
-    equal((body?.result as { isError?: boolean }).isError, true, `${domain} must be refused`)
+    equal((body!.result as { isError?: boolean }).isError, true, `${domain} must be refused`)
   }
   equal(dispatched.length, 0, 'a refused domain must never reach the runner')
 })
@@ -436,7 +409,7 @@ Deno.test('start_check refuses a private or malformed host', async () => {
 Deno.test('start_check is unavailable when the host disables it', async () => {
   const { app, dispatched } = createHarness([], { mcpStartChecksEnabled: false })
   const { body } = await rpc(app, call('start_check', { domain: 'fresh.example' }))
-  equal((body?.result as { isError?: boolean }).isError, true)
+  equal((body!.result as { isError?: boolean }).isError, true)
   equal(dispatched.length, 0)
 })
 
@@ -445,7 +418,6 @@ Deno.test('reads never reach the runner now that a write tool exists', async () 
   await rpc(app, call('get_check', { domain: 'never-checked.example' }))
   await rpc(app, call('get_brand_perception', { domain: 'never-checked.example' }))
   await rpc(app, call('self_host'))
-  await rpc(app, call('read_skill', { uri: 'canonry/SKILL.md' }))
   equal(dispatched.length, 0, 'no read may dispatch')
   equal(store.checks.size, 1, 'no read may admit a record')
   equal(store.quota.size, 0, 'no read may spend quota')
@@ -483,14 +455,14 @@ Deno.test('a notification method sent with an id is rejected rather than left ha
   const { app } = createHarness()
   const { status, body } = await rpc(app, { jsonrpc: '2.0', id: 4, method: 'notifications/initialized' })
   equal(status, 400)
-  equal((body?.error as { code: number }).code, -32600)
+  equal((body!.error as { code: number }).code, -32600)
 })
 
 Deno.test('an unknown method answers 404 so a client can tell this endpoint from a legacy one', async () => {
   const { app } = createHarness()
   const { status, body } = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'completion/complete' })
   equal(status, 404)
-  equal((body?.error as { code: number }).code, -32601)
+  equal((body!.error as { code: number }).code, -32601)
 })
 
 Deno.test('a modern request whose headers disagree with its body is refused', async () => {
@@ -499,7 +471,7 @@ Deno.test('a modern request whose headers disagree with its body is refused', as
     headers: { 'mcp-protocol-version': '2026-07-28', 'mcp-method': 'tools/call', 'mcp-name': 'get_brand_perception' },
   })
   equal(status, 400)
-  equal((body?.error as { code: number }).code, -32020, 'header/body mismatch is HeaderMismatch')
+  equal((body!.error as { code: number }).code, -32020, 'header/body mismatch is HeaderMismatch')
 })
 
 Deno.test('the endpoint accepts POST only', async () => {

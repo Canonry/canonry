@@ -3,7 +3,6 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
-import { readSkillResource } from '../../val-kit/src/mcp/resources.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const moduleUrl = new URL('../../../scripts/sync-agent-operations.mjs', import.meta.url).href
@@ -29,7 +28,6 @@ it('reproduces the checked-in runtime and native skill exactly', () => {
   for (const external of [source, rendered.skillMarkdown, rendered.generated]) {
     expect(external).not.toContain('Built-in Aero')
   }
-  expect(readSkillResource('canonry-skill://canonry/SKILL.md')?.text).toBe(rendered.skillMarkdown)
 })
 
 it('detects both source drift and hand-edited generated skills without changing files in check mode', () => {

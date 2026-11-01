@@ -2,10 +2,10 @@
  * MCP method dispatch and the HTTP handler for the `/mcp` endpoint.
  *
  * The endpoint is anonymous, which is a deliberate consequence of what it
- * exposes: checks on this val are already public — the web UI serves any of
- * them from `/api/checks/:id` without a credential — and the skills ship in a
- * public npm package. A token would gate nothing already unreachable, while
- * making the endpoint useless as something an agent is simply pointed at.
+ * exposes: checks on this val are already public: the web UI serves any of
+ * them from `/api/checks/:id` without a credential. A token would gate nothing
+ * already unreachable, while making the endpoint useless as something an agent
+ * is simply pointed at.
  *
  * `start_check` is the one tool that spends. It is admitted by per-caller
  * quota rather than by a credential, under the same global daily cap as the
@@ -18,10 +18,8 @@ import {
   JsonRpcErrorCodes,
   type JsonRpcResponse,
   jsonRpcResult,
-  listSkillResources,
   type ParsedMcpRequest,
   parseMcpRequest,
-  readSkillResource,
   SUPPORTED_PROTOCOL_VERSIONS,
 } from 'npm:@canonry/val-kit@0.2.0/mcp'
 import { callMcpTool, type McpToolContext, mcpTools, type StartCheckFn } from './tools.ts'
@@ -50,9 +48,8 @@ const INSTRUCTIONS = [
   'text, "cited" means the domain appears in the sources behind the answer. A model can do either, both, or neither.',
   'A null signal means that check failed and was not measured — it is not a miss.',
   '',
-  'Start with list_skills and read the aero entry point for how to interpret and report on coverage; read the canonry',
-  'entry point for how to operate the CLI. Then use get_check for headline numbers, get_ai_visibility for per-query',
-  'evidence, and get_site_health for the Technical AEO page sample.',
+  'Use get_check for headline numbers, get_ai_visibility for per-query evidence, and get_site_health for the',
+  'Technical AEO page sample.',
   '',
   'get_check, get_ai_visibility, and get_site_health read existing checks and never spend. start_check runs a fresh',
   'one, blocks for up to about 45 seconds, and is subject to daily limits; a domain checked in the last 24 hours',
@@ -135,7 +132,7 @@ async function dispatch(
         status: 200,
         response: jsonRpcResult(id, {
           protocolVersion: negotiated,
-          capabilities: { tools: { listChanged: false }, resources: { listChanged: false, subscribe: false } },
+          capabilities: { tools: { listChanged: false } },
           serverInfo: SERVER_INFO,
           instructions: INSTRUCTIONS,
         }),
@@ -174,11 +171,12 @@ async function dispatch(
       return { status: 200, response: jsonRpcResult(id, result) }
     }
 
+    // Answered rather than refused: several clients probe these during startup,
+    // and a method-not-found there reads as a broken server. This endpoint
+    // serves no resources or prompts.
     case 'resources/list':
-      return { status: 200, response: jsonRpcResult(id, { resources: listSkillResources() }) }
+      return { status: 200, response: jsonRpcResult(id, { resources: [] }) }
 
-    // Answered rather than refused: several clients probe both during startup,
-    // and a method-not-found there reads as a broken server.
     case 'resources/templates/list':
       return { status: 200, response: jsonRpcResult(id, { resourceTemplates: [] }) }
 
@@ -187,14 +185,10 @@ async function dispatch(
 
     case 'resources/read': {
       const uri = typeof params.uri === 'string' ? params.uri : ''
-      const contents = uri ? readSkillResource(uri) : null
-      if (!contents) {
-        return {
-          status: 200,
-          response: jsonRpcError(id, JsonRpcErrorCodes.invalidParams, `Resource not found: "${uri}".`),
-        }
+      return {
+        status: 200,
+        response: jsonRpcError(id, JsonRpcErrorCodes.invalidParams, `Resource not found: "${uri}".`),
       }
-      return { status: 200, response: jsonRpcResult(id, { contents: [contents] }) }
     }
 
     default:
