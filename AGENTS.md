@@ -46,6 +46,7 @@ Key types, scope gates, read-only keys, `keys.write`, and what a multi-tenant mi
 - Before opening an outside code PR (including drafts), run `pnpm check` and `pnpm verify`. Follow [CONTRIBUTING.md](CONTRIBUTING.md#before-submitting-a-pr) and the [PR template](.github/pull_request_template.md): 1–3 summary bullets, security review, styling checks, and exact-head results. Missing or failed required checks block submission without an explicit maintainer exception.
 - Build and smoke affected CLI/API/MCP/UI surfaces; smoke installed tarballs for packaging changes. Check SDK/plugin/Val drift; fix its source.
 - Fetch and integrate the latest target, resolve conflicts, and review the full PR diff. At final validation, rerun only checks whose inputs changed. Recheck release versions against the target tip and npm.
+- Never hand-merge a generated file. On a conflict, take either side, rerun its generator on the merged sources, and commit the result: `pnpm gen` (API client), `pnpm plugin:sync` (plugin mirrors), `pnpm val:skills` (val-kit skill modules). The val-kit modules store each skill document as one long string, so two branches that edit the same document always conflict there, even when the markdown merges cleanly.
 - After pushing, match the tested SHA to the remote branch and PR head; require GitHub `MERGEABLE` before handoff or merge. Report commands, results, SHA, and blockers; failed or unrun required checks block readiness. Skipped owner CI proves nothing.
 - Outside work runs full CI; `arberx` validation is local. All releases stay enabled. Hooks remain staged lint and drift only. Docs/config: diff/live checks; no new tests needed.
 - Vals remain manual; see [Val kit rules](packages/val-kit/AGENTS.md).
@@ -68,6 +69,7 @@ pnpm gen                        # regenerate the API client after changing opena
 pnpm plugin:sync                # refresh plugin skill mirrors + portable/client manifest versions
 pnpm plugin:check               # fail on plugin spec, skill, or version drift (CI gate)
 pnpm guide:sync                 # generate MCP guidance + optional native skills from docs/agent-operations/v1.md
+pnpm val:skills                 # regenerate the val-kit skill modules from skills/ (guide:sync runs it too)
 pnpm run dev:web
 ```
 
