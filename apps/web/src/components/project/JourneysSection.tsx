@@ -37,6 +37,8 @@ type JourneysSearch = {
   journeyVisitor?: string
   journeyEngine?: string
   journeyReturned?: string
+  /** `ua`: list the visitors matched by browser only, each of which can be many people. */
+  journeyMatching?: string
   journeyOffset?: string
   agentHours?: string
 }
@@ -73,6 +75,8 @@ const TRUST_TONES: Record<StoredAgentTrust, string> = {
   [AgentTrustLevels.unknown]: 'text-secondary',
 }
 
+const NOT_MEASURABLE_HELP = 'This project\'s traffic source logs no IP address, so one person can\'t be told from another. AI-referred visits are still counted.'
+const BROWSER_GROUP_NOTE = 'Each row is everyone on one browser version, so its visits are not one person\'s.'
 const plural = (count: number, word: string) => `${count.toLocaleString()} ${word}${count === 1 ? '' : 's'}`
 const visitName = (visit: Pick<JourneyVisitDto, 'entryName' | 'entryClass'>) => visit.entryName ?? ENTRY_LABELS[visit.entryClass]
 /** How a visit arrived, said once: "Google, paid search" reads "Google · Paid" and an unnamed paid search "Search · Paid", never "Paid, paid". */
@@ -200,11 +204,12 @@ function VisitorJourneys({ projectName }: { projectName: string }) {
   const days = VISITOR_PERIODS.some(period => period.value === search.journeyDays) ? search.journeyDays! : '30'
   const engine = search.journeyEngine ?? ''
   const returned = search.journeyReturned === 'true' || search.journeyReturned === 'false' ? search.journeyReturned : ''
+  const matching = search.journeyMatching === JourneyKeyBases.ua ? JourneyKeyBases.ua : ''
   const offset = Math.max(0, Number.parseInt(search.journeyOffset ?? '0', 10) || 0)
   const [windowEnd, setWindowEnd] = useState(() => new Date().toISOString())
   const window = { since: new Date(Date.parse(windowEnd) - Number(days) * 86_400_000).toISOString(), until: windowEnd }
   const summaryQuery = useQuery({ ...getApiV1ProjectsByNameJourneysSummaryOptions({ client: heyClient, path: { name: projectName }, query: window }), staleTime: 30_000 })
-  const listQuery: JourneysQuery = { ...window, engine: engine || undefined, returned: returned || undefined, limit: VISITOR_PAGE_SIZE, offset }
+  const listQuery: JourneysQuery = { ...window, engine: engine || undefined, returned: returned || undefined, keyBasis: matching || JourneyKeyBases['ip-ua'], limit: VISITOR_PAGE_SIZE, offset }
   const query = useQuery({ ...getApiV1ProjectsByNameJourneysOptions({ client: heyClient, path: { name: projectName }, query: listQuery }), staleTime: 30_000 })
   const data = query.data
   const openKey = search.journeyVisitor ?? null
@@ -223,14 +228,20 @@ function VisitorJourneys({ projectName }: { projectName: string }) {
 
       {query.isPending ? <p role="status" className="py-6 text-copy-14 text-secondary">Loading visitors…</p>
         : query.isError ? <ReadFailure what="visitors" error={query.error} retry={() => { void query.refetch() }} />
-          : data && data.visitors.length === 0 && !engine && !returned ? (
+          : data && data.visitors.length === 0 && !engine && !returned && !matching && summaryQuery.data?.aiVisitors === null ? (
+            <div className="border-y border-default py-8 text-copy-14 text-secondary">
+              <p className="text-label-14-strong text-heading">Visitors can't be measured here.</p>
+              <p className="mt-1 max-w-prose">{NOT_MEASURABLE_HELP}</p>
+              <Button className="mt-3" size="sm" variant="outline" onClick={() => { trackUiFilterChange('other'); update({ journeyMatching: JourneyKeyBases.ua, journeyOffset: undefined, journeyVisitor: undefined }) }}>Show browser groups</Button>
+            </div>
+          ) : data && data.visitors.length === 0 && !engine && !returned && !matching ? (
             <div className="border-y border-default py-8 text-copy-14 text-secondary">
               <p className="text-label-14-strong text-heading">No AI-referred visitors in this period.</p>
               <p className="mt-1 max-w-prose">Visitors appear after a connected traffic source records an AI referral. Try a longer period.</p>
               <Link to="/traffic" className="mt-2 inline-block text-link hover:underline">Review traffic sources</Link>
             </div>
           ) : data ? (
-            <VisitorTable projectName={projectName} data={data} engines={summaryQuery.data?.byEngine.map(item => item.engine) ?? []} engine={engine} returned={returned} openKey={openKey}
+            <VisitorTable projectName={projectName} data={data} engines={summaryQuery.data?.byEngine.map(item => item.engine) ?? []} engine={engine} returned={returned} matching={matching} openKey={openKey}
               onToggle={key => { if (key) trackUiAction('journeys.visitor_open'); update({ journeyVisitor: key ?? undefined }) }}
               onFilter={patch => { trackUiFilterChange('other'); update({ ...patch, journeyOffset: undefined, journeyVisitor: undefined }) }}
               onPage={next => update({ journeyOffset: next === 0 ? undefined : String(next), journeyVisitor: undefined })} />
@@ -247,11 +258,24 @@ function VisitorJourneys({ projectName }: { projectName: string }) {
 }
 
 function VisitorSummary({ summary }: { summary: JourneySummaryResponse }) {
+  const visits = <Figure label="AI-referred visits">{summary.aiVisits.toLocaleString()}</Figure>
+  if (summary.aiVisitors === null || summary.returningVisitors === null || summary.returnedVia === null) {
+    return (
+      <dl className="flex flex-wrap items-start gap-x-12 gap-y-4">
+        {visits}
+        <Figure label="Visitors and returns" help={NOT_MEASURABLE_HELP}><span className="text-label-14 text-secondary">Not measurable</span></Figure>
+      </dl>
+    )
+  }
   const channels = (Object.entries(summary.returnedVia) as Array<[JourneyEntryClass, number]>).filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1])
   const returnRate = summary.returnRate === null ? null : formatPercent(summary.returnRate, RatioUnits.fraction)
+  const uncounted = summary.keyBasis.ua > 0
+    ? `${plural(summary.keyBasis.ua, 'more visitor')} matched by browser only ${summary.keyBasis.ua === 1 ? 'is' : 'are'} not counted: one browser version can be many people.`
+    : undefined
   return (
     <dl className="flex flex-wrap items-start gap-x-12 gap-y-4">
-      <Figure label="AI-referred visitors">{summary.aiVisitors.toLocaleString()}</Figure>
+      {visits}
+      <Figure label="AI-referred visitors" help={uncounted}>{summary.aiVisitors.toLocaleString()}</Figure>
       <Figure label="Came back" help={returnRate ? `${returnRate} came back in a later visit.` : undefined}>
         {summary.returningVisitors.toLocaleString()} <span className="text-label-14 text-secondary">of {summary.aiVisitors.toLocaleString()}</span>
         {returnRate && <span className="sr-only">, a {returnRate} return rate</span>}
@@ -296,28 +320,30 @@ function ReturnSummary({ visitor }: { visitor: JourneysResponse['visitors'][numb
   )
 }
 
-function VisitorTable({ projectName, data, engines, engine, returned, openKey, onToggle, onFilter, onPage }: {
+function VisitorTable({ projectName, data, engines, engine, returned, matching, openKey, onToggle, onFilter, onPage }: {
   projectName: string
   data: JourneysResponse
   engines: string[]
   engine: string
   returned: string
+  matching: string
   openKey: string | null
   onToggle: (key: string | null) => void
   onFilter: (patch: Partial<JourneysSearch>) => void
   onPage: (offset: number) => void
 }) {
-  const filtered = Boolean(engine || returned)
+  const filtered = Boolean(engine || returned || matching)
+  const groups = matching === JourneyKeyBases.ua
   const first = data.totalVisitors === 0 ? 0 : data.offset + 1
   const last = data.offset + data.visitors.length
   const openOffPage = openKey !== null && !data.visitors.some(visitor => visitor.visitorKey === openKey)
   return (
     <section aria-label="AI-referred visitors" className="min-w-0 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p role="status" className="text-label-13 text-secondary">{first.toLocaleString()} to {last.toLocaleString()} of {plural(data.totalVisitors, 'visitor')}</p>
+        <p role="status" className="text-label-13 text-secondary">{first.toLocaleString()} to {last.toLocaleString()} of {plural(data.totalVisitors, groups ? 'browser group' : 'visitor')}</p>
         <details className="text-label-14" open={filtered || undefined}>
           <summary className={`inline-flex cursor-pointer list-none items-center gap-1.5 rounded-md border border-base px-2.5 py-1 text-secondary hover:text-heading ${FOCUS_RING} [&::-webkit-details-marker]:hidden`}>
-            <Filter className="size-3" aria-hidden="true" />Filter{filtered && <span className="text-heading">{[engine, returned === 'true' ? 'Came back' : returned === 'false' ? 'No return yet' : ''].filter(Boolean).join(' · ')}</span>}
+            <Filter className="size-3" aria-hidden="true" />Filter{filtered && <span className="text-heading">{[engine, returned === 'true' ? 'Came back' : returned === 'false' ? 'No return yet' : '', groups ? 'Browser groups' : ''].filter(Boolean).join(' · ')}</span>}
           </summary>
           <div className="mt-2 flex flex-wrap items-end gap-3">
             <label className="grid gap-1 text-label-13 text-secondary">
@@ -334,10 +360,17 @@ function VisitorTable({ projectName, data, engines, engine, returned, openKey, o
                 <option value="">All visitors</option><option value="true">Came back</option><option value="false">No return yet</option>
               </select>
             </label>
-            {filtered && <Button size="sm" variant="outline" onClick={() => onFilter({ journeyEngine: undefined, journeyReturned: undefined })}>Clear filters</Button>}
+            <label className="grid gap-1 text-label-13 text-secondary">
+              Matched by
+              <select className={SELECT_CLASS} value={matching} onChange={event => onFilter({ journeyMatching: event.target.value || undefined })}>
+                <option value="">Network and browser</option><option value={JourneyKeyBases.ua}>Browser only (groups)</option>
+              </select>
+            </label>
+            {filtered && <Button size="sm" variant="outline" onClick={() => onFilter({ journeyEngine: undefined, journeyReturned: undefined, journeyMatching: undefined })}>Clear filters</Button>}
           </div>
         </details>
       </div>
+      {groups && <p className="flex items-center gap-2 text-label-14 text-heading"><AlertTriangle className="size-3.5 shrink-0 text-caution" aria-hidden="true" />{BROWSER_GROUP_NOTE}</p>}
       {openKey && openOffPage && (
         <div className="rounded-md border border-default bg-surface-subtle px-4 py-4 sm:px-8">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -563,7 +596,7 @@ function SummaryBreakdown({ summary }: { summary: JourneySummaryResponse }) {
           <tbody className="divide-y divide-default">{summary.byEngine.map(item => <tr key={item.engine}><td className="py-1.5 text-heading">{item.engine}</td><td className="py-1.5 text-right tabular-nums text-heading">{item.visitors.toLocaleString()}</td><td className="py-1.5 text-right tabular-nums text-heading">{item.returningVisitors.toLocaleString()}</td></tr>)}</tbody>
         </table>
       )}
-      <p>Matching: {plural(summary.keyBasis.ipUa, 'visitor')} by network and browser, {plural(summary.keyBasis.ua, 'visitor')} by browser only.</p>
+      <p>Matching: {plural(summary.keyBasis.ipUa, 'visitor')} by network and browser, {plural(summary.keyBasis.ua, 'visitor')} by browser only. Visitor figures count only the first: one browser version can be many people.</p>
     </div>
   )
 }

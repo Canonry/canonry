@@ -17888,13 +17888,13 @@ export type JourneySummaryResponse = {
     windowStart: string;
     windowEnd: string;
     lookbackDays: 30;
-    aiVisitors: number;
+    aiVisitors: number | null;
     aiVisits: number;
-    returningVisitors: number;
+    returningVisitors: number | null;
     returnRate: number | null;
     returnedVia: {
         [key: string]: number;
-    };
+    } | null;
     medianDaysToReturn: number | null;
     byEngine: Array<{
         engine: string;

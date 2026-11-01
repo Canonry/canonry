@@ -234,22 +234,24 @@ describe('AI visitor journeys', () => {
   })
 
   describe('routes', () => {
-    function seed() {
+    /** With `ips`, the source reports addresses, so visitors are matched by IP and browser. */
+    function seed(ips?: { mac: string; iphone: string }) {
       // Mac: ChatGPT, came back from Google two days later.
+      const mac = ips ? { remoteIp: ips.mac } : {}
       persist([
-        event('m1', '2026-10-18T10:00:00Z', chatgpt),
-        event('m2', '2026-10-18T10:02:00Z', { path: '/rooms', referer: 'https://example.com/' }),
-        event('m3', '2026-10-18T10:03:00Z', { path: '/api/availability', method: 'POST', referer: 'https://example.com/rooms' }),
-        event('m4', '2026-10-20T09:00:00Z', { path: '/book', referer: 'https://www.google.com/' }),
+        event('m1', '2026-10-18T10:00:00Z', { ...chatgpt, ...mac }),
+        event('m2', '2026-10-18T10:02:00Z', { path: '/rooms', referer: 'https://example.com/', ...mac }),
+        event('m3', '2026-10-18T10:03:00Z', { path: '/api/availability', method: 'POST', referer: 'https://example.com/rooms', ...mac }),
+        event('m4', '2026-10-20T09:00:00Z', { path: '/book', referer: 'https://www.google.com/', ...mac }),
       ])
       // iPhone: Perplexity, never came back.
-      persist([event('i1', '2026-10-21T08:00:00Z', { ...perplexity, userAgent: IPHONE })])
+      persist([event('i1', '2026-10-21T08:00:00Z', { ...perplexity, userAgent: IPHONE, ...(ips ? { remoteIp: ips.iphone } : {}) })])
       // Another project's visitor stays out.
       persist([event('o1', '2026-10-21T08:00:00Z', chatgpt)], { projectId: 'other', sourceId: 'foreign' })
     }
 
     it('summarizes AI visitors and how they came back', async () => {
-      seed()
+      seed({ mac: '198.51.100.7', iphone: '198.51.100.8' })
       const res = await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/summary?until=${NOW}` })
       expect(res.statusCode).toBe(200)
       expect(res.json()).toEqual({
@@ -265,9 +267,27 @@ describe('AI visitor journeys', () => {
         // 47 hours, to 0.0001 day.
         medianDaysToReturn: 1.9583,
         byEngine: [{ engine: 'ChatGPT', visitors: 1, returningVisitors: 1 }, { engine: 'Perplexity', visitors: 1, returningVisitors: 0 }],
-        keyBasis: { ipUa: 0, ua: 2 },
+        keyBasis: { ipUa: 2, ua: 0 },
         partialSources: [],
       })
+    })
+
+    it('leaves browser-only visitors out of visitor figures, and reads not measurable when there are only those', async () => {
+      // No address: each key is a browser version, which can be many people.
+      seed()
+      const summary = async () => (await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/summary?until=${NOW}` })).json()
+      expect(await summary()).toMatchObject({
+        aiVisitors: null, aiVisits: 2, returningVisitors: null, returnRate: null, returnedVia: null, medianDaysToReturn: null, byEngine: [], keyBasis: { ipUa: 0, ua: 2 },
+      })
+      persist([event('x1', '2026-10-22T08:00:00Z', { ...chatgpt, userAgent: IPHONE, remoteIp: '198.51.100.9' })])
+      expect(await summary()).toMatchObject({
+        aiVisitors: 1, aiVisits: 3, returningVisitors: 0, returnRate: 0, medianDaysToReturn: null,
+        byEngine: [{ engine: 'ChatGPT', visitors: 1, returningVisitors: 0 }], keyBasis: { ipUa: 1, ua: 2 },
+      })
+      const list = async (keyBasis: string) => (await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys?until=${NOW}&keyBasis=${keyBasis}` })).json()
+      expect(await list('ip-ua')).toMatchObject({ totalVisitors: 1, visitors: [{ keyBasis: 'ip-ua' }] })
+      expect(await list('ua')).toMatchObject({ totalVisitors: 2, visitors: [{ keyBasis: 'ua' }, { keyBasis: 'ua' }] })
+      expect((await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys?until=${NOW}&keyBasis=ip` })).statusCode).toBe(400)
     })
 
     it('names Cloudflare sources whose logs miss later visits', async () => {

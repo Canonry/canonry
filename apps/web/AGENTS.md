@@ -51,9 +51,15 @@ agent period (`agentHours`); only the active view reads journey data.
 and render server values without calculating metrics in the browser.
 
 Visitor summary dates select first-AI-arrival cohorts; return behavior includes
-their later visits. The summary is a number strip (visitors, came back, median
-time to return in `formatDayDuration` words, return visits by channel) with
-one-line tooltips. Engine and came-back filters affect the visitor list only.
+their later visits. The summary is a number strip (AI-referred visits, visitors,
+came back, median time to return in `formatDayDuration` words, return visits by
+channel) with one-line tooltips. Visitor figures count network-and-browser
+keys only; when the API returns them null (browser-only keys alone), the strip
+shows AI-referred visits and one "Visitors and returns: Not measurable" figure,
+and the empty list offers browser groups. Engine, came-back and matching
+(`journeyMatching`) filters affect the visitor list only; the list asks for
+network-and-browser keys unless browser groups are chosen, which carry a note
+that a row is everyone on one browser version.
 The list is one full-width table: first AI visit, landing page, came back
 through, visits, last seen. Landing pages read `pathWithoutQuery`, with the
 recorded path in `title`; back-to-back return visits through one channel read

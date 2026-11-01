@@ -65,19 +65,26 @@ describe('journeys CLI commands', () => {
 
   const window = ['--since', '2026-10-01', '--until', '2026-10-24']
 
-  it('summary JSON matches the API and text shows return rate and the user-agent caveat', async () => {
+  it('summary JSON matches the API; text says visitors are not measurable with user-agent keys alone, and counts IP-matched ones', async () => {
     const expected = await client.journeysSummary('test-proj', { since: '2026-10-01', until: '2026-10-24' })
     const json = await invokeCli(['journeys', 'summary', 'test-proj', ...window, '--format', 'json'])
     expect(json.exitCode, json.stderr).toBeUndefined()
     expect(parseJsonOutput(json.stdout)).toEqual(expected)
-    expect(expected).toMatchObject({ aiVisitors: 1, returningVisitors: 1, returnedVia: { search: 1 } })
+    expect(expected).toMatchObject({ aiVisitors: null, aiVisits: 1, returningVisitors: null, returnedVia: null, keyBasis: { ipUa: 0, ua: 1 } })
+    const unmeasured = await invokeCli(['journeys', 'summary', 'test-proj', ...window])
+    expect(unmeasured.stdout).toContain('AI visitors: not measurable (all 1 are matched by user agent only)')
+    expect(unmeasured.stdout).toContain('Came back later: not measurable')
+    expect(unmeasured.stdout).toContain('user agent only')
+    db.update(journeyVisitors).set({ keyBasis: 'ip-ua' }).run()
     const text = await invokeCli(['journeys', 'summary', 'test-proj', ...window])
+    expect(text.stdout).toContain('AI visitors: 1 (matched by IP and user agent)')
     expect(text.stdout).toContain('Came back later: 1 (100%)')
     expect(text.stdout).toContain('Later visits by entry: search 1')
-    expect(text.stdout).toContain('user agent only')
   })
 
-  it('list prints the short device label and streams JSONL', async () => {
+  it('list prints the short device label, filters by matching and streams JSONL', async () => {
+    expect(parseJsonOutput((await invokeCli(['journeys', 'list', 'test-proj', ...window, '--key-basis', 'ip-ua', '--format', 'json'])).stdout)).toMatchObject({ totalVisitors: 0 })
+    expect(parseJsonOutput((await invokeCli(['journeys', 'list', 'test-proj', ...window, '--key-basis', 'ua', '--format', 'json'])).stdout)).toMatchObject({ totalVisitors: 1 })
     const text = await invokeCli(['journeys', 'list', 'test-proj', ...window])
     expect(text.exitCode, text.stderr).toBeUndefined()
     expect(text.stdout).toContain('Mac · Chrome 155 (UA only)')

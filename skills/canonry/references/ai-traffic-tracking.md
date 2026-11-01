@@ -71,8 +71,10 @@ through these in order and say which one applies.
    - The WordPress logger runs inside WordPress, so it cannot see page views a
      cache serves before WordPress runs.
    - Vercel logs carry no IP, so journey keys use the user agent only
-     (`keyBasis`); people with the same device and browser version merge,
-     which undercounts people and overstates return rates.
+     (`keyBasis`), and one key can be everyone on a device and browser
+     version. Visitor and return figures leave those keys out; with only
+     those, `aiVisitors` and the return figures are null: not measurable,
+     never zero. `aiVisits` still counts every AI-referred visit.
    - A hosted checkout or booking engine on another domain is outside the
      site's server logs.
 7. **Is a Queue backlog hiding recent traffic?** For Cloudflare Queue pull,
@@ -153,8 +155,9 @@ Do not infer clicks, a user's prompt, business outcomes or off-site browsing.
 
 **"Do AI visitors come back?"**
 `cnry journeys summary <p>`: `returnRate`, `returnedVia` and
-`medianDaysToReturn`. Report `keyBasis` and `partialSources` with the numbers;
-a user-agent-only or partial source changes what the rate means.
+`medianDaysToReturn`, counted over visitors matched by IP and user agent.
+Report `keyBasis` and `partialSources` with the numbers. Null visitor figures
+mean only user-agent matches were seen: say "not measurable", never zero.
 
 ## Reporting language
 

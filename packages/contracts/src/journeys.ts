@@ -227,6 +227,8 @@ export const journeysQuerySchema = z.object({
   engine: z.string().min(1).optional(),
   /** Only visitors who came back after their first AI visit. */
   returned: z.enum(['true', 'false']).optional(),
+  /** Only visitors matched this way: `ip-ua` (IP and browser) or `ua` (browser only, where one key can be many people). */
+  keyBasis: journeyKeyBasisSchema.optional(),
   limit: z.number().int().min(1).max(200).optional(),
   offset: z.number().int().min(0).optional(),
 })
@@ -360,19 +362,26 @@ export const journeySummaryResponseSchema = z.object({
   windowStart: z.string(),
   windowEnd: z.string(),
   lookbackDays: z.literal(JOURNEY_LOOKBACK_DAYS),
-  /** Visitors whose first AI visit started in the window. */
-  aiVisitors: z.number().int(),
-  /** AI-referred visits that started in the window. */
+  /**
+   * Visitors matched by IP and browser whose first AI visit started in the
+   * window. Visitors matched by browser only (`keyBasis.ua`) are not counted:
+   * one such key can be many people. Null when every visitor in the window is
+   * matched by browser only, so visitors are not measurable here.
+   */
+  aiVisitors: z.number().int().nullable(),
+  /** AI-referred visits that started in the window, however their visitor was matched. */
   aiVisits: z.number().int(),
-  /** Of aiVisitors, those who came back in a later visit. */
-  returningVisitors: z.number().int(),
-  /** returningVisitors / aiVisitors; null with no AI visitors. */
+  /** Of aiVisitors, those who came back in a later visit; null with aiVisitors. */
+  returningVisitors: z.number().int().nullable(),
+  /** returningVisitors / aiVisitors; null with no counted visitors. */
   returnRate: fraction().nullable(),
-  /** Later visits of those visitors, by how they came back. */
-  returnedVia: z.record(journeyEntryClassSchema, z.number().int()),
+  /** Later visits of the counted visitors, by how they came back; null with aiVisitors. */
+  returnedVia: z.record(journeyEntryClassSchema, z.number().int()).nullable(),
   /** Median days from a visitor's first AI visit to their first later visit, to 0.0001 day; null with none. */
   medianDaysToReturn: z.number().nullable(),
+  /** The counted visitors by first AI engine. */
   byEngine: z.array(z.object({ engine: z.string(), visitors: z.number().int(), returningVisitors: z.number().int() })),
+  /** Visitors whose first AI visit started in the window, by how they were matched; `ua` ones are not in the visitor figures. */
   keyBasis: z.object({ ipUa: z.number().int(), ua: z.number().int() }),
   partialSources: journeyPartialSourcesSchema,
 })

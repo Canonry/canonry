@@ -3,7 +3,7 @@ import { getString, parseIntegerOption, requirePositional, requireProject, strin
 import { usageError } from '../cli-error.js'
 
 const SUMMARY_USAGE = 'canonry journeys summary <project> [--since <ISO>] [--until <ISO>] [--format json]'
-const LIST_USAGE = 'canonry journeys list <project> [--since <ISO>] [--until <ISO>] [--engine <name>] [--returned true|false] [--limit 50] [--offset 0] [--format json|jsonl]'
+const LIST_USAGE = 'canonry journeys list <project> [--since <ISO>] [--until <ISO>] [--engine <name>] [--returned true|false] [--key-basis ip-ua|ua] [--limit 50] [--offset 0] [--format json|jsonl]'
 const SHOW_USAGE = 'canonry journeys show <project> <visitor-key> [--events all|pages] [--limit 100] [--offset 0] [--format json]'
 
 function parseReturned(input: CliCommandInput): boolean | undefined {
@@ -33,7 +33,7 @@ export const JOURNEYS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['journeys', 'list'],
     usage: LIST_USAGE,
     help: 'Stored AI visitors, newest first AI visit first, with their visits. No provider calls.',
-    options: { since: stringOption(), until: stringOption(), engine: stringOption(), returned: stringOption(), limit: stringOption(), offset: stringOption() },
+    options: { since: stringOption(), until: stringOption(), engine: stringOption(), returned: stringOption(), 'key-basis': stringOption(), limit: stringOption(), offset: stringOption() },
     run: async input => {
       const { journeysList } = await import('../commands/journeys.js')
       const project = requireProject(input, 'journeys.list', LIST_USAGE)
@@ -43,6 +43,7 @@ export const JOURNEYS_CLI_COMMANDS: readonly CliCommandSpec[] = [
         until: getString(input.values, 'until'),
         engine: getString(input.values, 'engine'),
         returned: parseReturned(input),
+        keyBasis: getString(input.values, 'key-basis'),
         limit: integer('limit'),
         offset: integer('offset'),
         format: input.format,

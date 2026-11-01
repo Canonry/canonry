@@ -129,7 +129,9 @@ test('the headline reads the API: visitors, came back with the rate in its toolt
   visitorResponses()
   await mount()
   await screen.findByRole('table', { name: 'AI-referred visitors' })
+  expect(screen.getByText('AI-referred visits').nextElementSibling?.textContent).toBe('41')
   expect(screen.getByText('AI-referred visitors').nextElementSibling?.textContent).toBe('27')
+  expect(screen.getByRole('button', { name: '3 more visitors matched by browser only are not counted: one browser version can be many people.' })).not.toBeNull()
   const cameBack = screen.getByText('Came back', { selector: 'dt' }).nextElementSibling!
   expect(cameBack.textContent).toBe('9 of 27, a 33.3% return rate')
   expect(screen.getByRole('button', { name: '33.3% came back in a later visit.' })).not.toBeNull()
@@ -147,6 +149,26 @@ test('a median return under a day reads in hours', async () => {
   await mount()
   await screen.findByRole('table', { name: 'AI-referred visitors' })
   expect(screen.getByText('Median time to return').nextElementSibling?.textContent).toBe('2 hours')
+})
+
+test('with browser-only visitors alone, visitors and returns are not measurable, and browser groups are one click away', async () => {
+  const notMeasurable = { ...visitorSummary, aiVisitors: null, aiVisits: 38, returningVisitors: null, returnRate: null, returnedVia: null, medianDaysToReturn: null, byEngine: [], keyBasis: { ipUa: 0, ua: 21 } }
+  const reads = visitorResponses({
+    summary: notMeasurable,
+    list: url => url.searchParams.get('keyBasis') === 'ua' ? { ...visitors, totalVisitors: 21 } : { ...visitors, totalVisitors: 0, visitors: [] },
+  })
+  const router = await mount()
+  await screen.findByText("Visitors can't be measured here.")
+  expect(screen.getByText('AI-referred visits').nextElementSibling?.textContent).toBe('38')
+  expect(screen.getByText('Visitors and returns').nextElementSibling?.textContent).toBe('Not measurable')
+  expect(screen.queryByText('AI-referred visitors', { selector: 'dt' })).toBeNull()
+  expect(screen.queryByText('Came back', { selector: 'dt' })).toBeNull()
+  expect(lastRead(reads, '/journeys')?.searchParams.get('keyBasis')).toBe('ip-ua')
+  fireEvent.click(screen.getByRole('button', { name: 'Show browser groups' }))
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ journeyMatching: 'ua' }))
+  await screen.findByText("Each row is everyone on one browser version, so its visits are not one person's.")
+  expect(lastRead(reads, '/journeys')?.searchParams.get('keyBasis')).toBe('ua')
+  expect(screen.getByText('1 to 1 of 21 browser groups')).not.toBeNull()
 })
 
 test('a median return under an hour reads in minutes', async () => {
@@ -292,7 +314,7 @@ test('an open visitor discloses matching, capped days, identity and a missing la
   expect(screen.getByText('visitor-one')).not.toBeNull()
   fireEvent.click(screen.getByText('About this data'))
   expect(within(screen.getByRole('table', { name: 'Visitors by first AI engine' })).getByRole('row', { name: 'ChatGPT 20 7' })).not.toBeNull()
-  expect(screen.getByText('Matching: 24 visitors by network and browser, 3 visitors by browser only.')).not.toBeNull()
+  expect(screen.getByText('Matching: 24 visitors by network and browser, 3 visitors by browser only. Visitor figures count only the first: one browser version can be many people.')).not.toBeNull()
   expect(screen.getByText('41 AI-referred visits started in this period, including visits from earlier visitors.')).not.toBeNull()
 })
 
