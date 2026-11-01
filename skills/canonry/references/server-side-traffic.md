@@ -947,10 +947,13 @@ usable value, receipts keep Cloudflare's 14-day maximum plus the margin.
 Each Queue sync drains in batches of up to 100 messages for as long as
 Cloudflare reports a backlog, up to a 4-minute time limit per sync
 (`CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS`, 30 seconds to 15 minutes) and a
-300-pull safety cap. Cloudflare can return a partial or briefly empty batch
-while a backlog waits, so a sync stops only when Cloudflare reports no backlog,
-two pulls in a row come back empty, or the limit is reached. If a pull fails
-after earlier batches were saved, the run ends `partial` and keeps them.
+300-pull safety cap. Cloudflare can return a partial or empty batch while a
+backlog waits (on a busy Queue, about 3 pulls in 10 come back empty). While 100
+or more messages wait, the sync waits after each empty pull, 0.5, 1, 2, 4 and
+then 8 seconds, and pulls again. It stops when Cloudflare reports no backlog,
+when every wait came back empty, when fewer than 100 messages wait and two
+pulls in a row came back empty, or at the limit. If a pull fails after earlier
+batches were saved, the run ends `partial` and keeps them.
 
 Each sync run records what it did and why it stopped in `syncSummary`: pulls,
 empty pulls, messages pulled and acknowledged, redelivered (duplicate) events,
@@ -964,8 +967,9 @@ the drain) and warns above that, with the cause taken from the last stop
 reason. After `deadline` or `batch-cap` the drain hit its limit: shorten the
 `traffic-sync` interval or raise the time limit, or messages will pass the
 Queue's retention and be dropped. After `empty-pulls` or `unleased-only`
-Cloudflare still counted messages it would not return (leased or not yet
-visible); later syncs pull them, and raising the time limit does not help.
+Cloudflare still counted messages it would not return, even after the waits
+(leased or not yet visible); later syncs pull them, and raising the time limit
+does not help.
 
 ## Syncing data
 
