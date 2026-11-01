@@ -2819,6 +2819,16 @@ export const unrecognizedAgentNotifyState = sqliteTable('unrecognized_agent_noti
   primaryKey({ columns: [table.projectId, table.agentName] }),
 ])
 
+// The traffic classification rules stored traffic was last reclassified
+// under, as a fingerprint. The engine compares it at startup and reclassifies
+// stored unrecognized and unknown traffic once per change. One row: 'default'.
+export const trafficReclassificationState = sqliteTable('traffic_reclassification_state', {
+  id: text('id').primaryKey(),
+  fingerprint: text('fingerprint').notNull(),
+  completedAt: text('completed_at').notNull(),
+  resultJson: text('result_json', { mode: 'json' }).$type<Record<string, unknown>>(),
+})
+
 export const aiReferralEventsHourly = sqliteTable('ai_referral_events_hourly', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),

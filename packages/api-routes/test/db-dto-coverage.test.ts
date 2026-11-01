@@ -1098,6 +1098,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Hourly rollup of unrecognized bots, summed by name into TrafficUnrecognizedAgentsResponse, not directly mapped to a DTO.',
   },
+  trafficReclassificationState: {
+    kind: 'internal-only',
+    reason: 'The classification rules stored traffic was last reclassified under; engine bookkeeping, never returned.',
+  },
   unrecognizedAgentNotifyState: {
     kind: 'internal-only',
     reason: 'Which unrecognized agent names already had a traffic.agent.discovered decision; notifier bookkeeping, never returned.',

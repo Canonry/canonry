@@ -277,6 +277,7 @@ import { SCHEDULE_SPREAD_MS, Scheduler, ensureDefaultHealthSchedule } from "./sc
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
 import { startReviewDeliveryLoop } from "./review-webhook-delivery.js";
 import { startUnrecognizedAgentAlertLoop } from "./unrecognized-agent-alerts.js";
+import { startTrafficReclassification } from "./traffic-reclassify.js";
 import { startProviderBatchPoller } from "./provider-batch-poller.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
@@ -1998,6 +1999,7 @@ export async function createServer(opts: {
   let stopSiteLiveness: (() => void) | null = null;
   let stopReviewDeliveries: (() => void) | null = null;
   let stopUnrecognizedAgentAlerts: (() => void) | null = null;
+  let stopTrafficReclassification: (() => void) | null = null;
   let stopProviderBatchPoller: (() => void) | null = null;
   let stopInstallState: (() => void) | null = null;
 
@@ -4339,6 +4341,9 @@ export async function createServer(opts: {
       // New bots and agents in traffic alert on their own schedule; every
       // source type writes them, including direct push, which never syncs.
       stopUnrecognizedAgentAlerts = startUnrecognizedAgentAlertLoop(() => notifier.dispatchUnrecognizedAgentAlerts());
+      // When the classification rules changed since the last pass, reclassify
+      // stored unknown traffic once, shortly after startup.
+      stopTrafficReclassification = startTrafficReclassification({ db: opts.db });
       // Resumes every batch a previous process left outstanding, and finalizes
       // the runs boot recovery handed to it.
       stopProviderBatchPoller = startProviderBatchPoller({ db: opts.db, registry, runner: jobRunner });
@@ -4381,6 +4386,8 @@ export async function createServer(opts: {
     stopReviewDeliveries = null;
     stopUnrecognizedAgentAlerts?.();
     stopUnrecognizedAgentAlerts = null;
+    stopTrafficReclassification?.();
+    stopTrafficReclassification = null;
     stopProviderBatchPoller?.();
     stopProviderBatchPoller = null;
     stopInstallState?.();

@@ -5,6 +5,7 @@ import {
   sumInfraHits,
   emptyCrawlerSegments,
   TrafficPathClasses,
+  UNRECORDED_TRAFFIC_PATH,
 } from '../src/traffic-path.js'
 
 describe('classifyTrafficPath', () => {
@@ -95,6 +96,10 @@ describe('classifyTrafficPath', () => {
     expect(classifyTrafficPath('/notes.txt')).toBe('other')
     expect(classifyTrafficPath('/feed.rss')).toBe('other')
     expect(classifyTrafficPath('/report.xlsx')).toBe('other')
+  })
+
+  it('counts hits whose page was not recorded as other, not content', () => {
+    expect(classifyTrafficPath(UNRECORDED_TRAFFIC_PATH)).toBe('other')
   })
 
   it('routes WordPress infrastructure endpoints to other, not content', () => {

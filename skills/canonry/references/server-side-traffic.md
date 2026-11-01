@@ -140,6 +140,8 @@ Google-CloudVertexBot
 Bytespider
 Applebot
 meta-externalagent
+meta-webindexer
+meta-externalfetcher
 CCBot
 cohere-ai
 Diffbot
@@ -152,6 +154,7 @@ xAI-Bot
 Grok-Bot
 GrokBot
 YouBot
+ExaSearchBot
 DuckAssistBot
 Amazonbot
 Amzn-SearchBot
@@ -1309,7 +1312,7 @@ explicitly with `--kind unknown`. Viewers and embeds cannot read sample rows.
 
 `cnry traffic unrecognized <project>` lists self-identified bots and agents that
 no rule names yet, summed by the name in their user agent (for example
-`meta-externalfetcher` or `example-user`), busiest first, with first and last
+`hatchfeed` or `example-user`), busiest first, with first and last
 seen hours and an example user agent and path. The default window is the last 30
 days. People's browsers, generic HTTP tools (curl, python-requests and the
 like), static files and writes are left out, so the list is agents rather than
@@ -1317,3 +1320,13 @@ scripts. Every source records them; the Cloudflare Worker forwards them from
 version 1.1.0. A name that keeps showing up is a candidate for a classifier rule.
 Agents that drive a normal browser (their user agent is plain Chrome) look like
 people and never appear here.
+
+When a new rule recognizes a name, the engine moves its stored hours into that
+bot's crawler or AI user-fetch counts once, shortly after it starts on the new
+rules. Those hits stay claimed, because stored traffic keeps no IP to verify,
+and their path reads `(path not recorded)`, because each hour kept one count
+per name rather than per page. The same pass relabels unknown samples, renames
+rows the naming now reads differently (Apple's link previews become
+`imessage-link-preview`), and deletes Canonry's own monitoring requests.
+`cnry backfill traffic-classification [--project <name>] [--dry-run]` runs it
+on demand. An IP-list refresh does not re-verify stored hits.

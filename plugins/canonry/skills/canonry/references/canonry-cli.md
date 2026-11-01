@@ -353,6 +353,7 @@ cnry backfill answer-visibility                # recompute citationState (second
 cnry backfill answer-visibility --dry-run      # preview which snapshots would change
 cnry backfill insights <project>               # recompute insights for completed runs
 cnry backfill insights <project> --since 2026-04-01 --dry-run
+cnry backfill traffic-classification --project <name> --dry-run  # stored unknown traffic under today's bot rules
 ```
 
 History filters compose on project reads and `history --all`. `--action` remains
@@ -1961,6 +1962,9 @@ example user agent and path, and its sources. Default window: the last 30 days.
 `--since`/`--until` take inclusive ISO timestamps or `YYYY-MM-DD` dates. Browsers,
 generic HTTP tools (curl, python-requests and the like), static files and writes
 are left out. Stored rows only, no provider call. Viewers and embeds are denied.
+When a new rule recognizes a name, its stored hours move to that bot once the
+engine runs the new rules; `cnry backfill traffic-classification` does the same
+on demand.
 
 ### AI-referred visitor journeys
 

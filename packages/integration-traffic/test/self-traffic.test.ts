@@ -36,6 +36,15 @@ describe('isSelfTraffic', () => {
     expect(isSelfTraffic(event({ userAgent: 'AINYC-AEO-Audit/1.0' }))).toBe(true)
   })
 
+  it('matches Canonry site-liveness checks, publication checks and agency operations', () => {
+    for (const userAgent of ['Canonry site-liveness (+https://canonry.ai)', 'CanonryPublicationVerifier/1.0', 'canonry-agency-ops/1.0']) {
+      expect(isSelfTraffic(event({ userAgent })), userAgent).toBe(true)
+    }
+    // Dropped before naming, so Canonry's own tools are never unrecognized bots.
+    const report = buildTrafficProbeReport([event({ eventId: 'liveness', userAgent: 'Canonry site-liveness (+https://canonry.ai)', path: '/' })])
+    expect(report.unrecognizedAgentEventsHourly).toEqual([])
+  })
+
   it('does not match real visitors, real crawlers, or empty UAs', () => {
     expect(isSelfTraffic(event({ userAgent: 'Mozilla/5.0' }))).toBe(false)
     expect(isSelfTraffic(event({ userAgent: 'Mozilla/5.0 GPTBot/1.2' }))).toBe(false)

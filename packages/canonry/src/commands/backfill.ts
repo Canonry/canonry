@@ -1,10 +1,9 @@
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { addLikelyFakeAgentHits, backfillProjectAnswerMentions, competitorIdentityColumns, createRunCompetitorResolver, readMarketCompetitorNames, refreshSnapshotMentionIdentity } from '@canonry/canonry-api-routes'
+import { backfillProjectAnswerMentions, competitorIdentityColumns, createRunCompetitorResolver, readMarketCompetitorNames, refreshSnapshotMentionIdentity } from '@canonry/canonry-api-routes'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
-import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@canonry/canonry-contracts'
-import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, RawEventSampleEventTypes, rawEventSamples, runs } from '@canonry/canonry-db'
-import { AgentTrustLevels, computeCompetitorOverlap, countsAsMention, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, openRouterRouteModel, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEvidenceKinds, TrafficSourceTypes } from '@canonry/canonry-contracts'
-import { classifyAiUserFetch, classifyCrawler } from '@canonry/canonry-integration-traffic'
+import type { GroundingSource, NormalizedQueryResult, RetrievalContract, RetrievalStatus } from '@canonry/canonry-contracts'
+import { auditLog, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, RawEventSampleEventTypes, rawEventSamples, runs } from '@canonry/canonry-db'
+import { computeCompetitorOverlap, countsAsMention, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, openRouterRouteModel, ProviderNames, RetrievalContracts, RunKinds } from '@canonry/canonry-contracts'
 import { OPENAI_RETRIEVAL_CONTRACT, reparseStoredResult as reparseOpenAIStoredResult } from '@canonry/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@canonry/canonry-provider-claude'
 import { reparseStoredResult as reparseGeminiStoredResult } from '@canonry/canonry-provider-gemini'
@@ -16,6 +15,7 @@ import { resolveStoredApiResponse } from '../stored-answer-anchors.js'
 import type { CliFormat } from '../cli-error.js'
 import { isMachineFormat } from '../cli-error.js'
 import { determineCitationState } from '../citation-utils.js'
+import { reclassifyStoredTraffic, type StoredTrafficReclassification } from '../traffic-reclassify.js'
 
 // The snapshot rescore lives in api-routes so Cloud can run it after an alias
 // write; existing imports from this module keep working.
@@ -1084,42 +1084,28 @@ function stringifyStoredSnapshotEnvelope(
 // ============================================================================
 // Traffic classification backfill
 //
-// `raw_event_samples` stores every observed request that the sync pipeline
-// captures (capped per-sync for storage); each row carries `event_type`
-// from the classifier at insert time. When the classifier's rule list is
-// updated to recognize a new bot (PR #595 added Claude-SearchBot,
-// MistralBot, DeepSeekBot, Applebot, plus Googlebot/bingbot/...etc),
-// **existing rows do not auto-reclassify** — they stay `event_type =
-// 'unknown'` and the hourly rollups under-count those bots forever.
-//
-// This command walks every `event_type='unknown'` sample, re-runs
-// `classifyAiUserFetch` and `classifyCrawler` against it, and for each new
-// match:
-//
-//   1. Updates the sample's stored `event_type` ('ai_user_fetch' or
-//      'crawler') and its classifier details, as live ingest writes them.
-//   2. Bumps the corresponding `ai_user_fetch_events_hourly` or
-//      `crawler_events_hourly` bucket (INSERT-OR-UPDATE on the primary key).
-//
-// AI-referral re-classification is out of scope: the classifier needs
-// the full `referer` / `queryString` / `requestUrl` to evaluate UTM and
-// host-pattern rules, but `raw_event_samples` only stores `referer_host`
-// (the parsed host). Crawler classification works because it only reads
-// `userAgent`, which the sample table preserves fully.
-//
-// Idempotent by filter: after a sample gets reclassified, its
-// `event_type` is no longer 'unknown', so a re-run skips it. Safe to run
-// any number of times.
+// When the classifier's rules learn a new bot, traffic stored before the
+// change stays unknown unless it is reclassified. `reclassifyStoredTraffic`
+// (traffic-reclassify.ts) does that for unknown raw samples and for the
+// hourly rows of unrecognized agents; a server also runs it once on its own
+// after startup whenever the rules change. This command runs it on demand,
+// with an optional project filter and a dry run.
 // ============================================================================
 
 interface TrafficClassificationBackfillResult {
   project: string | null
+  /** Unknown raw samples examined, reclassified, and still unknown. */
   examined: number
   reclassified: number
   unknownBefore: number
   unknownAfter: number
+  /** Reclassified samples added to hourly counts. */
+  samplesCounted: number
+  /** Samples of Canonry's own tools, deleted. */
+  samplesRemoved: number
   dryRun: boolean
   byBot: Record<string, number>
+  unrecognized: StoredTrafficReclassification['unrecognized']
 }
 
 export async function backfillTrafficClassificationCommand(opts?: {
@@ -1150,214 +1136,37 @@ export async function backfillTrafficClassificationCommand(opts?: {
   if (!isJson) {
     const mode = isDryRun ? ' [DRY RUN — no writes]' : ''
     const scope = projectFilter ? `"${projectFilter}"` : 'all projects'
-    process.stderr.write(`Re-classifying unknown traffic samples for ${scope}${mode}...\n`)
+    process.stderr.write(`Re-classifying stored unknown traffic for ${scope}${mode}...\n`)
   }
 
   const projectIds = scopedProjects.map(p => p.id)
-  const result: TrafficClassificationBackfillResult = {
-    project: projectFilter ?? null,
-    examined: 0,
-    reclassified: 0,
-    unknownBefore: 0,
-    unknownAfter: 0,
-    dryRun: isDryRun,
-    byBot: {},
-  }
-
-  // Count starting unknowns for the report. Computed before the rewrite
-  // so the diff is meaningful even on a re-run with no work to do.
-  const unknownCountRow = db
+  const countUnknown = () => Number(db
     .select({ n: sql<number>`count(*)` })
     .from(rawEventSamples)
     .where(and(
       eq(rawEventSamples.eventType, RawEventSampleEventTypes.unknown),
       inArray(rawEventSamples.projectId, projectIds),
     ))
-    .get()
-  result.unknownBefore = Number(unknownCountRow?.n ?? 0)
+    .get()?.n ?? 0)
+  const unknownBefore = countUnknown()
+  const stored = await reclassifyStoredTraffic(db, { projectIds, dryRun: isDryRun })
+  const byBot = { ...stored.samples.byBot }
+  for (const [bot, hits] of Object.entries(stored.unrecognized.byBot)) byBot[bot] = (byBot[bot] ?? 0) + hits
 
-  const unknownSamples = db
-    .select({
-      id: rawEventSamples.id,
-      projectId: rawEventSamples.projectId,
-      sourceId: rawEventSamples.sourceId,
-      ts: rawEventSamples.ts,
-      userAgent: rawEventSamples.userAgent,
-      pathNormalized: rawEventSamples.pathNormalized,
-      status: rawEventSamples.status,
-    })
-    .from(rawEventSamples)
-    .where(and(
-      eq(rawEventSamples.eventType, RawEventSampleEventTypes.unknown),
-      inArray(rawEventSamples.projectId, projectIds),
-    ))
-    .all()
-
-  result.examined = unknownSamples.length
-
-  if (unknownSamples.length === 0) {
-    result.unknownAfter = result.unknownBefore
-    emitTrafficClassificationReport(result, isJson)
-    return
-  }
-
-  // Walk and reclassify. Batched DB writes per sample so a single failure
-  // doesn't lose the whole batch; the work is per-row so transactions
-  // wouldn't help — INSERT-OR-UPDATE is naturally atomic per-row.
-  const now = new Date().toISOString()
-  for (const snap of unknownSamples) {
-    if (!snap.userAgent) continue
-    // Build the minimal NormalizedTrafficRequest that classifyCrawler
-    // reads. The classifier ignores most fields for crawler detection
-    // (it only inspects userAgent) so the placeholders are safe.
-    const probe: NormalizedTrafficRequest = {
-      sourceType: TrafficSourceTypes['cloud-run'],
-      evidenceKind: TrafficEvidenceKinds['raw-request'],
-      confidence: TrafficEventConfidences.observed,
-      eventId: snap.id,
-      observedAt: snap.ts,
-      method: 'GET',
-      requestUrl: `https://placeholder${snap.pathNormalized}`,
-      host: 'placeholder',
-      path: snap.pathNormalized,
-      queryString: null,
-      status: snap.status ?? 200,
-      userAgent: snap.userAgent,
-      remoteIp: null,
-      referer: null,
-      latencyMs: null,
-      requestSizeBytes: null,
-      responseSizeBytes: null,
-      providerResource: { type: 'cloud_run_revision', labels: {} },
-      providerLabels: {},
-    }
-    // Per-user-fetch UAs (ChatGPT-User, Perplexity-User, MistralAI-User) are
-    // disjoint from bulk-crawler UAs by rule purpose. Try the user-fetch
-    // matcher first so a ChatGPT-User UA isn't dropped just because
-    // classifyCrawler skips `purpose: 'user-agent'` rules.
-    const userFetch = classifyAiUserFetch(probe)
-    const classified = userFetch ?? classifyCrawler(probe)
-    if (!classified) continue
-
-    result.reclassified++
-    result.byBot[classified.botId] = (result.byBot[classified.botId] ?? 0) + 1
-
-    if (isDryRun) continue
-
-    // Bump the hourly rollup bucket. Snap ts → top of hour for the
-    // bucket key (matches what the live sync writes). User-fetch and
-    // crawler hits go to disjoint tables.
-    const tsHour = new Date(snap.ts)
-    tsHour.setUTCMinutes(0, 0, 0)
-    const tsHourIso = tsHour.toISOString()
-    const status = snap.status ?? 200
-    db.transaction((tx) => {
-      // Raw samples retain no address at all — every writer stores `ipHash:
-      // null` and there has never been a source-IP column — so this replay can
-      // reclassify the UA but cannot reproduce an IP-range verification
-      // decision. Update the sample and aggregate atomically, and
-      // leave the added hit without a provenance sidecar so reads report it as
-      // unattributed rather than claiming that a manifest checked this request.
-      // Store the same type and classifier details live ingest writes, so the
-      // sample reads back under its new kind. No manifest checked this replay.
-      tx.update(rawEventSamples)
-        .set({
-          eventType: userFetch ? RawEventSampleEventTypes.aiUserFetch : RawEventSampleEventTypes.crawler,
-          classifierDetailsJson: {
-            crawler: userFetch ? null : { ...classified, verificationManifest: null },
-            aiUserFetch: userFetch ? { ...userFetch, verificationManifest: null } : null,
-            aiReferral: null,
-          },
-        })
-        .where(eq(rawEventSamples.id, snap.id))
-        .run()
-
-      if (userFetch?.trust === AgentTrustLevels.likely_fake) {
-        // Same split as live ingest: likely fake agent requests never join AI user fetch hits.
-        addLikelyFakeAgentHits(tx, {
-          projectId: snap.projectId,
-          sourceId: snap.sourceId,
-          buckets: [{ tsHour: tsHourIso, botId: userFetch.botId, operator: userFetch.operator, reason: userFetch.trustReasons[0]!, hits: 1 }],
-          now,
-        })
-      } else if (userFetch) {
-        tx.insert(aiUserFetchEventsHourly).values({
-          projectId: snap.projectId,
-          sourceId: snap.sourceId,
-          tsHour: tsHourIso,
-          botId: userFetch.botId,
-          operator: userFetch.operator,
-          verificationStatus: userFetch.verificationStatus,
-          pathNormalized: snap.pathNormalized,
-          status,
-          hits: 1,
-          sampledUserAgent: snap.userAgent,
-          createdAt: now,
-          updatedAt: now,
-        }).onConflictDoUpdate({
-          target: [
-            aiUserFetchEventsHourly.projectId,
-            aiUserFetchEventsHourly.sourceId,
-            aiUserFetchEventsHourly.tsHour,
-            aiUserFetchEventsHourly.botId,
-            aiUserFetchEventsHourly.verificationStatus,
-            aiUserFetchEventsHourly.pathNormalized,
-            aiUserFetchEventsHourly.status,
-          ],
-          set: {
-            hits: sql`${aiUserFetchEventsHourly.hits} + 1`,
-            updatedAt: now,
-          },
-        }).run()
-      } else {
-        tx.insert(crawlerEventsHourly).values({
-          projectId: snap.projectId,
-          sourceId: snap.sourceId,
-          tsHour: tsHourIso,
-          botId: classified.botId,
-          operator: classified.operator,
-          verificationStatus: classified.verificationStatus,
-          pathNormalized: snap.pathNormalized,
-          status,
-          hits: 1,
-          sampledUserAgent: snap.userAgent,
-          createdAt: now,
-          updatedAt: now,
-        }).onConflictDoUpdate({
-          target: [
-            crawlerEventsHourly.projectId,
-            crawlerEventsHourly.sourceId,
-            crawlerEventsHourly.tsHour,
-            crawlerEventsHourly.botId,
-            crawlerEventsHourly.verificationStatus,
-            crawlerEventsHourly.pathNormalized,
-            crawlerEventsHourly.status,
-          ],
-          set: {
-            hits: sql`${crawlerEventsHourly.hits} + 1`,
-            updatedAt: now,
-          },
-        }).run()
-      }
-    })
-  }
-
-  // Recompute trailing unknown count so the report shows the net effect.
-  if (!isDryRun) {
-    const afterRow = db
-      .select({ n: sql<number>`count(*)` })
-      .from(rawEventSamples)
-      .where(and(
-        eq(rawEventSamples.eventType, RawEventSampleEventTypes.unknown),
-        inArray(rawEventSamples.projectId, projectIds),
-      ))
-      .get()
-    result.unknownAfter = Number(afterRow?.n ?? 0)
-  } else {
-    result.unknownAfter = result.unknownBefore - result.reclassified
-  }
-
-  emitTrafficClassificationReport(result, isJson)
+  emitTrafficClassificationReport({
+    project: projectFilter ?? null,
+    examined: stored.samples.examined,
+    reclassified: stored.samples.reclassified,
+    unknownBefore,
+    unknownAfter: isDryRun
+      ? unknownBefore - stored.samples.reclassified - stored.samples.removed
+      : countUnknown(),
+    samplesCounted: stored.samples.counted,
+    samplesRemoved: stored.samples.removed,
+    dryRun: isDryRun,
+    byBot,
+    unrecognized: stored.unrecognized,
+  }, isJson)
 }
 
 function emitTrafficClassificationReport(
@@ -1374,7 +1183,8 @@ function emitTrafficClassificationReport(
   console.log(`  ${verb}:        ${result.reclassified}`)
   console.log(`  Unknown before:      ${result.unknownBefore}`)
   console.log(`  Unknown after:       ${result.unknownAfter}`)
-  if (result.reclassified > 0) {
+  console.log(`  Unrecognized rows:   ${result.unrecognized.examined} examined, ${result.unrecognized.moved} moved to a bot (${result.unrecognized.movedHits} hits), ${result.unrecognized.renamed} renamed, ${result.unrecognized.removed} removed`)
+  if (Object.keys(result.byBot).length > 0) {
     console.log(`  By bot:`)
     const sorted = Object.entries(result.byBot).sort(([, a], [, b]) => b - a)
     for (const [bot, count] of sorted) {

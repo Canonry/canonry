@@ -22,7 +22,7 @@ export const UNLISTED_AGENT_SKIPPED_EXTENSIONS: readonly string[] = [
 export const GENERIC_HTTP_CLIENTS: readonly string[] = [
   'curl', 'wget', 'python', 'python-requests', 'python-urllib', 'python-httpx', 'aiohttp',
   'httpx', 'go-http-client', 'okhttp', 'java', 'apache-httpclient', 'axios', 'node',
-  'node-fetch', 'undici', 'got', 'libwww-perl', 'guzzlehttp', 'ruby', 'faraday', 'php', 'wordpress',
+  'node-fetch', 'undici', 'got', 'libwww-perl', 'guzzlehttp', 'ruby', 'faraday', 'http.rb', 'php', 'wordpress',
   'dalvik', 'postmanruntime', 'insomnia',
 ]
 
@@ -46,6 +46,30 @@ const HEADLESS_NAME = /\b(headless[a-z]*)\//
 // Old Internet Explorer user agents also say "compatible;"; they are browsers.
 const BROWSER_COMPATIBLE_NAMES: readonly string[] = ['msie']
 const MAX_AGENT_NAME_LENGTH = 64
+// A user agent sent with its header name: "User-Agent: Mozilla/5.0 ...".
+const HEADER_NAME_PREFIX = /^user-agent\s*:\s*/
+// A name is one token, so a URL or a "name:value" pair names nobody.
+const AGENT_NAME = /^[a-z0-9][a-z0-9._-]*$/
+/**
+ * Fixed user agents whose own tokens name someone else. Apple's link previews
+ * (Messages and other Apple apps) send a 2015 Mac Safari plus Facebook's and
+ * Twitter's preview tokens, so sites serve them their share cards.
+ */
+const KNOWN_AGENT_NAMES: ReadonlyArray<{ marker: string, name: string }> = [
+  { marker: 'facebookexternalhit/1.1 facebot twitterbot/1.0', name: 'imessage-link-preview' },
+]
+
+function boundedAgentName(name: string): string | null {
+  const bounded = name.replace(/^[._-]+/, '').slice(0, MAX_AGENT_NAME_LENGTH).replace(/[._-]+$/, '')
+  return AGENT_NAME.test(bounded) ? bounded : null
+}
+
+/**
+ * Bump when `unrecognizedAgentName` names requests differently, so the engine
+ * renames or drops stored unrecognized rows to match (see the canonry
+ * package's traffic reclassification).
+ */
+export const UNRECOGNIZED_AGENT_NAMING_VERSION = 2
 
 /**
  * The lowercased name of a bot or agent, for a request no rule recognizes.
@@ -58,12 +82,18 @@ export function unrecognizedAgentName(request: { method?: string | null, path?: 
   const method = (request.method ?? 'GET').toUpperCase()
   if (method !== 'GET' && method !== 'HEAD') return null
   if (request.path && SKIPPED_PATH.test(request.path.split('?')[0] ?? '')) return null
-  const ua = (request.userAgent ?? '').trim().toLowerCase()
+  const ua = (request.userAgent ?? '').trim().toLowerCase().replace(HEADER_NAME_PREFIX, '')
   if (!ua) return null
+  const known = KNOWN_AGENT_NAMES.find(entry => ua.includes(entry.marker))
+  if (known) return known.name
   const product = ua.split(PRODUCT_NAME_END)[0] ?? ''
   if (!product || GENERIC_HTTP_CLIENTS.includes(product)) return null
-  if (product !== 'mozilla') return product.slice(0, MAX_AGENT_NAME_LENGTH)
+  if (product !== 'mozilla') {
+    // With no version anywhere, a user agent names itself with its whole
+    // phrase ("Chrome Privacy Preserving Prefetch Proxy"), not its first word.
+    return boundedAgentName(ua.includes('/') ? product : ua.replace(/[^a-z0-9._-]+/g, '-'))
+  }
   const name = COMPATIBLE_NAME.exec(ua)?.[1] ?? BOT_LIKE_NAME.exec(ua)?.[1] ?? HEADLESS_NAME.exec(ua)?.[1]
   if (!name || BROWSER_COMPATIBLE_NAMES.includes(name)) return null
-  return name.slice(0, MAX_AGENT_NAME_LENGTH)
+  return boundedAgentName(name)
 }

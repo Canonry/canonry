@@ -150,9 +150,16 @@ const DOWNLOAD_EXTENSIONS = new Set([
 // handful of extensionless conventions.
 const SITEMAP_BASENAME = /^sitemap(?:[-_]index)?$/
 
+/**
+ * The path stored for hits that were counted before Canonry recognized their
+ * bot. Those hours kept a count per bot name, not per page, so a
+ * reclassification cannot say which pages they fetched.
+ */
+export const UNRECORDED_TRAFFIC_PATH = '(path not recorded)'
+
 export function classifyTrafficPath(pathNormalized: string | null | undefined): TrafficPathClass {
   const raw = (pathNormalized ?? '').trim()
-  if (!raw) return TrafficPathClasses.other
+  if (!raw || raw === UNRECORDED_TRAFFIC_PATH) return TrafficPathClasses.other
 
   // Defensive: the normalized pattern already has no query string, but a raw
   // path might. Classification is on the path only.
