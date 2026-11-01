@@ -5028,6 +5028,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
          OR (delegated_user_id IS NULL AND name GLOB 'mcp-session:*')`,
     ],
   },
+  {
+    // The traffic-classification backfill stored reclassified AI user-fetch
+    // samples as the wire kind 'ai-user-fetch' instead of the stored
+    // 'ai_user_fetch', so sample reads never returned them. A no-op once fixed.
+    version: 200,
+    name: 'raw-event-samples-user-fetch-event-type',
+    statements: [
+      `UPDATE raw_event_samples SET event_type = 'ai_user_fetch' WHERE event_type = 'ai-user-fetch'`,
+    ],
+  },
 ]
 
 /**
