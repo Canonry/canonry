@@ -1,12 +1,30 @@
 {
   "_source": "https://www.perplexity.com/perplexity-user.json",
-  "creationTime": "2025-10-17T10:17:00.000000",
+  "creationTime": "2026-10-28T16:48:51.000000",
   "prefixes": [
     {
-      "ipv4Prefix": "18.97.21.0/30"
+      "ipv4Prefix": "18.97.43.80/32"
     },
     {
-      "ipv4Prefix": "18.97.43.80/29"
+      "ipv4Prefix": "18.97.43.81/32"
+    },
+    {
+      "ipv4Prefix": "18.97.43.82/32"
+    },
+    {
+      "ipv4Prefix": "18.97.43.83/32"
+    },
+    {
+      "ipv4Prefix": "18.97.43.84/32"
+    },
+    {
+      "ipv4Prefix": "18.97.43.85/32"
+    },
+    {
+      "ipv4Prefix": "18.97.43.86/32"
+    },
+    {
+      "ipv4Prefix": "18.97.43.87/32"
     },
     {
       "ipv4Prefix": "34.193.163.52/32"
