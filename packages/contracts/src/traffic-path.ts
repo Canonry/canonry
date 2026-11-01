@@ -157,6 +157,11 @@ const SITEMAP_BASENAME = /^sitemap(?:[-_]index)?$/
  */
 export const UNRECORDED_TRAFFIC_PATH = '(path not recorded)'
 
+/** A request path without its query string or fragment: `/?utm_source=x` reads `/`. */
+export function pathWithoutQuery(path: string): string {
+  return path.split(/[?#]/)[0] || '/'
+}
+
 export function classifyTrafficPath(pathNormalized: string | null | undefined): TrafficPathClass {
   const raw = (pathNormalized ?? '').trim()
   if (!raw || raw === UNRECORDED_TRAFFIC_PATH) return TrafficPathClasses.other

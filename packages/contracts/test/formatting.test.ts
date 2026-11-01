@@ -5,6 +5,7 @@ import {
   deltaTone,
   formatCalendarDay,
   formatDate,
+  formatDayDuration,
   formatZonedTimestamp,
   formatIsoDate,
   formatIsoDateInTimeZone,
@@ -752,4 +753,24 @@ test('formatZonedTimestamp keeps the configured timezone, including daylight sav
   expect(formatZonedTimestamp('2026-11-04T05:00:00Z', 'America/New_York')).toBe('Wed, Nov 4, 2026, 12:00 AM EST')
   expect(formatZonedTimestamp('2026-09-23T04:00:00Z', 'invalid')).toBe('Wed, Sep 23, 2026, 4:00 AM UTC')
   expect(formatZonedTimestamp('invalid')).toBeNull()
+})
+
+describe('formatDayDuration', () => {
+  test('says a span in the unit a person would use', () => {
+    expect(formatDayDuration(0)).toBe('1 minute')
+    expect(formatDayDuration(40 / 1_440)).toBe('40 minutes')
+    expect(formatDayDuration(1 / 24)).toBe('1 hour')
+    expect(formatDayDuration(0.1)).toBe('2 hours')
+    expect(formatDayDuration(23.4 / 24)).toBe('23 hours')
+    expect(formatDayDuration(1)).toBe('1 day')
+    expect(formatDayDuration(2.5)).toBe('2.5 days')
+    expect(formatDayDuration(9.96)).toBe('10 days')
+    expect(formatDayDuration(12.4)).toBe('12 days')
+  })
+
+  test('reads a value that is not a span as missing', () => {
+    expect(formatDayDuration(-1)).toBe('—')
+    expect(formatDayDuration(Number.NaN)).toBe('—')
+    expect(formatDayDuration(Number.POSITIVE_INFINITY)).toBe('—')
+  })
 })

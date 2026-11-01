@@ -61,6 +61,20 @@ export function formatDurationSeconds(seconds: number): string {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
 }
 
+/**
+ * A span given in days, in the unit a person would say it: `40 minutes`,
+ * `2 hours`, `2.5 days`, `12 days`. Anything non-finite or negative is `—`.
+ */
+export function formatDayDuration(days: number): string {
+  if (!Number.isFinite(days) || days < 0) return '—'
+  const minutes = Math.round(days * 1_440)
+  if (minutes < 60) return minutes <= 1 ? '1 minute' : `${minutes} minutes`
+  const hours = Math.round(days * 24)
+  if (hours < 24) return hours === 1 ? '1 hour' : `${hours} hours`
+  const shown = days < 10 ? Math.round(days * 10) / 10 : Math.round(days)
+  return shown === 1 ? '1 day' : `${shown} days`
+}
+
 export function formatDate(iso: string): string {
   if (!iso) return '—'
   try {
