@@ -373,7 +373,7 @@ export interface TrafficRoutesOptions {
   cloudflareQueueMaxBatches?: number
   /** Wall-clock budget for one Queue sync's drain (default 4 minutes). */
   cloudflareQueueSyncDeadlineMs?: number
-  /** Waits (ms) before each further pull after consecutive empty pulls; the drain stops after all of them. */
+  /** Waits (ms) after consecutive empty pulls while a full batch or more waits; the drain stops once every wait came back empty. */
   cloudflareQueueEmptyPullBackoffMs?: readonly number[]
   /** Override the canonry ingest URL embedded into generated Worker scripts (for tests). */
   cloudflareTrafficIngestUrl?: string
