@@ -2785,6 +2785,19 @@ export const unrecognizedAgentEventsHourly = sqliteTable('unrecognized_agent_eve
   index('idx_unrecognized_agent_hourly_project_name').on(table.projectId, table.agentName),
 ])
 
+// One row per unrecognized agent name a project has decided on for the
+// `traffic.agent.discovered` alert, so each name alerts at most once.
+// state: sent (a webhook accepted it), skipped (nothing subscribed), or
+// stale (first seen before the alert window).
+export const unrecognizedAgentNotifyState = sqliteTable('unrecognized_agent_notify_state', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  agentName: text('agent_name').notNull(),
+  state: text('state').notNull(),
+  recordedAt: text('recorded_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.agentName] }),
+])
+
 export const aiReferralEventsHourly = sqliteTable('ai_referral_events_hourly', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),

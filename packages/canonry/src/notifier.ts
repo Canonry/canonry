@@ -3,13 +3,14 @@ import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@canonry/canonry-db'
-import type { GbpReviewAlertState, HealthAlertCopy, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload } from '@canonry/canonry-contracts'
+import type { GbpReviewAlertState, HealthAlertCopy, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload, UnrecognizedAgentWebhookPayload } from '@canonry/canonry-contracts'
 import { HEALTH_NO_LONGER_URGENT, businessProfileReviewsCover, isNegativeReviewRating, resolveNegativeReviewMaxStars } from '@canonry/canonry-contracts'
 import type { RunCompletionOrigin } from '@canonry/canonry-contracts'
 import type { AnalysisResult, Insight } from '@canonry/canonry-intelligence'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 import { isWithinAlertWindow } from './gbp-reviews.js'
+import { projectsWithRecentUnrecognizedAgents, recordUnrecognizedAgentDecisions, undecidedUnrecognizedAgents, UnrecognizedAgentNotifyStates } from './unrecognized-agent-alerts.js'
 import { CHECK_RUNTIME_ERROR_SUFFIX, CheckNotificationPolicies, CheckStatuses, compareText, describeError, notificationEventSchema, statusClassOf, type CheckNotificationPolicy, type OutcomeReasonCode, type StatusClass } from '@canonry/canonry-contracts'
 import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
@@ -228,7 +229,7 @@ export const SITE_LIVENESS_MIN_PASS_GAP_MS = 4 * 60_000
  */
 export const SITE_LIVENESS_MAX_PASS_GAP_MS = 45 * 60_000
 
-type AnyWebhookPayload = WebhookPayload | InsightWebhookPayload | ReviewWebhookPayload | RatingWebhookPayload
+type AnyWebhookPayload = WebhookPayload | InsightWebhookPayload | ReviewWebhookPayload | RatingWebhookPayload | UnrecognizedAgentWebhookPayload
 
 export class Notifier {
   private db: DatabaseClient
@@ -240,6 +241,8 @@ export class Notifier {
   private allowLoopbackWebhooks: boolean
   /** Projects with a review dispatch in progress; see {@link dispatchReviewAlerts}. */
   private reviewDispatchInFlight = new Set<string>()
+  /** Set while a {@link dispatchUnrecognizedAgentAlerts} pass runs, so passes never overlap. */
+  private unrecognizedAgentDispatchInFlight = false
 
   constructor(db: DatabaseClient, serverUrl: string, opts: { allowLoopbackWebhooks?: boolean } = {}) {
     this.db = db
@@ -1456,6 +1459,57 @@ export class Notifier {
   }
 
   /** True only when the destination accepted the payload. Callers that record "already said" must not count an attempt. */
+  /**
+   * Send `traffic.agent.discovered` for bots and agents no rule recognizes:
+   * one message per project listing the names first seen in the last 7 days
+   * that reached 3 hits. A name is decided once: `sent` when a webhook accepted
+   * it, `skipped` when nothing subscribed, so subscribing later starts from new
+   * names, `stale` when first seen before the window, and `baseline` when first
+   * seen in the project's first 7 days of recorded traffic. When every delivery
+   * fails the names stay undecided and the next pass retries them until they
+   * age out of the window. Returns how many names were sent.
+   */
+  async dispatchUnrecognizedAgentAlerts(now = Date.now()): Promise<number> {
+    if (this.unrecognizedAgentDispatchInFlight) return 0
+    this.unrecognizedAgentDispatchInFlight = true
+    let sentNames = 0
+    try {
+      for (const projectId of projectsWithRecentUnrecognizedAgents(this.db, now)) {
+        const { due, stale, baseline } = undecidedUnrecognizedAgents(this.db, projectId, now)
+        recordUnrecognizedAgentDecisions(this.db, projectId, stale, UnrecognizedAgentNotifyStates.stale, now)
+        recordUnrecognizedAgentDecisions(this.db, projectId, baseline, UnrecognizedAgentNotifyStates.baseline, now)
+        if (due.length === 0) continue
+        const names = due.map(agent => agent.name)
+        const subscribed = this.db.select().from(notifications).where(eq(notifications.projectId, projectId)).all()
+          .filter(n => n.enabled && n.config.url && (n.config.events as string[]).includes('traffic.agent.discovered'))
+        if (subscribed.length === 0) {
+          recordUnrecognizedAgentDecisions(this.db, projectId, names, UnrecognizedAgentNotifyStates.skipped, now)
+          continue
+        }
+        const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
+        if (!project) continue
+        const payload: UnrecognizedAgentWebhookPayload = {
+          source: 'canonry',
+          event: 'traffic.agent.discovered',
+          project: { name: project.name, canonicalDomain: project.canonicalDomain },
+          agents: due,
+          dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
+        }
+        let accepted = false
+        for (const notif of subscribed) {
+          if (await this.sendWebhook(notif.config.url!, payload, notif.id, projectId, notif.webhookSecret ?? null)) accepted = true
+        }
+        if (accepted) {
+          recordUnrecognizedAgentDecisions(this.db, projectId, names, UnrecognizedAgentNotifyStates.sent, now)
+          sentNames += names.length
+        }
+      }
+    } finally {
+      this.unrecognizedAgentDispatchInFlight = false
+    }
+    return sentNames
+  }
+
   private async sendWebhook(url: string, payload: AnyWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<boolean> {
     const elapsed = startOutcomeTimer()
     // A chat webhook IS a webhook whose body has to look a particular way, so

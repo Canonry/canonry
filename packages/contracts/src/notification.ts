@@ -68,6 +68,14 @@ export const notificationEventSchema = z.enum([
    */
   'review.negative',
   'review.rating-dropped',
+  /**
+   * A self-identified bot or agent that no classifier rule recognizes showed up
+   * in the project's server-side traffic: first seen in the last 7 days, with at
+   * least 3 hits. Sent once per name, grouped per pass. Names first seen before
+   * that window or in the project's first 7 days of recorded traffic never
+   * alert, and nothing is held for a webhook added later.
+   */
+  'traffic.agent.discovered',
 ])
 export type NotificationEvent = z.infer<typeof notificationEventSchema>
 
@@ -192,6 +200,23 @@ export interface WebhookPayload {
      * canonry post-#480 when the underlying snapshot carries a location.
      */
     location?: string | null
+  }>
+  dashboardUrl: string
+}
+
+/** New bots and agents in a project's server-side traffic that no classifier rule recognizes. */
+export interface UnrecognizedAgentWebhookPayload {
+  source: 'canonry'
+  event: 'traffic.agent.discovered'
+  project: { name: string; canonicalDomain: string }
+  agents: Array<{
+    /** The name the agent gives in its user agent, lowercased. */
+    name: string
+    hits: number
+    firstSeenAt: string
+    lastSeenAt: string
+    sampleUserAgent: string | null
+    samplePath: string | null
   }>
   dashboardUrl: string
 }
