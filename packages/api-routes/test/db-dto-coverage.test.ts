@@ -1153,6 +1153,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Capture capacity accounting; only capped source/day pairs are exposed in journey coverage.',
   },
+  journeyVisitorAliases: {
+    kind: 'internal-only',
+    reason: 'Ingest state: a visitor key found to be another visitor seen from a new IP (both keyed hashes), so its requests are kept under that visitor; never exposed.',
+  },
+  agentScannerClients: {
+    kind: 'internal-only',
+    reason: 'Ingest state: each client\'s latest scanner probe window, keyed by a hash of its IP, so a burst split across batches is still marked; never exposed.',
+  },
   migrationsTable: {
     kind: 'internal-only',
     reason: 'Internal migration bookkeeping; never exposed.',

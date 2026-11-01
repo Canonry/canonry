@@ -59,6 +59,8 @@ Four tables store the shared output from every adapter:
 | `crawler_events_hourly` | One row per `(project, source, hour, bot, verification, path, status)` — bot crawls rolled up by hour |
 | `ai_user_fetch_events_hourly` | One row per `(project, source, hour, bot, verification, path, status)` — user-initiated AI fetches rolled up by hour, excluding likely fake requests |
 | `ai_user_fetch_likely_fake_hourly` | One row per `(project, source, hour, bot, first trust reason)` — requests that claimed a user-triggered agent but were judged likely fake |
+| `agent_scanner_clients` | One row per `(project, source, client)` — the latest run of scanner probes from one IP (stored as a keyed hash), kept two days so a burst split across batches is still recognized |
+| `journey_visitor_aliases` | One row per `(project, alias key)` — a visitor key found to be another visitor seen from a new IP (same AI-tagged page, same browser, within 5 seconds); requests under the alias key are kept under that visitor. Both are keyed hashes, never an IP |
 | `ai_referral_events_hourly` | One row per `(project, source, hour, product, source_domain, evidence_type, landing_path, status)` — click-through arrivals rolled up by hour |
 | `raw_event_samples` | Bounded forensic samples for spot checks. Source writes plus a startup/daily global sweep enforce 30-day retention; Cloudflare also uses a per-source, per-hour cap |
 
@@ -1227,10 +1229,11 @@ Property attribution. IP/UA grouping is inferred and can combine different tasks
 on shared infrastructure; without an IP the requests stay unlinked. Neither
 grouping nor trust identifies a person or establishes their task.
 
-Every user-triggered agent request gets a trust level when it is classified,
-judged on that request alone. `verified` means the source IP is in the
-operator's published list. Otherwise: `likely_fake` when the path asks for
-credential, version-control or admin files, when an operator that publishes a
+Every user-triggered agent request gets a trust level when it is classified.
+`verified` means the source IP is in the operator's published list. Otherwise:
+`likely_fake` when the path asks for credential, config, version-control or
+admin files, when the same IP asked for one within 10 minutes (`scanner-burst`:
+a scanner posing as several agents), when an operator that publishes a
 full user-agent string (OpenAI, Mistral) sees a different one; an IP missing
 from the published list alone leaves a request `unknown`, because lists lag
 real addresses and some rotate; `likely_real`
@@ -1240,9 +1243,15 @@ evidence. Likely fake requests are never added to AI user fetch hits or stored
 as journey events: hourly totals count them (`totals24h.aiUserFetchLikelyFakeHits`,
 `aiUserFetchLikelyFakeHits` on sync results, `coverage.likelyFakeRequests`),
 and raw samples keep their classification for review. With a Property filter,
-`coverage.likelyFakeRequests` is null: hourly totals carry no page path. Trust
-applies to traffic recorded from the release that added it, and to any window
-a backfill rewrites; other older rollups are unchanged.
+`coverage.likelyFakeRequests` is null: hourly totals carry no page path. When
+the trust rules change, a server checks stored traffic again once after
+startup (`cnry backfill traffic-classification` runs the same pass on demand):
+hourly agent rows for a scanner path move to the likely fake counts, and stored
+agent requests from a probing client (same IP and user agent) are removed when
+the probe itself was stored. Earlier rules already flagged some probes and
+never stored them, so their clients' other stored requests stay. Hourly rows
+keep no IP, so older hours get the burst rule only through stored agent
+requests.
 
 Preserve the
 response's retention, daily-cap and source limitations; missing requests do
@@ -1271,10 +1280,25 @@ every source and needs no site snippet or goal setup. Read it with
 `cnry journeys summary|list|show` or the `canonry_journeys_summary`,
 `canonry_journeys_list` and `canonry_journey_get` MCP tools.
 
+- A background call (an API or JSON request) never starts a visit or counts as
+  arriving from an AI engine. It carries its page's referer and utm tags, so the
+  page that made it is the arrival. Calls seen without their page are not a
+  visitor or an arrival: the page was logged under another key, or not logged
+  at all (served from a cache the logs never see). Journeys stored under the
+  earlier rule are corrected once after startup, or with
+  `cnry backfill traffic-classification`.
 - A visitor key is an HMAC of IP and user agent under the install secret
   `journeys.visitorKeySecret` (generated on first `serve` and saved in
   config.yaml, or `CANONRY_JOURNEY_KEY_SECRET`). No IP is stored. Changing the
   secret starts new keys.
+- A phone can change IP between requests (iCloud Private Relay, mobile
+  networks). A new key whose first request loads the same AI-tagged page as
+  another key, with the same browser, within 5 seconds is that visitor on a new
+  IP: it joins that visitor, and later requests from the new IP follow
+  (`journey_visitor_aliases`). A person who changes IP without reloading a
+  tagged page still counts as a new key, so IP-keyed sources can still
+  overcount people slightly. The once-after-startup correction joins stored
+  visitors the same way.
 - Vercel logs carry no IP, so those visitors are keyed by user agent only.
   Chrome reports the same user agent for every Mac on one version, so a key can
   merge people: such visitors undercount people and can overstate return rates.

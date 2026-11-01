@@ -12,6 +12,8 @@ interface CaptureInput {
   events: readonly NormalizedTrafficRequest[]
   secret: string | undefined
   now: string
+  /** Requests from a probing client (`planScannerBursts`), left out as likely fake. */
+  scannerBurstEventIds?: ReadonlySet<string>
 }
 interface CaptureResult { eventsStored: number }
 const RETENTION_MS = AGENT_JOURNEY_RETENTION_DAYS * 86_400_000
@@ -20,7 +22,7 @@ function persistAgentJourneyBatch(db: CaptureDb, input: CaptureInput): CaptureRe
   if (!input.secret || input.events.length === 0) return { eventsStored: 0 }
   const cutoff = Date.parse(input.now) - RETENTION_MS
   let eventsStored = 0
-  for (const request of extractAgentJourneyRequests(input.events)) {
+  for (const request of extractAgentJourneyRequests(input.events, { scannerBurstEventIds: input.scannerBurstEventIds })) {
     if (Date.parse(request.ts) < cutoff) continue
     // Provider IDs can contain full URLs, including secrets omitted from path.
     const sourceEventId = crypto.createHmac('sha256', input.secret)

@@ -75,6 +75,15 @@ describe('isScannerPath', () => {
     '/static/%252e%252e/etc/passwd', '/../etc/passwd',
     '/wp-login.php', '/xmlrpc.php', '/wp-config.php.bak', '/phpmyadmin/index.php', '/cgi-bin/../../etc/passwd',
     '/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php', '/.ENV?debug=1',
+    // Credential and config files, as scanners claiming AI agents ask for them.
+    '/firebase-credentials.json', '/gcp-service.json', '/service-account.json', '/serviceAccountKey.json',
+    '/client_secret.json', '/secrets.yml', '/config/production.json', '/keys/service-account.json',
+    '/config/gcp-credentials.json', '/ssl/server.key', '/key.pem', '/id_rsa', '/terraform.tfstate', '/backup.sql',
+    '/docker-compose.yml', '/appsettings.Production.json', '/project-firebase-adminsdk-ab12c-0123456789.json',
+    // Hidden files and folders, system paths and debug consoles.
+    '/.netlify/state.json', '/.vscode/sftp.json', '/.bash_history', '/.DS_Store', '/api/proc/self/environ',
+    '/var/run/secrets/kubernetes.io/serviceaccount/token', '/@fs/etc/passwd', '/_profiler/open', '/elmah.axd',
+    '/userfiles', '/userfiles/x',
   ])('flags %s', path => {
     expect(isScannerPath(path)).toBe(true)
   })
@@ -83,6 +92,10 @@ describe('isScannerPath', () => {
     '/', '/pricing', '/products/air-tank', '/products/actuator', '/.well-known/ai-plugin.json',
     '/blog/environment-tips', '/env', '/robots.txt', '/booking/confirmation', '/assets/app.envelope.js',
     '/docs/v1.2/guide', '/search?q=..%2f', '/api/hear-about-us', '/cgi-bin/booking.cgi',
+    // Real pages and the JSON agents fetch from stores, whatever their names say.
+    '/products.json', '/collections/all/products.json', '/products/service-tank-black.json',
+    '/products/top-secret.json', '/products/key.json', '/credentials', '/trade-secrets', '/blog/keeping-secrets',
+    '/config', '/sitemap_index.xml', '/.netlify/functions/contact', '/.netlify/images', '/userfiles/files/menu.pdf',
   ])('keeps %s', path => {
     expect(isScannerPath(path)).toBe(false)
   })
@@ -141,16 +154,21 @@ describe('classifyAiUserFetch trust', () => {
 })
 
 describe('per-request trust', () => {
-  it('judges each request alone, so a probe never changes its client\'s other requests', () => {
+  it('judges each request alone; its client\'s probes mark it through bursts', () => {
     const probe = request({ eventId: 'probe', path: '/.env', userAgent: CLAUDE_UA })
     const sibling = request({ eventId: 'sibling', path: '/', userAgent: CLAUDE_UA })
     expect(classifyAiUserFetch(probe)).toMatchObject({ trust: 'likely_fake', trustReasons: ['scanner-path', 'ip-outside-published-list'] })
     expect(classifyAiUserFetch(sibling)).toMatchObject({ trust: 'unknown', trustReasons: ['ip-outside-published-list'] })
-    // The same request reaches the same verdict alone or in any batch.
-    const alone = extractAgentJourneyRequests([sibling])
-    const batched = extractAgentJourneyRequests([probe, sibling])
-    expect(batched).toEqual(alone)
-    expect(buildTrafficProbeReport([probe, sibling]).totals).toMatchObject({ aiUserFetchHits: 1, aiUserFetchLikelyFakeHits: 1 })
+    // In one batch, the probe's client (same IP) makes the sibling likely fake too.
+    expect(extractAgentJourneyRequests([sibling]).map(row => row.sourceEventId)).toEqual(['sibling'])
+    expect(extractAgentJourneyRequests([probe, sibling])).toEqual([])
+    const report = buildTrafficProbeReport([probe, sibling])
+    expect(report.totals).toMatchObject({ aiUserFetchHits: 0, aiUserFetchLikelyFakeHits: 2 })
+    expect(report.aiUserFetchLikelyFakeHourly.map(bucket => [bucket.reason, bucket.hits])).toEqual([['scanner-burst', 1], ['scanner-path', 1]])
+    expect(report.samples.find(sample => sample.eventId === 'sibling')?.aiUserFetch).toMatchObject({ trust: 'likely_fake', trustReasons: ['scanner-burst', 'ip-outside-published-list'] })
+    // A caller that found bursts across batches passes them in.
+    expect(buildTrafficProbeReport([sibling], { scannerBurstEventIds: new Set(['sibling']) }).totals).toMatchObject({ aiUserFetchHits: 0, aiUserFetchLikelyFakeHits: 1 })
+    expect(extractAgentJourneyRequests([probe, sibling], { scannerBurstEventIds: new Set() }).map(row => row.sourceEventId)).toEqual(['sibling'])
   })
 
   it('keeps a verified client verified on any path and skips self-traffic', () => {

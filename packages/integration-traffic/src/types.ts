@@ -189,4 +189,10 @@ export interface BuildTrafficProbeReportOptions {
   generatedAt?: string
   sampleLimit?: number
   aiReferralSessionWindowMs?: number
+  /**
+   * Agent requests from a client that probed for scanner paths
+   * (`findScannerBursts`), counted as likely fake. Found within the batch
+   * when omitted.
+   */
+  scannerBurstEventIds?: ReadonlySet<string>
 }

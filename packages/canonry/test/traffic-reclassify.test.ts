@@ -2,7 +2,11 @@ import { describe, expect, it, onTestFinished } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { UNRECORDED_TRAFFIC_PATH } from '@canonry/canonry-contracts'
 import {
+  agentJourneyCaptureDays,
+  agentJourneyEvents,
   aiUserFetchEventsHourly,
+  aiUserFetchLikelyFakeHourly,
+  aiUserFetchVerificationManifestsHourly,
   createClient,
   crawlerEventsHourly,
   migrate,
@@ -186,6 +190,92 @@ describe('reclassifyStoredTraffic', () => {
     expect(second.samples).toMatchObject({ examined: 0, reclassified: 0 })
     expect(second.unrecognized).toMatchObject({ examined: 1, moved: 0, renamed: 0, removed: 0 })
     expect(crawlerRows(db)).toEqual(crawlerAfterFirst)
+  })
+})
+
+const CLAUDE_USER = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-User/1.0; +claude-user@anthropic.com)'
+const SCAN_HOUR = '2026-11-01T03:00:00.000Z'
+
+function agentHit(db: Db, row: { botId?: string, operator?: string, verificationStatus?: string, pathNormalized: string, status?: number, hits: number, tsHour?: string }) {
+  db.insert(aiUserFetchEventsHourly).values({
+    projectId: 'project', sourceId: 'source', tsHour: SCAN_HOUR, botId: 'claude-user', operator: 'Anthropic', verificationStatus: 'claimed_unverified',
+    status: 200, sampledUserAgent: CLAUDE_USER, createdAt: CREATED, updatedAt: CREATED, ...row,
+  }).run()
+}
+
+function agentRequest(db: Db, id: string, row: { correlationKey: string, ts: string, path: string, status?: number }) {
+  db.insert(agentJourneyEvents).values({
+    id, projectId: 'project', sourceId: 'source', sourceEventId: `source-${id}`, correlationBasis: 'ip-ua',
+    agentId: 'claude-user', operator: 'Anthropic', product: 'Claude', verificationStatus: 'claimed_unverified', verificationManifest: null,
+    trust: 'unknown', trustReasons: ['ip-outside-published-list'], host: 'harborline.example', method: 'GET', status: 200, latencyMs: null, createdAt: CREATED, ...row,
+  }).run()
+}
+
+const agentRows = (db: Db) => db.select({ tsHour: aiUserFetchEventsHourly.tsHour, verificationStatus: aiUserFetchEventsHourly.verificationStatus, pathNormalized: aiUserFetchEventsHourly.pathNormalized, hits: aiUserFetchEventsHourly.hits })
+  .from(aiUserFetchEventsHourly).all().sort((a, b) => `${a.tsHour}${a.pathNormalized}`.localeCompare(`${b.tsHour}${b.pathNormalized}`))
+const fakeRows = (db: Db) => db.select({ botId: aiUserFetchLikelyFakeHourly.botId, reason: aiUserFetchLikelyFakeHourly.reason, hits: aiUserFetchLikelyFakeHourly.hits })
+  .from(aiUserFetchLikelyFakeHourly).all().sort((a, b) => a.reason.localeCompare(b.reason))
+
+describe('reclassifyStoredTraffic, AI agent traffic', () => {
+  it('moves unverified hourly rows for a page scanners ask for into likely fake, with their provenance', async () => {
+    const db = harness()
+    agentHit(db, { pathNormalized: '/gcp-service.json', status: 302, hits: 3 })
+    db.insert(aiUserFetchVerificationManifestsHourly).values({
+      projectId: 'project', sourceId: 'source', tsHour: SCAN_HOUR, botId: 'claude-user', verificationStatus: 'claimed_unverified',
+      pathNormalized: '/gcp-service.json', status: 302, manifestId: 'manifest', manifestJson: { id: 'manifest', source: 'list', version: '1' }, hits: 3, createdAt: CREATED, updatedAt: CREATED,
+    }).run()
+    // A verified request came through the operator's own IP: a person asked for it.
+    agentHit(db, { botId: 'openai-chatgpt-user', operator: 'OpenAI', verificationStatus: 'verified', pathNormalized: '/.env', status: 404, hits: 1 })
+    agentHit(db, { pathNormalized: '/pricing', hits: 4 })
+
+    const preview = await reclassifyStoredTraffic(db, { now: NOW, dryRun: true })
+    expect(preview.agentHits).toEqual({ examined: 2, moved: 1, movedHits: 3 })
+    expect(agentRows(db)).toHaveLength(3)
+
+    const result = await reclassifyStoredTraffic(db, { now: NOW })
+    expect(result.agentHits).toEqual({ examined: 2, moved: 1, movedHits: 3 })
+    expect(agentRows(db)).toEqual([
+      { tsHour: SCAN_HOUR, verificationStatus: 'verified', pathNormalized: '/.env', hits: 1 },
+      { tsHour: SCAN_HOUR, verificationStatus: 'claimed_unverified', pathNormalized: '/pricing', hits: 4 },
+    ])
+    expect(fakeRows(db)).toEqual([{ botId: 'claude-user', reason: 'scanner-path', hits: 3 }])
+    expect(db.select().from(aiUserFetchVerificationManifestsHourly).all()).toEqual([])
+  })
+
+  it('removes a probing client\'s stored requests within the burst window and moves one hit each', async () => {
+    const db = harness()
+    // One scanner client (stored as IP and user agent) in the Journeys > Agents table.
+    agentRequest(db, 'probe', { correlationKey: 'scanner', ts: '2026-11-01T03:57:53.194Z', path: '/firebase-credentials.json', status: 302 })
+    agentRequest(db, 'redirect', { correlationKey: 'scanner', ts: '2026-11-01T03:57:53.630Z', path: '/404' })
+    agentRequest(db, 'account', { correlationKey: 'scanner', ts: '2026-11-01T03:58:01.385Z', path: '/account' })
+    agentRequest(db, 'much-later', { correlationKey: 'scanner', ts: '2026-11-01T04:20:00.000Z', path: '/pricing' })
+    agentRequest(db, 'other-client', { correlationKey: 'person', ts: '2026-11-01T03:57:55.000Z', path: '/404' })
+    agentHit(db, { pathNormalized: '/firebase-credentials.json', status: 302, hits: 1 })
+    agentHit(db, { pathNormalized: '/:id', hits: 2 })
+    agentHit(db, { pathNormalized: '/account', hits: 1 })
+    agentHit(db, { pathNormalized: '/pricing', hits: 1, tsHour: '2026-11-01T04:00:00.000Z' })
+    db.insert(agentJourneyCaptureDays).values({ projectId: 'project', sourceId: 'source', day: '2026-11-01', storedEvents: 5 }).run()
+
+    const preview = await reclassifyStoredTraffic(db, { now: NOW, dryRun: true })
+    expect(preview.agentRequests).toEqual({ examined: 5, probes: 1, removed: 3 })
+    expect(db.select().from(agentJourneyEvents).all()).toHaveLength(5)
+
+    const result = await reclassifyStoredTraffic(db, { now: NOW })
+    expect(result.agentRequests).toEqual({ examined: 5, probes: 1, removed: 3 })
+    expect(db.select({ id: agentJourneyEvents.id }).from(agentJourneyEvents).all().map(row => row.id).sort()).toEqual(['much-later', 'other-client'])
+    expect(agentRows(db)).toEqual([
+      { tsHour: SCAN_HOUR, verificationStatus: 'claimed_unverified', pathNormalized: '/:id', hits: 1 },
+      { tsHour: '2026-11-01T04:00:00.000Z', verificationStatus: 'claimed_unverified', pathNormalized: '/pricing', hits: 1 },
+    ])
+    expect(fakeRows(db)).toEqual([
+      { botId: 'claude-user', reason: 'scanner-burst', hits: 2 },
+      { botId: 'claude-user', reason: 'scanner-path', hits: 1 },
+    ])
+    expect(db.select({ storedEvents: agentJourneyCaptureDays.storedEvents }).from(agentJourneyCaptureDays).get()).toEqual({ storedEvents: 2 })
+
+    const second = await reclassifyStoredTraffic(db, { now: NOW })
+    expect(second.agentRequests).toEqual({ examined: 2, probes: 0, removed: 0 })
+    expect(second.agentHits).toMatchObject({ moved: 0 })
   })
 })
 

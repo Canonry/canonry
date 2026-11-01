@@ -135,6 +135,17 @@ requests are never stored there. The same migration adds
 first reason. It is separate from `ai_user_fetch_events_hourly` so no reader of
 AI agent hits can include them.
 
+Migration 205 adds `agent_scanner_clients`: each client's latest run of scanner
+probes, keyed by an HMAC of its IP (never the address), so ingest can mark the
+rest of a scanner's burst across batches. Rows cascade with the source/project
+and are dropped two days after their last probe.
+
+Migration 206 adds `journey_visitor_aliases`: a visitor key (a keyed hash of IP
+and user agent) that ingest found to be the same person as another key, because
+the same browser loaded the same AI-tagged page from a new IP within seconds.
+Requests under the alias key are kept under the visitor key. Rows cascade with
+the project, and journey retention drops a row once its visitor is gone.
+
 Traffic delivery adapters use `traffic_event_receipts` for durable idempotency.
 Claim `(source_id, event_id)` in the same transaction as rollup writes and
 acknowledge an upstream buffer only after commit. Set `expires_at` to cover the

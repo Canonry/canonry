@@ -40,6 +40,8 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
 | `src/traffic-samples.ts` | Stored diagnostic sample rows with project/source scope, bounded paging, and viewer/embed restrictions. |
 | `src/agent-journey-capture.ts` / `src/agent-journeys.ts` | Retained user-triggered agent requests and inferred sequences; bounded list/detail reads with independent operator verification and current-plan Property attribution. |
+| `src/agent-scanner-bursts.ts` | Scanner bursts at ingest: `planScannerBursts` marks an IP's other agent requests within 10 minutes of a scanner probe, reading and `saveScannerBursts` writing each client's probe window (`agent_scanner_clients`, keyed by an HMAC of the IP). |
+| `src/journey-corrections.ts` | One-time corrections of stored journeys when the rules change, run by the server's traffic reclassification: `correctBackgroundCallJourneys` (background calls never open a visit or count as an AI arrival) and `mergeSplitJourneyVisitors` (a visitor seen from a second IP joins the first). |
 | `src/journeys.ts` | AI visitor journeys: `recordJourneyBatch` (a savepoint inside every traffic write: pull sync, backfill and push) around `persistJourneyBatch`, `enforceJourneyRetention`, `journeyVisitorKey`, and the stored `/journeys`, `/journeys/summary` and `/journeys/:visitorKey` reads (see "AI visitor journeys"). |
 | `src/traffic-analytics.ts` | Full-window stored crawler, user-fetch and referral aggregates, exposed through `/traffic/analytics`; detail-row caps do not limit totals, operator/path/product breakdowns or history. `period` is read-selection identity, not execution tuning. |
 | `src/referral-assessment.ts` | DB-only project/source burst diagnostic. Raw headlines unchanged; grouped candidate counts and separate adjusted estimate, with GA quotient coverage limits. |
@@ -937,6 +939,14 @@ keys, stores and reads. Rules:
   and never return the secret.
 - Writes are idempotent on `(project_id, source_id, source_event_id)` and
   visitor bounds only widen, so overlapping pulls and re-run backfills are safe.
+- A new IP-and-browser key (no stored visitor, nothing earlier of its own)
+  whose first arrival loads the same utm-tagged AI page as another key with the
+  same browser within `JOURNEY_SAME_ARRIVAL_MS` is that visitor on a new IP:
+  `resolveVisitorAliases` stores the link in `journey_visitor_aliases` and
+  re-keys the batch before sessionizing, so later requests follow it, and the
+  visitor read resolves a linked key. `mergeSplitJourneyVisitors` applies the
+  same rule to stored visitors. Never join on anything weaker (another page,
+  more seconds, browser-only keys): a false join hides a real person.
 - A visitor stores at most `JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY` requests per
   UTC day (AI touches are always stored); the days a key hit the cap are kept
   in `capped_days`, a set, so replays never inflate it.
