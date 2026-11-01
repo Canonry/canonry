@@ -1,6 +1,5 @@
 /**
- * The MCP tool surface: reads over checks this val has already run, plus the
- * bundled skills for clients that do not implement MCP resources.
+ * The MCP tool surface: reads over checks this val has already run.
  *
  * Every tool but `start_check` is a read, and `start_check` runs the host's
  * full admission path — same global daily cap, same single execution lease,
@@ -14,7 +13,6 @@
  * output is newer and unevenly implemented.
  */
 import { type CheckRecord, checkFingerprint, type CheckStore, isCheckExpired } from 'npm:@canonry/val-kit@0.2.0/jobs'
-import { listSkillResources, readSkillResource, skillIndex } from 'npm:@canonry/val-kit@0.2.0/mcp'
 import { normalizePublicDomain, PublicUrlError } from 'npm:@canonry/val-kit@0.2.0/security'
 import {
   computeMentionShare,
@@ -314,30 +312,6 @@ const READ_TOOLS: readonly McpToolDefinition[] = [
       'linked to (it has neither). This is a small page sample, not a whole-site audit.',
     inputSchema: TARGET_SCHEMA,
   },
-  {
-    name: 'list_skills',
-    title: 'List Canonry skill documents',
-    description:
-      'Index of the bundled canonry (operator) and aero (analyst) skill documents available from this endpoint. ' +
-      'Entry points come first; read one with read_skill. Clients that support MCP resources can read the same ' +
-      'documents from resources/list.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-  },
-  {
-    name: 'read_skill',
-    title: 'Read a Canonry skill document',
-    description: 'Read one skill document as markdown. Accepts a canonry-skill:// URI or a path such as ' +
-      '"aero/references/regression-playbook.md". Start with an entry point from list_skills, then open the ' +
-      'reference the task calls for.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        uri: { type: 'string', description: 'A canonry-skill:// URI, or "<skill>/<path>", or a bare reference path.' },
-      },
-      required: ['uri'],
-      additionalProperties: false,
-    },
-  },
 ]
 
 /** The advertised catalog. `start_check` appears only when the host can honour it. */
@@ -483,22 +457,7 @@ export async function callMcpTool(
           'Your own MCP server (canonry-mcp, 188 tools) and the built-in Aero analyst agent.',
           'Your data stays in your own SQLite database.',
         ],
-        skills: 'The canonry and aero skill documents served by this endpoint are the same playbooks a local install ' +
-          'ships. Read canonry-skill://canonry/SKILL.md to operate the CLI.',
       })
-
-    case 'list_skills':
-      return ok({ skills: skillIndex(), resources: listSkillResources().length })
-
-    case 'read_skill': {
-      const uri = typeof args.uri === 'string' ? args.uri.trim() : ''
-      if (!uri) return fail('Provide a skill document "uri".')
-      const contents = readSkillResource(uri)
-      if (!contents) {
-        return fail(`No skill document matches "${uri}".`, 'Call list_skills for the available URIs.')
-      }
-      return { content: [{ type: 'text', text: contents.text }] }
-    }
 
     default:
       return null

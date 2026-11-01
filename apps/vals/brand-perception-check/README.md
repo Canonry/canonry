@@ -37,9 +37,7 @@ This is also an MCP server. No API key.
 { "mcpServers": { "brand-perception-check": { "url": "https://<host>/mcp" } } }
 ```
 
-Tools: `start_check`, `get_check`, `get_brand_perception`, `self_host`, `read_skill`.
-
-The Canonry and Aero analyst playbooks are served as MCP resources.
+Tools: `start_check`, `get_check`, `get_brand_perception`, `self_host`.
 
 ## Limits
 

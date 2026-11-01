@@ -123,13 +123,11 @@ can be run end to end; after publishing, the pin moves.
 Publishing is manual (`pnpm --filter @canonry/val-kit publish`); there is no publish workflow. It is not part of the
 Canonry release, and the kit's version is independent of `packages/canonry`.
 
-## `src/mcp/skills/` is generated
+## No skill documents
 
-For the Canonry entry point, edit `docs/agent-operations/v1.md` and run `pnpm guide:sync`; it refreshes the
-runtime guide, native skills, and this mirror together. Other skill documents still originate in
-`skills/<name>/`; run `node scripts/sync-val-town-skills.mjs` after editing them and commit the result.
-`--check` fails instead of writing, which is what the pre-push hook runs. Never hand-edit a generated module; the next sync
-overwrites it.
+The kit does not carry the Canonry skill documents. It mirrored `skills/` into generated modules that the Vals
+served as MCP resources; that mirror and the `canonry-skill://` resources were removed rather than maintained. The
+`./mcp` subpath is protocol framing only. Do not add generated copies of repository documents back into the kit.
 
 ## Tests
 
@@ -149,9 +147,7 @@ move the kit and its consumers together before anything reaches npm), and its
 production tasks against plain `deno.json`, which resolves the exact
 `npm:@canonry/val-kit@<version>` the Val pins from public npm. Publish the kit
 with `pnpm --filter @canonry/val-kit publish` before deploying a Val that pins a
-new version, then deploy with `vt push` from the Val's directory. The one
-remaining automated guard is the pre-push `val:skills:check`, which keeps the
-kit's generated skill mirror in step with `skills/`.
+new version, then deploy with `vt push` from the Val's directory.
 
 Two Vals ship today: **AI Visibility Check** (non-brand questions; is the brand
 mentioned and the domain cited) and **Brand Perception Check** (branded

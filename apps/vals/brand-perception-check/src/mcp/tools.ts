@@ -1,6 +1,5 @@
 /**
- * The MCP tool surface: reads over checks this val has already run, plus the
- * bundled skills for clients that do not implement MCP resources.
+ * The MCP tool surface: reads over checks this val has already run.
  *
  * Every tool but `start_check` is a read, and `start_check` runs the host's full
  * admission path — same global daily cap, same single execution lease, same
@@ -15,7 +14,6 @@
  */
 import { type CheckRecord, checkFingerprint, type CheckStore, isCheckExpired } from 'npm:@canonry/val-kit@0.2.0/jobs'
 import type { PerceptionEvidence } from 'npm:@canonry/val-kit@0.2.0/perception'
-import { readSkillResource } from 'npm:@canonry/val-kit@0.2.0/mcp'
 import { normalizePublicDomain, PublicUrlError } from 'npm:@canonry/val-kit@0.2.0/security'
 import { CHECK_FINGERPRINT_NAMESPACE, type PerceptionCheckResult } from '../runtime/check-result.ts'
 
@@ -264,21 +262,6 @@ const READ_TOOLS: readonly McpToolDefinition[] = [
       'which says the answer took no position. Branded scope; not comparable to AI Visibility rates.',
     inputSchema: TARGET_SCHEMA,
   },
-  {
-    name: 'read_skill',
-    title: 'Read a Canonry skill document',
-    description: 'Read one bundled canonry (operator) or aero (analyst) skill document as markdown. Accepts a ' +
-      'canonry-skill:// URI or a path such as "aero/references/regression-playbook.md". The full index is served as ' +
-      'MCP resources: call resources/list for every available URI, starting with the two SKILL.md entry points.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        uri: { type: 'string', description: 'A canonry-skill:// URI, or "<skill>/<path>", or a bare reference path.' },
-      },
-      required: ['uri'],
-      additionalProperties: false,
-    },
-  },
 ]
 
 /** The advertised catalog. `start_check` appears only when the host can honour it. */
@@ -372,19 +355,7 @@ export async function callMcpTool(
           'Your own MCP server (canonry-mcp, 188 tools) and the built-in Aero analyst agent.',
           'Your data stays in your own SQLite database.',
         ],
-        skills: 'The canonry and aero skill documents served by this endpoint are the same playbooks a local install ' +
-          'ships. Read canonry-skill://canonry/SKILL.md to operate the CLI.',
       })
-
-    case 'read_skill': {
-      const uri = typeof args.uri === 'string' ? args.uri.trim() : ''
-      if (!uri) return fail('Provide a skill document "uri".')
-      const contents = readSkillResource(uri)
-      if (!contents) {
-        return fail(`No skill document matches "${uri}".`, 'Call resources/list for the available URIs.')
-      }
-      return { content: [{ type: 'text', text: contents.text }] }
-    }
 
     default:
       return null

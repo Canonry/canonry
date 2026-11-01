@@ -43,16 +43,16 @@ function fixture() {
   return { cwd, git, write, update, run, calls }
 }
 
-test('push runs only the three drift gates and permits unrelated documentation WIP', () => {
+test('push runs only the two drift gates and permits unrelated documentation WIP', () => {
   const f = fixture()
   f.write('README.md', 'unstaged docs')
   const result = f.run()
   expect(result.status, result.stderr).toBe(0)
-  expect(f.calls()).toEqual(['gen:check --committed', 'plugin:check', 'val:skills:check'])
+  expect(f.calls()).toEqual(['gen:check --committed', 'plugin:check'])
   expect(f.git('diff', '--name-only')).toBe('README.md')
 })
 
-test.each(['gen:check', 'plugin:check', 'val:skills:check'])('a failed %s blocks the push and stops subsequent checks', (gate) => {
+test.each(['gen:check', 'plugin:check'])('a failed %s blocks the push and stops subsequent checks', (gate) => {
   const f = fixture()
   expect(f.run(undefined, { FAIL_GATE: gate }).status).toBe(1)
   expect(f.calls().at(-1)?.split(' ')[0]).toBe(gate)

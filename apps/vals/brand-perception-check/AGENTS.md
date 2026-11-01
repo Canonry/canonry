@@ -15,8 +15,8 @@ is the identifier a client keys off and `title` is where a human reads the displ
 display name into `name`, and splitting the two is the deviation this file records.
 
 Attribution runs the other way, and deliberately: every surface points back at the open-source project. The header
-byline, the footer (with the install command), the MCP `initialize` instructions, the `self_host` tool, and the bundled
-skills all name Canonry and link to it. Keep that; a sample that does not lead anywhere is just a toy.
+byline, the footer (with the install command), the MCP `initialize` instructions, and the `self_host` tool all name
+Canonry and link to it. Keep that; a sample that does not lead anywhere is just a toy.
 
 ## What this measures, and what it must never claim
 
@@ -58,7 +58,7 @@ Val's measured signal set changes, and never another Val's.
 - **The kit is the shared core; this Val is the product surface.** `@canonry/val-kit` owns the perception instrument
   (branded planner, verdict extraction and its arbiter, source typing, aggregation, the Gemini adapter); the URL and
   Turnstile guards; both `CheckStore` implementations; check-record identity and the generic admission/lease machinery;
-  MCP framing and the generated skill resources; and the design tokens and mark. What stays here is what this Val IS:
+  MCP framing; and the design tokens and mark. What stays here is what this Val IS:
   its HTTP routes and response policy, the check runner's phase and every sentence a visitor reads, its MCP tool
   surface, and its HTML. Moving one here is not a fork: delete the local copy and import the kit, or the two drift and
   only production finds out which one shipped.
@@ -74,9 +74,6 @@ Val's measured signal set changes, and never another Val's.
   verdict about a real brand is a worse lie than a fabricated percentage, and a badge in the header does not qualify it
   for anyone who scrolls.
 - Never present the Val as the full platform. Bounds stay stated on the surface that shows the number.
-- The bundled skills are generated into the KIT (`packages/val-kit/src/mcp/skills/`), not into this directory. Edit
-  `skills/<name>/` at the repository root, then run `node scripts/sync-val-town-skills.mjs` and commit the result. CI
-  runs it with `--check`. Never hand-edit a generated module.
 
 ## One phase, and its budget is arithmetic
 
@@ -171,8 +168,8 @@ design systems, and a test pins the tokens.
 
 ## MCP endpoint
 
-`POST /mcp` serves Model Context Protocol over Streamable HTTP so an agent can read this Val's checks directly. Five
-tools: `get_check`, `get_brand_perception`, `start_check`, `self_host`, `read_skill`.
+`POST /mcp` serves Model Context Protocol over Streamable HTTP so an agent can read this Val's checks directly. Four
+tools: `get_check`, `get_brand_perception`, `start_check`, `self_host`.
 
 - **Reads never spend.** `get_check` and `get_brand_perception` resolve through `store.get` and `store.findReusable`
   only. They must never reach `admit` or `dispatch`; a test asserts an uncached domain lookup leaves the store
@@ -184,11 +181,9 @@ tools: `get_check`, `get_brand_perception`, `start_check`, `self_host`, `read_sk
 - **It blocks.** Execution is request-bound (`AbortSignal.timeout(45_000)`); there is no background queue, so returning
   a check ID early would kill the work with the request.
 - **Anonymous, on purpose.** Everything reachable here is already public: `/api/checks/:id` serves any check without a
-  credential, and the skills ship in a public npm package.
-- **The skill INDEX is `resources/list`, not a tool.** `read_skill` reads one document and its description says where
-  the index is. The sibling Val also ships `list_skills` for clients with no resource support; this one does not, which
-  is the second deviation from the shared contract's tool list — it enumerated five tools and `list_skills` was not
-  among them.
+  credential.
+- **No resources.** The endpoint serves tools only. `resources/list` answers with an empty list and `resources/read`
+  with "not found", because clients probe both at startup and a method-not-found reads as a broken server.
 - **Every payload carries `scope: 'branded'` and a `scopeNote`,** and a test asserts no numbered payload leaves without
   one. The summary is passed straight through from the record and never recomputed on the read path: deriving it a
   second time is how a tool payload starts disagreeing with the page.
@@ -256,8 +251,7 @@ null-is-not-`none` contract is visible in every hand test. `npx @modelcontextpro
 ## Verification
 
 Run `pnpm --filter @canonry/val-kit build` from the repository root, then `deno task check`, `deno task lint`, and
-`deno task test` from this directory, plus `node scripts/sync-val-town-skills.mjs --check` from the root. Those three
-tasks validate the DEV graph. Vals have no CI/CD, so nothing runs them for you.
+`deno task test` from this directory. Those three tasks validate the DEV graph. Vals have no CI/CD, so nothing runs them for you.
 
 `deno task check:prod` validates the PRODUCTION graph instead (plain `deno.json`, `--frozen`). It cannot pass until the
 pinned kit version is on public npm — before that it fails with `npm package '@canonry/val-kit' does not exist` — and
@@ -270,7 +264,7 @@ Set in Val Town: `VAL_TOWN_ENV=production`, `GEMINI_API_KEY`, `CANONRY_QUOTA_SAL
 `CANONRY_MCP_PER_CLIENT_DAILY_LIMIT` sets its daily per-caller allowance (default 2).
 
 Public checks are disabled when the production quota salt or Turnstile configuration is absent, so an unconfigured
-deployment serves reads and skills but refuses to spend.
+deployment serves reads but refuses to spend.
 
 ## Release order
 
@@ -291,11 +285,10 @@ Nothing here has been deployed yet. Deploys are manual: there is no deploy workf
 > reviewed commit. The override is only needed to CREATE the lock: once the lock
 > pins the version with its integrity hash, `--frozen` resolves from the lock and
 > the policy does not apply, so later checks and deploys need no flag and no config.
-4. Regenerate the skill mirror with `node scripts/sync-val-town-skills.mjs`.
-5. Run the verification commands above, including `deno task check:prod`.
-6. Run `vt push --dry-run` and review the file plan.
-7. Run `vt push` only after approval.
-8. Request `/healthz` and confirm `{"ok":true}`.
+4. Run the verification commands above, including `deno task check:prod`.
+5. Run `vt push --dry-run` and review the file plan.
+6. Run `vt push` only after approval.
+7. Request `/healthz` and confirm `{"ok":true}`.
 
 `vt push` makes the Val match this directory. It deletes remote-only files, so do not edit production in the Val Town
 editor.
