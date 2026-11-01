@@ -1,7 +1,0 @@
-.env
-.env.*
-coverage/
-node_modules/
-deno.dev.json
-deno.dev.lock
-test/

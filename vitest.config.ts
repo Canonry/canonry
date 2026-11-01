@@ -66,7 +66,6 @@ const NODE_PACKAGES = [
   'provider-openai',
   'provider-openrouter',
   'provider-perplexity',
-  'val-kit',
 ] as const
 
 const NODE_APPS = ['api', 'worker', 'mcp-gateway'] as const
@@ -116,7 +115,6 @@ const SHARED_WORKER_PROJECTS: ReadonlySet<string> = new Set([
   'provider-muse',
   'provider-openai',
   'provider-perplexity',
-  'val-kit',
   'api',
   'worker',
 ])

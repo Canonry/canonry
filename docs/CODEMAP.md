@@ -48,55 +48,11 @@ Bundled via `packages/canonry/build-web.ts` → `packages/canonry/assets/`. Lowe
 ### `apps/api/` — Cloud Run entry (imports `packages/api-routes`)
 ### `apps/worker/` — Cloud worker entry
 
-### `apps/vals/ai-visibility-check/` — Public Deno / Val Town sample
-
-| Path | Role | Notes |
-|------|------|-------|
-| `main.http.tsx` | Val HTTP entry | Thin composition root for the bounded public sample |
-| `deno.json` / `deno.lock` | Self-contained production Deno imports and locked graph | Exact external pins must match the Canonry engine contract; this is the graph deploy validates |
-| `deno.dev.json` | Dev graph: same tasks, `@canonry/val-kit` linked to the workspace copy | What local verification runs; never pushed to Val Town |
-| `src/` | HTTP policy, bounded check runner, provider adapter, storage ports, evidence UI | Host owns quotas, provider access, secrets, and persistence |
-| `README.md` / `AGENTS.md` | Local limits, release order, and durable guardrails | Read before changing the Val host |
-
-### `apps/vals/brand-perception-check/` — Public Deno / Val Town sample
-
-What an answer engine SAYS about a brand when asked about it directly. A separate instrument from AI Visibility, never
-a variant: every question names the brand, so the two share no denominator, no table, and no cache.
-
-| Path | Role | Notes |
-|------|------|-------|
-| `main.http.tsx` | Val HTTP entry | Names `CheckStore<PerceptionCheckResult>` once; everything downstream is typed from there |
-| `deno.json` | Self-contained production Deno graph | No production `deno.lock` yet — it cannot be generated until `@canonry/val-kit` is on public npm |
-| `deno.dev.json` / `deno.dev.lock` | Dev graph: `@canonry/val-kit` linked to the workspace copy | What local verification runs; never pushed to Val Town |
-| `src/runtime/check-result.ts` | `PerceptionCheckResult` + `CHECK_FINGERPRINT_NAMESPACE` (`perception-v1`) | The kit stores it opaquely; the namespace is what keeps the two Vals' caches disjoint |
-| `src/jobs/perception-check.ts` | The ONE phase, its 45s budget, output sanitizers, and the visitor-facing failure copy | `failed` when nothing was measured; a planning failure reads as a fact about the brand |
-| `src/app/`, `src/mcp/` | HTTP routes and response policy; the 5-tool MCP surface | Near-identical to the sibling Val — the next hoist into the kit |
-| `src/ui/` | View model, server-rendered HTML, browser script, and the product's own CSS on top of the kit's | Verdict snapshot, answers table with per-row disclosure, concerns, source types |
-| `README.md` / `AGENTS.md` | Public marketing copy; contributor rules, budget arithmetic, and release order | Read `AGENTS.md` before changing the Val host |
-
 ## Packages
 
-### `packages/val-kit/` — Published host kit for the Vals (`@canonry/val-kit`)
-The pure modules the Val Town Vals share, built with tsup to `dist/` and imported in production as
-`npm:@canonry/val-kit@<version>/<subpath>` (Val Town applies no import map, so the version is pinned inline at every
-import site). Published manually with `pnpm --filter @canonry/val-kit publish` (no workflow); a Val's production graph
-cannot resolve until the version it pins exists on npm.
-
-| Subpath | Role |
-|---------|------|
-| `.` | Everything in one import — prefer a subpath in a Val, so a file says which part of the seam it depends on |
-| `visibility` | Answer-engine visibility: question planner, Gemini probe adapter, mention extraction, brand matching, share of voice |
-| `perception` | Brand perception: branded query planner, verdict extraction with verbatim-evidence verification, source typing, aggregation |
-| `security` | Public-surface guards: Turnstile verification and URL / SSRF checking |
-| `storage` | Storage ports plus the in-memory and Val Town SQLite adapters behind them |
-| `jobs` | The bounded public-check pipeline: phases, deadlines, cache reuse, and job records |
-| `mcp` | MCP protocol, server, tools, resources, and the generated skill catalog |
-| `ui` | Server-rendered evidence UI: markup, styles, and the client script (no inline styles — the page CSP blocks them) |
-| `config` | Environment-driven limits and feature configuration |
-
 ### `packages/canonry/` — Publishable npm (`@canonry/canonry`)
-CLI + Fastify server + job runner + scheduler + bundled SPA. The published product package (`packages/val-kit` is the
-only other published artifact; every remaining internal package is bundled into this one).
+CLI + Fastify server + job runner + scheduler + bundled SPA. The only published package; every internal package is
+bundled into this one.
 
 | Path | Role |
 |------|------|
