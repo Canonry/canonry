@@ -1097,6 +1097,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Hourly rollup of unrecognized bots, summed by name into TrafficUnrecognizedAgentsResponse, not directly mapped to a DTO.',
   },
+  unrecognizedAgentNotifyState: {
+    kind: 'internal-only',
+    reason: 'Which unrecognized agent names already had a traffic.agent.discovered decision; notifier bookkeeping, never returned.',
+  },
   aiUserFetchVerificationManifestsHourly: {
     kind: 'internal-only',
     reason: 'Per-manifest AI user-fetch provenance consumed via /traffic/events composite, not directly mapped to a DTO.',
