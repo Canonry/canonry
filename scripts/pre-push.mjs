@@ -38,7 +38,7 @@ function main() {
   }
   assertPushInputs()
   const started = performance.now()
-  for (const args of [['gen:check', '--committed'], ['plugin:check'], ['val:skills:check']]) {
+  for (const args of [['gen:check', '--committed'], ['plugin:check']]) {
     console.log(`pre-push: pnpm ${args.join(' ')}`)
     const result = spawnSync('pnpm', args, { env, stdio: ['ignore', 'inherit', 'inherit'] })
     if (result.error) throw result.error

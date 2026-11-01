@@ -33,9 +33,7 @@ This is also an MCP server. No API key.
 { "mcpServers": { "ai-visibility-check": { "url": "https://<host>/mcp" } } }
 ```
 
-Tools: `start_check`, `get_check`, `get_ai_visibility`, `get_site_health`, `list_skills`, `read_skill`, `self_host`.
-
-The Canonry and Aero analyst playbooks are served as MCP resources.
+Tools: `start_check`, `get_check`, `get_ai_visibility`, `get_site_health`, `self_host`.
 
 ## Limits
 

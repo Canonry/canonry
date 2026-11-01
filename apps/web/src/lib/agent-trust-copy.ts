@@ -17,6 +17,7 @@ export function trustReasonLabel(reason: AgentTrustReason, operator: string): st
     case AgentTrustReasons['documented-user-agent']: return `User agent matches ${operator}'s published one`
     case AgentTrustReasons['unusual-user-agent']: return `User agent differs from ${operator}'s published one`
     case AgentTrustReasons['scanner-path']: return 'Asked for a secret or admin file'
+    case AgentTrustReasons['scanner-burst']: return 'Same IP asked for secret files'
   }
 }
 

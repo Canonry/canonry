@@ -96,7 +96,6 @@ node scripts/typecheck.mjs --noEmit -p scripts/tsconfig.json
 pnpm check
 pnpm gen:check
 pnpm plugin:check
-pnpm val:skills:check
 ```
 
 ## Unmet release gate

@@ -101,7 +101,7 @@ The hook refuses partially staged inputs for full typed lint, because type-aware
 Ordinary code commits retain the fast path. Agents must run affected package typechecks and type-aware lint locally before pushing code.
 
 The commit-message hook checks Conventional Commits.
-Pre-push runs `pnpm gen:check --committed`, `pnpm plugin:check`, and `pnpm val:skills:check`, in that order.
+Pre-push runs `pnpm gen:check --committed` and then `pnpm plugin:check`.
 A failed gate stops the push. These checks can generate temporary comparison files but never rewrite tracked artifacts.
 Git hooks never run tests, builds, or workspace typechecks.
 
@@ -184,7 +184,6 @@ Separate jobs in `ci.yml` cover the checks in `pnpm verify`:
 
 - `pnpm gen:check`
 - `pnpm plugin:check` (CI also supplies `--base-ref`)
-- `pnpm val:skills:check`
 - `pnpm run typecheck` and `pnpm run typecheck:tsc` (the two legs of the `typecheck` matrix job)
 - `pnpm run lint`
 - `pnpm run test`

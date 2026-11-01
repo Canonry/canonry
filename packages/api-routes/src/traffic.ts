@@ -141,6 +141,7 @@ import {
 import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import { enforceJourneyRetention, recordJourneyBatch } from './journeys.js'
 import { recordAgentJourneyBatch } from './agent-journey-capture.js'
+import { planScannerBursts, saveScannerBursts } from './agent-scanner-bursts.js'
 import { addLikelyFakeAgentHits, clearLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
@@ -1392,7 +1393,9 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
     return
   }
 
-  const report = buildTrafficProbeReport(allEvents, { sampleLimit: BACKFILL_SAMPLE_LIMIT })
+  // Read now, stored with the rollups below. An older window never replaces a newer one.
+  const bursts = planScannerBursts(app.db, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret })
+  const report = buildTrafficProbeReport(allEvents, { sampleLimit: BACKFILL_SAMPLE_LIMIT, scannerBurstEventIds: bursts.eventIds })
   // Self-traffic exclusion is never silent. The backfill response already
   // returned, so the log is the surfacing channel here.
   if (report.totals.selfTrafficExcluded > 0) {
@@ -1730,7 +1733,8 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
         onError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during traffic backfill') },
         outerActive: () => app.db.$client.inTransaction,
       })
-      recordAgentJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret, now: finishedAt }, {
+      saveScannerBursts(tx, { projectId: project.id, sourceId: sourceRow.id, windows: bursts.windows, now: finishedAt })
+      recordAgentJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret, now: finishedAt, scannerBurstEventIds: bursts.eventIds }, {
         onError: () => { app.log.error({ sourceId: sourceRow.id }, 'Agent journey capture failed during traffic backfill') },
         outerActive: () => app.db.$client.inTransaction,
       })
@@ -3938,8 +3942,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
       const nextEventIds = merged
 
-      const report = buildTrafficProbeReport(dedupedEvents, { sampleLimit })
       finishedAt = new Date().toISOString()
+      const bursts = planScannerBursts(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret })
+      saveScannerBursts(tx, { projectId: project.id, sourceId: sourceRow.id, windows: bursts.windows, now: finishedAt })
+      const report = buildTrafficProbeReport(dedupedEvents, { sampleLimit, scannerBurstEventIds: bursts.eventIds })
       const rawSampleCutoff = enforceRawEventSampleRetention(
         tx,
         sourceRow.id,
@@ -4200,7 +4206,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         onError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during traffic sync') },
         outerActive: () => app.db.$client.inTransaction,
       })
-      recordAgentJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret, now: finishedAt }, {
+      recordAgentJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret, now: finishedAt, scannerBurstEventIds: bursts.eventIds }, {
         onError: () => { app.log.error({ sourceId: sourceRow.id }, 'Agent journey capture failed during traffic sync') },
         outerActive: () => app.db.$client.inTransaction,
       })

@@ -1,19 +1,24 @@
 import { createHash } from 'node:crypto'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { and, eq, inArray, sql } from 'drizzle-orm'
-import { addLikelyFakeAgentHits, writeUnrecognizedAgentBuckets } from '@canonry/canonry-api-routes'
+import { and, eq, gte, inArray, lte, ne, sql } from 'drizzle-orm'
+import { addLikelyFakeAgentHits, correctBackgroundCallJourneys, mergeSplitJourneyVisitors, writeUnrecognizedAgentBuckets, type BackgroundCallJourneyCorrection, type SplitVisitorMerge } from '@canonry/canonry-api-routes'
 import {
   AgentTrustLevels,
+  AgentTrustReasons,
   describeError,
   TrafficEventConfidences,
   TrafficEvidenceKinds,
   TrafficSourceTypes,
   UNRECORDED_TRAFFIC_PATH,
+  VerificationStatuses,
   type NormalizedTrafficRequest,
 } from '@canonry/canonry-contracts'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import {
+  agentJourneyCaptureDays,
+  agentJourneyEvents,
   aiUserFetchEventsHourly,
+  aiUserFetchVerificationManifestsHourly,
   crawlerEventsHourly,
   migrationsTable,
   RawEventSampleEventTypes,
@@ -22,12 +27,17 @@ import {
   unrecognizedAgentEventsHourly,
 } from '@canonry/canonry-db'
 import {
+  AGENT_TRUST_RULES_VERSION,
   BROWSER_SHAPED_AGENT_MARKERS,
   classifyAiUserFetch,
   classifyCrawler,
   DEFAULT_AI_CRAWLER_RULES,
   GENERIC_HTTP_CLIENTS,
+  isScannerPath,
   isSelfTraffic,
+  JOURNEY_RULES_VERSION,
+  normalizeTrafficPathPattern,
+  SCANNER_BURST_WINDOW_MS,
   SELF_TRAFFIC_USER_AGENT_PATTERNS,
   UNLISTED_AGENT_SKIPPED_EXTENSIONS,
   UNRECOGNIZED_AGENT_NAMING_VERSION,
@@ -71,6 +81,25 @@ export interface StoredTrafficReclassification {
     removed: number
     byBot: Record<string, number>
   }
+  /** Unverified AI agent hourly rows for a page scanners ask for. */
+  agentHits: {
+    examined: number
+    /** Rows moved to the likely fake counts. */
+    moved: number
+    movedHits: number
+  }
+  /** Stored agent requests (Journeys > Agents) under today's trust rules. */
+  agentRequests: {
+    examined: number
+    /** Requests for a page scanners ask for. */
+    probes: number
+    /** Probes and the other requests their client sent within the burst window, removed. */
+    removed: number
+  }
+  /** AI visitor journeys that a background call opened or marked as from an AI engine. */
+  journeys: BackgroundCallJourneyCorrection
+  /** AI visitors that were another visitor seen from a new IP, joined to it. */
+  journeyMerges: SplitVisitorMerge
 }
 
 type Tx = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0]
@@ -94,6 +123,8 @@ export function trafficClassificationFingerprint(): string {
     })),
     self: SELF_TRAFFIC_USER_AGENT_PATTERNS.map(pattern),
     naming: UNRECOGNIZED_AGENT_NAMING_VERSION,
+    trust: AGENT_TRUST_RULES_VERSION,
+    journeys: JOURNEY_RULES_VERSION,
     genericClients: GENERIC_HTTP_CLIENTS,
     browserMarkers: BROWSER_SHAPED_AGENT_MARKERS,
     skippedExtensions: UNLISTED_AGENT_SKIPPED_EXTENSIONS,
@@ -395,13 +426,231 @@ async function reclassifyUnknownSamples(db: DatabaseClient, opts: {
   return result
 }
 
+type HourlyAgentKey = {
+  projectId: string
+  sourceId: string
+  tsHour: string
+  botId: string
+  verificationStatus: string
+  pathNormalized: string
+  status: number
+}
+
+function hourlyAgentRow(key: HourlyAgentKey) {
+  const table = aiUserFetchEventsHourly
+  return and(
+    eq(table.projectId, key.projectId),
+    eq(table.sourceId, key.sourceId),
+    eq(table.tsHour, key.tsHour),
+    eq(table.botId, key.botId),
+    eq(table.verificationStatus, key.verificationStatus),
+    eq(table.pathNormalized, key.pathNormalized),
+    eq(table.status, key.status),
+  )
+}
+
 /**
- * Reclassify stored traffic that no rule recognized when it arrived, under
- * today's rules: unknown raw samples, and the hourly rows of unrecognized
- * agents. A row a rule now recognizes moves into that bot's hourly counts
- * (claimed, since stored traffic keeps no IP; the page is unrecorded). Rows
- * of Canonry's own tools are deleted, and the rest are renamed or dropped to
- * match today's naming. Safe to run any number of times.
+ * Move unverified AI agent hourly rows for a page scanners ask for into the
+ * likely fake counts, as ingest does today. Each row is one page, so the
+ * check is exact. Hourly rows keep no client, so the burst rule cannot apply.
+ */
+async function reassessAgentHits(db: DatabaseClient, opts: {
+  projectIds?: readonly string[]
+  dryRun: boolean
+  now: string
+  shouldStop: () => boolean
+}): Promise<StoredTrafficReclassification['agentHits']> {
+  const result: StoredTrafficReclassification['agentHits'] = { examined: 0, moved: 0, movedHits: 0 }
+  const table = aiUserFetchEventsHourly
+  const lastStartingRowid = Number(db.select({ max: sql<number | null>`max(rowid)` }).from(table).get()?.max ?? 0)
+  let lastRowid = 0
+  for (;;) {
+    if (opts.shouldStop()) break
+    const rows = db.select({
+      rowid: sql<number>`rowid`,
+      projectId: table.projectId,
+      sourceId: table.sourceId,
+      tsHour: table.tsHour,
+      botId: table.botId,
+      operator: table.operator,
+      verificationStatus: table.verificationStatus,
+      pathNormalized: table.pathNormalized,
+      status: table.status,
+    })
+      .from(table)
+      .where(and(
+        sql`rowid > ${lastRowid}`,
+        sql`rowid <= ${lastStartingRowid}`,
+        ne(table.verificationStatus, VerificationStatuses.verified),
+        opts.projectIds ? inArray(table.projectId, [...opts.projectIds]) : undefined,
+      ))
+      .orderBy(sql`rowid`)
+      .limit(BATCH_SIZE)
+      .all()
+    if (rows.length === 0) break
+    lastRowid = rows[rows.length - 1]!.rowid
+    result.examined += rows.length
+    const probes = rows.filter(row => isScannerPath(row.pathNormalized))
+    if (probes.length > 0) {
+      db.transaction((tx) => {
+        for (const row of probes) {
+          // Re-read inside the transaction: ingest may have added hits since.
+          const current = tx.select({ hits: table.hits }).from(table).where(hourlyAgentRow(row)).get()
+          if (!current) continue
+          result.moved++
+          result.movedHits += current.hits
+          if (opts.dryRun) continue
+          addLikelyFakeAgentHits(tx, {
+            projectId: row.projectId,
+            sourceId: row.sourceId,
+            buckets: [{ tsHour: row.tsHour, botId: row.botId, operator: row.operator, reason: AgentTrustReasons['scanner-path'], hits: current.hits }],
+            now: opts.now,
+          })
+          // Its verification provenance rows go with it.
+          tx.delete(table).where(hourlyAgentRow(row)).run()
+        }
+      }, { behavior: 'immediate' })
+    }
+    await yieldToEventLoop()
+  }
+  return result
+}
+
+/** Move one AI agent hit of a stored request into the burst's likely fake count. */
+function moveAgentHitToBurst(tx: Tx, row: typeof agentJourneyEvents.$inferSelect, now: string): void {
+  const key: HourlyAgentKey = {
+    projectId: row.projectId,
+    sourceId: row.sourceId,
+    tsHour: hourOf(row.ts),
+    botId: row.agentId,
+    verificationStatus: row.verificationStatus,
+    pathNormalized: normalizeTrafficPathPattern(row.path),
+    status: row.status ?? 0,
+  }
+  const table = aiUserFetchEventsHourly
+  // A path shortened for storage may not name its hourly row; then nothing moves.
+  const taken = tx.update(table).set({ hits: sql`${table.hits} - 1`, updatedAt: now })
+    .where(and(hourlyAgentRow(key), sql`${table.hits} > 0`))
+    .run()
+  if (taken.changes === 0) return
+  const manifests = aiUserFetchVerificationManifestsHourly
+  if (row.verificationManifest) {
+    const manifestRow = and(
+      eq(manifests.projectId, key.projectId),
+      eq(manifests.sourceId, key.sourceId),
+      eq(manifests.tsHour, key.tsHour),
+      eq(manifests.botId, key.botId),
+      eq(manifests.verificationStatus, key.verificationStatus),
+      eq(manifests.pathNormalized, key.pathNormalized),
+      eq(manifests.status, key.status),
+      eq(manifests.manifestId, row.verificationManifest.id),
+    )
+    tx.update(manifests).set({ hits: sql`${manifests.hits} - 1`, updatedAt: now }).where(and(manifestRow, sql`${manifests.hits} > 0`)).run()
+    tx.delete(manifests).where(and(manifestRow, sql`${manifests.hits} <= 0`)).run()
+  }
+  tx.delete(table).where(and(hourlyAgentRow(key), sql`${table.hits} <= 0`)).run()
+  addLikelyFakeAgentHits(tx, {
+    projectId: row.projectId,
+    sourceId: row.sourceId,
+    buckets: [{ tsHour: key.tsHour, botId: row.agentId, operator: row.operator, reason: AgentTrustReasons['scanner-burst'], hits: 1 }],
+    now,
+  })
+}
+
+/**
+ * Stored agent requests (Journeys > Agents) under today's trust rules. A
+ * request for a page scanners ask for is removed, with every unverified
+ * request its client sent within the burst window. A stored client is the
+ * correlation the row keeps (IP and user agent), not the IP alone. A probe's
+ * hourly row moves in `reassessAgentHits`; each other request moves one hit.
+ */
+async function reassessAgentRequests(db: DatabaseClient, opts: {
+  projectIds?: readonly string[]
+  dryRun: boolean
+  now: string
+  shouldStop: () => boolean
+}): Promise<StoredTrafficReclassification['agentRequests']> {
+  const result: StoredTrafficReclassification['agentRequests'] = { examined: 0, probes: 0, removed: 0 }
+  const table = agentJourneyEvents
+  const clients = new Map<string, { projectId: string, sourceId: string, correlationKey: string, probes: number[] }>()
+  const lastStartingRowid = Number(db.select({ max: sql<number | null>`max(rowid)` }).from(table).get()?.max ?? 0)
+  let lastRowid = 0
+  for (;;) {
+    if (opts.shouldStop()) return result
+    const rows = db.select({ rowid: sql<number>`rowid`, projectId: table.projectId, sourceId: table.sourceId, correlationKey: table.correlationKey, ts: table.ts, path: table.path })
+      .from(table)
+      .where(and(
+        sql`rowid > ${lastRowid}`,
+        sql`rowid <= ${lastStartingRowid}`,
+        ne(table.trust, AgentTrustLevels.verified),
+        opts.projectIds ? inArray(table.projectId, [...opts.projectIds]) : undefined,
+      ))
+      .orderBy(sql`rowid`)
+      .limit(BATCH_SIZE)
+      .all()
+    if (rows.length === 0) break
+    lastRowid = rows[rows.length - 1]!.rowid
+    result.examined += rows.length
+    for (const row of rows) {
+      if (!isScannerPath(row.path)) continue
+      result.probes++
+      const id = JSON.stringify([row.projectId, row.sourceId, row.correlationKey])
+      const client = clients.get(id) ?? { projectId: row.projectId, sourceId: row.sourceId, correlationKey: row.correlationKey, probes: [] }
+      client.probes.push(Date.parse(row.ts))
+      clients.set(id, client)
+    }
+    await yieldToEventLoop()
+  }
+
+  for (const client of clients.values()) {
+    if (opts.shouldStop()) break
+    const probes = client.probes.sort((a, b) => a - b)
+    const from = new Date(probes[0]! - SCANNER_BURST_WINDOW_MS).toISOString()
+    const to = new Date(probes.at(-1)! + SCANNER_BURST_WINDOW_MS).toISOString()
+    db.transaction((tx) => {
+      const rows = tx.select().from(table).where(and(
+        eq(table.projectId, client.projectId),
+        eq(table.sourceId, client.sourceId),
+        eq(table.correlationKey, client.correlationKey),
+        gte(table.ts, from),
+        lte(table.ts, to),
+        ne(table.trust, AgentTrustLevels.verified),
+      )).all()
+      for (const row of rows) {
+        const probe = isScannerPath(row.path)
+        const at = Date.parse(row.ts)
+        if (!probe && !probes.some(t => Math.abs(at - t) <= SCANNER_BURST_WINDOW_MS)) continue
+        result.removed++
+        if (opts.dryRun) continue
+        tx.delete(table).where(eq(table.id, row.id)).run()
+        // The row no longer counts toward its day's capture limit.
+        tx.update(agentJourneyCaptureDays)
+          .set({ storedEvents: sql`max(${agentJourneyCaptureDays.storedEvents} - 1, 0)` })
+          .where(and(
+            eq(agentJourneyCaptureDays.projectId, row.projectId),
+            eq(agentJourneyCaptureDays.sourceId, row.sourceId),
+            eq(agentJourneyCaptureDays.day, row.ts.slice(0, 10)),
+          ))
+          .run()
+        if (!probe) moveAgentHitToBurst(tx, row, opts.now)
+      }
+    }, { behavior: 'immediate' })
+    await yieldToEventLoop()
+  }
+  return result
+}
+
+/**
+ * Reclassify stored traffic under today's rules. Unknown raw samples and the
+ * hourly rows of unrecognized agents: a row a rule now recognizes moves into
+ * that bot's hourly counts (claimed, since stored traffic keeps no IP; the
+ * page is unrecorded), rows of Canonry's own tools are deleted, and the rest
+ * are renamed or dropped to match today's naming. AI agent traffic: hourly
+ * rows and stored requests that today's trust rules call likely fake move to
+ * the likely fake counts. Journeys: background calls stop opening visits or
+ * counting as AI arrivals (`correctBackgroundCallJourneys`), and a visitor seen
+ * from a second IP joins its first one (`mergeSplitJourneyVisitors`). Safe to run any
+ * number of times.
  */
 export async function reclassifyStoredTraffic(db: DatabaseClient, opts: {
   projectIds?: readonly string[]
@@ -419,7 +668,14 @@ export async function reclassifyStoredTraffic(db: DatabaseClient, opts: {
   const unrecognized = shared.shouldStop()
     ? { examined: 0, moved: 0, movedHits: 0, renamed: 0, removed: 0, byBot: {} }
     : await reclassifyUnrecognizedRows(db, shared)
-  return { dryRun: shared.dryRun, samples, unrecognized }
+  // Hourly rows first: a probe's own row moves there, its client's other requests here.
+  const agentHits = shared.shouldStop() ? { examined: 0, moved: 0, movedHits: 0 } : await reassessAgentHits(db, shared)
+  const agentRequests = shared.shouldStop() ? { examined: 0, probes: 0, removed: 0 } : await reassessAgentRequests(db, shared)
+  const journeys = shared.shouldStop()
+    ? { visitors: 0, visitorsRemoved: 0, visitsRemoved: 0, visitsRelanded: 0 }
+    : correctBackgroundCallJourneys(db, shared)
+  const journeyMerges = shared.shouldStop() ? { visitorsMerged: 0, visitsJoined: 0 } : mergeSplitJourneyVisitors(db, shared)
+  return { dryRun: shared.dryRun, samples, unrecognized, agentHits, agentRequests, journeys, journeyMerges }
 }
 
 /**
@@ -456,7 +712,7 @@ export function startTrafficReclassification(opts: { db: DatabaseClient, delayMs
     reclassifyStoredTrafficIfRulesChanged(opts.db, { shouldStop: () => stopped })
       .then((outcome) => {
         if (!outcome.ran || !outcome.result) return
-        const { samples, unrecognized } = outcome.result
+        const { samples, unrecognized, agentHits, agentRequests, journeys, journeyMerges } = outcome.result
         log.info('traffic-reclassify.completed', {
           samplesReclassified: samples.reclassified,
           samplesCounted: samples.counted,
@@ -465,6 +721,13 @@ export function startTrafficReclassification(opts: { db: DatabaseClient, delayMs
           unrecognizedMovedHits: unrecognized.movedHits,
           unrecognizedRenamed: unrecognized.renamed,
           unrecognizedRemoved: unrecognized.removed,
+          agentHitsMoved: agentHits.movedHits,
+          agentRequestsRemoved: agentRequests.removed,
+          journeyVisitorsRemoved: journeys.visitorsRemoved,
+          journeyVisitsRemoved: journeys.visitsRemoved,
+          journeyVisitsRelanded: journeys.visitsRelanded,
+          journeyVisitorsMerged: journeyMerges.visitorsMerged,
+          journeyVisitsJoined: journeyMerges.visitsJoined,
         })
       })
       .catch((err: unknown) => {

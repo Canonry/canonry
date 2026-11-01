@@ -32,7 +32,7 @@ import { runVisibilityProbe } from 'npm:@canonry/val-kit@0.2.0/visibility'
 | `@canonry/val-kit/security` | Public-domain normalization (the SSRF input boundary) and Turnstile human verification |
 | `@canonry/val-kit/storage` | `MemoryCheckStore` and `ValSqliteCheckStore` (over a `ValSqliteClient` the host supplies) |
 | `@canonry/val-kit/jobs` | Check record and store contracts, record identity and expiry, and the admission/lease machinery |
-| `@canonry/val-kit/mcp` | Model Context Protocol framing plus the bundled Canonry skills served as resources |
+| `@canonry/val-kit/mcp` | Model Context Protocol framing |
 | `@canonry/val-kit/ui` | Design tokens and the Canonry mark |
 | `@canonry/val-kit/config` | Host environment parsing |
 

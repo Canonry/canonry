@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import Fastify from 'fastify'
 import { eq, sql } from 'drizzle-orm'
-import { apiKeys, createClient, journeyEvents, journeyVisitors, journeyVisits, migrate, projects, trafficSources } from '@canonry/canonry-db'
+import { apiKeys, createClient, journeyEvents, journeyVisitorAliases, journeyVisitors, journeyVisits, migrate, projects, trafficSources } from '@canonry/canonry-db'
 import { JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY, JOURNEY_PAGE_VIEWS_PENDING_REASON, JOURNEY_PARTIAL_SOURCE_TYPES, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-version.js'
 import { apiRoutes } from '../src/index.js'
@@ -230,6 +230,63 @@ describe('AI visitor journeys', () => {
       expect((await app.inject({ method: 'GET', url: '/api/v1/projects/example/journeys' })).json()).toMatchObject({ totalVisitors: 0 })
       enforceJourneyRetention(db, NOW)
       expect(db.select().from(journeyVisitors).all()).toEqual([])
+    })
+  })
+
+  describe('a visitor seen from a new IP', () => {
+    const IP_A = '203.0.113.10'
+    const IP_B = '203.0.113.20'
+    const keyOf = (ip: string) => journeyVisitorKey(SECRET, 'project', ip, IPHONE).visitorKey
+    // Opened from the ChatGPT app: no referer, the tag is on the URL.
+    const landing = { path: '/collections/best-deals', queryString: 'utm_source=chatgpt.com', userAgent: IPHONE }
+    const visitorKeys = () => db.select({ visitorKey: journeyVisitors.visitorKey }).from(journeyVisitors).all().map(row => row.visitorKey).sort()
+
+    it('joins a new IP that loads the same AI-tagged page with the same browser within seconds, and keeps its later requests there', () => {
+      persist([event('a1', '2026-10-29T09:55:20.467Z', { ...landing, remoteIp: IP_A })])
+      // iCloud Private Relay gave the same phone a new address for the next load.
+      persist([event('b1', '2026-10-29T09:55:23.476Z', { ...landing, remoteIp: IP_B })])
+      persist([event('b2', '2026-10-29T09:56:54.000Z', { path: '/products/tee', referer: 'https://example.com/collections/best-deals', userAgent: IPHONE, remoteIp: IP_B })])
+      expect(visitorKeys()).toEqual([keyOf(IP_A)])
+      expect(db.select({ requestCount: journeyVisits.requestCount, pageCount: journeyVisits.pageCount }).from(journeyVisits).all()).toEqual([{ requestCount: 3, pageCount: 3 }])
+      expect(db.select().from(journeyVisitorAliases).all()).toEqual([expect.objectContaining({ aliasKey: keyOf(IP_B), visitorKey: keyOf(IP_A) })])
+      // A return from the new address the next day is the same visitor's.
+      persist([event('b3', '2026-10-30T08:00:00.000Z', { path: '/', userAgent: IPHONE, remoteIp: IP_B })])
+      expect(visitorKeys()).toEqual([keyOf(IP_A)])
+      expect(db.select().from(journeyVisits).all()).toHaveLength(2)
+      // The link goes when its visitor does.
+      enforceJourneyRetention(db, '2027-06-01T00:00:00.000Z')
+      expect(db.select().from(journeyVisitorAliases).all()).toEqual([])
+    })
+
+    it('keeps visitors apart when the browser, the time or the page differ, or the new address has its own history', () => {
+      persist([event('a1', '2026-10-29T09:55:20.000Z', { ...landing, remoteIp: IP_A })])
+      persist([event('c1', '2026-10-29T09:55:22.000Z', { ...landing, userAgent: MAC, remoteIp: '203.0.113.30' })])
+      // The same browser 8 seconds later is not the same load.
+      persist([event('d1', '2026-10-29T09:55:28.000Z', { ...landing, remoteIp: '203.0.113.40' })])
+      persist([event('e1', '2026-10-29T09:55:22.000Z', { ...landing, path: '/', remoteIp: '203.0.113.50' })])
+      persist([event('f0', '2026-10-28T09:00:00.000Z', { ...landing, remoteIp: '203.0.113.60' })])
+      persist([event('f1', '2026-10-29T09:55:21.000Z', { ...landing, remoteIp: '203.0.113.60' })])
+      expect(visitorKeys()).toHaveLength(5)
+      expect(db.select().from(journeyVisitorAliases).all()).toEqual([])
+    })
+
+    it('joins within one batch, and when a backfill brings the earlier load after the later one', () => {
+      persist([
+        event('a1', '2026-10-31T21:54:36.000Z', { ...landing, path: '/', remoteIp: IP_A }),
+        event('b1', '2026-10-31T21:54:38.000Z', { ...landing, path: '/', remoteIp: IP_B }),
+      ])
+      expect(visitorKeys()).toEqual([keyOf(IP_A)])
+      persist([event('y1', '2026-10-31T22:30:02.000Z', { ...landing, remoteIp: '203.0.113.71' })])
+      persist([event('x1', '2026-10-31T22:30:00.000Z', { ...landing, remoteIp: '203.0.113.70' })])
+      expect(visitorKeys()).toEqual([keyOf(IP_A), keyOf('203.0.113.71')].sort())
+      expect(db.select().from(journeyVisitors).where(eq(journeyVisitors.visitorKey, keyOf('203.0.113.71'))).get()).toMatchObject({ firstAiAt: '2026-10-31T22:30:00.000Z' })
+    })
+
+    it('opens the visitor from a link to the joined address', async () => {
+      persist([event('a1', '2026-10-29T09:55:20.000Z', { ...landing, remoteIp: IP_A }), event('b1', '2026-10-29T09:55:23.000Z', { ...landing, remoteIp: IP_B })])
+      const res = await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/${keyOf(IP_B)}` })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().visitor).toMatchObject({ visitorKey: keyOf(IP_A) })
     })
   })
 

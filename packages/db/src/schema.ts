@@ -2930,6 +2930,21 @@ export const journeyVisitors = sqliteTable('journey_visitors', {
   index('idx_journey_visitors_last_seen').on(table.lastSeenAt),
 ])
 
+// A visitor key that is the same person as another key: with the same browser,
+// a new IP (iCloud Private Relay, a mobile network) loaded the same AI-tagged
+// page within seconds. Requests under `aliasKey` are kept under `visitorKey`.
+// Both are keyed hashes; no IP is stored. Retention drops a row once its
+// visitor is gone.
+export const journeyVisitorAliases = sqliteTable('journey_visitor_aliases', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  aliasKey: text('alias_key').notNull(),
+  visitorKey: text('visitor_key').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.aliasKey] }),
+  index('idx_journey_visitor_aliases_visitor').on(table.projectId, table.visitorKey),
+])
+
 export const journeyVisits = sqliteTable('journey_visits', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
@@ -3011,6 +3026,21 @@ export const agentJourneyCaptureDays = sqliteTable('agent_journey_capture_days',
 }, (table) => [
   primaryKey({ columns: [table.projectId, table.sourceId, table.day] }),
   index('idx_agent_journey_capture_days_day').on(table.day),
+])
+
+// The latest run of scanner probes from each client (a keyed hash of one IP)
+// claiming an AI agent, so a burst split across batches is still recognized.
+// Rows are dropped two days after their last probe.
+export const agentScannerClients = sqliteTable('agent_scanner_clients', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  clientKey: text('client_key').notNull(),
+  firstProbeAt: text('first_probe_at').notNull(),
+  lastProbeAt: text('last_probe_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.sourceId, table.clientKey] }),
+  index('idx_agent_scanner_clients_source_last').on(table.sourceId, table.lastProbeAt),
 ])
 
 export const discoverySessions = sqliteTable('discovery_sessions', {
