@@ -13,6 +13,7 @@ import {
   type GbpLocationDto, type GbpLocationListResponse, type GbpAccountListResponse,
   type GbpPlaceDetailsListResponse,
   type GbpReviewListResponse,
+  businessProfileReviewsCover,
   isNegativeReviewRating,
   resolveNegativeReviewMaxStars,
   gscSubmitSitemapsRequestDtoSchema,
@@ -2716,7 +2717,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   })
 
   // GET /projects/:name/gbp/reviews — stored reviews newest first, from the
-  // Business Profile v4 API or the public Places fallback, plus each location's
+  // Business Profile v4 API or the public Places fallback (a review both stored
+  // is listed once, see `withoutRepeatedPlacesReviews`), plus each location's
   // v4 access state and latest rating. `negative` means at or below the
   // project's threshold (`negativeReviewMaxStars`, 3 by default), the one the
   // `review.negative` webhook uses, so reads and alerts never disagree.
@@ -2764,13 +2766,14 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const conditions = [eq(gbpReviews.projectId, project.id)]
     if (locationName) conditions.push(eq(gbpReviews.locationName, locationName))
-    if (negativeOnly) conditions.push(sql`${gbpReviews.starRating} BETWEEN 1 AND ${negativeMaxStars}`)
-    const total = app.db.select({ n: sql<number>`count(*)` }).from(gbpReviews).where(and(...conditions)).get()?.n ?? 0
-    const reviews = app.db.select().from(gbpReviews)
+    const scoped = app.db.select().from(gbpReviews)
       .where(and(...conditions))
       .orderBy(desc(gbpReviews.updateTime), gbpReviews.reviewName)
-      .limit(limit)
       .all()
+    const listed = withoutRepeatedPlacesReviews(app.db, project.id, scoped)
+      .filter((r) => !negativeOnly || isNegativeReviewRating(r.starRating, negativeMaxStars))
+    const total = listed.length
+    const reviews = listed.slice(0, limit)
       .map((r) => ({
         locationName: r.locationName,
         origin: r.origin,
@@ -2874,6 +2877,54 @@ function parseReviewNegativeFlag(value: string | undefined): boolean {
   if (value === undefined || value === '' || value === 'false' || value === '0') return false
   if (value === 'true' || value === '1') return true
   throw validationError('"negative" must be "true" or "false"')
+}
+
+type StoredReview = typeof gbpReviews.$inferSelect
+
+/**
+ * The stored reviews a read lists. Business Profile v4 returns every review on
+ * a listing and the Places fallback at most five, and both stay stored because
+ * Places rows carry alert history. Where v4 covers a location (the rule the
+ * alert dispatcher applies), its Places rows are left out. Where it no longer
+ * does, a Places row is left out only when it repeats a stored v4 review, so
+ * one review never counts twice.
+ */
+function withoutRepeatedPlacesReviews(db: DatabaseClient, projectId: string, rows: StoredReview[]): StoredReview[] {
+  if (!rows.some((r) => r.origin === 'places')) return rows
+  const v4Locations = new Set(db.select({ locationName: gbpReviewRatings.locationName }).from(gbpReviewRatings)
+    .where(and(eq(gbpReviewRatings.projectId, projectId), eq(gbpReviewRatings.origin, 'gbp')))
+    .all()
+    .map((row) => row.locationName))
+  const covered = new Set(db.select({ locationName: gbpLocations.locationName, reviewsAccess: gbpLocations.reviewsAccess })
+    .from(gbpLocations)
+    .where(eq(gbpLocations.projectId, projectId))
+    .all()
+    .filter((loc) => businessProfileReviewsCover(loc.reviewsAccess ?? null, v4Locations.has(loc.locationName)))
+    .map((loc) => loc.locationName))
+  const v4Copies = new Set(db.select({ locationName: gbpReviews.locationName, reviewerName: gbpReviews.reviewerName, createTime: gbpReviews.createTime })
+    .from(gbpReviews)
+    .where(and(eq(gbpReviews.projectId, projectId), eq(gbpReviews.origin, 'gbp')))
+    .all()
+    .map(reviewIdentity)
+    .filter((key): key is string => key !== null))
+  return rows.filter((r) => {
+    if (r.origin !== 'places') return true
+    if (covered.has(r.locationName)) return false
+    const identity = reviewIdentity(r)
+    return identity === null || !v4Copies.has(identity)
+  })
+}
+
+/**
+ * One review's identity across both sources, which name it differently:
+ * location, reviewer, and the second it was created. Null when either is
+ * missing, so an unidentifiable review is never taken for a copy.
+ */
+function reviewIdentity(review: { locationName: string; reviewerName: string | null; createTime: string | null }): string | null {
+  const reviewer = review.reviewerName?.trim().toLowerCase()
+  const created = review.createTime === null ? Number.NaN : Date.parse(review.createTime)
+  if (!reviewer || !Number.isFinite(created)) return null
+  return `${review.locationName}\n${reviewer}\n${Math.floor(created / 1000)}`
 }
 
 function parseReviewLimit(value: string | undefined): number {

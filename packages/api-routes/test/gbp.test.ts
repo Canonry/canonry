@@ -833,4 +833,68 @@ describe('GBP routes (Phase 1)', () => {
       expect(all.reviews.find((r) => r.reviewName.endsWith('/b'))).toMatchObject({ starRating: 2, negative: false })
     })
   })
+
+  describe('GET /gbp/reviews with a review stored by both sources', () => {
+    // A listing read through the Places fallback before Business Profile access
+    // arrived keeps those Places rows next to the full v4 list: the same review
+    // twice under two names. Seen live: 30 stored rows for 25 reviews.
+    function seed(projectId: string, access: 'ok' | 'unavailable') {
+      const now = new Date().toISOString()
+      ctx.db.insert(gbpLocations).values({
+        id: 'loc', projectId, accountName: 'accounts/1', locationName: 'locations/1', displayName: 'Roofing',
+        selected: true, reviewsAccess: access, reviewsCheckedAt: now, createdAt: now, updatedAt: now,
+      }).run()
+      ctx.db.insert(gbpReviewRatings).values([
+        { id: 'rp', projectId, locationName: 'locations/1', origin: 'places', rating: 4.9, reviewCount: 5, firstObservedAt: '2026-09-01T00:00:00.000Z', observedAt: '2026-09-01T00:00:00.000Z', alertState: 'baseline' },
+        { id: 'rg', projectId, locationName: 'locations/1', origin: 'gbp', rating: 4.9, reviewCount: 4, firstObservedAt: '2026-10-01T00:00:00.000Z', observedAt: '2026-10-20T00:00:00.000Z', alertState: 'baseline' },
+      ]).run()
+      const row = (id: string, origin: 'gbp' | 'places', reviewerName: string | null, createTime: string | null, starRating: number) => ({
+        id, projectId, locationName: 'locations/1', origin, reviewName: `${origin}/${id}`, starRating, comment: `Comment ${id}`,
+        reviewerName, createTime, updateTime: createTime ?? '2026-05-01T00:00:00.000Z', firstSeenAt: now, lastSeenAt: now, alertState: 'baseline' as const,
+      })
+      ctx.db.insert(gbpReviews).values([
+        row('ann', 'gbp', 'Ann Lee', '2026-05-02T10:00:00.123Z', 5),
+        row('ben', 'gbp', 'Ben Ortiz', '2026-05-03T09:30:00.000Z', 2),
+        row('dee', 'gbp', null, '2026-05-05T08:00:00.000Z', 4),
+        // Places names the same reviews differently, with other casing, spacing and precision.
+        row('ann-copy', 'places', '  ann lee ', '2026-05-02T10:00:00.987654Z', 5),
+        row('ben-copy', 'places', 'Ben Ortiz', '2026-05-03T09:30:00Z', 2),
+        // Only Places saw these: a later review, and one with no reviewer to match on.
+        row('cal', 'places', 'Cal Reyes', '2026-05-04T12:00:00.000Z', 1),
+        row('dee-copy', 'places', null, '2026-05-05T08:00:00.000Z', 4),
+      ]).run()
+    }
+    const list = async (query = '') => gbpReviewListResponseSchema.parse(
+      (await ctx.app.inject({ method: 'GET', url: `/projects/roofing/gbp/reviews${query}` })).json(),
+    )
+    const ids = (body: { reviews: Array<{ reviewName: string }> }) => body.reviews.map((r) => r.reviewName)
+
+    it('lists only the Business Profile reviews while v4 covers the location', async () => {
+      seed(ctx.seedProject('roofing', 'roofing.example.com'), 'ok')
+      const body = await list()
+      expect(body.total).toBe(3)
+      expect(ids(body)).toEqual(['gbp/dee', 'gbp/ben', 'gbp/ann'])
+      const negative = await list('?negative=true')
+      expect(negative.total).toBe(1)
+      expect(ids(negative)).toEqual(['gbp/ben'])
+    })
+
+    it('drops only the Places copies of stored v4 reviews once v4 stops covering the location', async () => {
+      seed(ctx.seedProject('roofing', 'roofing.example.com'), 'unavailable')
+      const body = await list()
+      // 3 v4 reviews + Cal (only Places saw it) + the Places review with no reviewer, which is never taken for a copy.
+      expect(body.total).toBe(5)
+      expect(ids(body)).toEqual(['gbp/dee', 'places/dee-copy', 'places/cal', 'gbp/ben', 'gbp/ann'])
+      const negative = await list('?negative=true')
+      expect(negative.total).toBe(2)
+      expect(ids(negative)).toEqual(['places/cal', 'gbp/ben'])
+    })
+
+    it('counts the total before the limit cuts the page', async () => {
+      seed(ctx.seedProject('roofing', 'roofing.example.com'), 'unavailable')
+      const page = await list('?limit=2')
+      expect(page.total).toBe(5)
+      expect(ids(page)).toEqual(['gbp/dee', 'places/dee-copy'])
+    })
+  })
 })
