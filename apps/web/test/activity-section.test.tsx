@@ -330,9 +330,9 @@ test('Server activity shows AI hits without likely fakes and names the excluded 
   const logs = within(table).getByRole('row', { name: /Server logs/ })
   // The headline is the API's count; likely fakes are never added to it.
   expect(within(edge).getAllByRole('cell')[3]!.textContent).toBe('5')
-  expect(within(edge).getByRole('button', { name: /^Excludes 12 likely fake requests\. They claimed to be an AI agent but look fake/ })).toBeTruthy()
+  expect(within(edge).getByRole('button', { name: 'Excludes 12 fake requests from bots posing as an AI assistant.' })).toBeTruthy()
   expect(within(logs).getAllByRole('cell')[3]!.textContent).toBe('8')
-  expect(within(logs).queryByRole('button', { name: /likely fake/ })).toBeNull()
+  expect(within(logs).queryByRole('button', { name: /fake requests/ })).toBeNull()
 })
 
 test('renders the five disjoint channel figures the API sent, AI share from the channel breakdown', async () => {

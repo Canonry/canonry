@@ -32,7 +32,7 @@ const detail: AgentJourneyDetailResponse = {
   ...context, journey: journeys.journeys[0]!, totalEvents: 55, limit: 50, offset: 0,
   events: [
     { id: 'request-one', ts: '2026-10-27T12:01:00.000Z', host: 'example.com', path: '/rooms', method: 'GET', status: 200, latencyMs: null, verificationStatus: 'verified', verificationManifest: null, trust: 'verified', trustReasons: ['ip-in-published-list', 'documented-user-agent'], targetKey: null, attribution: 'not-configured' },
-    { id: 'request-two', ts: '2026-10-27T12:02:00.000Z', host: 'example.com', path: '/api/availability', method: 'GET', status: 302, latencyMs: 10, verificationStatus: 'verified', verificationManifest: null, trust: 'verified', trustReasons: ['ip-in-published-list', 'documented-user-agent'], targetKey: null, attribution: 'not-configured' },
+    { id: 'request-two', ts: '2026-10-27T12:02:00.000Z', host: 'example.com', path: '/api/availability', method: 'HEAD', status: 302, latencyMs: 10, verificationStatus: 'verified', verificationManifest: null, trust: 'verified', trustReasons: ['ip-in-published-list', 'documented-user-agent'], targetKey: null, attribution: 'not-configured' },
   ],
 }
 const visitorSummary: JourneySummaryResponse = {
@@ -129,43 +129,82 @@ test('the headline reads the API: visitors, came back with the rate in its toolt
   visitorResponses()
   await mount()
   await screen.findByRole('table', { name: 'AI-referred visitors' })
+  expect(screen.getByText('AI-referred visits').nextElementSibling?.textContent).toBe('41')
   expect(screen.getByText('AI-referred visitors').nextElementSibling?.textContent).toBe('27')
+  expect(screen.getByRole('button', { name: '3 more visitors matched by browser only are not counted: one browser version can be many people.' })).not.toBeNull()
   const cameBack = screen.getByText('Came back', { selector: 'dt' }).nextElementSibling!
   expect(cameBack.textContent).toBe('9 of 27, a 33.3% return rate')
-  expect(screen.getByRole('button', { name: '33.3% of AI-referred visitors came back in a later visit.' })).not.toBeNull()
+  expect(screen.getByRole('button', { name: '33.3% came back in a later visit.' })).not.toBeNull()
   expect(screen.getByText('Median time to return').nextElementSibling?.textContent).toBe('2.5 days')
   const channels = screen.getByText('Return visits by channel').nextElementSibling!
   expect(channels.textContent).toBe('Search 8Direct 4AI referral 3Referral 1')
   expect(within(channels as HTMLElement).queryByText(/Social|Paid/)).toBeNull()
-  const note = screen.getByText('Cloudflare: later visits are not recorded.').closest('li')!
-  expect(within(note).getByText('This source has not enabled page-view forwarding.')).not.toBeNull()
+  const note = screen.getByText('Later visits are not recorded for Cloudflare.').closest('li')!
+  expect(within(note).getByRole('button', { name: 'This source has not enabled page-view forwarding.' })).not.toBeNull()
   expect(within(note).getByRole('link', { name: 'Review source' }).getAttribute('href')).toBe('/traffic/example/edge')
 })
 
-test('visitor rows show the AI landing page, the path back from the first return, visits and last seen', async () => {
-  visitorResponses()
+test('a median return under a day reads in hours', async () => {
+  visitorResponses({ summary: { ...visitorSummary, medianDaysToReturn: 0.1 } })
+  await mount()
+  await screen.findByRole('table', { name: 'AI-referred visitors' })
+  expect(screen.getByText('Median time to return').nextElementSibling?.textContent).toBe('2 hours')
+})
+
+test('with browser-only visitors alone, visitors and returns are not measurable, and browser groups are one click away', async () => {
+  const notMeasurable = { ...visitorSummary, aiVisitors: null, aiVisits: 38, returningVisitors: null, returnRate: null, returnedVia: null, medianDaysToReturn: null, byEngine: [], keyBasis: { ipUa: 0, ua: 21 } }
+  const reads = visitorResponses({
+    summary: notMeasurable,
+    list: url => url.searchParams.get('keyBasis') === 'ua' ? { ...visitors, totalVisitors: 21 } : { ...visitors, totalVisitors: 0, visitors: [] },
+  })
+  const router = await mount()
+  await screen.findByText("Visitors can't be measured here.")
+  expect(screen.getByText('AI-referred visits').nextElementSibling?.textContent).toBe('38')
+  expect(screen.getByText('Visitors and returns').nextElementSibling?.textContent).toBe('Not measurable')
+  expect(screen.queryByText('AI-referred visitors', { selector: 'dt' })).toBeNull()
+  expect(screen.queryByText('Came back', { selector: 'dt' })).toBeNull()
+  expect(lastRead(reads, '/journeys')?.searchParams.get('keyBasis')).toBe('ip-ua')
+  fireEvent.click(screen.getByRole('button', { name: 'Show browser groups' }))
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ journeyMatching: 'ua' }))
+  await screen.findByText("Each row is everyone on one browser version, so its visits are not one person's.")
+  expect(lastRead(reads, '/journeys')?.searchParams.get('keyBasis')).toBe('ua')
+  expect(screen.getByText('1 to 1 of 21 browser groups')).not.toBeNull()
+})
+
+test('a median return under an hour reads in minutes', async () => {
+  visitorResponses({ summary: { ...visitorSummary, medianDaysToReturn: 0.0403 } })
+  await mount()
+  await screen.findByRole('table', { name: 'AI-referred visitors' })
+  expect(screen.getByText('Median time to return').nextElementSibling?.textContent).toBe('58 minutes')
+})
+
+test('visitor rows show the first AI visit, its landing page without tracking codes, the way back, visits and last seen', async () => {
+  visitorResponses({ list: () => ({ ...visitors, visitors: [{ ...visitors.visitors[0]!, visits: [{ ...aiVisit, landingPath: '/rooms?utm_source=chatgpt.com' }, searchVisit, directVisit] }] }) })
   await mount()
   const table = await screen.findByRole('table', { name: 'AI-referred visitors' })
-  const row = within(table).getAllByRole('row')[1]!
-  expect(within(row).getByText('ChatGPT')).not.toBeNull()
-  expect(within(row).getByText('/rooms')).not.toBeNull()
-  const then = row.querySelectorAll('td')[1]!
-  expect(then.textContent).toBe('GooglethenDirect…and more visits')
-  expect(within(row).getByText('23')).not.toBeNull()
+  const cells = within(table).getAllByRole('row')[1]!.querySelectorAll('td')
+  expect(within(cells[0]!).getByText('ChatGPT')).not.toBeNull()
+  // The tracking query is dropped from view; the full path stays on hover.
+  expect(cells[1]!.textContent).toBe('/rooms')
+  expect(cells[1]!.querySelector('[title]')?.getAttribute('title')).toBe('/rooms?utm_source=chatgpt.com')
+  // 22 later visits: two listed, the rest counted from the API's return channels.
+  expect(cells[2]!.textContent).toBe('Google, Direct +20 more')
+  expect(cells[3]!.textContent).toBe('23')
   expect(screen.getByText('1 to 1 of 27 visitors')).not.toBeNull()
 })
 
-test('the path back marks more visits from the API count, and a row without its AI visit shows no landing page', async () => {
-  const allShown = { ...visitor, visitorKey: 'all-shown', visitCount: 3, returnChannels: ['search' as const, 'direct' as const], visits: [aiVisit, searchVisit, directVisit] }
+test('back to back visits through one channel are said once, and a row without its AI visit says its landing page was not kept', async () => {
+  const repeat = { ...visitor, visitorKey: 'repeat', visitCount: 4, returnChannels: ['search', 'search', 'direct'] as JourneysResponse['visitors'][number]['returnChannels'], visits: [aiVisit, searchVisit, { ...searchVisit, id: 'visit-two-again' }, directVisit] }
   // Retention can remove a first AI visit while later visits remain.
   const noAiVisit = { ...visitor, visitorKey: 'no-ai', firstAiEngine: 'Perplexity', visitCount: 1, returnChannels: [], returned: false, visits: [directVisit] }
-  visitorResponses({ list: () => ({ ...visitors, totalVisitors: 2, visitors: [allShown, noAiVisit] }) })
+  visitorResponses({ list: () => ({ ...visitors, totalVisitors: 2, visitors: [repeat, noAiVisit] }) })
   await mount()
   const table = await screen.findByRole('table', { name: 'AI-referred visitors' })
   const [first, second] = within(table).getAllByRole('row').slice(1)
-  expect(first!.querySelectorAll('td')[1]!.textContent).toBe('GooglethenDirect')
-  expect(second!.querySelectorAll('td')[1]!.textContent).toBe('No return yet')
-  expect(second!.querySelectorAll('td')[0]!.textContent).toBe('Perplexity')
+  expect(first!.querySelectorAll('td')[2]!.textContent).toBe('Google ×2, Direct')
+  expect(second!.querySelectorAll('td')[2]!.textContent).toBe('No return yet')
+  expect(within(second!.querySelectorAll('td')[0]!).getByText('Perplexity')).not.toBeNull()
+  expect(second!.querySelectorAll('td')[1]!.textContent).toBe('Not kept')
 })
 
 test('filters, paging and period go into the URL and the requests, while the headline stays unfiltered', async () => {
@@ -201,98 +240,114 @@ test('filters, paging and period go into the URL and the requests, while the hea
   await waitFor(() => expect(lastRead(reads, '/journeys')?.searchParams.has('engine')).toBe(false))
 })
 
-test('the first visitor is selected by default and its journey reads pages and non-GET requests', async () => {
+test('no visitor opens by default; an opened one lists its visits top to bottom, and a visit lists its pages and non-GET requests', async () => {
   const reads = visitorResponses()
-  await mount()
-  const flow = await screen.findByRole('list', { name: 'Visits in time order' })
+  const router = await mount()
+  const table = await screen.findByRole('table', { name: 'AI-referred visitors' })
+  expect(screen.queryByRole('table', { name: 'Visits in time order' })).toBeNull()
+  expect(reads.some(url => url.pathname.endsWith('/visitor-one'))).toBe(false)
+  const opener = within(table).getByRole('button', { name: /^ChatGPT visitor, first AI visit / })
+  fireEvent.click(opener)
+  const visits = await screen.findByRole('table', { name: 'Visits in time order' })
+  expect(opener.getAttribute('aria-expanded')).toBe('true')
+  expect(router.state.location.search).toMatchObject({ journeyVisitor: 'visitor-one' })
   expect(Object.fromEntries(lastRead(reads, '/visitor-one')!.searchParams)).toEqual({ limit: '12', offset: '0', events: 'pages' })
-  const nodes = within(flow).getAllByRole('button')
-  expect(nodes.map(node => node.getAttribute('aria-label'))).toEqual([
-    expect.stringMatching(/^Visit 1 of 23: ChatGPT, AI referral, .+, 4 pages$/),
-    expect.stringMatching(/^Visit 2 of 23: Google, Search, .+, 9 pages$/),
-  ])
-  expect(nodes[0]!.getAttribute('aria-current')).toBe('step')
-  // A new calendar day between visits is marked, and writes are printed as recorded.
-  expect(flow.textContent).toContain('//')
-  expect(within(nodes[1]!).getByText('POST')).not.toBeNull()
-  expect(within(nodes[1]!).getByText('/api/hear-about-us')).not.toBeNull()
-  expect(within(nodes[1]!).getByText('9 pages · 51 requests')).not.toBeNull()
-  expect(screen.getByRole('table', { name: 'ChatGPT visit requests' })).not.toBeNull()
-  fireEvent.click(nodes[1]!)
-  const requests = await screen.findByRole('table', { name: 'Google visit requests' })
-  expect(nodes[1]!.getAttribute('aria-current')).toBe('step')
-  const rows = within(requests).getAllByRole('row').slice(1)
+  const rows = within(visits).getAllByRole('row').slice(1)
   expect(rows.map(row => [...row.querySelectorAll('td')].slice(1).map(cell => cell.textContent))).toEqual([
-    ['GET', '/', '200'], ['GET', '/booking/confirmation', '200'], ['POST', '/api/hear-about-us', '200'], ['GET', '/gone', '404'],
+    ['ChatGPT · AI referral', '/rooms', '4'],
+    ['Google · Search', '/', '9'],
   ])
-  expect(rows[3]!.querySelectorAll('td')[3]!.className).toContain('text-caution')
-  expect(screen.getByText(/Visit 2 of 23 · Google search ·/)).not.toBeNull()
+  fireEvent.click(within(rows[1]!).getByRole('button'))
+  const requests = await screen.findByRole('list', { name: 'Google visit requests' })
+  // Requests print as recorded: a write keeps its method, an error its status.
+  expect(within(requests).getAllByRole('listitem').map(item => [...item.children].slice(1).map(child => child.textContent))).toEqual([
+    ['/'], ['/booking/confirmation'], ['POST /api/hear-about-us'], ['/gone', '404'],
+  ])
+  expect(within(requests).getByText('404').className).toContain('text-caution')
 })
 
-test('show all requests switches the server filter, and later visits page the journey', async () => {
+test('a visitor opened from a link who is not on this page of the list still opens, and closes', async () => {
+  const offPage = { ...visitorDetail, visitor: { ...visitor, visitorKey: 'visitor-two' }, totalVisits: 1, visits: [{ ...searchVisit, entryName: null, paid: true, events: [] }] }
+  const reads = responses(url => url.pathname.endsWith('/journeys/visitor-two') ? json(offPage)
+    : url.pathname.endsWith('/journeys/summary') ? json(visitorSummary) : json(visitors))
+  const router = await mount('/projects/example/journeys?journeyVisitor=visitor-two')
+  await screen.findByText('This visitor is not on this page of the list.')
+  const visits = await screen.findByRole('table', { name: 'Visits in time order' })
+  expect(lastRead(reads, '/visitor-two')).toBeDefined()
+  // An unnamed paid search says its class once.
+  expect(within(visits).getAllByRole('row')[1]!.querySelectorAll('td')[1]!.textContent).toBe('Search · Paid')
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  await waitFor(() => expect((router.state.location.search as Record<string, unknown>).journeyVisitor).toBeUndefined())
+  expect(screen.queryByText('This visitor is not on this page of the list.')).toBeNull()
+})
+
+test('show all requests switches the server filter, and later visits page the open visitor', async () => {
   const reads = visitorResponses({ detail: url => url.searchParams.get('offset') === '12'
     ? { ...visitorDetail, offset: 12, visits: [{ ...directVisit, events: [{ ts: directVisit.startedAt, method: 'GET', path: '/', status: null, kind: 'page', aiTouch: false }] }] }
     : { ...visitorDetail, events: url.searchParams.get('events') === 'all' ? 'all' : 'pages' } })
-  await mount()
-  await screen.findByRole('list', { name: 'Visits in time order' })
-  fireEvent.click(screen.getByRole('button', { name: 'Show all 6 requests' }))
+  await mount('/projects/example/journeys?journeyVisitor=visitor-one')
+  const visits = await screen.findByRole('table', { name: 'Visits in time order' })
+  fireEvent.click(within(within(visits).getAllByRole('row')[1]!).getByRole('button'))
+  fireEvent.click(await screen.findByRole('button', { name: 'Show all 6 requests' }))
   await waitFor(() => expect(lastRead(reads, '/visitor-one')?.searchParams.get('events')).toBe('all'))
-  await screen.findByRole('button', { name: 'Show pages and non-GET requests' })
-  expect(screen.getByText(/^Every recorded request/)).not.toBeNull()
+  await screen.findByRole('button', { name: 'Show fewer requests' })
   fireEvent.click(screen.getByRole('button', { name: 'Later visits' }))
   await waitFor(() => expect(lastRead(reads, '/visitor-one')?.searchParams.get('offset')).toBe('12'))
-  const flow = await screen.findByRole('list', { name: 'Visits in time order' })
-  await waitFor(() => expect(within(flow).getAllByRole('button').map(node => node.getAttribute('aria-label'))).toEqual([expect.stringMatching(/^Visit 13 of 23: Direct, Direct, /)]))
-  expect(within(screen.getByRole('table', { name: 'Direct visit requests' })).getByText('-')).not.toBeNull()
+  await waitFor(() => {
+    const rows = within(screen.getByRole('table', { name: 'Visits in time order' })).getAllByRole('row').slice(1)
+    expect(rows.map(row => row.querySelectorAll('td')[1]!.textContent)).toEqual(['Direct'])
+  })
 })
 
-test('the visitor panel discloses matching, capped days, identity and a missing later source', async () => {
+test('an open visitor discloses matching, capped days, identity and a missing later source', async () => {
   visitorResponses({ detail: () => ({ ...visitorDetail, totalVisits: 2, visits: [visitorDetail.visits[0]!, { ...visitorDetail.visits[1]!, sourceId: 'edge' }] }) })
-  await mount()
-  await screen.findByRole('list', { name: 'Visits in time order' })
+  await mount('/projects/example/journeys?journeyVisitor=visitor-one')
+  await screen.findByRole('table', { name: 'Visits in time order' })
   expect(screen.getByText('Matched by browser only')).not.toBeNull()
-  expect(screen.getByText(/^2 visits, last seen /)).not.toBeNull()
-  expect(screen.getByRole('button', { name: 'Everyone using the same browser version shares this match, so this journey may combine several people.' })).not.toBeNull()
-  expect(screen.getByText('Some requests are missing')).not.toBeNull()
-  expect(screen.getByText(/reached on 2 days/)).not.toBeNull()
-  expect(screen.getByText('Later visits not recorded by Cloudflare')).not.toBeNull()
-  fireEvent.click(screen.getByText('How this visitor was matched'))
+  expect(screen.getByText('2 visits')).not.toBeNull()
+  expect(screen.getByRole('button', { name: 'May combine people who use the same browser version.' })).not.toBeNull()
+  expect(screen.getByText('Some requests are missing on 2 days.')).not.toBeNull()
+  expect(screen.getByRole('button', { name: /^At most [\d,]+ requests per visitor are kept each day\.$/ })).not.toBeNull()
+  expect(screen.getByText('Later visits are not recorded by Cloudflare.')).not.toBeNull()
+  fireEvent.click(screen.getByText('Technical details'))
   expect(screen.getByText('Synthetic Safari browser')).not.toBeNull()
   expect(screen.getByText('visitor-one')).not.toBeNull()
-  fireEvent.click(screen.getByText('Capture coverage and matching'))
+  fireEvent.click(screen.getByText('About this data'))
   expect(within(screen.getByRole('table', { name: 'Visitors by first AI engine' })).getByRole('row', { name: 'ChatGPT 20 7' })).not.toBeNull()
-  expect(screen.getByText('Matching: 24 visitors by network and browser, 3 visitors by browser only.')).not.toBeNull()
+  expect(screen.getByText('Matching: 24 visitors by network and browser, 3 visitors by browser only. Visitor figures count only the first: one browser version can be many people.')).not.toBeNull()
   expect(screen.getByText('41 AI-referred visits started in this period, including visits from earlier visitors.')).not.toBeNull()
 })
 
-test('agent request sequences open and page through the SDK with the server window and counts', async () => {
+test('agent visits open and page through the SDK with the server window and counts', async () => {
   const reads = responses(url => url.pathname.endsWith('/request-one')
     ? json(url.searchParams.get('offset') === '50' ? { ...detail, offset: 50, events: [{ ...detail.events[0]!, id: 'request-last', path: '/booking', method: 'POST', status: 409, latencyMs: 42 }] } : detail)
     : json(journeys))
   const router = await mount('/projects/example/journeys?journeyView=agents')
-  const table = await screen.findByRole('table', { name: 'Agent request sequences' })
-  expect(screen.getByRole('status').textContent).toBe('27 request sequences · 146 recorded requests')
+  const table = await screen.findByRole('table', { name: 'Agent visits' })
+  expect(screen.getByText('Agent visits', { selector: 'dt' }).nextElementSibling?.textContent).toBe('27')
+  expect(screen.getByText('Requests', { selector: 'dt' }).nextElementSibling?.textContent).toBe('146')
   expect(within(table).getByText('55')).not.toBeNull()
   expect(within(table).getByText('2 errors')).not.toBeNull()
   expect(within(table).getByText('Verified')).not.toBeNull()
-  expect(within(table).getByText('Inferred sequence')).not.toBeNull()
+  expect(within(table).queryByText('Inferred sequence')).toBeNull()
   // Likely fakes are counted by the API and never listed.
-  expect(screen.getByText('3 likely fake')).not.toBeNull()
-  expect(screen.getByRole('button', { name: /^3 likely fake requests\. These requests claimed to be an AI agent but look fake/ })).not.toBeNull()
-  expect(screen.getByRole('button', { name: /^Some requests missing\. A source reached its daily recording limit/ })).not.toBeNull()
-  const opener = within(table).getByRole('button', { name: /ChatGPT-User sequence/ })
+  expect(screen.getByText('Fake, not shown', { selector: 'dt' }).nextElementSibling?.textContent).toBe('3')
+  expect(screen.getByRole('button', { name: 'Bots posing as an AI assistant, such as scanners looking for secret files.' })).not.toBeNull()
+  expect(screen.getByText('Some requests are missing: a source reached its daily limit.')).not.toBeNull()
+  const opener = within(table).getByRole('button', { name: /ChatGPT-User visit/ })
   fireEvent.click(opener)
   const requests = await screen.findByRole('table', { name: 'ChatGPT-User recorded requests' })
   expect(opener.getAttribute('aria-expanded')).toBe('true')
   expect(screen.getByText(": IP on OpenAI's published list · User agent matches OpenAI's published one")).not.toBeNull()
   const rows = within(requests).getAllByRole('row').slice(1)
   expect(rows.map(row => [...row.querySelectorAll('td')].slice(1).map(cell => cell.textContent))).toEqual([
-    ['GET', 'example.com/rooms', '-', '200'], ['GET', 'example.com/api/availability', '10 ms', '302'],
+    ['example.com/rooms', '-', '200'], ['HEAD example.com/api/availability', '10 ms', '302'],
   ])
   expect(Object.fromEntries(lastRead(reads, '/request-one')!.searchParams)).toEqual({ since: context.windowStart, until: context.windowEnd, limit: '50', offset: '0' })
   fireEvent.click(screen.getByRole('button', { name: 'Later requests' }))
   await screen.findByText('409')
   expect(screen.getByText('42 ms')).not.toBeNull()
+  expect(within(screen.getByRole('table', { name: 'ChatGPT-User recorded requests' })).getAllByRole('row')[1]!.querySelectorAll('td')[1]!.textContent).toBe('POST example.com/booking')
   expect(lastRead(reads, '/request-one')?.searchParams.get('offset')).toBe('50')
   fireEvent.click(screen.getByRole('radio', { name: '7d' }))
   await waitFor(() => expect(router.state.location.search).toMatchObject({ journeyView: 'agents', agentHours: '168' }))
@@ -309,8 +364,8 @@ test('Advanced Property, source and trust filters reach list and detail without 
       : { ...journeys, scope, coverage, properties })
   })
   await mount('/projects/example/journeys?journeyView=agents')
-  await screen.findByRole('table', { name: 'Agent request sequences' })
-  expect(screen.getByText('3 likely fake')).not.toBeNull()
+  await screen.findByRole('table', { name: 'Agent visits' })
+  expect(screen.getByText('Fake, not shown', { selector: 'dt' }).nextElementSibling?.textContent).toBe('3')
   fireEvent.click(screen.getByText('Filter'))
   fireEvent.click(screen.getByText('Property: All properties'))
   fireEvent.change(screen.getByRole('searchbox', { name: 'Find a property' }), { target: { value: 'cafe' } })
@@ -323,16 +378,16 @@ test('Advanced Property, source and trust filters reach list and detail without 
   await waitFor(() => expect(reads.some(url => url.searchParams.get('targetKey') === 'cafe' && url.searchParams.get('sourceId') === 'edge' && url.searchParams.get('trust') === 'verified')).toBe(true))
   expect(screen.getByText('Trust:')).not.toBeNull()
   // A site-wide count would read as this Property's, so it is hidden.
-  expect(screen.queryByText(/likely fake/)).toBeNull()
-  fireEvent.click(await screen.findByRole('button', { name: /ChatGPT-User sequence/ }))
+  expect(screen.queryByText('Fake, not shown')).toBeNull()
+  fireEvent.click(await screen.findByRole('button', { name: /ChatGPT-User visit/ }))
   const requests = await screen.findByRole('table', { name: 'ChatGPT-User recorded requests' })
   expect(within(requests).getByText('Cafe')).not.toBeNull()
   const request = lastRead(reads, '/request-one')!
   expect(Object.fromEntries(request.searchParams)).toMatchObject({ sourceId: 'edge', trust: 'verified', targetKey: 'cafe', since: context.windowStart, until: context.windowEnd })
   expect(request.searchParams.has('marketKey')).toBe(false)
-  fireEvent.click(screen.getByText('Capture coverage'))
+  fireEvent.click(screen.getByText('About this data'))
   expect(screen.getByText('Property attribution uses URL matches in plan revision 8.')).not.toBeNull()
-  expect(screen.getByText(/do not establish the person's task, market/)).not.toBeNull()
+  expect(screen.getByText(/do not show the person's task, market/)).not.toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Only ChatGPT-User' }))
   await waitFor(() => expect(reads.at(-1)?.searchParams.get('agentId')).toBe('chatgpt-user'))
   expect(reads.at(-1)?.searchParams.get('offset')).toBe('0')
@@ -345,7 +400,7 @@ test('the view switch lives in the URL and mounts only the active evidence', asy
   expect(screen.getByRole('button', { name: 'Visitors' }).getAttribute('aria-current')).toBe('page')
   expect(reads.some(url => url.pathname.includes('/traffic/agent-journeys'))).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Agent requests' }))
-  await screen.findByRole('table', { name: 'Agent request sequences' })
+  await screen.findByRole('table', { name: 'Agent visits' })
   expect(router.state.location.search).toMatchObject({ journeyView: 'agents' })
   expect(screen.queryByRole('table', { name: 'AI-referred visitors' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Visitors' }))
@@ -365,7 +420,7 @@ test.each(['viewer', 'embed'])('journeys make no private requests in %s mode', a
 test.each(['visitors', 'agents'])('project-scoped read keys can inspect the %s view', async view => {
   const reads = visitorResponses()
   await mount(`/projects/example/journeys${view === 'agents' ? '?journeyView=agents' : ''}`, null, { id: 'read-key', scopes: ['read'], projectId: 'example-id', readOnly: true })
-  await screen.findByRole('table', { name: view === 'agents' ? 'Agent request sequences' : 'AI-referred visitors' })
+  await screen.findByRole('table', { name: view === 'agents' ? 'Agent visits' : 'AI-referred visitors' })
   expect(reads.some(url => url.pathname.endsWith(view === 'agents' ? '/traffic/agent-journeys' : '/journeys'))).toBe(true)
 })
 
@@ -385,10 +440,11 @@ test('summary, list and detail failures recover independently without becoming e
   await screen.findByText('Median time to return')
   failures.delete('list')
   fireEvent.click(within(screen.getByText(/Could not load visitors/).closest('[role="alert"]') as HTMLElement).getByRole('button', { name: 'Retry' }))
-  await screen.findByText(/Could not load this journey/)
+  fireEvent.click(await screen.findByRole('button', { name: /^ChatGPT visitor, first AI visit / }))
+  await screen.findByText(/Could not load this visitor's visits/)
   failures.delete('detail')
-  fireEvent.click(within(screen.getByText(/Could not load this journey/).closest('[role="alert"]') as HTMLElement).getByRole('button', { name: 'Retry' }))
-  await screen.findByRole('list', { name: 'Visits in time order' })
+  fireEvent.click(within(screen.getByText(/Could not load this visitor's visits/).closest('[role="alert"]') as HTMLElement).getByRole('button', { name: 'Retry' }))
+  await screen.findByRole('table', { name: 'Visits in time order' })
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
@@ -403,8 +459,8 @@ test('an empty cohort keeps unavailable values distinct from zero and keeps sour
   expect(screen.getByText('Return visits by channel').nextElementSibling?.textContent).toBe('None yet')
   expect(screen.queryByText(/return rate/)).toBeNull()
   expect(screen.queryByText('0%')).toBeNull()
-  expect(screen.getByText('Cloudflare: later visits are not recorded.')).not.toBeNull()
-  fireEvent.click(screen.getByText('Capture coverage and matching'))
+  expect(screen.getByText('Later visits are not recorded for Cloudflare.')).not.toBeNull()
+  fireEvent.click(screen.getByText('About this data'))
   expect(screen.getByText('4 AI-referred visits started in this period, including visits from earlier visitors.')).not.toBeNull()
 })
 
@@ -412,7 +468,7 @@ test('the traffic source page does not mount a duplicate journey analysis or mak
   const reads = responses(() => json(journeys))
   await mount('/traffic')
   await screen.findByText('No traffic sources connected for example.')
-  expect(screen.queryByRole('table', { name: 'Agent request sequences' })).toBeNull()
+  expect(screen.queryByRole('table', { name: 'Agent visits' })).toBeNull()
   expect(reads).toEqual([])
 })
 
@@ -422,9 +478,9 @@ test('a failed agent read has retry, and disabled capture does not claim an abse
     : json({ ...journeys, journeys: [], totalJourneys: 0, observedRequests: 0, coverage: { ...context.coverage, recordingEnabled: false, cappedSourceDays: [] } }))
   await mount('/projects/example/journeys?journeyView=agents')
   await screen.findByRole('alert')
-  expect(screen.queryByText('No agent requests in this selection.')).toBeNull()
+  expect(screen.queryByText('No agent requests in this period.')).toBeNull()
   failed = false
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-  await screen.findByText('No agent requests in this selection.')
-  expect(screen.getByRole('button', { name: 'Recording off. Agent request recording is not enabled on this instance. Saved sequences remain available.' })).not.toBeNull()
+  await screen.findByText('No agent requests in this period.')
+  expect(screen.getByText('Recording is off on this instance.')).not.toBeNull()
 })

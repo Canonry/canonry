@@ -617,11 +617,15 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
       .all()
     const visits = visitsByVisitor(app.db, project.id, candidates.map(v => v.visitorKey))
     const visitors = candidates.filter(v => visits.has(v.visitorKey))
+    // One browser-only key can be many people, so only IP-matched visitors are
+    // counted; with browser-only visitors alone, visitors are not measurable.
+    const counted = visitors.filter(v => v.keyBasis === JourneyKeyBases['ip-ua'])
+    const measurable = counted.length > 0 || visitors.length === 0
     const returnedVia = Object.fromEntries(journeyEntryClassSchema.options.map(c => [c, 0])) as Record<JourneyEntryClass, number>
     const daysToReturn: number[] = []
     const engines = new Map<string, { visitors: number; returningVisitors: number }>()
     let returning = 0
-    for (const visitor of visitors) {
+    for (const visitor of counted) {
       const later = laterVisits(visitor, visits.get(visitor.visitorKey) ?? [])
       const engine = engines.get(visitor.firstAiEngine) ?? { visitors: 0, returningVisitors: 0 }
       engine.visitors += 1
@@ -642,17 +646,14 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
       windowStart,
       windowEnd,
       lookbackDays: JOURNEY_LOOKBACK_DAYS,
-      aiVisitors: visitors.length,
+      aiVisitors: measurable ? counted.length : null,
       aiVisits,
-      returningVisitors: returning,
-      returnRate: visitors.length ? roundRatio(returning / visitors.length, RatioUnits.fraction) : null,
-      returnedVia,
-      medianDaysToReturn: days === null ? null : Math.round(days * 10) / 10,
+      returningVisitors: measurable ? returning : null,
+      returnRate: counted.length ? roundRatio(returning / counted.length, RatioUnits.fraction) : null,
+      returnedVia: measurable ? returnedVia : null,
+      medianDaysToReturn: days === null ? null : Math.round(days * 10_000) / 10_000,
       byEngine: [...engines].map(([engine, v]) => ({ engine, ...v })).sort((a, b) => b.visitors - a.visitors || a.engine.localeCompare(b.engine)),
-      keyBasis: {
-        ipUa: visitors.filter(v => v.keyBasis === JourneyKeyBases['ip-ua']).length,
-        ua: visitors.filter(v => v.keyBasis !== JourneyKeyBases['ip-ua']).length,
-      },
+      keyBasis: { ipUa: counted.length, ua: visitors.length - counted.length },
       partialSources: partialSources(app.db, project.id),
     }
     return response
@@ -665,6 +666,7 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
     const { windowStart, windowEnd } = window(query.since, query.until)
     const filters = [eq(journeyVisitors.projectId, project.id), gte(journeyVisitors.firstAiAt, windowStart), lte(journeyVisitors.firstAiAt, windowEnd)]
     if (query.engine) filters.push(sql`lower(${journeyVisitors.firstAiEngine}) = ${query.engine.toLowerCase()}`)
+    if (query.keyBasis) filters.push(eq(journeyVisitors.keyBasis, query.keyBasis))
     const all = app.db.select().from(journeyVisitors).where(and(...filters)).orderBy(desc(journeyVisitors.firstAiAt), desc(journeyVisitors.visitorKey)).all()
     const visits = visitsByVisitor(app.db, project.id, all.map(v => v.visitorKey))
     const matching = all

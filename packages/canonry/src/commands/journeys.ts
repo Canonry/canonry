@@ -1,4 +1,5 @@
 import {
+  formatDayDuration,
   formatPercent,
   formatValidationIssues,
   JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY,
@@ -24,6 +25,8 @@ export interface JourneyWindowOptions {
 export interface JourneyListOptions extends JourneyWindowOptions {
   engine?: string
   returned?: boolean
+  /** `ip-ua` or `ua` (browser only, where one key can be many people). */
+  keyBasis?: string
   limit?: number
   offset?: number
 }
@@ -52,7 +55,7 @@ function printPartialSources(sources: JourneyPartialSources): void {
   for (const source of sources) console.log(`Partial source ${source.sourceId} (${source.sourceType}): ${source.reason}`)
 }
 
-const UA_NOTE = 'Visitors keyed by user agent only (sources without an IP, such as Vercel) can merge different people on the same device and browser version.'
+const UA_NOTE = 'Visitors keyed by user agent only (sources without an IP, such as Vercel) can merge different people on the same device and browser version, so visitor and return figures leave them out.'
 
 export async function journeysSummary(project: string, opts: JourneyWindowOptions): Promise<void> {
   const query = parse(journeySummaryQuerySchema, compact({ since: opts.since, until: opts.until }))
@@ -62,14 +65,21 @@ export async function journeysSummary(project: string, opts: JourneyWindowOption
     return
   }
   console.log(`AI visitor journeys for "${project}", first AI visit ${day(result.windowStart)} to ${day(result.windowEnd)}`)
-  console.log(`AI visitors: ${result.aiVisitors} (IP and user agent ${result.keyBasis.ipUa}, user agent only ${result.keyBasis.ua})`)
-  console.log(`AI visits: ${result.aiVisits}`)
-  const rate = formatPercent(result.returnRate)
-  const median = result.medianDaysToReturn === null ? '' : `, median ${result.medianDaysToReturn.toFixed(1)} days to return`
-  console.log(`Came back later: ${result.returningVisitors} (${rate})${median}`)
-  const via = (Object.entries(result.returnedVia) as [JourneyEntryClass, number][]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
-  if (via.length > 0) console.log(`Later visits by entry: ${via.map(([cls, n]) => `${cls} ${n}`).join(', ')}`)
-  for (const row of result.byEngine) console.log(`  ${row.engine}: ${row.visitors} visitors, ${row.returningVisitors} came back`)
+  if (result.aiVisitors === null || result.returningVisitors === null || result.returnedVia === null) {
+    console.log(`AI visitors: not measurable (all ${result.keyBasis.ua} are matched by user agent only)`)
+    console.log(`AI visits: ${result.aiVisits}`)
+    console.log('Came back later: not measurable')
+  } else {
+    const uncounted = result.keyBasis.ua > 0 ? `, ${result.keyBasis.ua} more matched by user agent only are not counted` : ''
+    console.log(`AI visitors: ${result.aiVisitors} (matched by IP and user agent${uncounted})`)
+    console.log(`AI visits: ${result.aiVisits}`)
+    const rate = formatPercent(result.returnRate)
+    const median = result.medianDaysToReturn === null ? '' : `, median ${formatDayDuration(result.medianDaysToReturn)} to return`
+    console.log(`Came back later: ${result.returningVisitors} (${rate})${median}`)
+    const via = (Object.entries(result.returnedVia) as [JourneyEntryClass, number][]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
+    if (via.length > 0) console.log(`Later visits by entry: ${via.map(([cls, n]) => `${cls} ${n}`).join(', ')}`)
+    for (const row of result.byEngine) console.log(`  ${row.engine}: ${row.visitors} visitors, ${row.returningVisitors} came back`)
+  }
   console.log(`Visits are kept for ${result.lookbackDays} days after each AI visit. ${result.keyBasis.ua > 0 ? UA_NOTE : ''}`.trim())
   printPartialSources(result.partialSources)
 }
@@ -80,6 +90,7 @@ export async function journeysList(project: string, opts: JourneyListOptions): P
     until: opts.until,
     engine: opts.engine,
     returned: opts.returned === undefined ? undefined : String(opts.returned),
+    keyBasis: opts.keyBasis,
     limit: opts.limit,
     offset: opts.offset,
   }))

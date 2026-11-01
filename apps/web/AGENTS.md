@@ -51,31 +51,45 @@ agent period (`agentHours`); only the active view reads journey data.
 and render server values without calculating metrics in the browser.
 
 Visitor summary dates select first-AI-arrival cohorts; return behavior includes
-their later visits. Engine and came-back filters affect the visitor list only.
-The list sits beside the selected visitor's panel: `JourneyFlow` draws its
-visits left to right in time order as an ordered list of buttons, with the
-entry class carried by marker shape and text, `//` for a new calendar day, and
-non-GET requests printed as recorded. Spacing is ordinal, never proportional to
-time. The visit table loads `events=pages` from the API and offers every request
-on demand; never filter requests in the browser. Keep null metrics unavailable,
-matching uncertainty explicit, and source gaps and capped days visible. Never
-name what a request did ("form submit", "booking"): print method and path.
-Visitor reads are project-wide for both Simple and Advanced portfolios; they do
-not establish Property or market scope.
+their later visits. The summary is a number strip (AI-referred visits, visitors,
+came back, median time to return in `formatDayDuration` words, return visits by
+channel) with one-line tooltips. Visitor figures count network-and-browser
+keys only; when the API returns them null (browser-only keys alone), the strip
+shows AI-referred visits and one "Visitors and returns: Not measurable" figure,
+and the empty list offers browser groups. Engine, came-back and matching
+(`journeyMatching`) filters affect the visitor list only; the list asks for
+network-and-browser keys unless browser groups are chosen, which carry a note
+that a row is everyone on one browser version.
+The list is one full-width table: first AI visit, landing page, came back
+through, visits, last seen. Landing pages read `pathWithoutQuery`, with the
+recorded path in `title`; back-to-back return visits through one channel read
+once with a count (`Google ×2`). No visitor opens by default. A row opens in
+place (`journeyVisitor`; a linked visitor not on the current page opens above
+the list) into that visitor's visits, top to bottom (when, came
+from, landing page, pages), and a visit opens to its requests. The visits load
+`events=pages` from the API and offer every request on demand; never filter
+requests in the browser. Request counts, the visitor key and user agent, and
+capture coverage live in an opened visit, `Technical details` and `About this
+data`; the default view shows no source plumbing or time-zone labels. Keep null
+metrics unavailable, matching uncertainty explicit, and source gaps and capped
+days visible. Never name what a request did ("form submit", "booking"): print
+the path, with its method when that is not GET. Visitor reads are project-wide for both Simple and Advanced
+portfolios; they do not establish Property or market scope.
 
 The Agent requests view uses the generated list/detail reads and renders their counts without
 recomputing them. Detail pagination keeps the list response's exact time window
 and source, agent, trust and Property filters. Trust (Verified, Likely real,
-Unknown, with reasons in the expanded sequence) is separate from inferred
-request correlation; likely fake requests are never listed and appear only as
-the API's `coverage.likelyFakeRequests` count, hidden when it is null (a
-Property filter). Activity's AI hits and the source
+Unknown, with reasons in the opened agent visit) is separate from request
+grouping, which only the `Agent visits` tooltip and `About this data` explain;
+likely fake requests are never listed and appear only as the API's
+`coverage.likelyFakeRequests` count ("Fake, not shown"), hidden when it is null
+(a Property filter). Activity's AI hits and the source
 page's AI user fetches show the API's count without likely fakes and name
 `aiUserFetchLikelyFakeHits` in a tooltip; trust wording lives in
 `lib/agent-trust-copy.ts`; paths and HTTP status never prove
 clicks or task completion. Current-plan URL attribution names its revision and
-does not invent market, query, class or model scope. Capture limits and source
-gaps remain available in the coverage disclosure. Hide journey navigation and reads for viewer
+does not invent market, query, class or model scope. Capture limits, source
+labels and gaps remain available in `About this data`. Hide journey navigation and reads for viewer
 accounts and embeds, but retain it for scoped read keys; the API owns authority.
 
 ### SEO

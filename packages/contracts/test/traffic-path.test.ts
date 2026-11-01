@@ -6,6 +6,7 @@ import {
   emptyCrawlerSegments,
   TrafficPathClasses,
   UNRECORDED_TRAFFIC_PATH,
+  pathWithoutQuery,
 } from '../src/traffic-path.js'
 
 describe('classifyTrafficPath', () => {
@@ -209,5 +210,14 @@ describe('segmentCrawlerHits', () => {
   it('returns an all-zero breakdown for no rows', () => {
     expect(segmentCrawlerHits([])).toEqual(emptyCrawlerSegments())
     expect(sumInfraHits(emptyCrawlerSegments())).toBe(0)
+  })
+})
+
+describe('pathWithoutQuery', () => {
+  it('drops the query string and fragment, keeping the root for a bare query', () => {
+    expect(pathWithoutQuery('/?utm_source=chatgpt.com')).toBe('/')
+    expect(pathWithoutQuery('/rooms/two-bedroom-suite?utm_source=chatgpt.com#book')).toBe('/rooms/two-bedroom-suite')
+    expect(pathWithoutQuery('/index-isr')).toBe('/index-isr')
+    expect(pathWithoutQuery('')).toBe('/')
   })
 })

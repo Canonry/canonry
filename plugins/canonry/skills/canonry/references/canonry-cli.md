@@ -1991,7 +1991,9 @@ sign-in, payment or booking-engine referer is a step inside the visit.
 Visits are stored when they fall within 30 days after one of the visitor's AI visits;
 rows are deleted after 180 days. A visitor key is a keyed hash, never an IP.
 Sources without an IP (Vercel) key on the user agent only, so people with the
-same device and browser version can merge; `keyBasis` says which. A key stores
+same device and browser version can merge; `keyBasis` says which. Visitor and
+return figures count only IP-and-user-agent keys and are null (not measurable)
+when there are none; `list` takes `--key-basis ip-ua|ua`. A key stores
 at most 300 requests per UTC day besides AI touches; `cappedDays` counts the days it hit
 that cap. `partialSources` names sources whose logs miss later visits (the
 Cloudflare Worker forwards only AI and bot requests). Query

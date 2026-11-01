@@ -21,10 +21,10 @@ export function trustReasonLabel(reason: AgentTrustReason, operator: string): st
   }
 }
 
-export const LIKELY_FAKE_HELP = 'These requests claimed to be an AI agent but look fake: they asked for secret or admin files, or used a user agent unlike the one the company publishes. They are counted, never listed, and never added to AI agent hits.'
+export const LIKELY_FAKE_HELP = 'Bots posing as an AI assistant, such as scanners looking for secret files.'
 
 /** Tooltip sentence for an AI agent hit count that leaves likely fake requests out. */
 export function likelyFakeAgentHitsNote(likelyFake: number): string {
-  if (likelyFake === 0) return 'No likely fake agent requests in this period.'
-  return `Excludes ${likelyFake.toLocaleString('en-US')} likely fake ${likelyFake === 1 ? 'request' : 'requests'}. ${LIKELY_FAKE_HELP.replace('These requests', 'They')}`
+  if (likelyFake === 0) return 'No fake agent requests in this period.'
+  return `Excludes ${likelyFake.toLocaleString('en-US')} fake ${likelyFake === 1 ? 'request' : 'requests'} from bots posing as an AI assistant.`
 }

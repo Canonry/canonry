@@ -1300,9 +1300,11 @@ every source and needs no site snippet or goal setup. Read it with
   overcount people slightly. The once-after-startup correction joins stored
   visitors the same way.
 - Vercel logs carry no IP, so those visitors are keyed by user agent only.
-  Chrome reports the same user agent for every Mac on one version, so a key can
-  merge people: such visitors undercount people and can overstate return rates.
-  Read `keyBasis` before quoting a return rate. A key stores at most 300
+  Chrome reports the same user agent for every Mac on one version, so one key
+  can be many people. Visitor and return figures leave such keys out; with
+  only those, `aiVisitors` and the return figures are null (not measurable)
+  while `aiVisits` still counts. `cnry journeys list --key-basis ua` lists them
+  as browser groups. A key stores at most 300
   requests per UTC day besides AI touches; `cappedDays` counts the days it hit
   that cap.
 - By default the Cloudflare Worker forwards only AI-referred and bot requests,
