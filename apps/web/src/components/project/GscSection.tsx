@@ -2,7 +2,7 @@ import { useAccount } from '../../contexts/account-context.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
 import { Link } from '@tanstack/react-router'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { GscPerformanceDailyDto, MetricsWindow } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
@@ -25,7 +25,8 @@ import {
   formatChartDateTick,
   type TrendChartSeries,
 } from '../shared/ChartPrimitives.js'
-import { calendarDateRange, formatPercent, formatRunErrorOneLine, RunKinds, RunStatuses, type GscPeriodComparison } from '@canonry/canonry-contracts'
+import { TrendCard, levelTrendChange, sharedLevelBasis, type TrendCardChange, type TrendCardFigure, type TrendCardGroup, type TrendCardTone } from '../shared/TrendCard.js'
+import { calendarDateRange, formatPercent, formatPointDelta, formatRunErrorOneLine, RunKinds, RunStatuses, type GscPeriodComparison } from '@canonry/canonry-contracts'
 import { formatTimestamp, formatBooleanState, SearchMetric, SEARCH_METRIC_LABELS } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -63,6 +64,7 @@ import {
   getApiV1ProjectsByNameGoogleGscPerformanceOptions,
   getApiV1ProjectsByNameGoogleGscSitemapsQueryKey,
   getApiV1ProjectsByNameGooglePropertiesOptions,
+  getApiV1ProjectsByNameTrendsOptions,
 } from '@canonry/canonry-api-client/react-query'
 import {
   useTriggerGscSync,
@@ -120,40 +122,52 @@ const COVERAGE_PAGE_SIZE = 25
 const GOOGLE_OAUTH_COMPLETE_MESSAGE = 'canonry:google-oauth-complete'
 
 /**
- * Express the trailing period's change against the equal period before it.
+ * The trailing period's change against the equal period before it, as a trend
+ * card change line.
  *
- * This replaced a percentage taken off the fitted trend line's own start value.
- * That baseline was a value the property never had: the fit is unconstrained,
- * so it predicted a NEGATIVE day-one figure for impressions on a real property
- * and the tile printed nothing at all on a metric that had grown six-fold. Where
- * it did print, it described the line rather than the data — average position
- * read as a 45.8% improvement across a window in which the real position got
- * worse. Both periods here are stretches the property actually recorded.
+ * Both periods are stretches the property actually recorded. This replaced a
+ * percentage taken off the fitted trend line's own start value, a value the
+ * property never had: the unconstrained fit predicted a NEGATIVE day-one figure
+ * for impressions on a real property, and read average position as a 45.8%
+ * improvement across a window in which the real position got worse.
  *
- * Position reverses only the desirability arrow, not the math: a rank number
- * going UP is a WORSE result, so `inverted` flips which direction reads as an
- * improvement.
+ * Clicks and impressions move as a percentage. CTR moves in points and position
+ * in places when the server sent `difference`: a ratio of a rate or a rank says
+ * little. The arrow follows the number; `inverted` (position, where a smaller
+ * number is a better rank) flips only whether that is good news.
  *
- * `comparison.days` is the length of ONE period, and under
- * `basis: 'split-window'` that is half the selected window — which is why
- * pressing `90d` could produce "vs prior 45d". The number was always accurate;
- * it names the period it measured, not the button. Every string here is built
- * from `days` for that reason, and the heading tooltip explains which basis is
- * in force.
+ * `comparison.days` is the length of ONE period, and under `basis:
+ * 'split-window'` that is half the selected window, which is why pressing `90d`
+ * can read "vs prior 45 days". Every string names the period it measured, and
+ * the heading tooltip explains which basis is in force.
  */
-export function formatGscPeriodChange(
+export function gscTrendChange(
   comparison: GscPeriodComparison | null | undefined,
   metric: GscChartMetric,
   inverted: boolean | undefined,
-): string {
+): TrendCardChange {
   // A server older than this field, or a window too short to split, gives us
   // nothing to compare. Say so plainly rather than imply a flat period.
-  if (!comparison) return 'no comparison period'
-
-  const days = comparison.days
+  if (!comparison) return { kind: 'note', text: 'No comparison period' }
   // Any dimensioned fallback makes property totals unavailable. This can be
   // true even when both halves carry the same source.
-  if (!comparison.comparable) return 'property-level comparison unavailable'
+  if (!comparison.comparable) return { kind: 'note', text: 'Property-level comparison unavailable' }
+
+  const span = `${comparison.days} ${comparison.days === 1 ? 'day' : 'days'}`
+  const basis = `vs prior ${span}`
+  const tone = (rising: boolean): TrendCardTone => rising !== Boolean(inverted) ? 'better' : 'worse'
+
+  const difference = metric === 'ctr' || metric === 'position' ? comparison.difference?.[metric] : undefined
+  if (difference !== undefined && difference !== null && Number.isFinite(difference)) {
+    if (difference === 0) return { kind: 'delta', amount: metric === 'ctr' ? '0 pts' : '0', direction: 'flat', tone: 'neutral', basis }
+    return {
+      kind: 'delta',
+      amount: metric === 'ctr' ? `${formatPointDelta(Math.abs(difference)).magnitude} pts` : Math.abs(difference).toFixed(1),
+      direction: difference > 0 ? 'up' : 'down',
+      tone: tone(difference > 0),
+      basis,
+    }
+  }
 
   const ratio = comparison.change[metric]
   // The prior period was zero or unmeasured. Growth from nothing has no
@@ -161,21 +175,23 @@ export function formatGscPeriodChange(
   if (ratio === null || !Number.isFinite(ratio)) {
     const prior = comparison.prior[metric]
     const trailing = comparison.trailing[metric]
-    if (prior !== null && trailing !== null && prior <= 0 && trailing > 0) {
-      return `new in the last ${days}d`
-    }
-    if (prior === null || prior <= 0) return `no prior ${days}d to compare`
-    if (trailing === null) return `no value in the last ${days}d`
-    return 'comparison unavailable'
+    if (prior !== null && trailing !== null && prior <= 0 && trailing > 0) return { kind: 'note', text: `New in the last ${span}` }
+    if (prior === null || prior <= 0) return { kind: 'note', text: `No prior ${span} to compare` }
+    if (trailing === null) return { kind: 'note', text: `No value in the last ${span}` }
+    return { kind: 'note', text: 'Comparison unavailable' }
   }
-
-  if (ratio === 0) return `→ no change vs prior ${days}d`
-
+  if (ratio === 0) return { kind: 'delta', amount: '0%', direction: 'flat', tone: 'neutral', basis }
   // The arrow carries the direction, so the size is formatted unsigned. A real
   // movement never reads as flat: `formatPercent` prints `<0.1%` below a tenth.
-  const improving = inverted ? ratio < 0 : ratio > 0
-  return `${improving ? '↑' : '↓'} ${formatPercent(Math.abs(ratio))} vs prior ${days}d`
+  return { kind: 'delta', amount: formatPercent(Math.abs(ratio)), direction: ratio > 0 ? 'up' : 'down', tone: tone(ratio > 0), basis }
 }
+
+/** Indexed pages per search engine, from the stored coverage trend; a never-connected engine has no entry. */
+const INDEXED_METRICS = [
+  { key: 'google-indexed' as const, engine: 'google', color: CHART_SERIES_COLORS[0] },
+  { key: 'bing-indexed' as const, engine: 'bing', color: CHART_SERIES_COLORS[6] },
+]
+type GscChartKey = GscChartMetric | (typeof INDEXED_METRICS)[number]['key']
 
 /**
  * The sentence in the section tooltip that says which two periods the tiles
@@ -255,8 +271,14 @@ export function GscSection({
   const [syncDays, setSyncDays] = useState('30')
   const [fullSync, setFullSync] = useState(false)
   const [gscWindow, setGscWindow] = useState<MetricsWindow>('30d')
+  // Indexed pages over the same window, from the stored coverage trend. A
+  // failed read leaves the performance figures standing without them.
+  const coverageTrend = useQuery({
+    ...getApiV1ProjectsByNameTrendsOptions({ client: heyClient, path: { name: projectName }, query: { surface: 'index-coverage', window: gscWindow } }),
+    staleTime: GSC_STALE_MS,
+  })
   // Clicks + impressions selected by default, matching Search Console.
-  const [chartMetrics, setChartMetrics] = useState<GscChartMetric[]>(['clicks', 'impressions'])
+  const [chartMetrics, setChartMetrics] = useState<GscChartKey[]>(['clicks', 'impressions'])
   const [showTrend, setShowTrend] = useState(true)
   // The day the table is drilled into, or null for the whole window. Bumping
   // the nonce is what re-runs the fetch, so re-clicking the same day still
@@ -860,6 +882,7 @@ export function GscSection({
   // bumps refreshNonce (after it syncs Google data and invalidates the cache).
   useEffect(() => {
     void loadSection()
+    void coverageTrend.refetch()
   }, [projectName, refreshNonce, isAdmin])
 
   useEffect(() => {
@@ -1234,112 +1257,137 @@ export function GscSection({
                   </div>
                 </div>
 
-                {/* Search-performance chart — one axis PER METRIC (Search
-                    Console's own shape), driven by the daily aggregate endpoint
-                    so it reflects the whole window, not the current page. The
-                    dashed fits come from the API; nothing is regressed here. */}
+                {/* Search performance: the figures are the trend card's toggles, as in
+                    Search Console, and the chart gives each metric its own axis, driven
+                    by the daily aggregate endpoint so it reflects the whole window, not
+                    the current page. The dashed fits come from the API. */}
                 {performanceDaily && performanceDaily.daily.length > 0 && (() => {
-                  // `trends` is optional at RUNTIME: a server older than the
-                  // field omits it, and the chart must degrade to plain lines
-                  // rather than crash. Same skew guard as `window`.
+                  // `trends`, `window` and `periodComparison` are optional at RUNTIME: a
+                  // server older than the field omits it, and the card must degrade to
+                  // plain lines and a stated absence rather than crash.
                   const { totals, daily, trends, periodComparison } = performanceDaily
-                  const selected = GSC_CHART_METRICS.filter((m) => chartMetrics.includes(m.key))
-                  const series: TrendChartSeries[] = selected.map((m) => ({
-                    dataKey: m.key,
-                    label: m.label,
-                    color: m.color,
-                    axisId: m.key,
-                    inverted: m.inverted,
-                    formatValue: m.format,
-                    trend: showTrend ? trends?.[m.key] ?? null : null,
-                  }))
-                  // `undefined` when the server predates the field; a missing
-                  // metric is the same "not measured" as an explicit null, and
-                  // must never reach a formatter.
+                  // `undefined` when the server predates the field; a missing metric is
+                  // the same "not measured" as an explicit null, and must never reach a
+                  // formatter.
                   const totalFor = (key: GscChartMetric): number | null => totals[key] ?? null
+                  const indexed = INDEXED_METRICS.flatMap((metric) => {
+                    const group = coverageTrend.data?.groups.find((g) => g.key === metric.engine)
+                    const figure = group?.figures.find((f) => f.key === 'indexed')
+                    return group && figure ? [{ ...metric, label: group.label, figure }] : []
+                  })
 
-                  // Plot one row per CALENDAR DAY, not per returned row.
-                  // `daily` holds only dates that produced data, but the server
-                  // fits over the calendar, so its `startIndex`/`endIndex` only
-                  // line up with a calendar-dense series — against row
-                  // positions the trend line traversed a fraction of its range
-                  // and ended on the wrong value. It is also the honest x-axis:
-                  // a six-day quiet stretch should look like six days.
+                  // Plot one row per CALENDAR DAY, not per returned row, from the first
+                  // day with data. `daily` holds only dates that produced data, but the
+                  // server fits over the calendar, so its `startIndex`/`endIndex` line up
+                  // only with a calendar-dense series that starts where `daily` starts.
+                  // It is also the honest x-axis: a six-day quiet stretch should look
+                  // like six days. Indexed pages can run past Google's latest data; the
+                  // range extends forward only, so every fit index stays put.
                   const byDate = new Map(daily.map((d) => [d.date, d]))
-                  const chartRows = daily.length === 0
-                    ? []
-                    : calendarDateRange(daily[0]!.date, daily[daily.length - 1]!.date)
-                      .map((date) => byDate.get(date) ?? { date })
+                  const coverageByDate = new Map(indexed.map((metric) => [metric.key, new Map(metric.figure.series.map((point) => [point.date, point.value]))]))
+                  const lastPerformance = daily[daily.length - 1]!.date
+                  const lastIndexed = indexed
+                    .filter((metric) => chartMetrics.includes(metric.key))
+                    .map((metric) => metric.figure.series.at(-1)?.date)
+                    .filter((date): date is string => Boolean(date))
+                    .sort()
+                    .at(-1)
+                  const endDate = lastIndexed && lastIndexed > lastPerformance ? lastIndexed : lastPerformance
+                  const chartRows = calendarDateRange(daily[0]!.date, endDate).map((date) => {
+                    const row: Record<string, unknown> = { ...(byDate.get(date) ?? { date }) }
+                    for (const metric of indexed) row[metric.key] = coverageByDate.get(metric.key)?.get(date) ?? null
+                    return row
+                  })
+                  const series: TrendChartSeries[] = [
+                    ...GSC_CHART_METRICS.filter((m) => chartMetrics.includes(m.key)).map((m) => ({
+                      dataKey: m.key,
+                      label: m.label,
+                      color: m.color,
+                      axisId: m.key,
+                      inverted: m.inverted,
+                      formatValue: m.format,
+                      trend: showTrend ? trends?.[m.key] ?? null : null,
+                    })),
+                    ...indexed.filter((metric) => chartMetrics.includes(metric.key)).map((metric) => ({
+                      dataKey: metric.key,
+                      label: `${metric.label} indexed pages`,
+                      color: metric.color,
+                      axisId: metric.key,
+                      formatValue: (v: number) => v.toLocaleString(),
+                      connectNulls: true,
+                    })),
+                  ]
+                  const performanceGroup: TrendCardGroup = {
+                    key: 'performance',
+                    label: 'Google search',
+                    basis: periodComparison?.comparable ? `vs prior ${periodComparison.days} ${periodComparison.days === 1 ? 'day' : 'days'}` : undefined,
+                    figures: GSC_CHART_METRICS.map((m): TrendCardFigure => {
+                      const value = totalFor(m.key)
+                      return {
+                        key: m.key,
+                        label: m.label,
+                        color: m.color,
+                        value: value === null ? '\u2014' : m.format(value),
+                        change: gscTrendChange(periodComparison, m.key, m.inverted),
+                        // An unmeasured metric is shown as absent and cannot be charted:
+                        // never as 0, which would read as an impossibly good rank.
+                        interactive: true,
+                        disabled: value === null,
+                      }
+                    }),
+                  }
+                  const indexedGroup: TrendCardGroup | null = indexed.length === 0 ? null : {
+                    key: 'indexed',
+                    label: 'Indexed pages',
+                    basis: sharedLevelBasis(indexed.map((metric) => metric.figure)),
+                    figures: indexed.map((metric): TrendCardFigure => ({
+                      key: metric.key,
+                      label: metric.label,
+                      color: metric.color,
+                      value: metric.figure.value === null ? '\u2014' : metric.figure.value.toLocaleString(),
+                      change: levelTrendChange(metric.figure.change, metric.figure.unit),
+                      interactive: true,
+                      disabled: metric.figure.value === null,
+                    })),
+                  }
 
                   return (
                     <div className="mt-3">
-                      {/* Tiles are the metric selector, as in Search Console:
-                          pressing one adds or removes its line. The last
-                          selected tile cannot be turned off — an empty chart
-                          is a dead end, not a state worth reaching. */}
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        {GSC_CHART_METRICS.map((m) => {
-                          const on = chartMetrics.includes(m.key)
-                          const value = totalFor(m.key)
-                          const unavailable = value === null
-                          return (
-                            <button
-                              key={m.key}
-                              type="button"
-                              aria-pressed={on}
-                              disabled={unavailable}
-                              className={`rounded-md border px-3 py-2 text-left transition-colors ${
-                                on ? 'border-strong bg-surface-active' : 'border-subtle bg-surface-subtle hover:bg-surface-hover'
-                              } ${unavailable ? 'cursor-not-allowed opacity-50' : ''}`}
-                              onClick={() => {
-                                setChartMetrics((current) => current.includes(m.key)
-                                  ? (current.length === 1 ? current : current.filter((k) => k !== m.key))
-                                  : [...current, m.key])
-                              }}
-                            >
-                              <span className="flex items-center gap-1.5">
-                                <span
-                                  className="inline-block h-2 w-2 rounded-full"
-                                  style={{ backgroundColor: on ? m.color : 'transparent', border: `1px solid ${m.color}` }}
-                                />
-                                <span className="text-label-12 text-secondary">{m.label}</span>
-                              </span>
-                              <span className="mt-0.5 block text-label-18 tabular-nums text-strong">
-                                {value === null ? '—' : m.format(value)}
-                              </span>
-                              <span className="block text-label-12 tabular-nums text-muted">
-                                {/* Position improves downward, so the arrow
-                                    tracks BETTER/WORSE, not up/down. */}
-                                {formatGscPeriodChange(periodComparison, m.key, m.inverted)}
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-
-                      <div className="mt-2 flex items-center justify-end">
-                        <label className="flex cursor-pointer items-center gap-1.5 text-label-12 text-secondary">
-                          <input
-                            type="checkbox"
-                            className="accent-mono-400"
-                            checked={showTrend}
-                            onChange={(e) => setShowTrend(e.target.checked)}
+                      <TrendCard
+                        name="Search performance figures"
+                        frame="none"
+                        mode="compare"
+                        groups={indexedGroup ? [performanceGroup, indexedGroup] : [performanceGroup]}
+                        selected={chartMetrics}
+                        // As in Search Console, pressing a figure adds or removes its
+                        // line. The last one cannot be turned off: an empty chart is a
+                        // dead end, not a state worth reaching.
+                        onSelect={(key) => setChartMetrics((current) => current.includes(key as GscChartKey)
+                          ? (current.length === 1 ? current : current.filter((k) => k !== key))
+                          : [...current, key as GscChartKey])}
+                        chart={(
+                          <MultiAxisTrendChart
+                            data={chartRows}
+                            xKey="date"
+                            series={series}
+                            xTickFormatter={formatChartDateTick}
+                            labelFormatter={formatChartDateLabel}
+                            onSelectX={selectDay}
+                            selectedX={drillDay}
                           />
-                          Trend line
-                        </label>
-                      </div>
-
-                      <div className="mt-1">
-                        <MultiAxisTrendChart
-                          data={chartRows}
-                          xKey="date"
-                          series={series}
-                          xTickFormatter={formatChartDateTick}
-                          labelFormatter={formatChartDateLabel}
-                          onSelectX={selectDay}
-                          selectedX={drillDay}
-                        />
-                      </div>
+                        )}
+                        legendExtra={(
+                          <label className="flex min-h-9 cursor-pointer items-center gap-2 pointer-coarse:min-h-11">
+                            <input
+                              type="checkbox"
+                              className="size-4 accent-mono-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
+                              checked={showTrend}
+                              onChange={(e) => setShowTrend(e.target.checked)}
+                            />
+                            Trend line
+                          </label>
+                        )}
+                      />
 
                       {/* Keyboard + screen-reader path to the same drill-in the
                           chart offers on click. Recharts owns the SVG and gives

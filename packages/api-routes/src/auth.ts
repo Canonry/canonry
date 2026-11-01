@@ -686,6 +686,8 @@ function isTechnicalAeoRead(request: FastifyRequest, url: string): boolean {
   if (rest && /^technical-aeo\/runs\/[^/]+\/(?:progress|page-health-preview)$/.test(rest)) {
     return true
   }
+  // The Site Health trend card. Other surfaces belong to tabs an embed cannot show.
+  if (rest === 'trends') return queryValue(request, 'surface') === 'site-health'
   return rest === 'technical-aeo'
     || rest === 'technical-aeo/pages'
     || rest === 'technical-aeo/trend'

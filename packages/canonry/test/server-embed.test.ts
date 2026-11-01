@@ -1035,6 +1035,7 @@ describe('server embed mode (#716)', () => {
         `/api/v1/projects/${name}/runs?kind=site-audit`,
         `/api/v1/projects/${name}/technical-aeo/runs/run_embed_site_audit/progress`,
         `/api/v1/projects/${name}/technical-aeo/runs/run_embed_site_audit/page-health-preview`,
+        `/api/v1/projects/${name}/trends?surface=site-health`,
       ]) {
         const res = await app.inject({ method: 'GET', url, headers })
         expect(res.statusCode, `${url} should be reachable for technical-AEO embed data`).not.toBe(403)
@@ -1045,6 +1046,9 @@ describe('server embed mode (#716)', () => {
         `/api/v1/projects/${name}/runs?kind=content-recommendation`,
         `/api/v1/projects/${otherProjectName}/technical-aeo/runs/run_embed_site_audit/progress`,
         `/api/v1/projects/${otherProjectName}/technical-aeo/runs/run_embed_site_audit/page-health-preview`,
+        // The trends read serves other tabs too; the Site Health tab reaches only its own surface.
+        `/api/v1/projects/${name}/trends?surface=backlinks`,
+        `/api/v1/projects/${name}/trends`,
       ]) {
         const res = await app.inject({ method: 'GET', url, headers })
         expect(res.statusCode, `${url} should be hidden from a technical-AEO embed viewer`).toBe(403)

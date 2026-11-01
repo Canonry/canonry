@@ -139,6 +139,8 @@ describe('computeGscPeriodComparison', () => {
       },
       comparable: true,
       change: { clicks: null, impressions: null, ctr: null, position: null },
+      // A zero prior has no ratio but a real difference; an unmeasured CTR has neither.
+      difference: { clicks: 5, impressions: 50, ctr: null, position: null },
     })
   })
 
@@ -279,6 +281,11 @@ describe('computeGscPeriodComparison', () => {
         // CTR fell by 47/82; position rose by 1.6/22.6, a worse rank.
         ctr: expect.closeTo(-47 / 82, 10), position: expect.closeTo(1.6 / 22.6, 10),
       },
+      // The same movement in each metric's own unit: CTR in points, position in places.
+      difference: {
+        clicks: 21, impressions: 2346,
+        ctr: expect.closeTo(35 / 2829 - 14 / 483, 10), position: expect.closeTo(1.6, 10),
+      },
     })
   })
 })
@@ -417,6 +424,7 @@ describe('computeGscPeriodComparison basis', () => {
         },
         comparable: true,
         change: { clicks: 2, impressions: 0, ctr: expect.closeTo(2, 10), position: null },
+        difference: { clicks: 80, impressions: 0, ctr: expect.closeTo(0.2, 10), position: null },
       })
     }
   })

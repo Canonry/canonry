@@ -1,22 +1,7 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { summarizeRunError } from '../../lib/format-helpers.js'
 import { Link2, Play, Download, Loader2, CheckCircle2 } from 'lucide-react'
-import { formatPercent, RunKinds } from '@canonry/canonry-contracts'
-import {
-  Area,
-  ComposedChart,
-  RechartsTooltip,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-  CHART_TOOLTIP_STYLE,
-  CHART_AXIS_TICK,
-  CHART_AXIS_STROKE,
-  CHART_SERIES_COLORS,
-  formatObservedInstantLabel,
-  formatObservedInstantTick,
-  observedInstant,
-} from '../shared/ChartPrimitives.js'
+import { formatPercent, RunKinds, TrendSurfaces, type TrendsResponse } from '@canonry/canonry-contracts'
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import {
@@ -25,33 +10,16 @@ import {
 } from '../shared/DataTableControls.js'
 import { Hint } from '../shared/Hint.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { TrendCard, isTrendFigureInteractive, levelTrendChange, sharedLevelBasis, trendCardPoints, trendSpanLabel, type TrendCardFigure } from '../shared/TrendCard.js'
 import { asyncHandler } from '../../lib/async-handler.js'
-
-/**
- * The x value on the referring-domains chart is a history entry's `queriedAt` —
- * the moment the backlink sync actually ran (`deps.now().toISOString()` in
- * `commoncrawl-sync`), not a day stamp. It is a real
- * instant, so it localizes to the viewer: a sync at 2026-07-20T01:52Z reads
- * "Jul 19" in New York, the day that viewer was actually on when it ran.
- * Recharts hands its formatters the raw axis value, so the brand is restored
- * here, at the one place a `queriedAt` enters a date formatter.
- */
-function formatQueriedAtTick(value: string): string {
-  return formatObservedInstantTick(observedInstant(String(value)))
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function formatQueriedAtLabel(value: any): string {
-  return formatObservedInstantLabel(observedInstant(String(value)))
-}
 import { isTerminalRunStatus } from '../../lib/run-tracker-store.js'
 import {
   fetchBacklinkDomains,
-  fetchBacklinkHistory,
   fetchBacklinkSummary,
   fetchLatestReleaseSync,
   fetchProjectRuns,
   fetchRunDetail,
+  fetchTrends,
   triggerBacklinkExtract,
   isEmbed,
   isPublicDemo,
@@ -60,7 +28,6 @@ import {
 import type {
   ApiRun,
   BacklinkDomainDto,
-  BacklinkHistoryEntry,
   BacklinkListResponse,
   BacklinkSummaryDto,
   CcReleaseSyncDto,
@@ -110,7 +77,9 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
   const publicDemo = isPublicDemo()
   const [summary, setSummary] = useState<BacklinkSummaryDto | null>(null)
   const [list, setList] = useState<BacklinkListResponse | null>(null)
-  const [history, setHistory] = useState<BacklinkHistoryEntry[]>([])
+  // Every release's crawler-excluded totals, from the shared trends read. Null
+  // when it could not be loaded: the figures still show, without a trend.
+  const [trend, setTrend] = useState<TrendsResponse | null>(null)
   const [latestSync, setLatestSync] = useState<CcReleaseSyncDto | null>(null)
   const [activeRun, setActiveRun] = useState<ApiRun | null>(null)
   const [justCompletedRun, setJustCompletedRun] = useState<ApiRun | null>(null)
@@ -124,7 +93,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     setLoading(true)
     setError(null)
     try {
-      const [sync, sum, rows, hist, runs] = await Promise.all([
+      const [sync, sum, rows, releases, runs] = await Promise.all([
         fetchLatestReleaseSync().catch(() => null),
         fetchBacklinkSummary(projectName, { excludeCrawlers: true }).catch(() => null),
         fetchBacklinkDomains(projectName, {
@@ -135,13 +104,13 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
           if (err instanceof ApiError && err.code === 'NOT_FOUND') return null
           throw err
         }),
-        fetchBacklinkHistory(projectName).catch(() => [] as BacklinkHistoryEntry[]),
+        fetchTrends(projectName, { surface: TrendSurfaces.backlinks }).catch(() => null),
         fetchProjectRuns(projectName).catch(() => [] as ApiRun[]),
       ])
       setLatestSync(sync)
       setSummary(sum)
       setList(rows)
-      setHistory(hist)
+      setTrend(releases)
       const active = findActiveExtractRun(runs)
       setActiveRun(active)
     } catch (err) {
@@ -210,16 +179,6 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
       setExtracting(false)
     }
   }
-
-  const chartData = useMemo(() => {
-    return history
-      .slice()
-      .sort((a, b) => a.queriedAt.localeCompare(b.queriedAt))
-      .map((h) => ({
-        date: h.queriedAt,
-        linkingDomains: h.totalLinkingDomains,
-      }))
-  }, [history])
 
   const pageRows = list?.rows ?? []
   const visibleTotal = list?.total ?? 0
@@ -442,77 +401,20 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     )
   }
 
-  // Common Crawl summary, history, and referring-domain table.
+  // Common Crawl figures over every release, then the referring-domain table.
   function renderDataView(actions: ReactNode) {
     if (!summary) return null
     const countLabel = 'Linking hosts'
-    const countNoun = 'linking hosts'
     const windowNoun = 'release'
     return (
       <>
-        <div className="gauge-row">
-          <div className="metric-card">
-            <p className="metric-card-eyebrow">Referring domains</p>
-            <p className="metric-card-big-value">
-              <span className="text-primary">{formatNumber(summary.totalLinkingDomains)}</span>
-            </p>
-            <p className="metric-card-sub">unique domains linking to {summary.targetDomain}</p>
-          </div>
-          <div className="metric-card">
-            <p className="metric-card-eyebrow">Total {countNoun}</p>
-            <p className="metric-card-big-value">
-              <span className="text-primary">{formatNumber(summary.totalHosts)}</span>
-            </p>
-            <p className="metric-card-sub">aggregate {countNoun} across referring domains</p>
-          </div>
-          <div className="metric-card">
-            <p className="metric-card-eyebrow">Top-10 concentration</p>
-            <p className="metric-card-big-value">
-              {/* The share travels as a decimal string (0..1); a malformed one reads as a dash. */}
-              <span className="text-primary">{formatPercent(Number(summary.top10HostsShare))}</span>
-            </p>
-            <p className="metric-card-sub">share of {countNoun} from the 10 largest linking domains</p>
-          </div>
-        </div>
+        <BacklinksTrend summary={summary} trend={trend} />
 
         <p className="text-copy-13 text-muted mt-2">
           <span className="text-secondary">Common Crawl</span> · {windowNoun}{' '}
           <code className="text-secondary">{summary.release}</code> · queried {relativeTime(summary.queriedAt)}
           {hiddenCount > 0 && <> · {hiddenCount} excluded domain{hiddenCount === 1 ? '' : 's'}</>}
         </p>
-        {chartData.length >= 2 && (
-          <Card className="surface-card p-4 mt-4">
-            <p className="eyebrow eyebrow-soft">Referring domains over time</p>
-            <div className="h-40 mt-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
-                  <defs>
-                    <linearGradient id="bl-gradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CHART_SERIES_COLORS[0]} stopOpacity={0.4} />
-                      <stop offset="100%" stopColor={CHART_SERIES_COLORS[0]} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="date" tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} tickFormatter={formatQueriedAtTick} />
-                  <YAxis tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} allowDecimals={false} />
-                  <RechartsTooltip
-                    contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
-                    labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
-                    itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
-                    labelFormatter={formatQueriedAtLabel}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="linkingDomains"
-                    name="Referring domains"
-                    stroke={CHART_SERIES_COLORS[0]}
-                    fill="url(#bl-gradient)"
-                    strokeWidth={2}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-        )}
 
         <div className="mt-4">
           <p className="eyebrow eyebrow-soft mb-2">Top referring domains</p>
@@ -556,4 +458,53 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
       </>
     )
   }
+}
+
+/**
+ * The Backlinks trend card: the latest release's figures, each charted over
+ * every Common Crawl release with its change since the first one. The values
+ * are the summary the tab has always shown; the readings and changes come
+ * from the trends read, which counts the same crawler-excluded rows, so the
+ * chart always ends on the figure above it. A query is a moment, so each
+ * release is dated in the viewer's timezone.
+ */
+function BacklinksTrend({ summary, trend }: { summary: BacklinkSummaryDto; trend: TrendsResponse | null }) {
+  const [selected, setSelected] = useState('referring-domains')
+  const group = trend?.groups.find((g) => g.key === 'backlinks')
+  const readings = new Map(group?.figures.map((figure) => [figure.key, figure]))
+  const figure = (key: string, label: string, help: string, value: number, format: (n: number) => string): TrendCardFigure => {
+    const history = readings.get(key)
+    return {
+      key,
+      label,
+      help,
+      value: format(value),
+      change: history ? levelTrendChange(history.change, history.unit) : undefined,
+      series: history ? trendCardPoints(history) : undefined,
+      formatValue: format,
+      allowDecimals: history?.unit === 'fraction',
+    }
+  }
+  const figures = [
+    figure('referring-domains', 'Referring domains', `Unique domains linking to ${summary.targetDomain}.`, summary.totalLinkingDomains, formatNumber),
+    figure('hosts', 'Total linking hosts', 'Aggregate linking hosts across referring domains.', summary.totalHosts, formatNumber),
+    // The share travels as a decimal string (0..1); a malformed one reads as a dash.
+    figure('top-10-concentration', 'Top-10 concentration', 'Share of linking hosts from the 10 largest linking domains.', Number(summary.top10HostsShare), (n) => formatPercent(n)),
+  ]
+  const charted = figures.some(isTrendFigureInteractive)
+  const series = readings.get('referring-domains')?.series ?? []
+  const first = series[0]
+  const last = series.at(-1)
+  return (
+    <TrendCard
+      name="Backlinks figures"
+      groups={[{ key: 'backlinks', label: 'Every release', basis: group ? sharedLevelBasis(group.figures) : undefined, figures }]}
+      selected={charted ? [selected] : []}
+      onSelect={setSelected}
+      cadence="release"
+      instants
+      span={charted && first && last ? trendSpanLabel(first, last) : undefined}
+      emptyChartMessage={trend ? 'One release so far. The trend starts with the next one.' : 'Release history could not be loaded.'}
+    />
+  )
 }

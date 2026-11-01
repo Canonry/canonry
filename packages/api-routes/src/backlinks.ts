@@ -170,7 +170,7 @@ function parseExcludeCrawlers(value: string | undefined): boolean {
 // filter. Queries the domains table directly (rather than subtracting from the
 // stored summary) so excluded counts stay consistent if the stored summary
 // drifts from the underlying rows.
-function computeFilteredSummary(
+export function computeFilteredSummary(
   db: DatabaseClient,
   base: typeof backlinkSummaries.$inferSelect,
 ): BacklinkSummaryDto {

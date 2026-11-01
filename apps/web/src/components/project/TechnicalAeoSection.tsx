@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExt
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ChevronDown, ChevronRight, LoaderCircle, Play, RefreshCw, ScanSearch } from 'lucide-react'
 import type { MetricTone } from '../../view-models.js'
-import { formatPercent, RatioUnits, RunKinds, SiteAuditFactorStatuses, type SiteAuditFactorSummaryDto, type SiteAuditPageDto } from '@canonry/canonry-contracts'
+import { formatPercent, RatioUnits, RunKinds, SiteAuditFactorStatuses, TrendUnits, type SiteAuditFactorSummaryDto, type SiteAuditPageDto, type TrendsResponse } from '@canonry/canonry-contracts'
 
 import { heyClient, isDashboardManagedRunKind, isEmbed } from '../../api.js'
 import {
@@ -11,6 +11,7 @@ import {
   getApiV1ProjectsByNameTechnicalAeoPagesOptions,
   getApiV1ProjectsByNameTechnicalAeoTrendOptions,
   getApiV1ProjectsByNameRunsOptions,
+  getApiV1ProjectsByNameTrendsOptions,
 } from '@canonry/canonry-api-client/react-query'
 import {
   CartesianGrid,
@@ -44,6 +45,7 @@ import {
 } from '../shared/DataTableControls.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { TrendCard, isTrendFigureInteractive, levelTrendChange, sharedLevelBasis, trendCardPoints, trendSpanLabel, type TrendCardFigure } from '../shared/TrendCard.js'
 import { useTriggerSiteAudit } from '../../queries/mutations.js'
 import { getRunTrackerState, subscribeRunTracker } from '../../lib/run-tracker-store.js'
 import { PageAuditEvidence, factorShareOfScoreLabel } from './PageAuditEvidence.js'
@@ -148,6 +150,11 @@ export function TechnicalAeoSection({
     }),
     enabled: !integrated,
   })
+  // Site Health leads with the score over every scan, from the shared trends read.
+  const siteTrendQuery = useQuery({
+    ...getApiV1ProjectsByNameTrendsOptions({ client: heyClient, path: { name: projectName }, query: { surface: 'site-health' } }),
+    enabled: integrated,
+  })
   // One unfiltered fetch powers both the per-page table (filtered client-side)
   // and the per-factor drill-down (which pages fall below pass on a factor).
   const pagesQuery = useQuery(getApiV1ProjectsByNameTechnicalAeoPagesOptions({
@@ -191,12 +198,12 @@ export function TechnicalAeoSection({
     const results = await Promise.all([
       scoreQuery.refetch(),
       pagesQuery.refetch(),
-      ...(!integrated ? [trendQuery.refetch()] : []),
+      ...(!integrated ? [trendQuery.refetch()] : [siteTrendQuery.refetch()]),
     ])
     const failed = results.find((result) => result.error)
     if (failed?.error) throw failed.error
     return results[0]
-  }, [integrated, pagesQuery.refetch, scoreQuery.refetch, trendQuery.refetch])
+  }, [integrated, pagesQuery.refetch, scoreQuery.refetch, trendQuery.refetch, siteTrendQuery.refetch])
 
   useEffect(() => {
     if (integrated) return
@@ -527,6 +534,8 @@ export function TechnicalAeoSection({
       )}
 
       {afterSummary}
+
+      {integrated ? <SiteHealthTrend trend={siteTrendQuery.data} /> : null}
 
       {/* Trend */}
       {!integrated && trendRows.length >= 2 ? (
@@ -943,5 +952,42 @@ export function TechnicalAeoSection({
       </section>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * The Site Health trend card: the site score and pages checked over every
+ * scan, each with its change since the first scan in the window. Shown once
+ * there are two scans; with one there is no trend, and the score above
+ * already says everything.
+ */
+function SiteHealthTrend({ trend }: { trend: TrendsResponse | undefined }) {
+  const [selected, setSelected] = useState('score')
+  const group = trend?.groups.find((g) => g.key === 'site-health')
+  if (!group) return null
+  const figures: TrendCardFigure[] = group.figures.map((figure) => ({
+    key: figure.key,
+    label: figure.label,
+    value: figure.value === null ? '\u2014' : figure.value.toLocaleString(),
+    detail: figure.unit === TrendUnits.score && figure.value !== null ? '/100' : undefined,
+    change: levelTrendChange(figure.change, figure.unit),
+    series: trendCardPoints(figure),
+  }))
+  const score = group.figures.find((figure) => figure.key === 'score')
+  const first = score?.series[0]
+  const last = score?.series.at(-1)
+  if (!first || !last || !figures.some((figure) => figure.key === 'score' && isTrendFigureInteractive(figure))) return null
+  return (
+    <section aria-label="Site Health over time" className="border-b border-default py-5">
+      <TrendCard
+        name="Site Health figures"
+        groups={[{ key: 'site-health', label: 'Every scan', basis: sharedLevelBasis(group.figures), figures }]}
+        selected={[selected]}
+        onSelect={setSelected}
+        cadence="scan"
+        instants
+        span={trendSpanLabel(first, last)}
+      />
+    </section>
   )
 }

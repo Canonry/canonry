@@ -7997,6 +7997,23 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/trends',
+    summary: 'Get a dashboard trend card: figures, their readings over a window, and each change',
+    description: 'Stored readings only; nothing calls a provider. `index-coverage` returns Google and Bing indexed and not-indexed pages, `site-health` the site score and pages checked per scan, `backlinks` referring domains, total linking hosts and top-10 concentration per Common Crawl release, with crawler and proxy hosts left out as on the Backlinks tab. Every figure is a level: its value is the latest reading in the window and its change runs from the first reading in the window (`change.basis`). The window ends on the surface\'s latest reading; readings before a figure\'s `recordedFrom` were never recorded. Groups never recorded (for example Bing not connected) are left out.',
+    tags: ['trends'],
+    parameters: [
+      nameParameter,
+      { name: 'surface', in: 'query', required: true, description: 'Which card to read.', schema: { type: 'string', enum: ['index-coverage', 'site-health', 'backlinks'] } },
+      { name: 'window', in: 'query', description: 'Window ending on the latest reading. Defaults to 90d for index-coverage and all for site-health and backlinks. Any other value is rejected with 400.', schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] } },
+    ],
+    responses: {
+      200: jsonResponse('Trend card returned.', 'TrendsResponseDto'),
+      400: errorResponse('Missing or unknown surface, or an unknown window.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/crawl',
     summary: 'Get persisted Technical AEO crawl metadata',
     description: 'Returns a non-probe site-audit crawl on the requested UTC date, the selected run, or the latest scan date. Prefer complete scans, then the largest page sample, then the latest scan on that date. runSelection records same-date ambiguity; inventorySummary reports exact whole-snapshot eligibility and disjoint excluded reasons. `complete` and `termination` qualify budget-limited evidence. `hasCrawlData=false` never synthesizes a graph from legacy scorecard rows; dated no-data reads expose bounded `availableScanDates` with full distinct-date totals and matching month/day candidates to resolve an omitted year; `legacyAuditAvailable` says that the old score/pages/trend data can still be read separately.',

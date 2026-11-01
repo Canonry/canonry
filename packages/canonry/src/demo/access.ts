@@ -161,6 +161,7 @@ const DEMO_READ_ROUTES: ReadonlySet<string> = new Set([
   '/api/v1/projects/:name/technical-aeo/subgraph',
   '/api/v1/projects/:name/technical-aeo/trend',
   '/api/v1/projects/:name/timeline',
+  '/api/v1/projects/:name/trends',
   '/api/v1/projects/:name/traffic/events',
   '/api/v1/projects/:name/traffic/sources',
   '/api/v1/projects/:name/traffic/sources/:id',

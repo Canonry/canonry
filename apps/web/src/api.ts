@@ -2,7 +2,7 @@ import type { AgentConversation, AgentConversationList, AgentConversationDelete,
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@canonry/canonry-contracts'
 import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
-import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GoogleOAuthStartResponse, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@canonry/canonry-contracts'
+import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GoogleOAuthStartResponse, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto, TrendSurface, TrendsResponse } from '@canonry/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -122,14 +122,14 @@ import {
   deleteApiV1BacklinksCacheByRelease,
   getApiV1ProjectsByNameBacklinksSummary,
   getApiV1ProjectsByNameBacklinksDomains,
-  getApiV1ProjectsByNameBacklinksHistory,
   postApiV1ProjectsByNameBacklinksExtract,
+  getApiV1ProjectsByNameTrends,
   postApiV1TelemetryOnboarding,
   getApiV1KeysSelf,
 } from '@canonry/canonry-api-client'
 import type { RunDto, RunDetailDto } from '@canonry/canonry-api-client'
 export type { ProjectOverviewDto }
-export type { BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
+export type { BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse }
 export type { DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult }
 
@@ -2216,15 +2216,16 @@ export function fetchBacklinkDomains(
   )
 }
 
-export function fetchBacklinkHistory(
+/** A tab's trend figures from stored history: the same read as `canonry trends` and `canonry_trends`. */
+export function fetchTrends(
   projectName: string,
-  opts: { source?: BacklinkSource } = {},
-): Promise<BacklinkHistoryEntry[]> {
-  return invokeWeb<BacklinkHistoryEntry[]>(() =>
-    getApiV1ProjectsByNameBacklinksHistory({
+  params: { surface: TrendSurface; window?: MetricsWindow },
+): Promise<TrendsResponse> {
+  return invokeWeb<TrendsResponse>(() =>
+    getApiV1ProjectsByNameTrends({
       client: heyClient,
       path: { name: projectName },
-      query: { source: opts.source } as never,
+      query: { surface: params.surface, window: params.window },
     }),
   )
 }

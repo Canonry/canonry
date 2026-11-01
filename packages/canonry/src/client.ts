@@ -1,5 +1,7 @@
 import type { McpProfileDto } from '@canonry/canonry-contracts'
 import { getApiV1McpProfile } from '@canonry/canonry-api-client'
+import type { MetricsWindow, TrendSurface, TrendsResponse } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameTrends } from '@canonry/canonry-api-client'
 import type { AgentJourneyDetailResponse, AgentJourneysQuery, AgentJourneysResponse, JourneyDetailQuery, JourneyDetailResponse, JourneySummaryQuery, JourneySummaryResponse, JourneysQuery, JourneysResponse } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameTrafficAgentJourneys, getApiV1ProjectsByNameTrafficAgentJourneysByJourneyId, getApiV1ProjectsByNameJourneys, getApiV1ProjectsByNameJourneysByVisitorKey, getApiV1ProjectsByNameJourneysSummary } from '@canonry/canonry-api-client'
 
@@ -4501,6 +4503,17 @@ export class ApiClient {
           limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
           offset: opts?.offset !== undefined ? String(opts.offset) : undefined,
         } as never,
+      }),
+    )
+  }
+
+  /** One dashboard trend card: figures, their readings over the window, and each change. */
+  async getTrends(project: string, opts: { surface: TrendSurface; window?: MetricsWindow }): Promise<TrendsResponse> {
+    return this.invoke<TrendsResponse>(() =>
+      getApiV1ProjectsByNameTrends({
+        client: this.heyClient,
+        path: { name: project },
+        query: { surface: opts.surface, ...(opts.window ? { window: opts.window } : {}) },
       }),
     )
   }

@@ -637,6 +637,10 @@ Registered via `src/cli-commands/measurement-plan.ts`.
 - Monthly class rates have distinct branded/non-brand metric keys. `--scope`, `--scope-key`, `--market-key`, `--provider`, and `--location` map to the same REST/MCP selection. Print the Advanced `classComparison` cohort separately from the preserved legacy project basket, and print the selection whenever one is set; JSON retains the complete API response. A bad selector is a usage error (exit 1).
 - Delegates to `ApiClient.getVisibilityStats` / `getVisibilityCompare`. Registered via `src/cli-commands/visibility-stats.ts`.
 
+### Trend figures
+
+`src/commands/trends.ts`: `trends <project> --surface index-coverage|site-health|backlinks [--window 7d|30d|90d|all]` prints a dashboard tab's trend card from `ApiClient.getTrends` (`GET /projects/:name/trends`, MCP `canonry_trends`). Object command: `--format json` is the response verbatim and jsonl degrades to it. The human output renders the server's change only, a share in points (`formatSignedPointDelta`) and a count or score in its own unit, dated from `change.basis.date`; it never recomputes a change from the readings. Registered via `src/cli-commands/trends.ts`.
+
 `src/commands/results-export.ts`: `exportResults` — `canonry results export <project>` — downloads the historical query × provider observations attachment via `ApiClient.downloadResultsExport`.
 
 - `--format json|csv` selects the artifact type; `--since`/`--until` inclusive run-creation window; `--include-probes` opt-in; `--output <path>` or `-` for stdout, default = server-suggested filename via `path.basename`, path-traversal safe.

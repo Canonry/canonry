@@ -71,9 +71,42 @@ function performanceDaily(overrides: Record<string, unknown> = {}) {
         ctr: (35 / 1000) / (15 / 1800) - 1,
         position: ((10 * 600 + 9 * 400) / 1000) / ((12 * 1000 + 11 * 800) / 1800) - 1,
       },
+      // The same movement in each metric's own unit: CTR +2.7 points,
+      // position 2.0 places better.
+      difference: {
+        clicks: 20,
+        impressions: -800,
+        ctr: 35 / 1000 - 15 / 1800,
+        position: (10 * 600 + 9 * 400) / 1000 - (12 * 1000 + 11 * 800) / 1800,
+      },
     },
     ...overrides,
   }
+}
+
+/** Stored Google coverage over the same days: indexed pages rose 40 -> 44. */
+const COVERAGE_TREND = {
+  project: 'test-project',
+  surface: 'index-coverage',
+  window: '30d',
+  startDate: '2026-06-05',
+  endDate: '2026-07-04',
+  groups: [{
+    key: 'google',
+    label: 'Google',
+    figures: [
+      {
+        key: 'indexed', label: 'Indexed', unit: 'count', better: 'higher', value: 44, asOf: '2026-07-04',
+        change: { difference: 4, ratio: 0.1, tone: 'better', basis: { type: 'first-in-window', date: '2026-07-01' } },
+        series: [{ date: '2026-07-01', value: 40 }, { date: '2026-07-02', value: 41 }, { date: '2026-07-04', value: 44 }],
+        recordedFrom: '2026-07-01',
+      },
+      {
+        key: 'not-indexed', label: 'Not indexed', unit: 'count', better: 'lower', value: 2, asOf: '2026-07-04',
+        change: null, series: [{ date: '2026-07-04', value: 2 }], recordedFrom: '2026-07-04',
+      },
+    ],
+  }],
 }
 
 function renderSection(daily: Record<string, unknown> = performanceDaily()) {
@@ -114,6 +147,7 @@ function renderSection(daily: Record<string, unknown> = performanceDaily()) {
     if (path.includes('/google/gsc/deindexed')) return jsonResponse([])
     if (path.includes('/google/gsc/coverage/history')) return jsonResponse([])
     if (path.includes('/google/gsc/coverage')) return jsonResponse(null)
+    if (path.split('?')[0]?.endsWith('/trends')) return jsonResponse(COVERAGE_TREND)
     throw new Error(`Unexpected fetch: ${path}`)
   })
   onTestFinished(restoreFetch)
@@ -150,16 +184,18 @@ test('compares the trailing period against the prior equal period', async () => 
   renderSection()
   await waitFor(() => expect(tile('Clicks')).not.toBeNull())
 
-  // Relative period-over-period change, not raw clicks, impressions,
-  // percentage points, or position points. These come from real recorded
-  // totals; nothing is read off the fitted line.
-  expect(tile('Clicks').textContent).toContain('↑ 133.3% vs prior 2d')
-  expect(tile('Impressions').textContent).toContain('↓ 44.4% vs prior 2d')
-  expect(tile('CTR').textContent).toContain('↑ 320.0% vs prior 2d')
-  // Position FALLING is an improvement — the one metric where a negative
-  // change is good news, and the case a naive `change > 0` arrow gets
-  // backwards.
-  expect(tile('Avg position').textContent).toContain('↑ 16.9% vs prior 2d')
+  // The group names the comparison once; every figure's spoken change carries it.
+  expect(screen.getByText('vs prior 2 days')).not.toBeNull()
+  // Clicks and impressions move as a percentage of real recorded totals;
+  // nothing is read off the fitted line.
+  expect(tile('Clicks').getAttribute('aria-label')).toBe('Clicks 50, up 133.3% vs prior 2 days, an improvement')
+  expect(tile('Impressions').getAttribute('aria-label')).toBe('Impressions 2,800, down 44.4% vs prior 2 days, a decline')
+  // A rate moves in points and a rank in places: a ratio of either says little.
+  expect(tile('CTR').getAttribute('aria-label')).toBe('CTR 1.8%, up 2.7 pts vs prior 2 days, an improvement')
+  // Position FALLING is good news, the case a naive arrow gets backwards: the
+  // arrow follows the number down, and the words and colour call it better.
+  expect(tile('Avg position').getAttribute('aria-label')).toBe('Avg position 10.5, down 2.0 vs prior 2 days, an improvement')
+  expect(within(tile('Avg position')).getByText('2.0').className).toContain('text-positive')
 })
 
 test('renders a flat period as no change, and a zero baseline as new rather than a percentage', async () => {
@@ -181,11 +217,12 @@ test('renders a flat period as no change, and a zero baseline as new rather than
   }))
 
   await waitFor(() => expect(tile('Clicks')).not.toBeNull())
-  expect(tile('Clicks').textContent).toContain('→ no change vs prior 2d')
+  expect(tile('Clicks').textContent).toContain('No change')
+  expect(tile('Clicks').getAttribute('aria-label')).toBe('Clicks 50, no change vs prior 2 days')
   // Growth from zero is named, not silently blanked and not faked as +100%.
-  expect(tile('Impressions').textContent).toContain('new in the last 2d')
+  expect(tile('Impressions').textContent).toContain('New in the last 2 days')
   // CTR was never measurable in the prior period (no impressions to divide by).
-  expect(tile('CTR').textContent).toContain('no prior 2d to compare')
+  expect(tile('CTR').textContent).toContain('No prior 2 days to compare')
   expect(tile('Impressions').textContent).not.toMatch(/Infinity|NaN/)
   expect(tile('CTR').textContent).not.toMatch(/Infinity|NaN/)
 })
@@ -208,9 +245,9 @@ test('distinguishes a missing trailing metric from a missing prior baseline', as
   }))
 
   await waitFor(() => expect(tile('CTR')).not.toBeNull())
-  expect(tile('CTR').textContent).toContain('no value in the last 2d')
-  expect(tile('Avg position').textContent).toContain('no value in the last 2d')
-  expect(tile('CTR').textContent).not.toContain('no prior')
+  expect(tile('CTR').textContent).toContain('No value in the last 2 days')
+  expect(tile('Avg position').textContent).toContain('No value in the last 2 days')
+  expect(tile('CTR').textContent).not.toContain('No prior')
 })
 
 test('says so plainly when the server predates the comparison field', async () => {
@@ -218,7 +255,7 @@ test('says so plainly when the server predates the comparison field', async () =
   await waitFor(() => expect(tile('Clicks')).not.toBeNull())
   // A server older than the field must degrade to a stated absence, never to
   // a flat reading that implies the metric did not move.
-  expect(tile('Clicks').textContent).toContain('no comparison period')
+  expect(tile('Clicks').textContent).toContain('No comparison period')
   expect(tile('Clicks').textContent).not.toMatch(/Infinity|NaN|0%/)
 })
 
@@ -241,9 +278,23 @@ test('preserves tiny movement and marks a rising average position as worse', asy
   }))
 
   await waitFor(() => expect(tile('Clicks')).not.toBeNull())
-  expect(tile('Clicks').textContent).toContain('↑ <0.1% vs prior 2d')
-  // Position ROSE, which is a worse rank, so the arrow points down.
-  expect(tile('Avg position').textContent).toContain('↓ 25.0% vs prior 2d')
+  expect(tile('Clicks').textContent).toContain('<0.1%')
+  // Position ROSE, a worse rank. A server without `difference` falls back to
+  // the ratio; the arrow follows the number up and the words call it a decline.
+  expect(tile('Avg position').getAttribute('aria-label')).toBe('Avg position 10.5, up 25.0% vs prior 2 days, a decline')
+  expect(within(tile('Avg position')).getByText('25.0%').className).toContain('text-negative')
+})
+
+test('adds indexed pages from the stored coverage trend as figures that chart on their own axis', async () => {
+  renderSection()
+  const google = await waitFor(() => screen.getByRole('button', { name: /^Google 44/ }) as HTMLButtonElement)
+
+  // A standing count changes from the first reading in the window, and says so.
+  expect(google.getAttribute('aria-label')).toBe('Google 44, up 4 since Jul 1, an improvement')
+  expect(screen.getByText('since Jul 1')).not.toBeNull()
+  expect(google.getAttribute('aria-pressed')).toBe('false')
+  fireEvent.click(google)
+  expect(google.getAttribute('aria-pressed')).toBe('true')
 })
 
 test('toggles a metric on and off but refuses to leave the chart empty', async () => {
@@ -289,9 +340,9 @@ test('drops the fitted lines when the trend toggle is cleared', async () => {
   expect(toggle.checked).toBe(true)
   fireEvent.click(toggle)
   expect(toggle.checked).toBe(false)
-  // The tiles keep reporting the trend even when the line is hidden — the fit
+  // The figures keep reporting the change when the line is hidden: the fit
   // is a fact about the window, not a property of the chart.
-  expect(tile('Clicks').textContent).toContain('↑')
+  expect(tile('Clicks').textContent).toContain('133.3%')
 })
 
 test('clicking a day drills the table into that date, and clicking it again clears', async () => {
@@ -403,8 +454,8 @@ test('plots one row per calendar day, so a quiet gap is not compressed', async (
 
   await waitFor(() => expect(tile('Clicks')).not.toBeNull())
   // The comparison periods are CALENDAR halves of the 10-day span, so the
-  // label says 5d even though only four days carried rows.
-  expect(tile('Clicks').textContent).toContain('vs prior 5d')
+  // label says 5 days even though only four days carried rows.
+  expect(screen.getByText('vs prior 5 days')).not.toBeNull()
   // The drill controls stay on the MEASURED days — an empty day is nothing to
   // drill into — which is how we can tell the two series apart.
   const group = screen.getByRole('group', { name: /Filter the table to a single day/ })
@@ -442,7 +493,7 @@ test('refuses to compare periods drawn from different data sources', async () =>
 
   await waitFor(() => expect(tile('Clicks')).not.toBeNull())
   for (const label of ['Clicks', 'Impressions', 'CTR', 'Avg position']) {
-    expect(tile(label).textContent).toContain('property-level comparison unavailable')
+    expect(tile(label).textContent).toContain('Property-level comparison unavailable')
     // A flat property would otherwise read +44% clicks / -23% impressions.
     expect(tile(label).textContent).not.toMatch(/[+↑↓]\s*\d/)
   }

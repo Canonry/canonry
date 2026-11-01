@@ -148,6 +148,12 @@ export interface GscPeriodComparison {
    * module's.
    */
   change: GscPeriodChange
+  /**
+   * Trailing minus prior in each metric's own unit (CTR as a fraction, position
+   * in places), null wherever `comparable` is false or either period lacks the
+   * metric. Points and places read better than a ratio of a rate or a rank.
+   */
+  difference: GscPeriodChange
 }
 
 /**
@@ -287,5 +293,16 @@ export function computeGscPeriodComparison(
       ctr: comparable ? relativeChange(trailing.ctr, prior.ctr) : null,
       position: comparable ? relativeChange(trailing.position, prior.position) : null,
     },
+    difference: {
+      clicks: comparable ? trailing.clicks - prior.clicks : null,
+      impressions: comparable ? trailing.impressions - prior.impressions : null,
+      ctr: comparable ? difference(trailing.ctr, prior.ctr) : null,
+      position: comparable ? difference(trailing.position, prior.position) : null,
+    },
   }
+}
+
+/** Trailing minus prior, or null when either side is unmeasured. */
+function difference(trailing: number | null, prior: number | null): number | null {
+  return trailing === null || prior === null ? null : trailing - prior
 }

@@ -7,6 +7,7 @@ import {
   sentimentJobReadSchema, sentimentSummaryIncludeSchema, sentimentEvidenceOutcomeFilterSchema, queryClassSchema, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_MAX,
 } from '@canonry/canonry-contracts'
 import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/canonry-contracts'
+import { metricsWindowSchema, trendSurfaceSchema } from '@canonry/canonry-contracts'
 import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS, WINDOW_SETS } from '@canonry/canonry-contracts'
 import { insightSeveritySchema } from '@canonry/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/server'
@@ -1099,6 +1100,12 @@ const technicalAeoPagesInputSchema = z.object({
 const technicalAeoTrendInputSchema = z.object({
   project: projectNameSchema,
   limit: z.number().int().positive().max(365).optional(),
+})
+
+const trendsInputSchema = z.object({
+  project: projectNameSchema,
+  surface: trendSurfaceSchema.describe('Which card: index-coverage (Google and Bing indexed pages by day), site-health (site score and pages checked per scan), backlinks (referring domains, linking hosts and top-10 concentration per Common Crawl release, crawler and proxy hosts left out).'),
+  window: metricsWindowSchema.optional().describe('Window ending on the latest reading. Defaults to 90d for index-coverage and all otherwise.'),
 })
 
 const crawlRunIdSchema = runIdSchema.optional().describe(
@@ -4127,6 +4134,17 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/trend'],
     handler: (client, input) => client.getTechnicalAeoTrend(input.project, input.limit !== undefined ? { limit: input.limit } : undefined),
+  }),
+  defineTool({
+    name: 'canonry_trends',
+    title: 'Get a dashboard trend card',
+    description: 'Read the figures a dashboard tab leads with, from stored data: each figure\'s latest reading, its change since the first reading in the window (change.basis says from which date), and its readings over the window. Use for "are indexed pages, the site score or referring domains going up?". Dates before a figure\'s recordedFrom were never recorded, not zero.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: trendsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/trends'],
+    handler: (client, input) => client.getTrends(input.project, { surface: input.surface, ...(input.window ? { window: input.window } : {}) }),
   }),
   defineTool({
     name: 'canonry_technical_aeo_crawl',

@@ -46,6 +46,7 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/traffic-analytics.ts` | Full-window stored crawler, user-fetch and referral aggregates, exposed through `/traffic/analytics`; detail-row caps do not limit totals, operator/path/product breakdowns or history. `period` is read-selection identity, not execution tuning. |
 | `src/referral-assessment.ts` | DB-only project/source burst diagnostic. Raw headlines unchanged; grouped candidate counts and separate adjusted estimate, with GA quotient coverage limits. |
 | `src/technical-aeo.ts` | Site Health / Technical AEO routes |
+| `src/trends.ts` | `GET /projects/:name/trends?surface=`: the stored levels a dashboard tab's trend card leads with, each over the window with its change since the window's first reading (see "Trend reads") |
 | `src/technical-aeo-issues.ts` | Stored coded-finding, independent-defect, and cross-page issue aggregation with bounded examples and cursor-paged membership |
 | `src/measurement-property-evidence.ts` | `GET /projects/:name/measurement-property-evidence`: one Property's cursor-paged evidence |
 | `src/discovery/routes.ts` / `src/discovery/orchestrate.ts` | Tracked-basket discovery routes; `executeDiscovery` orchestration (rules: `src/discovery/AGENTS.md`) |
@@ -579,6 +580,19 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - CTR is each period's own `clicks / impressions` and position is impression-weighted, both matching the window totals: neither is additive, and a mean of daily ratios lets a one-impression day count as much as a thousand-impression one.
 - `change` stays null when the prior period is zero or unmeasured, since growth from nothing has no percentage.
 - Sign is mathematical, so a POSITIVE `position` means a worse rank and the renderer owns the arrow.
+
+### Trend reads
+
+`src/trends.ts` serves `GET /projects/:name/trends?surface=index-coverage|site-health|backlinks&window=`, the figures a dashboard tab's trend card leads with. The dashboard, `canonry trends` and `canonry_trends` read the same payload, so a figure and its change never differ between them.
+
+- A figure is a stored LEVEL (indexed pages, a scan's score, a release's referring domains). `buildLevelTrendFigure` in contracts reads the latest value in the window and its change since the window's FIRST reading, in its own unit (`difference`) and as a ratio (null from a zero basis). Never sum levels across readings.
+- `better` (`higher`, `lower`, `neither`) decides the change's `tone`. Pages checked and top-10 concentration are `neither`: their movement is neither good nor bad on its own.
+- The window ends on the latest reading anywhere on the surface (`trendWindowSpan`), not on today, so a surface synced last week still shows its last 90 days. Defaults live in `TREND_SURFACE_DEFAULT_WINDOW`.
+- A reading taken at a moment (a scan's `auditedAt`, a backlinks `queriedAt`) carries it as `observedAt`, keyed and ordered by it, so two scans on one UTC day stay two readings and a viewer west of UTC sees their own day. A calendar-day reading (a coverage snapshot) has `observedAt: null`.
+- A group that never recorded a reading is left out; an empty surface answers 200 with no groups and a null span.
+- Backlinks reads every Common Crawl release through `computeFilteredSummary`, the crawler- and proxy-excluded totals the Backlinks tab shows. A release whose domain rows are missing is unknown (null), never zero.
+- Site Health reads completed and partial `site-audit` runs only, through `notProbeRun()`. A new surface that reads runs needs its case in `test/probe-exclusion.test.ts`.
+- Adding a surface: a value on `trendSurfaceSchema` and its default window in contracts, a `readSurface` case here, the CLI title in `packages/canonry/src/commands/trends.ts`, and the OpenAPI enum.
 
 ### Google Business Profile
 

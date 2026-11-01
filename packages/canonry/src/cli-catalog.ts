@@ -197,6 +197,10 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
     "section": "Monitoring",
     "summary": "Show stored mention and citation statistics"
   },
+  "trends": {
+    "section": "Monitoring",
+    "summary": "Show the stored figures behind a dashboard trend card"
+  },
   "visibility-compare": {
     "section": "Monitoring",
     "summary": "Compare stored mention and citation results"

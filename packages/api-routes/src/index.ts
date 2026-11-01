@@ -124,6 +124,7 @@ import { statusRoutes, type StatusRoutesOptions } from './status.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { technicalAeoRoutes } from './technical-aeo.js'
+import { trendsRoutes } from './trends.js'
 import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { researchRoutes } from './research.js'
 import { seoRoutes, type SeoRoutesOptions } from './seo.js'
@@ -950,6 +951,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(technicalAeoRoutes, {
       onSiteAuditRequested: opts.onSiteAuditRequested,
     } satisfies TechnicalAeoRoutesOptions)
+    await api.register(trendsRoutes)
     await api.register(doctorRoutes, {
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
