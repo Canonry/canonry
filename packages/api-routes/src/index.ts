@@ -53,6 +53,7 @@ import { analyticsRoutes } from './analytics.js'
 import { intelligenceRoutes } from './intelligence.js'
 import { trafficAnalyticsRoutes } from './traffic-analytics.js'
 import { trafficSamplesRoutes } from './traffic-samples.js'
+import { trafficUnrecognizedAgentsRoutes } from './traffic-unrecognized-agents.js'
 import { journeyRoutes } from './journeys.js'
 import { referralAssessmentRoutes } from './referral-assessment.js'
 import { organicEvidenceRoutes } from './organic-evidence.js'
@@ -762,6 +763,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(organicEvidenceRoutes)
     await api.register(referralAssessmentRoutes)
     await api.register(trafficSamplesRoutes)
+    await api.register(trafficUnrecognizedAgentsRoutes)
     await api.register(journeyRoutes)
     await api.register(citationRoutes)
     await api.register(visibilityStatsRoutes)

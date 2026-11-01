@@ -1,6 +1,9 @@
 import {
+  BROWSER_SHAPED_AGENT_MARKERS,
   DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS,
   DEFAULT_AI_REFERRER_RULES,
+  GENERIC_HTTP_CLIENTS,
+  UNLISTED_AGENT_SKIPPED_EXTENSIONS,
 } from '@canonry/canonry-integration-traffic'
 import { canonicalizeCloudflareJson } from './canonical-json.js'
 import {
@@ -25,7 +28,8 @@ export const DEFAULT_BOT_LIST: CloudflareWorkerBotList = {
   uaKeywords: [
     ...DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS,
     // Preserve a small forward-looking machine-traffic net. The shared
-    // classifier still drops unknown products after delivery.
+    // classifier still drops unknown products after delivery. Agents whose
+    // names carry none of these words are caught by `isUnlistedAgent`.
     'bot',
     'crawler',
     'spider',
@@ -52,6 +56,34 @@ export const CLOUDFLARE_PAGE_VIEWS_VERSION_SUFFIX = '+page-views'
 
 // Static files never count as page views, even with a text/html Accept header.
 const PAGE_VIEW_ASSET_EXTENSIONS = ['avif', 'bmp', 'css', 'gif', 'ico', 'jpeg', 'jpg', 'js', 'map', 'mjs', 'mp3', 'mp4', 'otf', 'pdf', 'png', 'svg', 'ttf', 'txt', 'webm', 'webmanifest', 'webp', 'woff', 'woff2', 'xml', 'zip']
+
+/**
+ * Bots and agents the keyword list does not name yet: any self-identified
+ * client that is not a normal browser or a generic HTTP tool, reading a page
+ * rather than a static file. The lists live in integration-traffic so the
+ * server reads requests the same way; it decides what each agent is.
+ */
+const UNLISTED_AGENT_FILTER = `
+const UNLISTED_AGENT_SKIPPED_PATTERN = new RegExp(${JSON.stringify(`\\.(?:${UNLISTED_AGENT_SKIPPED_EXTENSIONS.join('|')})$`)}, 'i')
+const PRODUCT_NAME_END = new RegExp(${JSON.stringify('[/\\s;(]')})
+const GENERIC_HTTP_CLIENTS = ${JSON.stringify(GENERIC_HTTP_CLIENTS)}
+const BROWSER_SHAPED_AGENT_MARKERS = ${JSON.stringify(BROWSER_SHAPED_AGENT_MARKERS)}
+
+function isUnlistedAgent(request) {
+  const method = request.method || 'GET'
+  if (method !== 'GET' && method !== 'HEAD') return false
+  const ua = lower(request.headers.get('user-agent') || '').trim()
+  if (!ua) return false
+  const product = ua.split(PRODUCT_NAME_END)[0]
+  if (GENERIC_HTTP_CLIENTS.indexOf(product) !== -1) return false
+  if (product === 'mozilla' && !BROWSER_SHAPED_AGENT_MARKERS.some((marker) => ua.indexOf(marker) !== -1)) return false
+  try {
+    return !UNLISTED_AGENT_SKIPPED_PATTERN.test(new URL(request.url).pathname)
+  } catch (_) {
+    return false
+  }
+}
+`
 
 /**
  * The page-view filter, emitted only when page views are forwarded. A page
@@ -298,10 +330,11 @@ function botSignals(cf) {
   if (typeof cf.botScore === 'number' && cf.botScore < BOT_SCORE_MAX_FORWARD) return true
   return false
 }
-${pageViewFilter}
+${UNLISTED_AGENT_FILTER}${pageViewFilter}
 function shouldForward(request) {
   const ua = request.headers.get('user-agent') || ''
   if (uaMatches(ua)) return true
+  if (isUnlistedAgent(request)) return true
   if (urlUtmMatches(request.url)) return true
   const referer = request.headers.get('referer') || ''
   if (refererMatches(referer)) return true

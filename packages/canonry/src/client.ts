@@ -6,12 +6,12 @@ import { getApiV1ProjectsByNameJourneys, getApiV1ProjectsByNameJourneysByVisitor
 import { getApiV1ProjectsByNameGbpLocalPostAttempt } from '@canonry/canonry-api-client'
 import type { GbpLocalPostList, GbpLocalPostDto, GbpLocalPostCreate, GbpLocalPostAttempt, GbpLiveReviews } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameGbpLocalPosts, getApiV1ProjectsByNameGbpLocalPost, getApiV1ProjectsByNameGbpReviewsLive, postApiV1ProjectsByNameGbpLocalPosts } from '@canonry/canonry-api-client'
-import type { TrafficSamplesQuery, TrafficSamplesResponse } from '@canonry/canonry-contracts'
+import type { TrafficSamplesQuery, TrafficSamplesResponse, TrafficUnrecognizedAgentsQuery, TrafficUnrecognizedAgentsResponse } from '@canonry/canonry-contracts'
 import type { SeoOperatorTask, SeoReconcileInput, SeoReconcileResult } from '@canonry/canonry-contracts'
 import { getApiV1SeoOperatorTasksById, postApiV1SeoOperatorTasksByIdReconcile } from '@canonry/canonry-api-client'
 import type { SeoContext, SeoStatus, SeoProfileList, SeoProfile, SeoQuote, SeoRun, SeoRunList, SeoRunDetail, SeoOverview, SeoKeywordMetricsList, SeoDomainIntelligenceList, SeoRankedKeywordList, SeoCompetitorList, SeoCompetitorQuery, SeoKeywordGapList, SeoKeywordGapQuery, SeoMarketRankingList, SeoMarketRankingQuery, SeoMarketRankingSummary, SeoMarketRankingSummaryQuery, SeoProfileInput, SeoRefreshIntentInput, SeoSyncInput, SeoEvidenceQuery } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameSeoContext, getApiV1ProjectsByNameSeoStatus, getApiV1ProjectsByNameSeoProfiles, getApiV1ProjectsByNameSeoProfilesById, putApiV1ProjectsByNameSeoProfilesById, postApiV1ProjectsByNameSeoRefreshIntents, postApiV1ProjectsByNameSeoSync, getApiV1ProjectsByNameSeoRuns, getApiV1ProjectsByNameSeoRunsById, postApiV1ProjectsByNameSeoRunsByIdCancel, getApiV1ProjectsByNameSeoOverview, getApiV1ProjectsByNameSeoKeywordMetrics, getApiV1ProjectsByNameSeoDomainIntelligence, getApiV1ProjectsByNameSeoRankedKeywords, getApiV1ProjectsByNameSeoCompetitors, getApiV1ProjectsByNameSeoKeywordGaps, getApiV1ProjectsByNameSeoMarketRankings, getApiV1ProjectsByNameSeoMarketRankingsSummary } from '@canonry/canonry-api-client'
-import { getApiV1ProjectsByNameTrafficSamples } from '@canonry/canonry-api-client'
+import { getApiV1ProjectsByNameTrafficSamples, getApiV1ProjectsByNameTrafficUnrecognizedAgents } from '@canonry/canonry-api-client'
 
 import type { GaAcquisitionQuery, GaAcquisitionResponse } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameGaAcquisition } from '@canonry/canonry-api-client'
@@ -4168,6 +4168,10 @@ export class ApiClient {
 
   async trafficListSamples(project: string, query?: TrafficSamplesQuery): Promise<TrafficSamplesResponse> {
     return this.invoke<TrafficSamplesResponse>(() => getApiV1ProjectsByNameTrafficSamples({ client: this.heyClient, path: { name: project }, query }))
+  }
+
+  async trafficUnrecognizedAgents(project: string, query?: TrafficUnrecognizedAgentsQuery): Promise<TrafficUnrecognizedAgentsResponse> {
+    return this.invoke<TrafficUnrecognizedAgentsResponse>(() => getApiV1ProjectsByNameTrafficUnrecognizedAgents({ client: this.heyClient, path: { name: project }, query }))
   }
 
   async journeysSummary(project: string, query?: JourneySummaryQuery): Promise<JourneySummaryResponse> {

@@ -5028,6 +5028,36 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
          OR (delegated_user_id IS NULL AND name GLOB 'mcp-session:*')`,
     ],
   },
+  {
+    // The traffic-classification backfill stored reclassified AI user-fetch
+    // samples as the wire kind 'ai-user-fetch' instead of the stored
+    // 'ai_user_fetch', so sample reads never returned them. A no-op once fixed.
+    version: 200,
+    name: 'raw-event-samples-user-fetch-event-type',
+    statements: [
+      `UPDATE raw_event_samples SET event_type = 'ai_user_fetch' WHERE event_type = 'ai-user-fetch'`,
+    ],
+  },
+  {
+    version: 201,
+    name: 'unrecognized-agent-events-hourly',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS unrecognized_agent_events_hourly (
+        project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        source_id           TEXT NOT NULL REFERENCES traffic_sources(id) ON DELETE CASCADE,
+        ts_hour             TEXT NOT NULL,
+        agent_name          TEXT NOT NULL,
+        hits                INTEGER NOT NULL DEFAULT 0,
+        sampled_user_agent  TEXT,
+        sampled_path        TEXT,
+        created_at          TEXT NOT NULL,
+        updated_at          TEXT NOT NULL,
+        PRIMARY KEY (project_id, source_id, ts_hour, agent_name)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_unrecognized_agent_hourly_project_ts ON unrecognized_agent_events_hourly(project_id, ts_hour)`,
+      `CREATE INDEX IF NOT EXISTS idx_unrecognized_agent_hourly_project_name ON unrecognized_agent_events_hourly(project_id, agent_name)`,
+    ],
+  },
 ]
 
 /**

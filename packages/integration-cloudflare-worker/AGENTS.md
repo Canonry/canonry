@@ -35,6 +35,9 @@ instance, never to a canonry-hosted SaaS relay.
 - **Edge filter is generic; canonry classifier is strict.** The Worker
   forwards on a broad UA keyword match, an exact canonical AI-engine domain
   (including subdomains), AI `utm_source` evidence on the request or referrer,
+  an unlisted agent (`isUnlistedAgent`: a GET or HEAD for anything but a
+  static file from a client that is neither a normal browser nor a generic
+  HTTP tool, so agents with new names reach Canonry without a redeploy),
   or Cloudflare bot signals (`cf.botManagement.verifiedBot` /
   `cf.botManagement.score`). The authoritative bot-id / operator
   decisions happen in `packages/integration-traffic` once the event lands
