@@ -325,7 +325,8 @@ export function persistJourneyBatch(
   return { visitsWritten: result.visits.length, eventsStored }
 }
 
-function recomputeVisitTotals(tx: JourneyDb, visitIds: readonly string[]): void {
+/** Set each visit's times and counts from the requests it now holds. */
+export function recomputeVisitTotals(tx: JourneyDb, visitIds: readonly string[]): void {
   if (visitIds.length === 0) return
   const of = (expression: ReturnType<typeof sql>) => sql`(SELECT ${expression} FROM ${journeyEvents} WHERE ${journeyEvents.visitId} = ${journeyVisits.id})`
   tx.update(journeyVisits).set({

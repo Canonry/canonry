@@ -135,6 +135,11 @@ requests are never stored there. The same migration adds
 first reason. It is separate from `ai_user_fetch_events_hourly` so no reader of
 AI agent hits can include them.
 
+Migration 205 adds `agent_scanner_clients`: each client's latest run of scanner
+probes, keyed by an HMAC of its IP (never the address), so ingest can mark the
+rest of a scanner's burst across batches. Rows cascade with the source/project
+and are dropped two days after their last probe.
+
 Traffic delivery adapters use `traffic_event_receipts` for durable idempotency.
 Claim `(source_id, event_id)` in the same transaction as rollup writes and
 acknowledge an upstream buffer only after commit. Set `expires_at` to cover the

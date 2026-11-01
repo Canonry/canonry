@@ -5138,6 +5138,22 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       )`,
     ],
   },
+  {
+    version: 205,
+    name: 'agent-scanner-clients',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS agent_scanner_clients (
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        source_id       TEXT NOT NULL REFERENCES traffic_sources(id) ON DELETE CASCADE,
+        client_key      TEXT NOT NULL,
+        first_probe_at  TEXT NOT NULL,
+        last_probe_at   TEXT NOT NULL,
+        updated_at      TEXT NOT NULL,
+        PRIMARY KEY (project_id, source_id, client_key)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_scanner_clients_source_last ON agent_scanner_clients(source_id, last_probe_at)`,
+    ],
+  },
 ]
 
 /**

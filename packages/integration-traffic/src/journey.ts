@@ -12,6 +12,12 @@ import { classifyAiReferral, classifyAiUserFetch, classifyCrawler, isSelfTraffic
  * visitor hash live with the caller.
  */
 
+/**
+ * Bump when a change here would alter journeys already stored, so the stored
+ * traffic pass (`traffic-reclassify.ts`) corrects them.
+ */
+export const JOURNEY_RULES_VERSION = 2
+
 // Static files a page pulls in. JSON and API calls stay: in single-page apps
 // they are the only trace of navigation, and form posts are what a visitor did.
 const ASSET_EXTENSION_PATTERN = /\.(?:avif|bmp|css|gif|ico|jpe?g|js|map|mjs|mp3|mp4|otf|png|svg|ttf|txt|webm|webmanifest|webp|woff2?|xml)$/i
@@ -302,7 +308,7 @@ export interface SessionizeJourneyResult {
   visits: JourneyVisitWrite[]
   events: JourneyEventWrite[]
   visitors: JourneyVisitorWrite[]
-  /** Requests not kept: outside every AI journey, or background data calls that would open a visit. */
+  /** Requests not kept: outside every AI journey, or background data calls outside a visit. */
   dropped: number
   /** Requests over the per-visitor daily cap (AI touches are never capped). */
   capped: number
@@ -358,7 +364,9 @@ function insertSorted(values: string[], value: string): void {
  * arrival from a different outside source starts a new visit, as analytics
  * tools do. A request is kept when it is an AI touch, when an AI touch came
  * within `lookbackMs` before it, or when it continues a kept visit. A
- * background data call with no entry evidence never opens a visit.
+ * background data call (an API or JSON request) never opens a visit, becomes
+ * its first request or counts as an AI touch: the page that made it carries
+ * the same referer and utm tags, and is the arrival.
  *
  * An AI engine seen only on a same-site referer's utm (the landing page was
  * served from a cache the logs never saw) counts as an AI touch only when the
@@ -394,8 +402,10 @@ export function sessionizeJourneyRequests(
   for (const [visitorKey, list] of byVisitor) {
     list.sort((a, b) => (a.observedAt < b.observedAt ? -1 : a.observedAt > b.observedAt ? 1 : 0))
     const prior = state.get(visitorKey)
-    const isWeakAi = (r: JourneyRequest) => Boolean(r.signal.aiProduct) && r.stepReferer
-    const isStrongAi = (r: JourneyRequest) => Boolean(r.signal.aiProduct) && !r.stepReferer
+    // A background call carries its page's referer and utm tags, so only the
+    // page counts as arriving from an AI engine.
+    const isWeakAi = (r: JourneyRequest) => r.kind === 'page' && Boolean(r.signal.aiProduct) && r.stepReferer
+    const isStrongAi = (r: JourneyRequest) => r.kind === 'page' && Boolean(r.signal.aiProduct) && !r.stepReferer
     // Known AI touches, sorted: stored ones and this batch's direct AI arrivals.
     // Weak ones (same-site utm only) are added below when they count.
     const aiTimes = [...new Set([
@@ -438,12 +448,12 @@ export function sessionizeJourneyRequests(
         : request.stepReferer
           ? DIRECT_ENTRY
           : classifyJourneyEntry({ ...request.signal, aiProduct: null, aiDomain: null, aiPaid: false })
-      const outside = aiTouch || hasEntryEvidence(request)
+      const outside = request.kind === 'page' && (aiTouch || hasEntryEvidence(request))
       const placement = placeRequest(known, t, outside ? entryKey(entry) : null, options.idleMs)
       const continues = placement.visit !== undefined && !placement.head
       const kept = aiTouch || withinLookback || continues
-      const opensVisit = placement.visit === undefined
-      if (!kept || (opensVisit && request.kind === 'data' && !outside)) {
+      // A background call only joins a visit a page already started.
+      if (!kept || (request.kind === 'data' && !continues)) {
         dropped += 1
         continue
       }

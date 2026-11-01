@@ -355,6 +355,44 @@ describe('sessionizeJourneyRequests', () => {
     expect(result.dropped).toBe(1)
   })
 
+  it('never counts a background call as the AI arrival or the landing page', () => {
+    // The page's script calls an API with the page URL, and its utm tag, as
+    // the referer. The call is logged a moment before the page.
+    const call = { path: '/api/shopify', method: 'POST', referer: 'https://www.example.com/terms?utm_source=chatgpt.com' }
+    const result = sessionizeJourneyRequests(requests('2026-10-18T10:00:00Z', [
+      [0, call],
+      [0.01, { path: '/terms', queryString: 'utm_source=chatgpt.com' }],
+      [0.5, call],
+    ]), new Map(), { ...OPTIONS, newId: ids() })
+    expect(result.visits.map(v => [v.entry.entryName, v.landingPath, v.requestCount, v.pageCount])).toEqual([['ChatGPT', '/terms?utm_source=chatgpt.com', 2, 1]])
+    expect(result.events.map(e => [e.request.path, e.aiTouch])).toEqual([['/terms?utm_source=chatgpt.com', true], ['/api/shopify', false]])
+    expect(result.visitors[0]).toMatchObject({ firstAiAt: '2026-10-18T10:00:00.600Z' })
+    expect(result.dropped).toBe(1)
+  })
+
+  it('does not make a visitor of background calls alone', () => {
+    // Seen only through calls whose referer carries the AI tag: the page was
+    // logged under another key, so counting the calls would count the person twice.
+    const call = { path: '/api/shopify', method: 'POST', referer: 'https://www.example.com/?utm_source=chatgpt.com' }
+    const result = sessionizeJourneyRequests(requests('2026-10-18T10:00:00Z', [[0, call], [0.1, call], [3, { path: '/products/tee.json', referer: 'https://chatgpt.com/' }]]), new Map(), { ...OPTIONS, newId: ids() })
+    expect(result).toMatchObject({ visits: [], events: [], visitors: [], dropped: 3 })
+  })
+
+  it('never lets a late background call become a stored visit\'s first request', () => {
+    const state = new Map<string, JourneyVisitorState>([['v1', {
+      firstAiAt: '2026-10-18T10:00:00.000Z', firstAiEngine: 'ChatGPT', lastAiAt: '2026-10-18T10:00:00.000Z',
+      aiTimes: ['2026-10-18T10:00:00.000Z'],
+      visits: [{ id: 'chatgpt', startedAt: '2026-10-18T10:00:00.000Z', endedAt: '2026-10-18T10:05:00.000Z', entry: { entryClass: 'ai', entryName: 'ChatGPT', entryHost: 'chatgpt.com', paid: false }, requestCount: 2, pageCount: 2 }],
+    }]])
+    const result = sessionizeJourneyRequests(requests('2026-10-18T09:59:00Z', [
+      [0, { path: '/api/cart', referer: 'https://www.example.com/' }],
+      [3, { path: '/api/cart', referer: 'https://www.example.com/' }],
+    ]), state, { ...OPTIONS, newId: ids() })
+    expect(result.events.map(e => [e.visitId, e.request.observedAt])).toEqual([['chatgpt', '2026-10-18T10:02:00.000Z']])
+    expect(result.visits.map(v => [v.id, v.headChanged])).toEqual([['chatgpt', false]])
+    expect(result.dropped).toBe(1)
+  })
+
   it('stores at most the daily cap per visitor and counts the rest', () => {
     const steps: Array<[number, Partial<NormalizedTrafficRequest>]> = [[0, fromChatGpt], [1, internal('/a')], [2, internal('/b')], [3, internal('/c')]]
     const state = new Map<string, JourneyVisitorState>([['v1', { firstAiAt: null, firstAiEngine: null, lastAiAt: null, visits: [], requestsByDay: { '2026-10-18': 1 } }]])

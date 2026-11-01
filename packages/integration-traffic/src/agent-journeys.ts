@@ -1,6 +1,8 @@
 import { AgentTrustLevels, classifyTrafficPath, hostOf, TrafficPathClasses, type AgentTrustReason, type NormalizedTrafficRequest, type StoredAgentTrust, type TrafficVerificationManifest, type VerificationStatus } from '@canonry/canonry-contracts'
+import { withScannerBurst } from './agent-trust.js'
 import { classifyAiUserFetch, isSelfTraffic } from './classifier.js'
 import { maskJourneyPath } from './journey.js'
+import { findScannerBurstsInBatch } from './scanner-bursts.js'
 
 /** Raw identity is transient input to the capture layer's keyed correlation. */
 export interface AgentJourneyRequest {
@@ -22,15 +24,22 @@ export interface AgentJourneyRequest {
   latencyMs: number | null
 }
 
+export interface ExtractAgentJourneyOptions {
+  /** Requests from a probing client (`findScannerBursts`); found within the batch when omitted. */
+  scannerBurstEventIds?: ReadonlySet<string>
+}
+
 /**
  * Observed fetches only: a request does not prove navigation, intent or
  * success. Likely fake requests are left out; their hourly totals count them.
  */
-export function extractAgentJourneyRequests(events: readonly NormalizedTrafficRequest[]): AgentJourneyRequest[] {
+export function extractAgentJourneyRequests(events: readonly NormalizedTrafficRequest[], options: ExtractAgentJourneyOptions = {}): AgentJourneyRequest[] {
+  const bursts = options.scannerBurstEventIds ?? findScannerBurstsInBatch(events)
   const requests: AgentJourneyRequest[] = []
   for (const event of events) {
     if (isSelfTraffic(event)) continue
-    const agent = classifyAiUserFetch(event)
+    const classified = classifyAiUserFetch(event)
+    const agent = classified && bursts.has(event.eventId) ? withScannerBurst(classified) : classified
     if (!agent || agent.trust === AgentTrustLevels.likely_fake) continue
     const timestamp = Date.parse(event.observedAt)
     if (!Number.isFinite(timestamp)) continue

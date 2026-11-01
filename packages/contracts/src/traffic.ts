@@ -145,6 +145,8 @@ export const agentTrustReasonSchema = z.enum([
   'unusual-user-agent',
   /** The path asks for secrets, version-control data, admin logins or traverses directories. */
   'scanner-path',
+  /** The same client (one IP) asked for scanner paths within a few minutes of this request. */
+  'scanner-burst',
 ])
 export type AgentTrustReason = z.infer<typeof agentTrustReasonSchema>
 export const AgentTrustReasons = agentTrustReasonSchema.enum

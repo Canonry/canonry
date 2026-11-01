@@ -21,6 +21,7 @@ import {
 } from './raw-event-sample-retention.js'
 import { recordJourneyBatch } from './journeys.js'
 import { recordAgentJourneyBatch } from './agent-journey-capture.js'
+import { planScannerBursts, saveScannerBursts } from './agent-scanner-bursts.js'
 import { addLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 
 // Signatures expire after five minutes. Keep receipts for one additional
@@ -212,13 +213,17 @@ export function writeTrafficEventBatch(
       // source/hour cap below, not the transport batch size, decides which
       // samples persist. This keeps one-event push and Queue batches
       // on the same storage boundary.
-      const report = buildTrafficProbeReport(claimedEvents, { sampleLimit: claimedEvents.length })
+      // Agent requests from a client that probed for secrets, here or in a
+      // stored earlier batch, so one-event pushes read the same as batches.
+      const bursts = planScannerBursts(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret })
+      saveScannerBursts(tx, { projectId: opts.projectId, sourceId: opts.sourceId, windows: bursts.windows, now: opts.receivedAt })
+      const report = buildTrafficProbeReport(claimedEvents, { sampleLimit: claimedEvents.length, scannerBurstEventIds: bursts.eventIds })
       // AI visitor journeys from the newly claimed events, in this transaction.
       recordJourneyBatch(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret, now: opts.receivedAt }, {
         onError: error => opts.onJourneyError?.(error),
         outerActive: () => opts.db.$client.inTransaction,
       })
-      recordAgentJourneyBatch(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret, now: opts.receivedAt }, {
+      recordAgentJourneyBatch(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret, now: opts.receivedAt, scannerBurstEventIds: bursts.eventIds }, {
         onError: error => opts.onJourneyError?.(error),
         outerActive: () => opts.db.$client.inTransaction,
       })

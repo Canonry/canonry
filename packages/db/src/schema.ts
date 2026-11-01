@@ -3013,6 +3013,21 @@ export const agentJourneyCaptureDays = sqliteTable('agent_journey_capture_days',
   index('idx_agent_journey_capture_days_day').on(table.day),
 ])
 
+// The latest run of scanner probes from each client (a keyed hash of one IP)
+// claiming an AI agent, so a burst split across batches is still recognized.
+// Rows are dropped two days after their last probe.
+export const agentScannerClients = sqliteTable('agent_scanner_clients', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  clientKey: text('client_key').notNull(),
+  firstProbeAt: text('first_probe_at').notNull(),
+  lastProbeAt: text('last_probe_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.sourceId, table.clientKey] }),
+  index('idx_agent_scanner_clients_source_last').on(table.sourceId, table.lastProbeAt),
+])
+
 export const discoverySessions = sqliteTable('discovery_sessions', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),

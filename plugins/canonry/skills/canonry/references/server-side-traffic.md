@@ -59,6 +59,7 @@ Four tables store the shared output from every adapter:
 | `crawler_events_hourly` | One row per `(project, source, hour, bot, verification, path, status)` — bot crawls rolled up by hour |
 | `ai_user_fetch_events_hourly` | One row per `(project, source, hour, bot, verification, path, status)` — user-initiated AI fetches rolled up by hour, excluding likely fake requests |
 | `ai_user_fetch_likely_fake_hourly` | One row per `(project, source, hour, bot, first trust reason)` — requests that claimed a user-triggered agent but were judged likely fake |
+| `agent_scanner_clients` | One row per `(project, source, client)` — the latest run of scanner probes from one IP (stored as a keyed hash), kept two days so a burst split across batches is still recognized |
 | `ai_referral_events_hourly` | One row per `(project, source, hour, product, source_domain, evidence_type, landing_path, status)` — click-through arrivals rolled up by hour |
 | `raw_event_samples` | Bounded forensic samples for spot checks. Source writes plus a startup/daily global sweep enforce 30-day retention; Cloudflare also uses a per-source, per-hour cap |
 
@@ -1227,10 +1228,11 @@ Property attribution. IP/UA grouping is inferred and can combine different tasks
 on shared infrastructure; without an IP the requests stay unlinked. Neither
 grouping nor trust identifies a person or establishes their task.
 
-Every user-triggered agent request gets a trust level when it is classified,
-judged on that request alone. `verified` means the source IP is in the
-operator's published list. Otherwise: `likely_fake` when the path asks for
-credential, version-control or admin files, when an operator that publishes a
+Every user-triggered agent request gets a trust level when it is classified.
+`verified` means the source IP is in the operator's published list. Otherwise:
+`likely_fake` when the path asks for credential, config, version-control or
+admin files, when the same IP asked for one within 10 minutes (`scanner-burst`:
+a scanner posing as several agents), when an operator that publishes a
 full user-agent string (OpenAI, Mistral) sees a different one; an IP missing
 from the published list alone leaves a request `unknown`, because lists lag
 real addresses and some rotate; `likely_real`
@@ -1240,9 +1242,12 @@ evidence. Likely fake requests are never added to AI user fetch hits or stored
 as journey events: hourly totals count them (`totals24h.aiUserFetchLikelyFakeHits`,
 `aiUserFetchLikelyFakeHits` on sync results, `coverage.likelyFakeRequests`),
 and raw samples keep their classification for review. With a Property filter,
-`coverage.likelyFakeRequests` is null: hourly totals carry no page path. Trust
-applies to traffic recorded from the release that added it, and to any window
-a backfill rewrites; other older rollups are unchanged.
+`coverage.likelyFakeRequests` is null: hourly totals carry no page path. When
+the trust rules change, a server checks stored traffic again once after
+startup (`cnry backfill traffic-classification` runs the same pass on demand):
+hourly agent rows for a scanner path move to the likely fake counts, and stored
+agent requests from a probing client are removed. Hourly rows keep no IP, so
+older hours get the burst rule only through stored agent requests.
 
 Preserve the
 response's retention, daily-cap and source limitations; missing requests do
@@ -1271,6 +1276,10 @@ every source and needs no site snippet or goal setup. Read it with
 `cnry journeys summary|list|show` or the `canonry_journeys_summary`,
 `canonry_journeys_list` and `canonry_journey_get` MCP tools.
 
+- A background call (an API or JSON request) never starts a visit or counts as
+  arriving from an AI engine. It carries its page's referer and utm tags, so the
+  page that made it is the arrival. Calls seen without their page (the page was
+  logged under another key) are not a visitor.
 - A visitor key is an HMAC of IP and user agent under the install secret
   `journeys.visitorKeySecret` (generated on first `serve` and saved in
   config.yaml, or `CANONRY_JOURNEY_KEY_SECRET`). No IP is stored. Changing the
