@@ -309,6 +309,22 @@ describe('AI visitor journeys', () => {
       expect((await app.inject({ method: 'GET', url: '/api/v1/projects/example/journeys?since=2026-10-24&until=2026-10-01' })).statusCode).toBe(400)
     })
 
+    it('starts each listed visitor\'s visits at the first AI visit even when older visits are stored', async () => {
+      seed()
+      // Recording keeps requests only after an AI visit, so older rows come
+      // from data stored before that rule or kept across a retention change.
+      const stored = db.select().from(journeyVisits).orderBy(journeyVisits.startedAt).all()
+      const macKey = stored.find(v => v.entryClass === 'search')!.visitorKey
+      const mac = stored.find(v => v.visitorKey === macKey && v.entryClass === 'ai')!
+      for (let i = 0; i < 25; i++) {
+        db.insert(journeyVisits).values({ ...mac, id: `older-${i}`, startedAt: `2026-10-0${1 + (i % 9)}T0${i % 10}:00:00.000Z`, endedAt: `2026-10-0${1 + (i % 9)}T0${i % 10}:05:00.000Z`, entryClass: 'direct', entryName: null, entryHost: null, landingPath: `/older-${i}` }).run()
+      }
+      const body = (await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys?until=${NOW}&engine=chatgpt` })).json()
+      const visitor = body.visitors[0]
+      expect(visitor).toMatchObject({ visitCount: 27, returned: true, returnChannels: ['search'] })
+      expect(visitor.visits.map((v: { entryClass: string; landingPath: string }) => [v.entryClass, v.landingPath])).toEqual([['ai', mac.landingPath], ['search', '/book']])
+    })
+
     it('returns every visit and request for one visitor, and 404 for another project\'s key', async () => {
       seed()
       const key = journeyVisitorKey(SECRET, 'project', null, MAC).visitorKey
@@ -328,6 +344,27 @@ describe('AI visitor journeys', () => {
       ])
       const otherKey = journeyVisitorKey(SECRET, 'other', null, MAC).visitorKey
       expect((await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/${otherKey}` })).statusCode).toBe(404)
+    })
+
+    // A visit can carry dozens of background data requests; `events=pages` keeps
+    // pages plus every write, so the form post is never filtered out with them.
+    it('filters a visit to pages and non-GET requests on request, keeping the stored request count', async () => {
+      seed()
+      persist([event('m2b', '2026-10-18T10:02:30Z', { path: '/_payload.json', referer: 'https://example.com/rooms' })])
+      const key = journeyVisitorKey(SECRET, 'project', null, MAC).visitorKey
+      const all = (await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/${key}` })).json()
+      expect(all.events).toBe('all')
+      expect(all.visits[0].requestCount).toBe(4)
+      expect(all.visits[0].events.map((e: { path: string }) => e.path)).toEqual(['/?utm_source=chatgpt.com', '/rooms', '/_payload.json', '/api/availability'])
+      const pages = (await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/${key}?events=pages` })).json()
+      expect(pages.events).toBe('pages')
+      expect(pages.visits[0].requestCount).toBe(4)
+      expect(pages.visits[0].events.map((e: { method: string; path: string; kind: string }) => [e.method, e.path, e.kind])).toEqual([
+        ['GET', '/?utm_source=chatgpt.com', 'page'],
+        ['GET', '/rooms', 'page'],
+        ['POST', '/api/availability', 'data'],
+      ])
+      expect((await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/${key}?events=everything` })).statusCode).toBe(400)
     })
 
     it('denies viewers and keys scoped to another project', async () => {

@@ -1,4 +1,4 @@
-import { mcpProfileDtoSchema, journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, trafficUnrecognizedAgentsQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
+import { agentJourneysQuerySchema, mcpProfileDtoSchema, journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, trafficUnrecognizedAgentsQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -2918,6 +2918,22 @@ const rawCanonryMcpTools = [
     handler: (client, input) => { const { project, ...query } = input; return client.trafficListSamples(project, query) },
   }),
   defineTool({
+    name: 'canonry_traffic_agent_journeys',
+    title: 'List agent journeys',
+    description: 'Read stored user-triggered agent request sequences with trust levels (verified by published IP list, likely real, or unknown), inferred or unlinked correlation, and source/retention/cap limits. Likely fake requests are counted in coverage.likelyFakeRequests, never listed. IP and user-agent grouping does not prove a single user task. Simple and Advanced projects use the same evidence; targetKey filters URL matches against the current plan, not historical task intent. No provider calls or writes.',
+    access: 'read', tier: 'traffic', inputSchema: agentJourneysQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/agent-journeys'],
+    handler: (client, input) => { const { project, ...query } = input; return client.trafficAgentJourneys(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_traffic_agent_journey',
+    title: 'Read an agent journey',
+    description: 'Read the ordered request timeline for an id from canonry_traffic_agent_journeys. Preserve the list window and selectors. Requests include time, host, masked path, method, status, latency, verification, trust level with reasons, and Property attribution. HTTP responses do not prove business outcomes; no prompt, private reasoning or off-site browsing is recorded. No provider calls or writes.',
+    access: 'read', tier: 'traffic', inputSchema: agentJourneysQuerySchema.extend({ project: projectNameSchema, journeyId: z.string().min(1) }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/agent-journeys/{journeyId}'],
+    handler: (client, input) => { const { project, journeyId, ...query } = input; return client.trafficAgentJourney(project, journeyId, query) },
+  }),
+  defineTool({
     name: 'canonry_traffic_unrecognized_agents',
     title: 'List unrecognized bots and agents',
     description: 'Server-side traffic from self-identified bots and agents that no classifier rule names yet, summed by the name in their user agent, busiest first, with first and last seen hours and an example user agent. Default window 30 days. Browsers, generic HTTP tools, static files and writes are left out. Use it to spot new AI agents. No provider call or write.',
@@ -2936,7 +2952,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_journeys_list',
     title: 'List AI visitor journeys',
-    description: 'List stored AI visitors, newest first AI visit first, with their first 20 visits (entry class and name, landing path, page count; visitCount is the total). Filter by first AI engine or by whether they came back. Visits are 30-minute sessions; visits within 30 days after an AI visit are kept, 180-day retention. A high cappedDays means a user agent many people share; partialSources names sources whose logs miss later visits. No provider call or write.',
+    description: 'List stored AI visitors, newest first AI visit first, with up to 20 visits from the first AI visit on (entry class and name, landing path, page count; visitCount is the total). Filter by first AI engine or by whether they came back. Visits are 30-minute sessions; visits within 30 days after an AI visit are kept, 180-day retention. A high cappedDays means a user agent many people share; partialSources names sources whose logs miss later visits. No provider call or write.',
     access: 'read', tier: 'traffic', inputSchema: journeysQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/journeys'],
     handler: (client, input) => { const { project, ...query } = input; return client.journeysList(project, query) },
@@ -2944,7 +2960,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_journey_get',
     title: 'Read one AI visitor journey',
-    description: 'Read one AI visitor key from canonry_journeys_list: a page of its stored visits in time order (limit 1 to 500, default 100; totalVisits is the total), each with its requests (time, method, path, status, page or data). No provider call or write.',
+    description: 'Read one AI visitor key from canonry_journeys_list: a page of its stored visits in time order (limit 1 to 500, default 100; totalVisits is the total), each with its requests (time, method, path, status, page or data). events=pages returns page requests plus every non-GET/HEAD request; each visit keeps its stored requestCount. No provider call or write.',
     access: 'read', tier: 'traffic', inputSchema: journeyDetailQuerySchema.extend({ project: projectNameSchema, visitorKey: z.string().min(1) }), annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/journeys/{visitorKey}'],
     handler: (client, input) => { const { project, visitorKey, ...query } = input; return client.journeyGet(project, visitorKey, query) },

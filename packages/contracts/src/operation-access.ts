@@ -95,6 +95,8 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/ga/acquisition',
   'GET /api/v1/projects/{name}/traffic/referral-assessment',
   'GET /api/v1/projects/{name}/traffic/samples',
+  'GET /api/v1/projects/{name}/traffic/agent-journeys',
+  'GET /api/v1/projects/{name}/traffic/agent-journeys/{journeyId}',
   'GET /api/v1/projects/{name}/traffic/unrecognized-agents',
   'GET /api/v1/projects/{name}/journeys/summary',
   'GET /api/v1/projects/{name}/journeys',

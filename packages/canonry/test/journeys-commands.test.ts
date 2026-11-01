@@ -111,6 +111,17 @@ describe('journeys CLI commands', () => {
     expect(json.visits.map(v => v.entryClass)).toEqual(['search'])
   })
 
+  it('show --events pages keeps pages and the POST, and says how many it shows', async () => {
+    const text = await invokeCli(['journeys', 'show', 'test-proj', KEY, '--events', 'pages'])
+    expect(text.exitCode, text.stderr).toBeUndefined()
+    expect(text.stdout).toContain('[data] /api/contact')
+    expect(text.stdout).toContain('pages and non-GET requests')
+    const json = parseJsonOutput((await invokeCli(['journeys', 'show', 'test-proj', KEY, '--events', 'pages', '--format', 'json'])).stdout) as { events: string }
+    expect(json.events).toBe('pages')
+    const bad = await invokeCli(['journeys', 'show', 'test-proj', KEY, '--events', 'everything'])
+    expect(bad.exitCode).toBe(1)
+  })
+
   it.each([
     [['journeys', 'list', 'test-proj', '--returned', 'maybe']],
     [['journeys', 'list', 'test-proj', '--limit', '201']],

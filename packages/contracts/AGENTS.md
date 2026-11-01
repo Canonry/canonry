@@ -61,6 +61,13 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 
 ## Patterns
 
+`src/agent-journeys.ts` defines stored user-triggered request timelines, bounded
+capture/read limits, and independent operator-verification and request-correlation
+fields. IP+UA correlation is inferred; missing-IP requests stay unlinked. Advanced
+Property attribution uses the current plan and retained URL, with unavailable
+market, query, class, model and task dimensions explicit. HTTP status never proves
+a business outcome. Query bounds/selectors are identity; pagination is tuning.
+
 ### Adding a new error code
 
 1. Add the code to the `ErrorCode` union in `src/errors.ts`.

@@ -1,6 +1,7 @@
 import { mcpProfileRoutes } from './mcp-profile.js'
 export { registerAgentConversationRoutes } from './agent-conversations.js'
 export { blockedAddressReason, stripIpv6Brackets } from './egress-policy.js'
+export { addLikelyFakeAgentHits, clearLikelyFakeAgentHits, type LikelyFakeAgentBucket } from './likely-fake-agent-rollup.js'
 import type { FastifyInstance, FastifyError } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
 import type { DatabaseClient } from '@canonry/canonry-db'
@@ -55,6 +56,7 @@ import { trafficAnalyticsRoutes } from './traffic-analytics.js'
 import { trafficSamplesRoutes } from './traffic-samples.js'
 import { trafficUnrecognizedAgentsRoutes } from './traffic-unrecognized-agents.js'
 import { journeyRoutes } from './journeys.js'
+import { agentJourneyRoutes } from './agent-journeys.js'
 import { referralAssessmentRoutes } from './referral-assessment.js'
 import { organicEvidenceRoutes } from './organic-evidence.js'
 import { citationRoutes } from './citations.js'
@@ -765,6 +767,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(trafficSamplesRoutes)
     await api.register(trafficUnrecognizedAgentsRoutes)
     await api.register(journeyRoutes)
+    await api.register(agentJourneyRoutes, { journeyKeySecret: opts.journeyKeySecret })
     await api.register(citationRoutes)
     await api.register(visibilityStatsRoutes)
     await api.register(resultsExportRoutes)

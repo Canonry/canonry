@@ -112,11 +112,13 @@ export function projectScopeSlot(input: ProjectScopeSlotInput): ProjectScopeSlot
     case 'backlinks':
     case 'history':
       return input.scoped && input.surface === 'advanced-overview' ? { kind: 'project-wide' } : { kind: 'none' }
-    // The embedded client Queries tab lists a simple project's queries; it has no scope.
+    // The embedded client Queries tab lists a simple project's queries, and Journeys
+    // (visitors and agent requests) is project-wide evidence: neither has a scope.
     case 'client-queries':
     case 'settings':
     case 'portfolio':
     case 'seo-data':
+    case 'journeys':
       return { kind: 'none' }
     default: {
       const unhandled: never = tab

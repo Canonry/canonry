@@ -1,9 +1,52 @@
 import { WINDOW_SETS } from '@canonry/canonry-contracts'
-import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getBoolean, getString, parseIntegerOption, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
+import { getBoolean, getString, parseIntegerOption, requirePositional, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import type { AgentJourneyCommandOptions } from '../commands/agent-journeys.js'
 import { usageError } from '../cli-error.js'
 
+const AGENT_JOURNEY_FLAGS = '[--since <ISO>] [--until <ISO>] [--source <id>] [--agent <id>] [--trust verified|likely_real|unknown] [--target-key <key>] [--limit <n>] [--offset 0] [--format json|jsonl]'
+const AGENT_JOURNEYS_USAGE = `canonry traffic agent-journeys <project> ${AGENT_JOURNEY_FLAGS}`
+const AGENT_JOURNEY_USAGE = `canonry traffic agent-journey <project> <journey-id> ${AGENT_JOURNEY_FLAGS}`
+const agentJourneyOptions = {
+  since: stringOption(), until: stringOption(), source: stringOption(), agent: stringOption(),
+  trust: stringOption(), 'target-key': stringOption(), limit: stringOption(), offset: stringOption(),
+}
+
+function readAgentJourneyOptions(input: CliCommandInput, command: string, usage: string): AgentJourneyCommandOptions {
+  return {
+    since: getString(input.values, 'since'), until: getString(input.values, 'until'),
+    sourceId: getString(input.values, 'source'), agentId: getString(input.values, 'agent'),
+    trust: getString(input.values, 'trust'), targetKey: getString(input.values, 'target-key'),
+    limit: parseIntegerOption(input, 'limit', { command, usage, message: '--limit must be an integer' }),
+    offset: parseIntegerOption(input, 'offset', { command, usage, message: '--offset must be an integer' }),
+    format: input.format,
+  }
+}
+
 export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['traffic', 'agent-journeys'],
+    usage: AGENT_JOURNEYS_USAGE,
+    help: 'Stored user-triggered agent request sequences, with trust levels, correlation and coverage limits. Likely fake requests are counted, not listed. No provider calls. Default limit: 50 journeys.',
+    options: agentJourneyOptions,
+    run: async input => {
+      const { trafficAgentJourneys } = await import('../commands/agent-journeys.js')
+      const project = requireProject(input, 'traffic.agent-journeys', AGENT_JOURNEYS_USAGE)
+      await trafficAgentJourneys(project, readAgentJourneyOptions(input, 'traffic.agent-journeys', AGENT_JOURNEYS_USAGE))
+    },
+  },
+  {
+    path: ['traffic', 'agent-journey'],
+    usage: AGENT_JOURNEY_USAGE,
+    help: 'Read one agent request timeline. Keep the list window and selectors; correlation does not prove one user task. Default limit: 100 requests.',
+    options: agentJourneyOptions,
+    run: async input => {
+      const { trafficAgentJourney } = await import('../commands/agent-journeys.js')
+      const project = requireProject(input, 'traffic.agent-journey', AGENT_JOURNEY_USAGE)
+      const journeyId = requirePositional(input, 1, { command: 'traffic.agent-journey', usage: AGENT_JOURNEY_USAGE, message: 'journey id is required' })
+      await trafficAgentJourney(project, journeyId, readAgentJourneyOptions(input, 'traffic.agent-journey', AGENT_JOURNEY_USAGE))
+    },
+  },
   {
     path: ['traffic', 'analytics'],
     windows: WINDOW_SETS.trafficAnalytics,
@@ -427,7 +470,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'traffic',
         usage: 'canonry traffic <subcommand> <project> [args]',
-        available: ['connect', 'activate', 'sync', 'backfill', 'reset', 'status', 'sources', 'events', 'samples', 'analytics', 'referral-assessment'],
+        available: ['connect', 'activate', 'sync', 'backfill', 'reset', 'status', 'sources', 'events', 'samples', 'analytics', 'referral-assessment', 'agent-journeys', 'agent-journey'],
       })
     },
   },

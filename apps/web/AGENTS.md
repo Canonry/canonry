@@ -39,6 +39,45 @@ subtle borders, no visual noise.
 
 ## Patterns
 
+### Journeys
+
+Journeys is a project tab (`/projects/$projectName/journeys`, `JourneysSection`)
+with Visitors and Agent requests views. It is hidden for view-only accounts and
+is not in the embed tab allowlist. The URL carries the view, visitor period,
+selected visitor, list filters and page (`journeyView`, `journeyDays`,
+`journeyVisitor`, `journeyEngine`, `journeyReturned`, `journeyOffset`) and the
+agent period (`agentHours`); only the active view reads journey data.
+`TrafficPage` remains source administration. Both views use generated SDK reads
+and render server values without calculating metrics in the browser.
+
+Visitor summary dates select first-AI-arrival cohorts; return behavior includes
+their later visits. Engine and came-back filters affect the visitor list only.
+The list sits beside the selected visitor's panel: `JourneyFlow` draws its
+visits left to right in time order as an ordered list of buttons, with the
+entry class carried by marker shape and text, `//` for a new calendar day, and
+non-GET requests printed as recorded. Spacing is ordinal, never proportional to
+time. The visit table loads `events=pages` from the API and offers every request
+on demand; never filter requests in the browser. Keep null metrics unavailable,
+matching uncertainty explicit, and source gaps and capped days visible. Never
+name what a request did ("form submit", "booking"): print method and path.
+Visitor reads are project-wide for both Simple and Advanced portfolios; they do
+not establish Property or market scope.
+
+The Agent requests view uses the generated list/detail reads and renders their counts without
+recomputing them. Detail pagination keeps the list response's exact time window
+and source, agent, trust and Property filters. Trust (Verified, Likely real,
+Unknown, with reasons in the expanded sequence) is separate from inferred
+request correlation; likely fake requests are never listed and appear only as
+the API's `coverage.likelyFakeRequests` count, hidden when it is null (a
+Property filter). Activity's AI hits and the source
+page's AI user fetches show the API's count without likely fakes and name
+`aiUserFetchLikelyFakeHits` in a tooltip; trust wording lives in
+`lib/agent-trust-copy.ts`; paths and HTTP status never prove
+clicks or task completion. Current-plan URL attribution names its revision and
+does not invent market, query, class or model scope. Capture limits and source
+gaps remain available in the coverage disclosure. Hide journey navigation and reads for viewer
+accounts and embeds, but retain it for scoped read keys; the API owns authority.
+
 ### SEO
 
 `components/project/SeoDataSection.tsx` owns `/projects/:name/seo-data`, labelled SEO.

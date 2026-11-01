@@ -829,7 +829,7 @@ describe('POST /traffic/cloudflare/ingest', () => {
         workerVersion: '1.0.0',
         events: [
           buildIngestEvent(),
-          buildIngestEvent({ userAgent: 'ChatGPT-User/1.0' }),
+          buildIngestEvent({ userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot' }),
           buildIngestEvent({ userAgent: 'Mozilla/5.0', referer: 'https://chatgpt.com/' }),
         ],
       },
@@ -901,7 +901,7 @@ describe('POST /traffic/cloudflare/ingest', () => {
         workerVersion: '1.0.0',
         events: [
           buildIngestEvent({
-            userAgent: 'ChatGPT-User/1.0',
+            userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
           }),
         ],
       },

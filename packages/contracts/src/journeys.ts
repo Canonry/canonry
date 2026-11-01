@@ -291,7 +291,11 @@ export const journeysResponseSchema = z.object({
   limit: z.number().int(),
   offset: z.number().int(),
   partialSources: journeyPartialSourcesSchema,
-  /** Each visitor's first visits, at most JOURNEY_LIST_VISITS_PER_VISITOR; `visitCount` is the total. */
+  /**
+   * Each visitor's visits from the first AI visit on, at most
+   * JOURNEY_LIST_VISITS_PER_VISITOR; `visitCount` counts every visit, earlier
+   * ones included, and `returnChannels` every later visit.
+   */
   visitors: z.array(journeyVisitorDtoSchema.extend({ visits: z.array(journeyVisitDtoSchema) })),
 })
 export type JourneysResponse = z.infer<typeof journeysResponseSchema>
@@ -307,15 +311,42 @@ export const journeyEventDtoSchema = z.object({
 })
 export type JourneyEventDto = z.infer<typeof journeyEventDtoSchema>
 
+/**
+ * Which requests a visit detail returns. `all` (the default) is every stored
+ * request. `pages` keeps page requests plus every request whose method is not
+ * GET or HEAD, so a form post or an API write is never hidden with the
+ * background data requests.
+ */
+export const journeyEventFilterSchema = z.enum(['all', 'pages'])
+export type JourneyEventFilter = z.infer<typeof journeyEventFilterSchema>
+export const JourneyEventFilters = journeyEventFilterSchema.enum
+
+/** True for a recorded method that can change something: anything but GET or HEAD. An unknown method is not a write. */
+export function isJourneyWriteMethod(method: string | null): boolean {
+  if (method === null) return false
+  const upper = method.toUpperCase()
+  return upper !== 'GET' && upper !== 'HEAD'
+}
+
+/** True when a stored request belongs in the response for `filter`. */
+export function journeyEventMatchesFilter(event: { kind: z.infer<typeof journeyEventKindSchema>; method: string | null }, filter: JourneyEventFilter): boolean {
+  if (filter === JourneyEventFilters.all) return true
+  return event.kind === journeyEventKindSchema.enum.page || isJourneyWriteMethod(event.method)
+}
+
 export const journeyDetailQuerySchema = z.object({
   /** Visits per page, in time order. */
   limit: z.number().int().min(1).max(500).optional(),
   offset: z.number().int().min(0).optional(),
+  /** Requests to return for each visit; `requestCount` on the visit is always the stored total. */
+  events: journeyEventFilterSchema.optional(),
 })
 export type JourneyDetailQuery = z.infer<typeof journeyDetailQuerySchema>
 
 export const journeyDetailResponseSchema = z.object({
   project: z.string(),
+  /** The request filter applied to every visit's `events`. */
+  events: journeyEventFilterSchema,
   visitor: journeyVisitorDtoSchema,
   totalVisits: z.number().int(),
   limit: z.number().int(),

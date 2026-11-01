@@ -71,6 +71,7 @@ import {
   journeyEventDtoSchema,
   journeyVisitDtoSchema,
   journeyVisitorDtoSchema,
+  agentJourneyEventSchema,
   conversionTrackingContractSchema,
   gtmConnectionMetadataDtoSchema,
   gtmRawSnapshotMetadataDtoSchema,
@@ -1101,6 +1102,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Which unrecognized agent names already had a traffic.agent.discovered decision; notifier bookkeeping, never returned.',
   },
+  aiUserFetchLikelyFakeHourly: {
+    kind: 'internal-only',
+    reason: 'Hourly likely fake agent totals consumed as source totals24h and agent journey coverage counts, not directly mapped to a DTO.',
+  },
   aiUserFetchVerificationManifestsHourly: {
     kind: 'internal-only',
     reason: 'Per-manifest AI user-fetch provenance consumed via /traffic/events composite, not directly mapped to a DTO.',
@@ -1128,6 +1133,21 @@ const COVERAGE: Record<string, CoverageEntry> = {
   journeyEvents: {
     kind: 'dto', dto: journeyEventDtoSchema,
     internal: { id: 'Row identity only.', projectId: 'Route scope.', visitId: 'Events are nested under their visit.', sourceId: 'The visit carries its source.', sourceEventId: 'Provider event id kept only so writes stay idempotent.', createdAt: 'Write bookkeeping.' },
+  },
+  agentJourneyEvents: {
+    kind: 'dto', dto: agentJourneyEventSchema,
+    internal: {
+      projectId: 'Route scope.', sourceId: 'The sequence summary carries its source.',
+      sourceEventId: 'Provider event identity used only for durable deduplication.',
+      correlationKey: 'Private keyed correlation input, never exposed.',
+      correlationBasis: 'The sequence summary names the correlation basis.',
+      agentId: 'The sequence summary identifies the agent.', operator: 'The sequence summary names the operator.',
+      product: 'The sequence summary names the product.', createdAt: 'Write bookkeeping.',
+    },
+  },
+  agentJourneyCaptureDays: {
+    kind: 'internal-only',
+    reason: 'Capture capacity accounting; only capped source/day pairs are exposed in journey coverage.',
   },
   migrationsTable: {
     kind: 'internal-only',

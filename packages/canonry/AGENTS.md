@@ -809,6 +809,15 @@ attribution and no provider calls or sync.
 
 ### AI visitor journeys
 
+`src/commands/agent-journeys.ts` separately reads user-triggered agent requests:
+`traffic agent-journeys` lists sequences and `traffic agent-journey` reads one
+timeline. Preserve all window/source/agent/verification/Property selectors in
+detail calls. JSON is the API DTO; JSONL carries the envelope context with each
+`journey` or `event`. Print correlation and coverage limits, current-plan URL
+attribution, and unavailable dimensions. An inferred IP/UA sequence never proves
+one user task; HTTP status never establishes a business outcome. MCP equivalents
+are `canonry_traffic_agent_journeys` and `canonry_traffic_agent_journey`.
+
 `src/commands/journeys.ts`: `journeys summary`, `journeys list` and `journeys show`
 read stored journeys through `journeysSummary`, `journeysList` and `journeyGet`
 (MCP: `canonry_journeys_summary`, `canonry_journeys_list`, `canonry_journey_get`).

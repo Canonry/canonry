@@ -154,7 +154,7 @@ function insertUserFetchHit(h: Harness, sourceId: string, opts: { tsHour?: strin
     pathNormalized: '/blog',
     status: 200,
     hits: opts.hits ?? 1,
-    sampledUserAgent: 'ChatGPT-User/1.0',
+    sampledUserAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }).run()

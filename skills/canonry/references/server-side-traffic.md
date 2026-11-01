@@ -57,7 +57,8 @@ Four tables store the shared output from every adapter:
 | Table | What's in it |
 |---|---|
 | `crawler_events_hourly` | One row per `(project, source, hour, bot, verification, path, status)` — bot crawls rolled up by hour |
-| `ai_user_fetch_events_hourly` | One row per `(project, source, hour, bot, verification, path, status)` — user-initiated AI fetches rolled up by hour |
+| `ai_user_fetch_events_hourly` | One row per `(project, source, hour, bot, verification, path, status)` — user-initiated AI fetches rolled up by hour, excluding likely fake requests |
+| `ai_user_fetch_likely_fake_hourly` | One row per `(project, source, hour, bot, first trust reason)` — requests that claimed a user-triggered agent but were judged likely fake |
 | `ai_referral_events_hourly` | One row per `(project, source, hour, product, source_domain, evidence_type, landing_path, status)` — click-through arrivals rolled up by hour |
 | `raw_event_samples` | Bounded forensic samples for spot checks. Source writes plus a startup/daily global sweep enforce 30-day retention; Cloudflare also uses a per-source, per-hour cap |
 
@@ -1203,7 +1204,62 @@ request coverage. The `traffic.source.cache-blindspot` doctor check is a static
 warning; it does not request or impersonate traffic against the public origin,
 and it never sends a `health.degraded` alert.
 
+### Agent request journeys
+
+In the dashboard, open the project's **Journeys** tab and select **Agent
+requests**. The sibling **Visitors** view shows browser visitors who arrived
+through AI, how many came back, and each visitor's visits in time order. The
+view, period, filters and selected visitor stay in the page URL. Traffic
+sources remains the connection-management page.
+
+`cnry traffic agent-journeys <project>` lists recorded user-triggered agent
+request sequences. Open one with `cnry traffic agent-journey <project> <id>`;
+keep the list's window, source, agent, trust and Property filters. MCP
+equivalents are `canonry_traffic_agent_journeys` and
+`canonry_traffic_agent_journey` in the traffic toolkit.
+
+Each timeline preserves time, hostname, masked path, method, status, available
+latency, operator verification, trust level with reasons, and current-plan
+Property attribution. IP/UA grouping is inferred and can combine different tasks
+on shared infrastructure; without an IP the requests stay unlinked. Neither
+grouping nor trust identifies a person or establishes their task.
+
+Every user-triggered agent request gets a trust level when it is classified,
+judged on that request alone. `verified` means the source IP is in the
+operator's published list. Otherwise: `likely_fake` when the path asks for
+credential, version-control or admin files, when an operator that publishes a
+full user-agent string (OpenAI, Mistral) sees a different one; an IP missing
+from the published list alone leaves a request `unknown`, because lists lag
+real addresses and some rotate; `likely_real`
+when nothing could be checked (no IP, or no published list) but the user agent
+matches the published string; `unknown` for the rest. `trustReasons` lists the
+evidence. Likely fake requests are never added to AI user fetch hits or stored
+as journey events: hourly totals count them (`totals24h.aiUserFetchLikelyFakeHits`,
+`aiUserFetchLikelyFakeHits` on sync results, `coverage.likelyFakeRequests`),
+and raw samples keep their classification for review. With a Property filter,
+`coverage.likelyFakeRequests` is null: hourly totals carry no page path. Trust
+applies to traffic recorded from the release that added it, and to any window
+a backfill rewrites; other older rollups are unchanged.
+
+Preserve the
+response's retention, daily-cap and source limitations; missing requests do
+not prove the agent stopped. HTTP status alone does not prove business success.
+Simple and Advanced projects use the same stored instrument. A Property filter
+uses current-plan URL coverage with its revision; no market, query class, model
+or task intent is inferred. No site snippet or provider call is required to
+read stored events. New recording cannot recover discarded historical samples.
+
 ### AI visitor journeys
+
+The project's **Journeys → Visitors** view uses the same summary, list and
+detail reads as the CLI. Its period selects visitors by first AI arrival;
+return behavior can include later visits beyond that period. Engine and
+came-back controls filter the list, not the summary. The selected visitor's
+visits read left to right in time order, and its requests load with
+`events=pages` (pages plus every request that is not GET or HEAD), the same
+filter as `cnry journeys show --events pages`. These are approximate visitor
+keys, not unique people, and the scope is project-wide in Simple and Advanced
+portfolios.
 
 Every sync, backfill and push also follows visitors who arrived from an AI
 engine: their later visits, how they came back (search, direct, social, paid,

@@ -18,6 +18,7 @@ import {
   crawlerEventsHourly,
   crawlerVerificationManifestsHourly,
   aiUserFetchEventsHourly,
+  aiUserFetchLikelyFakeHourly,
   aiUserFetchVerificationManifestsHourly,
   aiReferralEventsHourly,
   rawEventSamples,
@@ -139,6 +140,8 @@ import {
 } from '@canonry/canonry-contracts'
 import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import { enforceJourneyRetention, recordJourneyBatch } from './journeys.js'
+import { recordAgentJourneyBatch } from './agent-journey-capture.js'
+import { addLikelyFakeAgentHits, clearLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
@@ -1474,6 +1477,7 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           ),
         )
         .run()
+      clearLikelyFakeAgentHits(tx, { sourceId: sourceRow.id, windowStart: windowStartIso, windowEnd: windowEndIso })
       tx
         .delete(aiReferralEventsHourly)
         .where(
@@ -1658,6 +1662,7 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
             .run()
         }
       }
+      addLikelyFakeAgentHits(tx, { projectId: project.id, sourceId: sourceRow.id, buckets: report.aiUserFetchLikelyFakeHourly, now: finishedAt })
 
       for (const bucket of report.aiReferralEventsHourly) {
         tx
@@ -1723,6 +1728,10 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
       // so a backfill over an already-synced window adds nothing twice.
       recordJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret, now: finishedAt }, {
         onError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during traffic backfill') },
+        outerActive: () => app.db.$client.inTransaction,
+      })
+      recordAgentJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret, now: finishedAt }, {
+        onError: () => { app.log.error({ sourceId: sourceRow.id }, 'Agent journey capture failed during traffic backfill') },
         outerActive: () => app.db.$client.inTransaction,
       })
 
@@ -3028,6 +3037,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       let selfTrafficExcluded = 0
       let crawlerHits = 0
       let aiUserFetchHits = 0
+      let aiUserFetchLikelyFakeHits = 0
       let aiReferralHits = 0
       let unknownHits = 0
       let crawlerBucketRows = 0
@@ -3075,7 +3085,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         } catch { /* telemetry never blocks Queue acknowledgement */ }
         return {
           sourceId: sourceRow.id, runId, syncedAt: committedAt, pulledEvents: acceptedEvents,
-          selfTrafficExcluded, crawlerHits, aiUserFetchHits, aiReferralHits, unknownHits,
+          selfTrafficExcluded, crawlerHits, aiUserFetchHits, aiUserFetchLikelyFakeHits, aiReferralHits, unknownHits,
           crawlerBucketRows, aiUserFetchBucketRows, aiReferralBucketRows, sampleRows,
           remainingBacklogCount,
           queueDrain,
@@ -3224,6 +3234,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           selfTrafficExcluded += writeResult.selfTrafficExcluded
           crawlerHits += writeResult.crawlerHits
           aiUserFetchHits += writeResult.aiUserFetchHits
+          aiUserFetchLikelyFakeHits += writeResult.aiUserFetchLikelyFakeHits
           aiReferralHits += writeResult.aiReferralHits
           unknownHits += writeResult.unknownHits
           crawlerBucketRows += writeResult.crawlerBucketRows
@@ -3853,6 +3864,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let selfTrafficExcludedCount = 0
     let crawlerHitsCount = 0
     let aiUserFetchHitsCount = 0
+    let aiUserFetchLikelyFakeHitsCount = 0
     let aiReferralHitsCount = 0
     let unknownHitsCount = 0
 
@@ -3937,6 +3949,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       selfTrafficExcludedCount = report.totals.selfTrafficExcluded
       crawlerHitsCount = report.totals.crawlerHits
       aiUserFetchHitsCount = report.totals.aiUserFetchHits
+      aiUserFetchLikelyFakeHitsCount = report.totals.aiUserFetchLikelyFakeHits
       aiReferralHitsCount = report.totals.aiReferralHits
       unknownHitsCount = report.totals.unknownHits
 
@@ -4096,6 +4109,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         }
         aiUserFetchBucketRows += 1
       }
+      addLikelyFakeAgentHits(tx, { projectId: project.id, sourceId: sourceRow.id, buckets: report.aiUserFetchLikelyFakeHourly, now: finishedAt })
 
       for (const bucket of report.aiReferralEventsHourly) {
         const status = bucket.status ?? 0
@@ -4184,6 +4198,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       // AI visitor journeys from the same deduplicated requests, in the same transaction.
       recordJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret, now: finishedAt }, {
         onError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during traffic sync') },
+        outerActive: () => app.db.$client.inTransaction,
+      })
+      recordAgentJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret, now: finishedAt }, {
+        onError: () => { app.log.error({ sourceId: sourceRow.id }, 'Agent journey capture failed during traffic sync') },
         outerActive: () => app.db.$client.inTransaction,
       })
 
@@ -4286,6 +4304,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       selfTrafficExcluded: selfTrafficExcludedCount,
       crawlerHits: crawlerHitsCount,
       aiUserFetchHits: aiUserFetchHitsCount,
+      aiUserFetchLikelyFakeHits: aiUserFetchLikelyFakeHitsCount,
       aiReferralHits: aiReferralHitsCount,
       unknownHits: unknownHitsCount,
       crawlerBucketRows,
@@ -4603,6 +4622,17 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       )
       .get()
 
+    const likelyFakeTotals = app.db
+      .select({ total: sql<number>`COALESCE(SUM(${aiUserFetchLikelyFakeHourly.hits}), 0)` })
+      .from(aiUserFetchLikelyFakeHourly)
+      .where(
+        and(
+          eq(aiUserFetchLikelyFakeHourly.sourceId, row.id),
+          gte(aiUserFetchLikelyFakeHourly.tsHour, since),
+        ),
+      )
+      .get()
+
     // `aiReferralHits` keeps its full-count contract. `landed` is what a
     // surface may call sessions: the COUNTABLE rows (no redirect hops, no
     // static subresource fetches) — the same predicate the report and
@@ -4657,6 +4687,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         crawlerInfraHits: sumInfraHits(crawlerSegments),
         crawlerSegments,
         aiUserFetchHits: Number(aiUserFetchTotals?.total ?? 0),
+        aiUserFetchLikelyFakeHits: Number(likelyFakeTotals?.total ?? 0),
         aiReferralHits: Number(aiTotals?.total ?? 0),
         aiReferralLandedHits: Number(aiTotals?.landed ?? 0),
         aiReferralRedirectedHits: Number(aiTotals?.total ?? 0) - Number(aiTotals?.nonhop ?? 0),

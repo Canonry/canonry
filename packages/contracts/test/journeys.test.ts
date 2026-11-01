@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyJourneyEntry, journeyDeviceLabel, journeysQuerySchema, type JourneyEntrySignal } from '../src/index.js'
+import { classifyJourneyEntry, journeyDetailQuerySchema, journeyDeviceLabel, isJourneyWriteMethod, journeyEventMatchesFilter, journeysQuerySchema, type JourneyEntrySignal } from '../src/index.js'
 
 const signal = (overrides: Partial<JourneyEntrySignal>): JourneyEntrySignal => ({
   aiProduct: null,
@@ -114,5 +114,35 @@ describe('journeysQuerySchema', () => {
     expect(journeysQuerySchema.safeParse({ limit: 201 }).success).toBe(false)
     expect(journeysQuerySchema.safeParse({ since: 'yesterday' }).success).toBe(false)
     expect(journeysQuerySchema.safeParse({ returned: 'yes' }).success).toBe(false)
+  })
+})
+
+describe('journeyEventMatchesFilter', () => {
+  it('keeps every request for all, and pages plus non-GET/HEAD requests for pages', () => {
+    const cases: Array<[{ kind: 'page' | 'data'; method: string | null }, boolean]> = [
+      [{ kind: 'page', method: 'GET' }, true],
+      [{ kind: 'page', method: null }, true],
+      [{ kind: 'data', method: 'GET' }, false],
+      [{ kind: 'data', method: 'head' }, false],
+      [{ kind: 'data', method: null }, false],
+      [{ kind: 'data', method: 'POST' }, true],
+      [{ kind: 'data', method: 'put' }, true],
+      [{ kind: 'data', method: 'DELETE' }, true],
+    ]
+    for (const [event, expected] of cases) {
+      expect(journeyEventMatchesFilter(event, 'pages'), JSON.stringify(event)).toBe(expected)
+      expect(journeyEventMatchesFilter(event, 'all')).toBe(true)
+    }
+  })
+
+  it('treats only methods other than GET and HEAD as writes', () => {
+    expect(['POST', 'put', 'PATCH', 'DELETE'].map(isJourneyWriteMethod)).toEqual([true, true, true, true])
+    expect(['GET', 'head'].map(isJourneyWriteMethod)).toEqual([false, false])
+    expect(isJourneyWriteMethod(null)).toBe(false)
+  })
+
+  it('accepts only the two documented filters', () => {
+    expect(journeyDetailQuerySchema.safeParse({ events: 'pages' }).success).toBe(true)
+    expect(journeyDetailQuerySchema.safeParse({ events: 'everything' }).success).toBe(false)
   })
 })

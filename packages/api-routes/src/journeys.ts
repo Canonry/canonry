@@ -16,6 +16,8 @@ import {
   cloudflareTrafficSourceConfigSchema,
   type JourneyPartialSources,
   journeyDetailQuerySchema,
+  journeyEventMatchesFilter,
+  JourneyEventFilters,
   JOURNEY_RETENTION_DAYS,
   JOURNEY_VISIT_IDLE_MINUTES,
   journeyDeviceLabel,
@@ -46,6 +48,7 @@ import {
 import { requireAdminSession } from './auth.js'
 import { cloudflareWorkerVersionFor } from './cloudflare-worker-version.js'
 import { resolveProject } from './helpers.js'
+import { enforceAgentJourneyRetention } from './agent-journey-capture.js'
 
 const DAY_MS = 24 * 60 * 60_000
 const IDLE_MS = JOURNEY_VISIT_IDLE_MINUTES * 60_000
@@ -364,6 +367,7 @@ export function recordJourneyBatch(
 
 /** Delete journey rows older than the retention window, across every project. */
 export function enforceJourneyRetention(db: Pick<DatabaseClient, 'delete'>, referenceAt: string): void {
+  enforceAgentJourneyRetention(db, referenceAt)
   const cutoff = new Date(Date.parse(referenceAt) - JOURNEY_RETENTION_MS).toISOString()
   db.delete(journeyEvents).where(lt(journeyEvents.ts, cutoff)).run()
   db.delete(journeyVisits).where(lt(journeyVisits.endedAt, cutoff)).run()
@@ -408,12 +412,27 @@ function visitDto(row: VisitRow): JourneyVisitDto {
   }
 }
 
+/** The visit that holds the visitor's first AI arrival, else their first AI visit. */
+function firstAiVisit(visitor: VisitorRow, visits: readonly VisitRow[]): VisitRow | undefined {
+  return visits.find(v => v.entryClass === 'ai' && v.startedAt <= visitor.firstAiAt && v.endedAt >= visitor.firstAiAt)
+    ?? visits.find(v => v.entryClass === 'ai')
+}
+
 /** Visits after the visitor's first AI visit ended are "later visits". */
 function laterVisits(visitor: VisitorRow, visits: readonly VisitRow[]): VisitRow[] {
-  const firstAi = visits.find(v => v.entryClass === 'ai' && v.startedAt <= visitor.firstAiAt && v.endedAt >= visitor.firstAiAt)
-    ?? visits.find(v => v.entryClass === 'ai')
-  const after = firstAi?.endedAt ?? visitor.firstAiAt
+  const after = firstAiVisit(visitor, visits)?.endedAt ?? visitor.firstAiAt
   return visits.filter(v => v.startedAt > after)
+}
+
+/**
+ * The list's visits start at the first AI visit. Recording keeps visits only
+ * from an AI visit on, but older rows can remain from data stored under
+ * earlier rules, and the first AI visit must still lead the list.
+ */
+function listVisits(visitor: VisitorRow, visits: readonly VisitRow[]): VisitRow[] {
+  const first = firstAiVisit(visitor, visits)
+  const start = first ? visits.indexOf(first) : 0
+  return visits.slice(start, start + JOURNEY_LIST_VISITS_PER_VISITOR)
 }
 
 function visitorDto(visitor: VisitorRow, visits: readonly VisitRow[]): JourneyVisitorDto {
@@ -568,7 +587,7 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
       partialSources: partialSources(app.db, project.id),
       visitors: matching.slice(offset, offset + limit).map(({ visitor, dto }) => ({
         ...dto,
-        visits: (visits.get(visitor.visitorKey) ?? []).slice(0, JOURNEY_LIST_VISITS_PER_VISITOR).map(visitDto),
+        visits: listVisits(visitor, visits.get(visitor.visitorKey) ?? []).map(visitDto),
       })),
     }
     return response
@@ -580,6 +599,7 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
     const query = parseQuery(journeyDetailQuerySchema, request.query)
     const limit = query.limit ?? 100
     const offset = query.offset ?? 0
+    const eventFilter = query.events ?? JourneyEventFilters.all
     const visitor = app.db.select().from(journeyVisitors)
       .where(and(eq(journeyVisitors.projectId, project.id), eq(journeyVisitors.visitorKey, request.params.visitorKey)))
       .get()
@@ -596,13 +616,16 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
     }
     const response: JourneyDetailResponse = {
       project: project.name,
+      events: eventFilter,
       visitor: visitorDto(visitor, visits),
       totalVisits: visits.length,
       limit,
       offset,
       visits: page.map(v => ({
         ...visitDto(v),
-        events: (events.get(v.id) ?? []).map(e => ({ ts: e.ts, method: e.method, path: e.path, status: e.status, kind: e.kind === 'data' ? 'data' as const : 'page' as const, aiTouch: e.aiTouch })),
+        events: (events.get(v.id) ?? [])
+          .map(e => ({ ts: e.ts, method: e.method, path: e.path, status: e.status, kind: e.kind === 'data' ? 'data' as const : 'page' as const, aiTouch: e.aiTouch }))
+          .filter(e => journeyEventMatchesFilter(e, eventFilter)),
       })),
     }
     return response

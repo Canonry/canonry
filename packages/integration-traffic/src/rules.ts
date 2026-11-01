@@ -44,6 +44,9 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     product: 'ChatGPT-User',
     purpose: 'user-agent',
     userAgentPatterns: [/ChatGPT-User\//i],
+    // OpenAI's published "full user-agent string". The version may move.
+    // src: https://developers.openai.com/api/docs/bots
+    documentedUserAgents: [/^Mozilla\/5\.0 AppleWebKit\/537\.36 \(KHTML, like Gecko\); compatible; ChatGPT-User\/\d+(?:\.\d+)*; \+https:\/\/openai\.com\/bot$/],
   },
   {
     // Observed MCP requests from ChatGPT integrations use this UA. OpenAI's
@@ -209,6 +212,9 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     product: 'MistralAI-User',
     purpose: 'user-agent',
     userAgentPatterns: [/MistralAI-User\//i],
+    // Mistral's published "full user-agent string". The version may move.
+    // src: https://docs.mistral.ai/robots
+    documentedUserAgents: [/^Mozilla\/5\.0 AppleWebKit\/537\.36 \(KHTML, like Gecko; compatible; MistralAI-User\/\d+(?:\.\d+)*; \+https:\/\/docs\.mistral\.ai\/robots\)$/],
   },
   {
     // Mistral's search-index crawler. Unlike the legacy MistralBot UA below,

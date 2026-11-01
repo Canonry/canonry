@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, RunSyncSummary, SiteCrawlIssueEvidence, SnapshotUsage } from '@canonry/canonry-contracts'
+import type { AgentJourneyCorrelationBasis, AgentTrustReason, StoredAgentTrust, CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, RunSyncSummary, SiteCrawlIssueEvidence, SnapshotUsage, VerificationStatus } from '@canonry/canonry-contracts'
 import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GaSearchLandingStatus, GaSearchLandingWindow, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@canonry/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
@@ -2711,6 +2711,27 @@ export const aiUserFetchEventsHourly = sqliteTable('ai_user_fetch_events_hourly'
   index('idx_ai_user_fetch_hourly_path').on(table.projectId, table.pathNormalized),
 ])
 
+// Requests that claimed a user-triggered AI agent but were judged likely fake
+// (secret or admin paths, or a user agent unlike the operator's published
+// string). Kept apart from
+// ai_user_fetch_events_hourly so no reader of AI agent hits can include them.
+// `reason` is the request's first trust reason.
+export const aiUserFetchLikelyFakeHourly = sqliteTable('ai_user_fetch_likely_fake_hourly', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  tsHour: text('ts_hour').notNull(),
+  botId: text('bot_id').notNull(),
+  operator: text('operator').notNull(),
+  reason: text('reason').$type<AgentTrustReason>().notNull(),
+  hits: integer('hits').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.sourceId, table.tsHour, table.botId, table.reason] }),
+  index('idx_ai_user_fetch_likely_fake_project_ts').on(table.projectId, table.tsHour),
+  index('idx_ai_user_fetch_likely_fake_source_ts').on(table.sourceId, table.tsHour),
+])
+
 // Manifest provenance for on-demand user-fetch rollups. As with crawler
 // provenance, absence of a sidecar row means legacy/unattributed evidence.
 export const aiUserFetchVerificationManifestsHourly = sqliteTable('ai_user_fetch_verification_manifests_hourly', {
@@ -2939,6 +2960,47 @@ export const journeyEvents = sqliteTable('journey_events', {
   uniqueIndex('idx_journey_events_source_event').on(table.projectId, table.sourceId, table.sourceEventId),
   index('idx_journey_events_visit_ts').on(table.visitId, table.ts),
   index('idx_journey_events_ts').on(table.ts),
+])
+
+// Observed user-triggered agent requests. Correlation is a private, source-bound
+// inference, separate from verification of the requesting operator.
+export const agentJourneyEvents = sqliteTable('agent_journey_events', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  sourceEventId: text('source_event_id').notNull(),
+  ts: text('ts').notNull(),
+  correlationKey: text('correlation_key').notNull(),
+  correlationBasis: text('correlation_basis').$type<AgentJourneyCorrelationBasis>().notNull(),
+  agentId: text('agent_id').notNull(),
+  operator: text('operator').notNull(),
+  product: text('product').notNull(),
+  verificationStatus: text('verification_status').$type<VerificationStatus>().notNull(),
+  verificationManifest: text('verification_manifest', { mode: 'json' }).$type<TrafficVerificationManifest | null>(),
+  trust: text('trust').$type<StoredAgentTrust>().notNull(),
+  trustReasons: text('trust_reasons', { mode: 'json' }).$type<AgentTrustReason[]>().notNull(),
+  host: text('host'),
+  path: text('path').notNull(),
+  method: text('method'),
+  status: integer('status'),
+  latencyMs: real('latency_ms'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_agent_journey_events_source_event').on(table.projectId, table.sourceId, table.sourceEventId),
+  index('idx_agent_journey_events_project_ts').on(table.projectId, table.ts),
+  index('idx_agent_journey_events_correlation').on(table.projectId, table.sourceId, table.correlationKey, table.ts),
+  index('idx_agent_journey_events_ts').on(table.ts),
+])
+
+export const agentJourneyCaptureDays = sqliteTable('agent_journey_capture_days', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  day: text('day').notNull(),
+  storedEvents: integer('stored_events').notNull().default(0),
+  capped: integer('capped', { mode: 'boolean' }).notNull().default(false),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.sourceId, table.day] }),
+  index('idx_agent_journey_capture_days_day').on(table.day),
 ])
 
 export const discoverySessions = sqliteTable('discovery_sessions', {

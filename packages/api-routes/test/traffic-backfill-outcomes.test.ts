@@ -101,7 +101,7 @@ describe('server traffic backfill and reset outcomes', () => {
     h.pull.events = [
       trafficEvent('crawl-1', { userAgent: 'GPTBot/1.0' }),
       trafficEvent('crawl-2', { userAgent: 'GPTBot/1.0', path: '/pricing', requestUrl: 'https://example.com/pricing' }),
-      trafficEvent('fetch-1', { userAgent: 'ChatGPT-User/1.0' }),
+      trafficEvent('fetch-1', { userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot' }),
       trafficEvent('visit-1', { referer: 'https://chatgpt.com/' }),
     ]
     // Hold the pull until the response has gone, as a real window does.

@@ -5,7 +5,8 @@ import {
   hostMatchesDomain,
   hostOf,
 } from '@canonry/canonry-contracts'
-import { verifyIpForRuleDecision } from './ip-verify.js'
+import { assessAgentTrust } from './agent-trust.js'
+import { hasVerificationDataFor, verifyIpForRuleDecision } from './ip-verify.js'
 import { DEFAULT_AI_CRAWLER_RULES, DEFAULT_AI_REFERRER_RULES, SELF_TRAFFIC_USER_AGENT_PATTERNS } from './rules.js'
 import type {
   ClassifiedAiReferral,
@@ -167,6 +168,13 @@ export function classifyAiUserFetch(event: NormalizedTrafficRequest): Classified
       // UA-only match to `verified`, and its metadata records which vendored
       // snapshot produced either outcome.
       const decision = verifyIpForRuleDecision(event.remoteIp, rule.id)
+      const trust = assessAgentTrust({
+        rule,
+        userAgent,
+        path: event.path,
+        verification: decision,
+        listPublished: hasVerificationDataFor(rule.id),
+      })
       return {
         botId: rule.id,
         operator: rule.operator,
@@ -174,6 +182,7 @@ export function classifyAiUserFetch(event: NormalizedTrafficRequest): Classified
         verificationStatus: decision.verified ? 'verified' : 'claimed_unverified',
         verificationManifest: decision.manifest,
         matchedUserAgent: userAgent,
+        ...trust,
       }
     }
   }

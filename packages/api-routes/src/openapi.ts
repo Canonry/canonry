@@ -180,6 +180,18 @@ const nameParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const agentJourneyParameters: OpenApiParameter[] = [
+  nameParameter,
+  { name: 'since', in: 'query', description: 'Inclusive timestamp or UTC date. Defaults to 24 hours before until; maximum window 31 days.', schema: stringSchema },
+  { name: 'until', in: 'query', description: 'Inclusive timestamp or UTC date (end of day). Defaults to now. Pin both bounds from the list when opening detail.', schema: stringSchema },
+  { name: 'sourceId', in: 'query', description: 'Project-owned source. Sequences never link across sources.', schema: stringSchema },
+  { name: 'agentId', in: 'query', description: 'Classified user-triggered agent ID.', schema: stringSchema },
+  { name: 'trust', in: 'query', description: 'Keep requests at this agent trust level. verified: IP in the operator\'s published list. likely_real: no IP check was possible but the user agent matches the operator\'s published string. unknown: anything else that was not judged likely fake. Likely fake requests are counted in coverage.likelyFakeRequests, never listed. Trust does not verify session continuity.', schema: { type: 'string', enum: ['verified', 'likely_real', 'unknown'] } },
+  { name: 'targetKey', in: 'query', description: 'Keep requests attributed to this Property using current-plan URL matchers. Market, query, and model attribution are unavailable.', schema: stringSchema },
+  { name: 'limit', in: 'query', description: 'Page size: sequences on list, requests on detail. Defaults to 50 and 100 respectively.', schema: { type: 'integer', minimum: 1, maximum: 200 } },
+  { name: 'offset', in: 'query', description: 'Items to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
+]
+
 const userNameParameter: OpenApiParameter = {
   name: 'name',
   in: 'path',
@@ -7680,6 +7692,24 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/traffic/agent-journeys',
+    summary: 'List observed agent request sequences',
+    description: 'Stored user-triggered agent requests only. Source-local IP+UA continuity is inferred, never a confirmed user session; requests without an IP stay unlinked. Thirty-minute idle gaps split sequences. Each request carries a trust level (verified, likely_real or unknown) with its reasons, independent of correlation; likely fake requests are never listed and coverage.likelyFakeRequests counts them (null with a Property selector). Both portfolio modes work; Advanced attribution uses the current plan and retained URLs. Bounds and selectors are read identity; pagination is tuning. Refuses selections exceeding 20,000 requests before Property/trust filtering. No provider calls or writes; requires administrator session authority and excludes embeds.',
+    tags: ['traffic'],
+    parameters: agentJourneyParameters,
+    responses: { 200: jsonResponse('Agent request sequences with scope and capture limits.', 'AgentJourneysResponse'), 400: errorResponse('Invalid or oversized selection.'), 403: errorResponse('Agent journeys are unavailable to this principal.'), 404: errorResponse('Project or source not found.') },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/traffic/agent-journeys/{journeyId}',
+    summary: 'Read an observed agent request timeline',
+    description: 'Use the list window and selectors to keep the same scope. The ID anchors a stored event and remains resolvable after late arrivals change the head of its sequence. Requests are ordered by timestamp then event ID; same-time order is not causal. Property and trust selectors retain matching requests only. HTTP outcomes do not establish business success. Same authority, read limit, retention and coverage as the list.',
+    tags: ['traffic'],
+    parameters: [...agentJourneyParameters, { name: 'journeyId', in: 'path', required: true, description: 'Event anchor from the agent journey list.', schema: stringSchema }],
+    responses: { 200: jsonResponse('Chronological retained requests and source limitations.', 'AgentJourneyDetailResponse'), 400: errorResponse('Invalid or oversized selection.'), 403: errorResponse('Agent journeys are unavailable to this principal.'), 404: errorResponse('Project, source, or journey not found in this selection.') },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/traffic/unrecognized-agents',
     summary: 'List bots and agents no classifier rule recognizes',
     description: 'Server-side traffic from self-identified bots and agents that no rule names yet, summed by the name in their user agent, busiest first. Browsers, generic HTTP tools (curl, python-requests and the like), static files and writes are left out. Stored hourly rows only. Signed-in viewers and embedded dashboards cannot read it. No provider calls or writes.',
@@ -7710,7 +7740,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/journeys',
     summary: 'List stored AI visitor journeys',
-    description: 'AI-touched visitors whose first AI-referred visit started in the window, newest first, each with its first 20 visits within 30 days after an AI visit (entry channel, landing page, page count; `visitCount` is the total). `device` is a short label; `userAgent` is the full string. `cappedDays` counts the days a key reached the 300-requests-per-day cap, a sign of a user agent many people share. `partialSources` names sources whose logs miss later visits. Stored rows only, 180-day retention. No provider calls or writes.',
+    description: 'AI-touched visitors whose first AI-referred visit started in the window, newest first, each with up to 20 visits from its first AI visit on, all within 30 days after an AI visit (entry channel, landing page, page count; `visitCount` is the total). `device` is a short label; `userAgent` is the full string. `cappedDays` counts the days a key reached the 300-requests-per-day cap, a sign of a user agent many people share. `partialSources` names sources whose logs miss later visits. Stored rows only, 180-day retention. No provider calls or writes.',
     tags: ['traffic'],
     parameters: [
       nameParameter,
@@ -7734,6 +7764,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'visitorKey', in: 'path', required: true, description: 'Visitor key from the journey list.', schema: stringSchema },
       { name: 'limit', in: 'query', description: 'Visits per page, default 100.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
       { name: 'offset', in: 'query', description: 'Visits to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
+      { name: 'events', in: 'query', description: 'Requests per visit: all (default) or pages, which keeps page requests plus every request that is not GET or HEAD. A visit keeps its stored requestCount either way.', schema: { type: 'string', enum: ['all', 'pages'] } },
     ],
     responses: { 200: jsonResponse('Journey detail.', 'JourneyDetailResponse'), 400: errorResponse('Invalid selection.'), 403: errorResponse('Journeys are unavailable to this principal.'), 404: errorResponse('Project or journey not found.') },
   },

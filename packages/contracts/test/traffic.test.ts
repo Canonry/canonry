@@ -179,6 +179,7 @@ describe('trafficSyncResponseSchema', () => {
       selfTrafficExcluded: 0,
       crawlerHits: 1000,
       aiUserFetchHits: 0,
+      aiUserFetchLikelyFakeHits: 0,
       aiReferralHits: 0,
       unknownHits: 0,
       crawlerBucketRows: 1,

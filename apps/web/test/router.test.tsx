@@ -96,6 +96,18 @@ test('/settings renders the settings page', async () => {
   expect(container.querySelector('.page-title')?.textContent).toBe('Settings')
 })
 
+test('Journeys is a project tab with no global page or sidebar link', async () => {
+  const restore = mockFetch(() => jsonResponse({ error: { message: 'Not needed for navigation' } }, 503))
+  onTestFinished(restore)
+  const { router } = await renderRoute('/projects/project_citypoint/journeys')
+  expect(await screen.findByRole('navigation', { name: 'Journey view' })).toBeTruthy()
+  const links = screen.getAllByRole('link', { name: 'Journeys', exact: true })
+  expect(links).toHaveLength(1)
+  expect(links[0]!.getAttribute('href')).toMatch(/^\/projects\/[^/]+\/journeys$/)
+  await act(async () => { await router.navigate({ to: '/journeys' as never }) })
+  expect(screen.queryByRole('navigation', { name: 'Journey view' })).toBeNull()
+})
+
 test('/setup legacy rescue renders the established setup page', async () => {
   const { container } = await renderRoute('/setup?experience=legacy')
   expect(container.querySelector('.page-title')?.textContent).toBe('Setup')

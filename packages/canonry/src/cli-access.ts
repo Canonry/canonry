@@ -379,6 +379,8 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'telemetry.status': 'stored',
   'traffic': 'write',
   'traffic.activate': 'write',
+  'traffic.agent-journeys': 'stored',
+  'traffic.agent-journey': 'stored',
   'traffic.analytics': 'stored',
   'traffic.backfill': 'write',
   'traffic.connect': 'write',

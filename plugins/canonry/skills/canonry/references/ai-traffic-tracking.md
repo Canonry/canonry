@@ -79,9 +79,14 @@ through these in order and say which one applies.
    read `cnry traffic status <p>` and the last sync's `syncSummary`
    (`cnry runs <p> --kind traffic-sync --format json`) before quoting recent
    days. Recent days look low while a backlog drains.
-8. **Is it noise?** Unverified "AI user" fetches of `/.env`, admin paths or
-   404s are scanners using AI bot names. Quote verified fetches
-   (`verificationStatus: verified`) and pages that returned 200.
+8. **Is it noise?** Scanners using AI agent names are mostly filtered already:
+   requests judged likely fake (credential or admin paths, or a user agent
+   unlike OpenAI's or Mistral's published string) are left out of AI user
+   fetch hits and counted as
+   `totals24h.aiUserFetchLikelyFakeHits`. `cnry traffic samples <p> --kind
+   ai-user-fetch` shows each sample's `trust` and `trustReasons`. Quote
+   `verified` and `likely_real` requests and pages that returned 200; treat
+   `unknown` as unconfirmed.
 
 ## What attribution can and cannot say
 
@@ -133,6 +138,18 @@ through these in order and say which one applies.
 `cnry traffic events <p> --kind ai-user-fetch --since <date>`: keep verified
 fetches with status 200, group by path, and leave out `robots.txt`. These are
 the pages assistants open while answering people, even when nobody clicks.
+
+**"What did an agent do on our site?"**
+Read `cnry traffic agent-journeys <p> --since <date> --until <date>`, then
+`cnry traffic agent-journey <p> <id>` with the same selectors. MCP equivalents
+are `canonry_traffic_agent_journeys` and `canonry_traffic_agent_journey`.
+Report the recorded request sequence and HTTP errors. Separate trust (each
+sequence's `trustLevels`; `--trust verified|likely_real|unknown`) from request
+correlation: IP/UA grouping is inferred, and requests without an IP are
+unlinked. Likely fake requests are counted in `coverage.likelyFakeRequests`,
+never listed; the count is null with a Property filter. Preserve source gaps and daily caps. For an Advanced
+Property, use `--target-key` and report current-plan URL attribution and revision.
+Do not infer clicks, a user's prompt, business outcomes or off-site browsing.
 
 **"Do AI visitors come back?"**
 `cnry journeys summary <p>`: `returnRate`, `returnedVia` and

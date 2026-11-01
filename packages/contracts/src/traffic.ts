@@ -115,6 +115,41 @@ export type VerificationStatus = z.infer<typeof verificationStatusSchema>
 export const VerificationStatuses = verificationStatusSchema.enum
 
 /**
+ * How far a user-triggered AI agent request's claimed identity holds up.
+ * `verified` means the source IP is in the operator's published list. The
+ * other levels come from heuristics over that IP check, the user agent and
+ * the requested path. None of them identifies a user or proves a task.
+ * `likely_fake` requests are counted separately and never added to AI agent
+ * hits.
+ */
+export const agentTrustSchema = z.enum(['verified', 'likely_real', 'unknown', 'likely_fake'])
+export type AgentTrust = z.infer<typeof agentTrustSchema>
+export const AgentTrustLevels = agentTrustSchema.enum
+
+/** Evidence behind an agent trust level. Several can apply to one request. */
+export const agentTrustReasonSchema = z.enum([
+  /** The source IP is in the operator's published list. */
+  'ip-in-published-list',
+  /**
+   * The IP was checked and is not in the operator's published list. Never on
+   * its own a sign of a fake: lists lag real addresses, and some rotate.
+   */
+  'ip-outside-published-list',
+  /** The source reported no usable client IP, so nothing was checked. */
+  'no-ip',
+  /** The operator publishes no IP list for this agent. */
+  'no-published-list',
+  /** The user agent matches the operator's published full user-agent string. */
+  'documented-user-agent',
+  /** The operator publishes a full user-agent string and this one differs from it. */
+  'unusual-user-agent',
+  /** The path asks for secrets, version-control data, admin logins or traverses directories. */
+  'scanner-path',
+])
+export type AgentTrustReason = z.infer<typeof agentTrustReasonSchema>
+export const AgentTrustReasons = agentTrustReasonSchema.enum
+
+/**
  * Exact bundled IP-range manifest used when a crawler or AI user-fetch event
  * was classified. Persisting this provenance keeps historical verification
  * results auditable after an operator publishes a newer range list.
@@ -457,6 +492,8 @@ export const trafficSyncResponseSchema = z.object({
   selfTrafficExcluded: z.number().int().nonnegative(),
   crawlerHits: z.number().int().nonnegative(),
   aiUserFetchHits: z.number().int().nonnegative(),
+  /** Requests that claimed a user-triggered agent but were judged likely fake; never in `aiUserFetchHits`. */
+  aiUserFetchLikelyFakeHits: z.number().int().nonnegative(),
   aiReferralHits: z.number().int().nonnegative(),
   unknownHits: z.number().int().nonnegative(),
   crawlerBucketRows: z.number().int().nonnegative(),
@@ -544,6 +581,13 @@ export const trafficSourceTotalsSchema = z.object({
   /** Full per-class crawler-hit breakdown; the five buckets sum to `crawlerHits`. */
   crawlerSegments: trafficCrawlerSegmentsSchema,
   aiUserFetchHits: z.number().int().nonnegative(),
+  /**
+   * Requests that claim a user-triggered AI agent but are judged likely fake
+   * (secret or admin paths, a user agent that differs from the operator's
+   * published string). Never
+   * included in `aiUserFetchHits`. Zero before agent trust was recorded.
+   */
+  aiUserFetchLikelyFakeHits: z.number().int().nonnegative(),
   /**
    * Every request carrying AI-origin evidence. UNCHANGED contract — still the
    * full count across every status. Use `aiReferralLandedHits` for the
@@ -841,6 +885,9 @@ const sampleUserFetchSchema = z.object({
   verificationStatus: verificationStatusSchema.nullish(),
   verificationManifest: z.object({ id: z.string().nullish(), source: z.string().nullish(), version: z.string().nullish() }).nullish(),
   matchedUserAgent: z.string().nullish(),
+  /** User-triggered agents only; absent on samples stored before agent trust. */
+  trust: agentTrustSchema.nullish().catch(null),
+  trustReasons: z.array(agentTrustReasonSchema).nullish().catch(null),
 })
 export const trafficSampleClassifierSchema = z.object({
   crawler: sampleUserFetchSchema.extend({ purpose: z.string().nullish() }).nullable().default(null),

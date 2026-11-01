@@ -76,6 +76,14 @@ type SearchParams = {
   siteHealthRunId?: string
   seoProfileId?: string
   seoRunId?: string
+  /** Journeys tab: view, visitor period in days, selected visitor, list filters and page; agent period in hours. */
+  journeyView?: string
+  journeyDays?: string
+  journeyVisitor?: string
+  journeyEngine?: string
+  journeyReturned?: string
+  journeyOffset?: string
+  agentHours?: string
   /** Market rankings drill-in: one region (a top-level group of markets), one market, or both. */
   seoRegion?: string
   seoMarket?: string
@@ -168,7 +176,8 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
       'queryWorkspace', 'researchMode', 'trackingQueryId', 'measurementScope', 'measurementScopeKey', 'measurementMarketKey', 'queryClass',
       'measurementProvider', 'measurementModel', 'measurementLocation', 'measurementFrom', 'measurementTo',
       'measurementRevision', 'measurementRunId', 'measurementQueryKey', 'measurementAnswer',
-    ].map(key => [key, typeof search[key] === 'string' ? search[key] : undefined])),
+      'journeyView', 'journeyDays', 'journeyVisitor', 'journeyEngine', 'journeyReturned', 'journeyOffset', 'agentHours',
+    ].map(key => [key, typeof search[key] === 'string' && search[key] ? search[key] : undefined])),
   }),
 })
 
@@ -275,6 +284,12 @@ export const projectSeoDataRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/seo-data',
   component: () => <LazyProjectPage tab="seo-data" />,
+})
+
+export const projectJourneysRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/journeys',
+  component: () => <LazyProjectPage tab="journeys" />,
 })
 
 export const projectConversionsRoute = createRoute({
@@ -420,6 +435,7 @@ export const routeTree = rootRoute.addChildren([
     projectPortfolioRoute,
     projectSearchConsoleRoute,
     projectSeoDataRoute,
+    projectJourneysRoute,
     projectConversionsRoute,
     projectLocalRoute,
     projectDiscoveryRoute,

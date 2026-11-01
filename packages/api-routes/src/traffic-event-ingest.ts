@@ -20,6 +20,8 @@ import {
   retainedRawEventSampleTimestamp,
 } from './raw-event-sample-retention.js'
 import { recordJourneyBatch } from './journeys.js'
+import { recordAgentJourneyBatch } from './agent-journey-capture.js'
+import { addLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 
 // Signatures expire after five minutes. Keep receipts for one additional
 // replay window so clock skew and an edge retry cannot double-count, without
@@ -110,6 +112,7 @@ export interface WriteTrafficEventBatchResult {
   selfTrafficExcluded: number
   crawlerHits: number
   aiUserFetchHits: number
+  aiUserFetchLikelyFakeHits: number
   aiReferralHits: number
   unknownHits: number
   crawlerBucketRows: number
@@ -148,6 +151,7 @@ export function writeTrafficEventBatch(
   let selfTrafficExcluded = 0
   let crawlerHits = 0
   let aiUserFetchHits = 0
+  let aiUserFetchLikelyFakeHits = 0
   let aiReferralHits = 0
   let unknownHits = 0
 
@@ -214,9 +218,14 @@ export function writeTrafficEventBatch(
         onError: error => opts.onJourneyError?.(error),
         outerActive: () => opts.db.$client.inTransaction,
       })
+      recordAgentJourneyBatch(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret, now: opts.receivedAt }, {
+        onError: error => opts.onJourneyError?.(error),
+        outerActive: () => opts.db.$client.inTransaction,
+      })
       selfTrafficExcluded = report.totals.selfTrafficExcluded
       crawlerHits = report.totals.crawlerHits
       aiUserFetchHits = report.totals.aiUserFetchHits
+      aiUserFetchLikelyFakeHits = report.totals.aiUserFetchLikelyFakeHits
       aiReferralHits = report.totals.aiReferralHits
       unknownHits = report.totals.unknownHits
 
@@ -375,6 +384,7 @@ export function writeTrafficEventBatch(
         }
         aiUserFetchBucketRows += 1
       }
+      addLikelyFakeAgentHits(tx, { projectId: opts.projectId, sourceId: opts.sourceId, buckets: report.aiUserFetchLikelyFakeHourly, now: opts.receivedAt })
 
       for (const bucket of report.aiReferralEventsHourly) {
         const status = bucket.status ?? 0
@@ -499,6 +509,7 @@ export function writeTrafficEventBatch(
     selfTrafficExcluded,
     crawlerHits,
     aiUserFetchHits,
+    aiUserFetchLikelyFakeHits,
     aiReferralHits,
     unknownHits,
     crawlerBucketRows,

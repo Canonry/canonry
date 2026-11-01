@@ -1918,6 +1918,36 @@ attribution applies equally to Simple and Advanced portfolios; Property, Target,
 and market attribution is unavailable. No provider call or write. Signed-in
 viewers and embeds cannot read samples; API read keys retain project scope.
 
+### Agent request journeys
+
+```bash
+cnry traffic agent-journeys <project> --since 2026-10-20 --until 2026-10-27 --source <source-id> --format json
+cnry traffic agent-journey <project> <journey-id> --since 2026-10-20 --until 2026-10-27 --source <source-id> --limit 50 --offset 0
+```
+
+These commands follow recorded user-triggered agent requests, separately from
+AI-referred browser visitors. Both accept `--agent <id>`, `--trust
+verified|likely_real|unknown`, and `--target-key <key>` in addition
+to the window/source selectors. The default window is 24 hours; the maximum is
+31 days. Keep selectors unchanged when opening a detail or requesting another
+page. Reads over 20,000 selected source/agent events require a narrower window.
+Limits are 1 to 200. JSON matches the API response;
+JSONL streams a `journey` or an `event` with its full scope and coverage context.
+
+IP and user-agent grouping is inferred and can merge tasks. Requests without
+an IP stay unlinked; trust does not prove a user session. Each request carries
+`trust` and `trustReasons`: verified by the operator's published IP list, likely
+real (unchecked, but the operator's published user agent), or unknown. Likely
+fake requests are counted in `coverage.likelyFakeRequests` and never listed;
+with `--target-key` that count is null, because hourly totals carry no page
+path. `cnry traffic sync` reports them as `aiUserFetchLikelyFakeHits`.
+The API reports retention, inactivity gap, daily caps and source gaps. Advanced
+Properties match the current plan's URL coverage, not the historical user's
+intent. Keep its plan revision and unavailable dimensions with the evidence.
+HTTP status and paths do not prove a completed purchase, booking or other task.
+Stored reads only. Viewers and embeds are denied; API read keys retain project
+scope.
+
 ### Unrecognized bots and agents
 
 ```bash
@@ -1932,12 +1962,13 @@ example user agent and path, and its sources. Default window: the last 30 days.
 generic HTTP tools (curl, python-requests and the like), static files and writes
 are left out. Stored rows only, no provider call. Viewers and embeds are denied.
 
-### AI visitor journeys
+### AI-referred visitor journeys
 
 ```bash
 cnry journeys summary <project> --since 2026-10-01 --format json
 cnry journeys list <project> --engine ChatGPT --returned true --limit 50 --format jsonl
 cnry journeys show <project> <visitor-key> --limit 100 --offset 0
+cnry journeys show <project> <visitor-key> --events pages   # pages plus every non-GET/HEAD request
 ```
 
 Follows visitors with at least one AI-referred visit, from that first AI visit
@@ -1947,7 +1978,9 @@ falls in the window (default 30 days), how many came back in a later visit, by
 which entry (`ai`, `search`, `social`, `paid`, `referral`, `direct`), and median
 days to return. `list` returns those visitors newest first with their first 20
 visits (`visitCount` is the total) and marks user-agent-only keys; `show` pages
-through one visitor's visits and requests. A visit ends after 30 idle minutes
+through one visitor's visits and requests; `--events pages` keeps page
+requests plus every request that is not GET or HEAD, while each visit keeps its
+stored `requestCount`. A visit ends after 30 idle minutes
 or when the visitor arrives again from another outside source; a same-site,
 sign-in, payment or booking-engine referer is a step inside the visit.
 
