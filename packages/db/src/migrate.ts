@@ -5154,6 +5154,20 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_agent_scanner_clients_source_last ON agent_scanner_clients(source_id, last_probe_at)`,
     ],
   },
+  {
+    version: 206,
+    name: 'journey-visitor-aliases',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS journey_visitor_aliases (
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        alias_key    TEXT NOT NULL,
+        visitor_key  TEXT NOT NULL,
+        created_at   TEXT NOT NULL,
+        PRIMARY KEY (project_id, alias_key)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_visitor_aliases_visitor ON journey_visitor_aliases(project_id, visitor_key)`,
+    ],
+  },
 ]
 
 /**

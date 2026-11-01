@@ -1110,6 +1110,7 @@ interface TrafficClassificationBackfillResult {
   agentHits: StoredTrafficReclassification['agentHits']
   agentRequests: StoredTrafficReclassification['agentRequests']
   journeys: StoredTrafficReclassification['journeys']
+  journeyMerges: StoredTrafficReclassification['journeyMerges']
 }
 
 export async function backfillTrafficClassificationCommand(opts?: {
@@ -1173,6 +1174,7 @@ export async function backfillTrafficClassificationCommand(opts?: {
     agentHits: stored.agentHits,
     agentRequests: stored.agentRequests,
     journeys: stored.journeys,
+    journeyMerges: stored.journeyMerges,
   }, isJson)
 }
 
@@ -1194,6 +1196,7 @@ function emitTrafficClassificationReport(
   console.log(`  Fake agent hits:     ${result.agentHits.moved} hourly rows moved to likely fake (${result.agentHits.movedHits} hits)`)
   console.log(`  Agent requests:      ${result.agentRequests.removed} removed (${result.agentRequests.probes} asked for a scanner path)`)
   console.log(`  Journeys:            ${result.journeys.visitorsRemoved} visitors and ${result.journeys.visitsRemoved} visits removed, ${result.journeys.visitsRelanded} visits now start at a different page`)
+  console.log(`  Split visitors:      ${result.journeyMerges.visitorsMerged} joined to the same person's first visitor, seen from another IP (${result.journeyMerges.visitsJoined} visits merged)`)
   if (Object.keys(result.byBot).length > 0) {
     console.log(`  By bot:`)
     const sorted = Object.entries(result.byBot).sort(([, a], [, b]) => b - a)

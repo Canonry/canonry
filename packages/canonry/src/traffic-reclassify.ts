@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { and, eq, gte, inArray, lte, ne, sql } from 'drizzle-orm'
-import { addLikelyFakeAgentHits, correctBackgroundCallJourneys, writeUnrecognizedAgentBuckets, type BackgroundCallJourneyCorrection } from '@canonry/canonry-api-routes'
+import { addLikelyFakeAgentHits, correctBackgroundCallJourneys, mergeSplitJourneyVisitors, writeUnrecognizedAgentBuckets, type BackgroundCallJourneyCorrection, type SplitVisitorMerge } from '@canonry/canonry-api-routes'
 import {
   AgentTrustLevels,
   AgentTrustReasons,
@@ -98,6 +98,8 @@ export interface StoredTrafficReclassification {
   }
   /** AI visitor journeys that a background call opened or marked as from an AI engine. */
   journeys: BackgroundCallJourneyCorrection
+  /** AI visitors that were another visitor seen from a new IP, joined to it. */
+  journeyMerges: SplitVisitorMerge
 }
 
 type Tx = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0]
@@ -646,7 +648,8 @@ async function reassessAgentRequests(db: DatabaseClient, opts: {
  * are renamed or dropped to match today's naming. AI agent traffic: hourly
  * rows and stored requests that today's trust rules call likely fake move to
  * the likely fake counts. Journeys: background calls stop opening visits or
- * counting as AI arrivals (`correctBackgroundCallJourneys`). Safe to run any
+ * counting as AI arrivals (`correctBackgroundCallJourneys`), and a visitor seen
+ * from a second IP joins its first one (`mergeSplitJourneyVisitors`). Safe to run any
  * number of times.
  */
 export async function reclassifyStoredTraffic(db: DatabaseClient, opts: {
@@ -671,7 +674,8 @@ export async function reclassifyStoredTraffic(db: DatabaseClient, opts: {
   const journeys = shared.shouldStop()
     ? { visitors: 0, visitorsRemoved: 0, visitsRemoved: 0, visitsRelanded: 0 }
     : correctBackgroundCallJourneys(db, shared)
-  return { dryRun: shared.dryRun, samples, unrecognized, agentHits, agentRequests, journeys }
+  const journeyMerges = shared.shouldStop() ? { visitorsMerged: 0, visitsJoined: 0 } : mergeSplitJourneyVisitors(db, shared)
+  return { dryRun: shared.dryRun, samples, unrecognized, agentHits, agentRequests, journeys, journeyMerges }
 }
 
 /**
@@ -708,7 +712,7 @@ export function startTrafficReclassification(opts: { db: DatabaseClient, delayMs
     reclassifyStoredTrafficIfRulesChanged(opts.db, { shouldStop: () => stopped })
       .then((outcome) => {
         if (!outcome.ran || !outcome.result) return
-        const { samples, unrecognized, agentHits, agentRequests, journeys } = outcome.result
+        const { samples, unrecognized, agentHits, agentRequests, journeys, journeyMerges } = outcome.result
         log.info('traffic-reclassify.completed', {
           samplesReclassified: samples.reclassified,
           samplesCounted: samples.counted,
@@ -722,6 +726,8 @@ export function startTrafficReclassification(opts: { db: DatabaseClient, delayMs
           journeyVisitorsRemoved: journeys.visitorsRemoved,
           journeyVisitsRemoved: journeys.visitsRemoved,
           journeyVisitsRelanded: journeys.visitsRelanded,
+          journeyVisitorsMerged: journeyMerges.visitorsMerged,
+          journeyVisitsJoined: journeyMerges.visitsJoined,
         })
       })
       .catch((err: unknown) => {

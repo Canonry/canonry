@@ -2930,6 +2930,21 @@ export const journeyVisitors = sqliteTable('journey_visitors', {
   index('idx_journey_visitors_last_seen').on(table.lastSeenAt),
 ])
 
+// A visitor key that is the same person as another key: with the same browser,
+// a new IP (iCloud Private Relay, a mobile network) loaded the same AI-tagged
+// page within seconds. Requests under `aliasKey` are kept under `visitorKey`.
+// Both are keyed hashes; no IP is stored. Retention drops a row once its
+// visitor is gone.
+export const journeyVisitorAliases = sqliteTable('journey_visitor_aliases', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  aliasKey: text('alias_key').notNull(),
+  visitorKey: text('visitor_key').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.aliasKey] }),
+  index('idx_journey_visitor_aliases_visitor').on(table.projectId, table.visitorKey),
+])
+
 export const journeyVisits = sqliteTable('journey_visits', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),

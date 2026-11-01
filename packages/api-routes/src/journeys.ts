@@ -1,9 +1,9 @@
 import crypto from 'node:crypto'
-import { and, asc, count, desc, eq, gt, gte, inArray, lt, lte, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, gte, inArray, lt, lte, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { DatabaseClient } from '@canonry/canonry-db'
-import { journeyEvents, journeyVisitors, journeyVisits, projects, trafficSources } from '@canonry/canonry-db'
+import { journeyEvents, journeyVisitorAliases, journeyVisitors, journeyVisits, projects, trafficSources } from '@canonry/canonry-db'
 import {
   formatValidationIssues,
   JOURNEY_LIST_VISITS_PER_VISITOR,
@@ -81,10 +81,104 @@ export function journeyVisitorKey(
   return { visitorKey, keyBasis }
 }
 
+/**
+ * Two keys are one person when, with the same browser, a new IP (iCloud
+ * Private Relay, a mobile network) loads the same AI-tagged page within this
+ * window. Stored duplicates were 1 to 3 seconds apart.
+ */
+export const JOURNEY_SAME_ARRIVAL_MS = 5_000
+
 function chunks<T>(items: readonly T[], size = IN_CHUNK): T[][] {
   const out: T[][] = []
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
   return out
+}
+
+const byObservedAt = (a: { observedAt: string }, b: { observedAt: string }) => (a.observedAt < b.observedAt ? -1 : a.observedAt > b.observedAt ? 1 : 0)
+
+/**
+ * Keep a new IP of a visitor under that visitor's key. A key with no stored
+ * visitor and no earlier request of its own, whose first arrival is a page
+ * tagged with an AI engine's utm, joins the key that loaded the same tagged
+ * page with the same browser within `JOURNEY_SAME_ARRIVAL_MS`, stored or
+ * earlier in this batch. The link is stored, so later requests from that IP
+ * follow it. Browser-only keys have no IP to change and are never joined.
+ * Mutates the batch's keys and `basisByKey`.
+ */
+function resolveVisitorAliases(tx: JourneyDb, input: {
+  projectId: string
+  keyed: KeyedJourneyRequest[]
+  basisByKey: Map<string, JourneyKeyBasis>
+  now: string
+}): void {
+  const canonical = new Map<string, string>()
+  const known = new Set<string>()
+  for (const keys of chunks([...input.basisByKey.keys()])) {
+    for (const row of tx.select({ aliasKey: journeyVisitorAliases.aliasKey, visitorKey: journeyVisitorAliases.visitorKey }).from(journeyVisitorAliases)
+      .where(and(eq(journeyVisitorAliases.projectId, input.projectId), inArray(journeyVisitorAliases.aliasKey, keys))).all()) {
+      canonical.set(row.aliasKey, row.visitorKey)
+    }
+    for (const row of tx.select({ visitorKey: journeyVisitors.visitorKey }).from(journeyVisitors)
+      .where(and(eq(journeyVisitors.projectId, input.projectId), inArray(journeyVisitors.visitorKey, keys))).all()) {
+      known.add(row.visitorKey)
+    }
+  }
+  const resolve = (key: string) => canonical.get(key) ?? key
+
+  // Each key's earliest request, every tagged arrival, and each key's first one.
+  const earliest = new Map<string, string>()
+  const tagged = new Map<string, KeyedJourneyRequest[]>()
+  const firstArrival = new Map<string, KeyedJourneyRequest>()
+  const samePage = (request: KeyedJourneyRequest) => `${request.userAgent}\n${request.path}`
+  for (const request of input.keyed) {
+    const key = request.visitorKey
+    const first = earliest.get(key)
+    if (first === undefined || request.observedAt < first) earliest.set(key, request.observedAt)
+    // An AI arrival on a page whose own URL carries a utm tag: a specific URL.
+    if (request.kind !== 'page' || !request.signal.aiProduct || !request.signal.utmSource) continue
+    const group = tagged.get(samePage(request))
+    if (group) group.push(request)
+    else tagged.set(samePage(request), [request])
+    const seen = firstArrival.get(key)
+    if (!seen || request.observedAt < seen.observedAt) firstArrival.set(key, request)
+  }
+  const arrivalOrder = [...firstArrival.values()].sort(byObservedAt)
+  // A key seen before this one (stored, linked, or earlier in this batch) can be joined.
+  const before = (other: string, key: string) => known.has(other) || canonical.has(other) || earliest.get(other)! < earliest.get(key)!
+  for (const arrival of arrivalOrder) {
+    const key = arrival.visitorKey
+    if (canonical.has(key) || known.has(key) || input.basisByKey.get(key) !== JourneyKeyBases['ip-ua']) continue
+    const t = Date.parse(arrival.observedAt)
+    if (Date.parse(earliest.get(key)!) < t - JOURNEY_SAME_ARRIVAL_MS) continue
+    const stored = tx.select({ visitorKey: journeyVisits.visitorKey }).from(journeyEvents)
+      .innerJoin(journeyVisits, eq(journeyVisits.id, journeyEvents.visitId))
+      .innerJoin(journeyVisitors, and(eq(journeyVisitors.projectId, journeyVisits.projectId), eq(journeyVisitors.visitorKey, journeyVisits.visitorKey)))
+      .where(and(
+        eq(journeyEvents.projectId, input.projectId),
+        eq(journeyEvents.kind, 'page'),
+        eq(journeyEvents.path, arrival.path),
+        gte(journeyEvents.ts, new Date(t - JOURNEY_SAME_ARRIVAL_MS).toISOString()),
+        lte(journeyEvents.ts, new Date(t + JOURNEY_SAME_ARRIVAL_MS).toISOString()),
+        eq(journeyVisitors.userAgent, arrival.userAgent),
+        eq(journeyVisitors.keyBasis, JourneyKeyBases['ip-ua']),
+        ne(journeyVisits.visitorKey, key),
+      ))
+      .orderBy(asc(journeyEvents.ts))
+      .get()
+    const inBatch = stored ? undefined : tagged.get(samePage(arrival))!.find(other => other.visitorKey !== key && before(other.visitorKey, key)
+      && Math.abs(Date.parse(other.observedAt) - t) <= JOURNEY_SAME_ARRIVAL_MS)
+    const target = stored ? stored.visitorKey : inBatch ? resolve(inBatch.visitorKey) : undefined
+    if (!target || target === key) continue
+    canonical.set(key, target)
+    tx.insert(journeyVisitorAliases).values({ projectId: input.projectId, aliasKey: key, visitorKey: target, createdAt: input.now }).onConflictDoNothing().run()
+  }
+  for (const request of input.keyed) {
+    const target = canonical.get(request.visitorKey)
+    if (!target) continue
+    input.basisByKey.delete(request.visitorKey)
+    input.basisByKey.set(target, JourneyKeyBases['ip-ua'])
+    request.visitorKey = target
+  }
 }
 
 export interface PersistJourneyBatchResult {
@@ -137,6 +231,7 @@ export function persistJourneyBatch(
     keyed.push({ ...request, visitorKey })
   }
   if (keyed.length === 0) return { visitsWritten: 0, eventsStored: 0 }
+  resolveVisitorAliases(tx, { projectId: input.projectId, keyed, basisByKey, now: input.now })
 
   // State for the visitors in this batch: their journey bounds and the stored
   // visits a request could continue.
@@ -375,6 +470,8 @@ export function enforceJourneyRetention(db: Pick<DatabaseClient, 'delete'>, refe
   db.delete(journeyVisitors).where(lt(journeyVisitors.lastSeenAt, cutoff)).run()
   // Visitors whose visits went with a deleted traffic source.
   db.delete(journeyVisitors).where(sql`NOT EXISTS (SELECT 1 FROM ${journeyVisits} WHERE ${journeyVisits.projectId} = ${journeyVisitors.projectId} AND ${journeyVisits.visitorKey} = ${journeyVisitors.visitorKey})`).run()
+  // Links to a visitor that is gone.
+  db.delete(journeyVisitorAliases).where(sql`NOT EXISTS (SELECT 1 FROM ${journeyVisitors} WHERE ${journeyVisitors.projectId} = ${journeyVisitorAliases.projectId} AND ${journeyVisitors.visitorKey} = ${journeyVisitorAliases.visitorKey})`).run()
 }
 
 function window(since: string | undefined, until: string | undefined): { windowStart: string; windowEnd: string } {
@@ -601,8 +698,12 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
     const limit = query.limit ?? 100
     const offset = query.offset ?? 0
     const eventFilter = query.events ?? JourneyEventFilters.all
+    // A key that was joined to another visitor (a new IP of the same person) opens that visitor.
+    const alias = app.db.select({ visitorKey: journeyVisitorAliases.visitorKey }).from(journeyVisitorAliases)
+      .where(and(eq(journeyVisitorAliases.projectId, project.id), eq(journeyVisitorAliases.aliasKey, request.params.visitorKey)))
+      .get()
     const visitor = app.db.select().from(journeyVisitors)
-      .where(and(eq(journeyVisitors.projectId, project.id), eq(journeyVisitors.visitorKey, request.params.visitorKey)))
+      .where(and(eq(journeyVisitors.projectId, project.id), eq(journeyVisitors.visitorKey, alias?.visitorKey ?? request.params.visitorKey)))
       .get()
     if (!visitor) throw notFound('Journey', request.params.visitorKey)
     const visits = visitsByVisitor(app.db, project.id, [visitor.visitorKey]).get(visitor.visitorKey) ?? []

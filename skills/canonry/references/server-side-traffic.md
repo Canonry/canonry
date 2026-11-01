@@ -60,6 +60,7 @@ Four tables store the shared output from every adapter:
 | `ai_user_fetch_events_hourly` | One row per `(project, source, hour, bot, verification, path, status)` — user-initiated AI fetches rolled up by hour, excluding likely fake requests |
 | `ai_user_fetch_likely_fake_hourly` | One row per `(project, source, hour, bot, first trust reason)` — requests that claimed a user-triggered agent but were judged likely fake |
 | `agent_scanner_clients` | One row per `(project, source, client)` — the latest run of scanner probes from one IP (stored as a keyed hash), kept two days so a burst split across batches is still recognized |
+| `journey_visitor_aliases` | One row per `(project, alias key)` — a visitor key found to be another visitor seen from a new IP (same AI-tagged page, same browser, within 5 seconds); requests under the alias key are kept under that visitor. Both are keyed hashes, never an IP |
 | `ai_referral_events_hourly` | One row per `(project, source, hour, product, source_domain, evidence_type, landing_path, status)` — click-through arrivals rolled up by hour |
 | `raw_event_samples` | Bounded forensic samples for spot checks. Source writes plus a startup/daily global sweep enforce 30-day retention; Cloudflare also uses a per-source, per-hour cap |
 
@@ -1290,6 +1291,14 @@ every source and needs no site snippet or goal setup. Read it with
   `journeys.visitorKeySecret` (generated on first `serve` and saved in
   config.yaml, or `CANONRY_JOURNEY_KEY_SECRET`). No IP is stored. Changing the
   secret starts new keys.
+- A phone can change IP between requests (iCloud Private Relay, mobile
+  networks). A new key whose first request loads the same AI-tagged page as
+  another key, with the same browser, within 5 seconds is that visitor on a new
+  IP: it joins that visitor, and later requests from the new IP follow
+  (`journey_visitor_aliases`). A person who changes IP without reloading a
+  tagged page still counts as a new key, so IP-keyed sources can still
+  overcount people slightly. The once-after-startup correction joins stored
+  visitors the same way.
 - Vercel logs carry no IP, so those visitors are keyed by user agent only.
   Chrome reports the same user agent for every Mac on one version, so a key can
   merge people: such visitors undercount people and can overstate return rates.
