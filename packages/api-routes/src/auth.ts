@@ -480,39 +480,43 @@ const SKIP_PATHS = ['/health']
 
 export function shouldSkipAuth(url: string): boolean {
   if (SKIP_PATHS.includes(url)) return true
-  if (url.endsWith('/openapi.json')) return true
+  // Fastify decodes percent-encoded static segments before matching, so the
+  // literal `/projects/` test below must see the decoded path too: a request
+  // for `/%70rojects/session` still routes to `/projects/:name`.
+  let path = url
+  try {
+    path = decodeURIComponent(url)
+  } catch {
+    // Malformed escape: keep the raw path.
+  }
+  const underProject = path.includes('/projects/')
+  if (path.endsWith('/openapi.json') && !underProject) return true
   // Both OAuth callback routes (`/google/callback` and
   // `/projects/:name/google/callback`) end with this suffix. `endsWith` (not
   // `includes`) so a future route that merely contains the substring — e.g.
   // `/google/callback/anything` — does not silently become unauthenticated.
-  if (url.endsWith('/google/callback')) return true
+  if (path.endsWith('/google/callback')) return true
   // Shared Google Ads / Tag Manager OAuth callback. This is intentionally the
   // same exact-suffix rule as the legacy Google callback above: only the
   // signed state verifier in that route may receive an unauthenticated request.
-  if (url.endsWith('/google-marketing/callback')) return true
-  // The legacy dashboard-password session routes (`<prefix>/session` and
-  // `<prefix>/session/setup`) live at the API ROOT, never under the dynamic
-  // `/projects/<name>` namespace. The bare suffix match used to swallow a
-  // project literally named "session", which removed authentication from that
-  // project's GET/PUT/PATCH/DELETE detail route — the detail handlers carry no
-  // route-level guard, so the project read, rewrote and deleted itself with no
-  // credential at all. Excluding `/projects/` keeps the root routes public and
-  // the detail route authenticated whatever the project is called.
-  if ((url.endsWith('/session') || url.endsWith('/session/setup')) && !url.includes('/projects/')) return true
+  if (path.endsWith('/google-marketing/callback')) return true
+  // The legacy dashboard-password session routes live at the API root, never
+  // under `/projects/<name>`; nor does the root OpenAPI document (above).
+  if ((path.endsWith('/session') || path.endsWith('/session/setup')) && !underProject) return true
   // The sign-in surface. It cannot require a credential: the sign-in screen has
   // to be able to ask whether a sign-in is needed, offer the form, and clear a
   // dead session, none of which it can do while holding something it does not
   // have yet. Each of the three does its own resolution.
-  if (url.endsWith('/auth/session') || url.endsWith('/auth/login') || url.endsWith('/auth/logout')) return true
+  if (path.endsWith('/auth/session') || path.endsWith('/auth/login') || path.endsWith('/auth/logout')) return true
   // Seeing and ending your own sessions is part of the sign-in surface: it has
   // to work from a session that the rest of the API might already be refusing.
   // Both routes resolve the cookie themselves, and the DELETE runs its own
   // same-origin check below.
-  if (url.endsWith('/auth/sessions')) return true
+  if (path.endsWith('/auth/sessions')) return true
   // Cloudflare Worker ingest carries its own per-source bearer + HMAC
   // (verified inside the route handler). A canonry `cnry_*` key isn't
   // available to the Worker — that would defeat the per-source isolation.
-  if (url.endsWith('/traffic/cloudflare/ingest')) return true
+  if (path.endsWith('/traffic/cloudflare/ingest')) return true
   return false
 }
 

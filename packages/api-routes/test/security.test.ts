@@ -972,6 +972,12 @@ test('a project whose name ends in an auth-skip suffix still requires authentica
     expect(shouldSkipAuth('/api/v1/session')).toBe(true)
     expect(shouldSkipAuth('/api/v1/session/setup')).toBe(true)
     expect(shouldSkipAuth('/api/v1/projects/session')).toBe(false)
+    // Fastify decodes static segments before matching, so an encoded segment
+    // still reaches the project detail route.
+    expect(shouldSkipAuth('/api/v1/%70rojects/session')).toBe(false)
+    // `openapi.json` is a public root suffix but also a valid project name.
+    expect(shouldSkipAuth('/api/v1/openapi.json')).toBe(true)
+    expect(shouldSkipAuth('/api/v1/projects/openapi.json')).toBe(false)
 
     const created = await app.inject({
       method: 'POST',
@@ -1002,6 +1008,12 @@ test('a project whose name ends in an auth-skip suffix still requires authentica
     const deleteRes = await app.inject({ method: 'DELETE', url: '/api/v1/projects/session' })
     expect(deleteRes.statusCode).toBe(401)
     expect(deleteRes.body.toLowerCase()).not.toContain('example.com')
+
+    // Encoded static segment and the openapi.json name both still route to
+    // the detail handler and must not inherit the public suffix.
+    expect((await app.inject({ method: 'GET', url: '/api/v1/%70rojects/session' })).statusCode).toBe(401)
+    expect((await app.inject({ method: 'DELETE', url: '/api/v1/%70rojects/session' })).statusCode).toBe(401)
+    expect((await app.inject({ method: 'GET', url: '/api/v1/projects/openapi.json' })).statusCode).toBe(401)
   } finally {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
