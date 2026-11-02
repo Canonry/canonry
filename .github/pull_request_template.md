@@ -15,7 +15,7 @@ Required failures or missing results block submission without a maintainer excep
 - [ ] Required tests passed; included full-suite totals for outside code contributions.
 - [ ] Required typechecks, type-aware lint, and generated-file checks passed (`pnpm verify` for outside code contributions).
 - [ ] Affected build and smoke checks passed, including Simple/Advanced paths where applicable.
-- [ ] UI styling matches `PRODUCT.md`/`DESIGN.md`; desktop/mobile, keyboard checks, and before/after screenshots attached.
+- [ ] UI styling matches `PRODUCT.md`/`DESIGN.md`; existing metrics stay reachable; desktop/mobile, keyboard checks, and before/after screenshots (including empty and zero states) attached.
 - [ ] Evidence covers the submitted head; reran checks whose inputs changed.
 
 ## Evidence
