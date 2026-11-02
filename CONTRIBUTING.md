@@ -84,7 +84,7 @@ It stops at the first failure. Report each completed check separately. Never cla
 - [ ] Ran the required tests and recorded pass/fail/skip counts. Covered the relevant regressions and both Simple and Advanced paths.
 - [ ] Passed the required typechecks, type-aware lint, and generated-file checks. `pnpm check` alone is insufficient.
 - [ ] Built and smoke-checked affected CLI, API, MCP, and UI surfaces. Included installed-package checks for packaging changes.
-- [ ] Checked code style against the applicable `AGENTS.md` rules. For UI changes, also checked `PRODUCT.md`, `DESIGN.md`, desktop/mobile layout, and keyboard use. Attached before/after screenshots.
+- [ ] Checked code style against the applicable `AGENTS.md` rules. For UI changes, also checked `PRODUCT.md`, `DESIGN.md`, desktop/mobile layout, and keyboard use, and kept every existing metric, table, and competitor figure reachable. Attached before/after screenshots, including the empty and zero states of every figure that moved.
 - [ ] Recorded the tested commit SHA, exact commands, results, and evidence for the submitted head.
 
 Keep evidence brief: one result line per command, with sanitized logs in a collapsed `<details>` block or linked artifact.

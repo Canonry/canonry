@@ -197,6 +197,14 @@ each choice.
   The one exception is the client Queries tab: when the agency lets a
   dashboard's clients manage their own queries, they can add and remove that
   project's queries there, and nothing else.
+- Changing an existing view keeps every metric, table, and competitor figure it
+  showed. Restyle, relabel, regroup, or move detail into a disclosure; remove a
+  figure only when a maintainer asks for that removal. A figure that misleads
+  stays reachable as a non-default choice behind a better default.
+- The top level of a list, row, or summary strip shows the simplest summary:
+  one figure per signal. Per-provider detail opens on expand. Never add a
+  column or a name per provider at the top level, so the layout does not grow
+  as providers are added.
 
 ## Review checklist
 
@@ -210,5 +218,8 @@ each choice.
 - Is a pill being used for navigation, filtering, or an action?
 - Are multiple cards competing at the same visual weight?
 - Does every empty or failure state offer a truthful recovery path?
+- Does every metric, table, and competitor figure from the previous version
+  remain reachable?
+- Do the screenshots show the empty and zero states of every figure that moved?
 - Were focused tests, typecheck, lint, build, and representative visual states
   checked?
