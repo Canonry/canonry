@@ -8,6 +8,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { cloudflareWorkerVersionFor } from './cloudflare-worker-version.js'
 import {
   CLOUDFLARE_QUEUE_BATCH_SIZE,
+  DEFAULT_CLOUDFLARE_QUEUE_EMPTY_PULL_BACKOFF_MS,
   DEFAULT_CLOUDFLARE_QUEUE_MAX_BATCHES,
   DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS,
   DEFAULT_VERCEL_SYNC_DEADLINE_MS,
@@ -372,6 +373,8 @@ export interface TrafficRoutesOptions {
   cloudflareQueueMaxBatches?: number
   /** Wall-clock budget for one Queue sync's drain (default 4 minutes). */
   cloudflareQueueSyncDeadlineMs?: number
+  /** Waits (ms) after consecutive empty pulls while a full batch or more waits; the drain stops once every wait came back empty. */
+  cloudflareQueueEmptyPullBackoffMs?: readonly number[]
   /** Override the canonry ingest URL embedded into generated Worker scripts (for tests). */
   cloudflareTrafficIngestUrl?: string
   /** Per-source direct-push request budget per minute. Invalid auth is budgeted by caller IP. */
@@ -1806,8 +1809,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   const readQueueRetentionSeconds = opts.getCloudflareQueueRetentionSeconds ?? getCloudflareQueueRetentionSeconds
   const cloudflareQueueMaxBatches = opts.cloudflareQueueMaxBatches ?? DEFAULT_CLOUDFLARE_QUEUE_MAX_BATCHES
   const cloudflareQueueSyncDeadlineMs = opts.cloudflareQueueSyncDeadlineMs ?? DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS
+  const cloudflareQueueEmptyPullBackoffMs = opts.cloudflareQueueEmptyPullBackoffMs ?? DEFAULT_CLOUDFLARE_QUEUE_EMPTY_PULL_BACKOFF_MS
   if (!Number.isInteger(cloudflareQueueMaxBatches) || cloudflareQueueMaxBatches < 1 || cloudflareQueueMaxBatches > 1_000) {
     throw new RangeError('cloudflareQueueMaxBatches must be an integer from 1 to 1000')
+  }
+  if (cloudflareQueueEmptyPullBackoffMs.some(ms => !Number.isFinite(ms) || ms < 0)) {
+    throw new RangeError('cloudflareQueueEmptyPullBackoffMs must hold non-negative milliseconds')
   }
   const allowLoopback = opts.allowLoopbackWebhooks === true
 
@@ -3259,12 +3266,27 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
               stopReason = CloudflareQueueDrainStopReasons['unleased-only']
               break
             }
-            // A pull can come back empty for a moment while messages wait;
-            // two in a row means the rest is leased or not yet visible.
             consecutiveEmptyPulls = pulled.skippedUnleasedMessageCount === 0 ? consecutiveEmptyPulls + 1 : 0
-            if (consecutiveEmptyPulls >= 2) {
-              stopReason = CloudflareQueueDrainStopReasons['empty-pulls']
-              break
+            if (consecutiveEmptyPulls > 0) {
+              // Cloudflare answers a pull empty now and then while messages
+              // wait. With a full batch or more waiting, wait a little longer
+              // after each empty pull and stop only when every wait came back
+              // empty. Less than a full batch is mostly what arrived during
+              // the drain: one quick retry, then the next sync takes it, so
+              // the drain never chases a trickle of new messages.
+              const waits = remainingBacklogCount >= CLOUDFLARE_QUEUE_BATCH_SIZE ? cloudflareQueueEmptyPullBackoffMs : [0]
+              if (consecutiveEmptyPulls > waits.length) {
+                stopReason = CloudflareQueueDrainStopReasons['empty-pulls']
+                break
+              }
+              const waitMs = waits[consecutiveEmptyPulls - 1]!
+              if (waitMs > 0) {
+                if (waitMs >= drainDeadlineMs - Date.now()) {
+                  stopReason = CloudflareQueueDrainStopReasons.deadline
+                  break
+                }
+                await new Promise(resolve => setTimeout(resolve, waitMs))
+              }
             }
           } else {
             consecutiveEmptyPulls = 0

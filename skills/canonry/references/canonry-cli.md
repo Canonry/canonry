@@ -1054,7 +1054,8 @@ more than 1,000 messages remain afterwards and names the cause. After
 `deadline` or `batch-cap` the drain hit its limit: if the operator approves a
 manual drain, run a manual sync, and if the backlog recurs, get approval to
 shorten the schedule interval or raise the time limit. After `empty-pulls`
-Cloudflare still counted messages it would not return; later syncs pull them.
+Cloudflare still counted messages it would not return, even after waiting
+between pulls; later syncs pull them.
 
 Read the [server-side traffic guide](server-side-traffic.md) for token safety,
 route checks, activation order, smoke tests, rollback, and troubleshooting.

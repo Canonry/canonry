@@ -905,10 +905,15 @@ The Queue sync in `traffic.ts` commits each batch before acknowledging it and
 renews the source lease before every pull and ack; keep both. It drains while
 Cloudflare reports a backlog, until `cloudflareQueueSyncDeadlineMs` (default 4
 minutes, `CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS`) or the
-`cloudflareQueueMaxBatches` safety cap. A partial batch never ends the drain;
-two empty pulls in a row, or a partial pull of only unleased entries, do. A
-failure after a committed and acknowledged batch ends the run `partial` with
-the saved counts. Receipt lifetimes come from `loadQueueReceiptPolicy`, read
+`cloudflareQueueMaxBatches` safety cap. A partial batch never ends the drain.
+Cloudflare answers pulls empty now and then while messages wait, so with a
+full batch or more waiting the drain waits after each empty pull
+(`cloudflareQueueEmptyPullBackoffMs`, default 0.5, 1, 2, 4 and 8 seconds) and
+stops only when every wait came back empty; it never waits past the deadline.
+Under a full batch, two empty pulls in a row stop it without a wait, so it
+never chases new arrivals. A partial pull of only unleased entries also stops
+it. A failure after a committed and acknowledged batch ends the run `partial`
+with the saved counts. Receipt lifetimes come from `loadQueueReceiptPolicy`, read
 lazily at the first batch with events: live retention plus a margin, extended
 when retention rises, floored by the newest non-fallback receipt when it falls,
 and the 14-day fallback when the read fails.

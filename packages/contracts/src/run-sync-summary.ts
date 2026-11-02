@@ -4,8 +4,11 @@ import { z } from 'zod'
  * Why a Cloudflare Queue sync stopped pulling.
  *
  * - `backlog-empty`: Cloudflare reported no messages waiting.
- * - `empty-pulls`: two pulls in a row returned nothing while Cloudflare still
- *   reported a backlog, so the rest was leased or not yet visible.
+ * - `empty-pulls`: pulls kept returning nothing while Cloudflare still
+ *   reported a backlog, so the rest was leased or not yet visible. With a
+ *   full batch or more waiting, the drain waited longer after each empty pull
+ *   and every wait came back empty; with less, two pulls in a row came back
+ *   empty.
  * - `unleased-only`: a pull returned only entries without a lease, fewer than
  *   a full batch, so nothing else was waiting to be leased.
  * - `deadline`: the sync's time limit (`CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS`).

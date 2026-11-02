@@ -424,6 +424,8 @@ export interface ApiRoutesOptions {
   cloudflareQueueMaxBatches?: TrafficRoutesOptions['cloudflareQueueMaxBatches']
   /** Wall-clock budget for one Cloudflare Queue sync's drain; see `resolveCloudflareQueueSyncDeadlineMs`. */
   cloudflareQueueSyncDeadlineMs?: TrafficRoutesOptions['cloudflareQueueSyncDeadlineMs']
+  /** Waits after consecutive empty Cloudflare Queue pulls; see `DEFAULT_CLOUDFLARE_QUEUE_EMPTY_PULL_BACKOFF_MS`. */
+  cloudflareQueueEmptyPullBackoffMs?: TrafficRoutesOptions['cloudflareQueueEmptyPullBackoffMs']
   /** Override the canonry ingest URL embedded into generated Worker scripts (tests) */
   cloudflareTrafficIngestUrl?: TrafficRoutesOptions['cloudflareTrafficIngestUrl']
   /** Per-source Cloudflare direct-push request budget per minute (tests/hosts). */
@@ -905,6 +907,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getCloudflareQueueRetentionSeconds: opts.getCloudflareQueueRetentionSeconds,
       cloudflareQueueMaxBatches: opts.cloudflareQueueMaxBatches,
       cloudflareQueueSyncDeadlineMs: opts.cloudflareQueueSyncDeadlineMs,
+      cloudflareQueueEmptyPullBackoffMs: opts.cloudflareQueueEmptyPullBackoffMs,
       cloudflareTrafficIngestUrl: opts.cloudflareTrafficIngestUrl,
       cloudflareIngestRateLimitMax: opts.cloudflareIngestRateLimitMax,
       cloudflareIngestIpRateLimitMax: opts.cloudflareIngestIpRateLimitMax,
