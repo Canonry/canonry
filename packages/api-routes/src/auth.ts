@@ -490,7 +490,15 @@ export function shouldSkipAuth(url: string): boolean {
   // same exact-suffix rule as the legacy Google callback above: only the
   // signed state verifier in that route may receive an unauthenticated request.
   if (url.endsWith('/google-marketing/callback')) return true
-  if (url.endsWith('/session') || url.endsWith('/session/setup')) return true
+  // The legacy dashboard-password session routes (`<prefix>/session` and
+  // `<prefix>/session/setup`) live at the API ROOT, never under the dynamic
+  // `/projects/<name>` namespace. The bare suffix match used to swallow a
+  // project literally named "session", which removed authentication from that
+  // project's GET/PUT/PATCH/DELETE detail route — the detail handlers carry no
+  // route-level guard, so the project read, rewrote and deleted itself with no
+  // credential at all. Excluding `/projects/` keeps the root routes public and
+  // the detail route authenticated whatever the project is called.
+  if ((url.endsWith('/session') || url.endsWith('/session/setup')) && !url.includes('/projects/')) return true
   // The sign-in surface. It cannot require a credential: the sign-in screen has
   // to be able to ask whether a sign-in is needed, offer the form, and clear a
   // dead session, none of which it can do while holding something it does not
