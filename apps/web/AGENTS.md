@@ -29,6 +29,7 @@ subtle borders, no visual noise.
 | `src/pages/` | One file per page (ProjectPage is largest at 1,600 LOC) |
 | `src/components/shared/ChartPrimitives.tsx` | Recharts wrapper — chart components and styling constants |
 | `src/components/shared/ToneBadge.tsx` | Status indicator component with tone colors |
+| `src/components/shared/TrendCard.tsx` | The trend card a dashboard tab leads with: figures across the top, the chosen one charted over time (see "Trend cards") |
 | `src/components/project/` | Project page section components (GscSection, TrafficSection, `SiteHealthSection`, etc.) |
 | `src/components/project/SiteGraphSigma.tsx` / `site-graph-sigma.ts` | Site Health WebGL map and its Graphology adapter; consumes server-published coordinates only. The map defaults to content links and hides nav/header/footer links; the toggle changes only which edges are DRAWN, never the positions, which the server laid out without them. When `isTemplateDetectionApplied(templateDetection)` is false the toggle is disabled with plain-word copy and nothing is hidden, because the per-link flag proves nothing then. The header strip is ONE line of numbers (`site-map-link-counts`, built by `siteMapLinkCountsLabel`); why the split is worth having, which rule produced it, and any stale-layout warning live in an `InfoTooltip` beside it (`siteMapLinkRuleHelp`), always, in every state, because `applied` means the weaker ubiquity rule that cannot see an editorial link whose wording matches the menu. CUSTOMER-FACING COPY SAYS "links in your page text" and "menu and footer links", never "content link", "template link", "nav", or "chrome": those are our words, and the reader's distinction is WHERE the link was written. The wire vocabulary is unchanged and must stay (`linkKind=content|template|all`, `isTemplate`, `templateDetection`); this split is copy only. Short visible label, detail in a tooltip is the rule across this surface: an InfoTooltip is placed as a SIBLING of a heading, never a child, or its help text joins the heading's accessible name and any `aria-labelledby` landmark that points at it. Site Health tests assert complete independent help literals through mounted controls and real SDK reads. Keep copy and count helpers private unless another production caller needs them; retain compiled style contracts through the shared test-only Tailwind producer. |
 | `src/components/project/PageAuditEvidence.tsx` | Site Health "Findings and fixes": the per-factor technical checks. Every check starts COLLAPSED so the page opens scannable; the `<summary>` row carries factor name, score, and pass/partial/fail, which is everything needed to decide what to open. Native `<details>` is the disclosure primitive here, so the toggle is a real button with browser-managed expanded state and closed content stays out of the tab order. Critical defects render in their OWN always-visible section above the checks, so collapsing hides nothing that demands attention. |
@@ -437,6 +438,50 @@ charts and tables are closed `.visibility-disclosure` rows (`DisclosureRow`)
 that mount their detail only while open, each summary carrying the API's
 count, or "None in this period". Never drop a figure while restyling this tab;
 the site-wide sessions chart disappeared once that way.
+
+### Trend cards
+
+Every dashboard tab leads with `TrendCard`: its figures across the top, and the
+chosen figure charted over time below them, with the tab's lists and per-request
+detail unchanged underneath. Site traffic, Search Engines (Search Console
+performance plus indexed pages), Site Health and Backlinks use it.
+
+- Every value and change is the API's. Stored levels come from
+  `GET /projects/:name/trends` (`canonry trends`, `canonry_trends`):
+  `levelTrendChange` renders a change in its own unit (a share in points) and
+  `sharedLevelBasis` the basis the group shares. Never compute a change from
+  the readings in a component.
+- A change always names its basis ("vs prior 30 days", "since Aug 16"), once
+  in the group header when every figure shares it. The arrow follows the
+  number, the colour follows the tone (good or bad news), and the spoken label
+  adds "an improvement" or "a decline". A falling rank or bounce rate is green.
+- `mode="single"` charts one figure at a time (tabs, roving tabindex, the
+  previous period dashed); `mode="compare"` makes the figures toggles over the
+  caller's `MultiAxisTrendChart`. A figure with fewer than two readings has
+  nothing to chart unless `interactive` says otherwise: beside tabs or toggles
+  it renders as an unavailable one (`aria-disabled` tab, disabled toggle) at
+  full colour, since a tab list holds tabs only; a group of only such figures
+  is a definition list.
+- The current line can be hidden only while there is a previous one to show;
+  with no previous data it is the chart and stays on. A window whose current
+  period has no readings still charts its previous period.
+- `formatValue` formats the axis and may abbreviate; `formatExact` gives the
+  tooltip and the screen-reader table the full reading (4,512, not 4.5K).
+- Readings taken at a moment (scans) arrive with `observedAt`. Plot them with
+  `trendCardPoints`, pass `instants` (a time scale, so uneven gaps keep their
+  length), and label a span with `trendSpanLabel`, so a viewer west of UTC
+  sees their own day. Readings with a `label` (a Common Crawl release, "May-Jul
+  2026") are named by it on the axis, in the tooltip, the table, the basis and
+  the span. Calendar-day readings keep the calendar formatters.
+- Search Engines asks for indexed pages over the chart's own period: the
+  window, or the custom Start/End range the daily read used (`startDate` /
+  `endDate` on the trends read). The coverage query keeps its previous data
+  while a new window loads. Run completions invalidate the `trends` query
+  domain (`site-audit`, Google and Bing syncs).
+- Inside a section card, use `frame="none"`; never nest cards.
+- The ads performance chart keeps its own tiles until its per-day rates come
+  from the API: CTR is charted from `daily.ctr`; CPC, conversion rate and cost
+  per conversion have no per-day field yet.
 
 ### API calls (Critical)
 

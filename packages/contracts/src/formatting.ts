@@ -516,8 +516,18 @@ export type PointDeltaDirection = 'up' | 'down' | 'none'
 export function formatPointDelta(delta: number, unit: RatioUnit = RatioUnits.fraction): { direction: PointDeltaDirection; magnitude: string } {
   const points = inPercentUnits(delta, unit)
   if (points === 0) return { direction: 'none', magnitude: '0' }
-  const tenths = roundedTenths(Math.abs(points))
-  return { direction: points > 0 ? 'up' : 'down', magnitude: tenths === 0 ? '<0.1' : tenths.toFixed(1) }
+  return { direction: points > 0 ? 'up' : 'down', magnitude: formatTenthsMagnitude(points) }
+}
+
+/**
+ * The size of a movement shown in tenths (percentage points, rank places),
+ * unsigned: `2.0`, and `<0.1` for a real movement too small to show, never
+ * `0.0` beside an arrow. Rounds half up like `formatPercent`; the caller owns
+ * the direction and the unit.
+ */
+export function formatTenthsMagnitude(movement: number): string {
+  const tenths = roundedTenths(Math.abs(movement))
+  return tenths === 0 ? '<0.1' : tenths.toFixed(1)
 }
 
 /**

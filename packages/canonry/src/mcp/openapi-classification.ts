@@ -507,6 +507,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/technical-aeo': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/pages': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/trend': 'included',
+  'GET /api/v1/projects/{name}/trends': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/crawl': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/issues': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages': 'included',

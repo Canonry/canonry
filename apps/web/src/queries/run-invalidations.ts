@@ -81,10 +81,14 @@ export function invalidateQueriesForRunKind(
       return
     case RunKinds['site-audit']:
       void invalidateProjectQueryDomain(queryClient, 'technicalAeo')
+      // The Site Health trend card reads its scans through the trends read.
+      void invalidateProjectQueryDomain(queryClient, 'trends', { projectName })
       return
     case RunKinds['gsc-sync']:
     case RunKinds['inspect-sitemap']:
       void invalidateProjectQueryDomain(queryClient, 'gsc')
+      // Indexed pages on the Search Engines card come from the trends read.
+      void invalidateProjectQueryDomain(queryClient, 'trends', { projectName })
       return
     case RunKinds['ga-sync']:
       void invalidateProjectQueryDomain(queryClient, 'ga')
@@ -96,6 +100,7 @@ export function invalidateQueriesForRunKind(
     case RunKinds['bing-inspect']:
     case RunKinds['bing-inspect-sitemap']:
       void invalidateProjectQueryDomain(queryClient, 'bing')
+      void invalidateProjectQueryDomain(queryClient, 'trends', { projectName })
       return
     case RunKinds['aeo-discover-seed']:
     case RunKinds['aeo-discover-probe']:

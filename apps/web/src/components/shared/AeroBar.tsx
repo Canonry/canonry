@@ -39,7 +39,8 @@ import { Button } from '../ui/button.js'
 import { MANAGED_SWEEPS_COPY } from '../project/ManagedSweepStatus.js'
 import { InfoTooltip } from './InfoTooltip.js'
 import { shellQuote, describeError } from '@canonry/canonry-contracts'
-import { playAeroPreview, prefersReducedMotion } from '../../lib/aero-preview.js'
+import { playAeroPreview } from '../../lib/aero-preview.js'
+import { prefersReducedMotion } from '../../lib/reduced-motion.js'
 import {
   extractAssistantText,
   fetchAeroPreview,

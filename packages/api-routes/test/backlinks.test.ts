@@ -569,6 +569,18 @@ describe('Backlinks routes', () => {
       expect(body.targetDomain).toBe('roots.io')
     })
 
+    it('reads the newest crawl window as latest, even when an older release was extracted after it', async () => {
+      insertProject(db, 'p1', 'roots', 'roots.io')
+      seedSourceData(db, { projectId: 'p1', source: 'commoncrawl', release: 'cc-main-2026-aug-sep-oct', domains: [['a.example', 4], ['b.example', 2]], queriedAt: '2026-10-26T06:00:00.000Z' })
+      // A backfill of an older release, extracted later.
+      seedSourceData(db, { projectId: 'p1', source: 'commoncrawl', release: 'cc-main-2026-may-jun-jul', domains: [['a.example', 9]], queriedAt: '2026-11-01T06:00:00.000Z' })
+
+      const summary = await app.inject({ method: 'GET', url: '/projects/roots/backlinks/summary' })
+      expect((summary.json() as { release: string }).release).toBe('cc-main-2026-aug-sep-oct')
+      const domains = await app.inject({ method: 'GET', url: '/projects/roots/backlinks/domains' })
+      expect((domains.json() as { summary: { release: string }; total: number })).toMatchObject({ summary: { release: 'cc-main-2026-aug-sep-oct' }, total: 2 })
+    })
+
     it('?excludeCrawlers=1 recomputes totals and exposes excluded counts', async () => {
       insertProject(db, 'p1', 'roots', 'roots.io')
       const now = new Date().toISOString()

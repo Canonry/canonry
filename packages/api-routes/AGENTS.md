@@ -46,6 +46,7 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/traffic-analytics.ts` | Full-window stored crawler, user-fetch and referral aggregates, exposed through `/traffic/analytics`; detail-row caps do not limit totals, operator/path/product breakdowns or history. `period` is read-selection identity, not execution tuning. |
 | `src/referral-assessment.ts` | DB-only project/source burst diagnostic. Raw headlines unchanged; grouped candidate counts and separate adjusted estimate, with GA quotient coverage limits. |
 | `src/technical-aeo.ts` | Site Health / Technical AEO routes |
+| `src/trends.ts` | `GET /projects/:name/trends?surface=`: the stored levels a dashboard tab's trend card leads with, each over the window with its change since the window's first reading (see "Trend reads") |
 | `src/technical-aeo-issues.ts` | Stored coded-finding, independent-defect, and cross-page issue aggregation with bounded examples and cursor-paged membership |
 | `src/measurement-property-evidence.ts` | `GET /projects/:name/measurement-property-evidence`: one Property's cursor-paged evidence |
 | `src/discovery/routes.ts` / `src/discovery/orchestrate.ts` | Tracked-basket discovery routes; `executeDiscovery` orchestration (rules: `src/discovery/AGENTS.md`) |
@@ -580,6 +581,19 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - `change` stays null when the prior period is zero or unmeasured, since growth from nothing has no percentage.
 - Sign is mathematical, so a POSITIVE `position` means a worse rank and the renderer owns the arrow.
 
+### Trend reads
+
+`src/trends.ts` serves `GET /projects/:name/trends?surface=index-coverage|site-health|backlinks&window=` (or `&startDate=&endDate=`, a caller's own calendar range: never both, and the response's `window` is then null), the figures a dashboard tab's trend card leads with. The dashboard, `canonry trends` and `canonry_trends` read the same payload, so a figure and its change never differ between them.
+
+- A figure is a stored LEVEL (indexed pages, a scan's score, a release's referring domains). `buildLevelTrendFigure` in contracts reads the latest value in the window and its change since the window's FIRST reading, in its own unit (`difference`) and as a ratio (null from a zero basis). Never sum levels across readings.
+- `better` (`higher`, `lower`, `neither`) decides the change's `tone`. Pages checked and top-10 concentration are `neither`: their movement is neither good nor bad on its own.
+- The window ends on the latest reading anywhere on the surface (`trendWindowSpan`), not on today, so a surface synced last week still shows its last 90 days. Defaults live in `TREND_SURFACE_DEFAULT_WINDOW`.
+- A reading taken at a moment (a scan's `auditedAt`, a backlinks `queriedAt`) carries it as `observedAt`, keyed and ordered by it, so two scans on one UTC day stay two readings and a viewer west of UTC sees their own day. A calendar-day reading (a coverage snapshot) has `observedAt: null`.
+- A group that never recorded a reading is left out; an empty surface answers 200 with no groups and a null span.
+- Backlinks reads every Common Crawl release's crawler- and proxy-excluded totals in one query (`computeFilteredReleaseTotals`, the same figures `computeFilteredSummary` gives the tab for one release). Releases are ordered by crawl window (`compareReleaseIds`), never by when they were extracted, and read at the window's last month with the window as `label` ("May-Jul 2026"). A release whose domain rows are missing is unknown (null), never zero.
+- Site Health reads the scans `surfaceableSiteAuditFilters` (`src/technical-aeo.ts`) selects, the same ones the Technical AEO score trend charts. A new surface that reads runs needs its case in `test/probe-exclusion.test.ts`.
+- Adding a surface: a value on `trendSurfaceSchema` and its default window in contracts, a `readSurface` case here, the CLI title in `packages/canonry/src/commands/trends.ts`, and the OpenAPI enum.
+
 ### Google Business Profile
 
 `src/google.ts` (GBP):
@@ -782,6 +796,7 @@ WordPress backfill is forbidden while either continuation field is set.
 `src/backlinks.ts` (Common Crawl sync + per-project extract):
 
 - Summary/domains/history default to `source=commoncrawl`; the source discriminator remains readable for inert historical rows from older versions.
+- With no `release`, summary and domains read the newest crawl window (`compareReleaseIds`), not the newest extraction: extracting an older release later must not make it current. Ids that are not Common Crawl releases keep the most recent query.
 - `GET /projects/:name/backlinks/sources` reports Common Crawl readiness plus retained-source data availability. Common Crawl is `connected` when a release sync has completed AND the project has a Common Crawl summary (`readCommonCrawlSourceState` in `src/backlinks-source-state.ts`). Completed means `ready`, or `query_finished_at` set: syncing a release again re-queues its row while the stored rows stay intact, so the status alone would report every project disconnected for the length of the download. The `backlinks.source.connected` doctor check reads the same function, so the two cannot disagree; change the rule there, never in one caller. For a project without a summary, the check recommends `backlinks extract` only when a release is currently `ready`; historical completion alone requires `backlinks sync`. `autoExtractBacklinks` only queues a re-extract after a sync and is not part of it.
 
 ### Technical AEO crawl (Site Health)

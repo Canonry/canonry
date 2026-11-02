@@ -397,6 +397,7 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'traffic.sources': 'stored',
   'traffic.status': 'stored',
   'traffic.sync': 'write',
+  'trends': 'stored',
   'user': 'stored',
   'user.create': 'write',
   'user.delete': 'write',
