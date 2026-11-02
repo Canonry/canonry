@@ -959,3 +959,63 @@ test('a pre-existing row whose stored overrides name an unselected engine stays 
     fs.rmSync(tmpDir, { recursive: true, force: true })
   }
 })
+
+test('a project whose name ends in an auth-skip suffix still requires authentication', async () => {
+  const { app, db, tmpDir } = buildApp()
+  const rawKey = insertApiKey(db)
+  await app.ready()
+
+  try {
+    // Create a project named "session": `GET /projects/session` ends with the
+    // same suffix as the legacy dashboard-password session route in the auth
+    // skip list. The detail route must NOT become unauthenticated.
+    expect(shouldSkipAuth('/api/v1/session')).toBe(true)
+    expect(shouldSkipAuth('/api/v1/session/setup')).toBe(true)
+    expect(shouldSkipAuth('/api/v1/projects/session')).toBe(false)
+    // Fastify decodes static segments before matching, so an encoded segment
+    // still reaches the project detail route.
+    expect(shouldSkipAuth('/api/v1/%70rojects/session')).toBe(false)
+    // `openapi.json` is a public root suffix but also a valid project name.
+    expect(shouldSkipAuth('/api/v1/openapi.json')).toBe(true)
+    expect(shouldSkipAuth('/api/v1/projects/openapi.json')).toBe(false)
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: { authorization: `Bearer ${rawKey}` },
+      payload: { name: 'session', displayName: 'Session', canonicalDomain: 'example.com', country: 'US', language: 'en' },
+    })
+    expect(created.statusCode).toBe(201)
+
+    // No credential: every detail-route verb must still answer 401.
+    const getRes = await app.inject({ method: 'GET', url: '/api/v1/projects/session' })
+    expect(getRes.statusCode).toBe(401)
+
+    const putRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/session',
+      payload: { name: 'session', displayName: 'Hijacked', canonicalDomain: 'example.com', country: 'US', language: 'en' },
+    })
+    expect(putRes.statusCode).toBe(401)
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/projects/session',
+      payload: { displayName: 'Hijacked' },
+    })
+    expect(patchRes.statusCode).toBe(401)
+
+    const deleteRes = await app.inject({ method: 'DELETE', url: '/api/v1/projects/session' })
+    expect(deleteRes.statusCode).toBe(401)
+    expect(deleteRes.body.toLowerCase()).not.toContain('example.com')
+
+    // Encoded static segment and the openapi.json name both still route to
+    // the detail handler and must not inherit the public suffix.
+    expect((await app.inject({ method: 'GET', url: '/api/v1/%70rojects/session' })).statusCode).toBe(401)
+    expect((await app.inject({ method: 'DELETE', url: '/api/v1/%70rojects/session' })).statusCode).toBe(401)
+    expect((await app.inject({ method: 'GET', url: '/api/v1/projects/openapi.json' })).statusCode).toBe(401)
+  } finally {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
