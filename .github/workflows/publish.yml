@@ -63,7 +63,6 @@ jobs:
     outputs:
       version: ${{ steps.package.outputs.version }}
       version_changed: ${{ steps.package.outputs.version_changed }}
-      canonry_skill_changed: ${{ steps.package.outputs.canonry_skill_changed }}
       docker_changed: ${{ steps.package.outputs.docker_changed }}
     steps:
       - uses: actions/checkout@v4
@@ -102,12 +101,6 @@ jobs:
             else
               echo "No previous package version available, skipping npm publish"
             fi
-          fi
-
-          if git diff --quiet "$BASE_SHA" HEAD -- skills/canonry; then
-            echo "canonry_skill_changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "canonry_skill_changed=true" >> "$GITHUB_OUTPUT"
           fi
 
           if git diff --quiet "$BASE_SHA" HEAD -- \
@@ -306,40 +299,6 @@ jobs:
           repository: Canonry/homebrew-canonry
           event-type: canonry-published
           client-payload: '{"version": "${{ needs.version.outputs.version }}"}'
-
-  publish-clawhub:
-    needs: [policy, version, plugin-drift]
-    if: >-
-      !cancelled() && needs.policy.result == 'success' && needs.version.result == 'success' &&
-      (needs.policy.outputs.owner_only == 'true' || needs['plugin-drift'].result == 'success') &&
-      github.ref_name == github.event.repository.default_branch && github.event_name == 'push' &&
-      needs.version.outputs.version_changed == 'true' && needs.version.outputs.canonry_skill_changed == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 26.12.1
-
-      - name: Install ClawHub CLI
-        run: npm i -g clawhub
-
-      - name: Publish canonry skill
-        env:
-          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          SHORT_SHA="${GITHUB_SHA::7}"
-          SKILL_VERSION="${VERSION}+${SHORT_SHA}"
-          clawhub login --token "$CLAWHUB_TOKEN" --no-browser
-          clawhub publish ./skills/canonry \
-            --slug canonry \
-            --version "$SKILL_VERSION" \
-            --tags latest \
-            --changelog "Sync with canonry v${VERSION} (${SHORT_SHA})"
 
   publish-docker:
     needs: [policy, version, plugin-drift]

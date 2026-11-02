@@ -176,7 +176,7 @@ Docs/comment-only changes use diff and documentation checks. Workflow configurat
 
 `arberx` changes skip automatic validation; outside or unknown authorship runs full CI.
 The shared metadata policy checks PR and commit authors, so merging an outside PR as the owner does not exempt it.
-All release workflows stay enabled: npm, Homebrew, Docker, ClawHub, and WordPress. GitHub handles merge conflicts.
+All release workflows stay enabled: npm, Homebrew, Docker, and WordPress. GitHub handles merge conflicts.
 Owner releases build and pack directly in Publish; outside releases use the exact validated CI artifact.
 For owner changes, report local checks instead of treating skipped CI as a pass.
 
