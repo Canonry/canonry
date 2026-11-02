@@ -2,7 +2,7 @@ import { useAccount } from '../../contexts/account-context.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
 import { Link } from '@tanstack/react-router'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { GscPerformanceDailyDto, MetricsWindow } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
@@ -26,7 +26,7 @@ import {
   type TrendChartSeries,
 } from '../shared/ChartPrimitives.js'
 import { TrendCard, levelTrendChange, sharedLevelBasis, type TrendCardChange, type TrendCardFigure, type TrendCardGroup, type TrendCardTone } from '../shared/TrendCard.js'
-import { calendarDateRange, formatPercent, formatPointDelta, formatRunErrorOneLine, RunKinds, RunStatuses, type GscPeriodComparison } from '@canonry/canonry-contracts'
+import { calendarDateRange, formatPercent, formatPointDelta, formatRunErrorOneLine, formatTenthsMagnitude, RunKinds, RunStatuses, type GscPeriodComparison } from '@canonry/canonry-contracts'
 import { formatTimestamp, formatBooleanState, SearchMetric, SEARCH_METRIC_LABELS } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -162,7 +162,8 @@ export function gscTrendChange(
     if (difference === 0) return { kind: 'delta', amount: metric === 'ctr' ? '0 pts' : '0', direction: 'flat', tone: 'neutral', basis }
     return {
       kind: 'delta',
-      amount: metric === 'ctr' ? `${formatPointDelta(Math.abs(difference)).magnitude} pts` : Math.abs(difference).toFixed(1),
+      // Points for CTR, places for position: either way a real movement under a tenth reads <0.1, never 0.0.
+      amount: metric === 'ctr' ? `${formatPointDelta(Math.abs(difference)).magnitude} pts` : formatTenthsMagnitude(difference),
       direction: difference > 0 ? 'up' : 'down',
       tone: tone(difference > 0),
       basis,
@@ -271,11 +272,19 @@ export function GscSection({
   const [syncDays, setSyncDays] = useState('30')
   const [fullSync, setFullSync] = useState(false)
   const [gscWindow, setGscWindow] = useState<MetricsWindow>('30d')
-  // Indexed pages over the same window, from the stored coverage trend. A
-  // failed read leaves the performance figures standing without them.
+  // The custom Start/End range the chart's daily read last used, or null for the window.
+  const [chartRange, setChartRange] = useState<{ startDate?: string; endDate?: string } | null>(null)
+  // Indexed pages over the same period as the chart, from the stored coverage
+  // trend. A failed read leaves the performance figures standing without them,
+  // and a window change keeps the old figures until the new ones arrive.
   const coverageTrend = useQuery({
-    ...getApiV1ProjectsByNameTrendsOptions({ client: heyClient, path: { name: projectName }, query: { surface: 'index-coverage', window: gscWindow } }),
+    ...getApiV1ProjectsByNameTrendsOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: chartRange ? { surface: 'index-coverage', ...chartRange } : { surface: 'index-coverage', window: gscWindow },
+    }),
     staleTime: GSC_STALE_MS,
+    placeholderData: keepPreviousData,
   })
   // Clicks + impressions selected by default, matching Search Console.
   const [chartMetrics, setChartMetrics] = useState<GscChartKey[]>(['clicks', 'impressions'])
@@ -550,6 +559,10 @@ export function GscSection({
         staleTime: GSC_STALE_MS,
       })
       setPerformanceDaily(data)
+      // Indexed pages follow the chart's own period: a custom range when it used one.
+      setChartRange(queryParams.startDate || queryParams.endDate
+        ? { ...(queryParams.startDate ? { startDate: queryParams.startDate } : {}), ...(queryParams.endDate ? { endDate: queryParams.endDate } : {}) }
+        : null)
     } catch {
       setPerformanceDaily(null)
     }
@@ -880,9 +893,15 @@ export function GscSection({
 
   // Reloads on mount, on project switch, and when a project-level "Refresh search data"
   // bumps refreshNonce (after it syncs Google data and invalidates the cache).
+  // The coverage query loads itself on mount and on a project switch, so only
+  // a refresh asks it again.
+  const coverageRefreshNonce = useRef(refreshNonce)
   useEffect(() => {
     void loadSection()
-    void coverageTrend.refetch()
+    if (coverageRefreshNonce.current !== refreshNonce) {
+      coverageRefreshNonce.current = refreshNonce
+      void coverageTrend.refetch()
+    }
   }, [projectName, refreshNonce, isAdmin])
 
   useEffect(() => {

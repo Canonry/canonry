@@ -26,11 +26,6 @@ const TYPE_TICK_MS = 28
 
 let playCount = 0
 
-export function prefersReducedMotion(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
 function abortError(): DOMException {
   return new DOMException('Preview stopped', 'AbortError')
 }

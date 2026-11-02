@@ -639,7 +639,7 @@ Registered via `src/cli-commands/measurement-plan.ts`.
 
 ### Trend figures
 
-`src/commands/trends.ts`: `trends <project> --surface index-coverage|site-health|backlinks [--window 7d|30d|90d|all]` prints a dashboard tab's trend card from `ApiClient.getTrends` (`GET /projects/:name/trends`, MCP `canonry_trends`). Object command: `--format json` is the response verbatim and jsonl degrades to it. The human output renders the server's change only, a share in points (`formatSignedPointDelta`) and a count or score in its own unit, dated from `change.basis.date`; it never recomputes a change from the readings. Registered via `src/cli-commands/trends.ts`.
+`src/commands/trends.ts`: `trends <project> --surface index-coverage|site-health|backlinks [--window 7d|30d|90d|all | --start YYYY-MM-DD --end YYYY-MM-DD]` prints a dashboard tab's trend card from `ApiClient.getTrends` (`GET /projects/:name/trends`, MCP `canonry_trends`); `--window` with `--start`/`--end` is a usage error. Object command: `--format json` is the response verbatim and jsonl degrades to it. The human output renders the server's change only, a share in points (`formatSignedPointDelta`) and a count or score in its own unit, named by `change.basis.label` (a release window) or else its date; it never recomputes a change from the readings. Registered via `src/cli-commands/trends.ts`.
 
 `src/commands/results-export.ts`: `exportResults` — `canonry results export <project>` — downloads the historical query × provider observations attachment via `ApiClient.downloadResultsExport`.
 

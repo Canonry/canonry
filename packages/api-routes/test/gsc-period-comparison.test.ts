@@ -284,7 +284,8 @@ describe('computeGscPeriodComparison', () => {
       // The same movement in each metric's own unit: CTR in points, position in places.
       difference: {
         clicks: 21, impressions: 2346,
-        ctr: expect.closeTo(35 / 2829 - 14 / 483, 10), position: expect.closeTo(1.6, 10),
+        // 35/2829 - 14/483 = -0.0166136443…, sent at fraction wire precision (eight decimals).
+        ctr: -0.01661364, position: expect.closeTo(1.6, 10),
       },
     })
   })
@@ -424,7 +425,7 @@ describe('computeGscPeriodComparison basis', () => {
         },
         comparable: true,
         change: { clicks: 2, impressions: 0, ctr: expect.closeTo(2, 10), position: null },
-        difference: { clicks: 80, impressions: 0, ctr: expect.closeTo(0.2, 10), position: null },
+        difference: { clicks: 80, impressions: 0, ctr: 0.2, position: null },
       })
     }
   })

@@ -195,10 +195,13 @@ export function TechnicalAeoSection({
     : activeAudit?.status ?? trackedAudit?.lastAnnouncedStatus
 
   const refreshAll = useCallback(async () => {
+    // The trend card is optional on Site Health: refresh it, but a failed read
+    // leaves the page working rather than failing the whole retry.
+    if (integrated) void siteTrendQuery.refetch()
     const results = await Promise.all([
       scoreQuery.refetch(),
       pagesQuery.refetch(),
-      ...(!integrated ? [trendQuery.refetch()] : [siteTrendQuery.refetch()]),
+      ...(!integrated ? [trendQuery.refetch()] : []),
     ])
     const failed = results.find((result) => result.error)
     if (failed?.error) throw failed.error

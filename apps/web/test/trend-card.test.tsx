@@ -16,7 +16,6 @@ vi.mock('recharts', () => {
     ),
     Line: ({ dataKey }: { dataKey?: string }) => <div data-testid={`line-${dataKey}`} />,
     CartesianGrid: () => null,
-    ReferenceArea: ({ x2 }: { x2?: string }) => <div data-testid="not-recorded" data-until={x2} />,
     XAxis: () => null,
     YAxis: () => null,
     Tooltip: () => null,
@@ -44,12 +43,12 @@ function figures(): TrendCardFigure[] {
       change: { kind: 'delta', amount: '1.2', direction: 'down', tone: 'better', basis: 'vs prior 30 days' } },
     { key: 'bounce', label: 'Bounce rate', value: '41%', series: days([0.3, 0.35, 0.41]),
       change: { kind: 'delta', amount: '4.0 pts', direction: 'up', tone: 'worse', basis: 'vs prior 30 days' } },
-    // One reading is a number, not a trend: it is never a tab.
+    // One reading is a number, not a trend: there is nothing to chart.
     { key: 'pages', label: 'Pages', value: '12', series: days([12]), change: { kind: 'note', text: 'No earlier data' } },
   ]
 }
 
-function SingleCard({ groups, notRecordedBefore, initial = 'sessions' }: { groups: TrendCardGroup[]; notRecordedBefore?: string; initial?: string }) {
+function SingleCard({ groups, initial = 'sessions', withPrevious = false }: { groups: TrendCardGroup[]; initial?: string; withPrevious?: boolean }) {
   const [selected, setSelected] = useState(initial)
   return (
     <TrendCard
@@ -59,25 +58,36 @@ function SingleCard({ groups, notRecordedBefore, initial = 'sessions' }: { group
       onSelect={setSelected}
       span="Oct 1 to Oct 3, 2026"
       currentLabel="Last 3 days"
-      notRecordedBefore={notRecordedBefore}
+      previous={withPrevious ? { label: 'Previous period', available: true } : undefined}
       emptyChartMessage="Nothing to chart yet."
     />
   )
 }
 
 describe('TrendCard, one figure charted at a time', () => {
-  test('a figure with two or more readings is a tab; one with a single reading is a plain number', () => {
+  test('a figure with two or more readings is a tab; beside tabs a single reading is an unavailable tab', () => {
     render(<SingleCard groups={[{ key: 'traffic', figures: figures() }]} />)
 
+    // A tab list holds tabs only, so the plain number sits in it as a tab that cannot be chosen.
     const tabs = within(screen.getByRole('tablist', { name: 'Site traffic figures' })).getAllByRole('tab')
-    expect(tabs.map(tab => tab.getAttribute('aria-label'))).toEqual([
-      'Sessions 4,512, up 6.4% vs prior 30 days, an improvement',
+    expect(tabs.map(tab => [tab.getAttribute('aria-label'), tab.getAttribute('aria-disabled')])).toEqual([
+      ['Sessions 4,512, up 6.4% vs prior 30 days, an improvement', null],
       // The arrow follows the number; the words say whether that is good news.
-      'Avg. position 8.1, down 1.2 vs prior 30 days, an improvement',
-      'Bounce rate 41%, up 4.0 pts vs prior 30 days, a decline',
+      ['Avg. position 8.1, down 1.2 vs prior 30 days, an improvement', null],
+      ['Bounce rate 41%, up 4.0 pts vs prior 30 days, a decline', null],
+      ['Pages 12, no earlier data', 'true'],
     ])
-    expect(screen.queryByRole('tab', { name: /^Pages/ })).toBeNull()
+    fireEvent.click(tabs[3]!)
+    expect(tabs[0]!.getAttribute('aria-selected')).toBe('true')
+    expect(tabs[3]!.getAttribute('aria-selected')).toBe('false')
+  })
+
+  test('a group of single readings is a plain list of numbers', () => {
+    render(<SingleCard groups={[{ key: 'plain', figures: figures().slice(3) }]} initial="pages" />)
+
+    expect(screen.queryByRole('tablist')).toBeNull()
     expect(screen.getByText('Pages').closest('dt')?.nextElementSibling?.textContent).toContain('12')
+    expect(screen.getByText('Nothing to chart yet.')).toBeTruthy()
   })
 
   test('selection moves with the arrow keys and only the selected tab is in the tab order', () => {
@@ -99,6 +109,12 @@ describe('TrendCard, one figure charted at a time', () => {
     expect(tab(/^Sessions/).getAttribute('aria-selected')).toBe('true')
 
     expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(tab(/^Sessions/).id)
+  })
+
+  test('a selection that cannot chart leaves the first chartable tab reachable by Tab', () => {
+    render(<SingleCard groups={[{ key: 'traffic', figures: figures() }]} initial="pages" />)
+
+    expect(screen.getAllByRole('tab').map(tab => tab.tabIndex)).toEqual([0, -1, -1, -1])
   })
 
   test('colours a change by its tone, never by its direction', () => {
@@ -128,13 +144,49 @@ describe('TrendCard, one figure charted at a time', () => {
     expect(screen.getByText('Oct 1 to Oct 3, 2026')).toBeTruthy()
   })
 
-  test('hatches the days before recording began instead of drawing them as zero', () => {
-    const series = [{ date: '2026-10-01', current: null }, { date: '2026-10-02', current: null }, { date: '2026-10-03', current: 7 }, { date: '2026-10-04', current: 9 }]
-    render(<SingleCard notRecordedBefore="2026-10-03" groups={[{ key: 'coverage', figures: [{ key: 'indexed', label: 'Indexed', value: '9', series }] }]} initial="indexed" />)
+  test('a day reads in full in the table even when the axis abbreviates', () => {
+    const sessions: TrendCardFigure = {
+      key: 'sessions', label: 'Sessions', value: '4.5K', series: [{ date: '2026-10-01', current: 4512 }, { date: '2026-10-02', current: 3900 }],
+      formatValue: value => `${(value / 1000).toFixed(1)}K`, formatExact: value => value.toLocaleString('en-US'),
+    }
+    render(<SingleCard groups={[{ key: 'traffic', figures: [sessions] }]} />)
 
-    expect(screen.getByTestId('not-recorded').getAttribute('data-until')).toBe('2026-10-02')
-    expect(screen.getByRole('img').getAttribute('aria-label')).toContain('not recorded before Oct 3, 2026')
-    expect(within(screen.getByRole('table')).getAllByRole('cell')[0]!.textContent).toBe('Not recorded')
+    expect(within(screen.getByRole('table')).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['4,512', '3,900'])
+  })
+
+  test('a hidden current line comes back when the figure has nothing to compare against', () => {
+    const withPrevious: TrendCardFigure = { key: 'sessions', label: 'Sessions', value: '9', series: [{ date: '2026-10-01', current: 4, previous: 3 }, { date: '2026-10-02', current: 5, previous: 4 }] }
+    const withoutPrevious: TrendCardFigure = { key: 'users', label: 'Users', value: '7', series: [{ date: '2026-10-01', current: 3, previous: null }, { date: '2026-10-02', current: 4, previous: null }] }
+    render(<SingleCard groups={[{ key: 'traffic', figures: [withPrevious, withoutPrevious] }]} withPrevious />)
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Last 3 days' }))
+    expect(screen.queryByTestId('line-current')).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: /^Users/ }))
+    // With no earlier period the current line is the chart: drawn, checked and locked on.
+    expect(screen.getByTestId('line-current')).toBeTruthy()
+    const current = screen.getByRole('checkbox', { name: 'Last 3 days' }) as HTMLInputElement
+    expect([current.checked, current.disabled]).toEqual([true, true])
+  })
+
+  test('the previous period still charts when the current one has no readings', () => {
+    const lapsed: TrendCardFigure = { key: 'sessions', label: 'Sessions', value: '\u2014', interactive: true, series: [{ date: '2026-10-01', current: null, previous: 40 }, { date: '2026-10-02', current: null, previous: 42 }] }
+    render(<SingleCard groups={[{ key: 'traffic', figures: [lapsed] }]} withPrevious />)
+
+    expect(screen.queryByText('Nothing to chart yet.')).toBeNull()
+    expect(screen.getByTestId('line-previous')).toBeTruthy()
+  })
+
+  test('readings that carry a label are named by it, as Common Crawl releases are', () => {
+    const domains: TrendCardFigure = {
+      key: 'referring-domains', label: 'Referring domains', value: '17',
+      series: [{ date: '2026-07-01', current: 19, label: 'May-Jul 2026' }, { date: '2026-10-01', current: 17, label: 'Aug-Oct 2026' }],
+    }
+    render(<SingleCard groups={[{ key: 'backlinks', figures: [domains] }]} initial="referring-domains" />)
+
+    const table = screen.getByRole('table')
+    expect(within(table).getByRole('columnheader', { name: 'Release' })).toBeTruthy()
+    expect(within(table).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['May-Jul 2026', 'Aug-Oct 2026'])
+    expect(trendSpanLabel({ date: '2026-07-01', label: 'May-Jul 2026' }, { date: '2026-10-01', label: 'Aug-Oct 2026' })).toBe('May-Jul 2026 to Aug-Oct 2026')
   })
 
   test('says what is missing when the selected figure has nothing to draw', () => {
@@ -178,8 +230,8 @@ describe('TrendCard, several figures compared', () => {
 describe('trend card helpers', () => {
   const level = (overrides: Partial<TrendFigure>): TrendFigure => ({
     key: 'indexed', label: 'Indexed', unit: 'count', better: 'higher', value: 289, asOf: '2026-11-01',
-    change: { difference: 74, ratio: 74 / 215, tone: 'better', basis: { type: 'first-in-window', date: '2026-08-16', observedAt: null } },
-    series: [{ date: '2026-08-16', observedAt: null, value: 215 }, { date: '2026-11-01', observedAt: null, value: 289 }],
+    change: { difference: 74, ratio: 74 / 215, tone: 'better', basis: { type: 'first-in-window', date: '2026-08-16', observedAt: null, label: null } },
+    series: [{ date: '2026-08-16', observedAt: null, label: null, value: 215 }, { date: '2026-11-01', observedAt: null, label: null, value: 289 }],
     recordedFrom: '2026-07-01',
     ...overrides,
   })
@@ -187,16 +239,19 @@ describe('trend card helpers', () => {
   test('a stored level changes in its own unit, from the first reading in the window', () => {
     expect(levelTrendChange(level({}).change, 'count')).toEqual({ kind: 'delta', amount: '74', direction: 'up', tone: 'better', basis: 'since Aug 16' })
     // A share moves in points, never as a ratio of a ratio.
-    expect(levelTrendChange({ difference: -0.08, ratio: -0.16, tone: 'neutral', basis: { type: 'first-in-window', date: '2026-07-02', observedAt: null } }, 'fraction'))
+    expect(levelTrendChange({ difference: -0.08, ratio: -0.16, tone: 'neutral', basis: { type: 'first-in-window', date: '2026-07-02', observedAt: null, label: null } }, 'fraction'))
       .toEqual({ kind: 'delta', amount: '8.0 pts', direction: 'down', tone: 'neutral', basis: 'since Jul 2' })
-    expect(levelTrendChange({ difference: 0, ratio: 0, tone: 'neutral', basis: { type: 'first-in-window', date: '2026-07-02', observedAt: null } }, 'score'))
+    expect(levelTrendChange({ difference: 0, ratio: 0, tone: 'neutral', basis: { type: 'first-in-window', date: '2026-07-02', observedAt: null, label: null } }, 'score'))
       .toEqual({ kind: 'delta', amount: '0', direction: 'flat', tone: 'neutral', basis: 'since Jul 2' })
     expect(levelTrendChange(null, 'count')).toBeUndefined()
+    // A labelled basis is named by its label.
+    expect(levelTrendChange({ difference: -2, ratio: -0.10526316, tone: 'worse', basis: { type: 'first-in-window', date: '2026-07-01', observedAt: null, label: 'May-Jul 2026' } }, 'count'))
+      .toMatchObject({ basis: 'since May-Jul 2026' })
   })
 
   test('a group shares a basis only when every change is measured from the same day', () => {
     expect(sharedLevelBasis([level({}), level({ key: 'not-indexed' })])).toBe('since Aug 16')
-    expect(sharedLevelBasis([level({}), level({ key: 'later', change: { ...level({}).change!, basis: { type: 'first-in-window', date: '2026-09-01', observedAt: null } } })])).toBeUndefined()
+    expect(sharedLevelBasis([level({}), level({ key: 'later', change: { ...level({}).change!, basis: { type: 'first-in-window', date: '2026-09-01', observedAt: null, label: null } } })])).toBeUndefined()
     expect(sharedLevelBasis([level({ change: null })])).toBeUndefined()
   })
 

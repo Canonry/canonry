@@ -25,6 +25,7 @@ export const PROJECT_QUERY_DOMAINS = {
   queryTracking: 'getApiV1ProjectsByNameQueryTracking',
   technicalAeo: 'getApiV1ProjectsByNameTechnicalAeo',
   seo: 'getApiV1ProjectsByNameSeo',
+  trends: 'getApiV1ProjectsByNameTrends',
   runs: 'getApiV1ProjectsByNameRuns',
   runAdmission: 'getApiV1ProjectsByNameRunAdmission',
 } as const

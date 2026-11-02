@@ -10,8 +10,10 @@
  *   - TechnicalAeoSection → trend point `auditedAt` (`new Date().toISOString()`)
  *
  * Both would print the UTC calendar day, so a viewer behind UTC saw tomorrow.
- * Both now also lead with the shared trend card, whose readings carry the same
- * moments as `observedAt`; the card must date them the same way.
+ * Site Health now also leads with the shared trend card, whose readings carry
+ * the same moments as `observedAt`; the card must date them the same way.
+ * Backlinks' card plots releases by crawl window, not by query time, so it has
+ * no moment to localize (`backlinks-trend-card.test.tsx`).
  * The timezone here is pinned WEST of UTC for exactly that reason — under the
  * default UTC runner every assertion below passes trivially, which is why the
  * first test guards it.
@@ -71,7 +73,6 @@ vi.mock('recharts', () => {
 })
 
 import type { TrendFigure, TrendsResponse } from '@canonry/canonry-contracts'
-import { BacklinksSection } from '../src/components/project/BacklinksSection.js'
 import { TechnicalAeoSection } from '../src/components/project/TechnicalAeoSection.js'
 import { formatChartDateLabel, formatChartDateMonthDay, formatChartDateTick } from '../src/components/shared/ChartPrimitives.js'
 import { mockFetch, jsonResponse, pathOf } from './mock-fetch.js'
@@ -107,7 +108,7 @@ function renderedDates(dateKey = 'date') {
 // and the span start shift a day for this viewer as well.
 const FIRST_INSTANT = '2026-07-14T02:00:00.000Z'
 
-/** A trends read whose readings are moments, the way the API returns scans and queries. */
+/** A trends read whose readings are moments, the way the API returns scans. */
 function instantTrend(surface: TrendsResponse['surface'], groupKey: string, figures: Array<Pick<TrendFigure, 'key' | 'label' | 'unit' | 'better'> & { values: [number, number] }>): TrendsResponse {
   return {
     project: 'test-project',
@@ -122,8 +123,8 @@ function instantTrend(surface: TrendsResponse['surface'], groupKey: string, figu
         ...figure,
         value: to,
         asOf: '2026-07-20',
-        change: { difference: to - from, ratio: from === 0 ? null : (to - from) / from, tone: to > from ? 'better' : 'neutral', basis: { type: 'first-in-window', date: '2026-07-14', observedAt: FIRST_INSTANT } },
-        series: [{ date: '2026-07-14', observedAt: FIRST_INSTANT, value: from }, { date: '2026-07-20', observedAt: INSTANT, value: to }],
+        change: { difference: to - from, ratio: from === 0 ? null : (to - from) / from, tone: to > from ? 'better' : 'neutral', basis: { type: 'first-in-window', date: '2026-07-14', observedAt: FIRST_INSTANT, label: null } },
+        series: [{ date: '2026-07-14', observedAt: FIRST_INSTANT, label: null, value: from }, { date: '2026-07-20', observedAt: INSTANT, label: null, value: to }],
         recordedFrom: '2026-07-14',
       })),
     }],
@@ -139,61 +140,6 @@ async function trendCardDates(spanText: RegExp) {
   const rows = [...document.querySelectorAll('table tbody th[scope="row"]')].map((cell) => cell.textContent)
   return { ticks: captured.data.map((row) => tick(row.at)), rows, span: (await screen.findByText(spanText)).textContent }
 }
-
-// ---------------------------------------------------------------- backlinks
-
-function installBacklinksApi() {
-  const restore = mockFetch((url) => {
-    const path = pathOf(url).split('?')[0]!
-    if (path === '/api/v1/backlinks/syncs/latest') return jsonResponse(null)
-    if (path === '/api/v1/projects/test-project/runs') return jsonResponse([])
-    if (path === '/api/v1/projects/test-project/trends') {
-      return jsonResponse(instantTrend('backlinks', 'backlinks', [
-        { key: 'referring-domains', label: 'Referring domains', unit: 'count', better: 'higher', values: [10, 12] },
-        { key: 'hosts', label: 'Total linking hosts', unit: 'count', better: 'higher', values: [20, 25] },
-        { key: 'top-10-concentration', label: 'Top-10 concentration', unit: 'fraction', better: 'neither', values: [0.5, 0.5] },
-      ]))
-    }
-    if (path === '/api/v1/projects/test-project/backlinks/summary') {
-      return jsonResponse({
-        projectId: 'p1',
-        release: 'cc-main-2026-may-jun-jul',
-        targetDomain: 'example.com',
-        totalLinkingDomains: 12,
-        totalHosts: 25,
-        top10HostsShare: '0.5',
-        queriedAt: INSTANT,
-        source: 'commoncrawl',
-      })
-    }
-    if (path === '/api/v1/projects/test-project/backlinks/domains') {
-      return jsonResponse({
-        source: 'commoncrawl',
-        summary: null,
-        total: 1,
-        rows: [{ linkingDomain: 'linker.com', numHosts: 3 }],
-      })
-    }
-    throw new Error(`Unexpected fetch: ${url}`)
-  })
-  onTestFinished(restore)
-}
-
-test('the backlinks trend card dates a release by when it was queried, in the viewer timezone', async () => {
-  installBacklinksApi()
-  render(<BacklinksSection projectName="test-project" />)
-
-  // 2026-07-20T01:52:51Z is the evening of July 19 in New York — the honest
-  // local answer to "when did this query run". The UTC day would read Jul 20.
-  expect(await trendCardDates(/^Jul 13 to Jul 19, 2026$/)).toEqual({
-    ticks: ['7/13', '7/19'],
-    rows: ['Jul 13, 2026', 'Jul 19, 2026'],
-    span: 'Jul 13 to Jul 19, 2026',
-  })
-  // The change is dated from the first query, on the viewer's day too.
-  expect(screen.getByText('since Jul 13')).not.toBeNull()
-  expect(screen.queryByText('since Jul 14')).toBeNull()
-})
 
 // ----------------------------------------------------------- technical AEO
 

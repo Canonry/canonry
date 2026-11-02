@@ -6,7 +6,6 @@ import {
   ComposedChart,
   Line,
   RechartsTooltip,
-  ReferenceArea,
   ResponsiveContainer,
   XAxis,
   YAxis,
@@ -25,6 +24,7 @@ import {
   observedInstantYear,
 } from './ChartPrimitives.js'
 import { InfoTooltip } from './InfoTooltip.js'
+import { prefersReducedMotion } from '../../lib/reduced-motion.js'
 
 /**
  * The trend card every dashboard tab leads with: figures across the top, the
@@ -49,6 +49,8 @@ export interface TrendCardPoint {
   previous?: number | null
   /** The previous period's own date for this row, shown in the tooltip. */
   previousDate?: string
+  /** What the reading covers when its date alone does not say ("May-Jul 2026"): its tick, tooltip and table row. */
+  label?: string
 }
 
 export interface TrendCardPicker {
@@ -85,7 +87,10 @@ export interface TrendCardFigure {
   picker?: TrendCardPicker
   /** Keeps a slot's cell mounted while the figure inside it changes, so a picker keeps focus. */
   slot?: string
+  /** Formats the axis, which may abbreviate ("4.5K"). */
   formatValue?: (value: number) => string
+  /** Formats one day's reading in the tooltip and table, unabbreviated ("4,512"); falls back to `formatValue`. */
+  formatExact?: (value: number) => string
   /** Rates and durations take fractional axis ticks; counts never do. */
   allowDecimals?: boolean
 }
@@ -107,13 +112,9 @@ const LINE = CHART_SERIES_COLORS[1]!
 const SERIES = { current: 'current', previous: 'previous' } as const
 type Series = typeof SERIES[keyof typeof SERIES]
 
-function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
 const recorded = (figure: TrendCardFigure) => figure.series?.filter(point => point.current !== null).length ?? 0
 export const isTrendFigureInteractive = (figure: TrendCardFigure) => figure.interactive ?? recorded(figure) >= 2
+const hasValue = (value: number | null | undefined): value is number => value !== null && value !== undefined
 
 function lowerFirst(text: string): string {
   return text.charAt(0).toLowerCase() + text.slice(1)
@@ -128,10 +129,11 @@ export function describeTrendChange(change: TrendCardChange | undefined): string
   return `${change.direction} ${change.amount} ${change.basis}${verdict}`
 }
 
-/** A reading's date: a calendar day, plus its moment when it was taken at one (a scan, a query). */
+/** A reading's date: a calendar day, plus its moment when it was taken at one (a scan), or its label (a release). */
 interface ReadingDate {
   date: string
   observedAt?: string | null
+  label?: string | null
 }
 
 /** The day a reading names: a moment in the viewer's timezone, a calendar day as written. */
@@ -143,14 +145,19 @@ function readingYear({ date, observedAt }: ReadingDate): number {
   return observedAt ? observedInstantYear(observedInstant(observedAt)) : Number(date.slice(0, 4))
 }
 
+/** What a reading is called in words: its label when it carries one, else its day. */
+function readingName(reading: ReadingDate): string {
+  return reading.label ?? readingMonthDay(reading)
+}
+
 /**
  * A stored level's change from the trends read, in its own unit: a share moves
- * in points, a count or score as itself. The date is the API's first reading
+ * in points, a count or score as itself. The basis is the API's first reading
  * in the window.
  */
 export function levelTrendChange(change: TrendChange | null, unit: TrendUnit): TrendCardChange | undefined {
   if (!change) return undefined
-  const basis = `since ${readingMonthDay(change.basis)}`
+  const basis = `since ${readingName(change.basis)}`
   if (change.difference === 0) return { kind: 'delta', amount: unit === 'fraction' ? '0 pts' : '0', direction: 'flat', tone: 'neutral', basis }
   const size = Math.abs(change.difference)
   return {
@@ -164,18 +171,23 @@ export function levelTrendChange(change: TrendChange | null, unit: TrendUnit): T
 
 /** The basis every change in a group shares, to say once in its header; none when they differ. */
 export function sharedLevelBasis(figures: readonly TrendFigure[]): string | undefined {
-  const labels = new Set(figures.map(figure => figure.change ? readingMonthDay(figure.change.basis) : null))
-  const [label] = [...labels]
-  return labels.size === 1 && label ? `since ${label}` : undefined
+  const names = new Set(figures.map(figure => figure.change ? readingName(figure.change.basis) : null))
+  const [name] = [...names]
+  return names.size === 1 && name ? `since ${name}` : undefined
 }
 
-/** The readings a trend card plots: a moment's own time when the reading has one. */
+/** The readings a trend card plots: a moment's own time when the reading has one, and its label when it carries one. */
 export function trendCardPoints(figure: TrendFigure): TrendCardPoint[] {
-  return figure.series.map(point => ({ date: point.observedAt ?? point.date, current: point.value }))
+  return figure.series.map(point => ({
+    date: point.observedAt ?? point.date,
+    current: point.value,
+    ...(point.label ? { label: point.label } : {}),
+  }))
 }
 
-/** "Jul 2 to Oct 5, 2026" from the first and last reading, in the viewer's timezone for moments. */
+/** "Jul 2 to Oct 5, 2026" from the first and last reading, in the viewer's timezone for moments; labelled readings by their labels. */
 export function trendSpanLabel(first: ReadingDate, last: ReadingDate): string {
+  if (first.label && last.label) return first.label === last.label ? first.label : `${first.label} to ${last.label}`
   const day = (point: ReadingDate, withYear: boolean) => withYear ? `${readingMonthDay(point)}, ${readingYear(point)}` : readingMonthDay(point)
   return `${day(first, readingYear(first) !== readingYear(last))} to ${day(last, true)}`
 }
@@ -207,21 +219,26 @@ function FigureValue({ figure, active }: { figure: TrendCardFigure; active: bool
   )
 }
 
-function TrendTooltip({ active, payload, figure, previousLabel, dayLabel }: {
+/** One reading's value in full, for the tooltip and the table. */
+function exactReading(figure: TrendCardFigure, value: number): string {
+  return figure.formatExact?.(value) ?? figure.formatValue?.(value) ?? value.toLocaleString()
+}
+
+function TrendTooltip({ active, payload, figure, previousLabel, rowLabel }: {
   active?: boolean
   payload?: ReadonlyArray<{ payload?: TrendCardPoint }>
   figure: TrendCardFigure
   previousLabel?: string
-  dayLabel: (value: string) => string
+  rowLabel: (row: TrendCardPoint) => string
 }) {
   const row = payload?.[0]?.payload
   if (!active || !row) return null
-  const format = (value: number | null | undefined) => value === null || value === undefined ? '—' : (figure.formatValue?.(value) ?? value.toLocaleString())
+  const format = (value: number | null | undefined) => hasValue(value) ? exactReading(figure, value) : '—'
   return (
     <div className="material-tooltip min-w-48 px-3 py-2 text-label-13">
       <p className="mb-1 text-copy-13-strong text-heading">{figure.label}</p>
       <p className="flex items-center justify-between gap-6">
-        <span className="text-secondary">{dayLabel(row.date)}</span>
+        <span className="text-secondary">{rowLabel(row)}</span>
         <span className="tabular-nums text-primary">{row.current === null ? 'Not recorded' : format(row.current)}</span>
       </p>
       {previousLabel && row.previous !== undefined && (
@@ -245,7 +262,6 @@ export function TrendCard({
   instants = false,
   currentLabel,
   previous,
-  notRecordedBefore,
   chart,
   legendExtra,
   controls,
@@ -266,12 +282,10 @@ export function TrendCard({
   span?: string
   /** What one reading is, for the chart's accessible name: "per day", "per scan". */
   cadence?: 'day' | 'scan' | 'release'
-  /** The points' dates are moments (scans, queries): plot them on a time scale and label them in the viewer's timezone, never as UTC days. */
+  /** The points' dates are moments (scans): plot them on a time scale and label them in the viewer's timezone, never as UTC days. */
   instants?: boolean
   currentLabel?: string
   previous?: { label: string; available: boolean }
-  /** First recorded date, in the same form as the points' dates: earlier points are hatched as not recorded, never drawn as zero. */
-  notRecordedBefore?: string | null
   /** Compare mode: the caller's multi-axis chart for the toggled figures. */
   chart?: ReactNode
   /** Extra legend items after the series checkboxes, such as a trend line toggle. */
@@ -289,29 +303,35 @@ export function TrendCard({
 }) {
   const id = useId().replace(/:/g, '')
   const dayLabel = (value: string) => instants ? formatObservedInstantLabel(observedInstant(value)) : formatChartDateLabel(value)
+  const rowLabel = (row: TrendCardPoint) => row.label ?? dayLabel(row.date)
   // A tick on the time scale is a moment on that scale, so it reads in the
   // viewer's timezone like the readings around it.
   const timeTick = (value: number) => formatObservedInstantTick(observedInstant(new Date(value).toISOString()))
   const [hidden, setHidden] = useState<ReadonlySet<Series>>(new Set())
   const animate = !prefersReducedMotion()
   const figures = groups.flatMap(group => group.figures)
-  const lead = mode === 'single' ? figures.find(figure => figure.key === selected[0]) : undefined
+  // Only a figure with something to chart is charted, even when it is the one selected.
+  const lead = mode === 'single' ? figures.find(figure => figure.key === selected[0] && isTrendFigureInteractive(figure)) : undefined
   const rows = lead?.series ?? []
-  // Moments (scans, releases) come at uneven intervals, so they sit on a time
-  // scale: evenly spaced points would misstate how fast a figure moved.
+  // Moments (scans) come at uneven intervals, so they sit on a time scale:
+  // evenly spaced points would misstate how fast a figure moved.
   const chartRows = instants ? rows.map(row => ({ ...row, at: Date.parse(row.date) })) : rows
-  const hasPrevious = Boolean(previous?.available) && rows.some(row => row.previous !== null && row.previous !== undefined)
-  const drawable = rows.filter(row => row.current !== null).length >= 1
+  const tickLabels = new Map(rows.flatMap(row => row.label ? [[row.date, row.label] as const] : []))
+  const hasPrevious = Boolean(previous?.available) && rows.some(row => hasValue(row.previous))
+  // Either period's readings are worth a chart: a window whose latest sync failed still shows the period before it.
+  const drawable = rows.some(row => row.current !== null || (hasPrevious && hasValue(row.previous)))
+  // With nothing to compare against, the current line is the chart and cannot be hidden.
+  const showCurrent = !hasPrevious || !hidden.has(SERIES.current)
+  const showPrevious = hasPrevious && !hidden.has(SERIES.previous)
   const lineType = recorded(lead ?? { key: '', label: '', value: '' }) < DENSE_POINTS ? 'linear' : 'monotone'
-  const unrecorded = notRecordedBefore ? rows.filter(row => row.date < notRecordedBefore) : []
-  const lastUnrecorded = unrecorded.at(-1)?.date
-  const bandLabelled = rows.length > 0 && unrecorded.length / rows.length >= 0.2
   const per = cadence === 'day' ? 'per day' : cadence === 'scan' ? 'per scan' : 'per release'
   const summary = lead
-    ? `${lead.label} ${per}, ${currentLabel ? lowerFirst(currentLabel) : span ?? ''}${hasPrevious ? ' and the previous period' : ''}${lastUnrecorded ? `, not recorded before ${dayLabel(notRecordedBefore!)}` : ''}`
+    ? `${lead.label} ${per}, ${currentLabel ? lowerFirst(currentLabel) : span ?? ''}${hasPrevious ? ' and the previous period' : ''}`
     : ''
 
   const interactiveKeys = figures.filter(isTrendFigureInteractive).map(figure => figure.key)
+  // The tab reached by Tab: the selected one, or the first that charts when the selection cannot.
+  const tabStop = interactiveKeys.includes(selected[0] ?? '') ? selected[0] : interactiveKeys[0]
   const focusTab = (key: string) => {
     onSelect(key)
     document.getElementById(`${id}-tab-${key}`)?.focus()
@@ -320,7 +340,7 @@ export function TrendCard({
     const index = interactiveKeys.indexOf(key)
     const last = interactiveKeys.length - 1
     const target = event.key === 'ArrowRight' ? (index === last ? 0 : index + 1)
-      : event.key === 'ArrowLeft' ? (index === 0 ? last : index - 1)
+      : event.key === 'ArrowLeft' ? (index <= 0 ? last : index - 1)
         : event.key === 'Home' ? 0
           : event.key === 'End' ? last
             : null
@@ -335,9 +355,9 @@ export function TrendCard({
     return next
   })
 
-  const cell = (figure: TrendCardFigure, group: TrendCardGroup) => {
+  const cell = (figure: TrendCardFigure, group: TrendCardGroup, groupInteractive: boolean) => {
     const interactive = isTrendFigureInteractive(figure)
-    const active = selected.includes(figure.key)
+    const active = interactive && selected.includes(figure.key)
     const hideBasis = Boolean(group.basis)
     const spoken = [
       `${figure.label} ${figure.spokenValue ?? figure.value}${figure.detail ? ` ${figure.detail}` : ''}`,
@@ -365,12 +385,13 @@ export function TrendCard({
             <ChevronDown aria-hidden="true" className={`pointer-events-none absolute right-0 size-3.5 ${active ? 'text-link' : 'text-muted'}`} />
           </span>
         ) : (
-          <span className={`text-label-14-strong ${interactive && active ? (mode === 'single' ? 'text-link' : 'text-heading') : 'text-secondary'}`}>{figure.label}</span>
+          <span className={`text-label-14-strong ${active ? (mode === 'single' ? 'text-link' : 'text-heading') : 'text-secondary'}`}>{figure.label}</span>
         )}
         {figure.help && <InfoTooltip text={figure.help} />}
       </div>
     )
-    if (!interactive) {
+    if (!groupInteractive) {
+      // A group of plain numbers is a definition list.
       return (
         <div key={figure.slot ?? figure.key} className="flex min-w-0 flex-col px-4 pb-4 pt-3">
           <dt>{label}</dt>
@@ -382,10 +403,13 @@ export function TrendCard({
         </div>
       )
     }
+    // Inside a tab list or a row of toggles, a figure with nothing to chart is
+    // still one of them, unavailable: a tab list holds tabs only. It keeps its
+    // full colour, since its number is as real as the rest.
     return (
       <div
         key={figure.slot ?? figure.key}
-        className={`relative flex min-w-0 flex-col px-4 pb-4 pt-3 transition-colors duration-150 ${active ? 'bg-surface-active' : 'hover:bg-surface-hover'}`}
+        className={`relative flex min-w-0 flex-col px-4 pb-4 pt-3 transition-colors duration-150 ${active ? 'bg-surface-active' : interactive ? 'hover:bg-surface-hover' : ''}`}
       >
         <span
           aria-hidden="true"
@@ -397,12 +421,19 @@ export function TrendCard({
           type="button"
           id={`${id}-tab-${figure.key}`}
           {...(mode === 'single'
-            ? { role: 'tab', 'aria-selected': active, 'aria-controls': `${id}-panel`, tabIndex: active ? 0 : -1, onKeyDown: (event: KeyboardEvent) => onTabKey(event, figure.key) }
+            ? {
+                role: 'tab',
+                'aria-selected': active,
+                'aria-controls': `${id}-panel`,
+                'aria-disabled': interactive ? undefined : true,
+                tabIndex: interactive && figure.key === tabStop ? 0 : -1,
+                onKeyDown: (event: KeyboardEvent) => onTabKey(event, figure.key),
+              }
             : { 'aria-pressed': active })}
           aria-label={spoken}
-          disabled={figure.disabled}
-          onClick={() => onSelect(figure.key)}
-          className="mt-auto block w-full rounded-sm pt-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={mode === 'compare' && (figure.disabled || !interactive)}
+          onClick={interactive ? () => onSelect(figure.key) : undefined}
+          className={`mt-auto block w-full rounded-sm pt-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${interactive ? '' : 'cursor-default'} ${figure.disabled ? 'disabled:cursor-not-allowed disabled:opacity-50' : ''}`}
         >
           <FigureValue figure={figure} active={active} />
           <ChangeLine change={figure.change} hideBasis={hideBasis} />
@@ -437,10 +468,10 @@ export function TrendCard({
               )}
               {interactive ? (
                 <div role={mode === 'single' ? 'tablist' : undefined} aria-label={mode === 'single' ? name : undefined} className={grid}>
-                  {group.figures.map(figure => cell(figure, group))}
+                  {group.figures.map(figure => cell(figure, group, true))}
                 </div>
               ) : (
-                <dl className={grid}>{group.figures.map(figure => cell(figure, group))}</dl>
+                <dl className={grid}>{group.figures.map(figure => cell(figure, group, false))}</dl>
               )}
             </div>
           )
@@ -460,25 +491,20 @@ export function TrendCard({
             <div role="img" aria-label={summary} style={{ height: chartHeight }}>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={[...chartRows]} margin={{ top: 8, right: 0, bottom: 0, left: 4 }}>
-                  <defs>
-                    <pattern id={`${id}-hatch`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                      <line x1="0" y1="0" x2="0" y2="6" stroke={CHART_NEUTRAL.textFaint} strokeWidth="1.25" strokeOpacity="0.5" />
-                    </pattern>
-                  </defs>
                   <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
-                  {lastUnrecorded && (
-                    <ReferenceArea
-                      x2={instants ? Date.parse(lastUnrecorded) : lastUnrecorded}
-                      fill={`url(#${id}-hatch)`}
-                      fillOpacity={1}
-                      ifOverflow="visible"
-                      label={bandLabelled ? { value: 'Not recorded', position: 'insideTopLeft', fill: CHART_NEUTRAL.text, fontSize: 12 } : undefined}
-                    />
-                  )}
                   {instants ? (
-                    <XAxis dataKey="at" type="number" scale="time" domain={['dataMin', 'dataMax']} tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={timeTick} minTickGap={32} padding={{ left: lastUnrecorded ? 0 : 12, right: 12 }} />
+                    <XAxis dataKey="at" type="number" scale="time" domain={['dataMin', 'dataMax']} tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={timeTick} minTickGap={32} padding={{ left: 12, right: 12 }} />
                   ) : (
-                    <XAxis dataKey="date" tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={formatChartDateTick} minTickGap={32} padding={{ left: lastUnrecorded ? 0 : 12, right: 12 }} />
+                    <XAxis
+                      dataKey="date"
+                      tick={CHART_AXIS_TICK}
+                      tickLine={false}
+                      axisLine={{ stroke: CHART_AXIS_STROKE }}
+                      tickFormatter={(value: string) => tickLabels.get(value) ?? formatChartDateTick(value)}
+                      minTickGap={32}
+                      // A label ("May-Jul 2026") is wider than a date, and the edge ticks centre on the first and last points.
+                      padding={tickLabels.size > 0 ? { left: 40, right: 40 } : { left: 12, right: 12 }}
+                    />
                   )}
                   <YAxis
                     orientation="right"
@@ -492,14 +518,14 @@ export function TrendCard({
                   <RechartsTooltip
                     cursor={{ stroke: CHART_NEUTRAL.textFaint, strokeWidth: 1 }}
                     wrapperStyle={{ outline: 'none' }}
-                    content={<TrendTooltip figure={lead} previousLabel={hasPrevious ? previous?.label : undefined} dayLabel={dayLabel} />}
+                    content={<TrendTooltip figure={lead} previousLabel={hasPrevious ? previous?.label : undefined} rowLabel={rowLabel} />}
                   />
-                  {hasPrevious && !hidden.has(SERIES.previous) && (
+                  {showPrevious && (
                     <Line type={lineType} dataKey={SERIES.previous} stroke={LINE} strokeOpacity={0.65} strokeWidth={1.5} strokeDasharray="4 4"
                           dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: LINE }} connectNulls={false}
                           isAnimationActive={animate} animationDuration={320} animationEasing="ease-out" />
                   )}
-                  {!hidden.has(SERIES.current) && (
+                  {showCurrent && (
                     <Line type={lineType} dataKey={SERIES.current} stroke={LINE} strokeWidth={2.25}
                           dot={lineType === 'linear' ? { r: 3, strokeWidth: 0, fill: LINE } : false}
                           activeDot={{ r: 5, strokeWidth: 2, stroke: LINE, fill: 'var(--color-bg)' }}
@@ -513,7 +539,7 @@ export function TrendCard({
                 <caption>{summary}</caption>
                 <thead>
                   <tr>
-                    <th scope="col">Date</th>
+                    <th scope="col">{rows.some(row => row.label) ? 'Release' : 'Date'}</th>
                     <th scope="col">{lead.label}</th>
                     {hasPrevious && <th scope="col">{previous!.label}</th>}
                   </tr>
@@ -521,9 +547,9 @@ export function TrendCard({
                 <tbody>
                   {rows.map(row => (
                     <tr key={row.date}>
-                      <th scope="row">{dayLabel(row.date)}</th>
-                      <td>{row.current === null ? 'Not recorded' : (lead.formatValue?.(row.current) ?? row.current.toLocaleString())}</td>
-                      {hasPrevious && <td>{row.previous === null || row.previous === undefined ? 'No data' : (lead.formatValue?.(row.previous) ?? row.previous.toLocaleString())}</td>}
+                      <th scope="row">{rowLabel(row)}</th>
+                      <td>{row.current === null ? 'Not recorded' : exactReading(lead, row.current)}</td>
+                      {hasPrevious && <td>{hasValue(row.previous) ? exactReading(lead, row.previous) : 'No data'}</td>}
                     </tr>
                   ))}
                 </tbody>
@@ -540,15 +566,16 @@ export function TrendCard({
                 <>
                   <SeriesToggle
                     label={currentLabel}
-                    checked={!hidden.has(SERIES.current)}
-                    disabled={!hasPrevious || (hidden.size === 1 && !hidden.has(SERIES.current))}
+                    checked={showCurrent}
+                    // The last line on the chart stays on.
+                    disabled={!hasPrevious || (showCurrent && !showPrevious)}
                     onChange={() => toggleSeries(SERIES.current)}
                     dash={undefined}
                   />
                   <SeriesToggle
                     label={hasPrevious ? previous.label : `${previous.label}: no earlier data`}
-                    checked={hasPrevious && !hidden.has(SERIES.previous)}
-                    disabled={!hasPrevious || (hidden.size === 1 && !hidden.has(SERIES.previous))}
+                    checked={showPrevious}
+                    disabled={!hasPrevious || (showPrevious && !showCurrent)}
                     onChange={() => toggleSeries(SERIES.previous)}
                     dash="4 3"
                   />

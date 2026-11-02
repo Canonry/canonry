@@ -49,6 +49,12 @@ export const trendPointSchema = z.object({
    * snapshot).
    */
   observedAt: z.string().nullable(),
+  /**
+   * What the reading covers when its date alone does not say: a Common Crawl
+   * release is a crawl window ("May-Jul 2026"), dated by its last month.
+   * Null for a reading its date describes.
+   */
+  label: z.string().nullable(),
   value: z.number(),
 })
 export type TrendPoint = z.infer<typeof trendPointSchema>
@@ -65,6 +71,8 @@ export const trendChangeSchema = z.object({
     date: z.string(),
     /** The basis reading's moment, when readings are moments; see `trendPointSchema`. */
     observedAt: z.string().nullable(),
+    /** The basis reading's label, when readings carry one; see `trendPointSchema`. */
+    label: z.string().nullable(),
   }),
 })
 export type TrendChange = z.infer<typeof trendChangeSchema>
@@ -103,7 +111,8 @@ export type TrendGroup = z.infer<typeof trendGroupSchema>
 export const trendsResponseSchema = z.object({
   project: z.string(),
   surface: trendSurfaceSchema,
-  window: metricsWindowSchema,
+  /** The window the span reaches back; null when the caller named a date range instead. */
+  window: metricsWindowSchema.nullable(),
   /**
    * Inclusive calendar span every figure in the response covers, ending on the
    * surface's latest reading. Null when the surface has no readings at all.
@@ -122,24 +131,36 @@ export type TrendsResponse = z.infer<typeof trendsResponseSchema>
 export interface TrendReading {
   date: string
   observedAt?: string | null
+  label?: string | null
   value: number | null
 }
 
+/** A caller's own calendar range; either end may be left to the readings. */
+export interface TrendDateRange {
+  startDate?: string
+  endDate?: string
+}
+
 /**
- * The inclusive span a surface's figures share: it ends on the latest reading
- * of any figure and reaches back the window's length, or to the earliest
- * reading for `all`. Null when there is no reading at all.
+ * The inclusive span a surface's figures share. With a window it ends on the
+ * latest reading of any figure and reaches back the window's length, or to the
+ * earliest reading for `all`. With a date range it is that range, an open end
+ * falling back to the earliest or latest reading. Null when there is no reading
+ * at all.
  */
 export function trendWindowSpan(
   readingDates: readonly string[],
-  window: MetricsWindow,
+  selection: MetricsWindow | TrendDateRange,
 ): { startDate: string; endDate: string } | null {
   const valid = readingDates.map(date => date.slice(0, 10)).filter(isCalendarDate).sort()
-  const endDate = valid.at(-1)
-  if (!endDate) return null
-  const days = windowDays(window)
-  const startDate = days === null ? valid[0]! : shiftIsoCalendarDate(endDate, -(days - 1))
-  return { startDate, endDate }
+  const latest = valid.at(-1)
+  if (!latest) return null
+  if (typeof selection === 'object') {
+    return { startDate: selection.startDate ?? valid[0]!, endDate: selection.endDate ?? latest }
+  }
+  const days = windowDays(selection)
+  const startDate = days === null ? valid[0]! : shiftIsoCalendarDate(latest, -(days - 1))
+  return { startDate, endDate: latest }
 }
 
 function toneFor(better: TrendBetter, difference: number): TrendTone {
@@ -165,7 +186,7 @@ export function buildLevelTrendFigure(input: {
     const date = reading.date.slice(0, 10)
     if (!isCalendarDate(date)) continue
     const observedAt = reading.observedAt ?? null
-    byKey.set(observedAt ?? date, { date, observedAt, value: reading.value })
+    byKey.set(observedAt ?? date, { date, observedAt, label: reading.label ?? null, value: reading.value })
   }
   const points = [...byKey.values()].sort((a, b) => (a.observedAt ?? a.date).localeCompare(b.observedAt ?? b.date))
   const recordedFrom = points[0]?.date ?? null
@@ -184,7 +205,7 @@ export function buildLevelTrendFigure(input: {
       difference,
       ratio: first.value === 0 ? null : roundRatio(raw / first.value, RatioUnits.fraction),
       tone: toneFor(input.better, difference),
-      basis: { type: 'first-in-window', date: first.date, observedAt: first.observedAt },
+      basis: { type: 'first-in-window', date: first.date, observedAt: first.observedAt, label: first.label },
     }
   }
   return {

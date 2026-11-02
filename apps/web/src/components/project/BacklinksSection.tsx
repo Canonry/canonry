@@ -464,9 +464,10 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
  * The Backlinks trend card: the latest release's figures, each charted over
  * every Common Crawl release with its change since the first one. The values
  * are the summary the tab has always shown; the readings and changes come
- * from the trends read, which counts the same crawler-excluded rows, so the
- * chart always ends on the figure above it. A query is a moment, so each
- * release is dated in the viewer's timezone.
+ * from the trends read, which counts the same crawler-excluded rows and orders
+ * releases the same way (by crawl window, not by when they were extracted), so
+ * the chart always ends on the figure above it. Each release is named by its
+ * window ("May-Jul 2026").
  */
 function BacklinksTrend({ summary, trend }: { summary: BacklinkSummaryDto; trend: TrendsResponse | null }) {
   const [selected, setSelected] = useState('referring-domains')
@@ -502,7 +503,6 @@ function BacklinksTrend({ summary, trend }: { summary: BacklinkSummaryDto; trend
       selected={charted ? [selected] : []}
       onSelect={setSelected}
       cadence="release"
-      instants
       span={charted && first && last ? trendSpanLabel(first, last) : undefined}
       emptyChartMessage={trend ? 'One release so far. The trend starts with the next one.' : 'Release history could not be loaded.'}
     />

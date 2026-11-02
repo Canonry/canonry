@@ -109,7 +109,10 @@ const COVERAGE_TREND = {
   }],
 }
 
-function renderSection(daily: Record<string, unknown> = performanceDaily()) {
+function renderSection(
+  daily: Record<string, unknown> = performanceDaily(),
+  opts: { trends?: (query: URLSearchParams) => Response | Promise<Response> } = {},
+) {
   const restoreFetch = mockFetch((url) => {
     const path = pathOf(url)
     if (path.split('?')[0]?.endsWith('/runs')) return jsonResponse([])
@@ -147,7 +150,9 @@ function renderSection(daily: Record<string, unknown> = performanceDaily()) {
     if (path.includes('/google/gsc/deindexed')) return jsonResponse([])
     if (path.includes('/google/gsc/coverage/history')) return jsonResponse([])
     if (path.includes('/google/gsc/coverage')) return jsonResponse(null)
-    if (path.split('?')[0]?.endsWith('/trends')) return jsonResponse(COVERAGE_TREND)
+    if (path.split('?')[0]?.endsWith('/trends')) {
+      return opts.trends ? opts.trends(new URLSearchParams(path.split('?')[1] ?? '')) : jsonResponse(COVERAGE_TREND)
+    }
     throw new Error(`Unexpected fetch: ${path}`)
   })
   onTestFinished(restoreFetch)
@@ -295,6 +300,43 @@ test('adds indexed pages from the stored coverage trend as figures that chart on
   expect(google.getAttribute('aria-pressed')).toBe('false')
   fireEvent.click(google)
   expect(google.getAttribute('aria-pressed')).toBe('true')
+})
+
+test('a position change under a tenth of a place reads <0.1, never 0.0', async () => {
+  const base = performanceDaily()
+  // Average position 12.34 to 12.31 places: a real, tiny improvement.
+  renderSection({ ...base, periodComparison: { ...base.periodComparison, difference: { ...base.periodComparison.difference, position: 12.31 - 12.34 } } })
+
+  await waitFor(() => expect(tile('Avg position')).not.toBeNull())
+  expect(tile('Avg position').getAttribute('aria-label')).toBe('Avg position 10.5, down <0.1 vs prior 2 days, an improvement')
+})
+
+test('indexed pages follow the chart\u2019s custom date range, not the window', async () => {
+  const requests: Array<Record<string, string>> = []
+  renderSection(performanceDaily(), { trends: (query) => { requests.push(Object.fromEntries(query)); return jsonResponse(COVERAGE_TREND) } })
+  await waitFor(() => screen.getByRole('button', { name: /^Google 44/ }))
+  expect(requests.at(-1)).toEqual({ surface: 'index-coverage', window: '30d' })
+
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-07-02' } })
+  fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-07-03' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+  await waitFor(() => expect(requests.at(-1)).toEqual({ surface: 'index-coverage', startDate: '2026-07-02', endDate: '2026-07-03' }))
+})
+
+test('a window change keeps the indexed pages on screen until the new figures arrive', async () => {
+  let release: ((response: Response) => void) | undefined
+  renderSection(performanceDaily(), {
+    trends: (query) => query.get('window') === '90d'
+      ? new Promise<Response>((resolve) => { release = resolve })
+      : jsonResponse(COVERAGE_TREND),
+  })
+  await waitFor(() => screen.getByRole('button', { name: /^Google 44/ }))
+
+  fireEvent.click(within(screen.getByRole('group', { name: 'Search Console time period' })).getByRole('button', { name: '90d' }))
+  await waitFor(() => expect(release).toBeDefined())
+  // The 30-day figures stay while the 90-day read is in flight, so the row never jumps.
+  expect(screen.getByRole('button', { name: /^Google 44/ })).toBeTruthy()
+  release!(jsonResponse({ ...COVERAGE_TREND, window: '90d' }))
 })
 
 test('toggles a metric on and off but refuses to leave the chart empty', async () => {

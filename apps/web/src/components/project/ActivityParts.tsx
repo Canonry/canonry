@@ -490,6 +490,8 @@ export function SiteTrafficCard({ overview, refreshing = false }: { overview: Ga
       onChange: value => { if (isOverviewMetric(value)) chooseMetric(index, value) },
     },
     formatValue: value => formatGaOverviewValue(key, value, { compact: true }),
+    // One day's reading in the tooltip and table, unabbreviated: 4,512, not 4.5K.
+    formatExact: value => formatGaOverviewValue(key, value),
     allowDecimals: GA_OVERVIEW_METRICS[key].unit !== GaOverviewUnits.count,
   }))
   const metric = slots[selected] ?? SITE_TRAFFIC_DEFAULT_SLOTS[0]!

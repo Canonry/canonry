@@ -4508,12 +4508,17 @@ export class ApiClient {
   }
 
   /** One dashboard trend card: figures, their readings over the window, and each change. */
-  async getTrends(project: string, opts: { surface: TrendSurface; window?: MetricsWindow }): Promise<TrendsResponse> {
+  async getTrends(project: string, opts: { surface: TrendSurface; window?: MetricsWindow; startDate?: string; endDate?: string }): Promise<TrendsResponse> {
     return this.invoke<TrendsResponse>(() =>
       getApiV1ProjectsByNameTrends({
         client: this.heyClient,
         path: { name: project },
-        query: { surface: opts.surface, ...(opts.window ? { window: opts.window } : {}) },
+        query: {
+          surface: opts.surface,
+          ...(opts.window ? { window: opts.window } : {}),
+          ...(opts.startDate ? { startDate: opts.startDate } : {}),
+          ...(opts.endDate ? { endDate: opts.endDate } : {}),
+        },
       }),
     )
   }

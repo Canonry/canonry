@@ -111,7 +111,7 @@ describe('GET /projects/:name/trends', () => {
           unit: 'score',
           value: 70,
           // A scan is a moment: its time travels with it so a viewer sees their own day.
-          series: [{ date: '2026-08-01', observedAt: '2026-08-01T10:00:00.000Z', value: 61 }, { date: '2026-10-01', observedAt: '2026-10-01T10:00:00.000Z', value: 70 }],
+          series: [{ date: '2026-08-01', observedAt: '2026-08-01T10:00:00.000Z', label: null, value: 61 }, { date: '2026-10-01', observedAt: '2026-10-01T10:00:00.000Z', label: null, value: 70 }],
           change: expect.objectContaining({ difference: 9, tone: 'better' }),
         }),
         expect.objectContaining({ key: 'pages-checked', better: 'neither', value: 80, change: expect.objectContaining({ difference: -40, tone: 'neutral' }) }),
@@ -119,7 +119,7 @@ describe('GET /projects/:name/trends', () => {
     }])
   })
 
-  it('charts the crawler-excluded Common Crawl totals the Backlinks tab shows, one reading per release', async () => {
+  it('charts the crawler-excluded Common Crawl totals the Backlinks tab shows, one reading per release in crawl order', async () => {
     const release = (source: 'commoncrawl' | 'bing-webmaster', name: string, queriedAt: string, storedDomains: number, domains: Array<[string, number]>) => {
       ctx.db.insert(backlinkSummaries).values({
         id: crypto.randomUUID(), projectId: ctx.projectId, source, release: name, targetDomain: 'example.com',
@@ -133,21 +133,47 @@ describe('GET /projects/:name/trends', () => {
       }
     }
     // Stored totals count crawler hosts; the tab and this card leave them out.
-    release('commoncrawl', 'cc-main-2026-jun', '2026-07-02T00:00:00.000Z', 3, [['a.example', 40], ['b.example', 10], ['translate.google.com', 50]])
+    release('commoncrawl', 'cc-main-2026-jun-jul-aug', '2026-09-01T00:00:00.000Z', 3, [['a.example', 40], ['b.example', 10], ['translate.google.com', 50]])
     // A release whose domain rows are missing is unknown, never zero.
-    release('commoncrawl', 'cc-main-2026-aug', '2026-08-15T00:00:00.000Z', 5, [])
-    release('commoncrawl', 'cc-main-2026-sep', '2026-10-05T00:00:00.000Z', 4, [['a.example', 60], ['b.example', 20], ['c.example', 10], ['scholar.google.com', 200]])
+    release('commoncrawl', 'cc-main-2026-jul-aug-sep', '2026-10-01T00:00:00.000Z', 5, [])
+    // Twelve kept domains, so only the ten largest make the concentration.
+    release('commoncrawl', 'cc-main-2026-aug-sep-oct', '2026-10-26T00:00:00.000Z', 13, [
+      ...Array.from({ length: 12 }, (_, index): [string, number] => [`d${index}.example`, 12 - index]),
+      ['scholar.google.com', 200],
+    ])
+    // An older release extracted last: it still reads as the oldest crawl.
+    release('commoncrawl', 'cc-main-2026-may-jun-jul', '2026-11-01T00:00:00.000Z', 1, [['a.example', 30]])
     release('bing-webmaster', 'bing-2026-10', '2026-10-20T00:00:00.000Z', 900, [['d.example', 5]])
 
     const { body } = await trends('surface=backlinks')
-    expect(body.endDate).toBe('2026-10-05')
-    expect(body.groups[0]!.figures.map(figure => [figure.key, figure.series.map(point => point.value), figure.change?.difference])).toEqual([
-      ['referring-domains', [2, 3], 1],
-      ['hosts', [50, 90], 40],
-      // Every remaining host sits in the ten largest domains: a full share both times.
-      ['top-10-concentration', [1, 1], 0],
+    expect(body.endDate).toBe('2026-10-01')
+    const [domains, hosts, concentration] = body.groups[0]!.figures
+    // A release reads at its window's last month, named by its window.
+    expect(domains!.series).toEqual([
+      { date: '2026-07-01', observedAt: null, label: 'May-Jul 2026', value: 1 },
+      { date: '2026-08-01', observedAt: null, label: 'Jun-Aug 2026', value: 2 },
+      { date: '2026-10-01', observedAt: null, label: 'Aug-Oct 2026', value: 12 },
     ])
-    expect(body.groups[0]!.figures[0]!.series.map(point => point.date)).toEqual(['2026-07-02', '2026-10-05'])
+    expect(domains!.change).toMatchObject({ difference: 11, basis: { date: '2026-07-01', label: 'May-Jul 2026' } })
+    expect(hosts!.series.map(point => point.value)).toEqual([30, 50, 78])
+
+    // Every figure equals the Backlinks tab's own crawler-excluded summary for that release.
+    for (const [index, name] of ['cc-main-2026-may-jun-jul', 'cc-main-2026-jun-jul-aug', 'cc-main-2026-aug-sep-oct'].entries()) {
+      const summary = (await ctx.app.inject(`/api/v1/projects/trends/backlinks/summary?release=${name}&excludeCrawlers=1`)).json() as { totalLinkingDomains: number; totalHosts: number; top10HostsShare: string }
+      expect([domains!.series[index]!.value, hosts!.series[index]!.value, concentration!.series[index]!.value], name)
+        .toEqual([summary.totalLinkingDomains, summary.totalHosts, Number(summary.top10HostsShare)])
+    }
+    // (12 + 11 + … + 3) of 78 hosts sit in the ten largest kept domains.
+    expect(concentration!.value).toBe(Number((75 / 78).toFixed(6)))
+  })
+
+  it('takes a caller\u2019s date range instead of a window', async () => {
+    seedCoverage(gscCoverageSnapshots, [['2026-07-01', 150, 20], ['2026-08-16', 215, 13], ['2026-08-30', 230, 9], ['2026-11-01', 289, 5]])
+
+    const { status, body } = await trends('surface=index-coverage&startDate=2026-08-01&endDate=2026-08-31')
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ window: null, startDate: '2026-08-01', endDate: '2026-08-31' })
+    expect(body.groups[0]!.figures[0]).toMatchObject({ value: 230, change: { difference: 15, basis: { date: '2026-08-16' } } })
   })
 
   it('returns no groups and no span for a surface with nothing recorded', async () => {
@@ -160,6 +186,9 @@ describe('GET /projects/:name/trends', () => {
     ['', 'surface'],
     ['surface=traffic', 'surface'],
     ['surface=index-coverage&window=14d', 'window'],
+    ['surface=index-coverage&startDate=2026-13-01', 'startDate'],
+    ['surface=index-coverage&window=30d&startDate=2026-08-01', 'window'],
+    ['surface=index-coverage&startDate=2026-09-01&endDate=2026-08-01', 'startDate'],
   ])('rejects %s with a validation error naming the field', async (query, field) => {
     const response = await ctx.app.inject(`/api/v1/projects/trends/trends?${query}`)
     expect(response.statusCode).toBe(400)

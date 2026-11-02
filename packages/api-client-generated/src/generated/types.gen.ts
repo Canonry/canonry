@@ -15874,7 +15874,7 @@ export type SiteAuditTrendResponseDto = {
 export type TrendsResponseDto = {
     project: string;
     surface: 'index-coverage' | 'site-health' | 'backlinks';
-    window: '7d' | '30d' | '90d' | 'all';
+    window: '7d' | '30d' | '90d' | 'all' | null;
     startDate: string | null;
     endDate: string | null;
     groups: Array<{
@@ -15895,11 +15895,13 @@ export type TrendsResponseDto = {
                     type: 'first-in-window';
                     date: string;
                     observedAt: string | null;
+                    label: string | null;
                 };
             } | null;
             series: Array<{
                 date: string;
                 observedAt: string | null;
+                label: string | null;
                 value: number;
             }>;
             recordedFrom: string | null;
@@ -36292,16 +36294,24 @@ export type GetApiV1ProjectsByNameTrendsData = {
          */
         surface: 'index-coverage' | 'site-health' | 'backlinks';
         /**
-         * Window ending on the latest reading. Defaults to 90d for index-coverage and all for site-health and backlinks. Any other value is rejected with 400.
+         * Window ending on the latest reading. Defaults to 90d for index-coverage and all for site-health and backlinks. Any other value is rejected with 400. Not allowed with startDate or endDate.
          */
         window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * First calendar day (YYYY-MM-DD) of your own range instead of a window. Left out, the range starts at the earliest reading.
+         */
+        startDate?: string;
+        /**
+         * Last calendar day (YYYY-MM-DD) of your own range instead of a window. Left out, the range ends at the latest reading.
+         */
+        endDate?: string;
     };
     url: '/api/v1/projects/{name}/trends';
 };
 
 export type GetApiV1ProjectsByNameTrendsErrors = {
     /**
-     * Missing or unknown surface, or an unknown window.
+     * Missing or unknown surface, an unknown window, an invalid date, a start after the end, or a window and a date range together.
      */
     400: ErrorEnvelope;
     /**
@@ -36314,7 +36324,7 @@ export type GetApiV1ProjectsByNameTrendsError = GetApiV1ProjectsByNameTrendsErro
 
 export type GetApiV1ProjectsByNameTrendsResponses = {
     /**
-     * Trend card returned.
+     * Trend card returned. `window` is null for a date range.
      */
     200: TrendsResponseDto;
 };

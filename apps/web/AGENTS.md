@@ -457,15 +457,27 @@ performance plus indexed pages), Site Health and Backlinks use it.
   adds "an improvement" or "a decline". A falling rank or bounce rate is green.
 - `mode="single"` charts one figure at a time (tabs, roving tabindex, the
   previous period dashed); `mode="compare"` makes the figures toggles over the
-  caller's `MultiAxisTrendChart`. A figure with fewer than two readings is a
-  plain number unless `interactive` says otherwise. In single mode a group's
-  figures are all tabs or all plain: a tablist holds tabs only.
-- Readings taken at a moment (scans, backlink queries) arrive with
-  `observedAt`. Plot them with `trendCardPoints`, pass `instants`, and label a
-  span with `trendSpanLabel`, so a viewer west of UTC sees their own day.
-  Calendar-day readings keep the calendar formatters.
-- Dates before recording began are hatched (`notRecordedBefore`), never drawn
-  as zero.
+  caller's `MultiAxisTrendChart`. A figure with fewer than two readings has
+  nothing to chart unless `interactive` says otherwise: beside tabs or toggles
+  it renders as an unavailable one (`aria-disabled` tab, disabled toggle) at
+  full colour, since a tab list holds tabs only; a group of only such figures
+  is a definition list.
+- The current line can be hidden only while there is a previous one to show;
+  with no previous data it is the chart and stays on. A window whose current
+  period has no readings still charts its previous period.
+- `formatValue` formats the axis and may abbreviate; `formatExact` gives the
+  tooltip and the screen-reader table the full reading (4,512, not 4.5K).
+- Readings taken at a moment (scans) arrive with `observedAt`. Plot them with
+  `trendCardPoints`, pass `instants` (a time scale, so uneven gaps keep their
+  length), and label a span with `trendSpanLabel`, so a viewer west of UTC
+  sees their own day. Readings with a `label` (a Common Crawl release, "May-Jul
+  2026") are named by it on the axis, in the tooltip, the table, the basis and
+  the span. Calendar-day readings keep the calendar formatters.
+- Search Engines asks for indexed pages over the chart's own period: the
+  window, or the custom Start/End range the daily read used (`startDate` /
+  `endDate` on the trends read). The coverage query keeps its previous data
+  while a new window loads. Run completions invalidate the `trends` query
+  domain (`site-audit`, Google and Bing syncs).
 - Inside a section card, use `frame="none"`; never nest cards.
 - The ads performance chart keeps its own tiles until its per-day rates come
   from the API: CTR is charted from `daily.ctr`; CPC, conversion rate and cost

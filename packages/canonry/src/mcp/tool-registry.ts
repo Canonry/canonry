@@ -1105,7 +1105,9 @@ const technicalAeoTrendInputSchema = z.object({
 const trendsInputSchema = z.object({
   project: projectNameSchema,
   surface: trendSurfaceSchema.describe('Which card: index-coverage (Google and Bing indexed pages by day), site-health (site score and pages checked per scan), backlinks (referring domains, linking hosts and top-10 concentration per Common Crawl release, crawler and proxy hosts left out).'),
-  window: metricsWindowSchema.optional().describe('Window ending on the latest reading. Defaults to 90d for index-coverage and all otherwise.'),
+  window: metricsWindowSchema.optional().describe('Window ending on the latest reading. Defaults to 90d for index-coverage and all otherwise. Leave it out when you pass startDate or endDate.'),
+  startDate: calendarDateSchema.optional().describe('First calendar day (YYYY-MM-DD) of your own range instead of a window.'),
+  endDate: calendarDateSchema.optional().describe('Last calendar day (YYYY-MM-DD) of your own range instead of a window.'),
 })
 
 const crawlRunIdSchema = runIdSchema.optional().describe(
@@ -4144,7 +4146,12 @@ const rawCanonryMcpTools = [
     inputSchema: trendsInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/trends'],
-    handler: (client, input) => client.getTrends(input.project, { surface: input.surface, ...(input.window ? { window: input.window } : {}) }),
+    handler: (client, input) => client.getTrends(input.project, {
+      surface: input.surface,
+      ...(input.window ? { window: input.window } : {}),
+      ...(input.startDate ? { startDate: input.startDate } : {}),
+      ...(input.endDate ? { endDate: input.endDate } : {}),
+    }),
   }),
   defineTool({
     name: 'canonry_technical_aeo_crawl',

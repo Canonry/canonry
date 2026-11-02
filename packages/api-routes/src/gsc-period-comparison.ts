@@ -1,3 +1,5 @@
+import { RatioUnits, roundRatio } from '@canonry/canonry-contracts'
+
 /**
  * Trailing-period vs prior-equal-period comparison for GSC search performance.
  *
@@ -296,7 +298,8 @@ export function computeGscPeriodComparison(
     difference: {
       clicks: comparable ? trailing.clicks - prior.clicks : null,
       impressions: comparable ? trailing.impressions - prior.impressions : null,
-      ctr: comparable ? difference(trailing.ctr, prior.ctr) : null,
+      // A rate's difference is itself a fraction, so it goes out at wire precision.
+      ctr: comparable ? roundedFraction(difference(trailing.ctr, prior.ctr)) : null,
       position: comparable ? difference(trailing.position, prior.position) : null,
     },
   }
@@ -305,4 +308,8 @@ export function computeGscPeriodComparison(
 /** Trailing minus prior, or null when either side is unmeasured. */
 function difference(trailing: number | null, prior: number | null): number | null {
   return trailing === null || prior === null ? null : trailing - prior
+}
+
+function roundedFraction(value: number | null): number | null {
+  return value === null ? null : roundRatio(value, RatioUnits.fraction)
 }

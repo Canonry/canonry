@@ -12,10 +12,9 @@ import { BacklinksSection } from '../src/components/project/BacklinksSection.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 
 function oneReleaseTrend(): TrendsResponse {
-  const at = '2026-09-01T00:00:00.000Z'
   const figure = (key: string, label: string, unit: 'count' | 'fraction', value: number) => ({
     key, label, unit, better: unit === 'count' ? 'higher' as const : 'neither' as const, value, asOf: '2026-09-01', change: null,
-    series: [{ date: '2026-09-01', observedAt: at, value }], recordedFrom: '2026-09-01',
+    series: [{ date: '2026-09-01', observedAt: null, label: 'Jul-Sep 2026', value }], recordedFrom: '2026-09-01',
   })
   return {
     project: 'test-project', surface: 'backlinks', window: 'all', startDate: '2026-09-01', endDate: '2026-09-01',
