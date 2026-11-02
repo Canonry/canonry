@@ -5176,6 +5176,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         source_id        TEXT NOT NULL REFERENCES traffic_sources(id) ON DELETE CASCADE,
         visitor_key      TEXT NOT NULL,
+        arrivals         TEXT NOT NULL DEFAULT '[]',
         last_arrival_at  TEXT NOT NULL,
         updated_at       TEXT NOT NULL,
         PRIMARY KEY (project_id, source_id, visitor_key)

@@ -1,14 +1,13 @@
-import crypto from 'node:crypto'
 import { isIP } from 'node:net'
 import { and, eq, inArray, lt, sql } from 'drizzle-orm'
 import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import { agentScannerClients, type DatabaseClient } from '@canonry/canonry-db'
 import { findScannerBursts, SCANNER_BURST_WINDOW_MS, type ScannerProbeWindow } from '@canonry/canonry-integration-traffic'
+import { chunks, keyedIdentityHash } from './keyed-visitor-state.js'
 
 type BurstDb = Pick<DatabaseClient, 'select' | 'insert' | 'delete'>
 /** Stored windows outlive their burst, so a late batch from the same days still matches. */
 const RETENTION_MS = 2 * 86_400_000 + SCANNER_BURST_WINDOW_MS
-const KEY_CHUNK = 500
 
 export interface ScannerBurstInput {
   projectId: string
@@ -27,11 +26,11 @@ export interface ScannerBurstPlan {
 
 function loadWindows(db: BurstDb, input: ScannerBurstInput, clients: readonly string[]): Map<string, ScannerProbeWindow> {
   const known = new Map<string, ScannerProbeWindow>()
-  for (let i = 0; i < clients.length; i += KEY_CHUNK) {
+  for (const part of chunks(clients)) {
     const rows = db.select().from(agentScannerClients).where(and(
       eq(agentScannerClients.projectId, input.projectId),
       eq(agentScannerClients.sourceId, input.sourceId),
-      inArray(agentScannerClients.clientKey, clients.slice(i, i + KEY_CHUNK)),
+      inArray(agentScannerClients.clientKey, part),
     )).all()
     for (const row of rows) known.set(row.clientKey, { firstProbeAt: Date.parse(row.firstProbeAt), lastProbeAt: Date.parse(row.lastProbeAt) })
   }
@@ -48,9 +47,7 @@ export function planScannerBursts(db: BurstDb, input: ScannerBurstInput): Scanne
   const clientKey = (remoteIp: string): string | null => {
     if (isIP(remoteIp) === 0) return null
     if (!secret) return remoteIp
-    return crypto.createHmac('sha256', secret)
-      .update(JSON.stringify(['agent-scanner-client-v1', input.projectId, input.sourceId, remoteIp]))
-      .digest('hex')
+    return keyedIdentityHash(secret, 'agent-scanner-client-v1', [input.projectId, input.sourceId, remoteIp])
   }
   const bursts = findScannerBursts(input.events, {
     clientKey,

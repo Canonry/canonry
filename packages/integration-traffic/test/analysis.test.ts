@@ -503,15 +503,18 @@ describe('traffic analysis', () => {
     ])
   })
 
-  it('covers a later same-site request with an arrival stored within the lookback, on any of the project domains', () => {
+  it('covers a later same-site request with any stored arrival of the same engine within the lookback, on any of the project domains', () => {
     const day = 24 * 60 * 60_000
     const requestAt = '2026-10-28T14:00:00.000Z'
     const daysBefore = (days: number) => Date.parse(requestAt) - days * day
+    const arrival = (days: number) => ({ at: daysBefore(days), standIn: false })
     const stored = new Map([
-      ['198.51.100.23', daysBefore(29)],
-      ['198.51.100.24', daysBefore(31)],
-      // Stored by a later batch than this one, as when a backfill reads an older window.
-      ['198.51.100.25', daysBefore(-1)],
+      ['198.51.100.23\tChatGPT', [arrival(29)]],
+      ['198.51.100.24\tChatGPT', [arrival(31)]],
+      // A newer arrival is stored too, as when a delayed batch or a backfill reads an older window.
+      ['198.51.100.25\tChatGPT', [arrival(2), arrival(-1)]],
+      // Stored only after this request.
+      ['198.51.100.26\tChatGPT', [arrival(-1)]],
     ])
     // The request's host is the canonical domain; the referer is the project's other shop domain.
     const onShop = (eventId: string, remoteIp: string, observedAt = requestAt) => event({
@@ -522,19 +525,68 @@ describe('traffic analysis', () => {
       // A click from an answer always arrives, whatever came before.
       event({ eventId: 'from-chatgpt', observedAt: '2026-10-28T14:01:00.000Z', remoteIp: '198.51.100.23', userAgent: IPHONE_SAFARI, referer: 'https://chatgpt.com/' }),
       onShop('past-lookback', '198.51.100.24'),
-      onShop('before-stored', '198.51.100.25'),
-      onShop('after-batch-arrival', '198.51.100.25', '2026-10-28T14:05:00.000Z'),
+      onShop('between-stored', '198.51.100.25'),
+      onShop('before-stored', '198.51.100.26'),
+      onShop('after-batch-arrival', '198.51.100.26', '2026-10-28T14:05:00.000Z'),
     ], {
-      actorKey: request => request.remoteIp,
+      actorKey: (request, product) => `${request.remoteIp}\t${product}`,
       known: actors => new Map(actors.flatMap(actor => stored.has(actor) ? [[actor, stored.get(actor)!] as const] : [])),
       siteDomains: ['https://www.example.com/', 'shop.example.net'],
     })
 
-    expect([...result.eventIds].sort()).toEqual(['after-batch-arrival', 'within-lookback'])
+    expect([...result.eventIds].sort()).toEqual(['after-batch-arrival', 'between-stored', 'within-lookback'])
     expect(result.arrivals).toEqual(new Map([
-      ['198.51.100.23', Date.parse('2026-10-28T14:01:00.000Z')],
-      ['198.51.100.24', Date.parse(requestAt)],
-      ['198.51.100.25', Date.parse(requestAt)],
+      ['198.51.100.24\tChatGPT', [{ at: Date.parse(requestAt), standIn: true }]],
+      ['198.51.100.26\tChatGPT', [{ at: Date.parse(requestAt), standIn: true }]],
+      ['198.51.100.23\tChatGPT', [{ at: Date.parse('2026-10-28T14:01:00.000Z'), standIn: false }]],
+    ]))
+  })
+
+  it('does not count a landing again when its own later request reached ingest first', () => {
+    const landingAt = Date.parse('2026-10-28T14:00:00.000Z')
+    const landing = (eventId: string, remoteIp: string) => event({
+      eventId, observedAt: '2026-10-28T14:00:00.000Z', remoteIp, userAgent: IPHONE_SAFARI, path: '/products/linen-shirt', queryString: 'utm_source=chatgpt.com',
+    })
+    const stored = new Map([
+      // A script of this landing page reached ingest first and stood in for it.
+      ['198.51.100.23\tChatGPT', [{ at: landingAt + 400, standIn: true }]],
+      // A stand-in more than a visit's idle window later belongs to another visit.
+      ['198.51.100.24\tChatGPT', [{ at: landingAt + 31 * 60_000, standIn: true }]],
+      // A landing seen from outside is a separate click, never this one.
+      ['198.51.100.25\tChatGPT', [{ at: landingAt + 400, standIn: false }]],
+    ])
+    const result = findAiReferralFollowOns([
+      landing('counted-already', '198.51.100.23'),
+      landing('another-visit', '198.51.100.24'),
+      landing('another-click', '198.51.100.25'),
+    ], {
+      actorKey: (request, product) => `${request.remoteIp}\t${product}`,
+      known: actors => new Map(actors.flatMap(actor => stored.has(actor) ? [[actor, stored.get(actor)!] as const] : [])),
+    })
+
+    expect([...result.eventIds]).toEqual(['counted-already'])
+    expect(result.arrivals).toEqual(new Map([
+      ['198.51.100.24\tChatGPT', [{ at: landingAt, standIn: false }]],
+      ['198.51.100.25\tChatGPT', [{ at: landingAt, standIn: false }]],
+    ]))
+  })
+
+  it('counts each engine apart: one engine\'s arrival does not cover another engine\'s requests', () => {
+    const at = (seconds: number) => new Date(Date.parse('2026-10-28T14:00:00.000Z') + seconds * 1000).toISOString()
+    const visitor = { remoteIp: '198.51.100.23', userAgent: IPHONE_SAFARI }
+    const report = buildTrafficProbeReport([
+      event({ ...visitor, eventId: 'chatgpt-landing', observedAt: at(0), path: '/products/linen-shirt', queryString: 'utm_source=chatgpt.com' }),
+      // Later the same person opens a cached page from a Perplexity answer: only what it loads reaches the logs.
+      event({ ...visitor, eventId: 'perplexity-script', observedAt: at(600), path: '/_next/static/chunks/app.js', referer: 'https://example.com/?utm_source=perplexity.ai' }),
+      event({ ...visitor, eventId: 'perplexity-api', observedAt: at(660), path: '/api/cart', referer: 'https://example.com/?utm_source=perplexity.ai' }),
+    ], { generatedAt: '2026-10-28T15:00:00.000Z' })
+
+    expect(report.totals.aiReferralHits).toBe(3)
+    expect(report.totals.aiReferralSessions).toBe(2)
+    expect(report.aiReferralEventsHourly).toHaveLength(2)
+    expect(report.aiReferralEventsHourly).toEqual(expect.arrayContaining([
+      expect.objectContaining({ product: 'ChatGPT', evidenceType: 'utm', landingPathNormalized: '/products/linen-shirt', hits: 1 }),
+      expect.objectContaining({ product: 'Perplexity', evidenceType: 'referer-utm', landingPathNormalized: '/', hits: 1 }),
     ]))
   })
 

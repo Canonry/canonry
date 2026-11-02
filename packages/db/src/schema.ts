@@ -3043,16 +3043,25 @@ export const agentScannerClients = sqliteTable('agent_scanner_clients', {
   index('idx_agent_scanner_clients_source_last').on(table.sourceId, table.lastProbeAt),
 ])
 
+/** One stored AI-referral arrival: when, and whether a same-site request stood in for an unseen landing. */
+export interface StoredAiReferralArrival {
+  at: string
+  standIn: boolean
+}
+
 /**
- * Each visitor's latest AI-referral arrival per source, so a later page,
- * asset or API call that still carries the engine's utm (a step of that
- * arrival) is not counted again when it lands in a later batch. The visitor
- * is a keyed hash of IP and user agent; no address is stored.
+ * Each visitor's recent AI-referral arrivals per source and engine, so a later
+ * page, asset or API call that still carries the engine's utm (a step of an
+ * arrival) is not counted again when it lands in a later batch, even one older
+ * than the newest arrival (a backfill, a delayed Queue batch). The visitor is
+ * a keyed hash of IP, user agent and engine; no address is stored.
  */
 export const aiReferralVisitors = sqliteTable('ai_referral_visitors', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
   visitorKey: text('visitor_key').notNull(),
+  /** Oldest first, at most 50, none older than the retention window. */
+  arrivals: text('arrivals', { mode: 'json' }).$type<StoredAiReferralArrival[]>().notNull().default([]),
   lastArrivalAt: text('last_arrival_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [

@@ -37,10 +37,12 @@ Server counts are arrivals, not GA sessions or verified people. A request
 whose referer is outside the site (the AI engine's page, or none) is an
 arrival; requests from one visitor (IP and user agent) to the same landing
 page within a minute count once. A later page, asset or API call whose same-site
-referer still carries the engine's utm belongs to that arrival for 30 days,
-in this or any later sync or push. It counts as the arrival only when the
-visitor had none in those 30 days: a site whose pages a cache serves before
-the logs see them shows nothing else. Hours stored before Canonry 7.87.2
+referer still carries the engine's utm belongs to that visitor's arrival from
+the same engine for 30 days, in any sync or push, even one that reaches
+Canonry before the landing does. It counts as the arrival only when the
+visitor had none from that engine in those 30 days: a site whose pages a cache
+serves before the logs see them shows nothing else, so a second click from
+the same engine within 30 days is not counted there. Hours stored before Canonry 7.87.2
 counted every later minute of a visit as another arrival and read high;
 hourly rows keep no visitor, so they cannot be corrected. Normalized paths
 can combine pages; multiple sources can overlap. No Property, Target or

@@ -4,6 +4,7 @@ import { and, eq, lt, sql } from 'drizzle-orm'
 import { AGENT_JOURNEY_DAILY_EVENT_LIMIT, AGENT_JOURNEY_RETENTION_DAYS, AgentJourneyCorrelationBases, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import { agentJourneyCaptureDays, agentJourneyEvents, type DatabaseClient } from '@canonry/canonry-db'
 import { extractAgentJourneyRequests } from '@canonry/canonry-integration-traffic'
+import { keyedIdentityHash } from './keyed-visitor-state.js'
 
 type CaptureDb = Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>
 interface CaptureInput {
@@ -25,9 +26,7 @@ function persistAgentJourneyBatch(db: CaptureDb, input: CaptureInput): CaptureRe
   for (const request of extractAgentJourneyRequests(input.events, { scannerBurstEventIds: input.scannerBurstEventIds })) {
     if (Date.parse(request.ts) < cutoff) continue
     // Provider IDs can contain full URLs, including secrets omitted from path.
-    const sourceEventId = crypto.createHmac('sha256', input.secret)
-      .update(JSON.stringify(['agent-journey-source-event-v1', input.projectId, input.sourceId, request.sourceEventId]))
-      .digest('hex')
+    const sourceEventId = keyedIdentityHash(input.secret, 'agent-journey-source-event-v1', [input.projectId, input.sourceId, request.sourceEventId])
     const eventWhere = and(eq(agentJourneyEvents.projectId, input.projectId), eq(agentJourneyEvents.sourceId, input.sourceId), eq(agentJourneyEvents.sourceEventId, sourceEventId))
     if (db.select({ id: agentJourneyEvents.id }).from(agentJourneyEvents).where(eventWhere).get()) continue
     const day = request.ts.slice(0, 10)
@@ -45,10 +44,8 @@ function persistAgentJourneyBatch(db: CaptureDb, input: CaptureInput): CaptureRe
     const correlationBasis = hasIp ? AgentJourneyCorrelationBases['ip-ua'] : AgentJourneyCorrelationBases.unlinked
     // IP+UA is a correlation hint, never proof of one agent task. A source
     // without IP gets an event-specific key, not a shared user-agent cohort.
-    const correlationKey = crypto.createHmac('sha256', input.secret)
-      .update(JSON.stringify(['agent-journey-v1', input.projectId, input.sourceId, request.agentId, correlationBasis,
-        hasIp ? [request.remoteIp, request.userAgent] : request.sourceEventId]))
-      .digest('hex')
+    const correlationKey = keyedIdentityHash(input.secret, 'agent-journey-v1', [input.projectId, input.sourceId, request.agentId, correlationBasis,
+      hasIp ? [request.remoteIp, request.userAgent] : request.sourceEventId])
     const inserted = db.insert(agentJourneyEvents).values({
       id: crypto.randomUUID(), projectId: input.projectId, sourceId: input.sourceId,
       sourceEventId, ts: request.ts, correlationKey, correlationBasis,

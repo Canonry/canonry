@@ -49,6 +49,7 @@ import { requireAdminSession } from './auth.js'
 import { cloudflareWorkerVersionFor } from './cloudflare-worker-version.js'
 import { resolveProject } from './helpers.js'
 import { enforceAgentJourneyRetention } from './agent-journey-capture.js'
+import { chunks as chunkItems } from './keyed-visitor-state.js'
 
 const DAY_MS = 24 * 60 * 60_000
 const IDLE_MS = JOURNEY_VISIT_IDLE_MINUTES * 60_000
@@ -88,11 +89,7 @@ export function journeyVisitorKey(
  */
 export const JOURNEY_SAME_ARRIVAL_MS = 5_000
 
-function chunks<T>(items: readonly T[], size = IN_CHUNK): T[][] {
-  const out: T[][] = []
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
-  return out
-}
+const chunks = <T>(items: readonly T[]): T[][] => chunkItems(items, IN_CHUNK)
 
 const byObservedAt = (a: { observedAt: string }, b: { observedAt: string }) => (a.observedAt < b.observedAt ? -1 : a.observedAt > b.observedAt ? 1 : 0)
 

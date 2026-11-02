@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { aiReferralEventsHourly, aiReferralVisitors, createClient, migrate, projects, trafficSources } from '@canonry/canonry-db'
 import { TrafficEventConfidences, TrafficEvidenceKinds, TrafficSourceTypes, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
-import { saveAiReferralArrivals } from '../src/ai-referral-arrivals.js'
+import { MAX_STORED_AI_REFERRAL_ARRIVALS, mergeAiReferralArrivals, saveAiReferralArrivals } from '../src/ai-referral-arrivals.js'
 import { writeTrafficEventBatch } from '../src/traffic-event-ingest.js'
 
 const NOW = '2026-10-28T14:00:00.000Z'
@@ -81,20 +81,60 @@ describe('AI referral arrivals at ingest', () => {
     ])
   })
 
-  it('keeps each visitor\'s latest arrival and drops arrivals past the lookback and Queue retention', () => {
-    const save = (arrivedAt: string, now = NOW) => saveAiReferralArrivals(db, {
-      projectId: 'project', sourceId: 'source', now, arrivals: new Map([['visitor', Date.parse(arrivedAt)]]),
+  it('counts a visit once when a later request reaches ingest before its landing', () => {
+    // Concurrent one-event pushes can commit out of order: the page's script lands first and stands in for it.
+    expect(push([event('script-first', 0.4, { path: '/assets/app.js', referer: LANDING })])).toMatchObject({ aiReferralBucketRows: 1 })
+    expect(push([event('landing-later', 0, { path: '/products/linen-shirt', queryString: 'utm_source=chatgpt.com' })]))
+      .toMatchObject({ aiReferralHits: 1, aiReferralBucketRows: 0 })
+    push([event('api', 75, { method: 'POST', path: '/api/storefront', referer: LANDING })])
+
+    expect(arrivals()).toEqual([
+      { evidenceType: 'referer-utm', landingPathNormalized: '/products/linen-shirt', sessionsOrHits: 1 },
+    ])
+  })
+
+  it('covers a delayed request with an older stored arrival, after a newer arrival was stored', () => {
+    const day = 86_400
+    push([event('first-click', 0, { path: '/products/linen-shirt', queryString: 'utm_source=chatgpt.com' })])
+    push([event('second-click', 2 * day, { path: '/collections/sale', referer: 'https://chatgpt.com/' })])
+    // A request from the first visit that waited in a Queue, or a backfill reading that day.
+    expect(push([event('delayed-step', 3600, { path: '/collections/denim', referer: LANDING })]))
+      .toMatchObject({ aiReferralHits: 1, aiReferralBucketRows: 0 })
+
+    expect(arrivals()).toEqual([
+      { evidenceType: 'referer', landingPathNormalized: '/collections/sale', sessionsOrHits: 1 },
+      { evidenceType: 'utm', landingPathNormalized: '/products/linen-shirt', sessionsOrHits: 1 },
+    ])
+    const [visitor] = db.select().from(aiReferralVisitors).all()
+    expect(visitor?.arrivals).toEqual([{ at: at(0), standIn: false }, { at: at(2 * day), standIn: false }])
+  })
+
+  it('adds a batch\'s arrivals to the stored list and drops visitors past the lookback and Queue retention', () => {
+    const save = (arrivals: Array<{ at: number, standIn: boolean }>, now = NOW) => saveAiReferralArrivals(db, {
+      projectId: 'project', sourceId: 'source', now, arrivals: new Map([['visitor', arrivals]]),
     })
-    const stored = () => db.select({ lastArrivalAt: aiReferralVisitors.lastArrivalAt }).from(aiReferralVisitors).all()
-    save(at(0))
-    // An older arrival, as a backfill finds, never replaces it.
-    save(at(-3600))
-    expect(stored()).toEqual([{ lastArrivalAt: at(0) }])
-    save(at(60))
-    expect(stored()).toEqual([{ lastArrivalAt: at(60) }])
+    const stored = () => db.select({ arrivals: aiReferralVisitors.arrivals, lastArrivalAt: aiReferralVisitors.lastArrivalAt }).from(aiReferralVisitors).all()
+    save([{ at: Date.parse(at(0)), standIn: true }])
+    // An older batch (a backfill) adds its arrival without moving the latest one back.
+    save([{ at: Date.parse(at(-3600)), standIn: false }])
+    // The same instant seen again from outside outranks the stand-in.
+    save([{ at: Date.parse(at(0)), standIn: false }])
+    expect(stored()).toEqual([{ arrivals: [{ at: at(-3600), standIn: false }, { at: at(0), standIn: false }], lastArrivalAt: at(0) }])
+    save([{ at: Date.parse(at(60)), standIn: false }])
+    expect(stored()[0]?.lastArrivalAt).toBe(at(60))
     saveAiReferralArrivals(db, { projectId: 'project', sourceId: 'source', arrivals: new Map(), now: at(60 + 43 * 86_400) })
-    expect(stored()).toEqual([{ lastArrivalAt: at(60) }])
+    expect(stored()).toHaveLength(1)
     saveAiReferralArrivals(db, { projectId: 'project', sourceId: 'source', arrivals: new Map(), now: at(61 + 44 * 86_400) })
     expect(stored()).toEqual([])
+  })
+
+  it('keeps at most the newest arrivals per visitor and drops expired ones when merging', () => {
+    const minute = 60_000
+    const many = Array.from({ length: MAX_STORED_AI_REFERRAL_ARRIVALS + 5 }, (_, i) => ({ at: i * minute, standIn: false }))
+    const merged = mergeAiReferralArrivals(many.slice(0, 30), many.slice(30), 2 * minute)
+    expect(merged).toHaveLength(MAX_STORED_AI_REFERRAL_ARRIVALS)
+    expect(merged[0]).toEqual({ at: 5 * minute, standIn: false })
+    expect(merged.at(-1)).toEqual({ at: (MAX_STORED_AI_REFERRAL_ARRIVALS + 4) * minute, standIn: false })
+    expect(mergeAiReferralArrivals([{ at: minute, standIn: true }], [], 2 * minute)).toEqual([])
   })
 })
