@@ -211,6 +211,19 @@ export const gscPeriodComparisonSchema = z.object({
     ctr: fraction().nullable(),
     position: fraction().nullable(),
   }),
+  /**
+   * Trailing minus prior in each metric's own unit: clicks and impressions as
+   * counts, CTR as a fraction (0.05 = 5 points), position in places. Null
+   * wherever `comparable` is false or either period lacks the metric. A rate's
+   * movement reads better in points than as a ratio of ratios, and a rank's in
+   * places. Optional for the same server-skew reason as `basis`.
+   */
+  difference: z.object({
+    clicks: z.number().nullable(),
+    impressions: z.number().nullable(),
+    ctr: fraction().nullable(),
+    position: z.number().nullable(),
+  }).optional(),
 })
 export type GscPeriodComparison = z.infer<typeof gscPeriodComparisonSchema>
 

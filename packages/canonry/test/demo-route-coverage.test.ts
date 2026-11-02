@@ -92,6 +92,7 @@ const REQUIRED_QUERIES: Record<string, (lookup: Lookup) => Promise<Record<string
   '/api/v1/projects/:name/technical-aeo/crawl/pages/audit': async ({ project }) => ({ url: `https://${PROJECTS[project]}/` }),
   '/api/v1/projects/:name/technical-aeo/internal-links/neighbors': async ({ project }) => ({ url: `https://${PROJECTS[project]}/` }),
   '/api/v1/projects/:name/technical-aeo/path': async ({ project }) => ({ toUrl: `https://${PROJECTS[project]}/contact/` }),
+  '/api/v1/projects/:name/trends': async () => ({ surface: 'site-health' }),
   '/api/v1/projects/:name/visibility-compare': async () => {
     const now = new Date()
     const month = (date: Date) => date.toISOString().slice(0, 7)

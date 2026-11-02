@@ -135,7 +135,7 @@ function campaignStatusLabel(status: GoogleAdsCampaignStatus): string {
 type ChangeDirection = 'up-good' | 'down-good' | 'none'
 
 /** Metrics with a matching per-day field on `daily`, so they can be plotted. */
-type SeriesKey = 'costMicros' | 'conversions' | 'clicks' | 'impressions'
+type SeriesKey = 'costMicros' | 'conversions' | 'clicks' | 'impressions' | 'ctr'
 
 function changeToneClass(ratio: number | null, direction: ChangeDirection): string {
   if (direction === 'none' || ratio === null || !Number.isFinite(ratio) || ratio === 0) return 'text-muted'
@@ -301,8 +301,9 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
   const rateStrip: { key: string; label: string; value: string; seriesKey: SeriesKey | null }[] = [
     { key: 'clicks', label: 'Clicks', value: COUNT_FORMAT.format(totals.clicks), seriesKey: 'clicks' },
     { key: 'impressions', label: 'Impressions', value: COUNT_FORMAT.format(totals.impressions), seriesKey: 'impressions' },
-    // CTR and CPC have no per-day field on `daily`, so they are values only.
-    { key: 'ctr', label: 'CTR', value: formatGoogleAdsRatio(totals.ctr), seriesKey: null },
+    // The API sends each day's CTR, null on a day with no impressions. CPC has
+    // no per-day field on `daily`, so it is a value only.
+    { key: 'ctr', label: 'CTR', value: formatGoogleAdsRatio(totals.ctr), seriesKey: 'ctr' },
     { key: 'cpc', label: 'CPC', value: formatGoogleAdsMicros(totals.cpcMicros, currency), seriesKey: null },
   ]
 
@@ -316,6 +317,9 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
     // conversions as a flat line at roughly 4% of the scale.
     clicks: { label: 'Clicks', color: CHART_SERIES_COLORS[2]!, axisId: 'clicks', formatValue: (v) => COUNT_FORMAT.format(v) },
     impressions: { label: 'Impressions', color: CHART_SERIES_COLORS[3]!, axisId: 'impressions', formatValue: (v) => COUNT_FORMAT.format(v) },
+    // A rate on its own axis. A day with no impressions has no CTR and is a gap
+    // in the line, never a fall to zero.
+    ctr: { label: 'CTR', color: CHART_SERIES_COLORS[4]!, axisId: 'ctr', formatValue: (v) => formatGoogleAdsRatio(v) },
   }
 
   const chartSeries: TrendChartSeries[] = [...selectedSeries]
@@ -461,7 +465,10 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
             <li key={point.date}>
               {formatChartDateLabel(point.date)}:{' '}
               {chartSeries
-                .map((series) => `${series.label} ${SERIES_META[series.dataKey as SeriesKey].formatValue(point[series.dataKey as SeriesKey])}`)
+                .map((series) => {
+                  const value = point[series.dataKey as SeriesKey]
+                  return `${series.label} ${value === null ? GOOGLE_ADS_NOT_AVAILABLE : SERIES_META[series.dataKey as SeriesKey].formatValue(value)}`
+                })
                 .join(', ')}
               {point.origin === 'filled' ? ', no delivery reported' : ''}
             </li>

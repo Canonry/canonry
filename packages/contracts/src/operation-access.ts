@@ -263,6 +263,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/technical-aeo',
   'GET /api/v1/projects/{name}/technical-aeo/pages',
   'GET /api/v1/projects/{name}/technical-aeo/trend',
+  'GET /api/v1/projects/{name}/trends',
   'GET /api/v1/projects/{name}/technical-aeo/crawl',
   'GET /api/v1/projects/{name}/technical-aeo/subgraph',
   'GET /api/v1/projects/{name}/technical-aeo/path',

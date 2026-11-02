@@ -7976,6 +7976,12 @@ export type GscPerformanceDailyDto = {
             ctr: number | null;
             position: number | null;
         };
+        difference?: {
+            clicks: number | null;
+            impressions: number | null;
+            ctr: number | null;
+            position: number | null;
+        };
     } | null;
 };
 
@@ -15862,6 +15868,44 @@ export type SiteAuditTrendResponseDto = {
         auditedAt: string;
         aggregateScore: number;
         pagesAudited: number;
+    }>;
+};
+
+export type TrendsResponseDto = {
+    project: string;
+    surface: 'index-coverage' | 'site-health' | 'backlinks';
+    window: '7d' | '30d' | '90d' | 'all' | null;
+    startDate: string | null;
+    endDate: string | null;
+    groups: Array<{
+        key: string;
+        label: string;
+        figures: Array<{
+            key: string;
+            label: string;
+            unit: 'count' | 'score' | 'fraction';
+            better: 'higher' | 'lower' | 'neither';
+            value: number | null;
+            asOf: string | null;
+            change: {
+                difference: number;
+                ratio: number | null;
+                tone: 'better' | 'worse' | 'neutral';
+                basis: {
+                    type: 'first-in-window';
+                    date: string;
+                    observedAt: string | null;
+                    label: string | null;
+                };
+            } | null;
+            series: Array<{
+                date: string;
+                observedAt: string | null;
+                label: string | null;
+                value: number;
+            }>;
+            recordedFrom: string | null;
+        }>;
     }>;
 };
 
@@ -36235,6 +36279,57 @@ export type GetApiV1ProjectsByNameTechnicalAeoTrendResponses = {
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoTrendResponse = GetApiV1ProjectsByNameTechnicalAeoTrendResponses[keyof GetApiV1ProjectsByNameTechnicalAeoTrendResponses];
+
+export type GetApiV1ProjectsByNameTrendsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Which card to read.
+         */
+        surface: 'index-coverage' | 'site-health' | 'backlinks';
+        /**
+         * Window ending on the latest reading. Defaults to 90d for index-coverage and all for site-health and backlinks. Any other value is rejected with 400. Not allowed with startDate or endDate.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * First calendar day (YYYY-MM-DD) of your own range instead of a window. Left out, the range starts at the earliest reading.
+         */
+        startDate?: string;
+        /**
+         * Last calendar day (YYYY-MM-DD) of your own range instead of a window. Left out, the range ends at the latest reading.
+         */
+        endDate?: string;
+    };
+    url: '/api/v1/projects/{name}/trends';
+};
+
+export type GetApiV1ProjectsByNameTrendsErrors = {
+    /**
+     * Missing or unknown surface, an unknown window, an invalid date, a start after the end, or a window and a date range together.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTrendsError = GetApiV1ProjectsByNameTrendsErrors[keyof GetApiV1ProjectsByNameTrendsErrors];
+
+export type GetApiV1ProjectsByNameTrendsResponses = {
+    /**
+     * Trend card returned. `window` is null for a date range.
+     */
+    200: TrendsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameTrendsResponse = GetApiV1ProjectsByNameTrendsResponses[keyof GetApiV1ProjectsByNameTrendsResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlData = {
     body?: never;

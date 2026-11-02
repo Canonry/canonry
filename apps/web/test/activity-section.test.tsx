@@ -926,10 +926,11 @@ test('Site traffic shows GA4 figures with their change against the previous peri
 
   const tabs = within(await screen.findByRole('tablist', { name: 'Site traffic figures' }))
   expect(tabs.getAllByRole('tab').map(tab => tab.getAttribute('aria-label'))).toEqual([
-    'Sessions 4.5K, up 6.4% on the previous period',
-    'Users 2.5K, up 6.1% on the previous period',
-    'Organic sessions 2.8K, up 7.0% on the previous period',
-    'Engagement rate 60.8%, down 0.5% on the previous period',
+    'Sessions 4.5K, up 6.4% vs prior 30 days, an improvement',
+    'Users 2.5K, up 6.1% vs prior 30 days, an improvement',
+    'Organic sessions 2.8K, up 7.0% vs prior 30 days, an improvement',
+    // Whether a change is good news is said in words, never by colour alone.
+    'Engagement rate 60.8%, down 0.5% vs prior 30 days, a decline',
     // The server sent no change: it reads as missing, never as 0%.
     'Key events 146, no earlier data',
   ])
@@ -951,7 +952,7 @@ test('a falling bounce rate reads as good news', async () => {
   const tabs = within(await screen.findByRole('tablist', { name: 'Site traffic figures' }))
   // Put Bounce rate in the fifth slot through its picker.
   fireEvent.change(screen.getByRole('combobox', { name: 'Figure 5' }), { target: { value: 'bounceRate' } })
-  const bounce = await tabs.findByRole('tab', { name: 'Bounce rate 39.2%, down 1.8% on the previous period' })
+  const bounce = await tabs.findByRole('tab', { name: 'Bounce rate 39.2%, down 1.8% vs prior 30 days, an improvement' })
   expect(within(bounce).getByText('1.8%').className).toContain('text-positive')
 })
 

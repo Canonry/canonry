@@ -133,6 +133,7 @@ export * from './visibility-display.js'
 export * from './coverage-rate.js'
 
 export * from './time-window.js'
+export * from './trends.js'
 
 export * from './cli-catalog.js'
 export * from './seo.js'

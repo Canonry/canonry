@@ -401,6 +401,8 @@ describe('GoogleAdsPerformanceSection', () => {
     for (const entry of [
       { label: 'Clicks', key: 'clicks', axis: 'clicks', first: '60', second: '80' },
       { label: 'Impressions', key: 'impressions', axis: 'impressions', first: '900', second: '1,100' },
+      // Each day's CTR is the API's, charted on its own axis as a percentage.
+      { label: 'CTR', key: 'ctr', axis: 'ctr', first: '6.7%', second: '7.3%' },
     ]) {
       const mounted = renderSection(performanceDto())
       try {
@@ -425,6 +427,8 @@ describe('GoogleAdsPerformanceSection', () => {
         fireEvent.click(toggle)
         expect(plottedSeries()).toEqual([[entry.key, entry.axis]])
         expect(screen.getByText(`Aug 3, 2026: ${entry.label} ${entry.first}`)).toBeTruthy()
+        // A day with no impressions has no CTR: it is said, never read as 0%.
+        if (entry.key === 'ctr') expect(screen.getByText('Aug 5, 2026: CTR not available, no delivery reported')).toBeTruthy()
       } finally { mounted.dispose() }
     }
   })

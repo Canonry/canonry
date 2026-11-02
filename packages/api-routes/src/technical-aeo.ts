@@ -120,6 +120,22 @@ export interface TechnicalAeoRoutesOptions {
 /** Run statuses that count as a real, surfaceable site audit. */
 const SURFACEABLE_STATUSES = [RunStatuses.completed, RunStatuses.partial]
 
+/**
+ * The site-audit scorecards the dashboard surfaces for a project: completed or
+ * partial scans, never a probe. Join `runs` on `siteAuditSnapshots.runId`. The
+ * score trend and the trends read both use this, so they always chart the same
+ * scans.
+ */
+export function surfaceableSiteAuditFilters(projectId: string): SQL[] {
+  return [
+    eq(siteAuditSnapshots.projectId, projectId),
+    eq(runs.projectId, projectId),
+    eq(runs.kind, RunKinds['site-audit']),
+    inArray(runs.status, SURFACEABLE_STATUSES),
+    notProbeRun(),
+  ]
+}
+
 function siteAuditRunPhase(
   status: RunStatus,
   attempt: typeof siteCrawlAttempts.$inferSelect | undefined,
@@ -705,11 +721,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
    */
   const resolveAudit = (projectId: string, runId?: string, recordedBefore?: string) => {
     const filters = [
-      eq(siteAuditSnapshots.projectId, projectId),
-      eq(runs.projectId, projectId),
-      eq(runs.kind, RunKinds['site-audit']),
-      inArray(runs.status, SURFACEABLE_STATUSES),
-      notProbeRun(),
+      ...surfaceableSiteAuditFilters(projectId),
       ...(recordedBefore ? [lt(siteAuditSnapshots.createdAt, recordedBefore)] : []),
     ]
     const complete = sql<boolean>`case when ${runs.status} = ${RunStatuses.completed} then 1 else 0 end`
@@ -1083,13 +1095,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       })
       .from(siteAuditSnapshots)
       .innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
-      .where(and(
-        eq(siteAuditSnapshots.projectId, project.id),
-        eq(runs.projectId, project.id),
-        eq(runs.kind, RunKinds['site-audit']),
-        inArray(runs.status, SURFACEABLE_STATUSES),
-        notProbeRun(),
-      ))
+      .where(and(...surfaceableSiteAuditFilters(project.id)))
       .orderBy(desc(siteAuditSnapshots.createdAt))
       .limit(limit)
       .all()

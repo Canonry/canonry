@@ -12,6 +12,7 @@ import {
   inclusiveDayCount,
   formatNumber,
   formatPointDelta,
+  formatTenthsMagnitude,
   formatPercent,
   formatSignedPercent,
   formatSignedPointDelta,
@@ -586,6 +587,16 @@ describe('deltaTone', () => {
   test('negative deltas are negative tone', () => {
     expect(deltaTone(-1)).toBe('negative')
     expect(deltaTone(-100)).toBe('negative')
+  })
+})
+
+describe('formatTenthsMagnitude', () => {
+  test('shows a movement in tenths, unsigned, and never a real one as 0.0', () => {
+    // Average position moving from 12.34 to 12.31 places.
+    expect(formatTenthsMagnitude(12.31 - 12.34)).toBe('<0.1')
+    expect(formatTenthsMagnitude(-1.6)).toBe('1.6')
+    expect(formatTenthsMagnitude(2)).toBe('2.0')
+    expect(formatTenthsMagnitude(0.05)).toBe('0.1')
   })
 })
 

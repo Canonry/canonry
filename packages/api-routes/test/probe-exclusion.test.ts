@@ -14,6 +14,7 @@ import {
   competitors,
   runs,
   querySnapshots,
+  siteAuditSnapshots,
   siteCrawlSnapshots,
 } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
@@ -451,6 +452,22 @@ describe('GET /projects/:name/competitor-suggestions excludes probe evidence', (
     expect(response.json()).toMatchObject({ runId: realId, total: 1, issues: [{ code: 'site.duplicate-title' }] })
     expect((await ctx.app.inject(`/api/v1/projects/probe-excl/technical-aeo/issues?runId=${probeId}`)).statusCode).toBe(404)
     expect((await ctx.app.inject(`/api/v1/projects/probe-excl/technical-aeo/issues/site-issue:probe-only/pages?runId=${probeId}`)).statusCode).toBe(404)
+  })
+  it('the Site Health trend card charts the real scan, not a newer probe scan', async () => {
+    for (const [trigger, auditedAt, aggregateScore] of [
+      ['manual', '2026-10-11T12:00:00.000Z', 64],
+      ['probe', '2026-10-12T12:00:00.000Z', 99],
+    ] as const) {
+      const runId = crypto.randomUUID()
+      ctx.db.insert(runs).values({ id: runId, projectId: ctx.projectId, kind: 'site-audit', status: 'completed', trigger, createdAt: auditedAt, finishedAt: auditedAt }).run()
+      ctx.db.insert(siteAuditSnapshots).values({ id: crypto.randomUUID(), projectId: ctx.projectId, runId,
+        sitemapUrl: 'https://real-brand.example.com/sitemap.xml', auditedAt, aggregateScore, aggregateGrade: 'C',
+        pagesDiscovered: 1, pagesAudited: 1, pagesSkipped: 0, pagesErrored: 0,
+        factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt: auditedAt }).run()
+    }
+    const response = await ctx.app.inject('/api/v1/projects/probe-excl/trends?surface=site-health')
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ endDate: '2026-10-11', groups: [{ figures: [{ key: 'score', value: 64, series: [{ date: '2026-10-11', value: 64 }] }, { key: 'pages-checked' }] }] })
   })
 
 })

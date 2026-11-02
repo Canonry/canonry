@@ -35,7 +35,7 @@ import {
   type CcReleaseSyncStatus,
   type RunDto,
 } from '@canonry/canonry-contracts'
-import { isValidReleaseId } from '@canonry/canonry-integration-commoncrawl'
+import { compareReleaseIds, isValidReleaseId } from '@canonry/canonry-integration-commoncrawl'
 import { resolveProject } from './helpers.js'
 import { backlinkCrawlerExclusionClause } from './backlinks-filter.js'
 import { readCommonCrawlSourceState } from './backlinks-source-state.js'
@@ -151,13 +151,20 @@ function latestSummaryForProject(
   ]
   if (release) conditions.push(eq(backlinkSummaries.release, release))
 
-  return db
+  const rows = db
     .select()
     .from(backlinkSummaries)
     .where(and(...conditions))
     .orderBy(desc(backlinkSummaries.queriedAt))
-    .limit(1)
-    .get()
+    .all()
+  // The newest crawl window, not the newest query: extracting an older release
+  // after a newer one must not make the older crawl current. Ids that are not
+  // Common Crawl releases keep the most recent query.
+  return rows.reduce<typeof rows[number] | undefined>((latest, row) => {
+    if (!latest) return row
+    const newer = isValidReleaseId(row.release) && isValidReleaseId(latest.release) && compareReleaseIds(row.release, latest.release) > 0
+    return newer ? row : latest
+  }, undefined)
 }
 
 function parseExcludeCrawlers(value: string | undefined): boolean {
@@ -170,7 +177,7 @@ function parseExcludeCrawlers(value: string | undefined): boolean {
 // filter. Queries the domains table directly (rather than subtracting from the
 // stored summary) so excluded counts stay consistent if the stored summary
 // drifts from the underlying rows.
-function computeFilteredSummary(
+export function computeFilteredSummary(
   db: DatabaseClient,
   base: typeof backlinkSummaries.$inferSelect,
 ): BacklinkSummaryDto {
@@ -226,6 +233,51 @@ function computeFilteredSummary(
     excludedLinkingDomains: Math.max(0, unfilteredLinkingDomains - totalLinkingDomains),
     excludedHosts: Math.max(0, unfilteredHosts - totalHosts),
   }
+}
+
+/** One release's crawler- and proxy-excluded totals, as `computeFilteredSummary` computes them. */
+export interface FilteredReleaseTotals {
+  /** Every stored domain row, crawlers included: zero means the release's rows are missing. */
+  domainRows: number
+  linkingDomains: number
+  hosts: number
+  /** The ten largest kept domains' share of kept hosts, at the summary's six decimals. */
+  top10HostsShare: number
+}
+
+/**
+ * `computeFilteredSummary`'s totals for every release of a project and source
+ * in one query, for reads that chart releases side by side. The ten largest
+ * kept domains are ranked inside SQLite, per release.
+ */
+export function computeFilteredReleaseTotals(
+  db: DatabaseClient,
+  projectId: string,
+  source: BacklinkSource,
+): Map<string, FilteredReleaseTotals> {
+  const kept = sql`case when ${backlinkCrawlerExclusionClause()} then 1 else 0 end`
+  const rows = db.all<{ release: string; domain_rows: number; linking_domains: number; hosts: number; top10: number }>(sql`
+    SELECT release,
+      COUNT(*) AS domain_rows,
+      SUM(kept) AS linking_domains,
+      COALESCE(SUM(CASE WHEN kept = 1 THEN num_hosts ELSE 0 END), 0) AS hosts,
+      COALESCE(SUM(CASE WHEN kept = 1 AND kept_rank <= 10 THEN num_hosts ELSE 0 END), 0) AS top10
+    FROM (
+      SELECT ${backlinkDomains.release} AS release, ${backlinkDomains.numHosts} AS num_hosts, ${kept} AS kept,
+        ROW_NUMBER() OVER (PARTITION BY ${backlinkDomains.release}, ${kept} ORDER BY ${backlinkDomains.numHosts} DESC) AS kept_rank
+      FROM ${backlinkDomains}
+      WHERE ${and(eq(backlinkDomains.projectId, projectId), eq(backlinkDomains.source, source))}
+    )
+    GROUP BY release`)
+  return new Map(rows.map((row) => {
+    const hosts = Number(row.hosts)
+    return [row.release, {
+      domainRows: Number(row.domain_rows),
+      linkingDomains: Number(row.linking_domains),
+      hosts,
+      top10HostsShare: Number((hosts > 0 ? Number(row.top10) / hosts : 0).toFixed(6)),
+    }]
+  }))
 }
 
 // Stored-source availability. Common Crawl is the only active source. Retired
