@@ -146,6 +146,14 @@ the same browser loaded the same AI-tagged page from a new IP within seconds.
 Requests under the alias key are kept under the visitor key. Rows cascade with
 the project, and journey retention drops a row once its visitor is gone.
 
+Migration 207 adds `ai_referral_visitors`: each visitor's latest AI-referral
+arrival per source, keyed by an HMAC of IP and user agent (never the address),
+so ingest does not count a later page, asset or API call of the same visit as
+another arrival when it lands in a later batch. Writes keep the latest arrival
+(an older batch never moves it back). Rows cascade with the source/project and
+are dropped 44 days after the arrival: the 30-day lookback plus a Queue's
+longest retention.
+
 Traffic delivery adapters use `traffic_event_receipts` for durable idempotency.
 Claim `(source_id, event_id)` in the same transaction as rollup writes and
 acknowledge an upstream buffer only after commit. Set `expires_at` to cover the

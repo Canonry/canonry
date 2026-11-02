@@ -1,8 +1,9 @@
 import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@canonry/canonry-contracts'
-import { AiReferralTrafficClasses, hostOf } from '@canonry/canonry-contracts'
+import { AiReferralTrafficClasses, hostOf, isLocationRedirectStatus, JOURNEY_LOOKBACK_DAYS } from '@canonry/canonry-contracts'
 import { AgentTrustLevels } from '@canonry/canonry-contracts'
 import { withScannerBurst } from './agent-trust.js'
 import { classifyAiReferral, classifyAiUserFetch, classifyCrawler, isSelfTraffic } from './classifier.js'
+import { isStepReferer, siteDomainHosts } from './journey.js'
 import { findScannerBurstsInBatch } from './scanner-bursts.js'
 import type {
   AiReferralEventHourlyBucket,
@@ -109,11 +110,100 @@ function isLikelySubresourcePath(path: string): boolean {
     ASSET_EXTENSION_PATTERN.test(cleanPath)
 }
 
-function actorKey(event: NormalizedTrafficRequest): string {
+/** One visitor's IP and user agent, or null when the request reports neither. Never stored. */
+function batchActorKey(event: NormalizedTrafficRequest): string | null {
   const remoteIp = event.remoteIp?.trim()
   const userAgent = event.userAgent?.trim()
-  if (remoteIp || userAgent) return `${remoteIp ?? 'unknown-ip'}\t${userAgent ?? 'unknown-ua'}`
-  return `event:${event.eventId}`
+  return remoteIp || userAgent ? `${remoteIp ?? 'unknown-ip'}\t${userAgent ?? 'unknown-ua'}` : null
+}
+
+function actorKey(event: NormalizedTrafficRequest): string {
+  return batchActorKey(event) ?? `event:${event.eventId}`
+}
+
+/**
+ * How long an AI arrival covers its visitor's later same-site requests that
+ * still carry the engine's utm: the journeys' lookback. Within it such a
+ * request is a step of that arrival, not another arrival.
+ */
+export const AI_REFERRAL_LOOKBACK_MS = JOURNEY_LOOKBACK_DAYS * 24 * 60 * 60_000
+
+export interface FindAiReferralFollowOnsOptions {
+  /** The visitor behind a request (its IP and user agent), or null to leave its request alone. */
+  actorKey: (event: NormalizedTrafficRequest) => string | null
+  /** The latest arrival (epoch ms) stored for each visitor this batch names, from earlier batches. */
+  known?: (actors: readonly string[]) => ReadonlyMap<string, number>
+  /** The project's own domains. A referer on them, or on the request's own host, is a step. */
+  siteDomains?: readonly string[]
+  lookbackMs?: number
+}
+
+export interface AiReferralFollowOns {
+  /** AI-referral requests that are steps of an earlier arrival, never counted as arrivals. */
+  eventIds: Set<string>
+  /** Each visitor's latest arrival in this batch (epoch ms). */
+  arrivals: Map<string, number>
+}
+
+/**
+ * Which AI-referral requests are arrivals, by the journeys' rule. A request
+ * whose referer is outside the site (the AI engine's page, or none) is an
+ * arrival. A request with a same-site referer (`isStepReferer`) that still
+ * carries the engine's utm, on its own URL or its referer's, is a later page,
+ * asset or API call of a visitor already on the site: the landing page's tags
+ * ride every request the visit makes. It is a step of the visitor's arrival
+ * when one came within `lookbackMs` before it, in this batch or a stored
+ * earlier one (`known`), and the arrival itself otherwise: a site whose pages
+ * a cache serves before the logs see them shows only these requests, and one
+ * of them stands for the landing. Only requests that open a session count
+ * (static files are never a landing), and a Location redirect is a hop, never
+ * the arrival: it covers nothing, and a same-site one is always a step. At the
+ * same instant an arrival from outside comes before a step. A stored arrival
+ * later than a request (an older batch, such as a backfill) does not cover it.
+ */
+export function findAiReferralFollowOns(
+  events: readonly NormalizedTrafficRequest[],
+  options: FindAiReferralFollowOnsOptions,
+): AiReferralFollowOns {
+  const lookbackMs = options.lookbackMs ?? AI_REFERRAL_LOOKBACK_MS
+  const siteHosts = siteDomainHosts(options.siteDomains)
+  const candidates: Array<{ eventId: string, actor: string, at: number, step: boolean, hop: boolean }> = []
+  for (const event of events) {
+    if (isSelfTraffic(event)) continue
+    const referral = classifyAiReferral(event)
+    if (!referral || isLikelySubresourcePath(resolveAiReferralLandingPath(event, referral.evidenceType))) continue
+    const at = Date.parse(event.observedAt)
+    const actor = options.actorKey(event)
+    if (!Number.isFinite(at) || actor === null) continue
+    const hop = event.status !== null && isLocationRedirectStatus(event.status)
+    candidates.push({ eventId: event.eventId, actor, at, step: isStepReferer(event, siteHosts), hop })
+  }
+  candidates.sort((a, b) => a.at - b.at || Number(a.step) - Number(b.step))
+
+  const stepActors = [...new Set(candidates.filter(candidate => candidate.step).map(candidate => candidate.actor))]
+  const known = stepActors.length > 0 && options.known ? options.known(stepActors) : new Map<string, number>()
+  const eventIds = new Set<string>()
+  const arrivals = new Map<string, number>()
+  for (const candidate of candidates) {
+    if (candidate.step) {
+      // In time order, so an arrival from this batch is never later than the request.
+      const previous = arrivals.get(candidate.actor)
+      const stored = known.get(candidate.actor)
+      const covered = (previous !== undefined && candidate.at - previous <= lookbackMs)
+        || (stored !== undefined && stored <= candidate.at && candidate.at - stored <= lookbackMs)
+      if (covered || candidate.hop) {
+        eventIds.add(candidate.eventId)
+        continue
+      }
+    }
+    if (!candidate.hop) arrivals.set(candidate.actor, candidate.at)
+  }
+  return { eventIds, arrivals }
+}
+
+/** Follow-ons within one batch, keyed by raw IP and user agent and never stored. */
+export function findAiReferralFollowOnsInBatch(events: readonly NormalizedTrafficRequest[]): Set<string> {
+  return findAiReferralFollowOns(events, { actorKey: batchActorKey }).eventIds
 }
 
 function aiReferralSessionKey(
@@ -221,6 +311,7 @@ export function buildTrafficProbeReport(
   const includedEvents = events.filter((event) => !isSelfTraffic(event))
   const selfTrafficExcluded = events.length - includedEvents.length
   const scannerBursts = options.scannerBurstEventIds ?? findScannerBurstsInBatch(includedEvents)
+  const aiReferralFollowOns = options.aiReferralFollowOnEventIds ?? findAiReferralFollowOnsInBatch(includedEvents)
 
   let crawlerHits = 0
   let aiUserFetchHits = 0
@@ -318,7 +409,8 @@ export function buildTrafficProbeReport(
     if (aiReferral) {
       aiReferralHits += 1
       const landingPathNormalized = resolveAiReferralLandingPath(event, aiReferral.evidenceType)
-      if (!isLikelySubresourcePath(landingPathNormalized)) {
+      // A later request of a visitor who already arrived is a hit, not another arrival.
+      if (!aiReferralFollowOns.has(event.eventId) && !isLikelySubresourcePath(landingPathNormalized)) {
         const session: AiReferralSession = {
           tsHour,
           operator: aiReferral.operator,

@@ -31,7 +31,12 @@ rarely. Report every step separately; never pool them.
 
 Server-side hits are requests and GA4 counts sessions, and each instrument
 misses some visits the other sees, so the two never match exactly. Compare
-their trend, not their totals.
+their trend, not their totals. Server-side arrivals stored before Canonry
+7.87.2 also counted a visitor's later pages, assets and API calls that carried
+the landing page's utm, about one per minute of the visit, so those hours can
+read several times high and cannot be corrected. Never read a trend across
+that upgrade; for earlier hours quote GA4, or AI visitor journeys where they
+exist.
 
 ## Check the instrument before you report a zero
 

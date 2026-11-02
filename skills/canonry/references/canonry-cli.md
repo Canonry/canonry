@@ -1104,6 +1104,9 @@ operators, crawled paths, referral products, landing paths, daily history, and
 equal prior-window changes. It does not start a sync or provider work. The
 scope is project-wide for Simple and Advanced portfolios; there is no Property,
 Target, or market attribution. Server sessions and GA sessions remain separate.
+Referral arrivals stored before Canonry 7.87.2 also counted a visitor's later
+same-site requests, so a window or prior window that reaches back before that
+upgrade reads high on that side.
 
 ## Google Analytics 4
 

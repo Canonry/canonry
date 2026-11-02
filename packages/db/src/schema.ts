@@ -3043,6 +3043,23 @@ export const agentScannerClients = sqliteTable('agent_scanner_clients', {
   index('idx_agent_scanner_clients_source_last').on(table.sourceId, table.lastProbeAt),
 ])
 
+/**
+ * Each visitor's latest AI-referral arrival per source, so a later page,
+ * asset or API call that still carries the engine's utm (a step of that
+ * arrival) is not counted again when it lands in a later batch. The visitor
+ * is a keyed hash of IP and user agent; no address is stored.
+ */
+export const aiReferralVisitors = sqliteTable('ai_referral_visitors', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  visitorKey: text('visitor_key').notNull(),
+  lastArrivalAt: text('last_arrival_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.sourceId, table.visitorKey] }),
+  index('idx_ai_referral_visitors_source_last').on(table.sourceId, table.lastArrivalAt),
+])
+
 export const discoverySessions = sqliteTable('discovery_sessions', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),

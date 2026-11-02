@@ -143,6 +143,7 @@ import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from 
 import { enforceJourneyRetention, recordJourneyBatch } from './journeys.js'
 import { recordAgentJourneyBatch } from './agent-journey-capture.js'
 import { planScannerBursts, saveScannerBursts } from './agent-scanner-bursts.js'
+import { planAiReferralArrivals, saveAiReferralArrivals } from './ai-referral-arrivals.js'
 import { addLikelyFakeAgentHits, clearLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
@@ -1398,7 +1399,12 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
 
   // Read now, stored with the rollups below. An older window never replaces a newer one.
   const bursts = planScannerBursts(app.db, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret })
-  const report = buildTrafficProbeReport(allEvents, { sampleLimit: BACKFILL_SAMPLE_LIMIT, scannerBurstEventIds: bursts.eventIds })
+  const referralArrivals = planAiReferralArrivals(app.db, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret })
+  const report = buildTrafficProbeReport(allEvents, {
+    sampleLimit: BACKFILL_SAMPLE_LIMIT,
+    scannerBurstEventIds: bursts.eventIds,
+    aiReferralFollowOnEventIds: referralArrivals.followOnEventIds,
+  })
   // Self-traffic exclusion is never silent. The backfill response already
   // returned, so the log is the surfacing channel here.
   if (report.totals.selfTrafficExcluded > 0) {
@@ -1737,6 +1743,7 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
         outerActive: () => app.db.$client.inTransaction,
       })
       saveScannerBursts(tx, { projectId: project.id, sourceId: sourceRow.id, windows: bursts.windows, now: finishedAt })
+      saveAiReferralArrivals(tx, { projectId: project.id, sourceId: sourceRow.id, arrivals: referralArrivals.arrivals, now: finishedAt })
       recordAgentJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret, now: finishedAt, scannerBurstEventIds: bursts.eventIds }, {
         onError: () => { app.log.error({ sourceId: sourceRow.id }, 'Agent journey capture failed during traffic backfill') },
         outerActive: () => app.db.$client.inTransaction,
@@ -3967,7 +3974,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       finishedAt = new Date().toISOString()
       const bursts = planScannerBursts(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret })
       saveScannerBursts(tx, { projectId: project.id, sourceId: sourceRow.id, windows: bursts.windows, now: finishedAt })
-      const report = buildTrafficProbeReport(dedupedEvents, { sampleLimit, scannerBurstEventIds: bursts.eventIds })
+      const referralArrivals = planAiReferralArrivals(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret })
+      saveAiReferralArrivals(tx, { projectId: project.id, sourceId: sourceRow.id, arrivals: referralArrivals.arrivals, now: finishedAt })
+      const report = buildTrafficProbeReport(dedupedEvents, {
+        sampleLimit,
+        scannerBurstEventIds: bursts.eventIds,
+        aiReferralFollowOnEventIds: referralArrivals.followOnEventIds,
+      })
       const rawSampleCutoff = enforceRawEventSampleRetention(
         tx,
         sourceRow.id,

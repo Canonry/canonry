@@ -195,4 +195,10 @@ export interface BuildTrafficProbeReportOptions {
    * when omitted.
    */
   scannerBurstEventIds?: ReadonlySet<string>
+  /**
+   * AI-referral requests that are later steps of a visitor who already
+   * arrived (`findAiReferralFollowOns`), counted as hits but never as
+   * arrivals. Found within the batch when omitted.
+   */
+  aiReferralFollowOnEventIds?: ReadonlySet<string>
 }

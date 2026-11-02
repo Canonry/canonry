@@ -33,10 +33,19 @@ Legitimate peaks can qualify and small automated bursts can escape the rule.
 `--burst-threshold` changes the default 100-hit review trigger; the default has
 not been calibrated against live traffic distributions.
 
-Server counts use short actor windows within ingestion batches, so they are
-not GA sessions or verified people. Normalized paths can combine pages;
-multiple sources can overlap. No Property, Target or market attribution is
-available. These limits apply equally to Simple and Advanced portfolios.
+Server counts are arrivals, not GA sessions or verified people. A request
+whose referer is outside the site (the AI engine's page, or none) is an
+arrival; requests from one visitor (IP and user agent) to the same landing
+page within a minute count once. A later page, asset or API call whose same-site
+referer still carries the engine's utm belongs to that arrival for 30 days,
+in this or any later sync or push. It counts as the arrival only when the
+visitor had none in those 30 days: a site whose pages a cache serves before
+the logs see them shows nothing else. Hours stored before Canonry 7.87.2
+counted every later minute of a visit as another arrival and read high;
+hourly rows keep no visitor, so they cannot be corrected. Normalized paths
+can combine pages; multiple sources can overlap. No Property, Target or
+market attribution is available. These limits apply equally to Simple and
+Advanced portfolios.
 
 The observed server/GA quotient, rounded to 2 decimals, uses
 dimension-deduplicated GA sessions, but complete matching coverage and the GA
@@ -61,7 +70,8 @@ Four tables store the shared output from every adapter:
 | `ai_user_fetch_likely_fake_hourly` | One row per `(project, source, hour, bot, first trust reason)` — requests that claimed a user-triggered agent but were judged likely fake |
 | `agent_scanner_clients` | One row per `(project, source, client)` — the latest run of scanner probes from one IP (stored as a keyed hash), kept two days so a burst split across batches is still recognized |
 | `journey_visitor_aliases` | One row per `(project, alias key)` — a visitor key found to be another visitor seen from a new IP (same AI-tagged page, same browser, within 5 seconds); requests under the alias key are kept under that visitor. Both are keyed hashes, never an IP |
-| `ai_referral_events_hourly` | One row per `(project, source, hour, product, source_domain, evidence_type, landing_path, status)` — click-through arrivals rolled up by hour |
+| `ai_referral_events_hourly` | One row per `(project, source, hour, product, source_domain, evidence_type, landing_path, status)` — click-through arrivals rolled up by hour; a visitor's later same-site requests are not arrivals |
+| `ai_referral_visitors` | One row per `(project, source, visitor)`: each visitor's latest AI arrival (the visitor is a keyed hash of IP and user agent, never the address), kept 44 days so a later request of the same visit in a later batch is not counted again |
 | `raw_event_samples` | Bounded forensic samples for spot checks. Source writes plus a startup/daily global sweep enforce 30-day retention; Cloudflare also uses a per-source, per-hour cap |
 
 Each `traffic_sources` row is one server-log integration for a project.
