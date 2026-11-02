@@ -227,7 +227,9 @@ export function classifyAiReferral(event: NormalizedTrafficRequest): ClassifiedA
   // sub-resource requests (JS chunks, fonts, etc.) reach the origin. Those
   // requests carry the original landing-URL UTM in their referer's query
   // string, so we look there too — without it we lose ~all human AI-referral
-  // signal on cached sites.
+  // signal on cached sites. Every later page, asset and API call of a visitor
+  // already on the site carries the same tags, so this only names the engine:
+  // the rollup decides which request is the arrival (`findAiReferralFollowOns`).
   const refererUtmSource = utmSourceFromUrl(event.referer)
   if (refererUtmSource) {
     const rule = DEFAULT_AI_REFERRER_RULES.find((candidate) => utmTokenMatchesDomain(refererUtmSource, candidate.domain))

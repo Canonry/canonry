@@ -1161,6 +1161,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Ingest state: each client\'s latest scanner probe window, keyed by a hash of its IP, so a burst split across batches is still marked; never exposed.',
   },
+  aiReferralVisitors: {
+    kind: 'internal-only',
+    reason: 'Ingest state: each visitor\'s latest AI-referral arrival, keyed by a hash of IP and user agent, so later requests of that visit in a later batch are not counted as arrivals; never exposed.',
+  },
   migrationsTable: {
     kind: 'internal-only',
     reason: 'Internal migration bookkeeping; never exposed.',

@@ -126,6 +126,27 @@ function isStepRefererHost(host: string, path: string): boolean {
   })
 }
 
+/** The project's own domains (canonical and owned) as bare hosts, the form `isStepReferer` reads. */
+export function siteDomainHosts(siteDomains: readonly string[] = []): string[] {
+  return siteDomains.map(domainOf).filter((d): d is string => Boolean(d))
+}
+
+/**
+ * Whether a request's referer is a step inside a visit rather than where the
+ * visitor came from: a page of this site (the request's own host, another
+ * subdomain of it, or one of `siteHosts` from `siteDomainHosts`), or a
+ * sign-in, payment or booking page that sends the visitor straight back.
+ */
+export function isStepReferer(event: NormalizedTrafficRequest, siteHosts: readonly string[] = []): boolean {
+  const refererUrl = refererUrlOf(event.referer)
+  const refererBase = baseHost(refererUrl?.hostname || null)
+  if (!refererBase) return false
+  const siteHost = baseHost(hostOfEvent(event))
+  if (siteHost && (onDomain(refererBase, siteHost) || onDomain(siteHost, refererBase))) return true
+  if (siteHosts.some(domain => onDomain(refererBase, domain))) return true
+  return isStepRefererHost(refererBase, refererUrl?.pathname ?? '/')
+}
+
 function isAssetPath(path: string): boolean {
   return ASSET_PATH_PREFIXES.some(prefix => path.startsWith(prefix)) || ASSET_EXTENSION_PATTERN.test(path)
 }
@@ -169,7 +190,7 @@ export function isLikelyBrowser(userAgent: string | null | undefined): boolean {
  * are masked; a click id is reduced to the fact that one was present.
  */
 export function extractJourneyRequests(events: readonly NormalizedTrafficRequest[], options: ExtractJourneyOptions = {}): JourneyRequest[] {
-  const siteDomains = (options.siteDomains ?? []).map(domainOf).filter((d): d is string => Boolean(d))
+  const siteHosts = siteDomainHosts(options.siteDomains)
   const out: JourneyRequest[] = []
   for (const event of events) {
     const method = event.method?.toUpperCase() ?? null
@@ -190,15 +211,8 @@ export function extractJourneyRequests(events: readonly NormalizedTrafficRequest
     })
     const maskedPath = maskJourneyPath(rawPath)
     const path = (kept.length ? `${maskedPath}?${kept.join('&')}` : maskedPath).slice(0, MAX_PATH_LENGTH)
-    const refererUrl = refererUrlOf(event.referer)
-    const refererHost = refererUrl?.hostname || null
-    const refererBase = baseHost(refererHost)
-    const siteHost = baseHost(hostOfEvent(event))
-    const sameSite = Boolean(refererBase && (
-      (siteHost && (onDomain(refererBase, siteHost) || onDomain(siteHost, refererBase)))
-      || siteDomains.some(domain => onDomain(refererBase, domain))
-    ))
-    const stepReferer = sameSite || Boolean(refererBase && isStepRefererHost(refererBase, refererUrl?.pathname ?? '/'))
+    const refererHost = refererUrlOf(event.referer)?.hostname || null
+    const stepReferer = isStepReferer(event, siteHosts)
     const ai = classifyAiReferral(event)
     const networkClickId = Object.keys(NETWORK_CLICK_ID_PARAMETERS).find(name => params.has(name))
 

@@ -38,6 +38,8 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/ga-search-landing-pages.ts` | GA4's Search Console landing-page snapshot: the sync's persist / failure writers and `GET /ga/search-landing-pages` (see "GA4 Search Console landing pages") |
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
+| `src/ai-referral-arrivals.ts` | AI-referral arrivals at ingest: `planAiReferralArrivals` finds a batch's follow-ons (later same-site requests of a visitor who arrived from the same engine within 30 days, here or in a stored batch, and landings whose own later request reached ingest first) for `buildTrafficProbeReport`, and `saveAiReferralArrivals` merges the batch's arrivals into each visitor's stored list (`ai_referral_visitors`, an HMAC of IP, user agent and engine under the journeys secret; nothing is stored without it, and follow-ons are then found within the batch only). Every traffic writer (pull sync, backfill, push and Queue drain) plans before its rollup and saves in the same write transaction. |
+| `src/keyed-visitor-state.ts` | `keyedIdentityHash` (the namespaced HMAC behind every keyed per-visitor store: scanner clients, agent journeys, AI-referral visitors) and `chunks` for chunked `inArray` reads. |
 | `src/traffic-samples.ts` | Stored diagnostic sample rows with project/source scope, bounded paging, and viewer/embed restrictions. |
 | `src/agent-journey-capture.ts` / `src/agent-journeys.ts` | Retained user-triggered agent requests and inferred sequences; bounded list/detail reads with independent operator verification and current-plan Property attribution. |
 | `src/agent-scanner-bursts.ts` | Scanner bursts at ingest: `planScannerBursts` marks an IP's other agent requests within 10 minutes of a scanner probe, reading and `saveScannerBursts` writing each client's probe window (`agent_scanner_clients`, keyed by an HMAC of the IP). |
@@ -758,6 +760,7 @@ The backfill route mirrors the same shape — `runBackfillTask` is adapter-agnos
 - `countableReferralCondition()` composes both — the ONE condition for any figure presented as visits/sessions/arrivals.
 - The redirect complement is always DERIVED as `total - landed`, never queried through a second hand-written condition.
 - Status semantics come from `isLocationRedirectStatus` in contracts.
+- Rows are arrivals, not requests (`ai-referral-arrivals.ts`). Hours written before 7.87.2 also counted a visitor's later same-site requests, about one per minute of a visit; rows keep no visitor or referer, so those hours cannot be corrected and no stored pass rewrites them.
 
 ### Cloudflare traffic doctor boundary
 
