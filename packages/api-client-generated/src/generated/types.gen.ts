@@ -4305,6 +4305,31 @@ export type BingPageTotalsResponseDto = {
         endDate: string | null;
     };
     latestAvailableDate: string | null;
+    totals: {
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+        weeks: number;
+    } | null;
+    comparison: {
+        days: number;
+        prior: {
+            clicks: number;
+            impressions: number;
+            ctr: number;
+            avgImpressionPosition: number | null;
+            avgClickPosition: number | null;
+            weeks: number;
+        };
+        difference: {
+            clicks: number;
+            impressions: number;
+            ctr: number;
+            avgImpressionPosition: number | null;
+        };
+    } | null;
 };
 
 export type BingQueryHistoryResponseDto = {
@@ -4360,6 +4385,31 @@ export type BingQueryTotalsResponseDto = {
         endDate: string | null;
     };
     latestAvailableDate: string | null;
+    totals: {
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+        weeks: number;
+    } | null;
+    comparison: {
+        days: number;
+        prior: {
+            clicks: number;
+            impressions: number;
+            ctr: number;
+            avgImpressionPosition: number | null;
+            avgClickPosition: number | null;
+            weeks: number;
+        };
+        difference: {
+            clicks: number;
+            impressions: number;
+            ctr: number;
+            avgImpressionPosition: number | null;
+        };
+    } | null;
 };
 
 export type BingSiteResponseDto = {
@@ -4407,6 +4457,73 @@ export type BingTrafficResponseDto = {
     };
     latestAvailableDate: string | null;
     earliestAvailableDate: string | null;
+    trends: {
+        clicks: {
+            slope: number;
+            intercept: number;
+            r2: number;
+            start: number;
+            end: number;
+            n: number;
+            startIndex: number;
+            endIndex: number;
+        } | null;
+        impressions: {
+            slope: number;
+            intercept: number;
+            r2: number;
+            start: number;
+            end: number;
+            n: number;
+            startIndex: number;
+            endIndex: number;
+        } | null;
+        ctr: {
+            slope: number;
+            intercept: number;
+            r2: number;
+            start: number;
+            end: number;
+            n: number;
+            startIndex: number;
+            endIndex: number;
+        } | null;
+    };
+    periodComparison: {
+        days: number;
+        basis?: 'prior-window' | 'split-window';
+        prior: {
+            startDate: string;
+            endDate: string;
+            clicks: number;
+            impressions: number;
+            ctr: number | null;
+            position: number | null;
+            source: 'property-daily' | 'dimensioned' | 'mixed' | 'empty';
+        };
+        trailing: {
+            startDate: string;
+            endDate: string;
+            clicks: number;
+            impressions: number;
+            ctr: number | null;
+            position: number | null;
+            source: 'property-daily' | 'dimensioned' | 'mixed' | 'empty';
+        };
+        comparable: boolean;
+        change: {
+            clicks: number | null;
+            impressions: number | null;
+            ctr: number | null;
+            position: number | null;
+        };
+        difference?: {
+            clicks: number | null;
+            impressions: number | null;
+            ctr: number | null;
+            position: number | null;
+        };
+    } | null;
 };
 
 export type BingUrlChildrenResponseDto = {
@@ -13337,7 +13454,7 @@ export type UiTelemetryEvent = {
     uiSessionId: string;
     page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.action';
-    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'journeys.visitor_open' | 'journeys.visit_open' | 'journeys.agent_open' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
+    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'bing.sync' | 'journeys.visitor_open' | 'journeys.visit_open' | 'journeys.agent_open' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
     tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
     integration?: 'google' | 'gsc' | 'ga' | 'bing' | 'gbp' | 'wordpress' | 'openai_ads' | 'google_ads' | 'gtm' | 'traffic_cloudflare' | 'traffic_vercel' | 'traffic_cloud_run' | 'traffic_wordpress';
     format?: 'csv' | 'json' | 'html';
@@ -32303,6 +32420,10 @@ export type GetApiV1ProjectsByNameBingTrafficData = {
          * Span in days ending at endDate, or at the newest stored day (default 28).
          */
         days?: string;
+        /**
+         * Window ending at endDate or the newest stored day: 7d, 30d, 90d or all. Not allowed with startDate or days.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
     };
     url: '/api/v1/projects/{name}/bing/traffic';
 };
@@ -32351,9 +32472,17 @@ export type GetApiV1ProjectsByNameBingQueriesData = {
          */
         days?: string;
         /**
-         * Substring filter on the query.
+         * Window ending at endDate or the newest stored day: 7d, 30d, 90d or all. Not allowed with startDate or days.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Filter on the query: a substring, or the whole query with match=exact.
          */
         query?: string;
+        /**
+         * contains (default) or exact.
+         */
+        match?: 'contains' | 'exact';
         /**
          * query (default) or week.
          */
@@ -32414,9 +32543,17 @@ export type GetApiV1ProjectsByNameBingPagesData = {
          */
         days?: string;
         /**
-         * Substring filter on the page URL.
+         * Window ending at endDate or the newest stored day: 7d, 30d, 90d or all. Not allowed with startDate or days.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Filter on the page URL: a substring, or the whole URL with match=exact.
          */
         page?: string;
+        /**
+         * contains (default) or exact.
+         */
+        match?: 'contains' | 'exact';
         /**
          * page (default) or week.
          */

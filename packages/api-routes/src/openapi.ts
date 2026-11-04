@@ -5957,9 +5957,9 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/bing/traffic',
-    summary: 'Get stored daily Bing site clicks and impressions',
+    summary: 'Get stored daily Bing site clicks and impressions, with trend fits and a period comparison',
     tags: ['bing'],
-    parameters: [nameParameter, { name: 'startDate', in: 'query', description: 'First day (YYYY-MM-DD). Wins over days.', schema: stringSchema }, { name: 'endDate', in: 'query', description: 'Last day (YYYY-MM-DD).', schema: stringSchema }, { name: 'days', in: 'query', description: 'Span in days ending at endDate, or at the newest stored day (default 28).', schema: stringSchema }],
+    parameters: [nameParameter, { name: 'startDate', in: 'query', description: 'First day (YYYY-MM-DD). Wins over days.', schema: stringSchema }, { name: 'endDate', in: 'query', description: 'Last day (YYYY-MM-DD).', schema: stringSchema }, { name: 'days', in: 'query', description: 'Span in days ending at endDate, or at the newest stored day (default 28).', schema: stringSchema }, { name: 'window', in: 'query', description: 'Window ending at endDate or the newest stored day: 7d, 30d, 90d or all. Not allowed with startDate or days.', schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] } }],
     responses: {
       200: jsonResponse('Stored Bing traffic returned.', 'BingTrafficResponseDto'),
       400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
@@ -5971,7 +5971,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/bing/queries',
     summary: 'Get stored Bing query stats (weekly buckets summed over the window)',
     tags: ['bing'],
-    parameters: [nameParameter, { name: 'startDate', in: 'query', description: 'First day (YYYY-MM-DD). Wins over days.', schema: stringSchema }, { name: 'endDate', in: 'query', description: 'Last day (YYYY-MM-DD).', schema: stringSchema }, { name: 'days', in: 'query', description: 'Span in days ending at endDate, or at the newest stored day (default 28).', schema: stringSchema }, { name: 'query', in: 'query', description: 'Substring filter on the query.', schema: stringSchema }, { name: 'groupBy', in: 'query', description: 'query (default) or week.', schema: stringSchema }, limitQueryParameter, offsetQueryParameter],
+    parameters: [nameParameter, { name: 'startDate', in: 'query', description: 'First day (YYYY-MM-DD). Wins over days.', schema: stringSchema }, { name: 'endDate', in: 'query', description: 'Last day (YYYY-MM-DD).', schema: stringSchema }, { name: 'days', in: 'query', description: 'Span in days ending at endDate, or at the newest stored day (default 28).', schema: stringSchema }, { name: 'window', in: 'query', description: 'Window ending at endDate or the newest stored day: 7d, 30d, 90d or all. Not allowed with startDate or days.', schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] } }, { name: 'query', in: 'query', description: 'Filter on the query: a substring, or the whole query with match=exact.', schema: stringSchema }, { name: 'match', in: 'query', description: 'contains (default) or exact.', schema: { type: 'string', enum: ['contains', 'exact'] } }, { name: 'groupBy', in: 'query', description: 'query (default) or week.', schema: stringSchema }, limitQueryParameter, offsetQueryParameter],
     responses: {
       200: jsonResponse('Stored Bing query stats returned.', 'BingQueryTotalsResponseDto'),
       400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
@@ -5983,7 +5983,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/bing/pages',
     summary: 'Get stored Bing page stats (weekly buckets summed over the window)',
     tags: ['bing'],
-    parameters: [nameParameter, { name: 'startDate', in: 'query', description: 'First day (YYYY-MM-DD). Wins over days.', schema: stringSchema }, { name: 'endDate', in: 'query', description: 'Last day (YYYY-MM-DD).', schema: stringSchema }, { name: 'days', in: 'query', description: 'Span in days ending at endDate, or at the newest stored day (default 28).', schema: stringSchema }, { name: 'page', in: 'query', description: 'Substring filter on the page URL.', schema: stringSchema }, { name: 'groupBy', in: 'query', description: 'page (default) or week.', schema: stringSchema }, limitQueryParameter, offsetQueryParameter],
+    parameters: [nameParameter, { name: 'startDate', in: 'query', description: 'First day (YYYY-MM-DD). Wins over days.', schema: stringSchema }, { name: 'endDate', in: 'query', description: 'Last day (YYYY-MM-DD).', schema: stringSchema }, { name: 'days', in: 'query', description: 'Span in days ending at endDate, or at the newest stored day (default 28).', schema: stringSchema }, { name: 'window', in: 'query', description: 'Window ending at endDate or the newest stored day: 7d, 30d, 90d or all. Not allowed with startDate or days.', schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] } }, { name: 'page', in: 'query', description: 'Filter on the page URL: a substring, or the whole URL with match=exact.', schema: stringSchema }, { name: 'match', in: 'query', description: 'contains (default) or exact.', schema: { type: 'string', enum: ['contains', 'exact'] } }, { name: 'groupBy', in: 'query', description: 'page (default) or week.', schema: stringSchema }, limitQueryParameter, offsetQueryParameter],
     responses: {
       200: jsonResponse('Stored Bing page stats returned.', 'BingPageTotalsResponseDto'),
       400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),

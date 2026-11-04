@@ -6693,7 +6693,7 @@ export const postApiV1ProjectsByNameBingSyncMutation = (options?: Partial<Option
 export const getApiV1ProjectsByNameBingTrafficQueryKey = (options: Options<GetApiV1ProjectsByNameBingTrafficData>) => createQueryKey('getApiV1ProjectsByNameBingTraffic', options);
 
 /**
- * Get stored daily Bing site clicks and impressions
+ * Get stored daily Bing site clicks and impressions, with trend fits and a period comparison
  */
 export const getApiV1ProjectsByNameBingTrafficOptions = (options: Options<GetApiV1ProjectsByNameBingTrafficData>) => queryOptions<GetApiV1ProjectsByNameBingTrafficResponse, GetApiV1ProjectsByNameBingTrafficError, GetApiV1ProjectsByNameBingTrafficResponse, ReturnType<typeof getApiV1ProjectsByNameBingTrafficQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

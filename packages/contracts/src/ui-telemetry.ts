@@ -95,6 +95,8 @@ export const UI_ACTIONS = [
   'integration.connect',
   'integration.disconnect',
   'traffic.sync',
+  /** A Bing data sync was queued from the dashboard. */
+  'bing.sync',
   'journeys.visitor_open',
   'journeys.visit_open',
   'journeys.agent_open',

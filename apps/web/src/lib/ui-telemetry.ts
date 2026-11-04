@@ -289,6 +289,7 @@ const ACTION_BY_ROUTE: ReadonlyArray<ActionRow> = [
   ['DELETE', '/api/v1/projects/{name}/ga/disconnect', 'integration.disconnect', 'ga'],
   ['POST', '/api/v1/projects/{name}/bing/connect', 'integration.connect', 'bing'],
   ['DELETE', '/api/v1/projects/{name}/bing/disconnect', 'integration.disconnect', 'bing'],
+  ['POST', '/api/v1/projects/{name}/bing/sync', 'bing.sync'],
   // GBP authorizes through the Google OAuth connect; choosing a location completes it.
   ['PUT', '/api/v1/projects/{name}/gbp/locations/{locationName}/selection', 'integration.connect', 'gbp'],
   ['DELETE', '/api/v1/projects/{name}/gbp/connection', 'integration.disconnect', 'gbp'],

@@ -1,4 +1,4 @@
-import type { RunDetailDto } from '@canonry/canonry-contracts'
+import type { BingSearchComparisonDto, BingTrafficResponseDto, RunDetailDto } from '@canonry/canonry-contracts'
 import { describeError, formatPercent, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
@@ -580,15 +580,38 @@ export async function bingSync(project: string, opts: { wait?: boolean; format?:
     : 'Bing data sync completed.')
 }
 
-export async function bingTraffic(project: string, opts: { startDate?: string; endDate?: string; days?: string; format?: string }): Promise<void> {
+type BingWindowOption = '7d' | '30d' | '90d' | 'all'
+
+/** `--window` as the API spells it; anything else is left for the API to reject with its own message. */
+function windowOption(value: string | undefined): BingWindowOption | undefined {
+  return value === undefined ? undefined : value as BingWindowOption
+}
+
+/** One line per metric: the change against the comparison period, as the API computed it. */
+function trafficComparisonLines(comparison: BingTrafficResponseDto['periodComparison']): string[] {
+  if (!comparison) return ['  No comparison period.']
+  const basis = comparison.basis === 'split-window'
+    ? `last ${comparison.days} days vs the ${comparison.days} days before, inside this window`
+    : `vs prior ${comparison.days} days`
+  const pct = (ratio: number | null) => (ratio === null ? 'n/a' : `${ratio >= 0 ? '+' : ''}${formatPercent(ratio)}`)
+  return [
+    `  Change, ${basis}:`,
+    `    clicks ${pct(comparison.change.clicks)} (${comparison.prior.clicks} -> ${comparison.trailing.clicks})`,
+    `    impressions ${pct(comparison.change.impressions)} (${comparison.prior.impressions} -> ${comparison.trailing.impressions})`,
+  ]
+}
+
+export async function bingTraffic(project: string, opts: { startDate?: string; endDate?: string; days?: string; window?: string; format?: string }): Promise<void> {
   const client = getClient()
-  const result = await client.bingTraffic(project, { startDate: opts.startDate, endDate: opts.endDate, days: opts.days })
+  const result = await client.bingTraffic(project, { startDate: opts.startDate, endDate: opts.endDate, days: opts.days, window: windowOption(opts.window) })
   if (printJson(opts.format, result, result.rows.map((row) => ({ project, ...row })))) return
   if (result.rows.length === 0) {
     console.log('No stored Bing traffic. Run "canonry bing sync <project>" first.')
     return
   }
-  console.log(`Bing search traffic, ${windowLabel(result.window)}: ${result.totals.clicks} clicks, ${result.totals.impressions} impressions, ${formatPercent(result.totals.ctr)} CTR\n`)
+  console.log(`Bing search traffic, ${windowLabel(result.window)}: ${result.totals.clicks} clicks, ${result.totals.impressions} impressions, ${formatPercent(result.totals.ctr)} CTR`)
+  for (const line of trafficComparisonLines(result.periodComparison)) console.log(line)
+  console.log('')
   console.log(`  ${pad('DATE', 12)}${pad('CLICKS', 9)}${pad('IMPR', 10)}CTR`)
   for (const row of result.rows) {
     console.log(`  ${pad(row.date, 12)}${pad(row.clicks, 9)}${pad(row.impressions, 10)}${formatPercent(row.ctr)}`)
@@ -596,11 +619,12 @@ export async function bingTraffic(project: string, opts: { startDate?: string; e
 }
 
 export async function bingQueries(project: string, opts: {
-  startDate?: string; endDate?: string; days?: string; query?: string; groupBy?: string; limit?: number; offset?: number; format?: string
+  startDate?: string; endDate?: string; days?: string; window?: string; query?: string; exact?: boolean; groupBy?: string; limit?: number; offset?: number; format?: string
 }): Promise<void> {
   const client = getClient()
   const result = await client.bingQueries(project, {
-    startDate: opts.startDate, endDate: opts.endDate, days: opts.days, query: opts.query, groupBy: opts.groupBy, limit: opts.limit, offset: opts.offset,
+    startDate: opts.startDate, endDate: opts.endDate, days: opts.days, window: windowOption(opts.window),
+    query: opts.query, match: opts.exact ? 'exact' : undefined, groupBy: opts.groupBy, limit: opts.limit, offset: opts.offset,
   })
   const rows = result.groupBy === 'week' ? result.weekly : result.rows
   if (printJson(opts.format, result, rows.map((row) => ({ project, ...row })))) return
@@ -608,11 +632,12 @@ export async function bingQueries(project: string, opts: {
 }
 
 export async function bingPages(project: string, opts: {
-  startDate?: string; endDate?: string; days?: string; page?: string; groupBy?: string; limit?: number; offset?: number; format?: string
+  startDate?: string; endDate?: string; days?: string; window?: string; page?: string; exact?: boolean; groupBy?: string; limit?: number; offset?: number; format?: string
 }): Promise<void> {
   const client = getClient()
   const result = await client.bingPages(project, {
-    startDate: opts.startDate, endDate: opts.endDate, days: opts.days, page: opts.page, groupBy: opts.groupBy, limit: opts.limit, offset: opts.offset,
+    startDate: opts.startDate, endDate: opts.endDate, days: opts.days, window: windowOption(opts.window),
+    page: opts.page, match: opts.exact ? 'exact' : undefined, groupBy: opts.groupBy, limit: opts.limit, offset: opts.offset,
   })
   const rows = result.groupBy === 'week' ? result.weekly : result.rows
   if (printJson(opts.format, result, rows.map((row) => ({ project, ...row })))) return
@@ -626,7 +651,13 @@ function printWeeklyTable(
   groupBy: string,
   keyed: Array<WeeklyTotals & { key: string }>,
   weekly: Array<WeeklyTotals & { date: string }>,
-  meta: { totalMatching: number; truncated: boolean; window: { startDate: string | null; endDate: string | null } },
+  meta: {
+    totalMatching: number
+    truncated: boolean
+    window: { startDate: string | null; endDate: string | null }
+    totals: WeeklyTotals | null
+    comparison: BingSearchComparisonDto | null
+  },
 ): void {
   if (groupBy === 'week') {
     if (weekly.length === 0) {
@@ -645,7 +676,16 @@ function printWeeklyTable(
     return
   }
   const width = noun === 'page' ? 60 : 42
-  console.log(`Bing ${noun} stats, ${windowLabel(meta.window)} (${meta.totalMatching} ${noun === 'page' ? 'pages' : 'queries'}; Bing reports these per week):\n`)
+  console.log(`Bing ${noun} stats, ${windowLabel(meta.window)} (${meta.totalMatching} ${noun === 'page' ? 'pages' : 'queries'}; Bing reports these per week):`)
+  if (meta.totals) {
+    console.log(`  All matching: ${meta.totals.clicks} clicks, ${meta.totals.impressions} impressions, position ${position(meta.totals.avgImpressionPosition)}`)
+  }
+  if (meta.comparison) {
+    const change = meta.comparison.difference
+    const signed = (n: number) => `${n >= 0 ? '+' : ''}${n}`
+    console.log(`  vs prior ${meta.comparison.days} days: clicks ${signed(change.clicks)}, impressions ${signed(change.impressions)}, position ${change.avgImpressionPosition === null ? 'n/a' : signed(change.avgImpressionPosition)}`)
+  }
+  console.log('')
   console.log(`  ${pad(noun.toUpperCase(), width)}${pad('CLICKS', 9)}${pad('IMPR', 10)}${pad('CTR', 9)}${pad('POS', 7)}WEEKS`)
   for (const row of keyed) {
     console.log(`  ${pad(row.key, width)}${pad(row.clicks, 9)}${pad(row.impressions, 10)}${pad(formatPercent(row.ctr), 9)}${pad(position(row.avgImpressionPosition), 7)}${row.weeks}`)

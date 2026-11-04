@@ -3641,7 +3641,7 @@ export const postApiV1ProjectsByNameBingSync = <ThrowOnError extends boolean = f
 });
 
 /**
- * Get stored daily Bing site clicks and impressions
+ * Get stored daily Bing site clicks and impressions, with trend fits and a period comparison
  */
 export const getApiV1ProjectsByNameBingTraffic = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameBingTrafficData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameBingTrafficResponses, GetApiV1ProjectsByNameBingTrafficErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameBingTrafficResponses, GetApiV1ProjectsByNameBingTrafficErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

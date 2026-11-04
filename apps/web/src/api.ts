@@ -86,6 +86,7 @@ import {
   getApiV1ProjectsByNameBingCoverage,
   getApiV1ProjectsByNameBingInspections,
   postApiV1ProjectsByNameBingInspectUrl,
+  postApiV1ProjectsByNameBingSync,
   postApiV1ProjectsByNameBingInspectSitemap,
   postApiV1ProjectsByNameBingRequestIndexing,
   getApiV1ProjectsByNameBingPerformance,
@@ -1744,6 +1745,13 @@ export function inspectBingUrl(project: string, url: string): Promise<ApiBingIns
       path: { name: project },
       body: { url },
     }),
+  )
+}
+
+/** Queue a full Bing data sync (`bing-sync`): search performance, crawl stats, sitemaps, site settings, demand. */
+export function triggerBingSync(project: string): Promise<ApiRun> {
+  return invokeWeb<ApiRun>(() =>
+    postApiV1ProjectsByNameBingSync({ client: heyClient, path: { name: project } }),
   )
 }
 

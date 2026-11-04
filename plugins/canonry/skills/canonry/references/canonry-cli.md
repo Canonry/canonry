@@ -946,9 +946,9 @@ cnry bing performance <project>               # stored query rows, one per query
 
 # Stored Bing data (written by `cnry bing sync`, which the daily data refresh runs)
 cnry bing sync <project> [--wait]             # read every Bing data method and store it (about 20 to 50 Bing calls)
-cnry bing traffic <project> [--days 28]       # daily site clicks + impressions with window totals (the Bing site total)
-cnry bing queries <project> [--query text] [--group-by week] [--limit n] [--offset n]  # per-query totals summed from Bing's weekly rows
-cnry bing pages <project> [--page text] [--group-by week]     # per-page totals summed from weekly rows
+cnry bing traffic <project> [--window 30d] [--days 28]  # daily site clicks + impressions, window totals (the Bing site total), trend fits and a period comparison
+cnry bing queries <project> [--window 30d] [--query text [--exact]] [--group-by week] [--limit n] [--offset n]  # per-query totals summed from Bing's weekly rows, plus all-matching totals vs the prior window
+cnry bing pages <project> [--window 30d] [--page text [--exact]] [--group-by week]  # per-page totals summed from weekly rows
 cnry bing crawl-stats <project> [--days 28]   # daily Bingbot crawl counts, HTTP codes, robots blocks, in-index pages
 cnry bing sitemaps <project>                  # sitemaps Bing has, child sitemaps under their index
 cnry bing site <project> [--kind <kind>]      # submission quotas left, crawl settings, crawl issues, blocked URLs, preview/sitelink blocks, URL parameters, geo-targeting, fetches, roles
@@ -965,7 +965,7 @@ cnry bing fetched-urls <project> [--url <url>]  # Fetch as Bingbot history, or w
 cnry bing keywords <project> <keyword> [--country us] [--language en-US]  # any keyword's Bing volume, weekly history, related keywords
 ```
 
-`cnry bing traffic` is the Bing site total; `queries` and `pages` list only what Bing chooses to name, so never sum them for a total. Bing reports queries and pages per **week**: each stored row is one weekly bucket, and a window total sums the buckets dated inside it. Positions are impression-weighted; Bing's `-1` "no value" is stored as null. `latestAvailableDate` trails today by 2 to 3 days because Bing publishes late.
+`cnry bing traffic` is the Bing site total; `queries` and `pages` list only what Bing chooses to name, so never sum them for a total. Bing reports queries and pages per **week**: each stored row is one weekly bucket, and a window total sums the buckets dated inside it. Positions are impression-weighted; Bing's `-1` "no value" is stored as null. `latestAvailableDate` trails today by 2 to 3 days because Bing publishes late. `--window` takes `7d`, `30d`, `90d` or `all` and ends at the newest stored day. `bing traffic` returns `periodComparison` (the window against the stored window before it, or the window's own halves when the sync does not reach back that far, as `basis` says) and `trends` fitted over the calendar; days before the first sync never count as zero. `bing queries` and `bing pages` return `totals` (every matching row, before paging) and `comparison` against the window before, or null when the stored weeks do not reach it. `--exact` matches one whole query or page URL, which is how a single query's weeks are read (`--exact --group-by week`).
 
 `cnry bing sync` runs as part of every `data-refresh` (with `inspect-sitemap`). It reads daily traffic, weekly query and page stats, daily crawl stats, sitemaps (expanding up to 20 sitemap indexes), 12 site settings and weekly search demand for tracked queries (refreshed once a week per query, at most 30 queries per sync, in the project's country and language). Every call goes through the same per-account pacing as the URL inspection sweep (one request start every 2 seconds per Bing key), and a throttle that outlasts the client's retries ends the run as `partial` instead of hammering the account. Sections fail independently: one failure marks the run `partial` and the rest still land. Owner-only settings (`connected-pages`, `site-roles`) are stored as `unauthorized` when the key is not the site owner's; that is not a failure. Bing AI Performance and Topics Portfolio (Copilot citations, grounding queries) are not in Bing's API, so Canonry cannot read them.
 

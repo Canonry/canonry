@@ -1,5 +1,7 @@
 import { z } from 'zod'
+import { gscPeriodComparisonSchema } from './google.js'
 import { fraction, percent } from './ratio-unit.js'
+import { linearTrendSchema } from './statistics.js'
 
 export const bingConnectionDtoSchema = z.object({
   id: z.string(),
@@ -189,6 +191,25 @@ export const bingTrafficResponseDtoSchema = z.object({
   latestAvailableDate: z.string().nullable(),
   /** Oldest stored day. A window that starts earlier is only partly covered. */
   earliestAvailableDate: z.string().nullable(),
+  /**
+   * Least-squares fit per metric over one entry per calendar day in the
+   * window (a day Bing sent no row for counts as zero), so every surface draws
+   * the same line. Null for a metric with fewer than two days.
+   */
+  trends: z.object({
+    clicks: linearTrendSchema.nullable(),
+    impressions: linearTrendSchema.nullable(),
+    ctr: linearTrendSchema.nullable(),
+  }),
+  /**
+   * The window against the equal-length period before it (`prior-window`)
+   * when the stored days reach back that far, else the window's own two
+   * halves (`split-window`). Same shape as the Search Console comparison;
+   * `position` is always null because Bing's daily traffic carries none.
+   * Null when there is no span to split or the window ends after the newest
+   * stored day.
+   */
+  periodComparison: gscPeriodComparisonSchema.nullable(),
 })
 export type BingTrafficResponseDto = z.infer<typeof bingTrafficResponseDtoSchema>
 
@@ -214,11 +235,44 @@ export type BingPageTotalsRowDto = z.infer<typeof bingPageTotalsRowDtoSchema>
 export const bingWeeklyTotalsRowDtoSchema = z.object({ date: z.string(), ...bingSearchTotalsShape })
 export type BingWeeklyTotalsRowDto = z.infer<typeof bingWeeklyTotalsRowDtoSchema>
 
+/** Every matching query (or page) in the window summed, before paging. */
+export const bingSearchTotalsDtoSchema = z.object(bingSearchTotalsShape)
+export type BingSearchTotalsDto = z.infer<typeof bingSearchTotalsDtoSchema>
+
+/**
+ * The window's totals against the equal-length window just before it. Bing's
+ * weeks are matched by their start date. `difference` is window minus prior;
+ * for a position, a positive number is a worse rank.
+ */
+export const bingSearchComparisonDtoSchema = z.object({
+  /** Length of each window in calendar days. */
+  days: z.number().int().positive(),
+  prior: bingSearchTotalsDtoSchema,
+  difference: z.object({
+    clicks: z.number().int(),
+    impressions: z.number().int(),
+    ctr: fraction(),
+    avgImpressionPosition: z.number().nullable(),
+  }),
+})
+export type BingSearchComparisonDto = z.infer<typeof bingSearchComparisonDtoSchema>
+
 const bingSearchListEnvelope = {
   totalMatching: z.number().int().nonnegative(),
   truncated: z.boolean(),
   window: bingWindowDtoSchema,
   latestAvailableDate: z.string().nullable(),
+  /**
+   * The matching rows summed over the window, before paging. Not a site total:
+   * Bing names only some queries (use `/bing/traffic` for the site). Null when
+   * no stored week falls in the window.
+   */
+  totals: bingSearchTotalsDtoSchema.nullable(),
+  /**
+   * `totals` against the equal-length window before it. Null for an open
+   * window (`window=all`), or when the stored weeks do not reach back that far.
+   */
+  comparison: bingSearchComparisonDtoSchema.nullable(),
 }
 
 /**
