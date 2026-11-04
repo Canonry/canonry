@@ -2,6 +2,7 @@ import { Component, type ReactNode } from 'react'
 import { AlertTriangle, RotateCcw } from 'lucide-react'
 import { Button } from '../ui/button.js'
 import { recordUiError } from '../../lib/ui-telemetry.js'
+import { isStaleBuildError, reloadForNewBuild } from '../../lib/stale-build.js'
 
 interface Props {
   children: ReactNode
@@ -23,6 +24,8 @@ export class ErrorBoundary extends Component<Props, State> {
   override componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[ErrorBoundary]', error, info.componentStack)
     recordUiError({ kind: 'render', error, component: this.props.name ?? 'root' })
+    // A page whose code file a deploy removed: reload onto the current build.
+    if (isStaleBuildError(error)) reloadForNewBuild()
   }
 
   private handleReset = () => {
@@ -31,6 +34,24 @@ export class ErrorBoundary extends Component<Props, State> {
 
   override render() {
     if (!this.state.error) return this.props.children
+
+    if (isStaleBuildError(this.state.error)) {
+      // Shown while the reload runs, and kept if it already ran moments ago.
+      return (
+        <div className="page-container">
+          <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
+            <div className="rounded-full bg-surface-subtle p-3">
+              <RotateCcw className="size-6 text-secondary" />
+            </div>
+            <h2 className="text-heading-20 text-heading">Canonry was updated</h2>
+            <p className="text-copy-14 text-secondary max-w-md">
+              This tab is still on the previous version. Reload to open the page.
+            </p>
+            <Button size="sm" onClick={() => window.location.reload()}>Reload</Button>
+          </div>
+        </div>
+      )
+    }
 
     return (
       <div className="page-container">
