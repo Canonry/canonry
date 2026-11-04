@@ -99,6 +99,7 @@ export function invalidateQueriesForRunKind(
       return
     case RunKinds['bing-inspect']:
     case RunKinds['bing-inspect-sitemap']:
+    case RunKinds['bing-sync']:
       void invalidateProjectQueryDomain(queryClient, 'bing')
       void invalidateProjectQueryDomain(queryClient, 'trends', { projectName })
       return

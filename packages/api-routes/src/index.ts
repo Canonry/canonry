@@ -381,6 +381,7 @@ export interface ApiRoutesOptions {
   bingSettingsSummary?: SettingsRoutesOptions['bing']
   onBingSettingsUpdate?: SettingsRoutesOptions['onBingUpdate']
   onBingInspectSitemapRequested?: BingRoutesOptions['onInspectSitemapRequested']
+  onBingSyncRequested?: BingRoutesOptions['onSyncRequested']
   /** WordPress connection store */
   wordpressConnectionStore?: WordpressRoutesOptions['wordpressConnectionStore']
   /** CDP browser provider callbacks */
@@ -838,6 +839,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(bingRoutes, {
       bingConnectionStore: opts.bingConnectionStore,
       onInspectSitemapRequested: opts.onBingInspectSitemapRequested,
+      onSyncRequested: opts.onBingSyncRequested,
       claimScheduledSync: opts.claimScheduledSync,
     } satisfies BingRoutesOptions)
     await api.register(googleRoutes, {

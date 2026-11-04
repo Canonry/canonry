@@ -9,6 +9,7 @@ function makeClient(overrides: Partial<DataRefreshClient> = {}): DataRefreshClie
   return {
     gscSync: vi.fn(async () => ({ id: 'gsc-run', status: 'queued' })),
     bingInspectSitemap: vi.fn(async () => ({ id: 'bing-run', status: 'queued' })),
+    bingSync: vi.fn(async () => ({ id: 'bing-sync-run', status: 'queued' })),
     gaSync: vi.fn(async () => ({ synced: true })),
     triggerGbpSync: vi.fn(async () => ({ runId: 'gbp-run', status: 'running' })),
     triggerAdsSync: vi.fn(async () => ({ runId: 'ads-run', status: 'queued' })),
@@ -39,7 +40,7 @@ describe('gaRefreshDays', () => {
 describe('refreshAllIntegrations', () => {
   test('holds one claim per integration while its scheduled call is pending and clears every claim', async () => {
     const claims = new Set<string>()
-    const pending = Array.from({ length: 7 }, () => deferred<void>())
+    const pending = Array.from({ length: 8 }, () => deferred<void>())
     const client = makeClient({
       gscSync: vi.fn(async () => { await pending[0]!.promise; return { id: 'gsc-run', status: 'queued' } }),
       bingInspectSitemap: vi.fn(async () => { await pending[1]!.promise; return { id: 'bing-run', status: 'queued' } }),
@@ -48,6 +49,7 @@ describe('refreshAllIntegrations', () => {
       triggerAdsSync: vi.fn(async () => { await pending[4]!.promise; return { runId: 'ads-run', status: 'queued' } }),
       triggerGoogleAdsSync: vi.fn(async () => { await pending[5]!.promise; return { id: 'google-ads-run', status: 'queued' } }),
       triggerGtmSync: vi.fn(async () => { await pending[6]!.promise; return { id: 'gtm-run', status: 'queued' } }),
+      bingSync: vi.fn(async () => { await pending[7]!.promise; return { id: 'bing-sync-run', status: 'queued' } }),
     })
 
     const refresh = refreshAllIntegrations(client, 'proj', new Date('2026-09-28T12:00:00Z'), {
@@ -58,6 +60,7 @@ describe('refreshAllIntegrations', () => {
     expect(claims).toEqual(new Set([
       syncRunClaimKey('proj', RunKinds['gsc-sync']),
       syncRunClaimKey('proj', RunKinds['bing-inspect-sitemap']),
+      syncRunClaimKey('proj', RunKinds['bing-sync']),
       syncRunClaimKey('proj', RunKinds['ga-sync']),
       syncRunClaimKey('proj', RunKinds['gbp-sync']),
       syncRunClaimKey('proj', RunKinds['ads-sync']),
@@ -89,6 +92,7 @@ describe('refreshAllIntegrations', () => {
     expect(client.gscSync).toHaveBeenCalledTimes(1)
     expect(client.gscSync).toHaveBeenCalledWith('proj', {})
     expect(client.bingInspectSitemap).toHaveBeenCalledWith('proj', {})
+    expect(client.bingSync).toHaveBeenCalledWith('proj')
     expect(client.gaSync).toHaveBeenCalledWith('proj', { days: 30 })
     expect(client.triggerGbpSync).toHaveBeenCalledWith('proj', {})
     // Existing `ads` remains OpenAI / ChatGPT Ads, rather than being reused
@@ -107,8 +111,9 @@ describe('refreshAllIntegrations', () => {
 
     await expect(refreshAllIntegrations(client, 'proj')).resolves.toBeUndefined()
 
-    // The remaining six still fired despite Bing rejecting.
+    // The remaining seven still fired despite the Bing sweep rejecting.
     expect(client.gscSync).toHaveBeenCalledTimes(1)
+    expect(client.bingSync).toHaveBeenCalledTimes(1)
     expect(client.gaSync).toHaveBeenCalledTimes(1)
     expect(client.triggerGbpSync).toHaveBeenCalledTimes(1)
     expect(client.triggerAdsSync).toHaveBeenCalledTimes(1)
@@ -123,6 +128,7 @@ describe('refreshAllIntegrations', () => {
     const client = makeClient({
       gscSync: boom,
       bingInspectSitemap: boom,
+      bingSync: boom,
       gaSync: boom,
       triggerGbpSync: boom,
       triggerAdsSync: boom,
@@ -131,7 +137,7 @@ describe('refreshAllIntegrations', () => {
     })
 
     await expect(refreshAllIntegrations(client, 'proj')).resolves.toBeUndefined()
-    expect(boom).toHaveBeenCalledTimes(7)
+    expect(boom).toHaveBeenCalledTimes(8)
   })
 
   test('logs refreshed only for the synchronous GA sync and queued, with the run id, for the rest', async () => {
@@ -158,8 +164,9 @@ describe('refreshAllIntegrations', () => {
     expect(byIntegration.ads).toMatchObject({ action: 'integration.queued', runId: 'ads-run', runStatus: 'queued' })
     expect(byIntegration['google-ads']).toMatchObject({ action: 'integration.queued', runId: 'google-ads-run', runStatus: 'queued' })
     expect(byIntegration.gtm).toMatchObject({ action: 'integration.queued', runId: 'gtm-run', runStatus: 'queued' })
+    expect(byIntegration['bing-sync']).toMatchObject({ action: 'integration.queued', runId: 'bing-sync-run', runStatus: 'queued' })
     expect(entries.filter(entry => entry.action === 'integration.refreshed').map(entry => entry.integration)).toEqual(['ga'])
-    expect(entries).toHaveLength(7)
+    expect(entries).toHaveLength(8)
   })
 })
 

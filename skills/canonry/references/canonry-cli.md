@@ -703,7 +703,7 @@ does not execute providers.
 ```bash
 cnry schedule set <project> --preset daily     # or: weekly, twice-daily, daily@09
 cnry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
-cnry schedule set <project> --kind data-refresh --preset daily   # refresh all connected GSC/Bing/GA/GBP integrations (no --source)
+cnry schedule set <project> --kind data-refresh --preset daily   # refresh all connected GSC/Bing (coverage + full data sync)/GA/GBP integrations (no --source)
 cnry schedule set <project> --kind backlinks-sync --preset weekly # re-probe Common Crawl; sync only when a newer rolling window is published (no --source/--provider)
 cnry doctor --project <project> --check site.reachability   # probe the homepage now; the server also probes every 10 min and pages health.degraded after two failed passes
 cnry schedule set <project> --kind site-audit --preset weekly     # Technical AEO: bounded full-site crawl and audit (no --source/--provider)
@@ -941,11 +941,37 @@ cnry bing inspect-sitemap <project>           # discover sitemap URLs and inspec
 cnry bing inspect-sitemap <project> --sitemap-url <url> --wait  # explicit sitemap, wait for run
 cnry bing inspections <project>               # inspection history
 cnry bing request-indexing <project> <url>    # submit URL for indexing
-cnry bing request-indexing <project> --all-unindexed  # submit all unindexed
-cnry bing performance <project>               # search performance data
+cnry bing request-indexing <project> --all-unindexed  # submit all unindexed (capped at the site's remaining Bing quota)
+cnry bing performance <project>               # stored query rows, one per query per week (`date`); `bing queries` gives window totals
+
+# Stored Bing data (written by `cnry bing sync`, which the daily data refresh runs)
+cnry bing sync <project> [--wait]             # read every Bing data method and store it (about 20 to 50 Bing calls)
+cnry bing traffic <project> [--days 28]       # daily site clicks + impressions with window totals (the Bing site total)
+cnry bing queries <project> [--query text] [--group-by week] [--limit n] [--offset n]  # per-query totals summed from Bing's weekly rows
+cnry bing pages <project> [--page text] [--group-by week]     # per-page totals summed from weekly rows
+cnry bing crawl-stats <project> [--days 28]   # daily Bingbot crawl counts, HTTP codes, robots blocks, in-index pages
+cnry bing sitemaps <project>                  # sitemaps Bing has, child sitemaps under their index
+cnry bing site <project> [--kind <kind>]      # submission quotas left, crawl settings, crawl issues, blocked URLs, preview/sitelink blocks, URL parameters, geo-targeting, fetches, roles
+cnry bing keyword-demand <project> [--query <tracked query>]  # weekly Bing search volume for tracked queries
+
+# Live Bing reads (one call to Bing each; ask before running in an agent loop)
+cnry bing query-pages <project> <query>       # which pages showed for a query, per week
+cnry bing page-queries <project> <page-url>   # which queries a page showed for, per week
+cnry bing query-history <project> <query> [--page <url>]  # one query per day, or per week with position on one page
+cnry bing url-traffic <project> <url> [--children] [--page n]  # clicks/impressions for a URL and the URLs under it
+cnry bing url-children <project> <url> [--page n]  # index details for the URLs under a directory
+cnry bing links <project> [--url <page-url>]  # pages with inbound links, or the links to one page (often empty for small sites)
+cnry bing fetched-urls <project> [--url <url>]  # Fetch as Bingbot history, or what Bingbot received
+cnry bing keywords <project> <keyword> [--country us] [--language en-US]  # any keyword's Bing volume, weekly history, related keywords
 ```
 
-Bing is optional. `cnry doctor --project <project> --check 'bing.*'` reports `bing.auth.connection` as **skipped** (`bing.auth.not-connected`) for a project that never connected Bing, or whose domain's connection was removed with `cnry bing disconnect` (projects on one domain share the connection). It **fails** (`bing.auth.no-connection`) only when the connection is gone while the project still holds Bing data from an earlier connection.
+`cnry bing traffic` is the Bing site total; `queries` and `pages` list only what Bing chooses to name, so never sum them for a total. Bing reports queries and pages per **week**: each stored row is one weekly bucket, and a window total sums the buckets dated inside it. Positions are impression-weighted; Bing's `-1` "no value" is stored as null. `latestAvailableDate` trails today by 2 to 3 days because Bing publishes late.
+
+`cnry bing sync` runs as part of every `data-refresh` (with `inspect-sitemap`). It reads daily traffic, weekly query and page stats, daily crawl stats, sitemaps (expanding up to 20 sitemap indexes), 12 site settings and weekly search demand for tracked queries (refreshed once a week per query, at most 30 queries per sync, in the project's country and language). Every call goes through the same per-account pacing as the URL inspection sweep (one request start every 2 seconds per Bing key), and a throttle that outlasts the client's retries ends the run as `partial` instead of hammering the account. Sections fail independently: one failure marks the run `partial` and the rest still land. Owner-only settings (`connected-pages`, `site-roles`) are stored as `unauthorized` when the key is not the site owner's; that is not a failure. Bing AI Performance and Topics Portfolio (Copilot citations, grounding queries) are not in Bing's API, so Canonry cannot read them.
+
+`cnry bing request-indexing` reads the site's remaining submission quota first (often 100 a day, not the documented 10,000) and submits only what Bing will accept; the rest come back as per-URL errors with the reason, and the response carries `quota`.
+
+Bing is optional. `cnry doctor --project <project> --check 'bing.*'` reports `bing.auth.connection` as **skipped** (`bing.auth.not-connected`) for a project that never connected Bing, or whose domain's connection was removed with `cnry bing disconnect` (projects on one domain share the connection). It **fails** (`bing.auth.no-connection`) only when the connection is gone while the project still holds Bing data from an earlier connection. `bing.sync.recent-failures` fails after three `bing-sync` runs in a row fail, and `cnry status` shows a separate "Bing search data" row with the newest stored traffic day.
 
 ## WordPress Integration
 
@@ -1814,7 +1840,7 @@ Every command takes `--format`:
 
 **Update notice.** When a newer canonry is published, the CLI writes one line to **stderr** before the command runs (stdout is never touched): `[canonry] UPDATE_AVAILABLE: ...` in text mode, or `{"notice":{"code":"UPDATE_AVAILABLE","current":"…","latest":"…","installMethod":"npm|homebrew|docker","upgradeCommand":"…","url":"…"}}` with `--format json|jsonl`. Tell the operator, or run the `upgradeCommand` (it already matches how canonry was installed) and restart `canonry serve`. `cnry doctor --check canonry.version.current` reports the same for the running server (`version.outdated` warns). Silence with `CANONRY_DISABLE_UPDATE_CHECK=1`. Over MCP the same notice arrives in the initialize instructions and as `updateAvailable` in `canonry_help`.
 
-`jsonl` is supported by every **collection** command — one whose primary output is a list: `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, `google` reads (`performance`, `performance-daily`, `query-totals`, `inspections`, `coverage-history`, `deindexed`, `status`, `properties`, `list-sitemaps`), `bing` reads (`coverage-history`, `inspections`, `performance`, `sites`), `ga` reads (`ai-referral-daily`, `ai-referral-history`, `social-referral-history`, `session-history`, `coverage`, `search-landing-pages`), `google-ads` customer/snapshot reads, `gtm` account/container/workspace/snapshot reads, conversion-tracking contracts and integrity findings, `ads geo search` and `ads conversions` reads, `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps/map`, `backlinks list/releases`, `project list/locations`, `key list`, `agent memory list`, `agent providers`, `sources` (streams the ranked cited-domain list), and `doctor`. (`content brief` is an object command — `jsonl` degrades to its JSON document.)
+`jsonl` is supported by every **collection** command — one whose primary output is a list: `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, `google` reads (`performance`, `performance-daily`, `query-totals`, `inspections`, `coverage-history`, `deindexed`, `status`, `properties`, `list-sitemaps`), `bing` reads (`coverage-history`, `inspections`, `performance`, `sites`, `traffic`, `queries`, `pages`, `crawl-stats`, `sitemaps`, `site`, `keyword-demand`, `query-pages`, `page-queries`, `query-history`, `url-traffic`, `url-children`, `links`, `fetched-urls`, `keywords`), `ga` reads (`ai-referral-daily`, `ai-referral-history`, `social-referral-history`, `session-history`, `coverage`, `search-landing-pages`), `google-ads` customer/snapshot reads, `gtm` account/container/workspace/snapshot reads, conversion-tracking contracts and integrity findings, `ads geo search` and `ads conversions` reads, `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps/map`, `backlinks list/releases`, `project list/locations`, `key list`, `agent memory list`, `agent providers`, `sources` (streams the ranked cited-domain list), and `doctor`. (`content brief` is an object command — `jsonl` degrades to its JSON document.)
 
 Each `jsonl` line re-injects the envelope context it would otherwise lose, so a line lifted out still self-describes:
 

@@ -54,7 +54,7 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/discovery/routes.ts` / `src/discovery/orchestrate.ts` | Tracked-basket discovery routes; `executeDiscovery` orchestration (rules: `src/discovery/AGENTS.md`) |
 | `src/doctor.ts` / `src/doctor/registry.ts` / `src/doctor/runner.ts` | `GET /doctor`, `GET /projects/:name/doctor` → `DoctorReport`; `ALL_CHECKS`; `runChecks()`, `matchesCheckId()` |
 | `src/doctor/checks/*.ts` | Individual `CheckDefinition`s (rules: `src/doctor/AGENTS.md`) |
-| `src/bing.ts` / `src/wordpress.ts` / `src/intelligence.ts` / `src/backlinks.ts` | Bing Webmaster Tools, WordPress, intelligence insight + health snapshot, and Common Crawl backlinks routes |
+| `src/bing.ts` / `src/bing-data.ts` / `src/wordpress.ts` / `src/intelligence.ts` / `src/backlinks.ts` | Bing Webmaster Tools (connection, coverage, indexing; `bing-data.ts` holds the `bing-sync` trigger, stored Bing reads and live Bing drill-downs), WordPress, intelligence insight + health snapshot, and Common Crawl backlinks routes |
 | `src/visibility-report.ts` | Stored-evidence `GET /projects/:name/visibility-report`. `previousEligibleVisibilityRun` uses `notProbeRun()` and ignores the date window and pinned run. An unreadable predecessor omits `comparison`. |
 | `src/measurement-scope-options.ts` | `planScopeOptions` is the single scope-option builder. The visibility report calls it with `marketLinks: true`; the query-tracking workspace calls it with `marketLinks: false`. |
 | `src/provider-batches.ts` | Reads over `provider_batches`: the run detail's `providerBatches`, `runHadProviderBatch` (fill age), `hasOutstandingProviderBatch` (scheduler `batch-pending`). Writes belong to the job runner and the poller. |

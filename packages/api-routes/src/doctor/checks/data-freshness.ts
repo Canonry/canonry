@@ -24,6 +24,11 @@ export const GA_DATA_AGING_DAYS = 3
 export const GA_DATA_STALE_DAYS = 5
 export const GSC_DATA_AGING_DAYS = 5
 export const GSC_DATA_STALE_DAYS = 7
+/**
+ * Bing publishes daily search stats with a lag: on 4 Nov the newest day it
+ * served was 1 Nov. A week without a newer day means the sync is not landing.
+ */
+export const BING_DATA_AGING_DAYS = 7
 /** No successful sync in this window means the pipeline is idle, not that data stopped. */
 export const SYNC_IDLE_DAYS = 3
 /**

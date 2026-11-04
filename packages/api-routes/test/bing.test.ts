@@ -6,7 +6,7 @@ import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
-import { bingUrlInspections, bingCoverageSnapshots, createClient, migrate, projects, runs } from '@canonry/canonry-db'
+import { bingQueryStats, bingUrlInspections, bingCoverageSnapshots, createClient, migrate, projects, runs } from '@canonry/canonry-db'
 import { bingRoutes, __resetBingCrawlIssuesCacheForTest } from '../src/bing.js'
 import type { BingConnectionRecord, BingConnectionStore } from '../src/bing.js'
 
@@ -408,25 +408,26 @@ describe('Bing routes', () => {
     expect(body.unknown.map((row) => row.url)).toEqual(['https://example.com/unknown'])
   })
 
-  it('performance normalizes non-finite CTR values to 0', async () => {
+  it('performance returns stored weekly query rows newest first, without calling Bing', async () => {
     const bingModule = await import('@canonry/canonry-integration-bing')
-    vi.spyOn(bingModule, 'getKeywordStats').mockResolvedValue([
-      { Query: 'normal query', Impressions: 100, Clicks: 5, Ctr: 0.05, AverageClickPosition: 3, AverageImpressionPosition: 3 },
-      { Query: 'nan ctr', Impressions: 0, Clicks: 0, Ctr: NaN, AverageClickPosition: 0, AverageImpressionPosition: 0 },
-      { Query: 'infinity ctr', Impressions: 0, Clicks: 0, Ctr: Infinity, AverageClickPosition: 0, AverageImpressionPosition: 0 },
-    ])
+    const live = vi.spyOn(bingModule, 'getQueryStats')
+    const base = { projectId, syncRunId: null, syncedAt: '2026-11-03T00:00:00Z' }
+    db.insert(bingQueryStats).values([
+      { ...base, id: crypto.randomUUID(), date: '2026-10-10', query: 'older week', clicks: 5, impressions: 100, avgClickPosition: 3, avgImpressionPosition: 4 },
+      { ...base, id: crypto.randomUUID(), date: '2026-10-17', query: 'no impressions', clicks: 0, impressions: 0, avgClickPosition: null, avgImpressionPosition: null },
+      { ...base, id: crypto.randomUUID(), date: '2026-10-17', query: 'impression position only', clicks: 2, impressions: 40, avgClickPosition: null, avgImpressionPosition: 6 },
+    ]).run()
 
-    const res = await app.inject({
-      method: 'GET',
-      url: '/projects/test-project/bing/performance',
-    })
+    const res = await app.inject({ method: 'GET', url: '/projects/test-project/bing/performance' })
 
     expect(res.statusCode).toBe(200)
-    const body = res.json() as Array<{ query: string; ctr: number }>
-    expect(body).toHaveLength(3)
-    expect(body[0]!.ctr).toBe(0.05)
-    expect(body[1]!.ctr).toBe(0)
-    expect(body[2]!.ctr).toBe(0)
+    const body = res.json() as Array<{ query: string; date: string; ctr: number; averagePosition: number }>
+    expect(body.map((row) => row.query)).toEqual(['impression position only', 'no impressions', 'older week'])
+    expect(body[0]).toMatchObject({ date: '2026-10-17', ctr: 0.05, averagePosition: 6 })
+    expect(body[1]).toMatchObject({ ctr: 0, averagePosition: 0 })
+    expect(body[2]).toMatchObject({ averagePosition: 3 })
+    expect(live).not.toHaveBeenCalled()
+    db.delete(bingQueryStats).run()
   })
 
   it('allUnindexed submits URLs with not-indexed or unknown status', async () => {

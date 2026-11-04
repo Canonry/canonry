@@ -21,6 +21,7 @@ export const runKindSchema = z.enum([
   'ga-sync',
   'bing-inspect',
   'bing-inspect-sitemap',
+  'bing-sync',
   'backlink-extract',
   'traffic-sync',
   'aeo-discover-seed',

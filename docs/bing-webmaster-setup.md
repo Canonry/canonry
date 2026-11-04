@@ -1,6 +1,6 @@
 # Bing Webmaster Tools Setup
 
-Canonry integrates with Bing Webmaster Tools (WMT) via API key to pull URL coverage data, inspect indexing status, view search performance, and submit pages for indexing.
+Canonry connects to Bing Webmaster Tools (WMT) with an API key. It pulls URL coverage, indexing status, search performance, crawl stats, sitemaps, site settings and keyword search volume, and it submits pages for indexing.
 
 You can complete the entire setup via the **web dashboard** or the **CLI** — both are documented below.
 
@@ -111,7 +111,7 @@ canonry bing status <project>
 # URL coverage summary (indexed / not indexed / unknown)
 canonry bing coverage <project>
 
-# Search performance data (impressions, clicks, CTR)
+# Stored query rows, one per query per week (impressions, clicks, CTR)
 canonry bing performance <project>
 
 # Inspect a specific URL
@@ -129,6 +129,43 @@ canonry bing request-indexing <project> --all-unindexed
 # Disconnect
 canonry bing disconnect <project>
 ```
+
+### Stored Bing data
+
+`canonry bing sync <project>` reads every data method Bing's API has and stores the results. The daily `data-refresh` schedule runs it for every connected project, so most operators never run it by hand.
+
+| Read | What it holds | Source method |
+|------|---------------|---------------|
+| `canonry bing traffic` | Daily site clicks and impressions. This is the Bing site total. | `GetRankAndTrafficStats` |
+| `canonry bing queries` | Clicks, impressions and position per query, one row per week | `GetQueryStats` |
+| `canonry bing pages` | The same per page URL | `GetPageStats` |
+| `canonry bing crawl-stats` | Daily Bingbot crawl counts, HTTP status counts, robots.txt blocks, pages in index | `GetCrawlStats` |
+| `canonry bing sitemaps` | Sitemaps Bing has, with status, URL count and last crawl; child sitemaps under their index | `GetFeeds`, `GetFeedDetails` |
+| `canonry bing site` | URL and content submission quotas left, crawl settings, crawl issues, blocked URLs, page preview blocks, sitelink blocks, URL parameters, geo-targeting, Fetch as Bingbot history, connected pages, user roles | 12 `Get*` settings methods |
+| `canonry bing keyword-demand` | Weekly Bing search volume for each tracked query, in the project's country and language | `GetKeywordStats` |
+
+Bing only keeps about six months of history. Canonry keeps every day and week it has read, so history builds up beyond Bing's window from the first sync.
+
+The sync paces its calls through the same per-account limit as the URL inspection sweep: one request start every two seconds per Bing API key. If Bing still throttles after the client's retries, the sync stops early and marks the run `partial` rather than holding the account limit open. Connected pages and user roles need the site owner's key. With a delegated key, they are stored as `unauthorized`, which does not count as a failure.
+
+### Live reads
+
+These ask Bing directly each time they run:
+
+```bash
+canonry bing query-pages <project> "<query>"          # pages that showed for a query, per week
+canonry bing page-queries <project> <page-url>        # queries a page showed for, per week
+canonry bing query-history <project> "<query>"        # one query per day (add --page <url> for weekly rows with position)
+canonry bing url-traffic <project> <url> --children   # clicks and impressions for a URL and the URLs under it
+canonry bing url-children <project> <url>             # index details for the URLs under a directory
+canonry bing links <project> [--url <page-url>]       # inbound links (Bing often returns none for smaller sites)
+canonry bing fetched-urls <project>                   # Fetch as Bingbot history
+canonry bing keywords <project> "<keyword>"           # any keyword's Bing volume, weekly history and related keywords
+```
+
+### What Bing's API does not expose
+
+The **AI Performance** report in Bing Webmaster Tools is not in Bing's API. That includes Copilot citations, grounding queries, intents, citation share and Topics Portfolio. Canonry cannot read it until Microsoft adds it.
 
 ---
 
@@ -171,9 +208,9 @@ Expected response: `202 Accepted`
 Bing WMT enforces these limits on URL submissions via the API:
 
 - **Batch limit:** 500 URLs per request
-- **Daily limit:** 10,000 URLs per day
+- **Daily limit:** set per site by Bing, and usually far below the documented 10,000. A site often gets 100 a day.
 
-The `canonry bing request-indexing --all-unindexed` command respects these limits automatically.
+`canonry bing request-indexing` reads the site's remaining quota (`GetUrlSubmissionQuota`) before it submits anything. It sends only what Bing will accept. The other URLs come back as per-URL errors that give the reason, and the response includes `quota`. To check the quota at any time, run `canonry bing site <project> --kind url-submission-quota`.
 
 ---
 

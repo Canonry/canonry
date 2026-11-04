@@ -65,7 +65,22 @@ describe('Bing coverage MCP transport', () => {
     const loaded = await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'bing' } })
     expect(loaded.isError).not.toBe(true)
     expect((await client.listTools()).tools.filter(tool => tool.name.startsWith('canonry_bing_')).map(tool => tool.name))
-      .toEqual(['canonry_bing_coverage'])
+      .toEqual([
+        'canonry_bing_coverage',
+        'canonry_bing_sync',
+        'canonry_bing_traffic',
+        'canonry_bing_queries',
+        'canonry_bing_pages',
+        'canonry_bing_crawl_stats',
+        'canonry_bing_sitemaps',
+        'canonry_bing_site',
+        'canonry_bing_keyword_demand',
+        'canonry_bing_query_pages',
+        'canonry_bing_page_queries',
+        'canonry_bing_query_history',
+        'canonry_bing_url_traffic',
+        'canonry_bing_keywords',
+      ])
     expect(fetch).not.toHaveBeenCalled()
     expect((await client.callTool({ name: 'canonry_bing_coverage', arguments: { project: 'simple' } })).structuredContent)
       .toEqual(COVERAGE)

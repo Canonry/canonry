@@ -14,6 +14,7 @@ import {
 import {
   adsConnections,
   doctorHealthState,
+  bingTrafficDaily,
   gaDailyTotals,
   gscDailyTotals,
   gscDataWatermarks,
@@ -33,7 +34,7 @@ import {
   type Connection,
 } from './doctor/checks/integration-sync.js'
 import { GBP_NOTHING_TO_SYNC_ERRORS } from './doctor/checks/integration-sync.js'
-import { GA_DATA_AGING_DAYS, GSC_DATA_AGING_DAYS, GSC_REPORTING_TIME_ZONE, SYNC_IDLE_DAYS, daysSinceDate } from './doctor/checks/data-freshness.js'
+import { BING_DATA_AGING_DAYS, GA_DATA_AGING_DAYS, GSC_DATA_AGING_DAYS, GSC_REPORTING_TIME_ZONE, SYNC_IDLE_DAYS, daysSinceDate } from './doctor/checks/data-freshness.js'
 import { ADS_RECENT_SYNC_WARN_DAYS } from './doctor/checks/ads.js'
 import { FRESH_SNAPSHOT_WARN_DAYS } from './doctor/checks/google-marketing.js'
 import { SYNC_LAG_WARN_MS } from './doctor/checks/traffic-source.js'
@@ -120,7 +121,7 @@ function makeRow(
   }
 }
 
-function latestDate(db: DatabaseClient, table: typeof gaDailyTotals | typeof gscDailyTotals, projectId: string): string | null {
+function latestDate(db: DatabaseClient, table: typeof gaDailyTotals | typeof gscDailyTotals | typeof bingTrafficDaily, projectId: string): string | null {
   const row = db.select({ date: table.date }).from(table).where(eq(table.projectId, projectId)).orderBy(desc(table.date)).limit(1).get()
   return row?.date ?? null
 }
@@ -149,7 +150,12 @@ function projectRows(opts: StatusRoutesOptions, project: typeof projects.$inferS
   }
   const gbp = gbpConnection(ctx, info)
   if (connected(gbp)) rows.push(makeRow('gbp', 'Google Business Profile', RunKinds['gbp-sync'], readSyncRunState(opts.db, project.id, RunKinds['gbp-sync'], { nothingToSyncErrors: GBP_NOTHING_TO_SYNC_ERRORS }), GBP_SYNC_STALE_DAYS, null, null, ['gbp.sync.recent-failures']))
-  if (opts.bingConnectionStore?.getConnection(project.canonicalDomain)) rows.push(makeRow('bing', 'Bing Webmaster Tools', RunKinds['bing-inspect-sitemap'], readSyncRunState(opts.db, project.id, RunKinds['bing-inspect-sitemap']), null))
+  if (opts.bingConnectionStore?.getConnection(project.canonicalDomain)) {
+    rows.push(makeRow('bing', 'Bing Webmaster Tools', RunKinds['bing-inspect-sitemap'], readSyncRunState(opts.db, project.id, RunKinds['bing-inspect-sitemap']), null))
+    // Search performance, crawl stats, sitemaps and site settings come from a
+    // separate `bing-sync` run, so they get their own freshness row.
+    rows.push(makeRow('bing-search', 'Bing search data', RunKinds['bing-sync'], readSyncRunState(opts.db, project.id, RunKinds['bing-sync']), SYNC_IDLE_DAYS, latestDate(opts.db, bingTrafficDaily, project.id), null, ['bing.sync.recent-failures'], BING_DATA_AGING_DAYS))
+  }
   const ads = opts.db.select({ id: adsConnections.id, lastSyncedAt: adsConnections.lastSyncedAt }).from(adsConnections).where(eq(adsConnections.projectId, project.id)).limit(1).get()
   if (ads) rows.push(makeRow('ads', 'OpenAI Ads', RunKinds['ads-sync'], readSyncRunState(opts.db, project.id, RunKinds['ads-sync']), ADS_RECENT_SYNC_WARN_DAYS, null, null, ['ads.data.recent-sync'], ADS_RECENT_SYNC_WARN_DAYS, ads.lastSyncedAt))
   const marketing = opts.getGoogleMarketingDoctorInput?.(ctx)

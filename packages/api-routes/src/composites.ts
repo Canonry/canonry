@@ -105,6 +105,7 @@ const INTEGRATION_SYNC_KINDS: ReadonlySet<string> = new Set<RunKind>([
   RunKinds['ga-sync'],
   RunKinds['bing-inspect'],
   RunKinds['bing-inspect-sitemap'],
+  RunKinds['bing-sync'],
   RunKinds['backlink-extract'],
   RunKinds['traffic-sync'],
   RunKinds['google-ads-sync'],

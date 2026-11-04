@@ -5,7 +5,7 @@ import {
   CheckStatuses,
   describeError,
 } from '@canonry/canonry-contracts'
-import { auditLog, bingCoverageSnapshots, bingKeywordStats, bingUrlInspections } from '@canonry/canonry-db'
+import { auditLog, bingCoverageSnapshots, bingKeywordStats, bingTrafficDaily, bingUrlInspections } from '@canonry/canonry-db'
 import { getSites } from '@canonry/canonry-integration-bing'
 import type { CheckDefinition, DoctorContext, ProjectInfo } from '../types.js'
 
@@ -41,6 +41,8 @@ function lostBingConnection(ctx: DoctorContext, project: ProjectInfo): boolean {
       .where(eq(bingUrlInspections.projectId, project.id)).limit(1).get())
     || hasRow(ctx.db.select({ id: bingKeywordStats.id }).from(bingKeywordStats)
       .where(eq(bingKeywordStats.projectId, project.id)).limit(1).get())
+    || hasRow(ctx.db.select({ id: bingTrafficDaily.id }).from(bingTrafficDaily)
+      .where(eq(bingTrafficDaily.projectId, project.id)).limit(1).get())
   if (!storedData) return false
 
   const lastChange = ctx.db

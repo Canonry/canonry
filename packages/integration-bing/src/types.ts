@@ -31,40 +31,207 @@ export interface BingUrlInfo {
   CacheDate?: string
 }
 
-export interface BingPageStats {
-  Date: string
-  Impressions: number
-  Clicks: number
-  Ctr: number
-  AveragePosition: number
-  Query?: string
-  Page?: string
-}
+/**
+ * Bing serializes every date as a WCF JSON date: `/Date(<epoch ms>)/`, with an
+ * optional `+hhmm` / `-hhmm` offset. Kept as the raw string here so the client
+ * never guesses a timezone; `parseBingDate` turns it into ISO.
+ */
+export type BingWcfDate = string
 
-export interface BingKeywordStats {
+/**
+ * One row of `GetQueryStats`, `GetPageStats`, `GetQueryPageStats` and
+ * `GetPageQueryStats` (Bing's `QueryStats` contract). Field names follow the
+ * captured payload exactly.
+ *
+ * - `Query` is overloaded by Bing: it holds the search query for
+ *   `GetQueryStats` / `GetPageQueryStats` and the PAGE URL for `GetPageStats` /
+ *   `GetQueryPageStats`.
+ * - `Date` is a weekly bucket, not a day: a site's rows repeat once per week.
+ * - `AvgClickPosition` is `-1` when the row had no clicks (Bing sentinel).
+ */
+export interface BingQueryStats {
   Query: string
+  Date: BingWcfDate
   Impressions: number
   Clicks: number
-  Ctr: number
-  /** -1 when there are zero clicks (Bing sentinel). */
   AvgClickPosition: number
   AvgImpressionPosition: number
 }
 
+/** `GetRankAndTrafficStats` / `GetQueryTrafficStats`: one row per DAY. */
+export interface BingRankAndTrafficStats {
+  Date: BingWcfDate
+  Clicks: number
+  Impressions: number
+}
+
+/** `GetQueryPageDetailStats`: one row per week for a single query on a single page. */
+export interface BingDetailedQueryStats {
+  Date: BingWcfDate
+  Clicks: number
+  Impressions: number
+  Position: number
+}
+
+/** `GetCrawlStats`: one row per day. Every field below is in the captured payload. */
 export interface BingCrawlStats {
-  Date: string
+  Date: BingWcfDate
   CrawledPages: number
   InIndex: number
   CrawlErrors: number
+  InLinks?: number
+  Code2xx?: number
+  Code301?: number
+  Code302?: number
+  Code4xx?: number
+  Code5xx?: number
+  AllOtherCodes?: number
   BlockedByRobotsTxt?: number
-  HttpErrors?: Record<string, number>
+  ConnectionTimeout?: number
+  ContainsMalware?: number
+  DnsFailures?: number
 }
 
+/**
+ * `GetCrawlIssues` (Bing's `UrlWithCrawlIssues`). Microsoft documents `Url`,
+ * `HttpCode`, `InLinks` and `Issues` (a flags enum). Every live capture so far
+ * returned an empty list, so `IssueType` / `Date` stay as the legacy fallbacks
+ * the inspection path already reads.
+ */
 export interface BingCrawlIssue {
   Url: string
   HttpCode: number
-  Date: string
+  InLinks?: number
+  Issues?: number | string
+  Date?: string
   IssueType?: string
+}
+
+/** `GetUrlTrafficInfo` / `GetChildrenUrlTrafficInfo`. */
+export interface BingUrlTrafficInfo {
+  Url: string
+  Clicks: number
+  Impressions: number
+  IsPage: boolean
+}
+
+/** `GetFeeds` / `GetFeedDetails`: a submitted sitemap, sitemap index or feed. */
+export interface BingFeed {
+  Url: string
+  Type: string
+  Status: string
+  UrlCount: number
+  FileSize: number
+  Compressed: boolean
+  Submitted?: BingWcfDate | null
+  LastCrawled?: BingWcfDate | null
+}
+
+/**
+ * `GetUrlSubmissionQuota` / `GetContentSubmissionQuota`. Both figures are what
+ * is LEFT: a site with no submissions on 4 Nov reported `DailyQuota: 100` and
+ * `MonthlyQuota: 2700`, i.e. 100 a day for the 27 days remaining in the month.
+ */
+export interface BingSubmissionQuota {
+  DailyQuota: number
+  MonthlyQuota: number
+}
+
+/** `GetCrawlSettings`. `CrawlRate` is 24 hourly values (Bing's 1 to 10 scale). */
+export interface BingCrawlSettings {
+  CrawlBoostAvailable: boolean
+  CrawlBoostEnabled: boolean
+  CrawlRate: number[]
+}
+
+/** `GetBlockedUrls` (Bing's `BlockedUrl`). `EntityType` 0 = page, 1 = directory; `RequestType` 0 = cache only, 1 = full removal. */
+export interface BingBlockedUrl {
+  Url: string
+  Date?: BingWcfDate | null
+  DaysToExpire?: number
+  EntityType?: number
+  RequestType?: number
+}
+
+/** `GetQueryParameters` (URL normalization parameters). */
+export interface BingQueryParameter {
+  Parameter: string
+  IsEnabled?: boolean
+  Date?: BingWcfDate | null
+  Source?: string | number
+}
+
+/** `GetCountryRegionSettings`. `Type` 0 = page, 1 = directory, 2 = domain, 3 = subdomain. */
+export interface BingCountryRegionSettings {
+  Url: string
+  TwoLetterIsoCountryCode: string
+  Type?: number
+  Date?: BingWcfDate | null
+}
+
+/** `GetFetchedUrls` (Fetch as Bingbot history). */
+export interface BingFetchedUrl {
+  Url: string
+  Date?: BingWcfDate | null
+  Expired?: boolean
+  Fetched?: boolean
+}
+
+/** `GetFetchedUrlDetails`. `Document` and `Headers` are what Bingbot received. */
+export interface BingFetchedUrlDetails {
+  Url: string
+  Date?: BingWcfDate | null
+  Status?: string
+  Headers?: string
+  Document?: string
+}
+
+/** `GetSiteRoles`. Needs an owner-level key; a delegated key gets `NotAuthorized`. */
+export interface BingSiteRole {
+  Site?: string
+  Email?: string
+  Role?: number
+  Date?: BingWcfDate | null
+  Expired?: boolean
+  DelegatedCode?: string
+  DelegatedCodeOwnerEmail?: string
+  DelegatorEmail?: string
+  VerificationSite?: string
+}
+
+/** `GetLinkCounts`: pages on the site with inbound links. 0-indexed `page`. */
+export interface BingLinkCounts {
+  Links: Array<{ Url: string; Count: number }>
+  TotalPages: number
+}
+
+/** `GetUrlLinks`: inbound links to one page. `Url` is the EXTERNAL linking page. */
+export interface BingLinkDetails {
+  Details: Array<{ Url: string; AnchorText?: string }>
+  TotalPages: number
+}
+
+/** `GetKeyword` / `GetRelatedKeywords`: Bing search volume for a keyword over a date range. */
+export interface BingKeyword {
+  Query: string
+  Impressions: number
+  BroadImpressions: number
+}
+
+/** `GetKeywordStats`: weekly Bing search volume history for one keyword. */
+export interface BingKeywordHistory {
+  Query: string
+  Date: BingWcfDate
+  Impressions: number
+  BroadImpressions: number
+}
+
+/** `GetChildrenUrlInfo` filter (Bing's `FilterProperties`). 0 everywhere means "any". */
+export interface BingUrlFilterProperties {
+  CrawlDateFilter: number
+  DiscoveredDateFilter: number
+  DocFlagsFilters: number
+  HttpCodeFilters: number
 }
 
 export interface BingSubmitUrlResponse {
