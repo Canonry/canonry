@@ -86,6 +86,7 @@ function kindLabel(kind: RunKind): string {
     case RunKinds['traffic-sync']: return 'Traffic sync'
     case RunKinds['bing-inspect']: return 'Bing URL inspection'
     case RunKinds['bing-inspect-sitemap']: return 'Bing sitemap inspection'
+    case RunKinds['bing-sync']: return 'Bing data sync'
     case RunKinds['site-audit']: return 'Technical AEO audit'
     case RunKinds['backlink-extract']: return 'Backlink extract'
     case RunKinds['aeo-discover-seed']: return 'Discovery (seed phase)'

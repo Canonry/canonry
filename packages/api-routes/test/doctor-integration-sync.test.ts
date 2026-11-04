@@ -70,7 +70,7 @@ describe('integration sync failure checks', () => {
       },
     }
   }
-  const run = (kind: 'google-ads-sync' | 'gtm-sync' | 'gsc-sync' | 'gbp-sync' | 'ga-sync', status: string, createdAt: string, error: string | null = null) => {
+  const run = (kind: 'google-ads-sync' | 'gtm-sync' | 'gsc-sync' | 'gbp-sync' | 'ga-sync' | 'bing-sync', status: string, createdAt: string, error: string | null = null) => {
     db.insert(runs).values({
       id: crypto.randomUUID(), projectId: project.id, kind, status, trigger: 'manual', createdAt,
       ...(status === 'queued' || status === 'running' ? {} : { finishedAt: new Date(Date.parse(createdAt) + 60_000).toISOString() }),
@@ -297,6 +297,25 @@ describe('integration sync failure checks', () => {
     expect(await gaCheck.run(oauth)).toMatchObject({
       status: 'fail', details: { consecutiveFailures: 3, lastSuccessAt: new Date(Date.parse(successStarted) + 60_000).toISOString() },
     })
+  })
+
+  it('grades Bing data syncs only once a site is selected, from the time it was set', async () => {
+    const bingCheck = byId('bing.sync.recent-failures')
+    const bingStore = (siteUrl: string | null, updatedAt = daysAgo(10)) => ({
+      getConnection: () => ({ domain: 'client.example', apiKey: 'k', siteUrl, createdAt: daysAgo(30), updatedAt }),
+      upsertConnection: (c: never) => c,
+      updateConnection: () => undefined,
+      deleteConnection: () => false,
+    })
+    for (const days of [3, 2, 1]) run('bing-sync', 'failed', daysAgo(days), 'Bing throttled this account; stopped early.')
+
+    expect(await bingCheck.run(ctx())).toMatchObject({ status: 'skipped', code: 'bing.sync.store-unavailable' })
+    expect(await bingCheck.run(ctx({ bingConnectionStore: bingStore(null) }))).toMatchObject({ status: 'skipped', code: 'bing.sync.not-connected' })
+    expect(await bingCheck.run(ctx({ bingConnectionStore: bingStore('https://client.example/') }))).toMatchObject({
+      status: 'fail', code: 'bing.sync.repeated-failures', urgent: true, details: { latestError: 'Bing throttled this account; stopped early.' },
+    })
+    // Failures from before the site was (re)selected do not count.
+    expect(await bingCheck.run(ctx({ bingConnectionStore: bingStore('https://client.example/', new Date().toISOString()) }))).not.toMatchObject({ status: 'fail' })
   })
 
   it('is superseded by each integration\'s auth checks, which are registered auth checks', () => {

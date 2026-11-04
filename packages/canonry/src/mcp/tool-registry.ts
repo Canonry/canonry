@@ -10,6 +10,7 @@ import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/ca
 import { metricsWindowSchema, trendSurfaceSchema } from '@canonry/canonry-contracts'
 import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS, WINDOW_SETS } from '@canonry/canonry-contracts'
 import { insightSeveritySchema } from '@canonry/canonry-contracts'
+import { bingSiteSnapshotKindSchema } from '@canonry/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/server'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
@@ -457,6 +458,67 @@ const gscPerformanceInputSchema = z.object({
   orderBy: gscPerformanceOrderBySchema.optional(),
   window: analyticsWindowSchema.optional(),
 })
+
+const bingWindowShape = {
+  project: projectNameSchema,
+  startDate: z.string().optional().describe('First day, YYYY-MM-DD. Wins over days.'),
+  endDate: z.string().optional().describe('Last day, YYYY-MM-DD.'),
+  days: z.number().int().positive().optional().describe('Span in days ending at endDate or at the newest stored day (default 28).'),
+}
+
+const bingWindowInputSchema = z.object(bingWindowShape)
+
+const bingQueriesInputSchema = z.object({
+  ...bingWindowShape,
+  query: z.string().optional().describe('Substring filter on the query.'),
+  groupBy: z.enum(['query', 'week']).optional(),
+  limit: z.number().int().positive().max(5000).optional(),
+  offset: z.number().int().nonnegative().optional(),
+})
+
+const bingPagesInputSchema = z.object({
+  ...bingWindowShape,
+  page: z.string().optional().describe('Substring filter on the page URL.'),
+  groupBy: z.enum(['page', 'week']).optional(),
+  limit: z.number().int().positive().max(5000).optional(),
+  offset: z.number().int().nonnegative().optional(),
+})
+
+const bingSiteInputSchema = z.object({
+  project: projectNameSchema,
+  kind: bingSiteSnapshotKindSchema.optional(),
+})
+
+const bingKeywordDemandInputSchema = z.object({
+  project: projectNameSchema,
+  query: z.string().optional().describe('A tracked query whose weekly history to include.'),
+})
+
+const bingQueryPagesInputSchema = z.object({ project: projectNameSchema, query: z.string().min(1) })
+const bingPageQueriesInputSchema = z.object({ project: projectNameSchema, page: z.string().url() })
+const bingQueryHistoryInputSchema = z.object({ project: projectNameSchema, query: z.string().min(1), page: z.string().url().optional() })
+const bingUrlTrafficInputSchema = z.object({
+  project: projectNameSchema,
+  url: z.string().url(),
+  children: z.boolean().optional(),
+  page: z.number().int().nonnegative().optional(),
+})
+const bingKeywordsInputSchema = z.object({
+  project: projectNameSchema,
+  keyword: z.string().min(1),
+  country: z.string().optional().describe('Market country, such as us. Defaults to the project country.'),
+  language: z.string().optional().describe('Market language tag, such as en-US. Defaults from the project.'),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+})
+
+function bingWindowQuery(input: { startDate?: string; endDate?: string; days?: number }): { startDate?: string; endDate?: string; days?: string } {
+  return {
+    ...(input.startDate ? { startDate: input.startDate } : {}),
+    ...(input.endDate ? { endDate: input.endDate } : {}),
+    ...(input.days !== undefined ? { days: String(input.days) } : {}),
+  }
+}
 
 const gscPerformanceDailyInputSchema = z.object({
   project: projectNameSchema,
@@ -2470,6 +2532,159 @@ const rawCanonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true, openWorldHint: false }),
     openApiOperations: ['GET /api/v1/projects/{name}/bing/coverage'],
     handler: (client, input) => client.bingCoverage(input.project),
+  }),
+  defineTool({
+    name: 'canonry_bing_sync',
+    title: 'Sync Bing data',
+    description: 'Queue a full Bing Webmaster sync for a project: daily site clicks and impressions, weekly query and page stats, daily crawl stats, sitemaps, site settings (submission quotas, crawl settings, blocked URLs, URL parameters, geo-targeting, preview and sitelink blocks, Fetch as Bingbot history, crawl issues) and weekly search demand for tracked queries. Makes about 20 to 50 calls to Bing, paced on the shared account limit. Runs daily as part of the data refresh; trigger it only when stored data is missing or stale. Returns the queued run.',
+    access: 'write',
+    tier: 'bing',
+    inputSchema: projectInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/bing/sync'],
+    handler: (client, input) => client.bingSync(input.project),
+  }),
+  defineTool({
+    name: 'canonry_bing_traffic',
+    title: 'Get Bing traffic',
+    description: 'Get stored daily Bing search clicks and impressions for the whole site, with window totals and CTR (no call to Bing). These daily rows are the site total; use them for Bing headline numbers, never a sum of canonry_bing_queries rows. latestAvailableDate is the newest stored day (Bing lags 2 to 3 days); earliestAvailableDate says how far back history goes.',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: bingWindowInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/traffic'],
+    handler: (client, input) => client.bingTraffic(input.project, bingWindowQuery(input)),
+  }),
+  defineTool({
+    name: 'canonry_bing_queries',
+    title: 'Get Bing query stats',
+    description: 'Get stored Bing search stats per query (no call to Bing). Bing reports queries per WEEK, so each row sums the weekly buckets inside the window, with impression-weighted position and the number of weeks it appeared. Bing names only some queries: never sum rows for a site total, use canonry_bing_traffic. groupBy=week returns weekly totals instead, for a trend. Page with limit/offset until truncated is false.',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: bingQueriesInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/queries'],
+    handler: (client, input) => client.bingQueries(input.project, { ...bingWindowQuery(input), query: input.query, groupBy: input.groupBy, limit: input.limit, offset: input.offset }),
+  }),
+  defineTool({
+    name: 'canonry_bing_pages',
+    title: 'Get Bing page stats',
+    description: 'Get stored Bing search stats per page URL (no call to Bing), summed from weekly buckets like canonry_bing_queries. groupBy=week returns weekly totals. Never sum rows for a site total; use canonry_bing_traffic.',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: bingPagesInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/pages'],
+    handler: (client, input) => client.bingPages(input.project, { ...bingWindowQuery(input), page: input.page, groupBy: input.groupBy, limit: input.limit, offset: input.offset }),
+  }),
+  defineTool({
+    name: 'canonry_bing_crawl_stats',
+    title: 'Get Bing crawl stats',
+    description: 'Get stored daily Bingbot crawl counts (no call to Bing): pages crawled, pages in index, crawl errors, inbound links, HTTP 2xx/301/302/4xx/5xx counts, robots.txt blocks, timeouts, DNS failures and malware flags. Newest first.',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: bingWindowInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/crawl-stats'],
+    handler: (client, input) => client.bingCrawlStats(input.project, bingWindowQuery(input)),
+  }),
+  defineTool({
+    name: 'canonry_bing_sitemaps',
+    title: 'Get Bing sitemaps',
+    description: 'Get the sitemaps Bing has for the site as of the last sync (no call to Bing): type, status, URL count, submitted and last-crawled dates. Child sitemaps carry the parentUrl of their sitemap index.',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/sitemaps'],
+    handler: (client, input) => client.bingSitemaps(input.project),
+  }),
+  defineTool({
+    name: 'canonry_bing_site',
+    title: 'Get Bing site settings',
+    description: 'Get the stored Bing site settings (no call to Bing): URL and content submission quotas LEFT today and this month, crawl settings, crawl issues, blocked URLs, page preview blocks, sitelink blocks, URL parameters, geo-targeting, Fetch as Bingbot history, connected pages and user roles. status is unauthorized for owner-only settings this key cannot read. A blocked URL or preview block keeps a page out of Bing and Copilot answers.',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: bingSiteInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/site'],
+    handler: (client, input) => client.bingSite(input.project, input.kind ? { kind: input.kind } : undefined),
+  }),
+  defineTool({
+    name: 'canonry_bing_keyword_demand',
+    title: 'Get Bing keyword demand',
+    description: 'Get stored weekly Bing search volume for every tracked query in the project market (no call to Bing): average and latest weekly exact-match searches, broad-match searches and weeks stored. This is demand for the query, not traffic to the site. Pass query to include that query\'s weekly history. Refreshed weekly by the Bing sync.',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: bingKeywordDemandInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/keyword-demand'],
+    handler: (client, input) => client.bingKeywordDemand(input.project, input.query ? { query: input.query } : undefined),
+  }),
+  defineTool({
+    name: 'canonry_bing_query_pages',
+    title: 'Get Bing pages for a query (live)',
+    description: 'Ask Bing live which of the site\'s pages showed for one search query, per week (one call to Bing). Use it to find the page Bing ranks for a query.',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: bingQueryPagesInputSchema,
+    annotations: readAnnotations(true),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/query-pages'],
+    handler: (client, input) => client.bingQueryPages(input.project, input.query),
+  }),
+  defineTool({
+    name: 'canonry_bing_page_queries',
+    title: 'Get Bing queries for a page (live)',
+    description: 'Ask Bing live which search queries one page showed for, per week (one call to Bing).',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: bingPageQueriesInputSchema,
+    annotations: readAnnotations(true),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/page-queries'],
+    handler: (client, input) => client.bingPageQueries(input.project, input.page),
+  }),
+  defineTool({
+    name: 'canonry_bing_query_history',
+    title: 'Get Bing query history (live)',
+    description: 'Ask Bing live for one query\'s clicks and impressions per day, or per week with position when page is given (one call to Bing).',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: bingQueryHistoryInputSchema,
+    annotations: readAnnotations(true),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/query-history'],
+    handler: (client, input) => client.bingQueryHistory(input.project, { query: input.query, page: input.page }),
+  }),
+  defineTool({
+    name: 'canonry_bing_url_traffic',
+    title: 'Get Bing traffic for a URL (live)',
+    description: 'Ask Bing live for one URL\'s clicks and impressions, optionally with the URLs under it (children, 0-indexed page). One or two calls to Bing.',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: bingUrlTrafficInputSchema,
+    annotations: readAnnotations(true),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/url-traffic'],
+    handler: (client, input) => client.bingUrlTraffic(input.project, {
+      url: input.url,
+      children: input.children ? 'true' : undefined,
+      page: input.page === undefined ? undefined : String(input.page),
+    }),
+  }),
+  defineTool({
+    name: 'canonry_bing_keywords',
+    title: 'Research a keyword on Bing (live)',
+    description: 'Ask Bing live for any keyword\'s search volume over a window, its weekly history and related keywords with their volume (three calls to Bing). Not tied to the site; use it to size demand for a topic or find new queries to track. impressions is exact-match volume, broadImpressions broad-match.',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: bingKeywordsInputSchema,
+    annotations: readAnnotations(true),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/keywords'],
+    handler: (client, input) => client.bingKeywords(input.project, {
+      keyword: input.keyword,
+      country: input.country,
+      language: input.language,
+      startDate: input.startDate,
+      endDate: input.endDate,
+    }),
   }),
   defineTool({
     name: 'canonry_gsc_sitemaps',

@@ -17,9 +17,12 @@ import {
   submitUrl,
   submitUrlBatch,
   getKeywordStats,
+  getUrlSubmissionQuota,
+  bingDateToDay,
   BING_SUBMIT_URL_BATCH_LIMIT,
   BING_SUBMIT_URL_DAILY_LIMIT,
 } from '@canonry/canonry-integration-bing'
+import { bingDataRoutes } from './bing-data.js'
 
 /**
  * Convert Bing's /Date(epoch-offset)/ format to an ISO 8601 string.
@@ -116,6 +119,8 @@ export interface BingRoutesOptions {
     projectId: string,
     opts?: { sitemapUrl?: string },
   ) => void
+  /** Runs the full Bing data sync (`bing-sync`) for a queued run. */
+  onSyncRequested?: (runId: string, projectId: string) => void
 }
 
 export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) {
@@ -135,6 +140,19 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     }
     return conn
   }
+
+  await bingDataRoutes(app, {
+    claimScheduledSync: opts.claimScheduledSync,
+    onSyncRequested: opts.onSyncRequested,
+    requireApiKey: (domain) => requireConnection(requireConnectionStore(), domain).apiKey,
+    requireSite: (domain) => {
+      const conn = requireConnection(requireConnectionStore(), domain)
+      if (!conn.siteUrl) {
+        throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
+      }
+      return { apiKey: conn.apiKey, siteUrl: conn.siteUrl }
+    },
+  })
 
   // POST /projects/:name/bing/connect
   app.post<{
@@ -717,10 +735,39 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       error?: string
     }> = []
 
+    // Bing's real allowance is per site and usually far below the 10,000 the
+    // API documents (100 a day is common). Ask first and submit only what
+    // Bing will take, so an over-quota request fails per URL with the reason
+    // instead of the whole batch failing on Bing's side. A failed quota read
+    // does not block the submission.
+    let quota: { dailyQuota: number; monthlyQuota: number } | null = null
+    try {
+      const read = await getUrlSubmissionQuota(conn.apiKey, conn.siteUrl)
+      if (read && typeof read.DailyQuota === 'number' && typeof read.MonthlyQuota === 'number') {
+        quota = { dailyQuota: Math.max(0, read.DailyQuota), monthlyQuota: Math.max(0, read.MonthlyQuota) }
+      }
+    } catch (e) {
+      bingLog('warn', 'index-submit.quota-read-failed', { domain: project.canonicalDomain, error: describeError(e) })
+    }
+    if (quota) {
+      const allowance = Math.min(quota.dailyQuota, quota.monthlyQuota)
+      if (urlsToSubmit.length > allowance) {
+        const refusedAt = new Date().toISOString()
+        const message = `Bing will accept ${allowance} more URL submission(s) for this site today (${quota.dailyQuota} left today, ${quota.monthlyQuota} this month). Submit the rest after the quota resets.`
+        for (const url of urlsToSubmit.slice(allowance)) {
+          results.push({ url, status: 'error', submittedAt: refusedAt, error: message })
+        }
+        urlsToSubmit = urlsToSubmit.slice(0, allowance)
+        bingLog('warn', 'index-submit.over-quota', { domain: project.canonicalDomain, allowance, refused: results.length })
+      }
+    }
+
     bingLog('info', 'index-submit.start', { domain: project.canonicalDomain, siteUrl: conn.siteUrl, urlCount: urlsToSubmit.length, allUnindexed: !!request.body?.allUnindexed })
 
     // Use batch submission for multiple URLs
-    if (urlsToSubmit.length > 1) {
+    if (urlsToSubmit.length === 0) {
+      // Everything was over quota; nothing to send.
+    } else if (urlsToSubmit.length > 1) {
       for (let i = 0; i < urlsToSubmit.length; i += BING_SUBMIT_URL_BATCH_LIMIT) {
         const batch = urlsToSubmit.slice(i, i + BING_SUBMIT_URL_BATCH_LIMIT)
         try {
@@ -761,6 +808,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     return {
       summary: { total: results.length, succeeded, failed },
       results,
+      quota,
     }
   })
 
@@ -782,6 +830,8 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
 
     return stats.map((s) => ({
       query: s.Query,
+      // Bing reports these per week, so a query repeats once per week.
+      date: bingDateToDay(s.Date),
       impressions: s.Impressions,
       clicks: s.Clicks,
       ctr: s.Impressions > 0 ? s.Clicks / s.Impressions : 0,

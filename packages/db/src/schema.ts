@@ -1862,6 +1862,152 @@ export const bingKeywordStats = sqliteTable('bing_keyword_stats', {
   index('idx_bing_keyword_query').on(table.query),
 ])
 
+/**
+ * Daily site-level Bing search clicks and impressions (`GetRankAndTrafficStats`).
+ * Bing serves about six months; each sync upserts every day it returns, so
+ * history accumulates past Bing's own window.
+ */
+export const bingTrafficDaily = sqliteTable('bing_traffic_daily', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  clicks: integer('clicks').notNull(),
+  impressions: integer('impressions').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_bing_traffic_daily_project_date').on(table.projectId, table.date),
+])
+
+/**
+ * Weekly Bing search stats per query (`GetQueryStats`) and per page
+ * (`GetPageStats`). `date` is Bing's weekly bucket, so a query has one row per
+ * week it appeared, never one per day. Positions are NULL where Bing sent its
+ * `-1` "no value" sentinel.
+ */
+export const bingQueryStats = sqliteTable('bing_query_stats', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  query: text('query').notNull(),
+  clicks: integer('clicks').notNull(),
+  impressions: integer('impressions').notNull(),
+  avgClickPosition: real('avg_click_position'),
+  avgImpressionPosition: real('avg_impression_position'),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_bing_query_stats_project_date_query').on(table.projectId, table.date, table.query),
+  index('idx_bing_query_stats_project_query').on(table.projectId, table.query),
+])
+
+export const bingPageStats = sqliteTable('bing_page_stats', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  page: text('page').notNull(),
+  clicks: integer('clicks').notNull(),
+  impressions: integer('impressions').notNull(),
+  avgClickPosition: real('avg_click_position'),
+  avgImpressionPosition: real('avg_impression_position'),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_bing_page_stats_project_date_page').on(table.projectId, table.date, table.page),
+  index('idx_bing_page_stats_project_page').on(table.projectId, table.page),
+])
+
+/** Daily Bingbot crawl counts (`GetCrawlStats`), every field Bing returns. */
+export const bingCrawlStats = sqliteTable('bing_crawl_stats', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  crawledPages: integer('crawled_pages').notNull().default(0),
+  inIndex: integer('in_index').notNull().default(0),
+  crawlErrors: integer('crawl_errors').notNull().default(0),
+  inLinks: integer('in_links').notNull().default(0),
+  code2xx: integer('code_2xx').notNull().default(0),
+  code301: integer('code_301').notNull().default(0),
+  code302: integer('code_302').notNull().default(0),
+  code4xx: integer('code_4xx').notNull().default(0),
+  code5xx: integer('code_5xx').notNull().default(0),
+  allOtherCodes: integer('all_other_codes').notNull().default(0),
+  blockedByRobotsTxt: integer('blocked_by_robots_txt').notNull().default(0),
+  connectionTimeout: integer('connection_timeout').notNull().default(0),
+  containsMalware: integer('contains_malware').notNull().default(0),
+  dnsFailures: integer('dns_failures').notNull().default(0),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_bing_crawl_stats_project_date').on(table.projectId, table.date),
+])
+
+/**
+ * Sitemaps and feeds Bing knows for the site (`GetFeeds`, plus `GetFeedDetails`
+ * for the children of a sitemap index). Replaced on every sync: a row Bing no
+ * longer lists is deleted. `parentUrl` is the index a child sitemap came from.
+ */
+export const bingSitemaps = sqliteTable('bing_sitemaps', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  parentUrl: text('parent_url'),
+  type: text('type').notNull(),
+  status: text('status').notNull(),
+  urlCount: integer('url_count').notNull().default(0),
+  fileSize: integer('file_size').notNull().default(0),
+  compressed: integer('compressed', { mode: 'boolean' }).notNull().default(false),
+  submittedAt: text('submitted_at'),
+  lastCrawledAt: text('last_crawled_at'),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_bing_sitemaps_project_url').on(table.projectId, table.url),
+])
+
+/**
+ * The latest read of each Bing site setting (crawl settings, submission
+ * quotas, blocked URLs, URL parameters, geo-targeting, sitelink and preview
+ * blocks, Fetch as Bingbot history, crawl issues, connected pages, roles), one
+ * row per (project, kind). `payload` is Bing's response with dates converted
+ * to ISO; `status` says whether the read worked (`unauthorized` for the
+ * owner-only reads a delegated key cannot make).
+ */
+export const bingSiteSnapshots = sqliteTable('bing_site_snapshots', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  status: text('status').notNull(),
+  payload: text('payload', { mode: 'json' }).$type<unknown>(),
+  error: text('error'),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_bing_site_snapshots_project_kind').on(table.projectId, table.kind),
+])
+
+/**
+ * Weekly Bing search volume for the project's tracked queries
+ * (`GetKeywordStats`), per market. `impressions` is exact-match volume and
+ * `broadImpressions` broad-match, as Bing defines them. Not tied to the
+ * site: this is demand, not the site's own performance.
+ */
+export const bingKeywordDemand = sqliteTable('bing_keyword_demand', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  query: text('query').notNull(),
+  country: text('country').notNull(),
+  language: text('language').notNull(),
+  date: text('date').notNull(),
+  impressions: integer('impressions').notNull(),
+  broadImpressions: integer('broad_impressions').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_bing_keyword_demand_unique').on(table.projectId, table.query, table.country, table.language, table.date),
+  index('idx_bing_keyword_demand_project_synced').on(table.projectId, table.syncedAt),
+])
+
 export const gaConnections = sqliteTable('ga_connections', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),

@@ -11,6 +11,8 @@ const log = createLogger('DataRefresh')
 export interface DataRefreshClient {
   gscSync(project: string, body?: { days?: number; full?: boolean }): Promise<unknown>
   bingInspectSitemap(project: string, body?: { sitemapUrl?: string }): Promise<unknown>
+  /** Bing search performance, crawl stats, sitemaps, site settings and keyword demand. */
+  bingSync(project: string): Promise<unknown>
   gaSync(project: string, body?: { days?: number; only?: string }): Promise<unknown>
   triggerGbpSync(
     project: string,
@@ -48,7 +50,7 @@ export function gaRefreshDays(now: Date = new Date()): number {
  * executor: a resolved call proves the run was accepted, and its real outcome
  * lands later on that run row. The `<integration>.sync.recent-failures` doctor
  * checks grade the run rows of Google Ads, GTM, GBP, GSC and GA. Bing
- * `bing-inspect-sitemap` runs are not graded, and OpenAI Ads is covered only
+ * `bing-inspect-sitemap` runs are not graded (`bing-sync` runs are), and OpenAI Ads is covered only
  * by `ads.data.recent-sync`.
  */
 type RefreshCompletion = 'synchronous' | 'queued'
@@ -65,7 +67,8 @@ function queuedRun(result: unknown): { runId: string | null; runStatus: string |
 }
 
 /**
- * Refresh every data integration for a project in one shot: GSC, Bing, GA,
+ * Refresh every data integration for a project in one shot: GSC, Bing (index
+ * coverage and the full data sync), GA,
  * GBP, OpenAI / ChatGPT Ads, Google Ads, and Google Tag Manager.
  *
  * Each integration's sync endpoint owns its own run-row lifecycle and self-gates
@@ -87,6 +90,7 @@ export async function refreshAllIntegrations(
   const integrations: Array<{ name: string; kind: RunKind; completion: RefreshCompletion; run: () => Promise<unknown> }> = [
     { name: 'gsc', kind: RunKinds['gsc-sync'], completion: 'queued', run: () => client.gscSync(projectName, {}) },
     { name: 'bing', kind: RunKinds['bing-inspect-sitemap'], completion: 'queued', run: () => client.bingInspectSitemap(projectName, {}) },
+    { name: 'bing-sync', kind: RunKinds['bing-sync'], completion: 'queued', run: () => client.bingSync(projectName) },
     { name: 'ga', kind: RunKinds['ga-sync'], completion: 'synchronous', run: () => client.gaSync(projectName, { days: gaRefreshDays(now) }) },
     { name: 'gbp', kind: RunKinds['gbp-sync'], completion: 'queued', run: () => client.triggerGbpSync(projectName, {}) },
     // `ads` remains the OpenAI / ChatGPT Ads integration. For scheduled

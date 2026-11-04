@@ -1,3 +1,5 @@
+import type { BingCrawlStatsResponseDto, BingFetchedUrlsResponseDto, BingKeywordDemandResponseDto, BingKeywordResearchResponseDto, BingLinksResponseDto, BingPageQueriesResponseDto, BingPageTotalsResponseDto, BingQueryHistoryResponseDto, BingQueryPagesResponseDto, BingQueryTotalsResponseDto, BingSiteResponseDto, BingSitemapsResponseDto, BingTrafficResponseDto, BingUrlChildrenResponseDto, BingUrlTrafficResponseDto } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameBingCrawlStats, getApiV1ProjectsByNameBingFetchedUrls, getApiV1ProjectsByNameBingKeywordDemand, getApiV1ProjectsByNameBingKeywords, getApiV1ProjectsByNameBingLinks, getApiV1ProjectsByNameBingPageQueries, getApiV1ProjectsByNameBingPages, getApiV1ProjectsByNameBingQueries, getApiV1ProjectsByNameBingQueryHistory, getApiV1ProjectsByNameBingQueryPages, getApiV1ProjectsByNameBingSite, getApiV1ProjectsByNameBingSitemaps, getApiV1ProjectsByNameBingTraffic, getApiV1ProjectsByNameBingUrlChildren, getApiV1ProjectsByNameBingUrlTraffic, postApiV1ProjectsByNameBingSync } from '@canonry/canonry-api-client'
 import type { McpProfileDto } from '@canonry/canonry-contracts'
 import { getApiV1McpProfile } from '@canonry/canonry-api-client'
 import type { MetricsWindow, TrendSurface, TrendsResponse } from '@canonry/canonry-contracts'
@@ -3855,6 +3857,111 @@ export class ApiClient {
         path: { name: project },
         query: params as never,
       }),
+    )
+  }
+
+  async bingSync(project: string): Promise<RunDto> {
+    return this.invoke<RunDto>(() =>
+      postApiV1ProjectsByNameBingSync({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async bingTraffic(project: string, query?: { startDate?: string; endDate?: string; days?: string }): Promise<BingTrafficResponseDto> {
+    return this.invoke<BingTrafficResponseDto>(() =>
+      getApiV1ProjectsByNameBingTraffic({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async bingQueries(
+    project: string,
+    query?: { startDate?: string; endDate?: string; days?: string; query?: string; groupBy?: string; limit?: number; offset?: number },
+  ): Promise<BingQueryTotalsResponseDto> {
+    return this.invoke<BingQueryTotalsResponseDto>(() =>
+      getApiV1ProjectsByNameBingQueries({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async bingPages(
+    project: string,
+    query?: { startDate?: string; endDate?: string; days?: string; page?: string; groupBy?: string; limit?: number; offset?: number },
+  ): Promise<BingPageTotalsResponseDto> {
+    return this.invoke<BingPageTotalsResponseDto>(() =>
+      getApiV1ProjectsByNameBingPages({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async bingCrawlStats(project: string, query?: { startDate?: string; endDate?: string; days?: string }): Promise<BingCrawlStatsResponseDto> {
+    return this.invoke<BingCrawlStatsResponseDto>(() =>
+      getApiV1ProjectsByNameBingCrawlStats({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async bingSitemaps(project: string): Promise<BingSitemapsResponseDto> {
+    return this.invoke<BingSitemapsResponseDto>(() =>
+      getApiV1ProjectsByNameBingSitemaps({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async bingSite(project: string, query?: { kind?: string }): Promise<BingSiteResponseDto> {
+    return this.invoke<BingSiteResponseDto>(() =>
+      getApiV1ProjectsByNameBingSite({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async bingKeywordDemand(project: string, query?: { query?: string }): Promise<BingKeywordDemandResponseDto> {
+    return this.invoke<BingKeywordDemandResponseDto>(() =>
+      getApiV1ProjectsByNameBingKeywordDemand({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async bingQueryPages(project: string, searchQuery: string): Promise<BingQueryPagesResponseDto> {
+    return this.invoke<BingQueryPagesResponseDto>(() =>
+      getApiV1ProjectsByNameBingQueryPages({ client: this.heyClient, path: { name: project }, query: { query: searchQuery } }),
+    )
+  }
+
+  async bingPageQueries(project: string, page: string): Promise<BingPageQueriesResponseDto> {
+    return this.invoke<BingPageQueriesResponseDto>(() =>
+      getApiV1ProjectsByNameBingPageQueries({ client: this.heyClient, path: { name: project }, query: { page } }),
+    )
+  }
+
+  async bingQueryHistory(project: string, query: { query: string; page?: string }): Promise<BingQueryHistoryResponseDto> {
+    return this.invoke<BingQueryHistoryResponseDto>(() =>
+      getApiV1ProjectsByNameBingQueryHistory({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async bingUrlTraffic(project: string, query: { url: string; children?: string; page?: string }): Promise<BingUrlTrafficResponseDto> {
+    return this.invoke<BingUrlTrafficResponseDto>(() =>
+      getApiV1ProjectsByNameBingUrlTraffic({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async bingUrlChildren(project: string, query: { url: string; page?: string }): Promise<BingUrlChildrenResponseDto> {
+    return this.invoke<BingUrlChildrenResponseDto>(() =>
+      getApiV1ProjectsByNameBingUrlChildren({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async bingLinks(project: string, query?: { url?: string; page?: string }): Promise<BingLinksResponseDto> {
+    return this.invoke<BingLinksResponseDto>(() =>
+      getApiV1ProjectsByNameBingLinks({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async bingFetchedUrls(project: string, query?: { url?: string }): Promise<BingFetchedUrlsResponseDto> {
+    return this.invoke<BingFetchedUrlsResponseDto>(() =>
+      getApiV1ProjectsByNameBingFetchedUrls({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async bingKeywords(
+    project: string,
+    query: { keyword: string; country?: string; language?: string; startDate?: string; endDate?: string },
+  ): Promise<BingKeywordResearchResponseDto> {
+    return this.invoke<BingKeywordResearchResponseDto>(() =>
+      getApiV1ProjectsByNameBingKeywords({ client: this.heyClient, path: { name: project }, query }),
     )
   }
 

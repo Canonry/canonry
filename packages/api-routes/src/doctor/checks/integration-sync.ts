@@ -88,6 +88,14 @@ export function googleMarketingConnection(provider: 'googleAds' | 'gtm') {
   }
 }
 
+/** Bing needs a selected site before a sync has anything to read. */
+export function bingConnection(ctx: DoctorContext, project: ProjectInfo): Connection {
+  if (!ctx.bingConnectionStore) return { state: 'store-unavailable' }
+  const conn = ctx.bingConnectionStore.getConnection(project.canonicalDomain)
+  if (!conn?.siteUrl) return { state: 'not-connected' }
+  return { state: 'connected', since: conn.updatedAt || null }
+}
+
 export function gscConnection(ctx: DoctorContext, project: ProjectInfo): Connection {
   if (!ctx.googleConnectionStore) return { state: 'store-unavailable' }
   return ctx.googleConnectionStore.getConnection(project.canonicalDomain, 'gsc') ? CONNECTED : { state: 'not-connected' }
@@ -162,6 +170,14 @@ const SPECS: readonly SyncFailureSpec[] = [
     connection: gaConnection,
     syncCommand: name => `canonry ga sync ${name}`,
     causeCheckIds: ['ga.auth.connection', 'ga.api.reachable'],
+  },
+  {
+    prefix: 'bing',
+    label: 'Bing data',
+    kind: RunKinds['bing-sync'],
+    connection: bingConnection,
+    syncCommand: name => `canonry bing sync ${name}`,
+    causeCheckIds: ['bing.auth.connection', 'bing.auth.site-access'],
   },
   {
     prefix: 'gsc',

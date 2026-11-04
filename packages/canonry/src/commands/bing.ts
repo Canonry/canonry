@@ -1,5 +1,5 @@
 import type { RunDetailDto } from '@canonry/canonry-contracts'
-import { describeError, formatPercent } from '@canonry/canonry-contracts'
+import { describeError, formatPercent, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -518,5 +518,340 @@ export async function bingPerformance(project: string, format?: string): Promise
   }
   if (rows.length > 50) {
     console.log(`\n  ... and ${rows.length - 50} more rows (use --format json for full output)`)
+  }
+}
+
+// ── Full Bing data: stored reads, live drill-downs, keyword research ────────
+
+function pad(value: string | number, width: number): string {
+  const text = String(value)
+  return text.length > width - 1 ? `${text.slice(0, width - 4)}...`.padEnd(width) : text.padEnd(width)
+}
+
+function position(value: number | null): string {
+  return value === null ? '-' : value.toFixed(1)
+}
+
+function windowLabel(window: { startDate: string | null; endDate: string | null }): string {
+  return window.startDate && window.endDate ? `${window.startDate} to ${window.endDate}` : 'no stored data yet'
+}
+
+function printJson(format: string | undefined, payload: unknown, jsonlRows?: unknown[]): boolean {
+  if (format === 'json') {
+    console.log(JSON.stringify(payload, null, 2))
+    return true
+  }
+  if (format === 'jsonl') {
+    emitJsonl(jsonlRows ?? [payload])
+    return true
+  }
+  return false
+}
+
+export async function bingSync(project: string, opts: { wait?: boolean; format?: string }): Promise<void> {
+  const client = getClient()
+  const run = await client.bingSync(project)
+  if (!opts.wait) {
+    if (isMachineFormat(opts.format)) {
+      console.log(JSON.stringify(run, null, 2))
+      return
+    }
+    console.log(`Bing data sync started (run ${run.id}). Check it with "canonry runs get ${run.id}".`)
+    return
+  }
+  const current = await waitForRunStatus(client, run.id, {
+    timeoutMs: 30 * 60 * 1000,
+    intervalMs: 3000,
+    progressLabel: 'Waiting for the Bing data sync',
+    successStatuses: ['completed', 'partial'],
+    failureStatuses: ['failed'],
+    timeoutCode: 'BING_SYNC_TIMEOUT',
+    failureCode: 'BING_SYNC_FAILED',
+    timeoutMessage: 'Timed out waiting for the Bing data sync to finish.',
+    failureMessage: 'The Bing data sync failed.',
+    details: { project },
+  })
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(current, null, 2))
+    return
+  }
+  console.log(current.status === 'partial'
+    ? `Bing data sync finished with some sections missing: ${current.error ? formatRunErrorOneLine(current.error) : 'see the run for details'}`
+    : 'Bing data sync completed.')
+}
+
+export async function bingTraffic(project: string, opts: { startDate?: string; endDate?: string; days?: string; format?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.bingTraffic(project, { startDate: opts.startDate, endDate: opts.endDate, days: opts.days })
+  if (printJson(opts.format, result, result.rows.map((row) => ({ project, ...row })))) return
+  if (result.rows.length === 0) {
+    console.log('No stored Bing traffic. Run "canonry bing sync <project>" first.')
+    return
+  }
+  console.log(`Bing search traffic, ${windowLabel(result.window)}: ${result.totals.clicks} clicks, ${result.totals.impressions} impressions, ${formatPercent(result.totals.ctr)} CTR\n`)
+  console.log(`  ${pad('DATE', 12)}${pad('CLICKS', 9)}${pad('IMPR', 10)}CTR`)
+  for (const row of result.rows) {
+    console.log(`  ${pad(row.date, 12)}${pad(row.clicks, 9)}${pad(row.impressions, 10)}${formatPercent(row.ctr)}`)
+  }
+}
+
+export async function bingQueries(project: string, opts: {
+  startDate?: string; endDate?: string; days?: string; query?: string; groupBy?: string; limit?: number; offset?: number; format?: string
+}): Promise<void> {
+  const client = getClient()
+  const result = await client.bingQueries(project, {
+    startDate: opts.startDate, endDate: opts.endDate, days: opts.days, query: opts.query, groupBy: opts.groupBy, limit: opts.limit, offset: opts.offset,
+  })
+  const rows = result.groupBy === 'week' ? result.weekly : result.rows
+  if (printJson(opts.format, result, rows.map((row) => ({ project, ...row })))) return
+  printWeeklyTable('query', result.groupBy, result.rows.map(({ query, ...rest }) => ({ key: query, ...rest })), result.weekly, result)
+}
+
+export async function bingPages(project: string, opts: {
+  startDate?: string; endDate?: string; days?: string; page?: string; groupBy?: string; limit?: number; offset?: number; format?: string
+}): Promise<void> {
+  const client = getClient()
+  const result = await client.bingPages(project, {
+    startDate: opts.startDate, endDate: opts.endDate, days: opts.days, page: opts.page, groupBy: opts.groupBy, limit: opts.limit, offset: opts.offset,
+  })
+  const rows = result.groupBy === 'week' ? result.weekly : result.rows
+  if (printJson(opts.format, result, rows.map((row) => ({ project, ...row })))) return
+  printWeeklyTable('page', result.groupBy, result.rows.map(({ page, ...rest }) => ({ key: page, ...rest })), result.weekly, result)
+}
+
+interface WeeklyTotals { clicks: number; impressions: number; ctr: number; avgImpressionPosition: number | null; weeks: number }
+
+function printWeeklyTable(
+  noun: 'query' | 'page',
+  groupBy: string,
+  keyed: Array<WeeklyTotals & { key: string }>,
+  weekly: Array<WeeklyTotals & { date: string }>,
+  meta: { totalMatching: number; truncated: boolean; window: { startDate: string | null; endDate: string | null } },
+): void {
+  if (groupBy === 'week') {
+    if (weekly.length === 0) {
+      console.log('No stored Bing stats for this window. Run "canonry bing sync <project>" first.')
+      return
+    }
+    console.log(`Bing ${noun} stats by week, ${windowLabel(meta.window)}:\n`)
+    console.log(`  ${pad('WEEK', 12)}${pad('CLICKS', 9)}${pad('IMPR', 10)}${pad('CTR', 9)}POS`)
+    for (const row of weekly) {
+      console.log(`  ${pad(row.date, 12)}${pad(row.clicks, 9)}${pad(row.impressions, 10)}${pad(formatPercent(row.ctr), 9)}${position(row.avgImpressionPosition)}`)
+    }
+    return
+  }
+  if (keyed.length === 0) {
+    console.log('No stored Bing stats for this window. Run "canonry bing sync <project>" first.')
+    return
+  }
+  const width = noun === 'page' ? 60 : 42
+  console.log(`Bing ${noun} stats, ${windowLabel(meta.window)} (${meta.totalMatching} ${noun === 'page' ? 'pages' : 'queries'}; Bing reports these per week):\n`)
+  console.log(`  ${pad(noun.toUpperCase(), width)}${pad('CLICKS', 9)}${pad('IMPR', 10)}${pad('CTR', 9)}${pad('POS', 7)}WEEKS`)
+  for (const row of keyed) {
+    console.log(`  ${pad(row.key, width)}${pad(row.clicks, 9)}${pad(row.impressions, 10)}${pad(formatPercent(row.ctr), 9)}${pad(position(row.avgImpressionPosition), 7)}${row.weeks}`)
+  }
+  if (meta.truncated) console.log(`\n  More rows follow; page with --offset, or use --format json.`)
+}
+
+export async function bingCrawlStats(project: string, opts: { startDate?: string; endDate?: string; days?: string; format?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.bingCrawlStats(project, { startDate: opts.startDate, endDate: opts.endDate, days: opts.days })
+  if (printJson(opts.format, result, result.rows.map((row) => ({ project, ...row })))) return
+  if (result.rows.length === 0) {
+    console.log('No stored Bing crawl stats. Run "canonry bing sync <project>" first.')
+    return
+  }
+  console.log(`Bingbot crawl stats, ${windowLabel(result.window)}:\n`)
+  console.log(`  ${pad('DATE', 12)}${pad('CRAWLED', 9)}${pad('INDEXED', 9)}${pad('ERRORS', 8)}${pad('2XX', 6)}${pad('301', 6)}${pad('4XX', 6)}${pad('5XX', 6)}ROBOTS`)
+  for (const row of result.rows) {
+    console.log(`  ${pad(row.date, 12)}${pad(row.crawledPages, 9)}${pad(row.inIndex, 9)}${pad(row.crawlErrors, 8)}${pad(row.code2xx, 6)}${pad(row.code301, 6)}${pad(row.code4xx, 6)}${pad(row.code5xx, 6)}${row.blockedByRobotsTxt}`)
+  }
+}
+
+export async function bingSitemaps(project: string, format?: string): Promise<void> {
+  const client = getClient()
+  const result = await client.bingSitemaps(project)
+  if (printJson(format, result, result.sitemaps.map((row) => ({ project, ...row })))) return
+  if (result.sitemaps.length === 0) {
+    console.log('Bing has no sitemaps stored for this project. Run "canonry bing sync <project>", or submit one in Bing Webmaster Tools.')
+    return
+  }
+  console.log(`Bing sitemaps (as of ${result.syncedAt}):\n`)
+  for (const row of result.sitemaps) {
+    const indent = row.parentUrl ? '    ' : '  '
+    console.log(`${indent}${row.url}`)
+    console.log(`${indent}  ${row.type}, ${row.status}, ${row.urlCount} URLs, last crawled ${row.lastCrawledAt ?? 'never'}`)
+  }
+}
+
+function describeSnapshot(kind: string, payload: unknown): string {
+  if (payload === null || payload === undefined) return 'no data'
+  if (Array.isArray(payload)) return payload.length === 0 ? 'none' : `${payload.length} item(s)`
+  if (typeof payload === 'object') {
+    const record = payload as Record<string, unknown>
+    if (kind.endsWith('submission-quota')) return `${String(record.dailyQuota)} left today, ${String(record.monthlyQuota)} left this month`
+    if (kind === 'crawl-settings') {
+      const rates = Array.isArray(record.crawlRate) ? (record.crawlRate as number[]) : []
+      return `crawl boost ${record.crawlBoostEnabled ? 'on' : 'off'}${record.crawlBoostAvailable ? '' : ' (not available)'}, hourly rate ${rates.length ? `${Math.min(...rates)} to ${Math.max(...rates)}` : 'unknown'}`
+    }
+  }
+  return JSON.stringify(payload)
+}
+
+export async function bingSite(project: string, opts: { kind?: string; format?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.bingSite(project, { kind: opts.kind })
+  if (printJson(opts.format, result, result.snapshots.map((row) => ({ project, ...row })))) return
+  if (result.snapshots.length === 0) {
+    console.log('No stored Bing site settings. Run "canonry bing sync <project>" first.')
+    return
+  }
+  console.log(`Bing site settings (as of ${result.syncedAt}):\n`)
+  for (const snap of result.snapshots) {
+    const state = snap.status === 'ok' ? describeSnapshot(snap.kind, snap.payload) : snap.status === 'unauthorized' ? 'not readable with this key (owner-only)' : `could not be read: ${snap.error ?? 'unknown error'}`
+    console.log(`  ${pad(snap.kind, 27)}${state}`)
+    if (snap.status === 'ok' && Array.isArray(snap.payload)) {
+      for (const item of snap.payload.slice(0, 10)) console.log(`    ${JSON.stringify(item)}`)
+    }
+  }
+}
+
+export async function bingKeywordDemand(project: string, opts: { query?: string; format?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.bingKeywordDemand(project, { query: opts.query })
+  if (printJson(opts.format, result, (opts.query ? result.history : result.rows).map((row) => ({ project, ...row })))) return
+  if (opts.query) {
+    if (result.history.length === 0) {
+      console.log(`No stored Bing demand for "${opts.query}". It is read during "canonry bing sync" for tracked queries.`)
+      return
+    }
+    console.log(`Weekly Bing searches for "${opts.query}" (${result.market.country}, ${result.market.language}):\n`)
+    console.log(`  ${pad('WEEK', 12)}${pad('EXACT', 9)}BROAD`)
+    for (const week of result.history) console.log(`  ${pad(week.date, 12)}${pad(week.impressions, 9)}${week.broadImpressions}`)
+    return
+  }
+  if (result.rows.length === 0) {
+    console.log('No tracked queries.')
+    return
+  }
+  console.log(`Bing search demand for tracked queries (${result.market.country}, ${result.market.language}; exact-match searches per week):\n`)
+  console.log(`  ${pad('QUERY', 46)}${pad('AVG/WK', 9)}${pad('LATEST', 9)}WEEKS`)
+  for (const row of result.rows) {
+    console.log(`  ${pad(row.query, 46)}${pad(row.avgWeeklyImpressions ?? '-', 9)}${pad(row.latestImpressions ?? '-', 9)}${row.weeks}`)
+  }
+}
+
+export async function bingQueryPages(project: string, searchQuery: string, format?: string): Promise<void> {
+  const client = getClient()
+  const result = await client.bingQueryPages(project, searchQuery)
+  if (printJson(format, result, result.rows.map((row) => ({ project, query: searchQuery, ...row })))) return
+  printStatsRows(`Pages Bing showed for "${searchQuery}" (per week, live from Bing):`, 'PAGE', result.rows)
+}
+
+export async function bingPageQueries(project: string, page: string, format?: string): Promise<void> {
+  const client = getClient()
+  const result = await client.bingPageQueries(project, page)
+  if (printJson(format, result, result.rows.map((row) => ({ project, page, ...row })))) return
+  printStatsRows(`Queries ${page} showed for on Bing (per week, live from Bing):`, 'QUERY', result.rows)
+}
+
+function printStatsRows(title: string, keyLabel: string, rows: Array<{ date: string | null; key: string; clicks: number; impressions: number; ctr: number; avgImpressionPosition: number | null }>): void {
+  if (rows.length === 0) {
+    console.log('Bing returned no rows.')
+    return
+  }
+  console.log(`${title}\n`)
+  console.log(`  ${pad('WEEK', 12)}${pad(keyLabel, 52)}${pad('CLICKS', 9)}${pad('IMPR', 9)}POS`)
+  for (const row of rows) {
+    console.log(`  ${pad(row.date ?? '-', 12)}${pad(row.key, 52)}${pad(row.clicks, 9)}${pad(row.impressions, 9)}${position(row.avgImpressionPosition)}`)
+  }
+}
+
+export async function bingQueryHistory(project: string, opts: { query: string; page?: string; format?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.bingQueryHistory(project, { query: opts.query, page: opts.page })
+  if (printJson(opts.format, result, result.rows.map((row) => ({ project, query: opts.query, page: opts.page ?? null, ...row })))) return
+  if (result.rows.length === 0) {
+    console.log('Bing returned no rows.')
+    return
+  }
+  console.log(`"${opts.query}"${opts.page ? ` on ${opts.page}` : ''} on Bing, per ${result.granularity} (live from Bing):\n`)
+  console.log(`  ${pad(result.granularity.toUpperCase(), 12)}${pad('CLICKS', 9)}${pad('IMPR', 9)}${pad('CTR', 9)}POS`)
+  for (const row of result.rows) {
+    console.log(`  ${pad(row.date ?? '-', 12)}${pad(row.clicks, 9)}${pad(row.impressions, 9)}${pad(formatPercent(row.ctr), 9)}${position(row.position)}`)
+  }
+}
+
+export async function bingUrlTraffic(project: string, opts: { url: string; children?: boolean; page?: number; format?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.bingUrlTraffic(project, { url: opts.url, children: opts.children ? 'true' : undefined, page: opts.page === undefined ? undefined : String(opts.page) })
+  if (printJson(opts.format, result, [result.url, ...result.children].map((row) => ({ project, ...row })))) return
+  console.log(`${result.url.url}: ${result.url.clicks} clicks, ${result.url.impressions} impressions on Bing`)
+  if (opts.children) {
+    if (result.children.length === 0) console.log('  Bing listed no URLs under it.')
+    for (const child of result.children) console.log(`  ${pad(child.url, 70)}${pad(child.clicks, 9)}${child.impressions}`)
+  }
+}
+
+export async function bingUrlChildren(project: string, opts: { url: string; page?: number; format?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.bingUrlChildren(project, { url: opts.url, page: opts.page === undefined ? undefined : String(opts.page) })
+  if (printJson(opts.format, result, result.rows.map((row) => ({ project, ...row })))) return
+  if (result.rows.length === 0) {
+    console.log('Bing listed no URLs under this one.')
+    return
+  }
+  for (const row of result.rows) {
+    console.log(`  ${pad(row.url, 70)}HTTP ${row.httpStatus ?? '-'}, last crawled ${row.lastCrawledDate ?? 'never'}`)
+  }
+}
+
+export async function bingLinks(project: string, opts: { url?: string; page?: number; format?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.bingLinks(project, { url: opts.url, page: opts.page === undefined ? undefined : String(opts.page) })
+  if (printJson(opts.format, result, result.rows.map((row) => ({ project, ...row })))) return
+  if (result.rows.length === 0) {
+    console.log('Bing reported no inbound links. Bing often returns none for smaller sites; Common Crawl backlinks ("canonry backlinks") cover more.')
+    return
+  }
+  console.log(opts.url ? `External pages linking to ${opts.url} (page ${result.page + 1} of ${result.totalPages}):\n` : `Pages with inbound links (page ${result.page + 1} of ${result.totalPages}):\n`)
+  for (const row of result.rows) {
+    console.log(opts.url ? `  ${row.url}${row.anchorText ? `  "${row.anchorText}"` : ''}` : `  ${pad(row.url, 70)}${row.count ?? '-'}`)
+  }
+}
+
+export async function bingFetchedUrls(project: string, opts: { url?: string; format?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.bingFetchedUrls(project, { url: opts.url })
+  if (printJson(opts.format, result, opts.url ? [result.details] : result.rows.map((row) => ({ project, ...row })))) return
+  if (opts.url) {
+    if (!result.details) {
+      console.log('Bing has no Fetch as Bingbot result for this URL.')
+      return
+    }
+    console.log(`${result.details.url}: ${result.details.status ?? 'unknown status'} (${result.details.date ?? 'no date'})`)
+    if (result.details.headers) console.log(`\n${result.details.headers}`)
+    return
+  }
+  if (result.rows.length === 0) {
+    console.log('No Fetch as Bingbot history.')
+    return
+  }
+  for (const row of result.rows) console.log(`  ${pad(row.url, 70)}${row.date ?? '-'}${row.fetched === false ? ' (pending)' : ''}`)
+}
+
+export async function bingKeywords(project: string, opts: { keyword: string; country?: string; language?: string; startDate?: string; endDate?: string; format?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.bingKeywords(project, opts)
+  if (printJson(opts.format, result, result.related.map((row) => ({ project, keyword: opts.keyword, ...row })))) return
+  console.log(`"${result.keyword}" on Bing (${result.market.country}, ${result.market.language}), ${result.window.startDate} to ${result.window.endDate}:`)
+  console.log(result.volume ? `  ${result.volume.impressions} exact-match searches, ${result.volume.broadImpressions} broad-match` : '  Bing has no volume for this keyword.')
+  if (result.history.length > 0) {
+    const recent = result.history.slice(-8)
+    console.log(`\n  Weekly exact-match searches (last ${recent.length} weeks): ${recent.map((week) => week.impressions).join(', ')}`)
+  }
+  if (result.related.length > 0) {
+    console.log(`\n  ${pad('RELATED KEYWORD', 46)}${pad('EXACT', 9)}BROAD`)
+    for (const row of result.related.slice(0, 25)) console.log(`  ${pad(row.query, 46)}${pad(row.impressions, 9)}${row.broadImpressions}`)
   }
 }

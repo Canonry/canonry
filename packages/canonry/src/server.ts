@@ -240,6 +240,7 @@ import { GOOGLE_ADS_OAUTH_SCOPE } from "@canonry/canonry-integration-google-ads"
 import { GTM_READONLY_SCOPE } from "@canonry/canonry-integration-google-tag-manager";
 import { executeInspectSitemap } from "./gsc-inspect-sitemap.js";
 import { executeBingInspectSitemap } from "./bing-inspect-sitemap.js";
+import { executeBingSync } from "./bing-sync.js";
 import { maybeRefreshGscCoverage, runWasUserInitiated, type CoverageRefreshDeps } from "./coverage-refresh.js";
 import { executeReleaseSync, syncLatestReleaseOnSchedule } from "./commoncrawl-sync.js";
 import { executeBacklinkExtract } from "./backlink-extract.js";
@@ -3639,6 +3640,13 @@ export async function createServer(opts: {
         .catch((err: unknown) => {
           app.log.error({ runId, err }, "Bing inspect sitemap failed");
         });
+    },
+    onBingSyncRequested: (runId: string, projectId: string) => {
+      executeBingSync(opts.db, runId, projectId, { config: opts.config }).catch(
+        (err: unknown) => {
+          app.log.error({ runId, err }, "Bing sync failed");
+        },
+      );
     },
     wordpressConnectionStore,
     ga4CredentialStore,

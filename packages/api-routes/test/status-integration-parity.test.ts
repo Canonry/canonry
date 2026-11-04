@@ -75,10 +75,10 @@ describe('stored status integration parity', () => {
   it('keeps integration freshness thresholds and each traffic source independent', async () => {
     const f = await fixture()
     try {
-      for (const kind of ['gsc-sync', 'ga-sync', 'gbp-sync', 'ads-sync', 'google-ads-sync', 'gtm-sync', 'bing-inspect-sitemap'] as const) f.addRun(kind, 'completed', 3.5)
+      for (const kind of ['gsc-sync', 'ga-sync', 'gbp-sync', 'ads-sync', 'google-ads-sync', 'gtm-sync', 'bing-inspect-sitemap', 'bing-sync'] as const) f.addRun(kind, 'completed', 3.5)
       for (const sourceId of ['fresh', 'lagged', 'archived']) f.addRun('traffic-sync', 'completed', 0, sourceId)
       const rows = await f.read()
-      expect(Object.fromEntries(rows.filter(row => row.integration !== 'traffic').map(row => [row.integration, row.state]))).toEqual({ gsc: 'stale', ga: 'stale', gbp: 'ok', bing: 'ok', ads: 'ok', 'google-ads': 'ok', gtm: 'ok' })
+      expect(Object.fromEntries(rows.filter(row => row.integration !== 'traffic').map(row => [row.integration, row.state]))).toEqual({ gsc: 'stale', ga: 'stale', gbp: 'ok', bing: 'ok', 'bing-search': 'stale', ads: 'ok', 'google-ads': 'ok', gtm: 'ok' })
       expect(rows.filter(row => row.integration === 'traffic').map(row => ({ sourceId: row.sourceId, state: row.state })).sort((a, b) => a.sourceId!.localeCompare(b.sourceId!))).toEqual([{ sourceId: 'fresh', state: 'ok' }, { sourceId: 'lagged', state: 'stale' }])
       dbAgeAllRuns(f.db, daysAgo(8))
       const oldRows = await f.read()

@@ -16,6 +16,11 @@ import {
   bingConnectionDtoSchema,
   bingCoverageSnapshotDtoSchema,
   bingKeywordStatsDtoSchema,
+  bingTrafficDayDtoSchema,
+  bingCrawlStatsDayDtoSchema,
+  bingSitemapDtoSchema,
+  bingSiteSnapshotDtoSchema,
+  bingKeywordWeekDtoSchema,
   bingUrlInspectionDtoSchema,
   ccReleaseSyncDtoSchema,
   competitorDtoSchema,
@@ -751,6 +756,65 @@ const COVERAGE: Record<string, CoverageEntry> = {
       projectId: 'Implied by the route scope.',
       syncedAt: 'Internal sync timestamp.',
       createdAt: 'Row creation timestamp.',
+    },
+  },
+  bingTrafficDaily: {
+    kind: 'dto',
+    dto: bingTrafficDayDtoSchema,
+    internal: {
+      id: 'Surrogate key; days are addressed by (project, date).',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal sync provenance.',
+      syncedAt: 'Internal sync timestamp.',
+    },
+  },
+  bingQueryStats: {
+    kind: 'internal-only',
+    reason: 'Weekly Bing query buckets. Callers read them summed over a window (BingQueryTotalsRowDto) or per week (BingWeeklyTotalsRowDto) from /bing/queries, never as raw rows.',
+  },
+  bingPageStats: {
+    kind: 'internal-only',
+    reason: 'Weekly Bing page buckets, read summed through /bing/pages (BingPageTotalsRowDto / BingWeeklyTotalsRowDto), never as raw rows.',
+  },
+  bingCrawlStats: {
+    kind: 'dto',
+    dto: bingCrawlStatsDayDtoSchema,
+    internal: {
+      id: 'Surrogate key; days are addressed by (project, date).',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal sync provenance.',
+      syncedAt: 'Internal sync timestamp.',
+    },
+  },
+  bingSitemaps: {
+    kind: 'dto',
+    dto: bingSitemapDtoSchema,
+    internal: {
+      id: 'Surrogate key; sitemaps are addressed by (project, url).',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal sync provenance.',
+    },
+  },
+  bingSiteSnapshots: {
+    kind: 'dto',
+    dto: bingSiteSnapshotDtoSchema,
+    internal: {
+      id: 'Surrogate key; settings are addressed by (project, kind).',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal sync provenance.',
+    },
+  },
+  bingKeywordDemand: {
+    kind: 'dto',
+    dto: bingKeywordWeekDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      query: 'Carried on the BingKeywordDemandRowDto summary row, not on each week.',
+      country: 'Reported once as the response market.',
+      language: 'Reported once as the response market.',
+      syncRunId: 'Internal sync provenance.',
+      syncedAt: 'Summarised as syncedAt on the BingKeywordDemandRowDto.',
     },
   },
   gaConnections: {

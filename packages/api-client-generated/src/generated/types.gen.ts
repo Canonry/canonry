@@ -4164,6 +4164,282 @@ export type BingConnectResponseDto = {
     }>;
 };
 
+export type BingCrawlStatsResponseDto = {
+    rows: Array<{
+        date: string;
+        crawledPages: number;
+        inIndex: number;
+        crawlErrors: number;
+        inLinks: number;
+        code2xx: number;
+        code301: number;
+        code302: number;
+        code4xx: number;
+        code5xx: number;
+        allOtherCodes: number;
+        blockedByRobotsTxt: number;
+        connectionTimeout: number;
+        containsMalware: number;
+        dnsFailures: number;
+    }>;
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    latestAvailableDate: string | null;
+};
+
+export type BingFetchedUrlsResponseDto = {
+    rows: Array<{
+        url: string;
+        date: string | null;
+        expired: boolean | null;
+        fetched: boolean | null;
+    }>;
+    details: {
+        url: string;
+        date: string | null;
+        status: string | null;
+        headers: string | null;
+        document: string | null;
+    } | null;
+};
+
+export type BingKeywordDemandResponseDto = {
+    market: {
+        country: string;
+        language: string;
+    };
+    rows: Array<{
+        query: string;
+        country: string;
+        language: string;
+        latestWeek: string | null;
+        latestImpressions: number | null;
+        latestBroadImpressions: number | null;
+        avgWeeklyImpressions: number | null;
+        weeks: number;
+        syncedAt: string | null;
+    }>;
+    history: Array<{
+        date: string;
+        impressions: number;
+        broadImpressions: number;
+    }>;
+};
+
+export type BingKeywordResearchResponseDto = {
+    keyword: string;
+    market: {
+        country: string;
+        language: string;
+    };
+    window: {
+        startDate: string;
+        endDate: string;
+    };
+    volume: {
+        impressions: number;
+        broadImpressions: number;
+    } | null;
+    history: Array<{
+        date: string;
+        impressions: number;
+        broadImpressions: number;
+    }>;
+    related: Array<{
+        query: string;
+        impressions: number;
+        broadImpressions: number;
+    }>;
+};
+
+export type BingLinksResponseDto = {
+    url: string | null;
+    page: number;
+    totalPages: number;
+    rows: Array<{
+        url: string;
+        count: number | null;
+        anchorText: string | null;
+    }>;
+};
+
+export type BingPageQueriesResponseDto = {
+    page: string;
+    rows: Array<{
+        date: string | null;
+        key: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+    }>;
+};
+
+export type BingPageTotalsResponseDto = {
+    groupBy: 'page' | 'week';
+    rows: Array<{
+        page: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+        weeks: number;
+    }>;
+    weekly: Array<{
+        date: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+        weeks: number;
+    }>;
+    totalMatching: number;
+    truncated: boolean;
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    latestAvailableDate: string | null;
+};
+
+export type BingQueryHistoryResponseDto = {
+    query: string;
+    page: string | null;
+    granularity: 'day' | 'week';
+    rows: Array<{
+        date: string | null;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        position: number | null;
+    }>;
+};
+
+export type BingQueryPagesResponseDto = {
+    query: string;
+    rows: Array<{
+        date: string | null;
+        key: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+    }>;
+};
+
+export type BingQueryTotalsResponseDto = {
+    groupBy: 'query' | 'week';
+    rows: Array<{
+        query: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+        weeks: number;
+    }>;
+    weekly: Array<{
+        date: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+        weeks: number;
+    }>;
+    totalMatching: number;
+    truncated: boolean;
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    latestAvailableDate: string | null;
+};
+
+export type BingSiteResponseDto = {
+    snapshots: Array<{
+        kind: 'url-submission-quota' | 'content-submission-quota' | 'crawl-settings' | 'crawl-issues' | 'blocked-urls' | 'page-preview-blocks' | 'deep-link-blocks' | 'query-parameters' | 'country-region-settings' | 'fetched-urls' | 'connected-pages' | 'site-roles';
+        status: 'ok' | 'unauthorized' | 'failed';
+        payload: unknown;
+        error: string | null;
+        syncedAt: string;
+    }>;
+    syncedAt: string | null;
+};
+
+export type BingSitemapsResponseDto = {
+    sitemaps: Array<{
+        url: string;
+        parentUrl: string | null;
+        type: string;
+        status: string;
+        urlCount: number;
+        fileSize: number;
+        compressed: boolean;
+        submittedAt: string | null;
+        lastCrawledAt: string | null;
+        syncedAt: string;
+    }>;
+    syncedAt: string | null;
+};
+
+export type BingTrafficResponseDto = {
+    rows: Array<{
+        date: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+    }>;
+    totals: {
+        clicks: number;
+        impressions: number;
+        ctr: number;
+    };
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    latestAvailableDate: string | null;
+    earliestAvailableDate: string | null;
+};
+
+export type BingUrlChildrenResponseDto = {
+    url: string;
+    page: number;
+    rows: Array<{
+        url: string;
+        httpStatus: number | null;
+        documentSize: number | null;
+        anchorCount: number | null;
+        isPage: boolean | null;
+        totalChildUrlCount: number | null;
+        discoveryDate: string | null;
+        lastCrawledDate: string | null;
+    }>;
+};
+
+export type BingUrlTrafficResponseDto = {
+    url: {
+        url: string;
+        clicks: number;
+        impressions: number;
+        isPage: boolean;
+    };
+    children: Array<{
+        url: string;
+        clicks: number;
+        impressions: number;
+        isPage: boolean;
+    }>;
+    page: number;
+};
+
 export type BingCoverageSnapshotDto = {
     date: string;
     indexed: number;
@@ -4230,6 +4506,10 @@ export type BingIndexingRequestResponseDto = {
         submittedAt: string;
         error?: string;
     }>;
+    quota?: {
+        dailyQuota: number;
+        monthlyQuota: number;
+    } | null;
 };
 
 export type BingKeywordStatsDto = {
@@ -4238,6 +4518,7 @@ export type BingKeywordStatsDto = {
     clicks: number;
     ctr: number;
     averagePosition: number;
+    date?: string | null;
 };
 
 export type BingSetSiteResponseDto = {
@@ -6300,9 +6581,9 @@ export type InstanceStatusDto = {
             notifiedAt: string | null;
         } | null;
         integrations: Array<{
-            integration: 'gsc' | 'ga' | 'gbp' | 'bing' | 'ads' | 'google-ads' | 'gtm' | 'traffic';
+            integration: 'gsc' | 'ga' | 'gbp' | 'bing' | 'bing-search' | 'ads' | 'google-ads' | 'gtm' | 'traffic';
             label: string;
-            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
             sourceId: string | null;
             state: 'ok' | 'failing' | 'stale' | 'never-synced';
             lastSuccessAt: string | null;
@@ -9034,7 +9315,7 @@ export type LatestProjectRunDto = {
         sourceId?: string | null;
         id: string;
         projectId: string;
-        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
         trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
         measurementPlanVersionId?: string | null;
@@ -14103,7 +14384,7 @@ export type ProjectOverviewDto = {
             sourceId?: string | null;
             id: string;
             projectId: string;
-            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
             status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
             trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
             measurementPlanVersionId?: string | null;
@@ -15124,7 +15405,7 @@ export type RunDetailDto = {
     sourceId?: string | null;
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     measurementPlanVersionId?: string | null;
@@ -15441,7 +15722,7 @@ export type RunDto = {
     sourceId?: string | null;
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     measurementPlanVersionId?: string | null;
@@ -25091,15 +25372,15 @@ export type GetApiV1ProjectsByNameRunsData = {
         /**
          * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.
          */
-        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
         /**
          * Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.
          */
-        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
         /**
          * Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.
          */
-        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
+        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
         /**
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
@@ -25261,15 +25542,15 @@ export type GetApiV1RunsData = {
         /**
          * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.
          */
-        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
         /**
          * Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.
          */
-        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
         /**
          * Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.
          */
-        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
+        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
         /**
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
@@ -31966,6 +32247,784 @@ export type GetApiV1ProjectsByNameBingPerformanceResponses = {
 };
 
 export type GetApiV1ProjectsByNameBingPerformanceResponse = GetApiV1ProjectsByNameBingPerformanceResponses[keyof GetApiV1ProjectsByNameBingPerformanceResponses];
+
+export type PostApiV1ProjectsByNameBingSyncData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/bing/sync';
+};
+
+export type PostApiV1ProjectsByNameBingSyncErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameBingSyncError = PostApiV1ProjectsByNameBingSyncErrors[keyof PostApiV1ProjectsByNameBingSyncErrors];
+
+export type PostApiV1ProjectsByNameBingSyncResponses = {
+    /**
+     * Bing sync run queued.
+     */
+    200: RunDto;
+};
+
+export type PostApiV1ProjectsByNameBingSyncResponse = PostApiV1ProjectsByNameBingSyncResponses[keyof PostApiV1ProjectsByNameBingSyncResponses];
+
+export type GetApiV1ProjectsByNameBingTrafficData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * First day (YYYY-MM-DD). Wins over days.
+         */
+        startDate?: string;
+        /**
+         * Last day (YYYY-MM-DD).
+         */
+        endDate?: string;
+        /**
+         * Span in days ending at endDate, or at the newest stored day (default 28).
+         */
+        days?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/traffic';
+};
+
+export type GetApiV1ProjectsByNameBingTrafficErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingTrafficError = GetApiV1ProjectsByNameBingTrafficErrors[keyof GetApiV1ProjectsByNameBingTrafficErrors];
+
+export type GetApiV1ProjectsByNameBingTrafficResponses = {
+    /**
+     * Stored Bing traffic returned.
+     */
+    200: BingTrafficResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingTrafficResponse = GetApiV1ProjectsByNameBingTrafficResponses[keyof GetApiV1ProjectsByNameBingTrafficResponses];
+
+export type GetApiV1ProjectsByNameBingQueriesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * First day (YYYY-MM-DD). Wins over days.
+         */
+        startDate?: string;
+        /**
+         * Last day (YYYY-MM-DD).
+         */
+        endDate?: string;
+        /**
+         * Span in days ending at endDate, or at the newest stored day (default 28).
+         */
+        days?: string;
+        /**
+         * Substring filter on the query.
+         */
+        query?: string;
+        /**
+         * query (default) or week.
+         */
+        groupBy?: string;
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/bing/queries';
+};
+
+export type GetApiV1ProjectsByNameBingQueriesErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingQueriesError = GetApiV1ProjectsByNameBingQueriesErrors[keyof GetApiV1ProjectsByNameBingQueriesErrors];
+
+export type GetApiV1ProjectsByNameBingQueriesResponses = {
+    /**
+     * Stored Bing query stats returned.
+     */
+    200: BingQueryTotalsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingQueriesResponse = GetApiV1ProjectsByNameBingQueriesResponses[keyof GetApiV1ProjectsByNameBingQueriesResponses];
+
+export type GetApiV1ProjectsByNameBingPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * First day (YYYY-MM-DD). Wins over days.
+         */
+        startDate?: string;
+        /**
+         * Last day (YYYY-MM-DD).
+         */
+        endDate?: string;
+        /**
+         * Span in days ending at endDate, or at the newest stored day (default 28).
+         */
+        days?: string;
+        /**
+         * Substring filter on the page URL.
+         */
+        page?: string;
+        /**
+         * page (default) or week.
+         */
+        groupBy?: string;
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/bing/pages';
+};
+
+export type GetApiV1ProjectsByNameBingPagesErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingPagesError = GetApiV1ProjectsByNameBingPagesErrors[keyof GetApiV1ProjectsByNameBingPagesErrors];
+
+export type GetApiV1ProjectsByNameBingPagesResponses = {
+    /**
+     * Stored Bing page stats returned.
+     */
+    200: BingPageTotalsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingPagesResponse = GetApiV1ProjectsByNameBingPagesResponses[keyof GetApiV1ProjectsByNameBingPagesResponses];
+
+export type GetApiV1ProjectsByNameBingCrawlStatsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * First day (YYYY-MM-DD). Wins over days.
+         */
+        startDate?: string;
+        /**
+         * Last day (YYYY-MM-DD).
+         */
+        endDate?: string;
+        /**
+         * Span in days ending at endDate, or at the newest stored day (default 28).
+         */
+        days?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/crawl-stats';
+};
+
+export type GetApiV1ProjectsByNameBingCrawlStatsErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingCrawlStatsError = GetApiV1ProjectsByNameBingCrawlStatsErrors[keyof GetApiV1ProjectsByNameBingCrawlStatsErrors];
+
+export type GetApiV1ProjectsByNameBingCrawlStatsResponses = {
+    /**
+     * Stored Bing crawl stats returned.
+     */
+    200: BingCrawlStatsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingCrawlStatsResponse = GetApiV1ProjectsByNameBingCrawlStatsResponses[keyof GetApiV1ProjectsByNameBingCrawlStatsResponses];
+
+export type GetApiV1ProjectsByNameBingSitemapsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/bing/sitemaps';
+};
+
+export type GetApiV1ProjectsByNameBingSitemapsErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingSitemapsError = GetApiV1ProjectsByNameBingSitemapsErrors[keyof GetApiV1ProjectsByNameBingSitemapsErrors];
+
+export type GetApiV1ProjectsByNameBingSitemapsResponses = {
+    /**
+     * Stored Bing sitemaps returned.
+     */
+    200: BingSitemapsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingSitemapsResponse = GetApiV1ProjectsByNameBingSitemapsResponses[keyof GetApiV1ProjectsByNameBingSitemapsResponses];
+
+export type GetApiV1ProjectsByNameBingSiteData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * One setting kind; all kinds when omitted.
+         */
+        kind?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/site';
+};
+
+export type GetApiV1ProjectsByNameBingSiteErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingSiteError = GetApiV1ProjectsByNameBingSiteErrors[keyof GetApiV1ProjectsByNameBingSiteErrors];
+
+export type GetApiV1ProjectsByNameBingSiteResponses = {
+    /**
+     * Stored Bing site settings returned.
+     */
+    200: BingSiteResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingSiteResponse = GetApiV1ProjectsByNameBingSiteResponses[keyof GetApiV1ProjectsByNameBingSiteResponses];
+
+export type GetApiV1ProjectsByNameBingKeywordDemandData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * A tracked query whose weekly history to include.
+         */
+        query?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/keyword-demand';
+};
+
+export type GetApiV1ProjectsByNameBingKeywordDemandErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingKeywordDemandError = GetApiV1ProjectsByNameBingKeywordDemandErrors[keyof GetApiV1ProjectsByNameBingKeywordDemandErrors];
+
+export type GetApiV1ProjectsByNameBingKeywordDemandResponses = {
+    /**
+     * Stored Bing keyword demand returned.
+     */
+    200: BingKeywordDemandResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingKeywordDemandResponse = GetApiV1ProjectsByNameBingKeywordDemandResponses[keyof GetApiV1ProjectsByNameBingKeywordDemandResponses];
+
+export type GetApiV1ProjectsByNameBingQueryPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The search query.
+         */
+        query?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/query-pages';
+};
+
+export type GetApiV1ProjectsByNameBingQueryPagesErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingQueryPagesError = GetApiV1ProjectsByNameBingQueryPagesErrors[keyof GetApiV1ProjectsByNameBingQueryPagesErrors];
+
+export type GetApiV1ProjectsByNameBingQueryPagesResponses = {
+    /**
+     * Pages for the query returned.
+     */
+    200: BingQueryPagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingQueryPagesResponse = GetApiV1ProjectsByNameBingQueryPagesResponses[keyof GetApiV1ProjectsByNameBingQueryPagesResponses];
+
+export type GetApiV1ProjectsByNameBingPageQueriesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The page URL.
+         */
+        page?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/page-queries';
+};
+
+export type GetApiV1ProjectsByNameBingPageQueriesErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingPageQueriesError = GetApiV1ProjectsByNameBingPageQueriesErrors[keyof GetApiV1ProjectsByNameBingPageQueriesErrors];
+
+export type GetApiV1ProjectsByNameBingPageQueriesResponses = {
+    /**
+     * Queries for the page returned.
+     */
+    200: BingPageQueriesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingPageQueriesResponse = GetApiV1ProjectsByNameBingPageQueriesResponses[keyof GetApiV1ProjectsByNameBingPageQueriesResponses];
+
+export type GetApiV1ProjectsByNameBingQueryHistoryData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The search query.
+         */
+        query?: string;
+        /**
+         * Optional page URL; switches to weekly rows with position.
+         */
+        page?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/query-history';
+};
+
+export type GetApiV1ProjectsByNameBingQueryHistoryErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingQueryHistoryError = GetApiV1ProjectsByNameBingQueryHistoryErrors[keyof GetApiV1ProjectsByNameBingQueryHistoryErrors];
+
+export type GetApiV1ProjectsByNameBingQueryHistoryResponses = {
+    /**
+     * Query history returned.
+     */
+    200: BingQueryHistoryResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingQueryHistoryResponse = GetApiV1ProjectsByNameBingQueryHistoryResponses[keyof GetApiV1ProjectsByNameBingQueryHistoryResponses];
+
+export type GetApiV1ProjectsByNameBingUrlTrafficData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The URL.
+         */
+        url?: string;
+        /**
+         * true to include the URLs under it.
+         */
+        children?: string;
+        /**
+         * 0-indexed page of children.
+         */
+        page?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/url-traffic';
+};
+
+export type GetApiV1ProjectsByNameBingUrlTrafficErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingUrlTrafficError = GetApiV1ProjectsByNameBingUrlTrafficErrors[keyof GetApiV1ProjectsByNameBingUrlTrafficErrors];
+
+export type GetApiV1ProjectsByNameBingUrlTrafficResponses = {
+    /**
+     * URL traffic returned.
+     */
+    200: BingUrlTrafficResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingUrlTrafficResponse = GetApiV1ProjectsByNameBingUrlTrafficResponses[keyof GetApiV1ProjectsByNameBingUrlTrafficResponses];
+
+export type GetApiV1ProjectsByNameBingUrlChildrenData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The directory URL.
+         */
+        url?: string;
+        /**
+         * 0-indexed page.
+         */
+        page?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/url-children';
+};
+
+export type GetApiV1ProjectsByNameBingUrlChildrenErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingUrlChildrenError = GetApiV1ProjectsByNameBingUrlChildrenErrors[keyof GetApiV1ProjectsByNameBingUrlChildrenErrors];
+
+export type GetApiV1ProjectsByNameBingUrlChildrenResponses = {
+    /**
+     * Child URL details returned.
+     */
+    200: BingUrlChildrenResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingUrlChildrenResponse = GetApiV1ProjectsByNameBingUrlChildrenResponses[keyof GetApiV1ProjectsByNameBingUrlChildrenResponses];
+
+export type GetApiV1ProjectsByNameBingLinksData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Optional page URL; lists the external pages linking to it.
+         */
+        url?: string;
+        /**
+         * 0-indexed page.
+         */
+        page?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/links';
+};
+
+export type GetApiV1ProjectsByNameBingLinksErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingLinksError = GetApiV1ProjectsByNameBingLinksErrors[keyof GetApiV1ProjectsByNameBingLinksErrors];
+
+export type GetApiV1ProjectsByNameBingLinksResponses = {
+    /**
+     * Inbound links returned.
+     */
+    200: BingLinksResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingLinksResponse = GetApiV1ProjectsByNameBingLinksResponses[keyof GetApiV1ProjectsByNameBingLinksResponses];
+
+export type GetApiV1ProjectsByNameBingFetchedUrlsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Optional URL; returns what Bingbot received for it.
+         */
+        url?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/fetched-urls';
+};
+
+export type GetApiV1ProjectsByNameBingFetchedUrlsErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingFetchedUrlsError = GetApiV1ProjectsByNameBingFetchedUrlsErrors[keyof GetApiV1ProjectsByNameBingFetchedUrlsErrors];
+
+export type GetApiV1ProjectsByNameBingFetchedUrlsResponses = {
+    /**
+     * Fetch as Bingbot results returned.
+     */
+    200: BingFetchedUrlsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingFetchedUrlsResponse = GetApiV1ProjectsByNameBingFetchedUrlsResponses[keyof GetApiV1ProjectsByNameBingFetchedUrlsResponses];
+
+export type GetApiV1ProjectsByNameBingKeywordsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The keyword to research.
+         */
+        keyword?: string;
+        /**
+         * Market country (default: the project country).
+         */
+        country?: string;
+        /**
+         * Market language tag such as en-US (default: from the project).
+         */
+        language?: string;
+        /**
+         * Volume window start (YYYY-MM-DD).
+         */
+        startDate?: string;
+        /**
+         * Volume window end (YYYY-MM-DD, default today).
+         */
+        endDate?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/keywords';
+};
+
+export type GetApiV1ProjectsByNameBingKeywordsErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingKeywordsError = GetApiV1ProjectsByNameBingKeywordsErrors[keyof GetApiV1ProjectsByNameBingKeywordsErrors];
+
+export type GetApiV1ProjectsByNameBingKeywordsResponses = {
+    /**
+     * Keyword research returned.
+     */
+    200: BingKeywordResearchResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingKeywordsResponse = GetApiV1ProjectsByNameBingKeywordsResponses[keyof GetApiV1ProjectsByNameBingKeywordsResponses];
 
 export type PostApiV1ProjectsByNameWordpressConnectData = {
     body: {
