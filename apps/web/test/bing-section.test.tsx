@@ -14,6 +14,8 @@ import { jsonResponse, mockFetch } from './mock-fetch.js'
 afterEach(() => {
   cleanup()
   delete window.__CANONRY_CONFIG__
+  // Starting a sync hands the run to the session-stored run tracker.
+  sessionStorage.clear()
 })
 
 const SITE = 'https://example.com/'
@@ -53,7 +55,9 @@ function listBody(groupBy: string, key: 'query' | 'page', rows: unknown[]) {
 
 const snapshot = (kind: string, payload: unknown, status = 'ok', error: string | null = null) => ({ kind, status, payload, error, syncedAt: SYNCED_AT })
 
-function mountBing({ synced = true, liveFails = false, embed = false, sitemapIndex = false, crawlErrors = 0, trafficSplit = false, readsFail = false, submitFails = false }: { synced?: boolean; liveFails?: boolean; embed?: boolean; sitemapIndex?: boolean; crawlErrors?: number; trafficSplit?: boolean; readsFail?: boolean; submitFails?: boolean } = {}) {
+function mountBing({ synced = true, liveFails = false, embed = false, sitemapIndex = false, crawlErrors = 0, trafficSplit = false, readsFail = false, submitFails = false, runs = [] }: { synced?: boolean; liveFails?: boolean; embed?: boolean; sitemapIndex?: boolean; crawlErrors?: number; trafficSplit?: boolean; readsFail?: boolean; submitFails?: boolean; runs?: Array<Record<string, unknown>> } = {}) {
+  // The project's bing-sync runs, newest first. Starting a sync adds a queued one.
+  let syncRuns = runs
   if (embed) window.__CANONRY_CONFIG__ = { embed: { enabled: true } } as typeof window.__CANONRY_CONFIG__
   const requests: Array<{ method: string; path: string; search: URLSearchParams }> = []
   const restore = mockFetch((url, init) => {
@@ -61,7 +65,12 @@ function mountBing({ synced = true, liveFails = false, embed = false, sitemapInd
     const path = parsed.pathname
     requests.push({ method: init?.method ?? 'GET', path, search: parsed.searchParams })
     if (path.endsWith('/bing/status')) return jsonResponse({ connected: true, domain: 'example.com', siteUrl: SITE, createdAt: SYNCED_AT, updatedAt: SYNCED_AT })
-    if (path.endsWith('/bing/sync')) return jsonResponse({ id: 'run-1', projectId: 'p1', kind: 'bing-sync', status: 'queued', trigger: 'manual', createdAt: SYNCED_AT })
+    if (path.endsWith('/bing/sync')) {
+      const run = { id: 'run-1', projectId: 'p1', kind: 'bing-sync', status: 'queued', trigger: 'manual', createdAt: SYNCED_AT }
+      syncRuns = [run, ...syncRuns]
+      return jsonResponse(run)
+    }
+    if (path.endsWith('/sample/runs')) return jsonResponse(syncRuns)
     if (readsFail && (path.endsWith('/bing/traffic') || path.endsWith('/bing/site') || path.endsWith('/bing/sitemaps'))) {
       return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'database is locked' } }, 500)
     }
@@ -192,6 +201,30 @@ test('before the first sync the tab offers a sync and keeps index coverage', asy
   fireEvent.click(button)
   await waitFor(() => expect(requests.some((r) => r.method === 'POST' && r.path.endsWith('/bing/sync'))).toBe(true))
   expect(await screen.findByRole('button', { name: 'Sync running…' })).not.toBeNull()
+})
+
+const syncRun = (status: string, extra: Record<string, unknown> = {}) => ({ id: `run-${status}`, projectId: 'p1', kind: 'bing-sync', status, trigger: 'manual', createdAt: SYNCED_AT, ...extra })
+
+test('a sync started earlier still reads as running after leaving the tab and coming back', async () => {
+  // A fresh mount is what returning to the tab looks like: the card has no
+  // memory of the click, so the server's run has to say it.
+  mountBing({ synced: false, runs: [syncRun('running')] })
+  const button = await screen.findByRole('button', { name: 'Sync running…' })
+  expect((button as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.getByText('Bing sync running. Search data appears here when it finishes.')).not.toBeNull()
+})
+
+test('a failed sync says why and offers it again', async () => {
+  mountBing({ synced: false, runs: [syncRun('failed', { finishedAt: SYNCED_AT, error: { message: 'Bing throttled this account' } })] })
+  expect(await screen.findByText('Last sync failed: Bing throttled this account')).not.toBeNull()
+  expect((screen.getByRole('button', { name: 'Try the sync again' }) as HTMLButtonElement).disabled).toBe(false)
+})
+
+test('a sync that finished after the data was read loads the new data', async () => {
+  // Finished "after" this mount read Bing's data, as when it ends while the tab is elsewhere.
+  const { requests } = mountBing({ synced: false, runs: [syncRun('completed', { finishedAt: new Date(Date.now() + 60_000).toISOString() })] })
+  await screen.findByRole('button', { name: 'Sync Bing data now' })
+  await waitFor(() => expect(requests.filter((r) => r.method === 'GET' && r.path.endsWith('/bing/site')).length).toBeGreaterThan(1))
 })
 
 test('site settings list one value per setting and open a setting to its rows', async () => {

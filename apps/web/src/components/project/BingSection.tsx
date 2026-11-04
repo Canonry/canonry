@@ -5,8 +5,11 @@ import {
   calendarDateRange,
   describeError,
   formatPercent,
+  formatRunErrorOneLine,
   formatTenthsMagnitude,
   RatioUnits,
+  RunKinds,
+  RunStatuses,
   type BingSearchComparisonDto,
   type BingSiteSnapshotDto,
   type BingSiteSnapshotKind,
@@ -27,6 +30,7 @@ import {
   getApiV1ProjectsByNameBingSitesOptions,
   getApiV1ProjectsByNameBingStatusOptions,
   getApiV1ProjectsByNameBingTrafficOptions,
+  getApiV1ProjectsByNameRunsOptions,
   getApiV1ProjectsByNameTrendsOptions,
 } from '@canonry/canonry-api-client/react-query'
 
@@ -48,6 +52,8 @@ import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { GSC_STALE_MS } from '../../queries/query-client.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
+import { invalidateQueriesForRunKind } from '../../queries/run-invalidations.js'
+import { trackRun } from '../../lib/run-tracker-store.js'
 import {
   bingConnect as apiBingConnect,
   bingDisconnect as apiBingDisconnect,
@@ -561,7 +567,7 @@ function BingWorkspace({
             </Button>
           </Card>
         ) : loaded && !synced ? (
-          <BingFirstSyncCard projectName={projectName} />
+          <BingFirstSyncCard projectName={projectName} loadedAt={site.dataUpdatedAt} />
         ) : (
           <BingPerformanceCard projectName={projectName} siteUrl={siteUrl} range={range} onRangeChange={setRange} />
         )}
@@ -574,12 +580,43 @@ function BingWorkspace({
   )
 }
 
-function BingFirstSyncCard({ projectName }: { projectName: string }) {
-  const [started, setStarted] = useState(false)
+/** How often the card checks a queued or running Bing sync. */
+const BING_SYNC_POLL_MS = 5_000
+
+function isActiveRun(run: { status: string } | undefined): boolean {
+  return run?.status === RunStatuses.queued || run?.status === RunStatuses.running
+}
+
+function BingFirstSyncCard({ projectName, loadedAt }: { projectName: string; loadedAt: number }) {
+  const queryClient = useQueryClient()
+  // The latest bing-sync run decides what the card shows, not this card's own
+  // state, so a sync still reads as running after leaving the tab, a reload,
+  // or when Refresh search data or a schedule started it.
+  const latestRun = useQuery({
+    ...getApiV1ProjectsByNameRunsOptions({ client: heyClient, path: { name: projectName }, query: { kind: RunKinds['bing-sync'], limit: 1 } }),
+    refetchInterval: (query) => (isActiveRun(query.state.data?.[0]) ? BING_SYNC_POLL_MS : false),
+    // An embed has no sync button and reads only its own surfaces.
+    enabled: !isEmbed(),
+  })
+  const latest = latestRun.data?.[0]
+  const running = isActiveRun(latest)
+  const [starting, setStarting] = useState(false)
+
+  // A sync that finished after Bing's data was last read stored new data: read
+  // it again. Also covers a sync that finished while this tab was elsewhere.
+  const finishedAt = latest && !running && latest.finishedAt ? Date.parse(latest.finishedAt) : 0
+  useEffect(() => {
+    if (finishedAt > loadedAt) invalidateQueriesForRunKind(queryClient, RunKinds['bing-sync'], projectName)
+  }, [finishedAt, loadedAt, queryClient, projectName])
+
   async function handleSync() {
+    setStarting(true)
     try {
-      await triggerBingSync(projectName)
-      setStarted(true)
+      const run = await triggerBingSync(projectName)
+      // The run tracker announces the finish and refreshes Bing's data even if
+      // this card is gone by then.
+      trackRun({ id: run.id, projectId: run.projectId, kind: RunKinds['bing-sync'], projectLabel: projectName, sourceAction: 'bing-sync' })
+      await latestRun.refetch()
       addToast({
         title: 'Bing sync started',
         detail: 'Search data appears here when it finishes.',
@@ -595,15 +632,25 @@ function BingFirstSyncCard({ projectName }: { projectName: string }) {
         dedupeKey: `bing:sync:${projectName}`,
         dedupeMode: 'replace',
       })
+    } finally {
+      setStarting(false)
     }
   }
+  const lastFailed = !running && latest?.status === RunStatuses.failed
   return (
     <Card className="surface-card">
       <h3 className="text-heading-16 text-strong">No Bing search data yet</h3>
-      <p className="mt-1 text-copy-14 text-secondary">It arrives with the daily refresh.</p>
+      <p className="mt-1 text-copy-14 text-secondary">
+        {running ? `Bing sync ${latest?.status === RunStatuses.queued ? 'queued' : 'running'}. Search data appears here when it finishes.` : 'It arrives with the daily refresh.'}
+      </p>
+      {lastFailed && (
+        <p className="mt-1 text-copy-13 text-negative">
+          Last sync failed{latest?.error ? `: ${formatRunErrorOneLine(latest.error)}` : '.'}
+        </p>
+      )}
       {!isEmbed() && (
-        <WriteButton className="mt-3" size="sm" disabled={started} onClick={asyncHandler(handleSync)}>
-          {started ? 'Sync running…' : 'Sync Bing data now'}
+        <WriteButton className="mt-3" size="sm" disabled={running || starting} onClick={asyncHandler(handleSync)}>
+          {running || starting ? 'Sync running…' : lastFailed ? 'Try the sync again' : 'Sync Bing data now'}
         </WriteButton>
       )}
     </Card>

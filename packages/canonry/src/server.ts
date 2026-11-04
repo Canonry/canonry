@@ -4207,6 +4207,17 @@ export async function createServer(opts: {
           .send({ error: "Not found", path: request.url });
       }
 
+      // A dashboard code file this build does not have. Vite names every file
+      // under assets/ by its content hash, and a deploy removes the old ones,
+      // so a tab opened before the deploy asks for names that are gone. Answer
+      // 404, not the app shell: HTML sent for a module request is a MIME error,
+      // not a missing file, and nothing under assets/ is a dashboard route.
+      const assetsPrefix = `${basePath ?? "/"}assets/`;
+      if (url.startsWith(assetsPrefix) || decodedUrl.startsWith(assetsPrefix)) {
+        const error = notFound("Asset", url);
+        return reply.status(error.statusCode).send(error.toJSON());
+      }
+
       if (fs.existsSync(indexPath)) {
         const html = fs.readFileSync(indexPath, "utf-8");
         // Same no-cache + embed-framing policy as `serveIndex` — SPA deep

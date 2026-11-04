@@ -496,7 +496,10 @@ sitemaps and site settings. A query or page row opens on its own stored weeks
 automatic and absent in embeds. A refused live read shows a caution label with
 Bing's reason in the tooltip and a Retry. Before the first `bing-sync` the
 performance card becomes one "Sync Bing data now" card and demand, sitemaps and
-settings stay hidden; index coverage from inspections always shows. Lists show
+settings stay hidden. That card reads the latest `bing-sync` run (polling while it
+is queued or running), not its own state, so a sync still reads as running after
+leaving the tab or when Refresh search data started it; a failed run shows its
+error, and a run that finished after Bing's data was read reloads it; index coverage from inspections always shows. Lists show
 ten rows a page. The latest crawl day is the first row of Crawl by day, with a
 crawl-error caution on the card header, not a second figure row. Site settings is
 one row per setting (a value, or a count that opens to its rows); owner-only
@@ -863,6 +866,7 @@ Validation owns different risks:
 - **Page container** (`max-w-6xl`, centered) for all page content.
 - **Aero bar lane.** While the floating Aero bar shows, `RootLayout` adds `main-area-agent-bar` to `.main-area` (the wrapper holding the page): bottom padding plus a matching root `scroll-padding-bottom`, so the bar never covers a control. Product links and the version live in the sidebar and mobile navigation, outside the page. Pages never pad for the bar themselves.
 - Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`. Project pages instead use the project context row: identity lives in the topbar breadcrumb (plus one visually hidden `h1`, visible below md), and the sweep action lives in the row's `[data-project-actions]`. Embeds keep `page-header`.
+- **After a deploy.** Pages are lazy routes whose code files are named by content hash, and a deploy removes the old ones, so a tab opened before it fails when it opens a page it has not loaded. `ErrorBoundary` recognizes that error (`lib/stale-build.ts`), shows "Canonry was updated" with a Reload button instead of the raw message, and reloads by itself at most once per 30 s. TanStack Router's own once-per-message reload is not enough on its own: it never forgets, and Safari's message names no file. The server answers a missing file under `assets/` with a 404, never the app shell.
 - Sidebar main nav items use Lucide icons (`LayoutDashboard`, `Globe`, `Play`, `Settings`).
 - The sidebar Projects section shows each project with a colored dot indicating visibility health tone.
 - The sidebar Resources section sits at the bottom, with the `Rocket` icon for Setup. Doc links sit in the sidebar footer.
