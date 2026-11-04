@@ -444,7 +444,7 @@ the site-wide sessions chart disappeared once that way.
 Every dashboard tab leads with `TrendCard`: its figures across the top, and the
 chosen figure charted over time below them, with the tab's lists and per-request
 detail unchanged underneath. Site traffic, Search Engines (Search Console
-performance plus indexed pages), Site Health and Backlinks use it.
+performance plus indexed pages, and Bing's the same way), Site Health and Backlinks use it.
 
 - Every value and change is the API's. Stored levels come from
   `GET /projects/:name/trends` (`canonry trends`, `canonry_trends`):
@@ -482,6 +482,38 @@ performance plus indexed pages), Site Health and Backlinks use it.
 - The ads performance chart keeps its own tiles until its per-day rates come
   from the API: CTR is charted from `daily.ctr`; CPC, conversion rate and cost
   per conversion have no per-day field yet.
+
+### Bing workspace
+
+`components/project/BingSection.tsx` owns the Search Engines tab's Bing view.
+It reads stored data only on mount: `/bing/traffic` (clicks, impressions and CTR,
+with the API's `periodComparison` and `trends`), `/bing/queries?groupBy=week`
+(the position figure, its `comparison`, and its weekly line), the `index-coverage`
+trend for Bing indexed pages, keyword demand, coverage, inspections, crawl stats,
+sitemaps and site settings. A query or page row opens on its own stored weeks
+(`match=exact&groupBy=week`); the other side of the pair (`/bing/query-pages`,
+`/bing/page-queries`) is a live Bing read behind "Load … from Bing", never
+automatic and absent in embeds. A refused live read shows a caution label with
+Bing's reason in the tooltip and a Retry. Before the first `bing-sync` the
+performance card becomes one "Sync Bing data now" card and demand, sitemaps and
+settings stay hidden; index coverage from inspections always shows. Lists show
+ten rows a page. The latest crawl day is the first row of Crawl by day, with a
+crawl-error caution on the card header, not a second figure row. Site settings is
+one row per setting (a value, or a count that opens to its rows); owner-only
+settings read "Owner key needed", never a failure. Every figure and change is the
+API's; the component counts list rows and lays out, nothing more.
+
+### Sitemaps (both engines)
+
+Google's and Bing's sitemap cards share `SitemapTable`: path, one status badge
+(issue counts beside it), URLs, Submitted, Last read or Last crawled, and row
+actions that show on hover or focus (always on touch). An index starts closed
+and opens on its sitemaps. A Google path drops the host only when it is the
+property's own (`sitemapPathLabel`). Google's card puts Submit sitemap in the
+header (an inline form opens), Load from Google in the body until the list is
+loaded, then Reload in the header, and both bulk resubmits in one "Resubmit
+all" `ActionMenu` that exists only after a load. A read-only grant swaps Submit
+for a "Read-only access" caution and Reconnect.
 
 ### API calls (Critical)
 

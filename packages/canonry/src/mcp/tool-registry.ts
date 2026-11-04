@@ -468,17 +468,29 @@ const bingWindowShape = {
 
 const bingWindowInputSchema = z.object(bingWindowShape)
 
-const bingQueriesInputSchema = z.object({
+/** Traffic, queries and pages also take a named window, like the dashboard's range control. */
+const bingRangeShape = {
   ...bingWindowShape,
-  query: z.string().optional().describe('Substring filter on the query.'),
+  window: z.enum(['7d', '30d', '90d', 'all']).optional().describe('Window ending at endDate or the newest stored day. Not with startDate or days.'),
+}
+
+const bingTrafficInputSchema = z.object(bingRangeShape)
+
+const bingMatchSchema = z.enum(['contains', 'exact']).optional().describe('contains (default) or exact: one whole query or page, e.g. with groupBy=week for its weeks.')
+
+const bingQueriesInputSchema = z.object({
+  ...bingRangeShape,
+  query: z.string().optional().describe('Filter on the query: a substring, or the whole query with match=exact.'),
+  match: bingMatchSchema,
   groupBy: z.enum(['query', 'week']).optional(),
   limit: z.number().int().positive().max(5000).optional(),
   offset: z.number().int().nonnegative().optional(),
 })
 
 const bingPagesInputSchema = z.object({
-  ...bingWindowShape,
-  page: z.string().optional().describe('Substring filter on the page URL.'),
+  ...bingRangeShape,
+  page: z.string().optional().describe('Filter on the page URL: a substring, or the whole URL with match=exact.'),
+  match: bingMatchSchema,
   groupBy: z.enum(['page', 'week']).optional(),
   limit: z.number().int().positive().max(5000).optional(),
   offset: z.number().int().nonnegative().optional(),
@@ -2547,24 +2559,24 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_bing_traffic',
     title: 'Get Bing traffic',
-    description: 'Get stored daily Bing search clicks and impressions for the whole site, with window totals and CTR (no call to Bing). These daily rows are the site total; use them for Bing headline numbers, never a sum of canonry_bing_queries rows. latestAvailableDate is the newest stored day (Bing lags 2 to 3 days); earliestAvailableDate says how far back history goes.',
+    description: 'Get stored daily Bing search clicks and impressions for the whole site, with window totals and CTR (no call to Bing). These daily rows are the site total; use them for Bing headline numbers, never a sum of canonry_bing_queries rows. periodComparison compares the window with the stored window before it, or its own halves when basis is split-window; trends are fitted over the calendar. latestAvailableDate is the newest stored day (Bing lags 2 to 3 days); earliestAvailableDate says how far back history goes.',
     access: 'read',
     tier: 'bing',
-    inputSchema: bingWindowInputSchema,
+    inputSchema: bingTrafficInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/bing/traffic'],
-    handler: (client, input) => client.bingTraffic(input.project, bingWindowQuery(input)),
+    handler: (client, input) => client.bingTraffic(input.project, { ...bingWindowQuery(input), window: input.window }),
   }),
   defineTool({
     name: 'canonry_bing_queries',
     title: 'Get Bing query stats',
-    description: 'Get stored Bing search stats per query (no call to Bing). Bing reports queries per WEEK, so each row sums the weekly buckets inside the window, with impression-weighted position and the number of weeks it appeared. Bing names only some queries: never sum rows for a site total, use canonry_bing_traffic. groupBy=week returns weekly totals instead, for a trend. Page with limit/offset until truncated is false.',
+    description: 'Get stored Bing search stats per query (no call to Bing). Bing reports queries per WEEK, so each row sums the weekly buckets inside the window, with impression-weighted position and the number of weeks it appeared. Bing names only some queries: never sum rows for a site total, use canonry_bing_traffic. groupBy=week returns weekly totals instead, for a trend. totals sums every matching query before paging, and comparison sets it against the window before. Page with limit/offset until truncated is false.',
     access: 'read',
     tier: 'bing',
     inputSchema: bingQueriesInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/bing/queries'],
-    handler: (client, input) => client.bingQueries(input.project, { ...bingWindowQuery(input), query: input.query, groupBy: input.groupBy, limit: input.limit, offset: input.offset }),
+    handler: (client, input) => client.bingQueries(input.project, { ...bingWindowQuery(input), window: input.window, query: input.query, match: input.match, groupBy: input.groupBy, limit: input.limit, offset: input.offset }),
   }),
   defineTool({
     name: 'canonry_bing_pages',
@@ -2575,7 +2587,7 @@ const rawCanonryMcpTools = [
     inputSchema: bingPagesInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/bing/pages'],
-    handler: (client, input) => client.bingPages(input.project, { ...bingWindowQuery(input), page: input.page, groupBy: input.groupBy, limit: input.limit, offset: input.offset }),
+    handler: (client, input) => client.bingPages(input.project, { ...bingWindowQuery(input), window: input.window, page: input.page, match: input.match, groupBy: input.groupBy, limit: input.limit, offset: input.offset }),
   }),
   defineTool({
     name: 'canonry_bing_crawl_stats',

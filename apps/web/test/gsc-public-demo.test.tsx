@@ -55,7 +55,7 @@ test('public demo reads stored Google evidence without configuration or live sit
   expect(requests.some((path) => path.includes('/google/gsc/sitemaps'))).toBe(false)
   expect(screen.queryByRole('button', { name: 'Disconnect' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Load from Google' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Submit sitemap to Google' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Submit sitemap' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Inspect URL' })).toBeNull()
   expect(screen.queryByText('Setup & Configuration')).toBeNull()
 })

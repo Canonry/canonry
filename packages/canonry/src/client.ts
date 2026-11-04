@@ -3866,7 +3866,7 @@ export class ApiClient {
     )
   }
 
-  async bingTraffic(project: string, query?: { startDate?: string; endDate?: string; days?: string }): Promise<BingTrafficResponseDto> {
+  async bingTraffic(project: string, query?: { startDate?: string; endDate?: string; days?: string; window?: '7d' | '30d' | '90d' | 'all' }): Promise<BingTrafficResponseDto> {
     return this.invoke<BingTrafficResponseDto>(() =>
       getApiV1ProjectsByNameBingTraffic({ client: this.heyClient, path: { name: project }, query }),
     )
@@ -3874,7 +3874,7 @@ export class ApiClient {
 
   async bingQueries(
     project: string,
-    query?: { startDate?: string; endDate?: string; days?: string; query?: string; groupBy?: string; limit?: number; offset?: number },
+    query?: { startDate?: string; endDate?: string; days?: string; window?: '7d' | '30d' | '90d' | 'all'; query?: string; match?: 'contains' | 'exact'; groupBy?: string; limit?: number; offset?: number },
   ): Promise<BingQueryTotalsResponseDto> {
     return this.invoke<BingQueryTotalsResponseDto>(() =>
       getApiV1ProjectsByNameBingQueries({ client: this.heyClient, path: { name: project }, query }),
@@ -3883,7 +3883,7 @@ export class ApiClient {
 
   async bingPages(
     project: string,
-    query?: { startDate?: string; endDate?: string; days?: string; page?: string; groupBy?: string; limit?: number; offset?: number },
+    query?: { startDate?: string; endDate?: string; days?: string; window?: '7d' | '30d' | '90d' | 'all'; page?: string; match?: 'contains' | 'exact'; groupBy?: string; limit?: number; offset?: number },
   ): Promise<BingPageTotalsResponseDto> {
     return this.invoke<BingPageTotalsResponseDto>(() =>
       getApiV1ProjectsByNameBingPages({ client: this.heyClient, path: { name: project }, query }),

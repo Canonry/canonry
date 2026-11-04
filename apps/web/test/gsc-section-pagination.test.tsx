@@ -220,8 +220,8 @@ test('reports completed batches and stops after a later sitemap submission trans
   })
 
   fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
-  await waitFor(() => expect((screen.getByRole('button', { name: 'Resubmit all sitemaps' }) as HTMLButtonElement).disabled).toBe(false))
-  fireEvent.click(screen.getByRole('button', { name: 'Resubmit all sitemaps' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Resubmit all' }))
+  fireEvent.click(screen.getByRole('menuitem', { name: /^Resubmit all sitemaps/ }))
   await waitFor(() => expect(screen.getByText(/50 accepted, 0 failed, 50 unconfirmed, 0 not attempted/i)).not.toBeNull())
   expect(submitted).toHaveLength(2)
   expect(submitted).toEqual([expect.any(Array), expect.any(Array)])
@@ -242,8 +242,8 @@ test('resubmit all files excludes a parent index and includes standalone and chi
   })
 
   fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
-  await waitFor(() => expect((screen.getByRole('button', { name: 'Resubmit all files' }) as HTMLButtonElement).disabled).toBe(false))
-  fireEvent.click(screen.getByRole('button', { name: 'Resubmit all files' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Resubmit all' }))
+  fireEvent.click(screen.getByRole('menuitem', { name: /^Resubmit all files/ }))
   await waitFor(() => expect(submitted).toHaveLength(1))
   expect(submitted[0]).toEqual(expect.arrayContaining([standalone, child]))
   expect(submitted[0]).not.toContain(index)
@@ -301,9 +301,10 @@ test('refreshes the cached OAuth connection immediately after popup authorizatio
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={queryClient}><GscSection projectName="test-project" refreshNonce={0} /></QueryClientProvider>)
 
-  await waitFor(() => expect(screen.getByText(/current Canonry OAuth grant is read-only/i)).not.toBeNull())
+  await waitFor(() => expect(screen.getByText('Read-only access')).not.toBeNull())
+  expect(screen.getByRole('button', { name: /can read Search Console but not submit sitemaps/ })).not.toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Load from Google' }))
-  await screen.findByText('Default sitemap')
+  await screen.findByText('Default')
   expect(screen.queryByText('Use for audits')).toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
@@ -431,17 +432,17 @@ test('connection-owned sitemap changes stay fresh after a remount', async () => 
   const firstRender = render(<QueryClientProvider client={queryClient}><GscSection projectName="test-project" refreshNonce={0} /></QueryClientProvider>)
 
   fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
-  const newSitemapRow = await screen.findByText(newSitemap).then((cell) => cell.closest('tr'))
+  const newSitemapRow = await screen.findByTitle(newSitemap).then((cell) => cell.closest('tr'))
   if (!newSitemapRow) throw new Error('New sitemap row was not rendered')
   fireEvent.click(within(newSitemapRow).getByRole('button', { name: 'Set as default' }))
-  await waitFor(() => expect(within(newSitemapRow).getByText('Default sitemap')).not.toBeNull())
+  await waitFor(() => expect(within(newSitemapRow).getByText('Default')).not.toBeNull())
 
   firstRender.unmount()
   render(<QueryClientProvider client={queryClient}><GscSection projectName="test-project" refreshNonce={0} /></QueryClientProvider>)
 
   await waitFor(() => expect(connectionReads).toBeGreaterThanOrEqual(2))
   fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
-  const remountedRow = await screen.findByText(newSitemap).then((cell) => cell.closest('tr'))
+  const remountedRow = await screen.findByTitle(newSitemap).then((cell) => cell.closest('tr'))
   if (!remountedRow) throw new Error('New sitemap row was not rendered after remount')
-  expect(within(remountedRow).getByText('Default sitemap')).not.toBeNull()
+  expect(within(remountedRow).getByText('Default')).not.toBeNull()
 })

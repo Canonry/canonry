@@ -13,12 +13,16 @@ import {
   runs,
 } from '@canonry/canonry-db'
 import {
+  RatioUnits,
   RunKinds,
   RunStatuses,
   bingSiteSnapshotKindSchema,
+  calendarDateRange,
   escapeLikePattern,
+  linearTrend,
   providerError,
   quotaExceeded,
+  roundRatio,
   validationError,
   type BingCrawlStatsResponseDto,
   type BingFetchedUrlsResponseDto,
@@ -30,6 +34,8 @@ import {
   type BingQueryHistoryResponseDto,
   type BingQueryPagesResponseDto,
   type BingQueryTotalsResponseDto,
+  type BingSearchComparisonDto,
+  type BingSearchTotalsDto,
   type BingSiteResponseDto,
   type BingSitemapsResponseDto,
   type BingStatsRowDto,
@@ -61,6 +67,7 @@ import {
   type BingQueryStats,
 } from '@canonry/canonry-integration-bing'
 import { assertForwardRange } from './google.js'
+import { computeGscPeriodComparison } from './gsc-period-comparison.js'
 import { resolveProject, syncRunTrigger, type ScheduledSyncClaim } from './helpers.js'
 
 /** Default span of a stored read with no explicit dates, anchored at the newest stored day. */
@@ -136,22 +143,41 @@ function requireHttpUrl(value: string | undefined, name: string): string {
   return raw
 }
 
+const BING_WINDOW_DAYS: Readonly<Record<string, number | null>> = { '7d': 7, '30d': 30, '90d': 90, all: null }
+
 /**
- * Resolve a stored read's window. Explicit `startDate` wins; otherwise `days`
- * (default 28) ends at `endDate`, or at the newest stored day so a lagging
- * Bing feed does not read as a run of zeros.
+ * Resolve a stored read's window. Explicit `startDate` wins; then `window`
+ * (`7d`, `30d`, `90d`, `all`), then `days` (default 28). A relative window
+ * ends at `endDate`, or at the newest stored day so a lagging Bing feed does
+ * not read as a run of zeros. `window=all` has no start.
  */
 export function resolveBingWindow(
-  query: { startDate?: string; endDate?: string; days?: string },
+  query: { startDate?: string; endDate?: string; days?: string; window?: string },
   latest: string | null,
   defaultDays = BING_DEFAULT_WINDOW_DAYS,
 ): { startDate: string | null; endDate: string | null } {
   assertForwardRange(query.startDate, query.endDate)
+  if (query.window !== undefined && query.window !== '') {
+    if (!(query.window in BING_WINDOW_DAYS)) throw validationError('"window" must be 7d, 30d, 90d or all')
+    if (query.startDate || (query.days !== undefined && query.days !== '')) {
+      throw validationError('"window" cannot be combined with "startDate" or "days"')
+    }
+  }
   if (query.startDate) return { startDate: query.startDate, endDate: query.endDate ?? null }
-  const days = parseDays(query.days, defaultDays)
   const anchor = query.endDate ?? latest
+  if (query.window !== undefined && query.window !== '') {
+    const windowDays = BING_WINDOW_DAYS[query.window] ?? null
+    if (!anchor) return { startDate: null, endDate: null }
+    return { startDate: windowDays === null ? null : shiftDay(anchor, -(windowDays - 1)), endDate: anchor }
+  }
+  const days = parseDays(query.days, defaultDays)
   if (!anchor) return { startDate: null, endDate: null }
   return { startDate: shiftDay(anchor, -(days - 1)), endDate: anchor }
+}
+
+/** Calendar days from `startDate` to `endDate`, both included. */
+function spanDays(startDate: string, endDate: string): number {
+  return Math.round((Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`)) / 86_400_000) + 1
 }
 
 function ctrOf(clicks: number, impressions: number): number {
@@ -250,7 +276,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   // GET /projects/:name/bing/traffic
   app.get<{
     Params: { name: string }
-    Querystring: { startDate?: string; endDate?: string; days?: string }
+    Querystring: { startDate?: string; endDate?: string; days?: string; window?: string }
   }>('/projects/:name/bing/traffic', async (request): Promise<BingTrafficResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const bounds = app.db
@@ -259,21 +285,55 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
       .where(eq(bingTrafficDaily.projectId, project.id))
       .get()
     const latest = bounds?.latest ?? null
+    const earliest = bounds?.earliest ?? null
     const window = resolveBingWindow(request.query, latest)
+    // The comparison reaches one window back when the stored days cover it, so
+    // fetch from there; the response itself reports the window only.
+    const priorStart = window.startDate && window.endDate
+      ? shiftDay(window.startDate, -spanDays(window.startDate, window.endDate))
+      : null
+    const priorWindowIsSynced = priorStart !== null && earliest !== null && earliest <= priorStart
+    const fetchStart = priorWindowIsSynced ? priorStart : window.startDate
     const conditions: SQL[] = [eq(bingTrafficDaily.projectId, project.id)]
-    if (window.startDate) conditions.push(gte(bingTrafficDaily.date, window.startDate))
+    if (fetchStart) conditions.push(gte(bingTrafficDaily.date, fetchStart))
     if (window.endDate) conditions.push(lte(bingTrafficDaily.date, window.endDate))
-    const rows = latest === null && !request.query.startDate
+    const fetched = latest === null && !request.query.startDate
       ? []
       : app.db.select().from(bingTrafficDaily).where(and(...conditions)).orderBy(asc(bingTrafficDaily.date)).all()
+    const rows = window.startDate ? fetched.filter((row) => row.date >= window.startDate!) : fetched
     const clicks = rows.reduce((sum, row) => sum + row.clicks, 0)
     const impressions = rows.reduce((sum, row) => sum + row.impressions, 0)
+
+    // Bing omits days with no traffic, so fit over the calendar: a missing day
+    // inside the stored range is a zero day, not a gap to close up. Days before
+    // the first stored day were never synced, so the span starts no earlier.
+    const byDate = new Map(rows.map((row) => [row.date, row]))
+    const syncedStart = window.startDate && earliest && window.startDate > earliest ? window.startDate : (earliest ?? window.startDate)
+    const denseDates = rows.length === 0 ? [] : calendarDateRange(syncedStart ?? rows[0]!.date, window.endDate ?? rows[rows.length - 1]!.date)
+    const dense = (pick: (row: { clicks: number; impressions: number }) => number | null) =>
+      denseDates.map((date) => pick(byDate.get(date) ?? { clicks: 0, impressions: 0 }))
+
+    // A window that ends after the newest stored day would count unsynced days as zeroes.
+    const endsWithinData = latest !== null && window.endDate !== null && window.endDate <= latest
+    const comparisonRows = fetched.map((row) => ({ date: row.date, clicks: row.clicks, impressions: row.impressions, position: null, fromPropertyTotals: true }))
+    const periodComparison = !endsWithinData || rows.length === 0
+      ? null
+      : priorWindowIsSynced
+        ? computeGscPeriodComparison(comparisonRows, { startDate: priorStart, endDate: window.endDate!, basis: 'prior-window' })
+        : computeGscPeriodComparison(comparisonRows, { startDate: syncedStart ?? rows[0]!.date, endDate: window.endDate!, basis: 'split-window' })
+
     return {
       rows: rows.map((row) => ({ date: row.date, clicks: row.clicks, impressions: row.impressions, ctr: ctrOf(row.clicks, row.impressions) })),
       totals: { clicks, impressions, ctr: ctrOf(clicks, impressions) },
       window,
       latestAvailableDate: latest,
-      earliestAvailableDate: bounds?.earliest ?? null,
+      earliestAvailableDate: earliest,
+      trends: {
+        clicks: linearTrend(dense((row) => row.clicks)),
+        impressions: linearTrend(dense((row) => row.impressions)),
+        ctr: linearTrend(dense((row) => (row.impressions > 0 ? row.clicks / row.impressions : null))),
+      },
+      periodComparison,
     }
   })
 
@@ -281,7 +341,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
     table: WeeklyTable,
     keyColumn: typeof bingQueryStats.query | typeof bingPageStats.page,
     projectId: string,
-    query: { startDate?: string; endDate?: string; days?: string; search?: string; groupBy?: string; limit?: string; offset?: string },
+    query: { startDate?: string; endDate?: string; days?: string; window?: string; search?: string; match?: string; groupBy?: string; limit?: string; offset?: string },
     keyGroup: K,
   ): {
     groupBy: K | 'week'
@@ -291,20 +351,67 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
     truncated: boolean
     window: { startDate: string | null; endDate: string | null }
     latestAvailableDate: string | null
+    totals: BingSearchTotalsDto | null
+    comparison: BingSearchComparisonDto | null
   } {
-    const latest = app.db.select({ latest: sql<string | null>`MAX(${table.date})` }).from(table).where(eq(table.projectId, projectId)).get()?.latest ?? null
+    const bounds = app.db
+      .select({ latest: sql<string | null>`MAX(${table.date})`, earliest: sql<string | null>`MIN(${table.date})` })
+      .from(table)
+      .where(eq(table.projectId, projectId))
+      .get()
+    const latest = bounds?.latest ?? null
     const window = resolveBingWindow(query, latest)
     const groupBy = query.groupBy ?? keyGroup
     if (groupBy !== keyGroup && groupBy !== 'week') {
       throw validationError(`"groupBy" must be ${keyGroup} or week`)
     }
-    const conditions: SQL[] = [eq(table.projectId, projectId)]
-    if (window.startDate) conditions.push(gte(table.date, window.startDate))
-    if (window.endDate) conditions.push(lte(table.date, window.endDate))
+    const match = query.match ?? 'contains'
+    if (match !== 'contains' && match !== 'exact') throw validationError('"match" must be contains or exact')
     const search = query.search?.trim()
-    if (search) conditions.push(sql`${keyColumn} LIKE ${'%' + escapeLikePattern(search) + '%'} ESCAPE '\\'`)
-    const where = and(...conditions)
+    const filters: SQL[] = [eq(table.projectId, projectId)]
+    if (search) {
+      filters.push(match === 'exact'
+        ? eq(keyColumn, search)
+        : sql`${keyColumn} LIKE ${'%' + escapeLikePattern(search) + '%'} ESCAPE '\\'`)
+    }
+    const between = (startDate: string | null, endDate: string | null) => {
+      const conditions = [...filters]
+      if (startDate) conditions.push(gte(table.date, startDate))
+      if (endDate) conditions.push(lte(table.date, endDate))
+      return and(...conditions)
+    }
+    const where = between(window.startDate, window.endDate)
     const empty = latest === null && !query.startDate
+    const sumOver = (condition: SQL | undefined) => totalsShape(
+      app.db.select(weeklyAggregates(table)).from(table).where(condition).get()
+        ?? { clicks: 0, impressions: 0, avgImpressionPosition: null, avgClickPosition: null, weeks: 0 },
+    )
+    const windowTotals = empty ? null : sumOver(where)
+    const totals = windowTotals && windowTotals.weeks > 0 ? windowTotals : null
+
+    // The prior window only counts when stored weeks reach back to it. A week
+    // is dated by one day, so one dated up to six days after the prior
+    // window's first day still falls inside it.
+    let comparison: BingSearchComparisonDto | null = null
+    if (totals && window.startDate && window.endDate && bounds?.earliest) {
+      const days = spanDays(window.startDate, window.endDate)
+      const priorStart = shiftDay(window.startDate, -days)
+      if (bounds.earliest <= shiftDay(priorStart, 6)) {
+        const prior = sumOver(between(priorStart, shiftDay(window.startDate, -1)))
+        comparison = {
+          days,
+          prior,
+          difference: {
+            clicks: totals.clicks - prior.clicks,
+            impressions: totals.impressions - prior.impressions,
+            ctr: roundRatio(totals.ctr - prior.ctr, RatioUnits.fraction),
+            avgImpressionPosition: totals.avgImpressionPosition !== null && prior.avgImpressionPosition !== null
+              ? round(totals.avgImpressionPosition - prior.avgImpressionPosition)
+              : null,
+          },
+        }
+      }
+    }
 
     if (groupBy === 'week') {
       const weekly: BingWeeklyTotalsRowDto[] = empty
@@ -317,7 +424,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
           .orderBy(asc(table.date))
           .all()
           .map((row) => ({ date: row.date, ...totalsShape(row) }))
-      return { groupBy: 'week', keyed: [], weekly, totalMatching: weekly.length, truncated: false, window, latestAvailableDate: latest }
+      return { groupBy: 'week', keyed: [], weekly, totalMatching: weekly.length, truncated: false, window, latestAvailableDate: latest, totals, comparison }
     }
 
     const limit = parseLimit(query.limit)
@@ -338,13 +445,13 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
     const totalMatching = empty
       ? 0
       : Number(app.db.select({ total: sql<number>`COUNT(DISTINCT ${keyColumn})` }).from(table).where(where).get()?.total ?? 0)
-    return { groupBy: keyGroup, keyed, weekly: [], totalMatching, truncated: offset + keyed.length < totalMatching, window, latestAvailableDate: latest }
+    return { groupBy: keyGroup, keyed, weekly: [], totalMatching, truncated: offset + keyed.length < totalMatching, window, latestAvailableDate: latest, totals, comparison }
   }
 
   // GET /projects/:name/bing/queries
   app.get<{
     Params: { name: string }
-    Querystring: { startDate?: string; endDate?: string; days?: string; query?: string; groupBy?: string; limit?: string; offset?: string }
+    Querystring: { startDate?: string; endDate?: string; days?: string; window?: string; query?: string; match?: string; groupBy?: string; limit?: string; offset?: string }
   }>('/projects/:name/bing/queries', async (request): Promise<BingQueryTotalsResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const result = weeklyList(bingQueryStats, bingQueryStats.query, project.id, { ...request.query, search: request.query.query }, 'query')
@@ -356,13 +463,15 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
       truncated: result.truncated,
       window: result.window,
       latestAvailableDate: result.latestAvailableDate,
+      totals: result.totals,
+      comparison: result.comparison,
     }
   })
 
   // GET /projects/:name/bing/pages
   app.get<{
     Params: { name: string }
-    Querystring: { startDate?: string; endDate?: string; days?: string; page?: string; groupBy?: string; limit?: string; offset?: string }
+    Querystring: { startDate?: string; endDate?: string; days?: string; window?: string; page?: string; match?: string; groupBy?: string; limit?: string; offset?: string }
   }>('/projects/:name/bing/pages', async (request): Promise<BingPageTotalsResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const result = weeklyList(bingPageStats, bingPageStats.page, project.id, { ...request.query, search: request.query.page }, 'page')
@@ -374,6 +483,8 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
       truncated: result.truncated,
       window: result.window,
       latestAvailableDate: result.latestAvailableDate,
+      totals: result.totals,
+      comparison: result.comparison,
     }
   })
 

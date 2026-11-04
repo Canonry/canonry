@@ -188,44 +188,46 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['bing', 'traffic'],
-    usage: 'canonry bing traffic <project> [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--format json|jsonl]',
-    options: { days: stringOption(), 'start-date': stringOption(), 'end-date': stringOption() },
+    usage: 'canonry bing traffic <project> [--window 7d|30d|90d|all] [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--format json|jsonl]',
+    options: { window: stringOption(), days: stringOption(), 'start-date': stringOption(), 'end-date': stringOption() },
     run: async (input) => {
       const { bingTraffic } = await import('../commands/bing.js')
-      const project = requireProject(input, 'bing.traffic', 'canonry bing traffic <project> [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--format json|jsonl]')
-      await bingTraffic(project, { days: getString(input.values, 'days'), startDate: getString(input.values, 'start-date'), endDate: getString(input.values, 'end-date'), format: input.format })
+      const project = requireProject(input, 'bing.traffic', 'canonry bing traffic <project> [--window 7d|30d|90d|all] [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--format json|jsonl]')
+      await bingTraffic(project, { window: getString(input.values, 'window'), days: getString(input.values, 'days'), startDate: getString(input.values, 'start-date'), endDate: getString(input.values, 'end-date'), format: input.format })
     },
   },
   {
     path: ['bing', 'queries'],
-    usage: 'canonry bing queries <project> [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--query <text>] [--group-by query|week] [--limit <n>] [--offset <n>] [--format json|jsonl]',
-    options: { days: stringOption(), 'start-date': stringOption(), 'end-date': stringOption(), query: stringOption(), 'group-by': stringOption(), limit: stringOption(), offset: stringOption() },
+    usage: 'canonry bing queries <project> [--window 7d|30d|90d|all] [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--query <text> [--exact]] [--group-by query|week] [--limit <n>] [--offset <n>] [--format json|jsonl]',
+    options: { window: stringOption(), days: stringOption(), 'start-date': stringOption(), 'end-date': stringOption(), query: stringOption(), exact: { type: 'boolean', default: false }, 'group-by': stringOption(), limit: stringOption(), offset: stringOption() },
     run: async (input) => {
       const { bingQueries } = await import('../commands/bing.js')
-      const project = requireProject(input, 'bing.queries', 'canonry bing queries <project> [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--query <text>] [--group-by query|week] [--limit <n>] [--offset <n>] [--format json|jsonl]')
+      const project = requireProject(input, 'bing.queries', 'canonry bing queries <project> [--window 7d|30d|90d|all] [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--query <text> [--exact]] [--group-by query|week] [--limit <n>] [--offset <n>] [--format json|jsonl]')
       await bingQueries(project, {
-        days: getString(input.values, 'days'), startDate: getString(input.values, 'start-date'), endDate: getString(input.values, 'end-date'),
+        window: getString(input.values, 'window'), days: getString(input.values, 'days'), startDate: getString(input.values, 'start-date'), endDate: getString(input.values, 'end-date'),
         query: getString(input.values, 'query'),
+        exact: getBoolean(input.values, 'exact'),
         groupBy: getString(input.values, 'group-by'),
-        limit: parseIntegerOption(input, 'limit', { command: 'bing.queries', message: '--limit must be an integer', usage: 'canonry bing queries <project> [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--query <text>] [--group-by query|week] [--limit <n>] [--offset <n>] [--format json|jsonl]' }),
-        offset: parseIntegerOption(input, 'offset', { command: 'bing.queries', message: '--offset must be an integer', usage: 'canonry bing queries <project> [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--query <text>] [--group-by query|week] [--limit <n>] [--offset <n>] [--format json|jsonl]' }),
+        limit: parseIntegerOption(input, 'limit', { command: 'bing.queries', message: '--limit must be an integer', usage: 'canonry bing queries <project> [--window 7d|30d|90d|all] [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--query <text> [--exact]] [--group-by query|week] [--limit <n>] [--offset <n>] [--format json|jsonl]' }),
+        offset: parseIntegerOption(input, 'offset', { command: 'bing.queries', message: '--offset must be an integer', usage: 'canonry bing queries <project> [--window 7d|30d|90d|all] [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--query <text> [--exact]] [--group-by query|week] [--limit <n>] [--offset <n>] [--format json|jsonl]' }),
         format: input.format,
       })
     },
   },
   {
     path: ['bing', 'pages'],
-    usage: 'canonry bing pages <project> [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--page <text>] [--group-by page|week] [--limit <n>] [--offset <n>] [--format json|jsonl]',
-    options: { days: stringOption(), 'start-date': stringOption(), 'end-date': stringOption(), page: stringOption(), 'group-by': stringOption(), limit: stringOption(), offset: stringOption() },
+    usage: 'canonry bing pages <project> [--window 7d|30d|90d|all] [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--page <text> [--exact]] [--group-by page|week] [--limit <n>] [--offset <n>] [--format json|jsonl]',
+    options: { window: stringOption(), days: stringOption(), 'start-date': stringOption(), 'end-date': stringOption(), page: stringOption(), exact: { type: 'boolean', default: false }, 'group-by': stringOption(), limit: stringOption(), offset: stringOption() },
     run: async (input) => {
       const { bingPages } = await import('../commands/bing.js')
-      const project = requireProject(input, 'bing.pages', 'canonry bing pages <project> [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--page <text>] [--group-by page|week] [--limit <n>] [--offset <n>] [--format json|jsonl]')
+      const project = requireProject(input, 'bing.pages', 'canonry bing pages <project> [--window 7d|30d|90d|all] [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--page <text> [--exact]] [--group-by page|week] [--limit <n>] [--offset <n>] [--format json|jsonl]')
       await bingPages(project, {
-        days: getString(input.values, 'days'), startDate: getString(input.values, 'start-date'), endDate: getString(input.values, 'end-date'),
+        window: getString(input.values, 'window'), days: getString(input.values, 'days'), startDate: getString(input.values, 'start-date'), endDate: getString(input.values, 'end-date'),
         page: getString(input.values, 'page'),
+        exact: getBoolean(input.values, 'exact'),
         groupBy: getString(input.values, 'group-by'),
-        limit: parseIntegerOption(input, 'limit', { command: 'bing.pages', message: '--limit must be an integer', usage: 'canonry bing pages <project> [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--page <text>] [--group-by page|week] [--limit <n>] [--offset <n>] [--format json|jsonl]' }),
-        offset: parseIntegerOption(input, 'offset', { command: 'bing.pages', message: '--offset must be an integer', usage: 'canonry bing pages <project> [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--page <text>] [--group-by page|week] [--limit <n>] [--offset <n>] [--format json|jsonl]' }),
+        limit: parseIntegerOption(input, 'limit', { command: 'bing.pages', message: '--limit must be an integer', usage: 'canonry bing pages <project> [--window 7d|30d|90d|all] [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--page <text> [--exact]] [--group-by page|week] [--limit <n>] [--offset <n>] [--format json|jsonl]' }),
+        offset: parseIntegerOption(input, 'offset', { command: 'bing.pages', message: '--offset must be an integer', usage: 'canonry bing pages <project> [--window 7d|30d|90d|all] [--days <n>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--page <text> [--exact]] [--group-by page|week] [--limit <n>] [--offset <n>] [--format json|jsonl]' }),
         format: input.format,
       })
     },

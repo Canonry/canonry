@@ -15,7 +15,7 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses, UserRoles } from '@canonry/canonry-contracts'
+import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RunKinds, RunStatuses, UserRoles } from '@canonry/canonry-contracts'
 import type { MeasurementOverviewSort } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
@@ -36,7 +36,7 @@ import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { SentimentScopeProvider } from '../components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence } from '../queries/sentiment.js'
 import { EvidenceTable, QueryEvidenceSummary } from '../components/project/EvidenceTable.js'
-import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
+import { BingSection } from '../components/project/BingSection.js'
 import { ActivitySection } from '../components/project/ActivitySection.js'
 import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
@@ -65,7 +65,7 @@ import {
   adaptV2MeasurementOverview,
   areV2OverviewPagesCompatible,
 } from '../components/project/advanced-measurement/v2-overview-adapter.js'
-import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric, siteCitationLabel, splitPercentSign } from '../lib/format-helpers.js'
+import { formatTimestamp, siteCitationLabel, splitPercentSign } from '../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
 import type { QueryClassLookup } from '../lib/answer-movement.js'
 import { addToast } from '../lib/toast-store.js'
@@ -85,12 +85,8 @@ import {
   appendCompetitors as apiAppendCompetitors,
   removeCompetitorById as apiRemoveCompetitorById,
   updateProject as apiUpdateProject,
-  bingConnect as apiBingConnect,
-  bingDisconnect as apiBingDisconnect,
-  bingSetSite as apiBingSetSite,
-  inspectBingUrl,
   inspectBingSitemap,
-  bingRequestIndexing,
+  triggerBingSync,
   triggerGscSync,
   fetchRunDetail,
   apiErrorDetails,
@@ -101,20 +97,12 @@ import {
   isDashboardManagedSweeps,
   isPublicDemo,
   type ApiBingConnection,
-  type ApiBingSite,
-  type ApiBingInspection,
-  type ApiBingCoverageSummary,
-  type ApiBingKeywordStats,
   type ApiGoogleConnection,
   type ApiProject,
 } from '../api.js'
 import { effectiveEmbedProjectTabs, embedQueryLimit, isEmbedProjectTabAllowed, resolveProjectPageTab } from '../embed.js'
 import {
   getApiV1CdpStatusOptions,
-  getApiV1ProjectsByNameBingCoverageOptions,
-  getApiV1ProjectsByNameBingInspectionsOptions,
-  getApiV1ProjectsByNameBingPerformanceOptions,
-  getApiV1ProjectsByNameBingSitesOptions,
   getApiV1ProjectsByNameBingStatusOptions,
   getApiV1ProjectsByNameAnalyticsCompetitorsOptions,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorMutation,
@@ -219,627 +207,6 @@ export function patchProjectDashboardCache(
     if (!current || typeof current !== 'object' || !('project' in current)) return current
     return { ...current, project: updated }
   })
-}
-
-function BingSection({
-  projectName,
-  refreshNonce,
-}: {
-  projectName: string
-  refreshNonce: number
-}) {
-  const queryClient = useQueryClient()
-  const [connection, setConnection] = useState<ApiBingConnection | null>(null)
-  const [sites, setSites] = useState<ApiBingSite[]>([])
-  const [coverage, setCoverage] = useState<ApiBingCoverageSummary | null>(null)
-  const [inspections, setInspections] = useState<ApiBingInspection[]>([])
-  const [performance, setPerformance] = useState<ApiBingKeywordStats[]>([])
-  const [inspectionResult, setInspectionResult] = useState<ApiBingInspection | null>(null)
-  const [inspectionUrl, setInspectionUrl] = useState('')
-  const [apiKeyInput, setApiKeyInput] = useState('')
-  const [selectedSite, setSelectedSite] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [requestingIndexing, setRequestingIndexing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // Performance is the default — it's the highest-signal view (per-query
-  // impressions, clicks, position) and mirrors how the GSC tab leads.
-  const [activeTab, setActiveTab] = useState<'performance' | 'coverage' | 'inspections'>('performance')
-
-  useEffect(() => {
-    void loadData()
-  }, [projectName, refreshNonce])
-
-  async function loadData() {
-    setLoading(true)
-    setError(null)
-    try {
-      const status = await queryClient.fetchQuery({
-        ...getApiV1ProjectsByNameBingStatusOptions({ client: heyClient, path: { name: projectName } }),
-        staleTime: GSC_STALE_MS,
-      })
-      setConnection(status)
-
-      if (status.connected) {
-        const [coverageData, inspectionData, perfData, sitesData] = await Promise.all([
-          queryClient.fetchQuery({
-            ...getApiV1ProjectsByNameBingCoverageOptions({ client: heyClient, path: { name: projectName } }),
-            staleTime: GSC_STALE_MS,
-          }).catch(() => null),
-          queryClient.fetchQuery({
-            ...getApiV1ProjectsByNameBingInspectionsOptions({ client: heyClient, path: { name: projectName } }),
-            staleTime: GSC_STALE_MS,
-          }).catch(() => [] as ApiBingInspection[]),
-          queryClient.fetchQuery({
-            ...getApiV1ProjectsByNameBingPerformanceOptions({ client: heyClient, path: { name: projectName } }),
-            staleTime: GSC_STALE_MS,
-          }).catch(() => [] as ApiBingKeywordStats[]),
-          !status.siteUrl
-            ? queryClient.fetchQuery({
-                ...getApiV1ProjectsByNameBingSitesOptions({ client: heyClient, path: { name: projectName } }),
-                staleTime: GSC_STALE_MS,
-              }).then((result) => result.sites).catch(() => [] as ApiBingSite[])
-            : Promise.resolve([] as ApiBingSite[]),
-        ])
-        setCoverage(coverageData)
-        setInspections(inspectionData)
-        setPerformance(perfData)
-        setSites(sitesData)
-      } else {
-        setCoverage(null)
-        setInspections([])
-        setPerformance([])
-        setSites([])
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load Bing data')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleConnect() {
-    if (!apiKeyInput.trim()) return
-    setError(null)
-    try {
-      const result = await apiBingConnect(projectName, apiKeyInput.trim())
-      await invalidateProjectQueryDomain(queryClient, 'bing')
-      setApiKeyInput('')
-      if (result.availableSites.length > 0) {
-        setSites(result.availableSites)
-      }
-      await loadData()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to connect')
-    }
-  }
-
-  async function handleDisconnect() {
-    try {
-      await apiBingDisconnect(projectName)
-      await invalidateProjectQueryDomain(queryClient, 'bing')
-      setConnection(null)
-      setSites([])
-      setCoverage(null)
-      setInspections([])
-      setPerformance([])
-      setInspectionResult(null)
-      setSelectedSite('')
-      setError(null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to disconnect')
-    }
-  }
-
-  async function handleSetSite() {
-    if (!selectedSite) return
-    try {
-      await apiBingSetSite(projectName, selectedSite)
-      await invalidateProjectQueryDomain(queryClient, 'bing')
-      await loadData()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to set site')
-    }
-  }
-
-  async function handleInspect() {
-    if (!inspectionUrl.trim()) return
-    try {
-      const result = await inspectBingUrl(projectName, inspectionUrl.trim())
-      await invalidateProjectQueryDomain(queryClient, 'bing')
-      setInspectionResult(result)
-      setInspections((prev) => [result, ...prev])
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Inspection failed')
-    }
-  }
-
-  async function handleSubmitUrl(url: string) {
-    setRequestingIndexing(true)
-    setError(null)
-    try {
-      const result = await bingRequestIndexing(projectName, { urls: [url] })
-      const { succeeded, failed, total } = result.summary
-      addToast({
-        title: 'Bing submission requested',
-        detail: failed === 0
-          ? `${succeeded} URL submitted to Bing.`
-          : `${succeeded}/${total} submitted successfully, ${failed} failed.`,
-        tone: failed === 0 ? 'positive' : 'caution',
-        dedupeKey: `bing:indexing:${projectName}:${url}`,
-        dedupeMode: 'replace',
-      })
-    } catch (e) {
-      const message = e instanceof Error ? e.message : 'Submission failed'
-      setError(message)
-      addToast({
-        title: 'Bing submission failed',
-        detail: message,
-        tone: 'negative',
-        dedupeKey: `bing:indexing:${projectName}:${url}`,
-        dedupeMode: 'replace',
-      })
-    } finally {
-      setRequestingIndexing(false)
-    }
-  }
-
-  async function handleSubmitAllUnindexed() {
-    setRequestingIndexing(true)
-    setError(null)
-    addToast({
-      title: 'Submitting URLs to Bing',
-      detail: 'Requesting indexing for all currently unindexed URLs.',
-      tone: 'neutral',
-      dedupeKey: `bing:indexing-all:${projectName}`,
-      dedupeMode: 'replace',
-    })
-    try {
-      const result = await bingRequestIndexing(projectName, { allUnindexed: true })
-      const { succeeded, failed, total } = result.summary
-      addToast({
-        title: 'Bing submissions requested',
-        detail: failed === 0
-          ? `${succeeded}/${total} URL${total !== 1 ? 's' : ''} submitted to Bing.`
-          : `${succeeded}/${total} submitted successfully, ${failed} failed.`,
-        tone: failed === 0 ? 'positive' : 'caution',
-        dedupeKey: `bing:indexing-all:${projectName}`,
-        dedupeMode: 'replace',
-      })
-    } catch (e) {
-      const message = e instanceof Error ? e.message : 'Batch submission failed'
-      setError(message)
-      addToast({
-        title: 'Bing submissions failed',
-        detail: message,
-        tone: 'negative',
-        dedupeKey: `bing:indexing-all:${projectName}`,
-        dedupeMode: 'replace',
-      })
-    } finally {
-      setRequestingIndexing(false)
-    }
-  }
-
-  if (loading) {
-    return (
-      <Card className="surface-card">
-        <div className="text-label-14 text-secondary">Loading Bing data...</div>
-      </Card>
-    )
-  }
-
-  if (!connection?.connected) {
-    if (isEmbed()) {
-      return (
-        <Card className="surface-card">
-          <div className="section-head section-head-inline">
-            <div>
-              <p className="eyebrow eyebrow-soft">Connection</p>
-              <h3>Domain authorization</h3>
-            </div>
-            <ToneBadge tone="caution">Not connected</ToneBadge>
-          </div>
-          <p className="text-copy-14 text-neutral">Bing Webmaster Tools is not connected for this project.</p>
-        </Card>
-      )
-    }
-    return (
-      <Card className="surface-card">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">Connection</p>
-            <h3>Domain authorization</h3>
-          </div>
-          <ToneBadge tone="caution">Not connected</ToneBadge>
-        </div>
-        <p className="text-copy-14 text-neutral">
-          Connect Bing Webmaster Tools to inspect URLs, monitor index coverage, and submit pages for indexing.
-        </p>
-        <div className="mt-3">
-          <label className="text-label-12 text-muted" htmlFor="bing-api-key">API Key</label>
-          <div className="flex items-center gap-2 mt-1">
-            <input
-              id="bing-api-key"
-              type="password"
-              className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
-              placeholder="Bing Webmaster Tools API key"
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { void handleConnect() } }}
-            />
-            <WriteButton size="sm" disabled={!apiKeyInput.trim()} onClick={asyncHandler(handleConnect)}>
-              Connect
-            </WriteButton>
-          </div>
-          <p className="mt-1 text-copy-14 text-secondary">
-            Get your API key from{' '}
-            <a
-              href="https://www.bing.com/webmasters/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-secondary hover:text-neutral underline underline-offset-2"
-            >
-              Bing Webmaster Tools
-            </a>
-          </p>
-        </div>
-        {error && <p className="mt-3 text-copy-13 text-negative-400">{error}</p>}
-      </Card>
-    )
-  }
-
-  if (!connection.siteUrl) {
-    return (
-      <Card className="surface-card">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">Connection</p>
-            <h3>Domain authorization</h3>
-          </div>
-          <div className="flex items-center gap-2">
-            <ToneBadge tone="positive">Connected</ToneBadge>
-            {!isEmbed() && <WriteButton size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</WriteButton>}
-          </div>
-        </div>
-        <div className="space-y-3">
-          <div className="material-base px-4 py-3">
-            <div className="flex items-center gap-3">
-              <span className="h-2 w-2 rounded-full bg-positive-500" />
-              <span className="text-label-14 text-strong">Authorized for this project domain</span>
-              <span className="text-label-12 text-muted">{connection.domain}</span>
-            </div>
-            <p className="mt-2 text-copy-13 text-muted">
-              The API key is connected, but no Bing site is selected yet. Pick the verified site that should receive inspections and indexing requests.
-            </p>
-          </div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className="material-base p-3">
-              <p className="text-label-12 normal-case text-muted">Registered domain</p>
-              <p className="mt-1 text-copy-14 text-strong">{connection.domain}</p>
-            </div>
-            <div className="material-base p-3">
-              <p className="text-label-12 normal-case text-muted">Last auth update</p>
-              <p className="mt-1 text-copy-14 text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
-            </div>
-          </div>
-          <div className="material-base p-3">
-            <p className="text-label-12 normal-case text-muted">Select site</p>
-            {sites.length > 0 ? (
-              <div className="mt-3 flex flex-col gap-2 lg:flex-row">
-                <select
-                  className="flex-1 rounded border border-strong bg-bg-elevated px-2 py-1.5 text-label-14 text-strong focus:border-mono-500 focus:outline-none"
-                  value={selectedSite}
-                  onChange={(e) => setSelectedSite(e.target.value)}
-                >
-                  <option value="">Select a site...</option>
-                  {sites.map((s) => (
-                    <option key={s.url} value={s.url}>{s.url}{s.verified ? ' (verified)' : ''}</option>
-                  ))}
-                </select>
-                {!isEmbed() && <WriteButton size="sm" disabled={!selectedSite} onClick={asyncHandler(handleSetSite)}>Set Site</WriteButton>}
-              </div>
-            ) : (
-              <p className="mt-3 text-copy-13 text-muted">
-                No verified Bing sites are available yet. Verify the domain in Bing Webmaster Tools, then use the page-level refresh to reload everything.
-              </p>
-            )}
-          </div>
-        </div>
-        {error && <p className="mt-3 text-copy-13 text-negative-400">{error}</p>}
-      </Card>
-    )
-  }
-
-  const tabs = [
-    { key: 'performance' as const, label: 'Performance', eyebrow: 'Performance', title: 'Search performance' },
-    { key: 'coverage' as const, label: 'Coverage', eyebrow: 'Coverage', title: 'Index monitoring' },
-    { key: 'inspections' as const, label: 'Inspections', eyebrow: 'Inspection', title: 'URL inspection history' },
-  ]
-  const activeTabMeta = tabs.find(t => t.key === activeTab) ?? tabs[0]!
-
-  return (
-    <div className="space-y-3">
-      <Card className="surface-card">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">Connection</p>
-            <h3>Domain authorization</h3>
-          </div>
-          <div className="flex items-center gap-2">
-            <ToneBadge tone="positive">Connected</ToneBadge>
-            {!isEmbed() && <WriteButton size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</WriteButton>}
-          </div>
-        </div>
-        {error && <p className="mb-3 text-copy-13 text-negative-400">{error}</p>}
-        <div className="space-y-3">
-          <div className="material-base px-4 py-3">
-            <div className="flex items-center gap-3">
-              <span className="h-2 w-2 rounded-full bg-positive-500" />
-              <span className="text-label-14 text-strong">Authorized for this project domain</span>
-              <span className="text-label-12 text-muted">{connection.domain}</span>
-            </div>
-            <p className="mt-2 text-copy-14 text-secondary">This project uses <code>{connection.siteUrl}</code>.</p>
-          </div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className="material-base p-3">
-              <p className="text-label-12 normal-case text-muted">Selected site</p>
-              <p className="mt-1 text-copy-14 text-strong">{connection.siteUrl}</p>
-            </div>
-            <div className="material-base p-3">
-              <p className="text-label-12 normal-case text-muted">Last auth update</p>
-              <p className="mt-1 text-copy-14 text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      <Card className="surface-card">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">{activeTabMeta.eyebrow}</p>
-            <h3>{activeTabMeta.title}</h3>
-          </div>
-          <p className="text-copy-13 text-muted">
-            {coverage?.lastInspectedAt ? `Last inspected ${formatTimestamp(coverage.lastInspectedAt)}` : 'No inspection history yet'}
-          </p>
-        </div>
-
-        <div className="flex gap-1 border-b border-base">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              className={`px-3 py-1.5 text-button-14 border-b-2 transition-colors ${
-                activeTab === t.key
-                  ? 'border-mono-200 text-strong'
-                  : 'border-transparent text-muted hover:text-neutral'
-              }`}
-              onClick={() => setActiveTab(t.key)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {activeTab === 'coverage' && coverage && (
-          <div className="mt-4 space-y-4">
-            <div className="grid gap-3 sm:grid-cols-4">
-              <BingSummaryMetric label="Indexed" value={coverage.summary.indexed} tone="positive" />
-              <BingSummaryMetric label="Not in index" value={coverage.summary.notIndexed + (coverage.summary.unknown ?? 0)} tone="negative" />
-              <BingSummaryMetric label="Status unknown" value={coverage.summary.unknown ?? 0} tone="neutral" />
-              <BingSummaryMetric label="Coverage" value={formatPercent(coverage.summary.percentage, RatioUnits.percent)} tone="neutral" />
-            </div>
-
-            {coverage.notIndexed.length > 0 && (
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <h4 className="text-heading-14 text-secondary">Not Indexed ({coverage.notIndexed.length})</h4>
-                  {!isEmbed() && (
-                    <WriteButton size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
-                      {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
-                    </WriteButton>
-                  )}
-                </div>
-                <div className="overflow-x-auto material-base">
-                  <table className="w-full text-label-12">
-                    <thead>
-                      <tr className="border-b border-base">
-                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
-                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-16">HTTP</th>
-                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-20">Action</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {coverage.notIndexed.map((row) => (
-                        <tr key={row.id} className="border-b border-subtle">
-                          <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
-                          <td className="py-1.5 px-3 text-secondary">{row.httpCode ?? '\u2014'}</td>
-                          {!isEmbed() && (
-                            <td className="py-1.5 px-3 text-right">
-                              <button
-                                className="text-button-14 text-secondary hover:text-strong underline underline-offset-2"
-                                disabled={requestingIndexing}
-                                onClick={() => { void handleSubmitUrl(row.url) }}
-                              >
-                                Submit
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {(coverage.unknown ?? []).length > 0 && (
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <h4 className="text-heading-14 text-secondary">Unknown, not yet confirmed ({(coverage.unknown ?? []).length})</h4>
-                  {!isEmbed() && (
-                    <WriteButton size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
-                      {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
-                    </WriteButton>
-                  )}
-                </div>
-                <div className="overflow-x-auto material-base">
-                  <table className="w-full text-label-12">
-                    <thead>
-                      <tr className="border-b border-base">
-                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
-                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-32">Last Crawled</th>
-                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-20">Action</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(coverage.unknown ?? []).map((row) => (
-                        <tr key={row.id} className="border-b border-subtle">
-                          <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
-                          <td className="py-1.5 px-3 text-secondary">{row.lastCrawledDate ? formatTimestamp(row.lastCrawledDate) : '\u2014'}</td>
-                          {!isEmbed() && (
-                            <td className="py-1.5 px-3 text-right">
-                              <button
-                                className="text-button-14 text-secondary hover:text-strong underline underline-offset-2"
-                                disabled={requestingIndexing}
-                                onClick={() => { void handleSubmitUrl(row.url) }}
-                              >
-                                Submit
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {coverage.indexed.length > 0 && (
-              <div>
-                <h4 className="mb-2 text-heading-14 text-secondary">Indexed ({coverage.indexed.length})</h4>
-                <div className="overflow-x-auto material-base">
-                  <table className="w-full text-label-12">
-                    <thead>
-                      <tr className="border-b border-base">
-                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
-                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-32">Last Crawled</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {coverage.indexed.map((row) => (
-                        <tr key={row.id} className="border-b border-subtle">
-                          <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
-                          <td className="py-1.5 px-3 text-secondary">{row.lastCrawledDate ? formatTimestamp(row.lastCrawledDate) : '\u2014'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'coverage' && !coverage && (
-          <p className="mt-4 text-copy-13 text-muted">No coverage data yet. Inspect URLs to build coverage data.</p>
-        )}
-
-        {activeTab === 'inspections' && (
-          <div className="mt-4 space-y-3">
-            {!isEmbed() && (
-              <div className="flex flex-col gap-2 lg:flex-row">
-                <input
-                  type="text"
-                  className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
-                  placeholder="URL to inspect"
-                  value={inspectionUrl}
-                  onChange={(e) => setInspectionUrl(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { void handleInspect() } }}
-                />
-                <WriteButton size="sm" disabled={!inspectionUrl.trim()} onClick={asyncHandler(handleInspect)}>
-                  Inspect
-                </WriteButton>
-              </div>
-            )}
-
-            {inspectionResult && (
-              <div className="material-base p-3 text-label-12 space-y-1">
-                <div className="text-label-12-strong text-strong">{inspectionResult.url}</div>
-                <div className="text-secondary">
-                  In Index: <span className={inspectionResult.inIndex ? 'text-positive-400' : 'text-negative-400'}>
-                    {inspectionResult.inIndex ? 'Yes' : 'No'}
-                  </span>
-                  {' \u00b7 '}HTTP: {inspectionResult.httpCode ?? '\u2014'}
-                  {' \u00b7 '}Crawled: {inspectionResult.lastCrawledDate ?? '\u2014'}
-                </div>
-              </div>
-            )}
-
-            {inspections.length > 0 && (
-              <div className="overflow-x-auto material-base">
-                <table className="w-full text-label-12">
-                  <thead>
-                    <tr className="border-b border-base">
-                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
-                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-16">Index</th>
-                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-14">HTTP</th>
-                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-32">Inspected</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {inspections.map((row) => (
-                      <tr key={row.id} className="border-b border-subtle">
-                        <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
-                        <td className="py-1.5 px-3">
-                          <ToneBadge tone={row.inIndex ? 'positive' : 'negative'}>{row.inIndex ? 'Yes' : 'No'}</ToneBadge>
-                        </td>
-                        <td className="py-1.5 px-3 text-secondary">{row.httpCode ?? '\u2014'}</td>
-                        <td className="py-1.5 px-3 text-secondary">{formatTimestamp(row.inspectedAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'performance' && (
-          <div className="mt-4">
-            {performance.length === 0 ? (
-              <p className="text-copy-13 text-muted">No Bing performance data available.</p>
-            ) : (
-              <div className="overflow-x-auto material-base">
-                <table className="w-full text-label-12">
-                  <thead>
-                    <tr className="border-b border-base">
-                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">Query</th>
-                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Clicks]}</th>
-                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Impressions]}</th>
-                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.CTR]}</th>
-                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Position]}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {performance.map((row, i) => (
-                      <tr key={i} className="border-b border-subtle">
-                        <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.query}</td>
-                        <td className="py-1.5 px-3 text-right text-strong">{row.clicks}</td>
-                        <td className="py-1.5 px-3 text-right text-secondary">{row.impressions}</td>
-                        <td className="py-1.5 px-3 text-right text-secondary">{formatPercent(row.ctr)}</td>
-                        <td className="py-1.5 px-3 text-right text-secondary">{row.averagePosition.toFixed(1)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-    </div>
-  )
 }
 
 function SearchConsoleSection({
@@ -981,7 +348,34 @@ function SearchConsoleSection({
         notices.push('Bing check is still running. Coverage will update shortly.')
       }
 
-      const results = await Promise.allSettled([syncGoogle(), syncBing()])
+      // --- Bing data: queue the stored-data sync (traffic, queries, crawl, sitemaps, settings) ---
+      //
+      // Separate from the URL check above: that one inspects pages, this one
+      // stores Bing's own reports. Both run server-side and paced per key.
+      async function syncBingData() {
+        if (!bingConnection?.connected || !bingConnection.siteUrl) return
+        const run = await triggerBingSync(projectName).catch(() => null)
+        if (!run?.id) {
+          failures.push('Bing data sync could not be started')
+          return
+        }
+        const deadline = Date.now() + REFRESH_POLL_TIMEOUT_MS
+        while (Date.now() < deadline) {
+          if (signal.aborted) return
+          await new Promise<void>((resolve) => setTimeout(resolve, REFRESH_POLL_INTERVAL_MS))
+          if (signal.aborted) return
+          const detail = await fetchRunDetail(run.id).catch(() => null)
+          if (!detail) break
+          if (['completed', 'failed', 'cancelled', 'partial'].includes(detail.status)) {
+            if (detail.status === 'failed') failures.push('Bing data sync failed')
+            else if (detail.status === 'partial') notices.push('Bing data sync finished with some sections missing')
+            return
+          }
+        }
+        notices.push('Bing data sync is still running. Search data will update shortly.')
+      }
+
+      const results = await Promise.allSettled([syncGoogle(), syncBing(), syncBingData()])
       for (const r of results) {
         if (r.status === 'rejected') {
           failures.push(r.reason instanceof Error ? r.reason.message : 'Sync failed')
@@ -1112,15 +506,7 @@ function SearchConsoleSection({
       )}
 
       {workspace === 'bing' && (
-        <section className="page-section-divider">
-          <div className="section-head section-head-inline">
-            <div>
-              <p className="eyebrow eyebrow-soft">Search engine</p>
-              <h2>Bing Webmaster Tools</h2>
-            </div>
-          </div>
-          <BingSection projectName={projectName} refreshNonce={workspaceRefreshNonce} />
-        </section>
+        <BingSection projectName={projectName} refreshNonce={workspaceRefreshNonce} />
       )}
     </div>
   )

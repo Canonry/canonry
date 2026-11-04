@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Fastify from 'fastify'
+import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RunKinds } from '@canonry/canonry-contracts'
 import {
@@ -167,11 +168,89 @@ describe('Bing data routes', () => {
       expect((await get('/projects/test-project/bing/traffic?startDate=2026-10-05&endDate=2026-10-01')).statusCode).toBe(400)
       expect((await get('/projects/test-project/bing/traffic?days=0')).statusCode).toBe(400)
     })
+
+    interface PeriodTotals { startDate: string; endDate: string; clicks: number; impressions: number; ctr: number | null; position: number | null }
+    interface TrafficBody {
+      rows: Array<{ date: string }>
+      window: { startDate: string | null; endDate: string | null }
+      trends: { clicks: { slope: number; n: number; startIndex: number } | null; ctr: { n: number } | null }
+      periodComparison: {
+        days: number; basis: string; comparable: boolean; prior: PeriodTotals; trailing: PeriodTotals
+        change: { clicks: number | null; impressions: number | null; ctr: number | null; position: number | null }
+        difference: { clicks: number | null; ctr: number | null; position: number | null }
+      } | null
+    }
+
+    // Day i (Oct 1 + i) has i clicks and 10i impressions, so every period sum is checkable by hand.
+    it('compares a window with the stored window before it', async () => {
+      const body = (await get('/projects/test-project/bing/traffic?window=7d')).json<TrafficBody>()
+      expect(body.window).toEqual({ startDate: '2026-10-25', endDate: '2026-10-31' })
+      expect(body.rows).toHaveLength(7)
+      const comparison = body.periodComparison!
+      expect(comparison).toMatchObject({ days: 7, basis: 'prior-window', comparable: true })
+      // Trailing Oct 25-31 is days 24..30 (189 clicks); prior Oct 18-24 is days 17..23 (140).
+      expect(comparison.trailing).toMatchObject({ startDate: '2026-10-25', endDate: '2026-10-31', clicks: 189, impressions: 1890, position: null })
+      expect(comparison.prior).toMatchObject({ startDate: '2026-10-18', endDate: '2026-10-24', clicks: 140, impressions: 1400 })
+      expect(comparison.change.clicks).toBeCloseTo(0.35, 10)
+      expect(comparison.change.impressions).toBeCloseTo(0.35, 10)
+      expect(comparison.change.ctr).toBe(0)
+      expect(comparison.change.position).toBeNull()
+      expect(comparison.difference).toMatchObject({ clicks: 49, ctr: 0, position: null })
+    })
+
+    it('splits the window when the stored days do not reach the window before it', async () => {
+      const body = (await get('/projects/test-project/bing/traffic?window=30d')).json<TrafficBody>()
+      expect(body.window).toEqual({ startDate: '2026-10-02', endDate: '2026-10-31' })
+      // Sep 2 to Oct 1 was never synced, so the window's own halves are compared: Oct 17-31 (days 16..30) vs Oct 2-16 (days 1..15).
+      expect(body.periodComparison).toMatchObject({
+        days: 15,
+        basis: 'split-window',
+        trailing: { startDate: '2026-10-17', clicks: 345 },
+        prior: { startDate: '2026-10-02', endDate: '2026-10-16', clicks: 120 },
+      })
+    })
+
+    it('never counts days before the first sync as zero traffic', async () => {
+      const ninety = (await get('/projects/test-project/bing/traffic?window=90d')).json<TrafficBody>()
+      const all = (await get('/projects/test-project/bing/traffic?window=all')).json<TrafficBody>()
+      expect(ninety.window.startDate).toBe('2026-08-03')
+      expect(all.window).toEqual({ startDate: null, endDate: '2026-10-31' })
+      for (const body of [ninety, all]) {
+        expect(body.rows).toHaveLength(31)
+        // Split over the stored Oct 1-31 only; the odd oldest day drops out.
+        expect(body.periodComparison).toMatchObject({ basis: 'split-window', days: 15, prior: { startDate: '2026-10-02', clicks: 120 }, trailing: { clicks: 345 } })
+        // Clicks rise by exactly one a day from the first stored day; August zeros would bend the line.
+        expect(body.trends.clicks!.n).toBe(31)
+        expect(body.trends.clicks!.slope).toBeCloseTo(1, 10)
+        // Oct 1 has no impressions, so it has no CTR to fit.
+        expect(body.trends.ctr!.n).toBe(30)
+      }
+    })
+
+    it('fits a missing day inside the stored range as a zero day', async () => {
+      db.delete(bingTrafficDaily).where(eq(bingTrafficDaily.date, '2026-10-15')).run()
+      const body = (await get('/projects/test-project/bing/traffic?window=all')).json<TrafficBody>()
+      expect(body.rows).toHaveLength(30)
+      expect(body.trends.clicks!.n).toBe(31)
+      // Day 14 drops from 14 clicks to 0. Least squares over x = 0..30 (mean 15, Sxx 2480)
+      // moves the slope by (14 - 15) * (0 - 14) / 2480; a skipped day would leave n at 30.
+      // The fit rounds to six significant digits.
+      expect(body.trends.clicks!.slope).toBeCloseTo(1 + 14 / 2480, 4)
+    })
+
+    it('rejects an unknown window or one combined with other bounds', async () => {
+      expect((await get('/projects/test-project/bing/traffic?window=14d')).statusCode).toBe(400)
+      expect((await get('/projects/test-project/bing/traffic?window=7d&days=3')).statusCode).toBe(400)
+      expect((await get('/projects/test-project/bing/traffic?window=7d&startDate=2026-10-01')).statusCode).toBe(400)
+    })
   })
 
   it('returns an empty traffic read before the first sync', async () => {
     const body = (await get('/projects/test-project/bing/traffic')).json<{ rows: unknown[]; latestAvailableDate: string | null; window: unknown }>()
-    expect(body).toMatchObject({ rows: [], latestAvailableDate: null, window: { startDate: null, endDate: null } })
+    expect(body).toMatchObject({
+      rows: [], latestAvailableDate: null, window: { startDate: null, endDate: null },
+      trends: { clicks: null, impressions: null, ctr: null }, periodComparison: null,
+    })
   })
 
   describe('GET /bing/queries and /bing/pages', () => {
@@ -224,6 +303,49 @@ describe('Bing data routes', () => {
       const body = (await get('/projects/test-project/bing/pages?startDate=2026-10-01')).json<{ groupBy: string; rows: Array<{ page: string; clicks: number }> }>()
       expect(body.groupBy).toBe('page')
       expect(body.rows.map((r) => [r.page, r.clicks])).toEqual([['https://example.com/', 9], ['https://example.com/pricing/', 1]])
+    })
+
+    interface ListBody {
+      rows: Array<{ query: string }>
+      weekly: Array<{ date: string; clicks: number; impressions: number }>
+      totals: { clicks: number; impressions: number; ctr: number; avgImpressionPosition: number | null; weeks: number } | null
+      comparison: { days: number; prior: { clicks: number; impressions: number; avgImpressionPosition: number | null; weeks: number }; difference: { clicks: number; impressions: number; ctr: number; avgImpressionPosition: number | null } } | null
+    }
+
+    it('sums every matching query before paging and compares with the window before', async () => {
+      db.insert(bingQueryStats).values({ projectId, avgClickPosition: null, syncRunId: null, syncedAt: '2026-11-03T00:00:00Z', id: crypto.randomUUID(), date: '2026-09-12', query: 'garage heater', clicks: 4, impressions: 40, avgImpressionPosition: 8 }).run()
+      // Default window Sep 20-Oct 17 (28 days); the window before it is Aug 23-Sep 19.
+      const body = (await get('/projects/test-project/bing/queries?limit=1')).json<ListBody>()
+      expect(body.rows).toHaveLength(1)
+      // Garage (1+2+3 clicks, positions 2/4/6 weighted 10/20/30) plus shop (5 clicks, no position).
+      expect(body.totals).toEqual({ clicks: 11, impressions: 65, ctr: 11 / 65, avgImpressionPosition: 4.67, avgClickPosition: null, weeks: 3 })
+      expect(body.comparison).toEqual({
+        days: 28,
+        prior: { clicks: 4, impressions: 40, ctr: 0.1, avgImpressionPosition: 8, avgClickPosition: null, weeks: 1 },
+        difference: { clicks: 7, impressions: 25, ctr: 0.06923077, avgImpressionPosition: -3.33 },
+      })
+    })
+
+    it('leaves the comparison out for an open window or one the stored weeks do not reach', async () => {
+      const all = (await get('/projects/test-project/bing/queries?window=all')).json<ListBody>()
+      expect(all.totals).toMatchObject({ clicks: 61, impressions: 565 })
+      expect(all.comparison).toBeNull()
+      const wide = (await get('/projects/test-project/bing/queries?startDate=2026-08-01&endDate=2026-10-31')).json<ListBody>()
+      expect(wide.totals).toMatchObject({ clicks: 61 })
+      expect(wide.comparison).toBeNull()
+      const empty = (await get('/projects/test-project/bing/queries?startDate=2026-09-01&endDate=2026-09-30')).json<ListBody>()
+      expect(empty).toMatchObject({ totals: null, comparison: null })
+    })
+
+    it('matches one whole query or page with match=exact, never as a pattern', async () => {
+      const weeks = (await get(`/projects/test-project/bing/queries?startDate=2026-10-01&query=${encodeURIComponent('garage heater')}&match=exact&groupBy=week`)).json<ListBody>()
+      expect(weeks.weekly.map((w) => [w.date, w.clicks, w.impressions])).toEqual([['2026-10-03', 1, 10], ['2026-10-10', 2, 20], ['2026-10-17', 3, 30]])
+      expect(weeks.totals).toMatchObject({ clicks: 6, impressions: 60 })
+      expect((await get('/projects/test-project/bing/queries?startDate=2026-10-01&query=heater&match=exact')).json<ListBody>().rows).toEqual([])
+      expect((await get(`/projects/test-project/bing/queries?startDate=2026-10-01&query=${encodeURIComponent('garage%')}&match=exact`)).json<ListBody>().rows).toEqual([])
+      const page = (await get(`/projects/test-project/bing/pages?startDate=2026-10-01&page=${encodeURIComponent('https://example.com/')}&match=exact`)).json<{ rows: Array<{ page: string }> }>()
+      expect(page.rows.map((r) => r.page)).toEqual(['https://example.com/'])
+      expect((await get('/projects/test-project/bing/queries?query=heater&match=fuzzy')).statusCode).toBe(400)
     })
   })
 
@@ -384,6 +506,14 @@ describe('resolveBingWindow', () => {
     expect(resolveBingWindow({ startDate: '2026-09-01' }, '2026-10-31')).toEqual({ startDate: '2026-09-01', endDate: null })
     expect(resolveBingWindow({}, null)).toEqual({ startDate: null, endDate: null })
     expect(() => resolveBingWindow({ startDate: '2026-13-01' }, null)).toThrow(/YYYY-MM-DD/)
+  })
+
+  it('reads a named window back from the newest stored day', () => {
+    expect(resolveBingWindow({ window: '7d' }, '2026-10-31')).toEqual({ startDate: '2026-10-25', endDate: '2026-10-31' })
+    expect(resolveBingWindow({ window: '90d' }, '2026-10-31')).toEqual({ startDate: '2026-08-03', endDate: '2026-10-31' })
+    expect(resolveBingWindow({ window: 'all' }, '2026-10-31')).toEqual({ startDate: null, endDate: '2026-10-31' })
+    expect(resolveBingWindow({ window: '30d' }, null)).toEqual({ startDate: null, endDate: null })
+    expect(() => resolveBingWindow({ window: '2w' }, '2026-10-31')).toThrow(/7d, 30d, 90d or all/)
   })
 })
 
