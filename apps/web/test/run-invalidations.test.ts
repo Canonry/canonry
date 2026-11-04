@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
 
 import { RunKinds } from '@canonry/canonry-contracts'
-import { getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey, getApiV1ProjectsByNameTrendsQueryKey } from '@canonry/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey, getApiV1ProjectsByNameSitemapsQueryKey, getApiV1ProjectsByNameTrendsQueryKey } from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 
 import { invalidateQueriesForRunKind } from '../src/queries/run-invalidations.js'
@@ -142,6 +142,17 @@ test.each([RunKinds['site-audit'], RunKinds['gsc-sync'], RunKinds['inspect-sitem
   (kind) => {
     const key = (name: string) => getApiV1ProjectsByNameTrendsQueryKey({ client: heyClient, path: { name }, query: { surface: kind === RunKinds['site-audit'] ? 'site-health' : 'index-coverage' } })
     for (const name of ['demo', 'other']) queryClient.setQueryData(key(name), { groups: [] })
+    invalidateQueriesForRunKind(queryClient, kind, 'demo')
+    expect(queryClient.getQueryState(key('demo'))?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryState(key('other'))?.isInvalidated).toBe(false)
+  },
+)
+
+test.each([RunKinds['site-audit'], RunKinds['gsc-sync'], RunKinds['inspect-sitemap'], RunKinds['bing-sync'], RunKinds['bing-inspect'], RunKinds['bing-inspect-sitemap']])(
+  'a finished %s run refreshes that project\u2019s sitemap comparison',
+  (kind) => {
+    const key = (name: string) => getApiV1ProjectsByNameSitemapsQueryKey({ client: heyClient, path: { name } })
+    for (const name of ['demo', 'other']) queryClient.setQueryData(key(name), { site: { scannedAt: null, runId: null, sitemaps: [] }, google: null, bing: null })
     invalidateQueriesForRunKind(queryClient, kind, 'demo')
     expect(queryClient.getQueryState(key('demo'))?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(key('other'))?.isInvalidated).toBe(false)

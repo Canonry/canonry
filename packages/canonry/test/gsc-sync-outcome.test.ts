@@ -19,6 +19,8 @@ vi.mock('../src/telemetry.js', async (importOriginal) => ({
 vi.mock('@canonry/canonry-integration-google', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@canonry/canonry-integration-google')>()),
   fetchSearchAnalytics: fetchSearchAnalyticsMock,
+  // The sync also stores the sitemap list; these tests are about its outcome.
+  listSitemaps: async () => [],
   inspectUrl: inspectUrlMock,
   refreshAccessToken: refreshAccessTokenMock,
 }))

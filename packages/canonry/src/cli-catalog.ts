@@ -201,6 +201,10 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
     "section": "Monitoring",
     "summary": "Show the stored figures behind a dashboard trend card"
   },
+  "sitemaps": {
+    "section": "Monitoring",
+    "summary": "Compare the site's sitemaps with what Google and Bing list"
+  },
   "visibility-compare": {
     "section": "Monitoring",
     "summary": "Compare stored mention and citation results"

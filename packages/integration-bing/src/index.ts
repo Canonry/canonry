@@ -17,6 +17,7 @@ export {
   getChildrenUrlTrafficInfo,
   getChildrenUrlInfo,
   getFeeds,
+  submitFeed,
   getFeedDetails,
   getUrlSubmissionQuota,
   getContentSubmissionQuota,

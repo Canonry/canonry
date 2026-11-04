@@ -434,6 +434,18 @@ cnry sources <project> --include-by-query false --format json             # drop
 - Counts are **cited slots**: one per (answer, cited domain) pair, so a domain cited 3× in one answer counts once. Probe runs are excluded.
 - Without `--run-id` every run in the window is pooled (the scope line and `runCount` say how many); without `--query-class` branded and non-brand answers are pooled, and branded queries inflate your own domain. `--query-class branded|non-brand` takes the class from an active v2 measurement plan, otherwise from the project's brand name/aliases (a project with neither is refused). Answers the class filter cannot place are excluded and counted in `unclassifiedAnswers`. `--include-by-query` defaults to the server's `true`.
 
+### Sitemaps across the site, Google and Bing (`cnry sitemaps`)
+
+```bash
+cnry sitemaps <project>                    # each engine's sitemaps and what it is missing, from stored data
+cnry sitemaps <project> --engine bing      # one engine
+cnry sitemaps <project> --format json      # SitemapCoverageResponse
+cnry bing submit-sitemap <project> <url>   # ask Bing to read a sitemap (adds a new one, rereads a listed one)
+cnry google submit-sitemap <project> <url> # the same for Google
+```
+
+Canonry compares three stored lists: the sitemap files the latest Site Health scan read pages from (`site.sitemaps`), Search Console's list (stored by every Google sync, files inside each index included) and Bing's (stored by `bing sync`). For each engine, `missing` holds sitemaps the site declares, or someone submitted to the other engine, that this engine lacks (a sitemap the other engine only found by itself is not offered); a file inside a missing index is left out, since adding the index covers it. Google is offered only sitemaps inside the connected property, Bing only its site's host and subdomains. An engine is `null` until its list has been read once; after that an empty list means it has none. `submittedAt: null` on a top-level row means the engine found the sitemap itself; on a file inside an index it came through the index. A new submission shows in the stored list after that engine's next sync.
+
 ### Stored trend figures (`cnry trends`)
 
 The figures a dashboard tab's trend card leads with, from stored data only: each figure's latest reading, its change since the first reading in the window, and its readings. Backed by `GET /api/v1/projects/<name>/trends` and the `canonry_trends` MCP tool, so the dashboard, the CLI and MCP agree on every figure.

@@ -468,6 +468,20 @@ export async function getFeeds(apiKey: string, siteUrl: string): Promise<BingFee
   return siteList<BingFeed>(apiKey, 'GetFeeds', siteUrl)
 }
 
+/**
+ * Ask Bing to read a sitemap or feed (`SubmitFeed`). A sitemap Bing already
+ * lists is simply read again; a new one is added to the site's list.
+ */
+export async function submitFeed(apiKey: string, siteUrl: string, feedUrl: string): Promise<void> {
+  validateApiKey(apiKey)
+  validateSiteUrl(siteUrl)
+  validateUrl(feedUrl)
+  await bingFetch<unknown>(apiKey, 'SubmitFeed', {
+    method: 'POST',
+    body: { siteUrl, feedUrl },
+  })
+}
+
 /** Details for one sitemap, or the children of a sitemap index (`GetFeedDetails`). */
 export async function getFeedDetails(apiKey: string, siteUrl: string, feedUrl: string): Promise<BingFeed[]> {
   validateUrl(feedUrl)

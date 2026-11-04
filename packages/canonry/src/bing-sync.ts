@@ -8,6 +8,7 @@ import {
   bingQueryStats,
   bingSiteSnapshots,
   bingSitemaps,
+  sitemapListSyncs,
   bingTrafficDaily,
   projects,
   queries,
@@ -369,6 +370,10 @@ export async function executeBingSync(
           .where(urls.length > 0
             ? and(eq(bingSitemaps.projectId, projectId), notInArray(bingSitemaps.url, urls))
             : eq(bingSitemaps.projectId, projectId))
+          .run()
+        // An empty list is now a real answer, not "never read".
+        tx.insert(sitemapListSyncs).values({ projectId, engine: 'bing', syncedAt, syncRunId: runId })
+          .onConflictDoUpdate({ target: [sitemapListSyncs.projectId, sitemapListSyncs.engine], set: { syncedAt, syncRunId: runId } })
           .run()
       })
       return collected.size

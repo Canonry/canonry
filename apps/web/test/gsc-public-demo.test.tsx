@@ -54,8 +54,8 @@ test('public demo reads stored Google evidence without configuration or live sit
   expect(requests.some((path) => path.includes('/google/properties'))).toBe(false)
   expect(requests.some((path) => path.includes('/google/gsc/sitemaps'))).toBe(false)
   expect(screen.queryByRole('button', { name: 'Disconnect' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Load from Google' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Submit sitemap' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Sitemaps' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Add another' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Inspect URL' })).toBeNull()
   expect(screen.queryByText('Setup & Configuration')).toBeNull()
 })
@@ -72,7 +72,7 @@ test.each([
       scopes: [], createdAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-25T00:00:00.000Z',
     }])
     if (path.includes('/google/properties')) return jsonResponse({ sites: [{ siteUrl: 'sc-domain:example.com', permissionLevel: 'siteOwner' }] })
-    if (path.includes('/google/gsc/sitemaps')) return jsonResponse({ sitemaps: [], summary: null, preferredSubmissionUrls: [] })
+    if (path.endsWith('/test-project/sitemaps')) return jsonResponse({ site: { scannedAt: null, runId: null, sitemaps: [] }, google: null, bing: null })
     if (path.includes('/google/gsc/performance/daily')) return jsonResponse({
       totals: { clicks: 10, impressions: 100, ctr: 0.1, position: 4, positionDays: 1, days: 1 }, daily: [], trends: { clicks: null, impressions: null, ctr: null, position: null },
       window: { startDate: '2026-07-24', endDate: '2026-07-24', latestDataDate: '2026-07-24', daysSinceLatestData: 1 },
@@ -96,7 +96,8 @@ test.each([
   )
 
   const disconnect = await screen.findByRole('button', { name: 'Disconnect' }) as HTMLButtonElement
-  const reload = await screen.findByRole('button', { name: 'Load from Google' }) as HTMLButtonElement
-  await waitFor(() => expect(reload.disabled).toBe(false))
+  // This grant cannot submit, so the sitemap card offers Reconnect; the account does not disable it.
+  const reconnect = await screen.findByRole('button', { name: 'Reconnect' }) as HTMLButtonElement
+  await waitFor(() => expect(reconnect.disabled).toBe(false))
   expect(disconnect.disabled).toBe(false)
 })

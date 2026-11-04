@@ -5955,6 +5955,37 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'post',
+    path: '/api/v1/projects/{name}/bing/sitemaps',
+    summary: 'Ask Bing to read a sitemap (adds a new one, rereads a listed one)',
+    description: 'Calls Bing `SubmitFeed` for the selected site. Bing lists a new sitemap once it has read it, so it shows in `/bing/sitemaps` and `/sitemaps` after the next `bing-sync`.',
+    tags: ['bing'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: { type: 'object', required: ['sitemapUrl'], properties: { sitemapUrl: stringSchema } } } },
+    },
+    responses: {
+      200: jsonResponse('Bing accepted the sitemap.', 'BingSubmitSitemapResponseDto'),
+      400: errorResponse('Invalid sitemap URL, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+      429: errorResponse('Bing is throttling this key.'),
+      502: errorResponse('Bing refused the sitemap.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/sitemaps',
+    summary: 'Compare the site\'s sitemaps with what Google and Bing list',
+    description: 'Stored data only. `site.sitemaps` are the sitemap files the latest Site Health scan read pages from. `google` and `bing` hold each engine\'s stored list (null when the engine is not connected or its list was never read) and `missing`: sitemaps the site declares, or someone submitted to the other engine, that this engine lacks. A file inside a missing index is left out; Google lists only sitemaps inside the connected property.',
+    tags: ['sitemaps'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Sitemap coverage returned.', 'SitemapCoverageResponseDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
     method: 'get',
     path: '/api/v1/projects/{name}/bing/traffic',
     summary: 'Get stored daily Bing site clicks and impressions, with trend fits and a period comparison',

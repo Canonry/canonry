@@ -1,5 +1,5 @@
-import type { BingCrawlStatsResponseDto, BingFetchedUrlsResponseDto, BingKeywordDemandResponseDto, BingKeywordResearchResponseDto, BingLinksResponseDto, BingPageQueriesResponseDto, BingPageTotalsResponseDto, BingQueryHistoryResponseDto, BingQueryPagesResponseDto, BingQueryTotalsResponseDto, BingSiteResponseDto, BingSitemapsResponseDto, BingTrafficResponseDto, BingUrlChildrenResponseDto, BingUrlTrafficResponseDto } from '@canonry/canonry-contracts'
-import { getApiV1ProjectsByNameBingCrawlStats, getApiV1ProjectsByNameBingFetchedUrls, getApiV1ProjectsByNameBingKeywordDemand, getApiV1ProjectsByNameBingKeywords, getApiV1ProjectsByNameBingLinks, getApiV1ProjectsByNameBingPageQueries, getApiV1ProjectsByNameBingPages, getApiV1ProjectsByNameBingQueries, getApiV1ProjectsByNameBingQueryHistory, getApiV1ProjectsByNameBingQueryPages, getApiV1ProjectsByNameBingSite, getApiV1ProjectsByNameBingSitemaps, getApiV1ProjectsByNameBingTraffic, getApiV1ProjectsByNameBingUrlChildren, getApiV1ProjectsByNameBingUrlTraffic, postApiV1ProjectsByNameBingSync } from '@canonry/canonry-api-client'
+import type { BingSubmitSitemapResponseDto, SitemapCoverageResponseDto, BingCrawlStatsResponseDto, BingFetchedUrlsResponseDto, BingKeywordDemandResponseDto, BingKeywordResearchResponseDto, BingLinksResponseDto, BingPageQueriesResponseDto, BingPageTotalsResponseDto, BingQueryHistoryResponseDto, BingQueryPagesResponseDto, BingQueryTotalsResponseDto, BingSiteResponseDto, BingSitemapsResponseDto, BingTrafficResponseDto, BingUrlChildrenResponseDto, BingUrlTrafficResponseDto } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameBingCrawlStats, getApiV1ProjectsByNameBingFetchedUrls, getApiV1ProjectsByNameBingKeywordDemand, getApiV1ProjectsByNameBingKeywords, getApiV1ProjectsByNameBingLinks, getApiV1ProjectsByNameBingPageQueries, getApiV1ProjectsByNameBingPages, getApiV1ProjectsByNameBingQueries, getApiV1ProjectsByNameBingQueryHistory, getApiV1ProjectsByNameBingQueryPages, getApiV1ProjectsByNameBingSite, getApiV1ProjectsByNameBingSitemaps, getApiV1ProjectsByNameBingTraffic, getApiV1ProjectsByNameBingUrlChildren, getApiV1ProjectsByNameBingUrlTraffic, getApiV1ProjectsByNameSitemaps, postApiV1ProjectsByNameBingSitemaps, postApiV1ProjectsByNameBingSync } from '@canonry/canonry-api-client'
 import type { McpProfileDto } from '@canonry/canonry-contracts'
 import { getApiV1McpProfile } from '@canonry/canonry-api-client'
 import type { MetricsWindow, TrendSurface, TrendsResponse } from '@canonry/canonry-contracts'
@@ -3857,6 +3857,20 @@ export class ApiClient {
         path: { name: project },
         query: params as never,
       }),
+    )
+  }
+
+  /** The site's sitemaps against what Google and Bing list, with what each engine is missing (stored). */
+  async sitemaps(project: string): Promise<SitemapCoverageResponseDto> {
+    return this.invoke<SitemapCoverageResponseDto>(() =>
+      getApiV1ProjectsByNameSitemaps({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  /** Ask Bing to read a sitemap: adds a new one, rereads a listed one. */
+  async bingSubmitSitemap(project: string, sitemapUrl: string): Promise<BingSubmitSitemapResponseDto> {
+    return this.invoke<BingSubmitSitemapResponseDto>(() =>
+      postApiV1ProjectsByNameBingSitemaps({ client: this.heyClient, path: { name: project }, body: { sitemapUrl } }),
     )
   }
 

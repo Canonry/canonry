@@ -67,6 +67,7 @@ describe('Bing coverage MCP transport', () => {
     expect((await client.listTools()).tools.filter(tool => tool.name.startsWith('canonry_bing_')).map(tool => tool.name))
       .toEqual([
         'canonry_bing_coverage',
+        'canonry_bing_submit_sitemap',
         'canonry_bing_sync',
         'canonry_bing_traffic',
         'canonry_bing_queries',

@@ -91,6 +91,7 @@ import type { GoogleMarketingRoutesOptions } from './google-marketing.js'
 import { adsRoutes } from './ads.js'
 import type { AdsRoutesOptions } from './ads.js'
 import { bingRoutes } from './bing.js'
+import { sitemapRoutes, type SitemapRoutesOptions } from './sitemaps.js'
 import type { BingRoutesOptions } from './bing.js'
 import { cdpRoutes } from './cdp.js'
 import type { CDPRoutesOptions } from './cdp.js'
@@ -842,6 +843,10 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onSyncRequested: opts.onBingSyncRequested,
       claimScheduledSync: opts.claimScheduledSync,
     } satisfies BingRoutesOptions)
+    await api.register(sitemapRoutes, {
+      googleConnectionStore: opts.googleConnectionStore,
+      bingConnectionStore: opts.bingConnectionStore,
+    } satisfies SitemapRoutesOptions)
     await api.register(googleRoutes, {
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       googleConnectionStore: opts.googleConnectionStore,

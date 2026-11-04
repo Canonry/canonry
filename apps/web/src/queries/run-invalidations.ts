@@ -83,12 +83,16 @@ export function invalidateQueriesForRunKind(
       void invalidateProjectQueryDomain(queryClient, 'technicalAeo')
       // The Site Health trend card reads its scans through the trends read.
       void invalidateProjectQueryDomain(queryClient, 'trends', { projectName })
+      // The site's own sitemaps come from the latest scan.
+      void invalidateProjectQueryDomain(queryClient, 'sitemaps', { projectName })
       return
     case RunKinds['gsc-sync']:
     case RunKinds['inspect-sitemap']:
       void invalidateProjectQueryDomain(queryClient, 'gsc')
       // Indexed pages on the Search Engines card come from the trends read.
       void invalidateProjectQueryDomain(queryClient, 'trends', { projectName })
+      // gsc-sync stores Google's sitemap list.
+      void invalidateProjectQueryDomain(queryClient, 'sitemaps', { projectName })
       return
     case RunKinds['ga-sync']:
       void invalidateProjectQueryDomain(queryClient, 'ga')
@@ -102,6 +106,8 @@ export function invalidateQueriesForRunKind(
     case RunKinds['bing-sync']:
       void invalidateProjectQueryDomain(queryClient, 'bing')
       void invalidateProjectQueryDomain(queryClient, 'trends', { projectName })
+      // bing-sync stores Bing's sitemap list.
+      void invalidateProjectQueryDomain(queryClient, 'sitemaps', { projectName })
       return
     case RunKinds['aeo-discover-seed']:
     case RunKinds['aeo-discover-probe']:

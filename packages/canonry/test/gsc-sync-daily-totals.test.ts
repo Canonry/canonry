@@ -26,6 +26,8 @@ vi.mock('@canonry/canonry-integration-google', async () => {
   return {
     ...actual,
     fetchSearchAnalytics: (...a: unknown[]) => fetchSearchAnalyticsMock(...a),
+    // The sync also stores the sitemap list; these tests are about search data.
+    listSitemaps: async () => [],
     inspectUrl: (...a: unknown[]) => inspectUrlMock(...a),
     refreshAccessToken: (...a: unknown[]) => refreshAccessTokenMock(...a),
   }

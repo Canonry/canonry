@@ -2,7 +2,7 @@ import type { AgentConversation, AgentConversationList, AgentConversationDelete,
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@canonry/canonry-contracts'
 import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
-import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GoogleOAuthStartResponse, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto, TrendSurface, TrendsResponse } from '@canonry/canonry-contracts'
+import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GoogleOAuthStartResponse, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, BingSubmitSitemapResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto, TrendSurface, TrendsResponse } from '@canonry/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -86,6 +86,7 @@ import {
   getApiV1ProjectsByNameBingCoverage,
   getApiV1ProjectsByNameBingInspections,
   postApiV1ProjectsByNameBingInspectUrl,
+  postApiV1ProjectsByNameBingSitemaps,
   postApiV1ProjectsByNameBingSync,
   postApiV1ProjectsByNameBingInspectSitemap,
   postApiV1ProjectsByNameBingRequestIndexing,
@@ -1745,6 +1746,13 @@ export function inspectBingUrl(project: string, url: string): Promise<ApiBingIns
       path: { name: project },
       body: { url },
     }),
+  )
+}
+
+/** Ask Bing to read a sitemap: adds a new one, rereads a listed one. */
+export function bingSubmitSitemap(project: string, sitemapUrl: string): Promise<BingSubmitSitemapResponseDto> {
+  return invokeWeb<BingSubmitSitemapResponseDto>(() =>
+    postApiV1ProjectsByNameBingSitemaps({ client: heyClient, path: { name: project }, body: { sitemapUrl } }),
   )
 }
 

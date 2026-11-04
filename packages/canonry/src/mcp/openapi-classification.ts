@@ -379,6 +379,8 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/bing/request-indexing': 'deferred',
   'GET /api/v1/projects/{name}/bing/performance': 'deferred',
   'POST /api/v1/projects/{name}/bing/sync': 'included',
+  'POST /api/v1/projects/{name}/bing/sitemaps': 'included',
+  'GET /api/v1/projects/{name}/sitemaps': 'included',
   'GET /api/v1/projects/{name}/bing/traffic': 'included',
   'GET /api/v1/projects/{name}/bing/queries': 'included',
   'GET /api/v1/projects/{name}/bing/pages': 'included',

@@ -177,6 +177,16 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['bing', 'submit-sitemap'],
+    usage: 'canonry bing submit-sitemap <project> <sitemap-url> [--format json]',
+    run: async (input) => {
+      const { bingSubmitSitemap } = await import('../commands/bing.js')
+      const project = requireProject(input, 'bing.submit-sitemap', 'canonry bing submit-sitemap <project> <sitemap-url> [--format json]')
+      const sitemapUrl = requirePositional(input, 1, { command: 'bing.submit-sitemap', usage: 'canonry bing submit-sitemap <project> <sitemap-url> [--format json]', message: 'project name and sitemap URL are required' })
+      await bingSubmitSitemap(project, sitemapUrl, { format: input.format })
+    },
+  },
+  {
     path: ['bing', 'sync'],
     usage: 'canonry bing sync <project> [--wait] [--format json]',
     options: { wait: { type: 'boolean', default: false } },
@@ -364,12 +374,12 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['bing'],
-    usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|coverage-history|inspect|inspect-sitemap|inspections|request-indexing|performance|refresh|sync|traffic|queries|pages|crawl-stats|sitemaps|site|keyword-demand|query-pages|page-queries|query-history|url-traffic|url-children|links|fetched-urls|keywords> <project> [args]',
+    usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|coverage-history|inspect|inspect-sitemap|inspections|request-indexing|performance|refresh|submit-sitemap|sync|traffic|queries|pages|crawl-stats|sitemaps|site|keyword-demand|query-pages|page-queries|query-history|url-traffic|url-children|links|fetched-urls|keywords> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'bing',
-        usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|coverage-history|inspect|inspect-sitemap|inspections|request-indexing|performance|refresh|sync|traffic|queries|pages|crawl-stats|sitemaps|site|keyword-demand|query-pages|page-queries|query-history|url-traffic|url-children|links|fetched-urls|keywords> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'sites', 'set-site', 'coverage', 'coverage-history', 'inspect', 'inspect-sitemap', 'inspections', 'request-indexing', 'performance', 'refresh', 'sync', 'traffic', 'queries', 'pages', 'crawl-stats', 'sitemaps', 'site', 'keyword-demand', 'query-pages', 'page-queries', 'query-history', 'url-traffic', 'url-children', 'links', 'fetched-urls', 'keywords'],
+        usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|coverage-history|inspect|inspect-sitemap|inspections|request-indexing|performance|refresh|submit-sitemap|sync|traffic|queries|pages|crawl-stats|sitemaps|site|keyword-demand|query-pages|page-queries|query-history|url-traffic|url-children|links|fetched-urls|keywords> <project> [args]',
+        available: ['connect', 'disconnect', 'status', 'sites', 'set-site', 'coverage', 'coverage-history', 'inspect', 'inspect-sitemap', 'inspections', 'request-indexing', 'performance', 'refresh', 'submit-sitemap', 'sync', 'traffic', 'queries', 'pages', 'crawl-stats', 'sitemaps', 'site', 'keyword-demand', 'query-pages', 'page-queries', 'query-history', 'url-traffic', 'url-children', 'links', 'fetched-urls', 'keywords'],
       })
     },
   },

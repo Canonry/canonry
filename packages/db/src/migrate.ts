@@ -5291,6 +5291,36 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_bing_keyword_demand_project_synced ON bing_keyword_demand(project_id, synced_at)`,
     ],
   },
+  {
+    version: 209,
+    name: 'gsc-sitemaps-and-list-syncs',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS gsc_sitemaps (
+        id                  TEXT PRIMARY KEY,
+        project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        url                 TEXT NOT NULL,
+        parent_url          TEXT,
+        is_index            INTEGER NOT NULL DEFAULT 0,
+        is_pending          INTEGER NOT NULL DEFAULT 0,
+        type                TEXT,
+        url_count           INTEGER,
+        warnings            INTEGER,
+        errors              INTEGER,
+        submitted_at        TEXT,
+        last_downloaded_at  TEXT,
+        sync_run_id         TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        synced_at           TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_gsc_sitemaps_project_url ON gsc_sitemaps(project_id, url)`,
+      `CREATE TABLE IF NOT EXISTS sitemap_list_syncs (
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        engine       TEXT NOT NULL,
+        synced_at    TEXT NOT NULL,
+        sync_run_id  TEXT REFERENCES runs(id) ON DELETE SET NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_sitemap_list_syncs_project_engine ON sitemap_list_syncs(project_id, engine)`,
+    ],
+  },
 ]
 
 /**

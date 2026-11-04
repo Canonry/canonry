@@ -36,6 +36,7 @@ import {
   getUrlSubmissionQuota,
   getUrlTrafficInfo,
   parseBingDate,
+  submitFeed,
 } from '../src/bing-client.js'
 import { BingApiError } from '../src/types.js'
 import { BING_WMT_API_BASE } from '../src/constants.js'
@@ -197,6 +198,25 @@ describe('crawl and index reads', () => {
     respondWith(fixture('GetFeedDetails.json'))
     await getFeedDetails(KEY, SITE, feeds[0]!.Url)
     expect(lastCall().url.searchParams.get('feedUrl')).toBe(feeds[0]!.Url)
+  })
+
+  it('reads a sitemap Bing found on its own as never submitted', async () => {
+    // Bing stamps a sitemap nobody submitted with the Windows epoch (1601).
+    respondWith(fixture('GetFeeds.discovered.json'))
+    const feeds = await getFeeds(KEY, SITE)
+    expect(feeds.map((feed) => [feed.Url, parseBingDate(feed.Submitted)])).toEqual([
+      ['https://example.com/sitemap.xml', '2026-08-19T03:34:38.451Z'],
+      ['https://www.example.com/sitemap.xml', null],
+    ])
+  })
+
+  it('submits a sitemap with SubmitFeed', async () => {
+    respondWith(fixture('SubmitFeed.json'))
+    await expect(submitFeed(KEY, SITE, 'https://example.com/sitemap.xml')).resolves.toBeUndefined()
+    expect(lastCall().method).toBe('POST')
+    expect(lastCall().url.pathname.endsWith('/SubmitFeed')).toBe(true)
+    expect(lastCall().body).toEqual({ siteUrl: SITE, feedUrl: 'https://example.com/sitemap.xml' })
+    await expect(submitFeed(KEY, SITE, 'not a url')).rejects.toBeInstanceOf(BingApiError)
   })
 })
 

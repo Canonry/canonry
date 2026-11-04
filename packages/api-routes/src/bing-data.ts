@@ -37,6 +37,7 @@ import {
   type BingSearchComparisonDto,
   type BingSearchTotalsDto,
   type BingSiteResponseDto,
+  type BingSubmitSitemapResponseDto,
   type BingSitemapsResponseDto,
   type BingStatsRowDto,
   type BingTrafficResponseDto,
@@ -64,6 +65,7 @@ import {
   getUrlLinks,
   getUrlTrafficInfo,
   parseBingDate,
+  submitFeed,
   type BingQueryStats,
 } from '@canonry/canonry-integration-bing'
 import { assertForwardRange } from './google.js'
@@ -188,20 +190,20 @@ function round(value: number | null): number | null {
   return value === null ? null : Math.round(value * 100) / 100
 }
 
-/** Map a Bing failure on a live read to an API error that says what happened upstream. */
-function bingReadError(err: unknown, what: string): unknown {
+/** Map a Bing failure on a live call to an API error that says what happened upstream. */
+function bingReadError(err: unknown, what: string, verb = 'read'): unknown {
   if (!(err instanceof BingApiError)) return err
   if (err.isThrottle || err.status === 429) {
     return quotaExceeded('Bing Webmaster API', { reason: 'bing-throttled', detail: err.message })
   }
   if (err.bingErrorCode === 14) {
-    return providerError(`Bing refused to read ${what}: this API key is not allowed to (owner-only).`, { bingErrorCode: 14 })
+    return providerError(`Bing refused to ${verb} ${what}: this API key is not allowed to (owner-only).`, { bingErrorCode: 14 })
   }
   if (err.status === 400 && err.bingErrorCode === null) {
     // Our own pre-flight validation (empty query, bad URL) also raises BingApiError 400.
     return validationError(err.message)
   }
-  return providerError(`Bing could not read ${what}: ${err.message}`, { bingErrorCode: err.bingErrorCode, httpStatus: err.status })
+  return providerError(`Bing could not ${verb} ${what}: ${err.message}`, { bingErrorCode: err.bingErrorCode, httpStatus: err.status })
 }
 
 async function liveRead<T>(what: string, read: () => Promise<T>): Promise<T> {
@@ -271,6 +273,22 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
     }).run()
     opts.onSyncRequested?.(runId, project.id)
     return app.db.select().from(runs).where(eq(runs.id, runId)).get()
+  })
+
+  // POST /projects/:name/bing/sitemaps
+  //
+  // Ask Bing to read a sitemap: a new one joins the site's list once Bing has
+  // read it, a listed one is read again. Bing answers `{"d":null}` either way.
+  app.post<{ Params: { name: string }; Body: { sitemapUrl?: string } }>('/projects/:name/bing/sitemaps', async (request): Promise<BingSubmitSitemapResponseDto> => {
+    const project = resolveProject(app.db, request.params.name)
+    const sitemapUrl = requireHttpUrl(request.body?.sitemapUrl, 'sitemapUrl')
+    const { apiKey, siteUrl } = opts.requireSite(project.canonicalDomain)
+    try {
+      await submitFeed(apiKey, siteUrl, sitemapUrl)
+    } catch (err) {
+      throw bingReadError(err, 'the sitemap', 'accept')
+    }
+    return { sitemapUrl, accepted: true }
   })
 
   // GET /projects/:name/bing/traffic

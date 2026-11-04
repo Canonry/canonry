@@ -141,6 +141,7 @@ canonry bing disconnect <project>
 | `canonry bing pages` | The same per page URL | `GetPageStats` |
 | `canonry bing crawl-stats` | Daily Bingbot crawl counts, HTTP status counts, robots.txt blocks, pages in index | `GetCrawlStats` |
 | `canonry bing sitemaps` | Sitemaps Bing has, with status, URL count and last crawl; child sitemaps under their index | `GetFeeds`, `GetFeedDetails` |
+| `canonry bing submit-sitemap` | Ask Bing to read a sitemap: adds a new one, rereads a listed one. It shows in the list after the next sync | `SubmitFeed` |
 | `canonry bing site` | URL and content submission quotas left, crawl settings, crawl issues, blocked URLs, page preview blocks, sitelink blocks, URL parameters, geo-targeting, Fetch as Bingbot history, connected pages, user roles | 12 `Get*` settings methods |
 | `canonry bing keyword-demand` | Weekly Bing search volume for each tracked query, in the project's country and language | `GetKeywordStats` |
 

@@ -206,7 +206,7 @@ function scopesForConnectionType(type: GoogleConnectionType): string[] {
   }
 }
 
-function isSitemapOwnedByProperty(sitemapUrl: string, propertyId: string, canonicalDomain: string): boolean {
+export function isSitemapOwnedByProperty(sitemapUrl: string, propertyId: string, canonicalDomain: string): boolean {
   let sitemap: URL
   try {
     sitemap = new URL(sitemapUrl)

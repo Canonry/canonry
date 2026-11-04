@@ -290,6 +290,8 @@ const ACTION_BY_ROUTE: ReadonlyArray<ActionRow> = [
   ['POST', '/api/v1/projects/{name}/bing/connect', 'integration.connect', 'bing'],
   ['DELETE', '/api/v1/projects/{name}/bing/disconnect', 'integration.disconnect', 'bing'],
   ['POST', '/api/v1/projects/{name}/bing/sync', 'bing.sync'],
+  ['POST', '/api/v1/projects/{name}/bing/sitemaps', 'sitemap.submit', 'bing'],
+  ['POST', '/api/v1/projects/{name}/google/gsc/sitemaps/submit', 'sitemap.submit', 'gsc'],
   // GBP authorizes through the Google OAuth connect; choosing a location completes it.
   ['PUT', '/api/v1/projects/{name}/gbp/locations/{locationName}/selection', 'integration.connect', 'gbp'],
   ['DELETE', '/api/v1/projects/{name}/gbp/connection', 'integration.disconnect', 'gbp'],
