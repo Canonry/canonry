@@ -78,6 +78,9 @@ export function invalidateQueriesForRunKind(
       return
     case RunKinds['backlink-extract']:
       return
+    case RunKinds['social-monitor']:
+      // The dashboard has no social reads yet; the runs refresh above covers it.
+      return
     case RunKinds['seo-sync']:
       void invalidateProjectQueryDomain(queryClient, 'seo', { projectName })
       return

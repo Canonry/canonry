@@ -6812,7 +6812,7 @@ export type InstanceStatusDto = {
         integrations: Array<{
             integration: 'gsc' | 'ga' | 'gbp' | 'bing' | 'bing-search' | 'ads' | 'google-ads' | 'gtm' | 'traffic';
             label: string;
-            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
             sourceId: string | null;
             state: 'ok' | 'failing' | 'stale' | 'never-synced';
             lastSuccessAt: string | null;
@@ -9581,7 +9581,7 @@ export type LatestProjectRunDto = {
         sourceId?: string | null;
         id: string;
         projectId: string;
-        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
         trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
         measurementPlanVersionId?: string | null;
@@ -14374,6 +14374,14 @@ export type ProjectConfig = {
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
          */
         competitorAutoAliases?: 'off' | 'preview' | 'apply';
+        socialPlatforms?: Array<'x' | 'reddit' | 'linkedin'>;
+        socialConfig?: {
+            [key: string]: {
+                searchTerms?: Array<string>;
+                communities?: Array<string>;
+                limit?: number;
+            };
+        };
     };
 };
 
@@ -14459,6 +14467,14 @@ export type ProjectConfigExport = {
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
          */
         competitorAutoAliases?: 'off' | 'preview' | 'apply';
+        socialPlatforms?: Array<'x' | 'reddit' | 'linkedin'>;
+        socialConfig?: {
+            [key: string]: {
+                searchTerms?: Array<string>;
+                communities?: Array<string>;
+                limit?: number;
+            };
+        };
     };
 };
 
@@ -14876,7 +14892,7 @@ export type ProjectOverviewDto = {
             sourceId?: string | null;
             id: string;
             projectId: string;
-            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
             status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
             trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
             measurementPlanVersionId?: string | null;
@@ -16250,7 +16266,7 @@ export type RunDetailDto = {
     sourceId?: string | null;
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     measurementPlanVersionId?: string | null;
@@ -16591,7 +16607,7 @@ export type RunDto = {
     sourceId?: string | null;
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     measurementPlanVersionId?: string | null;
@@ -26537,15 +26553,15 @@ export type GetApiV1ProjectsByNameRunsData = {
         /**
          * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.
          */
-        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
         /**
          * Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.
          */
-        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
         /**
          * Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.
          */
-        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
+        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor'>;
         /**
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
@@ -26775,15 +26791,15 @@ export type GetApiV1RunsData = {
         /**
          * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.
          */
-        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
         /**
          * Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.
          */
-        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
         /**
          * Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.
          */
-        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
+        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor'>;
         /**
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
