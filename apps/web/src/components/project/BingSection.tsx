@@ -481,6 +481,8 @@ function BingWorkspace({
 
   const synced = Boolean(traffic.data?.latestAvailableDate || site.data?.syncedAt || sitemaps.data?.syncedAt)
   const loaded = !traffic.isPending && !site.isPending && !sitemaps.isPending
+  // A failed read is not "never synced": say it failed, with a way to retry.
+  const loadFailure = [traffic, site, sitemaps].find((read) => read.isError)?.error ?? null
   const blocked = rowsPayload(snapshotOf(site.data?.snapshots, 'blocked-urls'))?.length ?? 0
 
   return (
@@ -541,7 +543,24 @@ function BingWorkspace({
       <div className="space-y-3">
         {error && <p className="text-copy-13 text-negative">{error}</p>}
 
-        {loaded && !synced ? (
+        {loaded && !synced && loadFailure ? (
+          <Card className="surface-card">
+            <p className="text-copy-14 text-negative">Could not load Bing data: {describeError(loadFailure)}</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={() => {
+                void traffic.refetch()
+                void site.refetch()
+                void sitemaps.refetch()
+              }}
+            >
+              Retry
+            </Button>
+          </Card>
+        ) : loaded && !synced ? (
           <BingFirstSyncCard projectName={projectName} />
         ) : (
           <BingPerformanceCard projectName={projectName} siteUrl={siteUrl} range={range} onRangeChange={setRange} />
@@ -647,10 +666,16 @@ function BingPerformanceCard({
     body = <p className="mt-3 text-copy-14 text-negative">Could not load Bing search data: {describeError(traffic.error)}</p>
   } else {
     const positionValue = weekly.data?.totals?.avgImpressionPosition ?? null
+    const positionChange = bingPositionChange(weekly.data?.comparison)
+    const trafficBasis = comparison?.comparable ? `vs prior ${comparison.days} ${comparison.days === 1 ? 'day' : 'days'}` : undefined
+    // The card prints one basis for the group and hides each figure's own, so
+    // share it only when position was compared over the same period. Traffic can
+    // split its window in half while the weekly position compares the full one.
+    const sharedBasis = trafficBasis !== undefined && (positionChange.kind !== 'delta' || positionChange.basis === trafficBasis) ? trafficBasis : undefined
     const performanceGroup: TrendCardGroup = {
       key: 'performance',
       label: 'Bing search',
-      basis: comparison?.comparable ? `vs prior ${comparison.days} ${comparison.days === 1 ? 'day' : 'days'}` : undefined,
+      basis: sharedBasis,
       figures: BING_CHART_METRICS.map((metric): TrendCardFigure => {
         if (metric.key === 'position') {
           return {
@@ -659,7 +684,7 @@ function BingPerformanceCard({
             help: BING_POSITION_HELP,
             color: metric.color,
             value: positionValue === null ? '—' : metric.format(positionValue),
-            change: bingPositionChange(weekly.data?.comparison),
+            change: positionChange,
             interactive: true,
             disabled: positionValue === null,
           }
@@ -1897,13 +1922,16 @@ function SettingRow({ label, value, help, note, children }: { label: string; val
     )
   }
   return (
-    <details role="listitem" className="group border-t border-default first:border-t-0" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary className="flex cursor-pointer list-none items-center gap-2 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 [&::-webkit-details-marker]:hidden">
-        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-secondary transition-transform group-open:rotate-90" aria-hidden="true" />
-        {name}
-        {reading}
-      </summary>
-      {open && <div className="pb-4 pl-5.5">{children}</div>}
-    </details>
+    // A <details> may not take the listitem role, so the row wraps it.
+    <div role="listitem" className="border-t border-default first:border-t-0">
+      <details className="group" onToggle={(event) => setOpen(event.currentTarget.open)}>
+        <summary className="flex cursor-pointer list-none items-center gap-2 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 [&::-webkit-details-marker]:hidden">
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-secondary transition-transform group-open:rotate-90" aria-hidden="true" />
+          {name}
+          {reading}
+        </summary>
+        {open && <div className="pb-4 pl-5.5">{children}</div>}
+      </details>
+    </div>
   )
 }

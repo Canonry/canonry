@@ -53,7 +53,7 @@ function listBody(groupBy: string, key: 'query' | 'page', rows: unknown[]) {
 
 const snapshot = (kind: string, payload: unknown, status = 'ok', error: string | null = null) => ({ kind, status, payload, error, syncedAt: SYNCED_AT })
 
-function mountBing({ synced = true, liveFails = false, embed = false, sitemapIndex = false, crawlErrors = 0 }: { synced?: boolean; liveFails?: boolean; embed?: boolean; sitemapIndex?: boolean; crawlErrors?: number } = {}) {
+function mountBing({ synced = true, liveFails = false, embed = false, sitemapIndex = false, crawlErrors = 0, trafficSplit = false, readsFail = false }: { synced?: boolean; liveFails?: boolean; embed?: boolean; sitemapIndex?: boolean; crawlErrors?: number; trafficSplit?: boolean; readsFail?: boolean } = {}) {
   if (embed) window.__CANONRY_CONFIG__ = { embed: { enabled: true } } as typeof window.__CANONRY_CONFIG__
   const requests: Array<{ method: string; path: string; search: URLSearchParams }> = []
   const restore = mockFetch((url, init) => {
@@ -62,6 +62,13 @@ function mountBing({ synced = true, liveFails = false, embed = false, sitemapInd
     requests.push({ method: init?.method ?? 'GET', path, search: parsed.searchParams })
     if (path.endsWith('/bing/status')) return jsonResponse({ connected: true, domain: 'example.com', siteUrl: SITE, createdAt: SYNCED_AT, updatedAt: SYNCED_AT })
     if (path.endsWith('/bing/sync')) return jsonResponse({ id: 'run-1', projectId: 'p1', kind: 'bing-sync', status: 'queued', trigger: 'manual', createdAt: SYNCED_AT })
+    if (readsFail && (path.endsWith('/bing/traffic') || path.endsWith('/bing/site') || path.endsWith('/bing/sitemaps'))) {
+      return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'database is locked' } }, 500)
+    }
+    if (path.endsWith('/bing/traffic') && trafficSplit) {
+      // Too little history for the window before: the window's own halves, 15 days each.
+      return jsonResponse({ ...traffic, periodComparison: { ...traffic.periodComparison, days: 15, basis: 'split-window' } })
+    }
     if (path.endsWith('/bing/traffic')) {
       return jsonResponse(synced ? traffic : { ...traffic, rows: [], totals: { clicks: 0, impressions: 0, ctr: 0 }, window: { startDate: null, endDate: null }, latestAvailableDate: null, earliestAvailableDate: null, periodComparison: null })
     }
@@ -130,6 +137,28 @@ test('the search figures show the API totals and its comparison, position from t
   expect(requests.some((r) => r.path.endsWith('/bing/query-pages') || r.path.endsWith('/bing/page-queries'))).toBe(false)
 })
 
+test('each figure keeps its own basis when position was compared over a different period', async () => {
+  mountBing({ trafficSplit: true })
+  await screen.findByRole('button', { name: 'Avg position 7.4, down 0.6 vs prior 30 days, an improvement' })
+  // No shared label: clicks, impressions and CTR name their 15 days, position its 30.
+  expect(screen.getAllByText('vs prior 15 days')).toHaveLength(3)
+  expect(screen.getByText('vs prior 30 days')).not.toBeNull()
+})
+
+test('a shared basis is printed once when every figure used the same period', async () => {
+  mountBing()
+  await screen.findByRole('button', { name: 'Avg position 7.4, down 0.6 vs prior 30 days, an improvement' })
+  expect(screen.getAllByText('vs prior 30 days')).toHaveLength(1)
+})
+
+test('a failed load says so instead of claiming there is no data yet', async () => {
+  mountBing({ readsFail: true })
+  expect(await screen.findByText(/Could not load Bing data:/)).not.toBeNull()
+  expect(screen.getByRole('button', { name: 'Retry' })).not.toBeNull()
+  expect(screen.queryByRole('heading', { name: 'No Bing search data yet' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Sync Bing data now' })).toBeNull()
+})
+
 test('a row opens on its own stored weeks and asks Bing only on request', async () => {
   const { requests } = mountBing({ liveFails: true })
   fireEvent.click(await screen.findByRole('button', { name: 'Show details for garage heater' }))
@@ -174,6 +203,8 @@ test('site settings list one value per setting and open a setting to its rows', 
   expect(settings.getByText('87 today \u00b7 2,410 this month')).not.toBeNull()
   // A setting the last sync never read shows a dash, not a zero.
   expect(settings.getAllByText('\u2014').length).toBeGreaterThan(0)
+  // Each setting is a list item; a disclosure sits inside one, never as one.
+  for (const item of settings.getAllByRole('listitem')) expect(item.tagName).toBe('DIV')
   const blocked = settings.getByText('Blocked URLs').closest('details') as HTMLDetailsElement
   expect(within(blocked).getByText('2')).not.toBeNull()
   expect(within(blocked).queryByText('Full removal')).toBeNull()
