@@ -115,6 +115,18 @@ describe('ui telemetry', () => {
     expect(actions(sent)).toEqual([['sweep.launch', undefined], ['integration.connect', 'ga']])
   })
 
+  it('counts a sitemap submit from either engine card, tagged with the engine', () => {
+    const { sent } = capture()
+    setUiPageFromRoute('/projects/$projectName/search-console')
+    recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/google/gsc/sitemaps/submit', status: 200 })
+    recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/bing/sitemaps', status: 200 })
+    expect(actions(sent)).toEqual([['sitemap.submit', 'gsc'], ['sitemap.submit', 'bing']])
+    for (const event of sent.filter((e) => e.event === 'ui.action')) {
+      const parsed = uiTelemetryEventSchema.safeParse(event)
+      expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true)
+    }
+  })
+
   it('counts an OAuth start as connect_started, and the connection only when a property or account is chosen', () => {
     const { sent } = capture()
     recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/google/connect', status: 200 })

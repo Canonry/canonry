@@ -53,7 +53,7 @@ function listBody(groupBy: string, key: 'query' | 'page', rows: unknown[]) {
 
 const snapshot = (kind: string, payload: unknown, status = 'ok', error: string | null = null) => ({ kind, status, payload, error, syncedAt: SYNCED_AT })
 
-function mountBing({ synced = true, liveFails = false, embed = false, sitemapIndex = false, crawlErrors = 0, trafficSplit = false, readsFail = false }: { synced?: boolean; liveFails?: boolean; embed?: boolean; sitemapIndex?: boolean; crawlErrors?: number; trafficSplit?: boolean; readsFail?: boolean } = {}) {
+function mountBing({ synced = true, liveFails = false, embed = false, sitemapIndex = false, crawlErrors = 0, trafficSplit = false, readsFail = false, submitFails = false }: { synced?: boolean; liveFails?: boolean; embed?: boolean; sitemapIndex?: boolean; crawlErrors?: number; trafficSplit?: boolean; readsFail?: boolean; submitFails?: boolean } = {}) {
   if (embed) window.__CANONRY_CONFIG__ = { embed: { enabled: true } } as typeof window.__CANONRY_CONFIG__
   const requests: Array<{ method: string; path: string; search: URLSearchParams }> = []
   const restore = mockFetch((url, init) => {
@@ -95,6 +95,7 @@ function mountBing({ synced = true, liveFails = false, embed = false, sitemapInd
       })
     }
     if (path.endsWith('/bing/sitemaps') && init?.method === 'POST') {
+      if (submitFails) return jsonResponse({ error: { code: 'UPSTREAM_ERROR', message: 'Bing could not accept the sitemap' } }, 502)
       return jsonResponse({ sitemapUrl: (JSON.parse(String(init.body)) as { sitemapUrl: string }).sitemapUrl, accepted: true })
     }
     if (path.endsWith('/bing/sitemaps')) {
@@ -236,6 +237,18 @@ test('a sitemap Bing is missing comes first, with a one-click add', async () => 
   expect(await within(row).findByRole('button', { name: 'Sent' })).not.toBeNull()
   expect(within(row).getByText('shows after the next sync')).not.toBeNull()
   expect(screen.queryByText('1 missing')).toBeNull()
+})
+
+test('a sitemap Bing refuses stays missing, so it can be added again', async () => {
+  const { requests } = mountBing({ submitFails: true })
+  const add = await screen.findByRole('button', { name: 'Add to Bing' })
+  const row = add.closest('tr') as HTMLElement
+  fireEvent.click(add)
+  await waitFor(() => expect(requests.some((r) => r.method === 'POST' && r.path.endsWith('/bing/sitemaps'))).toBe(true))
+  await waitFor(() => expect((within(row).getByRole('button', { name: 'Add to Bing' }) as HTMLButtonElement).disabled).toBe(false))
+  expect(within(row).getByText('Missing')).not.toBeNull()
+  expect(within(row).queryByText('Sent')).toBeNull()
+  expect(screen.getByText('1 missing')).not.toBeNull()
 })
 
 test('crawl figures live in Crawl by day, with errors flagged on the card', async () => {

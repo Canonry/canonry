@@ -25,6 +25,16 @@ describe('buildSitemapCoverage', () => {
     ])
   })
 
+  it('does not suggest a sitemap the other engine only found by itself, unless the site lists it', () => {
+    const result = buildSitemapCoverage({
+      site: site('/pages.xml'),
+      google: list(),
+      // Bing found both on its own (no submittedAt), for example on an old host.
+      bing: list(row('/pages.xml', { submittedAt: null }), row('/stale.xml', { submittedAt: null })),
+    })
+    expect(result.google!.missing).toEqual([{ url: `${S}/pages.xml`, foundIn: ['site'] }])
+  })
+
   it('counts a file an engine holds inside an index as present, and drops a file whose missing index covers it', () => {
     const index = `${S}/index.xml`
     const result = buildSitemapCoverage({

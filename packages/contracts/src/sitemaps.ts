@@ -43,7 +43,7 @@ export type EngineSitemapDto = z.infer<typeof engineSitemapDtoSchema>
 
 export const sitemapMissingDtoSchema = z.object({
   url: z.string(),
-  /** Where Canonry saw it: the site's own sitemaps, or the other engine's list. */
+  /** Where Canonry saw it: the site's own sitemaps, or a submission to the other engine. */
   foundIn: z.array(sitemapSourceSchema),
 })
 export type SitemapMissingDto = z.infer<typeof sitemapMissingDtoSchema>
@@ -54,8 +54,8 @@ export const engineSitemapsDtoSchema = z.object({
   /** Every sitemap the engine lists, files inside an index included (`parentUrl`). */
   sitemaps: z.array(engineSitemapDtoSchema),
   /**
-   * Sitemaps the site declares or the other engine lists that this engine does
-   * not have, by URL. A file inside an index that is itself missing is left
+   * Sitemaps the site declares or someone submitted to the other engine that
+   * this engine does not have, by URL. A file inside an index that is itself missing is left
    * out: adding the index covers it. Google lists only sitemaps inside the
    * connected property.
    */
@@ -76,12 +76,6 @@ export const sitemapCoverageResponseDtoSchema = z.object({
   bing: engineSitemapsDtoSchema.nullable(),
 })
 export type SitemapCoverageResponseDto = z.infer<typeof sitemapCoverageResponseDtoSchema>
-
-/** `POST /projects/:name/bing/sitemaps`: ask Bing to read a sitemap (add it, or read a listed one again). */
-export const bingSubmitSitemapRequestSchema = z.object({
-  sitemapUrl: z.string().url(),
-})
-export type BingSubmitSitemapRequest = z.infer<typeof bingSubmitSitemapRequestSchema>
 
 export const bingSubmitSitemapResponseDtoSchema = z.object({
   sitemapUrl: z.string(),

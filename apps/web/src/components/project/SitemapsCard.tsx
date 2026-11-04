@@ -45,8 +45,11 @@ export interface SitemapsCardProps {
   canSubmit: boolean
   /** Shown in place of Add another when submitting is not allowed (a read-only grant). */
   submitBlocked?: ReactNode
-  /** Submit (or resubmit) the given sitemaps; the card shows progress while it runs. */
-  onSubmit: (urls: string[]) => Promise<void>
+  /**
+   * Submit (or resubmit) the given sitemaps and resolve with the ones the
+   * engine accepted. Only those read "Sent"; a failure stays "Missing".
+   */
+  onSubmit: (urls: string[]) => Promise<readonly string[]>
   submitting: boolean
   /** Canonry's default sitemap for this engine, if it has one. */
   defaultUrl?: string | null
@@ -64,7 +67,7 @@ export interface SitemapsCardProps {
 
 /**
  * One engine's sitemaps: what it lists, and above them what it is missing
- * (sitemaps the site declares or the other engine lists), each with a one-click
+ * (sitemaps the site declares or someone submitted to the other engine), each with a one-click
  * add. Typing a URL is the rare case, behind Add another.
  */
 export function SitemapsCard(props: SitemapsCardProps) {
@@ -108,9 +111,10 @@ export function SitemapsCard(props: SitemapsCardProps) {
     pageSize: PAGE_SIZE,
   })
 
-  async function submit(urls: string[]) {
-    await props.onSubmit(urls)
-    setSent((current) => new Set([...current, ...urls]))
+  async function submit(urls: string[]): Promise<readonly string[]> {
+    const accepted = await props.onSubmit(urls)
+    if (accepted.length > 0) setSent((current) => new Set([...current, ...accepted]))
+    return accepted
   }
 
   const missingCount = missingRows.filter((row) => !sent.has(row.url)).length
@@ -149,7 +153,9 @@ export function SitemapsCard(props: SitemapsCardProps) {
             event.preventDefault()
             const next = url.trim()
             if (!next) return
-            void submit([next]).then(() => {
+            void submit([next]).then((accepted) => {
+              // Keep the box open on a refusal so the URL can be fixed.
+              if (!accepted.includes(next)) return
               setUrl('')
               setFormOpen(false)
             })

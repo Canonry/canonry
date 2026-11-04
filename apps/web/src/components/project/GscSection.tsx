@@ -663,8 +663,10 @@ export function GscSection({
     }
   }
 
-  async function handleSubmitSitemaps(sitemapUrls: string[]) {
-    if (!canSubmitSitemaps || sitemapUrls.length === 0) return
+  /** Submit to Google in batches; resolves with the sitemaps Google accepted, so a caller never marks a failure as sent. */
+  async function handleSubmitSitemaps(sitemapUrls: string[]): Promise<string[]> {
+    const acceptedUrls: string[] = []
+    if (!canSubmitSitemaps || sitemapUrls.length === 0) return acceptedUrls
     const uniqueUrls = [...new Set(sitemapUrls)]
     setSubmittingSitemaps(true)
     setError(null)
@@ -678,6 +680,7 @@ export function GscSection({
         const batch = uniqueUrls.slice(start, start + 50)
         try {
           const result = await submitGscSitemaps(projectName, batch)
+          acceptedUrls.push(...result.results.filter((entry) => entry.status === 'accepted').map((entry) => entry.sitemapUrl))
           accepted += result.summary.accepted
           failed += result.summary.failed
           attempted += batch.length
@@ -697,7 +700,7 @@ export function GscSection({
             dedupeKey: `gsc:sitemap-submit:${projectName}`,
             dedupeMode: 'replace',
           })
-          return
+          return acceptedUrls
         }
       }
       const total = uniqueUrls.length
@@ -717,6 +720,7 @@ export function GscSection({
       setSitemapSubmissionProgress(null)
       if (partialFailureMessage) setError(partialFailureMessage)
     }
+    return acceptedUrls
   }
 
   /** Every file Google reads: each file on its own, and an index with no stored files as itself. */

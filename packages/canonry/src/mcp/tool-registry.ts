@@ -4378,7 +4378,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_sitemaps',
     title: 'Compare sitemaps across the site, Google and Bing',
-    description: 'Read, from stored data, the sitemap files the latest Site Health scan read pages from, each engine\'s sitemap list (status, URL count, submitted and last read) and what each engine is missing: sitemaps the site declares or the other engine lists. google or bing is null when that engine is not connected or its list was never read. Use for "are my sitemaps in Google and Bing?" before submitting anything.',
+    description: 'Read, from stored data, the sitemap files the latest Site Health scan read pages from, each engine\'s sitemap list (status, URL count, submitted and last read) and what each engine is missing: sitemaps the site declares or someone submitted to the other engine. google or bing is null when that engine is not connected or its list was never read. Use for "are my sitemaps in Google and Bing?" before submitting anything.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: projectInputSchema,

@@ -78,8 +78,11 @@ function missingFor(
     candidates.set(key, entry)
   }
   for (const url of site) add(url, 'site')
-  // The other engine's own submissions; its index files come with their index.
-  for (const row of other?.list.sitemaps ?? []) if (row.parentUrl === null) add(row.url, other!.name)
+  // The other engine's own submissions. A sitemap it only found by itself (no
+  // submittedAt) is not a suggestion: it is often a stale or duplicate host,
+  // and if the site lists it, the site's entry already suggests it. Index files
+  // come with their index.
+  for (const row of other?.list.sitemaps ?? []) if (row.parentUrl === null && row.submittedAt !== null) add(row.url, other!.name)
   return [...candidates.entries()]
     .filter(([key]) => {
       const parent = parents.get(key)

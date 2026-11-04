@@ -393,6 +393,8 @@ function SearchConsoleSection({
       await Promise.all([
         invalidateProjectQueryDomain(queryClient, 'gsc'),
         invalidateProjectQueryDomain(queryClient, 'bing'),
+        // Both syncs rewrite the stored sitemap lists the cards compare.
+        invalidateProjectQueryDomain(queryClient, 'sitemaps'),
       ])
 
       if (signal.aborted) return

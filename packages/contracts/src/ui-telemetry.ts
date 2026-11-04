@@ -97,6 +97,8 @@ export const UI_ACTIONS = [
   'traffic.sync',
   /** A Bing data sync was queued from the dashboard. */
   'bing.sync',
+  /** A sitemap was submitted to Google or Bing from the dashboard (`integration` says which). */
+  'sitemap.submit',
   'journeys.visitor_open',
   'journeys.visit_open',
   'journeys.agent_open',

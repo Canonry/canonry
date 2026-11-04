@@ -8,7 +8,7 @@ export const SITEMAPS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['sitemaps'],
     usage: USAGE,
-    help: 'Compare the site\'s sitemaps (from the latest Site Health scan) with what Google and Bing list, from stored data. Each engine shows its sitemaps and the ones it is missing: those the site declares or the other engine has. Add a missing one with "canonry google submit-sitemap" or "canonry bing submit-sitemap".',
+    help: 'Compare the site\'s sitemaps (from the latest Site Health scan) with what Google and Bing list, from stored data. Each engine shows its sitemaps and the ones it is missing: those the site declares or that were submitted to the other engine. Add a missing one with "canonry google submit-sitemap" or "canonry bing submit-sitemap".',
     options: { engine: stringOption() },
     run: async (input) => {
       const project = requireProject(input, 'sitemaps', USAGE)

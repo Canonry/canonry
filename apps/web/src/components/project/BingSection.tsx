@@ -1643,14 +1643,16 @@ function BingSitemapsCard({ projectName, siteUrl }: { projectName: string; siteU
   const [submitting, setSubmitting] = useState(false)
   const [inspecting, setInspecting] = useState(false)
 
-  async function submit(urls: string[]) {
+  /** Submit one at a time; resolves with the sitemaps Bing accepted, stopping at the first refusal. */
+  async function submit(urls: string[]): Promise<string[]> {
     setSubmitting(true)
-    let accepted = 0
+    const acceptedUrls: string[] = []
     try {
       for (const url of urls) {
         await bingSubmitSitemap(projectName, url)
-        accepted += 1
+        acceptedUrls.push(url)
       }
+      const accepted = acceptedUrls.length
       addToast({
         title: accepted === 1 ? 'Sent to Bing' : `${accepted} sitemaps sent to Bing`,
         detail: 'Bing reads it soon. A new sitemap shows in the list after the next Bing sync.',
@@ -1660,16 +1662,16 @@ function BingSitemapsCard({ projectName, siteUrl }: { projectName: string; siteU
       })
     } catch (e) {
       addToast({
-        title: accepted > 0 ? `Bing took ${accepted} of ${urls.length}` : 'Bing did not take the sitemap',
+        title: acceptedUrls.length > 0 ? `Bing took ${acceptedUrls.length} of ${urls.length}` : 'Bing did not take the sitemap',
         detail: describeError(e),
         tone: 'negative',
         dedupeKey: `bing:submit-sitemap:${projectName}`,
         dedupeMode: 'replace',
       })
-      throw e
     } finally {
       setSubmitting(false)
     }
+    return acceptedUrls
   }
 
   async function inspect(sitemapUrl: string) {
@@ -1703,7 +1705,7 @@ function BingSitemapsCard({ projectName, siteUrl }: { projectName: string; siteU
       loadError={coverage.isError ? describeError(coverage.error) : null}
       label={(url) => sitePath(url, siteUrl)}
       canSubmit={canWrite}
-      onSubmit={(urls) => submit(urls).catch(() => undefined)}
+      onSubmit={submit}
       submitting={submitting}
       onInspect={(url) => void inspect(url)}
       inspecting={inspecting}

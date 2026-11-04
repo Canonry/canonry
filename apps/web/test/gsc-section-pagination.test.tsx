@@ -166,21 +166,23 @@ const storedRow = (url: string, parentUrl: string | null, isIndex: boolean) => (
   url, parentUrl, isIndex, type: 'sitemap', state: 'ok', statusLabel: 'Success', warnings: 0, errors: 0, urlCount: 1,
   submittedAt: parentUrl ? null : '2026-07-01T00:00:00.000Z', lastReadAt: null,
 })
-function storedCoverage(sitemaps: Array<Record<string, unknown>>, childrenByIndex: Record<string, Array<Record<string, unknown>>> = {}) {
+function storedCoverage(sitemaps: Array<Record<string, unknown>>, childrenByIndex: Record<string, Array<Record<string, unknown>>> = {}, missing: string[] = []) {
   const rows = sitemaps.flatMap((sitemap) => [
     storedRow(String(sitemap.path), null, Boolean(sitemap.isSitemapsIndex)),
     ...(childrenByIndex[String(sitemap.path)] ?? []).map((child) => storedRow(String(child.path), String(sitemap.path), false)),
   ])
-  return { site: { scannedAt: null, runId: null, sitemaps: [] }, google: { syncedAt: '2026-07-25T00:00:00.000Z', sitemaps: rows, missing: [] }, bing: null }
+  return { site: { scannedAt: null, runId: null, sitemaps: [] }, google: { syncedAt: '2026-07-25T00:00:00.000Z', sitemaps: rows, missing: missing.map((url) => ({ url, foundIn: ['site'] })) }, bing: null }
 }
 
 function renderSitemapSection({
   sitemaps,
   childrenByIndex = {},
+  missing = [],
   onSubmit,
 }: {
   sitemaps: Array<Record<string, unknown>>
   childrenByIndex?: Record<string, Array<Record<string, unknown>>>
+  missing?: string[]
   onSubmit: (urls: string[], attempt: number) => Response | Promise<Response>
 }) {
   let submitAttempt = 0
@@ -202,7 +204,7 @@ function renderSitemapSection({
       submitAttempt += 1
       return onSubmit(urls, submitAttempt)
     }
-    if (path.endsWith('/test-project/sitemaps')) return jsonResponse(storedCoverage(sitemaps, childrenByIndex))
+    if (path.endsWith('/test-project/sitemaps')) return jsonResponse(storedCoverage(sitemaps, childrenByIndex, missing))
     throw new Error(`Unexpected fetch: ${path}`)
   })
   onTestFinished(restoreFetch)
@@ -248,6 +250,33 @@ test('resubmit all files excludes a parent index and includes standalone and chi
   await waitFor(() => expect(submitted).toHaveLength(1))
   expect(submitted[0]).toEqual(expect.arrayContaining([standalone, child]))
   expect(submitted[0]).not.toContain(index)
+})
+
+test('a missing sitemap Google reports an error for stays missing; an accepted one reads Sent', async () => {
+  const refused = 'https://example.com/refused.xml'
+  const taken = 'https://example.com/taken.xml'
+  renderSitemapSection({
+    sitemaps: [{ path: 'https://example.com/sitemap.xml', isSitemapsIndex: false }],
+    missing: [refused, taken],
+    onSubmit: (urls) => {
+      const ok = urls[0] === taken
+      return jsonResponse({
+        summary: { total: 1, accepted: ok ? 1 : 0, failed: ok ? 0 : 1 },
+        results: [ok ? { sitemapUrl: urls[0], status: 'accepted' } : { sitemapUrl: urls[0], status: 'error', error: 'Sitemap could not be read' }],
+      })
+    },
+  })
+
+  const refusedRow = (await screen.findByTitle(refused)).closest('tr') as HTMLElement
+  const takenRow = screen.getByTitle(taken).closest('tr') as HTMLElement
+  fireEvent.click(within(refusedRow).getByRole('button', { name: 'Add to Google' }))
+  await waitFor(() => expect((within(refusedRow).getByRole('button', { name: 'Add to Google' }) as HTMLButtonElement).disabled).toBe(false))
+  expect(within(refusedRow).getByText('Missing')).not.toBeNull()
+  expect(within(refusedRow).queryByText('Sent')).toBeNull()
+
+  fireEvent.click(within(takenRow).getByRole('button', { name: 'Add to Google' }))
+  expect(await within(takenRow).findByRole('button', { name: 'Sent' })).not.toBeNull()
+  expect(within(refusedRow).getByText('Missing')).not.toBeNull()
 })
 
 test('refreshes the cached OAuth connection immediately after popup authorization', async () => {

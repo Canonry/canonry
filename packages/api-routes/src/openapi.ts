@@ -5977,7 +5977,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/sitemaps',
     summary: 'Compare the site\'s sitemaps with what Google and Bing list',
-    description: 'Stored data only. `site.sitemaps` are the sitemap files the latest Site Health scan read pages from. `google` and `bing` hold each engine\'s stored list (null when the engine is not connected or its list was never read) and `missing`: sitemaps the site declares or the other engine lists that this engine lacks. A file inside a missing index is left out; Google lists only sitemaps inside the connected property.',
+    description: 'Stored data only. `site.sitemaps` are the sitemap files the latest Site Health scan read pages from. `google` and `bing` hold each engine\'s stored list (null when the engine is not connected or its list was never read) and `missing`: sitemaps the site declares, or someone submitted to the other engine, that this engine lacks. A file inside a missing index is left out; Google lists only sitemaps inside the connected property.',
     tags: ['sitemaps'],
     parameters: [nameParameter],
     responses: {

@@ -3667,7 +3667,7 @@ export const postApiV1ProjectsByNameBingSitemaps = <ThrowOnError extends boolean
 /**
  * Compare the site's sitemaps with what Google and Bing list
  *
- * Stored data only. `site.sitemaps` are the sitemap files the latest Site Health scan read pages from. `google` and `bing` hold each engine's stored list (null when the engine is not connected or its list was never read) and `missing`: sitemaps the site declares or the other engine lists that this engine lacks. A file inside a missing index is left out; Google lists only sitemaps inside the connected property.
+ * Stored data only. `site.sitemaps` are the sitemap files the latest Site Health scan read pages from. `google` and `bing` hold each engine's stored list (null when the engine is not connected or its list was never read) and `missing`: sitemaps the site declares, or someone submitted to the other engine, that this engine lacks. A file inside a missing index is left out; Google lists only sitemaps inside the connected property.
  */
 export const getApiV1ProjectsByNameSitemaps = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameSitemapsData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameSitemapsResponses, GetApiV1ProjectsByNameSitemapsErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameSitemapsResponses, GetApiV1ProjectsByNameSitemapsErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

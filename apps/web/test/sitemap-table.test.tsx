@@ -1,7 +1,9 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { EngineSitemapsDto } from '@canonry/canonry-contracts'
 import { ActionMenu } from '../src/components/shared/ActionMenu.js'
 import { SitemapTable, type SitemapRowView } from '../src/components/project/SitemapTable.js'
+import { SitemapsCard } from '../src/components/project/SitemapsCard.js'
 import { sitemapPathLabel } from '../src/components/project/GscSection.js'
 
 afterEach(cleanup)
@@ -64,4 +66,56 @@ test('the resubmit menu runs the chosen action, and Escape closes it back to its
   expect(index).toHaveBeenCalledOnce()
   expect(files).not.toHaveBeenCalled()
   expect(screen.queryByRole('menu')).toBeNull()
+})
+
+const coverage = (): EngineSitemapsDto => ({
+  syncedAt: '2026-11-04T06:00:00.000Z',
+  sitemaps: [],
+  missing: [{ url: 'https://example.com/pages.xml', foundIn: ['site'] }],
+})
+
+function renderCard(onSubmit: (urls: string[]) => Promise<readonly string[]>) {
+  render(
+    <SitemapsCard
+      engine="Google"
+      data={coverage()}
+      label={(url) => url.replace('https://example.com', '')}
+      canSubmit
+      onSubmit={onSubmit}
+      submitting={false}
+      notRead={<p>Never read</p>}
+    />,
+  )
+}
+
+test('a missing sitemap reads Sent only when the engine accepted it', async () => {
+  const refused = vi.fn(async () => [] as string[])
+  renderCard(refused)
+  fireEvent.click(screen.getByRole('button', { name: 'Add to Google' }))
+  await waitFor(() => expect(refused).toHaveBeenCalledWith(['https://example.com/pages.xml']))
+  // The engine refused, so the row stays missing and can be tried again.
+  expect(screen.getByText('Missing')).not.toBeNull()
+  expect(screen.queryByText('Sent')).toBeNull()
+  expect((screen.getByRole('button', { name: 'Add to Google' }) as HTMLButtonElement).disabled).toBe(false)
+  cleanup()
+
+  renderCard(async (urls) => urls)
+  fireEvent.click(screen.getByRole('button', { name: 'Add to Google' }))
+  await waitFor(() => expect(screen.getAllByText('Sent').length).toBeGreaterThan(0))
+  expect(screen.queryByText('Missing')).toBeNull()
+})
+
+test('Add another keeps the URL box open when the engine refuses the sitemap', async () => {
+  let accept = false
+  renderCard(async (urls) => (accept ? urls : []))
+  fireEvent.click(screen.getByRole('button', { name: 'Add another' }))
+  fireEvent.change(screen.getByLabelText('Sitemap URL'), { target: { value: 'https://example.com/extra.xml' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Submit to Google' }))
+  await waitFor(() => expect((screen.getByLabelText('Sitemap URL') as HTMLInputElement).value).toBe('https://example.com/extra.xml'))
+  await Promise.resolve()
+  expect(screen.queryByLabelText('Sitemap URL')).not.toBeNull()
+
+  accept = true
+  fireEvent.click(screen.getByRole('button', { name: 'Submit to Google' }))
+  await waitFor(() => expect(screen.queryByLabelText('Sitemap URL')).toBeNull())
 })
