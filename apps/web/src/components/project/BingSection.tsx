@@ -35,10 +35,12 @@ import { WriteButton } from '../shared/AccessControls.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
-import { DataTablePagination, DataTableSearch, DEFAULT_TABLE_PAGE_SIZE, MiddleTruncatedText } from '../shared/DataTableControls.js'
+import { DataTablePagination, DataTableSearch, MiddleTruncatedText, useClientTable } from '../shared/DataTableControls.js'
 import { CHART_SERIES_COLORS, CHART_TONE, MultiAxisTrendChart, formatChartDateLabel, formatChartDateTick, type TrendChartSeries } from '../shared/ChartPrimitives.js'
 import { TrendCard, levelTrendChange, sharedLevelBasis, type TrendCardChange, type TrendCardFigure, type TrendCardGroup } from '../shared/TrendCard.js'
-import { DisclosureRow, DisclosureRows, KpiRow, type KpiItem } from './ActivityParts.js'
+import { KpiRow, type KpiItem } from './ActivityParts.js'
+import { SitemapRowAction, SitemapTable, type SitemapRowView } from './SitemapTable.js'
+import { useAccount, VIEW_ONLY_LABEL } from '../../contexts/account-context.js'
 import { gscComparisonBasisText, gscTrendChange } from './GscSection.js'
 import { formatTimestamp } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
@@ -60,6 +62,8 @@ import {
 } from '../../api.js'
 
 const BING_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
+/** Rows per page in the Bing lists: the top of each list, the rest a page away. */
+const BING_TABLE_PAGE_SIZE = 10
 
 /**
  * The Bing search figures, each on its own chart axis like Search Console's.
@@ -133,6 +137,11 @@ function formatPosition(value: number | null | undefined): string {
 
 function formatCount(value: number | null | undefined): string {
   return value === null || value === undefined ? '—' : Math.round(value).toLocaleString()
+}
+
+/** The site as a reader names it: no scheme, no trailing slash. */
+function siteHost(siteUrl: string): string {
+  return siteUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')
 }
 
 /** A page URL shown by its path on the selected site, full URL in the title. */
@@ -477,9 +486,9 @@ function BingWorkspace({
       status={
         <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-label-13 text-secondary">
           <span className="h-2 w-2 rounded-full bg-positive-500" aria-hidden="true" />
-          <span>Authorized</span>
+          <span>Connected</span>
           <span aria-hidden="true">·</span>
-          <span className="font-mono">{siteUrl}</span>
+          <span className="font-mono" title={siteUrl}>{siteHost(siteUrl)}</span>
           {traffic.data?.latestAvailableDate && (
             <>
               <span aria-hidden="true">·</span>
@@ -535,9 +544,9 @@ function BingWorkspace({
         ) : (
           <BingPerformanceCard projectName={projectName} siteUrl={siteUrl} range={range} onRangeChange={setRange} />
         )}
-        {synced && <BingDemandCard projectName={projectName} />}
         <BingIndexCard projectName={projectName} siteUrl={siteUrl} snapshots={site.data?.snapshots} />
         {synced && <BingSitemapsCard projectName={projectName} siteUrl={siteUrl} />}
+        {synced && <BingDemandCard projectName={projectName} />}
         {synced && <BingSiteSettingsCard siteUrl={siteUrl} snapshots={site.data?.snapshots ?? []} />}
       </div>
     </BingFrame>
@@ -811,7 +820,7 @@ function BingSearchTable({ projectName, siteUrl, range }: { projectName: string;
   const [page, setPage] = useState(1)
   const [open, setOpen] = useState<string | null>(null)
   const path = { name: projectName }
-  const offset = (page - 1) * DEFAULT_TABLE_PAGE_SIZE
+  const offset = (page - 1) * BING_TABLE_PAGE_SIZE
   useEffect(() => {
     const next = search.trim() || undefined
     if (next === undefined) {
@@ -828,7 +837,7 @@ function BingSearchTable({ projectName, siteUrl, range }: { projectName: string;
       query: {
         window: range,
         query: filter,
-        limit: DEFAULT_TABLE_PAGE_SIZE,
+        limit: BING_TABLE_PAGE_SIZE,
         offset,
       },
     }),
@@ -843,7 +852,7 @@ function BingSearchTable({ projectName, siteUrl, range }: { projectName: string;
       query: {
         window: range,
         page: filter,
-        limit: DEFAULT_TABLE_PAGE_SIZE,
+        limit: BING_TABLE_PAGE_SIZE,
         offset,
       },
     }),
@@ -964,11 +973,10 @@ function BingSearchTable({ projectName, siteUrl, range }: { projectName: string;
           </table>
         </div>
       )}
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <span className="text-label-13 text-secondary">Bing reports {tab} per week</span>
+      <div className="mt-2 flex justify-end">
         <DataTablePagination
           page={page}
-          pageSize={DEFAULT_TABLE_PAGE_SIZE}
+          pageSize={BING_TABLE_PAGE_SIZE}
           visibleRows={rows.length}
           totalRows={total}
           disabled={read.isFetching}
@@ -1335,6 +1343,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
         {
           label: 'Not in index',
           value: (summary.notIndexed + (summary.unknown ?? 0)).toLocaleString(),
+          tooltip: 'Pages Bing has not confirmed in its index, including those with an unknown status.',
         },
         {
           label: 'Status unknown',
@@ -1346,28 +1355,10 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
         },
       ]
     : []
-  const crawlItems: KpiItem[] = latestCrawl
-    ? [
-        {
-          label: 'Pages crawled',
-          value: latestCrawl.crawledPages.toLocaleString(),
-        },
-        {
-          label: 'Crawl errors',
-          value: latestCrawl.crawlErrors.toLocaleString(),
-          tooltip: latestCrawl.crawlErrors > 0 ? 'URLs that returned errors to Bingbot that day. Open Crawl by day for the codes.' : undefined,
-        },
-        {
-          label: 'In index',
-          value: latestCrawl.inIndex.toLocaleString(),
-          tooltip: 'Pages Bing reported in its index on its crawl report for that day.',
-        },
-        {
-          label: 'Blocked by robots.txt',
-          value: latestCrawl.blockedByRobotsTxt.toLocaleString(),
-        },
-      ]
-    : []
+  const listRows = tab === 'not-indexed' ? notIndexed : tab === 'unknown' ? unknown : tab === 'indexed' ? indexed : []
+  const listTable = useClientTable({ rows: listRows, pageSize: BING_TABLE_PAGE_SIZE })
+  const inspectionTable = useClientTable({ rows: inspectionRows, pageSize: BING_TABLE_PAGE_SIZE })
+  const crawlTable = useClientTable({ rows: crawl.data?.rows ?? [], pageSize: BING_TABLE_PAGE_SIZE })
 
   const tabs: Array<{ key: IndexTab; label: string }> = [
     { key: 'not-indexed', label: `Not indexed (${notIndexed.length})` },
@@ -1381,7 +1372,16 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
   return (
     <Card className="surface-card">
       <div className="section-head section-head-inline">
-        <h3>Index and crawl</h3>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h3>Index and crawl</h3>
+          {latestCrawl && latestCrawl.crawlErrors > 0 && (
+            <InfoTooltip
+              tone="caution"
+              label={`${latestCrawl.crawlErrors.toLocaleString()} crawl error${latestCrawl.crawlErrors === 1 ? '' : 's'}`}
+              text={`Bingbot got errors from ${latestCrawl.crawlErrors === 1 ? 'one URL' : `${latestCrawl.crawlErrors.toLocaleString()} URLs`} on ${formatChartDateLabel(latestCrawl.date)}. Crawl by day has the codes.`}
+            />
+          )}
+        </div>
         <p className="text-copy-13 text-muted">
           {coverage.data?.lastInspectedAt ? `Last inspected ${formatTimestamp(coverage.data.lastInspectedAt)}` : 'No inspection history yet'}
         </p>
@@ -1391,12 +1391,6 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
           <KpiRow label="Bing index coverage" items={coverageItems} />
         ) : (
           <p className="text-copy-13 text-muted">No coverage data yet. Inspect URLs to build coverage data.</p>
-        )}
-        {crawlItems.length > 0 && latestCrawl && (
-          <div>
-            <p className="text-label-12 text-secondary">Crawl, {formatChartDateLabel(latestCrawl.date)}</p>
-            <KpiRow label={`Bing crawl on ${latestCrawl.date}`} items={crawlItems} />
-          </div>
         )}
       </div>
 
@@ -1409,7 +1403,10 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
               role="tab"
               aria-selected={tab === t.key}
               className={`border-b-2 px-3 py-1.5 text-button-14 transition-colors ${tab === t.key ? 'border-mono-200 text-strong' : 'border-transparent text-muted hover:text-neutral'}`}
-              onClick={() => setTab(t.key)}
+              onClick={() => {
+                setTab(t.key)
+                listTable.setPage(1)
+              }}
             >
               {t.label}
             </button>
@@ -1429,7 +1426,6 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
       <div className="mt-2 overflow-x-auto">
         {(tab === 'not-indexed' || tab === 'unknown' || tab === 'indexed') &&
           (() => {
-            const list = tab === 'not-indexed' ? notIndexed : tab === 'unknown' ? unknown : indexed
             const canSubmit = tab !== 'indexed' && !isEmbed()
             return (
               <table className="data-table w-full text-label-14">
@@ -1445,15 +1441,15 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
                   </tr>
                 </thead>
                 <tbody>
-                  {list.length === 0 && (
+                  {listTable.totalRows === 0 && (
                     <tr>
                       <td colSpan={canSubmit ? 3 : 2} className="py-6 text-center text-secondary">
                         {coverage.isPending ? 'Loading…' : 'None.'}
                       </td>
                     </tr>
                   )}
-                  {list.map((row) => (
-                    <tr key={row.id}>
+                  {listTable.rows.map((row) => (
+                    <tr key={row.id} className="group">
                       <td className="max-w-lg">
                         <MiddleTruncatedText value={sitePath(row.url, siteUrl)} title={row.url} className="font-mono text-label-13 text-neutral" />
                       </td>
@@ -1462,9 +1458,11 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
                       </td>
                       {canSubmit && (
                         <td className="text-right">
-                          <WriteButton size="sm" variant="ghost" disabled={submitting} onClick={asyncHandler(() => submit({ urls: [row.url] }, row.url))}>
-                            Submit
-                          </WriteButton>
+                          <div className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
+                            <WriteButton size="sm" variant="ghost" disabled={submitting} onClick={asyncHandler(() => submit({ urls: [row.url] }, row.url))}>
+                              Submit
+                            </WriteButton>
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -1473,6 +1471,9 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
               </table>
             )
           })()}
+        {(tab === 'not-indexed' || tab === 'unknown' || tab === 'indexed') && (
+          <DataTablePagination page={listTable.page} pageSize={BING_TABLE_PAGE_SIZE} visibleRows={listTable.rows.length} totalRows={listTable.totalRows} onPageChange={listTable.setPage} itemLabel="URLs" />
+        )}
 
         {tab === 'inspections' && (
           <div className="space-y-3 pt-2">
@@ -1521,7 +1522,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
                     </td>
                   </tr>
                 )}
-                {inspectionRows.map((row) => (
+                {inspectionTable.rows.map((row) => (
                   <tr key={row.id}>
                     <td className="max-w-lg">
                       <MiddleTruncatedText value={sitePath(row.url, siteUrl)} title={row.url} className="font-mono text-label-13 text-neutral" />
@@ -1535,10 +1536,12 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
                 ))}
               </tbody>
             </table>
+            <DataTablePagination page={inspectionTable.page} pageSize={BING_TABLE_PAGE_SIZE} visibleRows={inspectionTable.rows.length} totalRows={inspectionTable.totalRows} onPageChange={inspectionTable.setPage} itemLabel="inspections" />
           </div>
         )}
 
         {tab === 'crawl' && (
+          <>
           <table className="data-table w-full text-label-13">
             <thead>
               <tr>
@@ -1567,7 +1570,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
                   </td>
                 </tr>
               )}
-              {(crawl.data?.rows ?? []).map((row) => (
+              {crawlTable.rows.map((row) => (
                 <tr key={row.date}>
                   <td className="tabular-nums">{formatChartDateLabel(row.date)}</td>
                   {[
@@ -1594,6 +1597,8 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
               ))}
             </tbody>
           </table>
+          <DataTablePagination page={crawlTable.page} pageSize={BING_TABLE_PAGE_SIZE} visibleRows={crawlTable.rows.length} totalRows={crawlTable.totalRows} onPageChange={crawlTable.setPage} itemLabel="days" />
+          </>
         )}
       </div>
     </Card>
@@ -1602,7 +1607,17 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
 
 // ── Sitemaps ─────────────────────────────────────────────────────────────────
 
+/** Bing's status word as a tone: Success is good, an error or failure is bad, anything else is waiting. */
+function bingSitemapTone(status: string): SitemapRowView['status']['tone'] {
+  const word = status.toLowerCase()
+  if (word === 'success') return 'positive'
+  if (word.includes('error') || word.includes('fail')) return 'negative'
+  if (word.includes('warn')) return 'caution'
+  return 'neutral'
+}
+
 function BingSitemapsCard({ projectName, siteUrl }: { projectName: string; siteUrl: string }) {
+  const { canWrite } = useAccount()
   const sitemaps = useQuery({
     ...getApiV1ProjectsByNameBingSitemapsOptions({
       client: heyClient,
@@ -1611,11 +1626,28 @@ function BingSitemapsCard({ projectName, siteUrl }: { projectName: string; siteU
     staleTime: GSC_STALE_MS,
   })
   const [inspecting, setInspecting] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const all = sitemaps.data?.sitemaps ?? []
-  // Indexes first, each followed by the sitemaps it lists.
-  const topLevel = all.filter((row) => row.parentUrl === null)
-  const ordered = topLevel.flatMap((row) => [row, ...all.filter((child) => child.parentUrl === row.url)])
-  const orphans = all.filter((row) => row.parentUrl !== null && !topLevel.some((top) => top.url === row.parentUrl))
+  const toView = (row: (typeof all)[number]): SitemapRowView => {
+    const isIndex = row.type.toLowerCase().includes('index')
+    return {
+      url: row.url,
+      label: sitePath(row.url, siteUrl),
+      isIndex,
+      kind: !isIndex && row.type.toLowerCase() !== 'sitemap' ? row.type : undefined,
+      status: { label: row.status, tone: bingSitemapTone(row.status) },
+      urls: row.urlCount,
+      submittedAt: row.submittedAt,
+      lastReadAt: row.lastCrawledAt,
+    }
+  }
+  // Top-level submissions, each index carrying the sitemaps Bing found in it.
+  // A listed sitemap whose index is gone stays visible at the top level.
+  const topLevel = all.filter((row) => row.parentUrl === null || !all.some((parent) => parent.parentUrl === null && parent.url === row.parentUrl))
+  const rows = topLevel.map((row) => {
+    const view = toView(row)
+    return view.isIndex ? { ...view, files: all.filter((child) => child.parentUrl === row.url).map(toView) } : view
+  })
 
   async function inspect(sitemapUrl: string) {
     setInspecting(sitemapUrl)
@@ -1644,59 +1676,36 @@ function BingSitemapsCard({ projectName, siteUrl }: { projectName: string; siteU
   return (
     <Card className="surface-card">
       <div className="section-head section-head-inline">
-        <h3>Sitemaps</h3>
+        <div className="flex items-center gap-1.5">
+          <h3>Sitemaps</h3>
+          <InfoTooltip text="What Bing reported for each submitted sitemap at the last sync. Inspect URLs checks every page in a sitemap against Bing's index." />
+        </div>
         {sitemaps.data?.syncedAt && <p className="text-copy-13 text-muted">As of {formatTimestamp(sitemaps.data.syncedAt)}</p>}
       </div>
       {sitemaps.isError ? (
         <p className="text-copy-14 text-negative">Could not load sitemaps: {describeError(sitemaps.error)}</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="data-table w-full text-label-14">
-            <thead>
-              <tr>
-                <th className="text-left">Sitemap</th>
-                <th className="text-left">Type</th>
-                <th className="text-left">Status</th>
-                <th className="text-right">URLs</th>
-                <th className="text-right">Last crawled</th>
-                {!isEmbed() && (
-                  <th className="text-right">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {all.length === 0 && (
-                <tr>
-                  <td colSpan={isEmbed() ? 5 : 6} className="py-6 text-center text-secondary">
-                    {sitemaps.isPending ? 'Loading…' : 'Bing lists no sitemaps for this site.'}
-                  </td>
-                </tr>
-              )}
-              {[...ordered, ...orphans].map((row) => (
-                <tr key={`${row.parentUrl ?? ''}|${row.url}`}>
-                  <td className={`max-w-lg ${row.parentUrl ? 'pl-8' : ''}`}>
-                    <MiddleTruncatedText value={sitePath(row.url, siteUrl)} title={row.url} className="font-mono text-label-13 text-neutral" />
-                  </td>
-                  <td className="text-secondary">{row.type}</td>
-                  <td>
-                    <ToneBadge tone={row.status === 'Success' ? 'positive' : 'neutral'}>{row.status}</ToneBadge>
-                  </td>
-                  <td className="text-right tabular-nums text-secondary">{row.urlCount.toLocaleString()}</td>
-                  <td className="text-right tabular-nums text-secondary">{row.lastCrawledAt ? formatTimestamp(row.lastCrawledAt) : 'Not yet'}</td>
-                  {!isEmbed() && (
-                    <td className="text-right">
-                      <WriteButton size="sm" variant="ghost" disabled={inspecting !== null} onClick={asyncHandler(() => inspect(row.url))}>
-                        {inspecting === row.url ? 'Starting…' : 'Inspect URLs'}
-                      </WriteButton>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <SitemapTable
+          rows={rows}
+          expanded={expanded}
+          onToggle={(url) => setExpanded((current) => {
+            const next = new Set(current)
+            if (next.has(url)) next.delete(url)
+            else next.add(url)
+            return next
+          })}
+          lastReadLabel="Last crawled"
+          empty={sitemaps.isPending ? 'Loading\u2026' : 'Bing lists no sitemaps for this site.'}
+          actions={isEmbed() ? undefined : (row) => (
+            <SitemapRowAction
+              disabled={!canWrite || inspecting !== null}
+              title={canWrite ? undefined : VIEW_ONLY_LABEL}
+              onClick={() => void inspect(row.url)}
+            >
+              {inspecting === row.url ? 'Starting\u2026' : 'Inspect URLs'}
+            </SitemapRowAction>
+          )}
+        />
       )}
     </Card>
   )
@@ -1781,96 +1790,76 @@ function BingSiteSettingsCard({ siteUrl, snapshots }: { siteUrl: string; snapsho
     },
   ]
 
-  function countItem(kind: BingSiteSnapshotKind, label: string): KpiItem {
-    const snapshot = snapshotOf(snapshots, kind)
-    if (!snapshot) return { label, value: '—', tooltip: 'Not read yet.' }
-    if (snapshot.status === 'unauthorized') return { label, value: 'Owner key needed', tooltip: OWNER_ONLY_HELP }
-    const rows = rowsPayload(snapshot)
-    if (snapshot.status === 'failed' && rows === null)
-      return {
-        label,
-        value: '—',
-        tooltip: `The last read failed: ${snapshot.error ?? 'no detail'}`,
-      }
-    return {
-      label,
-      value: (rows?.length ?? 0).toLocaleString(),
-      tooltip: snapshot.status === 'failed' ? `The last read failed, so this is from an earlier sync: ${snapshot.error ?? 'no detail'}` : undefined,
-    }
+  /** A list setting's row value: its count, or why there is none. */
+  function listValue(snapshot: BingSiteSnapshotDto | undefined, rows: Row[] | null): { value: string; help?: string } {
+    if (!snapshot) return { value: '\u2014', help: 'Not read yet.' }
+    if (snapshot.status === 'unauthorized') return { value: 'Owner key needed', help: OWNER_ONLY_HELP }
+    if (snapshot.status === 'failed' && rows === null) return { value: '\u2014', help: `The last read failed: ${snapshot.error ?? 'no detail'}` }
+    const count = rows?.length ?? 0
+    return { value: count === 0 ? 'None' : count.toLocaleString() }
   }
 
-  const items: KpiItem[] = [
-    {
-      label: 'Submissions left today',
-      value: urlQuota ? urlQuota.dailyQuota.toLocaleString() : '—',
-      tooltip: 'URL submissions Bing will still accept today, as of the last sync.',
-    },
-    {
-      label: 'Left this month',
-      value: urlQuota ? urlQuota.monthlyQuota.toLocaleString() : '—',
-    },
-    {
-      label: 'Content submissions left',
-      value: contentQuota ? `${contentQuota.dailyQuota.toLocaleString()} today` : '—',
-      detail: contentQuota ? `${contentQuota.monthlyQuota.toLocaleString()} this month` : undefined,
-    },
-    {
-      label: 'Crawl boost',
-      value: crawlSettings ? (crawlSettings.crawlBoostEnabled ? 'On' : crawlSettings.crawlBoostAvailable ? 'Off' : 'Not offered') : '—',
-    },
-    ...listKinds.map(({ kind, label }) => countItem(kind, label)),
-  ]
-
-  const disclosures = listKinds.flatMap(({ kind, label, columns }) => {
-    const rows = rowsPayload(snapshotOf(snapshots, kind))
-    if (!rows || rows.length === 0) return []
-    const keys = columns.length > 0 ? columns : [...new Set(rows.flatMap((row) => Object.keys(row)))].filter((key) => key !== '__type').map((key) => ({ key, label: key }))
-    return [
-      <DisclosureRow key={kind} label={label} meta={rows.length.toLocaleString()}>
-        <div className="overflow-x-auto">
-          <table className="data-table w-full text-label-13">
-            <thead>
-              <tr>
-                {keys.map((column) => (
-                  <th key={column.key} className="text-left">
-                    {column.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, index) => (
-                <tr key={index}>
-                  {keys.map((column) => {
-                    const value = row[column.key] ?? row[column.key.charAt(0).toUpperCase() + column.key.slice(1)]
-                    return (
-                      <td key={column.key} className={column.key.toLowerCase() === 'url' ? 'max-w-md' : 'text-secondary'}>
-                        {column.key.toLowerCase() === 'url' && typeof value === 'string' ? (
-                          <MiddleTruncatedText value={sitePath(value, siteUrl)} title={value} className="font-mono text-neutral" />
-                        ) : (
-                          cellText(value, column.key)
-                        )}
-                      </td>
-                    )
-                  })}
+  const listRows = listKinds.map(({ kind, label, columns }) => {
+    const snapshot = snapshotOf(snapshots, kind)
+    const rows = rowsPayload(snapshot)
+    const { value, help } = listValue(snapshot, rows)
+    const stale = snapshot?.status === 'failed' && rows !== null
+    const keys = columns.length > 0 || !rows ? columns : [...new Set(rows.flatMap((row) => Object.keys(row)))].filter((key) => key !== '__type').map((key) => ({ key, label: key }))
+    return (
+      <SettingRow key={kind} label={label} value={value} help={help} note={stale ? 'from an earlier sync' : undefined}>
+        {rows && rows.length > 0 ? (
+          <div className="overflow-x-auto">
+            {stale && <p className="mb-2 text-copy-13 text-caution">The last read failed, so these rows are from an earlier sync: {snapshot?.error ?? 'no detail'}</p>}
+            <table className="data-table w-full text-label-13">
+              <thead>
+                <tr>
+                  {keys.map((column) => (
+                    <th key={column.key} className="text-left">
+                      {column.label}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </DisclosureRow>,
-    ]
+              </thead>
+              <tbody>
+                {rows.map((row, index) => (
+                  <tr key={index}>
+                    {keys.map((column) => {
+                      const cell = row[column.key] ?? row[column.key.charAt(0).toUpperCase() + column.key.slice(1)]
+                      return (
+                        <td key={column.key} className={column.key.toLowerCase() === 'url' ? 'max-w-md' : 'text-secondary'}>
+                          {column.key.toLowerCase() === 'url' && typeof cell === 'string' ? (
+                            <MiddleTruncatedText value={sitePath(cell, siteUrl)} title={cell} className="font-mono text-neutral" />
+                          ) : (
+                            cellText(cell, column.key)
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : undefined}
+      </SettingRow>
+    )
   })
+  const byKind = (kind: BingSiteSnapshotKind) => listRows[listKinds.findIndex((entry) => entry.kind === kind)]
+  const quotaValue = (quota: QuotaPayload | null) => (quota ? `${quota.dailyQuota.toLocaleString()} today \u00b7 ${quota.monthlyQuota.toLocaleString()} this month` : '\u2014')
 
   return (
     <Card className="surface-card">
       <div className="section-head section-head-inline">
         <h3>Site settings</h3>
       </div>
-      <KpiRow label="Bing site settings" items={items} />
-      {crawlSettings && crawlSettings.crawlRate.length === 24 && (
-        <DisclosureRows>
-          <DisclosureRow label="Crawl rate by hour" meta="24 hours">
+      <div role="list" aria-label="Bing site settings">
+        {byKind('blocked-urls')}
+        {byKind('crawl-issues')}
+        <SettingRow label="URL submissions left" value={quotaValue(urlQuota)} help="URL submissions Bing will still accept, as of the last sync." />
+        <SettingRow label="Content submissions left" value={quotaValue(contentQuota)} />
+        <SettingRow label="Crawl boost" value={crawlSettings ? (crawlSettings.crawlBoostEnabled ? 'On' : crawlSettings.crawlBoostAvailable ? 'Off' : 'Not offered') : '\u2014'} />
+        {crawlSettings && crawlSettings.crawlRate.length === 24 && (
+          <SettingRow label="Crawl rate by hour" value="24 hours">
             <div className="overflow-x-auto">
               <table className="data-table text-label-13">
                 <thead>
@@ -1893,10 +1882,51 @@ function BingSiteSettingsCard({ siteUrl, snapshots }: { siteUrl: string; snapsho
                 </tbody>
               </table>
             </div>
-          </DisclosureRow>
-        </DisclosureRows>
-      )}
-      {disclosures.length > 0 && <DisclosureRows>{disclosures}</DisclosureRows>}
+          </SettingRow>
+        )}
+        {byKind('fetched-urls')}
+        {byKind('query-parameters')}
+        {byKind('country-region-settings')}
+        {byKind('page-preview-blocks')}
+        {byKind('deep-link-blocks')}
+        {byKind('connected-pages')}
+        {byKind('site-roles')}
+      </div>
     </Card>
+  )
+}
+
+/**
+ * One setting: its name and value on a line. A setting with rows opens in
+ * place to show them. Help sits beside the value, never inside the toggle.
+ */
+function SettingRow({ label, value, help, note, children }: { label: string; value: string; help?: string; note?: string; children?: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  const name = <span className="flex-1 text-label-14 text-strong">{label}</span>
+  const reading = (
+    <span className="flex items-center gap-1.5 text-label-14 tabular-nums text-secondary">
+      {note && <span className="text-label-12 text-caution">{note}</span>}
+      {value}
+    </span>
+  )
+  if (!children) {
+    return (
+      <div role="listitem" className="flex items-center gap-2 border-t border-default py-2.5 first:border-t-0">
+        <span className="w-3.5 shrink-0" aria-hidden="true" />
+        {name}
+        {reading}
+        {help && <InfoTooltip text={help} />}
+      </div>
+    )
+  }
+  return (
+    <details role="listitem" className="group border-t border-default first:border-t-0" onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-secondary transition-transform group-open:rotate-90" aria-hidden="true" />
+        {name}
+        {reading}
+      </summary>
+      {open && <div className="pb-4 pl-5.5">{children}</div>}
+    </details>
   )
 }

@@ -114,7 +114,7 @@ function renderSection({ connected, googleConfigured = true, viewer = false }: {
  */
 const MOVED = [
   { heading: 'Index coverage', phrase: /Indexing API is intended for eligible JobPosting/ },
-  { heading: 'Sitemap operations', phrase: /refetch these sitemaps/ },
+  { heading: 'Sitemaps', phrase: /refetch these sitemaps/ },
 ] as const
 
 test('explanatory copy is a tooltip trigger, not body prose', async () => {

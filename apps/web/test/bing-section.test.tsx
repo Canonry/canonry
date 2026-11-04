@@ -53,7 +53,7 @@ function listBody(groupBy: string, key: 'query' | 'page', rows: unknown[]) {
 
 const snapshot = (kind: string, payload: unknown, status = 'ok', error: string | null = null) => ({ kind, status, payload, error, syncedAt: SYNCED_AT })
 
-function mountBing({ synced = true, liveFails = false, embed = false }: { synced?: boolean; liveFails?: boolean; embed?: boolean } = {}) {
+function mountBing({ synced = true, liveFails = false, embed = false, sitemapIndex = false, crawlErrors = 0 }: { synced?: boolean; liveFails?: boolean; embed?: boolean; sitemapIndex?: boolean; crawlErrors?: number } = {}) {
   if (embed) window.__CANONRY_CONFIG__ = { embed: { enabled: true } } as typeof window.__CANONRY_CONFIG__
   const requests: Array<{ method: string; path: string; search: URLSearchParams }> = []
   const restore = mockFetch((url, init) => {
@@ -71,8 +71,18 @@ function mountBing({ synced = true, liveFails = false, embed = false }: { synced
     if (path.endsWith('/bing/keyword-demand')) return jsonResponse({ market: { country: 'us', language: 'en-US' }, rows: [{ query: 'garage heater', country: 'us', language: 'en-US', latestWeek: '2026-10-25', latestImpressions: 510, latestBroadImpressions: 900, avgWeeklyImpressions: 480.4, weeks: 26, syncedAt: SYNCED_AT }], history: [] })
     if (path.endsWith('/bing/coverage')) return jsonResponse({ summary: { total: 3, indexed: 2, notIndexed: 1, unknown: 0, percentage: 66.7 }, lastInspectedAt: SYNCED_AT, indexed: [], notIndexed: [{ id: 'n1', url: `${SITE}old/`, httpCode: 404, inIndex: false, lastCrawledDate: null, inIndexDate: null, inspectedAt: SYNCED_AT }], unknown: [] })
     if (path.endsWith('/bing/inspections')) return jsonResponse([])
-    if (path.endsWith('/bing/crawl-stats')) return jsonResponse({ rows: [], window: traffic.window, latestAvailableDate: null })
-    if (path.endsWith('/bing/sitemaps')) return jsonResponse(synced ? { syncedAt: SYNCED_AT, sitemaps: [{ url: `${SITE}sitemap.xml`, parentUrl: null, type: 'Sitemap', status: 'Success', urlCount: 12, fileSize: 0, compressed: false, submittedAt: null, lastCrawledAt: SYNCED_AT, syncedAt: SYNCED_AT }] } : { syncedAt: null, sitemaps: [] })
+    if (path.endsWith('/bing/crawl-stats')) {
+      return jsonResponse(crawlErrors > 0
+        ? { rows: [{ date: '2026-10-31', crawledPages: 40, inIndex: 2, crawlErrors, inLinks: 9, code2xx: 35, code301: 1, code302: 0, code4xx: 2, code5xx: 0, allOtherCodes: 0, blockedByRobotsTxt: 0, connectionTimeout: 0, containsMalware: 0, dnsFailures: 0 }], window: traffic.window, latestAvailableDate: '2026-10-31' }
+        : { rows: [], window: traffic.window, latestAvailableDate: null })
+    }
+    if (path.endsWith('/bing/sitemaps')) {
+      const row = (url: string, extra: Record<string, unknown> = {}) => ({ url: `${SITE}${url}`, parentUrl: null, type: 'Sitemap', status: 'Success', urlCount: 12, fileSize: 0, compressed: false, submittedAt: null, lastCrawledAt: SYNCED_AT, syncedAt: SYNCED_AT, ...extra })
+      const list = sitemapIndex
+        ? [row('sitemap_index.xml', { type: 'Sitemap Index' }), row('page-sitemap.xml', { parentUrl: `${SITE}sitemap_index.xml` })]
+        : [row('sitemap.xml')]
+      return jsonResponse(synced ? { syncedAt: SYNCED_AT, sitemaps: list } : { syncedAt: null, sitemaps: [] })
+    }
     if (path.endsWith('/bing/site')) {
       return jsonResponse(synced ? { syncedAt: SYNCED_AT, snapshots: [
         snapshot('url-submission-quota', { dailyQuota: 87, monthlyQuota: 2410 }),
@@ -140,19 +150,42 @@ test('before the first sync the tab offers a sync and keeps index coverage', asy
   expect(await screen.findByRole('button', { name: 'Sync running…' })).not.toBeNull()
 })
 
-test('site settings flag blocked URLs and owner-only reads without calling them failures', async () => {
+test('site settings list one value per setting and open a setting to its rows', async () => {
   mountBing()
   expect(await screen.findByText('2 blocked URLs')).not.toBeNull()
   expect(screen.getByRole('button', { name: /Bing is keeping 2 URLs out of its results/ })).not.toBeNull()
-  const settings = (await screen.findByRole('heading', { name: 'Site settings' })).closest('.surface-card') as HTMLElement
-  await waitFor(() => expect(within(settings).getByText('Owner key needed')).not.toBeNull())
-  expect(within(settings).getByText('87')).not.toBeNull()
-  const blocked = within(settings).getByLabelText('Blocked URLs')
-  fireEvent.click(within(blocked).getByText('Blocked URLs'))
-  ;(blocked as HTMLDetailsElement).open = true
+  const settings = within(await screen.findByRole('list', { name: 'Bing site settings' }))
+  await waitFor(() => expect(settings.getByText('Owner key needed')).not.toBeNull())
+  expect(settings.getByRole('button', { name: /only to the site owner key/ })).not.toBeNull()
+  expect(settings.getByText('87 today \u00b7 2,410 this month')).not.toBeNull()
+  // A setting the last sync never read shows a dash, not a zero.
+  expect(settings.getAllByText('\u2014').length).toBeGreaterThan(0)
+  const blocked = settings.getByText('Blocked URLs').closest('details') as HTMLDetailsElement
+  expect(within(blocked).getByText('2')).not.toBeNull()
+  expect(within(blocked).queryByText('Full removal')).toBeNull()
+  blocked.open = true
   blocked.dispatchEvent(new Event('toggle'))
   await waitFor(() => expect(within(blocked).getAllByText('Full removal')).toHaveLength(2))
   expect(within(blocked).getByText('Sep 2, 2026')).not.toBeNull()
+})
+
+test('a sitemap index starts closed and opens on its sitemaps', async () => {
+  mountBing({ sitemapIndex: true })
+  const toggle = await screen.findByRole('button', { name: 'Show the sitemaps in /sitemap_index.xml' })
+  expect(screen.getByText('Index \u00b7 1 sitemap')).not.toBeNull()
+  expect(screen.queryByTitle(`${SITE}page-sitemap.xml`)).toBeNull()
+  fireEvent.click(toggle)
+  expect(await screen.findByTitle(`${SITE}page-sitemap.xml`)).not.toBeNull()
+  expect(screen.getByRole('button', { name: 'Hide the sitemaps in /sitemap_index.xml' })).not.toBeNull()
+})
+
+test('crawl figures live in Crawl by day, with errors flagged on the card', async () => {
+  mountBing({ crawlErrors: 3 })
+  expect(await screen.findByText('3 crawl errors')).not.toBeNull()
+  expect(screen.getByRole('button', { name: /Bingbot got errors from 3 URLs on Oct 31, 2026/ })).not.toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: 'Crawl by day' }))
+  const day = (await screen.findByText('Oct 31, 2026', { selector: 'td' })).closest('tr') as HTMLElement
+  expect(within(day).getAllByRole('cell').map((cell) => cell.textContent)).toEqual(['Oct 31, 2026', '40', '3', '2', '35', '1', '0', '2', '0', '0', '0', '0', '0', '0', '9'])
 })
 
 test('an embed shows the stored data with no live reads or writes', async () => {

@@ -59,12 +59,12 @@ test('connected mount reads stored evidence and leaves both resubmit controls di
   for (const suffix of ['/performance', '/performance/daily', '/inspections', '/coverage']) {
     expect(requests.some(path => path.endsWith(suffix))).toBe(true)
   }
-  for (const name of ['Resubmit all sitemaps', 'Resubmit all files']) {
-    expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true)
-  }
+  // Resubmitting waits for a sitemap load: before it there is no Resubmit all menu.
+  expect(screen.queryByRole('button', { name: 'Resubmit all' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Load from Google' }))
-  await waitFor(() => expect((screen.getByRole('button', { name: 'Resubmit all files' }) as HTMLButtonElement).disabled).toBe(false))
-  expect((screen.getByRole('button', { name: 'Resubmit all sitemaps' }) as HTMLButtonElement).disabled).toBe(false)
+  fireEvent.click(await screen.findByRole('button', { name: 'Resubmit all' }))
+  expect((screen.getByRole('menuitem', { name: /^Resubmit all files/ }) as HTMLButtonElement).disabled).toBe(false)
+  expect((screen.getByRole('menuitem', { name: /^Resubmit all sitemaps/ }) as HTMLButtonElement).disabled).toBe(false)
   expect(requests.filter(path => path.endsWith('/google/gsc/sitemaps'))).toHaveLength(1)
   expect(screen.getByRole('button', { name: 'Reload from Google' })).not.toBeNull()
 })
@@ -107,6 +107,6 @@ test('switching projects discards the previously loaded live sitemap list', asyn
   await screen.findByRole('button', { name: 'Reload from Google' })
   switchProject('second-sample')
   await screen.findByRole('button', { name: 'Load from Google' })
-  expect((screen.getByRole('button', { name: 'Resubmit all files' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.queryByRole('button', { name: 'Resubmit all' })).toBeNull()
   expect(requests.filter(path => path.endsWith('/google/gsc/sitemaps'))).toHaveLength(1)
 })
