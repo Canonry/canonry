@@ -505,23 +505,28 @@ API's; the component counts list rows and lays out, nothing more.
 
 ### Sitemaps (both engines)
 
-Google's and Bing's sitemap cards share `SitemapTable`: path, one status badge
-(issue counts beside it), URLs, Submitted, Last read or Last crawled, and row
-actions that show on hover or focus (always on touch). An index starts closed
-and opens on its sitemaps. A Google path drops the host only when it is the
-property's own (`sitemapPathLabel`). Google's card puts Submit sitemap in the
-header (an inline form opens), Load from Google in the body until the list is
-loaded, then Reload in the header, and both bulk resubmits in one "Resubmit
-all" `ActionMenu` that exists only after a load. A read-only grant swaps Submit
-for a "Read-only access" caution and Reconnect.
+Google's and Bing's sitemap cards are one `SitemapsCard` over the stored
+`GET /sitemaps` read (`canonry sitemaps`). Each shows the engine's list and,
+first, what it is missing (a caution count beside the title, and a "Missing"
+row saying where it was seen with a visible "Add to Google" / "Add to Bing").
+The comparison is the API's; the card only lays it out. A row sent from here
+reads "Sent" until the next sync lists it. Typing a URL is "Add another".
+Rows (`SitemapTable`) show the path, one status badge (issue counts beside it),
+URLs, Submitted ("Via index" for a file inside an index, "Not submitted" when
+the engine found it), Last read, and actions on hover or focus (always on
+touch). An index starts closed. A Google path drops the host only when it is
+the property's own (`sitemapPathLabel`). Google's two bulk resubmits are one
+"Resubmit all" `ActionMenu` over the stored list. A read-only Google grant
+swaps Add another for a "Read-only access" caution and Reconnect. Neither card
+calls an engine live to show the list; the Google sync and `bing-sync` store it.
 
 ### API calls (Critical)
 
 A connected Search Engines tab reads stored evidence on mount. Google property
-and sitemap lists load on explicit actions; a connection awaiting its first
+lists load on explicit actions; a connection awaiting its first
 property may load that picker on mount. The latest stored GSC sync failure
 supplies the initial error signal, and live property errors appear on opening
-setup or refreshing properties. Both resubmit actions wait for a sitemap load.
+setup or refreshing properties. Sitemap lists are stored by the syncs, never loaded live.
 
 **Every web call into the canonry API MUST flow through the generated
 `@canonry/canonry-api-client` SDK.** Raw `fetch()` and `XMLHttpRequest` are

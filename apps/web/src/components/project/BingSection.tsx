@@ -23,6 +23,7 @@ import {
   getApiV1ProjectsByNameBingQueryPagesOptions,
   getApiV1ProjectsByNameBingSiteOptions,
   getApiV1ProjectsByNameBingSitemapsOptions,
+  getApiV1ProjectsByNameSitemapsOptions,
   getApiV1ProjectsByNameBingSitesOptions,
   getApiV1ProjectsByNameBingStatusOptions,
   getApiV1ProjectsByNameBingTrafficOptions,
@@ -39,8 +40,8 @@ import { DataTablePagination, DataTableSearch, MiddleTruncatedText, useClientTab
 import { CHART_SERIES_COLORS, CHART_TONE, MultiAxisTrendChart, formatChartDateLabel, formatChartDateTick, type TrendChartSeries } from '../shared/ChartPrimitives.js'
 import { TrendCard, levelTrendChange, sharedLevelBasis, type TrendCardChange, type TrendCardFigure, type TrendCardGroup } from '../shared/TrendCard.js'
 import { KpiRow, type KpiItem } from './ActivityParts.js'
-import { SitemapRowAction, SitemapTable, type SitemapRowView } from './SitemapTable.js'
-import { useAccount, VIEW_ONLY_LABEL } from '../../contexts/account-context.js'
+import { SitemapsCard } from './SitemapsCard.js'
+import { useAccount } from '../../contexts/account-context.js'
 import { gscComparisonBasisText, gscTrendChange } from './GscSection.js'
 import { formatTimestamp } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
@@ -52,6 +53,7 @@ import {
   bingDisconnect as apiBingDisconnect,
   bingRequestIndexing,
   bingSetSite as apiBingSetSite,
+  bingSubmitSitemap,
   heyClient,
   inspectBingSitemap,
   inspectBingUrl,
@@ -1607,50 +1609,46 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
 
 // ── Sitemaps ─────────────────────────────────────────────────────────────────
 
-/** Bing's status word as a tone: Success is good, an error or failure is bad, anything else is waiting. */
-function bingSitemapTone(status: string): SitemapRowView['status']['tone'] {
-  const word = status.toLowerCase()
-  if (word === 'success') return 'positive'
-  if (word.includes('error') || word.includes('fail')) return 'negative'
-  if (word.includes('warn')) return 'caution'
-  return 'neutral'
-}
-
 function BingSitemapsCard({ projectName, siteUrl }: { projectName: string; siteUrl: string }) {
   const { canWrite } = useAccount()
-  const sitemaps = useQuery({
-    ...getApiV1ProjectsByNameBingSitemapsOptions({
-      client: heyClient,
-      path: { name: projectName },
-    }),
+  const coverage = useQuery({
+    ...getApiV1ProjectsByNameSitemapsOptions({ client: heyClient, path: { name: projectName } }),
     staleTime: GSC_STALE_MS,
   })
-  const [inspecting, setInspecting] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
-  const all = sitemaps.data?.sitemaps ?? []
-  const toView = (row: (typeof all)[number]): SitemapRowView => {
-    const isIndex = row.type.toLowerCase().includes('index')
-    return {
-      url: row.url,
-      label: sitePath(row.url, siteUrl),
-      isIndex,
-      kind: !isIndex && row.type.toLowerCase() !== 'sitemap' ? row.type : undefined,
-      status: { label: row.status, tone: bingSitemapTone(row.status) },
-      urls: row.urlCount,
-      submittedAt: row.submittedAt,
-      lastReadAt: row.lastCrawledAt,
+  const [submitting, setSubmitting] = useState(false)
+  const [inspecting, setInspecting] = useState(false)
+
+  async function submit(urls: string[]) {
+    setSubmitting(true)
+    let accepted = 0
+    try {
+      for (const url of urls) {
+        await bingSubmitSitemap(projectName, url)
+        accepted += 1
+      }
+      addToast({
+        title: accepted === 1 ? 'Sent to Bing' : `${accepted} sitemaps sent to Bing`,
+        detail: 'Bing reads it soon. A new sitemap shows in the list after the next Bing sync.',
+        tone: 'positive',
+        dedupeKey: `bing:submit-sitemap:${projectName}`,
+        dedupeMode: 'replace',
+      })
+    } catch (e) {
+      addToast({
+        title: accepted > 0 ? `Bing took ${accepted} of ${urls.length}` : 'Bing did not take the sitemap',
+        detail: describeError(e),
+        tone: 'negative',
+        dedupeKey: `bing:submit-sitemap:${projectName}`,
+        dedupeMode: 'replace',
+      })
+      throw e
+    } finally {
+      setSubmitting(false)
     }
   }
-  // Top-level submissions, each index carrying the sitemaps Bing found in it.
-  // A listed sitemap whose index is gone stays visible at the top level.
-  const topLevel = all.filter((row) => row.parentUrl === null || !all.some((parent) => parent.parentUrl === null && parent.url === row.parentUrl))
-  const rows = topLevel.map((row) => {
-    const view = toView(row)
-    return view.isIndex ? { ...view, files: all.filter((child) => child.parentUrl === row.url).map(toView) } : view
-  })
 
   async function inspect(sitemapUrl: string) {
-    setInspecting(sitemapUrl)
+    setInspecting(true)
     try {
       await inspectBingSitemap(projectName, { sitemapUrl })
       addToast({
@@ -1669,45 +1667,24 @@ function BingSitemapsCard({ projectName, siteUrl }: { projectName: string; siteU
         dedupeMode: 'replace',
       })
     } finally {
-      setInspecting(null)
+      setInspecting(false)
     }
   }
 
   return (
-    <Card className="surface-card">
-      <div className="section-head section-head-inline">
-        <div className="flex items-center gap-1.5">
-          <h3>Sitemaps</h3>
-          <InfoTooltip text="What Bing reported for each submitted sitemap at the last sync. Inspect URLs checks every page in a sitemap against Bing's index." />
-        </div>
-        {sitemaps.data?.syncedAt && <p className="text-copy-13 text-muted">As of {formatTimestamp(sitemaps.data.syncedAt)}</p>}
-      </div>
-      {sitemaps.isError ? (
-        <p className="text-copy-14 text-negative">Could not load sitemaps: {describeError(sitemaps.error)}</p>
-      ) : (
-        <SitemapTable
-          rows={rows}
-          expanded={expanded}
-          onToggle={(url) => setExpanded((current) => {
-            const next = new Set(current)
-            if (next.has(url)) next.delete(url)
-            else next.add(url)
-            return next
-          })}
-          lastReadLabel="Last crawled"
-          empty={sitemaps.isPending ? 'Loading\u2026' : 'Bing lists no sitemaps for this site.'}
-          actions={isEmbed() ? undefined : (row) => (
-            <SitemapRowAction
-              disabled={!canWrite || inspecting !== null}
-              title={canWrite ? undefined : VIEW_ONLY_LABEL}
-              onClick={() => void inspect(row.url)}
-            >
-              {inspecting === row.url ? 'Starting\u2026' : 'Inspect URLs'}
-            </SitemapRowAction>
-          )}
-        />
-      )}
-    </Card>
+    <SitemapsCard
+      engine="Bing"
+      data={coverage.isError ? null : coverage.isPending ? undefined : coverage.data.bing}
+      loadError={coverage.isError ? describeError(coverage.error) : null}
+      label={(url) => sitePath(url, siteUrl)}
+      canSubmit={canWrite}
+      onSubmit={(urls) => submit(urls).catch(() => undefined)}
+      submitting={submitting}
+      onInspect={(url) => void inspect(url)}
+      inspecting={inspecting}
+      notRead={<p className="text-copy-14 text-secondary">Bing&apos;s sitemap list arrives with the next Bing sync.</p>}
+      readOnly={isEmbed()}
+    />
   )
 }
 

@@ -25,6 +25,8 @@ export interface SitemapRowView {
   isDefault?: boolean
   /** The files an index lists; undefined until they are loaded. */
   files?: readonly SitemapRowView[]
+  /** The engine does not list it; the site or the other engine does. Its action stays visible. */
+  missing?: boolean
 }
 
 export const SITEMAP_DEFAULT_HELP = 'Canonry uses this sitemap when a command names none.'
@@ -101,11 +103,11 @@ export function SitemapTable({ rows, expanded, loading, onToggle, actions, lastR
           </div>
         </td>
         <td className="text-right tabular-nums text-secondary">{row.urls === null ? '—' : row.urls.toLocaleString()}</td>
-        <td className="whitespace-nowrap tabular-nums text-secondary">{day(row.submittedAt)}</td>
-        <td className="whitespace-nowrap tabular-nums text-secondary">{row.lastReadAt ? day(row.lastReadAt) : 'Not yet'}</td>
+        <td className="whitespace-nowrap tabular-nums text-secondary">{row.missing ? '\u2014' : row.submittedAt ? day(row.submittedAt) : parent ? <span title="Submitted through its sitemap index.">Via index</span> : <span title="Nobody submitted it: the engine found it on its own.">Not submitted</span>}</td>
+        <td className="whitespace-nowrap tabular-nums text-secondary">{row.missing ? '\u2014' : row.lastReadAt ? day(row.lastReadAt) : 'Not yet'}</td>
         {actions && (
           <td className="text-right">
-            <div className="flex justify-end gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
+            <div className={`flex justify-end gap-0.5 whitespace-nowrap ${row.missing ? '' : 'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100'}`}>
               {actions(row, parent)}
             </div>
           </td>

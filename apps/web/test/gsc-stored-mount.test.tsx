@@ -13,9 +13,10 @@ import { jsonResponse, mockFetch } from './mock-fetch.js'
 
 afterEach(cleanup)
 
-function mountSection({ propertyId = 'sc-domain:example.com', emptySitemaps = false, failedSync = false }: {
+function mountSection({ propertyId = 'sc-domain:example.com', sitemapList = 'listed', failedSync = false }: {
   propertyId?: string | null
-  emptySitemaps?: boolean
+  /** Google's stored list: some sitemaps, none, or never read. */
+  sitemapList?: 'listed' | 'empty' | 'unread'
   failedSync?: boolean
 } = {}) {
   const requests: string[] = []
@@ -33,9 +34,15 @@ function mountSection({ propertyId = 'sc-domain:example.com', emptySitemaps = fa
       return jsonResponse(failedSync ? [{ id: 'sync-1', projectId: 'project-1', kind: 'gsc-sync', status: 'failed', trigger: 'manual', createdAt: '2026-10-01T00:00:00.000Z', error: { message: 'Saved authorization failure' } }] : [])
     }
     if (path.endsWith('/google/properties')) return jsonResponse({ sites: [{ siteUrl: 'sc-domain:example.com', permissionLevel: 'siteOwner' }] })
-    if (path.endsWith('/google/gsc/sitemaps')) return jsonResponse({
-      sitemaps: emptySitemaps ? [] : [{ path: 'https://example.com/sitemap.xml', isSitemapsIndex: false }],
-      summary: { total: emptySitemaps ? 0 : 1, indexes: 0, files: emptySitemaps ? 0 : 1 }, preferredSubmissionUrls: [],
+    if (path.endsWith('/google/gsc/sitemaps')) throw new Error('the sitemap card reads the stored list, never the live one')
+    if (path.endsWith('/sitemaps')) return jsonResponse({
+      site: { scannedAt: null, runId: null, sitemaps: [] },
+      google: sitemapList === 'unread' ? null : {
+        syncedAt: '2026-11-04T06:00:00.000Z',
+        sitemaps: sitemapList === 'empty' ? [] : [{ url: `https://${path.split('/')[4]}.example.com/sitemap.xml`, parentUrl: null, isIndex: false, type: 'sitemap', state: 'ok', statusLabel: 'Success', warnings: 0, errors: 0, urlCount: 3, submittedAt: '2026-10-01T00:00:00.000Z', lastReadAt: null }],
+        missing: [],
+      },
+      bing: null,
     })
     if (path.endsWith('/google/gsc/performance/daily')) return jsonResponse({ totals: { clicks: 0, impressions: 0, ctr: 0 }, daily: [] })
     if (path.endsWith('/google/gsc/performance')) return jsonResponse({ rows: [], totalMatching: 0, truncated: false, latestAvailableDate: null })
@@ -52,21 +59,17 @@ function mountSection({ propertyId = 'sc-domain:example.com', emptySitemaps = fa
   ) }
 }
 
-test('connected mount reads stored evidence and leaves both resubmit controls disabled until a live load', async () => {
+test('connected mount reads the stored sitemap list, never Google live', async () => {
   const { requests } = mountSection()
   await screen.findByRole('heading', { name: 'Search performance' })
   expect(requests.filter(path => path.endsWith('/google/properties') || path.endsWith('/google/gsc/sitemaps'))).toEqual([])
-  for (const suffix of ['/performance', '/performance/daily', '/inspections', '/coverage']) {
+  for (const suffix of ['/performance', '/performance/daily', '/inspections', '/coverage', '/projects/sample/sitemaps']) {
     expect(requests.some(path => path.endsWith(suffix))).toBe(true)
   }
-  // Resubmitting waits for a sitemap load: before it there is no Resubmit all menu.
-  expect(screen.queryByRole('button', { name: 'Resubmit all' })).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Load from Google' }))
-  fireEvent.click(await screen.findByRole('button', { name: 'Resubmit all' }))
+  expect(await screen.findByTitle('https://sample.example.com/sitemap.xml')).not.toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Resubmit all' }))
   expect((screen.getByRole('menuitem', { name: /^Resubmit all files/ }) as HTMLButtonElement).disabled).toBe(false)
   expect((screen.getByRole('menuitem', { name: /^Resubmit all sitemaps/ }) as HTMLButtonElement).disabled).toBe(false)
-  expect(requests.filter(path => path.endsWith('/google/gsc/sitemaps'))).toHaveLength(1)
-  expect(screen.getByRole('button', { name: 'Reload from Google' })).not.toBeNull()
 })
 
 test('opening setup loads properties once and reopening uses the minute cache', async () => {
@@ -87,12 +90,13 @@ test('a connection awaiting property selection still loads its picker on mount',
   expect(requests.filter(path => path.endsWith('/google/gsc/sitemaps'))).toHaveLength(0)
 })
 
-test('an empty sitemap result is reported only after the operator loads it', async () => {
-  mountSection({ emptySitemaps: true })
-  await screen.findByRole('heading', { name: 'Search performance' })
-  expect(screen.queryByText(/No sitemaps found/)).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Load from Google' }))
-  await screen.findByText('No sitemaps found in this GSC property. Submit one here to start Google processing it.')
+test('an empty stored list reads as none, and an unread one says when it arrives', async () => {
+  mountSection({ sitemapList: 'empty' })
+  expect(await screen.findByText('Google lists no sitemaps for this site, and Canonry found none to add.')).not.toBeNull()
+  expect(screen.queryByRole('button', { name: 'Resubmit all' })).toBeNull()
+  cleanup()
+  mountSection({ sitemapList: 'unread' })
+  expect(await screen.findByText(/Google's sitemap list arrives with the next Google sync/)).not.toBeNull()
 })
 
 test('a saved failed sync remains visible without testing Google access on mount', async () => {
@@ -101,12 +105,11 @@ test('a saved failed sync remains visible without testing Google access on mount
   expect(requests.filter(path => path.endsWith('/google/properties') || path.endsWith('/google/gsc/sitemaps'))).toEqual([])
 })
 
-test('switching projects discards the previously loaded live sitemap list', async () => {
+test('switching projects reads the other project\'s stored list', async () => {
   const { requests, switchProject } = mountSection()
-  fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
-  await screen.findByRole('button', { name: 'Reload from Google' })
+  expect(await screen.findByTitle('https://sample.example.com/sitemap.xml')).not.toBeNull()
   switchProject('second-sample')
-  await screen.findByRole('button', { name: 'Load from Google' })
-  expect(screen.queryByRole('button', { name: 'Resubmit all' })).toBeNull()
-  expect(requests.filter(path => path.endsWith('/google/gsc/sitemaps'))).toHaveLength(1)
+  expect(await screen.findByTitle('https://second-sample.example.com/sitemap.xml')).not.toBeNull()
+  expect(screen.queryByTitle('https://sample.example.com/sitemap.xml')).toBeNull()
+  expect(requests.filter(path => path.endsWith('/sitemaps'))).toEqual(['/api/v1/projects/sample/sitemaps', '/api/v1/projects/second-sample/sitemaps'])
 })

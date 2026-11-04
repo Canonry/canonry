@@ -143,6 +143,34 @@ describe('Bing data routes', () => {
     })
   })
 
+  describe('POST /bing/sitemaps', () => {
+    const post = (body: unknown) => app.inject({ method: 'POST', url: '/projects/test-project/bing/sitemaps', payload: body as Record<string, unknown> })
+
+    it('asks Bing to read the sitemap for the selected site', async () => {
+      const calls = mockBing({ SubmitFeed: { body: fixture('SubmitFeed.json') } })
+      const res = await post({ sitemapUrl: 'https://example.com/sitemap.xml' })
+      expect(res.statusCode).toBe(200)
+      expect(res.json()).toEqual({ sitemapUrl: 'https://example.com/sitemap.xml', accepted: true })
+      expect(calls.map((c) => [c.method, c.body])).toEqual([['SubmitFeed', { siteUrl: 'https://example.com/', feedUrl: 'https://example.com/sitemap.xml' }]])
+    })
+
+    it('refuses a bad URL or a project with no Bing site before calling Bing', async () => {
+      const calls = mockBing({})
+      expect((await post({ sitemapUrl: 'not a url' })).statusCode).toBe(400)
+      expect((await post({})).statusCode).toBe(400)
+      connections.set('example.com', { ...connections.get('example.com')!, siteUrl: null })
+      expect((await post({ sitemapUrl: 'https://example.com/sitemap.xml' })).statusCode).toBe(400)
+      expect(calls).toEqual([])
+    })
+
+    it('reports a Bing refusal as an upstream error that names the sitemap', async () => {
+      mockBing({ SubmitFeed: { status: 400, body: JSON.stringify({ ErrorCode: 7, Message: 'ERROR!!! InvalidUrl' }) } })
+      const res = await post({ sitemapUrl: 'https://example.com/missing.xml' })
+      expect(res.statusCode).toBe(502)
+      expect(res.json<{ message: string }>().message).toMatch(/^Bing could not accept the sitemap: /)
+    })
+  })
+
   describe('GET /bing/traffic', () => {
     beforeEach(() => {
       db.insert(bingTrafficDaily).values(Array.from({ length: 31 }, (_, i) => ({

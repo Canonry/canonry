@@ -19,6 +19,7 @@ import {
   bingTrafficDayDtoSchema,
   bingCrawlStatsDayDtoSchema,
   bingSitemapDtoSchema,
+  engineSitemapDtoSchema,
   bingSiteSnapshotDtoSchema,
   bingKeywordWeekDtoSchema,
   bingUrlInspectionDtoSchema,
@@ -794,6 +795,22 @@ const COVERAGE: Record<string, CoverageEntry> = {
       projectId: 'Implied by the route scope.',
       syncRunId: 'Internal sync provenance.',
     },
+  },
+  gscSitemaps: {
+    kind: 'dto',
+    dto: engineSitemapDtoSchema,
+    internal: {
+      id: 'Surrogate key; sitemaps are addressed by (project, url).',
+      projectId: 'Implied by the route scope.',
+      isPending: 'Folded into `state` and `statusLabel` (Processing).',
+      lastDownloadedAt: 'Exposed as `lastReadAt`, the shared name for both engines.',
+      syncRunId: 'Internal sync provenance.',
+      syncedAt: 'The list-level read time is `syncedAt` on the engine block, from sitemap_list_syncs.',
+    },
+  },
+  sitemapListSyncs: {
+    kind: 'internal-only',
+    reason: 'When each engine\'s sitemap list was last read in full; surfaced only as `syncedAt` on the engine block of GET /sitemaps, and what makes an empty list mean "none".',
   },
   bingSiteSnapshots: {
     kind: 'dto',

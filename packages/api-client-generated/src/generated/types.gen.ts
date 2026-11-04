@@ -4526,6 +4526,59 @@ export type BingTrafficResponseDto = {
     } | null;
 };
 
+export type BingSubmitSitemapResponseDto = {
+    sitemapUrl: string;
+    accepted: true;
+};
+
+export type SitemapCoverageResponseDto = {
+    site: {
+        scannedAt: string | null;
+        runId: string | null;
+        sitemaps: Array<string>;
+    };
+    google: {
+        syncedAt: string;
+        sitemaps: Array<{
+            url: string;
+            parentUrl: string | null;
+            isIndex: boolean;
+            type: string | null;
+            state: 'ok' | 'pending' | 'warnings' | 'errors' | 'other';
+            statusLabel: string;
+            warnings: number | null;
+            errors: number | null;
+            urlCount: number | null;
+            submittedAt: string | null;
+            lastReadAt: string | null;
+        }>;
+        missing: Array<{
+            url: string;
+            foundIn: Array<'site' | 'google' | 'bing'>;
+        }>;
+    } | null;
+    bing: {
+        syncedAt: string;
+        sitemaps: Array<{
+            url: string;
+            parentUrl: string | null;
+            isIndex: boolean;
+            type: string | null;
+            state: 'ok' | 'pending' | 'warnings' | 'errors' | 'other';
+            statusLabel: string;
+            warnings: number | null;
+            errors: number | null;
+            urlCount: number | null;
+            submittedAt: string | null;
+            lastReadAt: string | null;
+        }>;
+        missing: Array<{
+            url: string;
+            foundIn: Array<'site' | 'google' | 'bing'>;
+        }>;
+    } | null;
+};
+
 export type BingUrlChildrenResponseDto = {
     url: string;
     page: number;
@@ -32399,6 +32452,114 @@ export type PostApiV1ProjectsByNameBingSyncResponses = {
 
 export type PostApiV1ProjectsByNameBingSyncResponse = PostApiV1ProjectsByNameBingSyncResponses[keyof PostApiV1ProjectsByNameBingSyncResponses];
 
+export type GetApiV1ProjectsByNameBingSitemapsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/bing/sitemaps';
+};
+
+export type GetApiV1ProjectsByNameBingSitemapsErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingSitemapsError = GetApiV1ProjectsByNameBingSitemapsErrors[keyof GetApiV1ProjectsByNameBingSitemapsErrors];
+
+export type GetApiV1ProjectsByNameBingSitemapsResponses = {
+    /**
+     * Stored Bing sitemaps returned.
+     */
+    200: BingSitemapsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingSitemapsResponse = GetApiV1ProjectsByNameBingSitemapsResponses[keyof GetApiV1ProjectsByNameBingSitemapsResponses];
+
+export type PostApiV1ProjectsByNameBingSitemapsData = {
+    body: {
+        sitemapUrl: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/bing/sitemaps';
+};
+
+export type PostApiV1ProjectsByNameBingSitemapsErrors = {
+    /**
+     * Invalid sitemap URL, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling this key.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused the sitemap.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameBingSitemapsError = PostApiV1ProjectsByNameBingSitemapsErrors[keyof PostApiV1ProjectsByNameBingSitemapsErrors];
+
+export type PostApiV1ProjectsByNameBingSitemapsResponses = {
+    /**
+     * Bing accepted the sitemap.
+     */
+    200: BingSubmitSitemapResponseDto;
+};
+
+export type PostApiV1ProjectsByNameBingSitemapsResponse = PostApiV1ProjectsByNameBingSitemapsResponses[keyof PostApiV1ProjectsByNameBingSitemapsResponses];
+
+export type GetApiV1ProjectsByNameSitemapsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/sitemaps';
+};
+
+export type GetApiV1ProjectsByNameSitemapsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSitemapsError = GetApiV1ProjectsByNameSitemapsErrors[keyof GetApiV1ProjectsByNameSitemapsErrors];
+
+export type GetApiV1ProjectsByNameSitemapsResponses = {
+    /**
+     * Sitemap coverage returned.
+     */
+    200: SitemapCoverageResponseDto;
+};
+
+export type GetApiV1ProjectsByNameSitemapsResponse = GetApiV1ProjectsByNameSitemapsResponses[keyof GetApiV1ProjectsByNameSitemapsResponses];
+
 export type GetApiV1ProjectsByNameBingTrafficData = {
     body?: never;
     path: {
@@ -32638,40 +32799,6 @@ export type GetApiV1ProjectsByNameBingCrawlStatsResponses = {
 };
 
 export type GetApiV1ProjectsByNameBingCrawlStatsResponse = GetApiV1ProjectsByNameBingCrawlStatsResponses[keyof GetApiV1ProjectsByNameBingCrawlStatsResponses];
-
-export type GetApiV1ProjectsByNameBingSitemapsData = {
-    body?: never;
-    path: {
-        /**
-         * Project name.
-         */
-        name: string;
-    };
-    query?: never;
-    url: '/api/v1/projects/{name}/bing/sitemaps';
-};
-
-export type GetApiV1ProjectsByNameBingSitemapsErrors = {
-    /**
-     * Invalid request, or Bing is not connected or has no site selected for this project.
-     */
-    400: ErrorEnvelope;
-    /**
-     * Project not found.
-     */
-    404: ErrorEnvelope;
-};
-
-export type GetApiV1ProjectsByNameBingSitemapsError = GetApiV1ProjectsByNameBingSitemapsErrors[keyof GetApiV1ProjectsByNameBingSitemapsErrors];
-
-export type GetApiV1ProjectsByNameBingSitemapsResponses = {
-    /**
-     * Stored Bing sitemaps returned.
-     */
-    200: BingSitemapsResponseDto;
-};
-
-export type GetApiV1ProjectsByNameBingSitemapsResponse = GetApiV1ProjectsByNameBingSitemapsResponses[keyof GetApiV1ProjectsByNameBingSitemapsResponses];
 
 export type GetApiV1ProjectsByNameBingSiteData = {
     body?: never;

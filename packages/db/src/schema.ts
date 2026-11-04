@@ -1966,6 +1966,45 @@ export const bingSitemaps = sqliteTable('bing_sitemaps', {
 ])
 
 /**
+ * Sitemaps Search Console lists for the property (`sitemaps.list`, plus the
+ * files inside each sitemap index). Replaced on every Google sync: a row Google
+ * no longer lists is deleted. `parentUrl` is the index a file was read from.
+ */
+export const gscSitemaps = sqliteTable('gsc_sitemaps', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  parentUrl: text('parent_url'),
+  isIndex: integer('is_index', { mode: 'boolean' }).notNull().default(false),
+  isPending: integer('is_pending', { mode: 'boolean' }).notNull().default(false),
+  type: text('type'),
+  /** URLs the sitemap lists, summed over Google's content types; null when Google sent no contents. */
+  urlCount: integer('url_count'),
+  warnings: integer('warnings'),
+  errors: integer('errors'),
+  submittedAt: text('submitted_at'),
+  lastDownloadedAt: text('last_downloaded_at'),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_gsc_sitemaps_project_url').on(table.projectId, table.url),
+])
+
+/**
+ * When each engine's sitemap list was last read in full, per project. An empty
+ * list is a real answer ("the engine has no sitemaps") only once this row
+ * exists; before it, the list was never read.
+ */
+export const sitemapListSyncs = sqliteTable('sitemap_list_syncs', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  engine: text('engine').notNull(),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+}, (table) => [
+  uniqueIndex('idx_sitemap_list_syncs_project_engine').on(table.projectId, table.engine),
+])
+
+/**
  * The latest read of each Bing site setting (crawl settings, submission
  * quotas, blocked URLs, URL parameters, geo-targeting, sitelink and preview
  * blocks, Fetch as Bingbot history, crawl issues, connected pages, roles), one

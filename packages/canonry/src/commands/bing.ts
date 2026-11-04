@@ -548,6 +548,15 @@ function printJson(format: string | undefined, payload: unknown, jsonlRows?: unk
   return false
 }
 
+export async function bingSubmitSitemap(project: string, sitemapUrl: string, opts: { format?: string }): Promise<void> {
+  const result = await getClient().bingSubmitSitemap(project, sitemapUrl)
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log(`Bing accepted ${result.sitemapUrl}. A new sitemap shows in "canonry sitemaps ${project}" after the next Bing sync.`)
+}
+
 export async function bingSync(project: string, opts: { wait?: boolean; format?: string }): Promise<void> {
   const client = getClient()
   const run = await client.bingSync(project)

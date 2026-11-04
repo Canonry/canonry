@@ -76,6 +76,20 @@ function mountBing({ synced = true, liveFails = false, embed = false, sitemapInd
         ? { rows: [{ date: '2026-10-31', crawledPages: 40, inIndex: 2, crawlErrors, inLinks: 9, code2xx: 35, code301: 1, code302: 0, code4xx: 2, code5xx: 0, allOtherCodes: 0, blockedByRobotsTxt: 0, connectionTimeout: 0, containsMalware: 0, dnsFailures: 0 }], window: traffic.window, latestAvailableDate: '2026-10-31' }
         : { rows: [], window: traffic.window, latestAvailableDate: null })
     }
+    if (path.endsWith('/projects/sample/sitemaps')) {
+      const row = (url: string, extra: Record<string, unknown> = {}) => ({ url: `${SITE}${url}`, parentUrl: null, isIndex: false, type: 'Sitemap', state: 'ok', statusLabel: 'Success', warnings: null, errors: null, urlCount: 12, submittedAt: SYNCED_AT, lastReadAt: SYNCED_AT, ...extra })
+      const sitemaps = sitemapIndex
+        ? [row('sitemap_index.xml', { isIndex: true, type: 'Sitemap Index' }), row('page-sitemap.xml', { parentUrl: `${SITE}sitemap_index.xml`, submittedAt: null })]
+        : [row('sitemap.xml')]
+      return jsonResponse({
+        site: { scannedAt: SYNCED_AT, runId: 'scan', sitemaps: [`${SITE}sitemap.xml`, `${SITE}area-sitemap.xml`] },
+        google: null,
+        bing: synced ? { syncedAt: SYNCED_AT, sitemaps, missing: [{ url: `${SITE}area-sitemap.xml`, foundIn: ['site'] }] } : null,
+      })
+    }
+    if (path.endsWith('/bing/sitemaps') && init?.method === 'POST') {
+      return jsonResponse({ sitemapUrl: (JSON.parse(String(init.body)) as { sitemapUrl: string }).sitemapUrl, accepted: true })
+    }
     if (path.endsWith('/bing/sitemaps')) {
       const row = (url: string, extra: Record<string, unknown> = {}) => ({ url: `${SITE}${url}`, parentUrl: null, type: 'Sitemap', status: 'Success', urlCount: 12, fileSize: 0, compressed: false, submittedAt: null, lastCrawledAt: SYNCED_AT, syncedAt: SYNCED_AT, ...extra })
       const list = sitemapIndex
@@ -177,6 +191,20 @@ test('a sitemap index starts closed and opens on its sitemaps', async () => {
   fireEvent.click(toggle)
   expect(await screen.findByTitle(`${SITE}page-sitemap.xml`)).not.toBeNull()
   expect(screen.getByRole('button', { name: 'Hide the sitemaps in /sitemap_index.xml' })).not.toBeNull()
+})
+
+test('a sitemap Bing is missing comes first, with a one-click add', async () => {
+  const { requests } = mountBing()
+  const add = await screen.findByRole('button', { name: 'Add to Bing' })
+  const row = add.closest('tr') as HTMLElement
+  expect(within(row).getByText('Missing')).not.toBeNull()
+  expect(within(row).getByText('on your site')).not.toBeNull()
+  expect(screen.getByText('1 missing')).not.toBeNull()
+  fireEvent.click(add)
+  await waitFor(() => expect(requests.some((r) => r.method === 'POST' && r.path.endsWith('/bing/sitemaps'))).toBe(true))
+  expect(await within(row).findByRole('button', { name: 'Sent' })).not.toBeNull()
+  expect(within(row).getByText('shows after the next sync')).not.toBeNull()
+  expect(screen.queryByText('1 missing')).toBeNull()
 })
 
 test('crawl figures live in Crawl by day, with errors flagged on the card', async () => {

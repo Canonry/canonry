@@ -226,6 +226,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/bing/sitemaps',
   'GET /api/v1/projects/{name}/bing/site',
   'GET /api/v1/projects/{name}/bing/keyword-demand',
+  'GET /api/v1/projects/{name}/sitemaps',
   'GET /api/v1/projects/{name}/traffic/sources',
   'GET /api/v1/projects/{name}/traffic/status',
   'GET /api/v1/projects/{name}/traffic/analytics',

@@ -13,6 +13,7 @@ import {
   bingQueryStats,
   bingSiteSnapshots,
   bingSitemaps,
+  sitemapListSyncs,
   bingTrafficDaily,
   createClient,
   migrate,
@@ -111,7 +112,7 @@ describe('executeBingSync', () => {
   beforeEach(() => {
     originalFetch = globalThis.fetch
     __resetBingThrottleCooldownForTest()
-    for (const table of [bingTrafficDaily, bingQueryStats, bingPageStats, bingCrawlStats, bingSitemaps, bingSiteSnapshots, bingKeywordDemand, runs]) {
+    for (const table of [bingTrafficDaily, bingQueryStats, bingPageStats, bingCrawlStats, bingSitemaps, sitemapListSyncs, bingSiteSnapshots, bingKeywordDemand, runs]) {
       db.delete(table).run()
     }
   })
@@ -160,6 +161,8 @@ describe('executeBingSync', () => {
     expect(sitemaps.find((row) => row.url === 'https://example.com/sitemap_index.xml')).toMatchObject({
       type: 'Sitemap Index', status: 'Success', urlCount: 32, parentUrl: null, submittedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     })
+    // The list counts as read, so an empty one would mean "Bing has none".
+    expect(db.select().from(sitemapListSyncs).where(eq(sitemapListSyncs.projectId, projectId)).all()).toMatchObject([{ engine: 'bing', syncRunId: runId }])
 
     const snapshots = new Map(db.select().from(bingSiteSnapshots).where(eq(bingSiteSnapshots.projectId, projectId)).all().map((row) => [row.kind, row]))
     expect(snapshots.size).toBe(12)

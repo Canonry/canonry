@@ -161,14 +161,25 @@ test('uses server pagination when unfiltered and client pagination for expanded 
   expect(screen.queryByText('search query 025')).toBeNull()
 })
 
+/** Google's stored sitemap list (GET /sitemaps) built from the old live-list fixture shape. */
+const storedRow = (url: string, parentUrl: string | null, isIndex: boolean) => ({
+  url, parentUrl, isIndex, type: 'sitemap', state: 'ok', statusLabel: 'Success', warnings: 0, errors: 0, urlCount: 1,
+  submittedAt: parentUrl ? null : '2026-07-01T00:00:00.000Z', lastReadAt: null,
+})
+function storedCoverage(sitemaps: Array<Record<string, unknown>>, childrenByIndex: Record<string, Array<Record<string, unknown>>> = {}) {
+  const rows = sitemaps.flatMap((sitemap) => [
+    storedRow(String(sitemap.path), null, Boolean(sitemap.isSitemapsIndex)),
+    ...(childrenByIndex[String(sitemap.path)] ?? []).map((child) => storedRow(String(child.path), String(sitemap.path), false)),
+  ])
+  return { site: { scannedAt: null, runId: null, sitemaps: [] }, google: { syncedAt: '2026-07-25T00:00:00.000Z', sitemaps: rows, missing: [] }, bing: null }
+}
+
 function renderSitemapSection({
   sitemaps,
-  preferredSubmissionUrls = [],
   childrenByIndex = {},
   onSubmit,
 }: {
   sitemaps: Array<Record<string, unknown>>
-  preferredSubmissionUrls?: string[]
   childrenByIndex?: Record<string, Array<Record<string, unknown>>>
   onSubmit: (urls: string[], attempt: number) => Response | Promise<Response>
 }) {
@@ -191,14 +202,7 @@ function renderSitemapSection({
       submitAttempt += 1
       return onSubmit(urls, submitAttempt)
     }
-    if (path.includes('/google/gsc/sitemaps')) {
-      const sitemapIndex = new URL(url).searchParams.get('sitemapIndex')
-      return jsonResponse({
-        sitemaps: sitemapIndex ? (childrenByIndex[sitemapIndex] ?? []) : sitemaps,
-        summary: { total: sitemaps.length, indexes: sitemaps.filter((sitemap) => sitemap.isSitemapsIndex).length, files: sitemaps.filter((sitemap) => !sitemap.isSitemapsIndex).length },
-        preferredSubmissionUrls,
-      })
-    }
+    if (path.endsWith('/test-project/sitemaps')) return jsonResponse(storedCoverage(sitemaps, childrenByIndex))
     throw new Error(`Unexpected fetch: ${path}`)
   })
   onTestFinished(restoreFetch)
@@ -211,7 +215,6 @@ test('reports completed batches and stops after a later sitemap submission trans
   const submitted: string[][] = []
   renderSitemapSection({
     sitemaps,
-    preferredSubmissionUrls: sitemaps.map((sitemap) => String(sitemap.path)),
     onSubmit: (urls, attempt) => {
       submitted.push(urls)
       if (attempt === 2) return Promise.reject(new Error('network down'))
@@ -219,7 +222,6 @@ test('reports completed batches and stops after a later sitemap submission trans
     },
   })
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Resubmit all' }))
   fireEvent.click(screen.getByRole('menuitem', { name: /^Resubmit all sitemaps/ }))
   await waitFor(() => expect(screen.getByText(/50 accepted, 0 failed, 50 unconfirmed, 0 not attempted/i)).not.toBeNull())
@@ -241,7 +243,6 @@ test('resubmit all files excludes a parent index and includes standalone and chi
     },
   })
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Resubmit all' }))
   fireEvent.click(screen.getByRole('menuitem', { name: /^Resubmit all files/ }))
   await waitFor(() => expect(submitted).toHaveLength(1))
@@ -287,13 +288,7 @@ test('refreshes the cached OAuth connection immediately after popup authorizatio
     if (path.includes('/google/gsc/performance')) return jsonResponse({ rows: [], totalMatching: 0, truncated: false, latestAvailableDate: null })
     if (path.includes('/google/gsc/inspections') || path.includes('/google/gsc/deindexed') || path.includes('/google/gsc/coverage/history')) return jsonResponse([])
     if (path.includes('/google/gsc/coverage')) return jsonResponse(null)
-    if (path.includes('/google/gsc/sitemaps')) {
-      return jsonResponse({
-        sitemaps: [{ path: sitemapUrl, isSitemapsIndex: false }],
-        summary: { total: 1, indexes: 0, files: 1 },
-        preferredSubmissionUrls: [sitemapUrl],
-      })
-    }
+    if (path.endsWith('/test-project/sitemaps')) return jsonResponse(storedCoverage([{ path: sitemapUrl, isSitemapsIndex: false }]))
     throw new Error(`Unexpected fetch: ${path}`)
   })
   onTestFinished(restoreFetch)
@@ -303,7 +298,6 @@ test('refreshes the cached OAuth connection immediately after popup authorizatio
 
   await waitFor(() => expect(screen.getByText('Read-only access')).not.toBeNull())
   expect(screen.getByRole('button', { name: /can read Search Console but not submit sitemaps/ })).not.toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Load from Google' }))
   await screen.findByText('Default')
   expect(screen.queryByText('Use for audits')).toBeNull()
 
@@ -320,7 +314,7 @@ test('refreshes the cached OAuth connection immediately after popup authorizatio
     },
   }))
 
-  await waitFor(() => expect(screen.queryByText(/current Canonry OAuth grant is read-only/i)).toBeNull())
+  await waitFor(() => expect(screen.queryByText('Read-only access')).toBeNull())
   expect(connectionReads).toBeGreaterThanOrEqual(2)
 })
 
@@ -416,14 +410,7 @@ test('connection-owned sitemap changes stay fresh after a remount', async () => 
     if (path.includes('/google/gsc/performance')) return jsonResponse({ rows: [], totalMatching: 0, truncated: false, latestAvailableDate: null })
     if (path.includes('/google/gsc/inspections') || path.includes('/google/gsc/deindexed') || path.includes('/google/gsc/coverage/history')) return jsonResponse([])
     if (path.includes('/google/gsc/coverage')) return jsonResponse(null)
-    if (path.includes('/google/gsc/sitemaps')) return jsonResponse({
-      sitemaps: [
-        { path: oldSitemap, isSitemapsIndex: false },
-        { path: newSitemap, isSitemapsIndex: false },
-      ],
-      summary: { total: 2, indexes: 0, files: 2 },
-      preferredSubmissionUrls: [oldSitemap, newSitemap],
-    })
+    if (path.endsWith('/test-project/sitemaps')) return jsonResponse(storedCoverage([{ path: oldSitemap, isSitemapsIndex: false }, { path: newSitemap, isSitemapsIndex: false }]))
     throw new Error(`Unexpected fetch: ${path}`)
   })
   onTestFinished(restoreFetch)
@@ -431,7 +418,6 @@ test('connection-owned sitemap changes stay fresh after a remount', async () => 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const firstRender = render(<QueryClientProvider client={queryClient}><GscSection projectName="test-project" refreshNonce={0} /></QueryClientProvider>)
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
   const newSitemapRow = await screen.findByTitle(newSitemap).then((cell) => cell.closest('tr'))
   if (!newSitemapRow) throw new Error('New sitemap row was not rendered')
   fireEvent.click(within(newSitemapRow).getByRole('button', { name: 'Set as default' }))
@@ -441,7 +427,6 @@ test('connection-owned sitemap changes stay fresh after a remount', async () => 
   render(<QueryClientProvider client={queryClient}><GscSection projectName="test-project" refreshNonce={0} /></QueryClientProvider>)
 
   await waitFor(() => expect(connectionReads).toBeGreaterThanOrEqual(2))
-  fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
   const remountedRow = await screen.findByTitle(newSitemap).then((cell) => cell.closest('tr'))
   if (!remountedRow) throw new Error('New sitemap row was not rendered after remount')
   expect(within(remountedRow).getByText('Default')).not.toBeNull()

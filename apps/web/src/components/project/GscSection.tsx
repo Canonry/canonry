@@ -1,6 +1,5 @@
 import { useAccount } from '../../contexts/account-context.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { RefreshCw } from 'lucide-react'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
 import { Link } from '@tanstack/react-router'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -17,7 +16,7 @@ import {
 } from '../shared/DataTableControls.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { ActionMenu } from '../shared/ActionMenu.js'
-import { SITEMAP_DEFAULT_HELP, SitemapRowAction, SitemapTable, type SitemapRowView } from './SitemapTable.js'
+import { SitemapsCard } from './SitemapsCard.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import {
   CHART_NEUTRAL,
@@ -29,7 +28,7 @@ import {
   type TrendChartSeries,
 } from '../shared/ChartPrimitives.js'
 import { TrendCard, levelTrendChange, sharedLevelBasis, type TrendCardChange, type TrendCardFigure, type TrendCardGroup, type TrendCardTone } from '../shared/TrendCard.js'
-import { calendarDateRange, formatPercent, formatPointDelta, formatRunErrorOneLine, formatTenthsMagnitude, RunKinds, RunStatuses, type GscPeriodComparison } from '@canonry/canonry-contracts'
+import { calendarDateRange, describeError, formatPercent, formatPointDelta, formatRunErrorOneLine, formatTenthsMagnitude, RunKinds, RunStatuses, type GscPeriodComparison } from '@canonry/canonry-contracts'
 import { formatTimestamp, formatBooleanState, SearchMetric, SEARCH_METRIC_LABELS } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -43,12 +42,10 @@ import {
   saveGoogleProperty,
   inspectGscUrl,
   saveSitemapUrl,
-  fetchGscSitemaps,
   submitGscSitemaps,
   requestIndexing,
   isPublicDemo,
   heyClient,
-  type ApiGscSitemap,
   type ApiGoogleConnection,
   type ApiGoogleProperty,
   type ApiGscPerformanceRow,
@@ -65,9 +62,9 @@ import {
   getApiV1ProjectsByNameGoogleGscInspectionsOptions,
   getApiV1ProjectsByNameGoogleGscPerformanceDailyOptions,
   getApiV1ProjectsByNameGoogleGscPerformanceOptions,
-  getApiV1ProjectsByNameGoogleGscSitemapsQueryKey,
   getApiV1ProjectsByNameGooglePropertiesOptions,
   getApiV1ProjectsByNameTrendsOptions,
+  getApiV1ProjectsByNameSitemapsOptions,
 } from '@canonry/canonry-api-client/react-query'
 import {
   useTriggerGscSync,
@@ -232,28 +229,6 @@ export function gscComparisonBasisText(
     + ' to compare it against.'
 }
 
-function sitemapDiscoveredUrlCount(sitemap: ApiGscSitemap): number {
-  return sitemap.contents?.reduce((total, content) => total + Number(content.submitted || 0), 0) ?? 0
-}
-
-function sitemapIssueText(sitemap: ApiGscSitemap): string {
-  const errors = Number(sitemap.errors ?? 0)
-  const warnings = Number(sitemap.warnings ?? 0)
-  return [
-    errors > 0 ? `${errors} error${errors === 1 ? '' : 's'}` : '',
-    warnings > 0 ? `${warnings} warning${warnings === 1 ? '' : 's'}` : '',
-  ].filter(Boolean).join(' · ')
-}
-
-function sitemapGoogleStatus(sitemap: ApiGscSitemap): string {
-  if (sitemap.isPending) return 'Processing'
-  if (Number(sitemap.errors ?? 0) > 0) return 'Errors'
-  if (Number(sitemap.warnings ?? 0) > 0) return 'Warnings'
-  return 'Success'
-}
-
-const GSC_SITEMAP_TONE = { Processing: 'neutral', Errors: 'negative', Warnings: 'caution', Success: 'positive' } as const
-
 /**
  * A sitemap URL as a list reads it: just the path when it sits on the
  * property's own site, otherwise the host and path without the scheme (a
@@ -276,21 +251,6 @@ export function sitemapPathLabel(url: string, propertyId: string | null | undefi
   return `${parsed.host}${path}`
 }
 
-/** One Search Console sitemap as the shared sitemap table shows it. */
-function gscSitemapRow(sitemap: ApiGscSitemap, propertyId: string | null, defaultUrl: string | null, files?: readonly ApiGscSitemap[]): SitemapRowView {
-  const status = sitemapGoogleStatus(sitemap) as keyof typeof GSC_SITEMAP_TONE
-  return {
-    url: sitemap.path,
-    label: sitemapPathLabel(sitemap.path, propertyId),
-    isIndex: Boolean(sitemap.isSitemapsIndex),
-    status: { label: status, tone: GSC_SITEMAP_TONE[status], detail: sitemapIssueText(sitemap) || undefined },
-    urls: sitemapDiscoveredUrlCount(sitemap),
-    submittedAt: sitemap.lastSubmitted ?? null,
-    lastReadAt: sitemap.lastDownloaded ?? null,
-    isDefault: defaultUrl === sitemap.path,
-    files: files?.map((file) => gscSitemapRow({ ...file, isSitemapsIndex: false }, propertyId, defaultUrl)),
-  }
-}
 
 export function GscSection({
   projectName,
@@ -360,17 +320,7 @@ export function GscSection({
   const [inspecting, setInspecting] = useState(false)
   const [coverage, setCoverage] = useState<ApiGscCoverageSummary | null>(null)
   const [loadingCoverage, setLoadingCoverage] = useState(false)
-  const [listingSitemaps, setListingSitemaps] = useState(false)
-  const [discoveredSitemaps, setDiscoveredSitemaps] = useState<ApiGscSitemap[] | null>(null)
-  const [sitemapSummary, setSitemapSummary] = useState<{ total: number; indexes: number; files: number } | null>(null)
-  const [preferredSubmissionUrls, setPreferredSubmissionUrls] = useState<string[]>([])
-  const [expandedSitemapIndexes, setExpandedSitemapIndexes] = useState<Set<string>>(new Set())
-  const [sitemapChildren, setSitemapChildren] = useState<Partial<Record<string, ApiGscSitemap[]>>>({})
-  const [loadingSitemapChildren, setLoadingSitemapChildren] = useState<Set<string>>(new Set())
-  const [sitemapSearch, setSitemapSearch] = useState('')
   const [sitemapSubmissionProgress, setSitemapSubmissionProgress] = useState<{ completed: number; total: number } | null>(null)
-  const [sitemapUrlInput, setSitemapUrlInput] = useState('')
-  const [sitemapFormOpen, setSitemapFormOpen] = useState(false)
   const [savingSitemap, setSavingSitemap] = useState(false)
   const [submittingSitemaps, setSubmittingSitemaps] = useState(false)
   const [setupExpanded, setSetupExpanded] = useState(false)
@@ -401,10 +351,6 @@ export function GscSection({
     pageSize: DEFAULT_TABLE_PAGE_SIZE,
   })
   const displayedPerformanceRows = performanceDisplayedExpanded ? performanceTable.rows : sortedPerformance
-  const sitemapTable = useClientTable({
-    rows: (discoveredSitemaps ?? []).filter((sitemap) => sitemap.path.toLowerCase().includes(sitemapSearch.trim().toLowerCase())),
-    pageSize: DEFAULT_TABLE_PAGE_SIZE,
-  })
   const [_coverageHistory, setCoverageHistory] = useState<Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>>([])
   const [selectedReason, setSelectedReason] = useState<string | null>(null)
   const [coveragePage, setCoveragePage] = useState<number>(1)
@@ -489,12 +435,18 @@ export function GscSection({
 
   const gscConn = connections.find((c) => c.connectionType === 'gsc')
   const canSubmitSitemaps = (gscConn?.scopes ?? []).includes('https://www.googleapis.com/auth/webmasters')
-  const primarySitemapSubmissionUrls = preferredSubmissionUrls.length > 0
-    ? preferredSubmissionUrls
-    : (discoveredSitemaps ?? []).map((sitemap) => sitemap.path)
-  const preferredIndexCount = primarySitemapSubmissionUrls.filter((url) =>
-    discoveredSitemaps?.some((sitemap) => sitemap.path === url && sitemap.isSitemapsIndex),
-  ).length
+  // Google's stored list (read by every Google sync); null until the first read.
+  const sitemapCoverage = useQuery({
+    ...getApiV1ProjectsByNameSitemapsOptions({ client: heyClient, path: { name: projectName } }),
+    staleTime: GSC_STALE_MS,
+    enabled: Boolean(gscConn?.propertyId) && !publicDemo,
+  })
+  const storedSitemaps = sitemapCoverage.data?.google?.sitemaps ?? []
+  const topLevelSitemaps = storedSitemaps.filter((sitemap) => sitemap.parentUrl === null)
+  // Resubmitting an index rereads every file it lists, so the indexes go first.
+  const storedIndexUrls = topLevelSitemaps.filter((sitemap) => sitemap.isIndex).map((sitemap) => sitemap.url)
+  const primarySitemapSubmissionUrls = storedIndexUrls.length > 0 ? storedIndexUrls : topLevelSitemaps.map((sitemap) => sitemap.url)
+  const preferredIndexCount = storedIndexUrls.length
   const primarySitemapSubmissionLabel = preferredIndexCount === 1
     ? 'Resubmit sitemap index'
     : preferredIndexCount > 1
@@ -711,54 +663,6 @@ export function GscSection({
     }
   }
 
-  async function handleListSitemaps() {
-    setListingSitemaps(true)
-    setError(null)
-    try {
-      const result = await fetchGscSitemaps(projectName)
-      queryClient.setQueryData(
-        getApiV1ProjectsByNameGoogleGscSitemapsQueryKey({ client: heyClient, path: { name: projectName } }),
-        result,
-      )
-      setDiscoveredSitemaps(result.sitemaps)
-      setSitemapSummary(result.summary)
-      setPreferredSubmissionUrls(result.preferredSubmissionUrls)
-      setExpandedSitemapIndexes(new Set())
-      setSitemapChildren({})
-      if (result.sitemaps.length === 0) {
-        setNotice('No sitemaps found in this GSC property. Submit one here to start Google processing it.')
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to list sitemaps')
-    } finally {
-      setListingSitemaps(false)
-    }
-  }
-
-  async function toggleSitemapIndex(sitemapIndex: string) {
-    const isExpanded = expandedSitemapIndexes.has(sitemapIndex)
-    setExpandedSitemapIndexes((current) => {
-      const next = new Set(current)
-      if (isExpanded) next.delete(sitemapIndex)
-      else next.add(sitemapIndex)
-      return next
-    })
-    if (isExpanded || sitemapChildren[sitemapIndex]) return
-    setLoadingSitemapChildren((current) => new Set(current).add(sitemapIndex))
-    try {
-      const result = await fetchGscSitemaps(projectName, sitemapIndex)
-      setSitemapChildren((current) => ({ ...current, [sitemapIndex]: result.sitemaps }))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load sitemap files')
-    } finally {
-      setLoadingSitemapChildren((current) => {
-        const next = new Set(current)
-        next.delete(sitemapIndex)
-        return next
-      })
-    }
-  }
-
   async function handleSubmitSitemaps(sitemapUrls: string[]) {
     if (!canSubmitSitemaps || sitemapUrls.length === 0) return
     const uniqueUrls = [...new Set(sitemapUrls)]
@@ -806,50 +710,20 @@ export function GscSection({
         dedupeKey: `gsc:sitemap-submit:${projectName}`,
         dedupeMode: 'replace',
       })
-      setSitemapUrlInput('')
-      setSitemapFormOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit sitemap to Google')
     } finally {
       setSubmittingSitemaps(false)
       setSitemapSubmissionProgress(null)
-      await handleListSitemaps()
       if (partialFailureMessage) setError(partialFailureMessage)
     }
   }
 
+  /** Every file Google reads: each file on its own, and an index with no stored files as itself. */
   async function handleResubmitAllFiles() {
-    setSubmittingSitemaps(true)
-    const topLevel = discoveredSitemaps ?? []
-    try {
-      const indexes = topLevel.filter((sitemap) => sitemap.isSitemapsIndex)
-      const expandedIndexUrls: string[] = []
-      for (let start = 0; start < indexes.length; start += 4) {
-        const batch = await Promise.all(indexes.slice(start, start + 4).map(async (index) => {
-          const cachedChildren = sitemapChildren[index.path]
-          if (cachedChildren) return cachedChildren
-          const result = await fetchGscSitemaps(projectName, index.path)
-          setSitemapChildren((current) => ({ ...current, [index.path]: result.sitemaps }))
-          return result.sitemaps
-        }))
-        batch.forEach((children, index) => {
-          expandedIndexUrls.push(...(
-            children.length > 0
-              ? children.map((sitemap) => sitemap.path)
-              : [indexes[start + index]!.path]
-          ))
-        })
-      }
-      await handleSubmitSitemaps(
-        [
-          ...topLevel.filter((sitemap) => !sitemap.isSitemapsIndex).map((sitemap) => sitemap.path),
-          ...expandedIndexUrls,
-        ],
-      )
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load sitemap files')
-      setSubmittingSitemaps(false)
-    }
+    const files = storedSitemaps.filter((sitemap) => !sitemap.isIndex).map((sitemap) => sitemap.url)
+    const emptyIndexes = storedIndexUrls.filter((index) => !storedSitemaps.some((sitemap) => sitemap.parentUrl === index))
+    await handleSubmitSitemaps([...files, ...emptyIndexes])
   }
 
   async function handleSetDefaultSitemap(sitemapUrl: string) {
@@ -928,9 +802,6 @@ export function GscSection({
   useEffect(() => {
     setProperties([])
     setSetupExpanded(false)
-    setDiscoveredSitemaps(null)
-    setSitemapSummary(null)
-    setPreferredSubmissionUrls([])
     setSavedSyncError(null)
     setActionNeeded(null)
     setNotice(null)
@@ -1972,128 +1843,49 @@ export function GscSection({
               </Card>
 
               {!publicDemo && <>
-              <Card className="surface-card">
-                <div className="section-head section-head-inline">
-                  <div className="flex items-center gap-1.5">
-                    <h3>Sitemaps</h3>
-                    <InfoTooltip text="Submitting asks Google to refetch these sitemaps. Indexing is not guaranteed." />
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {discoveredSitemaps !== null && (
-                      <Button type="button" variant="ghost" size="sm" disabled={listingSitemaps || !gscConn?.propertyId} onClick={() => void handleListSitemaps()}>
-                        <RefreshCw className={`h-3.5 w-3.5 ${listingSitemaps ? 'animate-spin' : ''}`} aria-hidden="true" />
-                        {listingSitemaps ? 'Loading\u2026' : 'Reload from Google'}
-                      </Button>
-                    )}
-                    {canSubmitSitemaps ? (
-                      <Button type="button" variant="outline" size="sm" disabled={sitemapFormOpen || submittingSitemaps} onClick={() => setSitemapFormOpen(true)}>
-                        Submit sitemap
-                      </Button>
-                    ) : gscConn && (
-                      <>
-                        <InfoTooltip tone="caution" label="Read-only access" text="Canonry's Google access can read Search Console but not submit sitemaps. Reconnect to allow submitting." />
-                        <Button type="button" variant="outline" size="sm" onClick={asyncHandler(handleConnect)}>Reconnect</Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {sitemapFormOpen && canSubmitSitemaps && (
-                  <form
-                    className="mb-3 flex flex-col gap-2 sm:flex-row"
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      if (sitemapUrlInput.trim()) void handleSubmitSitemaps([sitemapUrlInput.trim()])
-                    }}
-                  >
-                    <input
-                      aria-label="Sitemap URL"
-                      className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 font-mono text-label-13 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
-                      type="url"
-                      autoFocus
-                      placeholder="https://example.com/sitemap.xml"
-                      value={sitemapUrlInput}
-                      onChange={(event) => setSitemapUrlInput(event.target.value)}
-                    />
-                    <div className="flex gap-2">
-                      <Button type="submit" size="sm" disabled={submittingSitemaps || !sitemapUrlInput.trim()}>
-                        {submittingSitemaps ? 'Submitting\u2026' : 'Submit to Google'}
-                      </Button>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => { setSitemapFormOpen(false); setSitemapUrlInput('') }}>Cancel</Button>
-                    </div>
-                  </form>
-                )}
-
-                {discoveredSitemaps === null ? (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <p className="text-copy-14 text-secondary">Google&apos;s sitemap list loads on request.</p>
-                    <Button type="button" variant="outline" size="sm" disabled={listingSitemaps || !gscConn?.propertyId} onClick={() => void handleListSitemaps()}>
-                      {listingSitemaps ? 'Loading\u2026' : 'Load from Google'}
-                    </Button>
-                  </div>
-                ) : (
+              <SitemapsCard
+                engine="Google"
+                data={sitemapCoverage.isError ? null : sitemapCoverage.isPending && sitemapCoverage.fetchStatus !== 'idle' ? undefined : (sitemapCoverage.data?.google ?? null)}
+                loadError={sitemapCoverage.isError ? describeError(sitemapCoverage.error) : null}
+                label={(url) => sitemapPathLabel(url, gscConn?.propertyId)}
+                canSubmit={canSubmitSitemaps}
+                submitBlocked={gscConn ? (
                   <>
-                    {discoveredSitemaps.length > 0 && (
-                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <DataTableSearch className="w-full sm:w-64" value={sitemapSearch} onChange={(value) => { setSitemapSearch(value); sitemapTable.setPage(1) }} label="Filter sitemaps" placeholder="Filter sitemaps…" />
-                        <div className="flex flex-wrap items-center gap-3">
-                          {sitemapSummary && (
-                            <span className="text-label-13 text-secondary">
-                              Top level: {sitemapSummary.indexes} index{sitemapSummary.indexes === 1 ? '' : 'es'}, {sitemapSummary.files} file{sitemapSummary.files === 1 ? '' : 's'}
-                            </span>
-                          )}
-                          <ActionMenu
-                            label={sitemapSubmissionProgress ? `Submitting ${sitemapSubmissionProgress.completed} of ${sitemapSubmissionProgress.total}` : 'Resubmit all'}
-                            menuLabel="Resubmit sitemaps to Google"
-                            disabled={!canSubmitSitemaps || submittingSitemaps}
-                            items={[
-                              {
-                                key: 'primary',
-                                label: primarySitemapSubmissionLabel,
-                                description: preferredIndexCount > 0 ? 'Google rereads every sitemap the index lists.' : 'Each sitemap in the list, once.',
-                                disabled: primarySitemapSubmissionUrls.length === 0,
-                                onSelect: () => void handleSubmitSitemaps(primarySitemapSubmissionUrls),
-                              },
-                              {
-                                key: 'files',
-                                label: 'Resubmit all files',
-                                description: 'Every file inside each index, one by one.',
-                                onSelect: () => void handleResubmitAllFiles(),
-                              },
-                            ]}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    <SitemapTable
-                      rows={sitemapTable.rows.map((sitemap) => gscSitemapRow(sitemap, gscConn?.propertyId ?? null, gscConn?.sitemapUrl ?? null, sitemapChildren[sitemap.path]))}
-                      expanded={expandedSitemapIndexes}
-                      loading={loadingSitemapChildren}
-                      onToggle={(url) => void toggleSitemapIndex(url)}
-                      lastReadLabel="Last read"
-                      empty="Google has no sitemaps for this property. Submit one to start."
-                      actions={(row) => (
-                        <>
-                          <SitemapRowAction
-                            disabled={!canSubmitSitemaps || submittingSitemaps}
-                            title={canSubmitSitemaps ? undefined : 'Reconnect to allow submitting.'}
-                            onClick={() => void handleSubmitSitemaps([row.url])}
-                          >
-                            {row.submittedAt ? 'Resubmit' : 'Submit'}
-                          </SitemapRowAction>
-                          <SitemapRowAction disabled={triggerInspectSitemapMutation.isPending} onClick={() => void handleInspectSitemap(row.url)}>Inspect URLs</SitemapRowAction>
-                          {!row.isDefault && (
-                            <SitemapRowAction disabled={savingSitemap} title={SITEMAP_DEFAULT_HELP} onClick={() => void handleSetDefaultSitemap(row.url)}>Set as default</SitemapRowAction>
-                          )}
-                        </>
-                      )}
-                    />
-                    {discoveredSitemaps.length > 0 && (
-                      <DataTablePagination page={sitemapTable.page} pageSize={DEFAULT_TABLE_PAGE_SIZE} visibleRows={sitemapTable.rows.length} totalRows={sitemapTable.totalRows} onPageChange={sitemapTable.setPage} itemLabel="sitemaps" />
-                    )}
+                    <InfoTooltip tone="caution" label="Read-only access" text="Canonry's Google access can read Search Console but not submit sitemaps. Reconnect to allow submitting." />
+                    <Button type="button" variant="outline" size="sm" onClick={asyncHandler(handleConnect)}>Reconnect</Button>
                   </>
-                )}
-              </Card>
+                ) : undefined}
+                onSubmit={handleSubmitSitemaps}
+                submitting={submittingSitemaps}
+                defaultUrl={gscConn?.sitemapUrl ?? null}
+                onSetDefault={(url) => void handleSetDefaultSitemap(url)}
+                settingDefault={savingSitemap}
+                onInspect={(url) => void handleInspectSitemap(url)}
+                inspecting={triggerInspectSitemapMutation.isPending}
+                notRead={<p className="text-copy-14 text-secondary">Google&apos;s sitemap list arrives with the next Google sync. Refresh search data to read it now.</p>}
+                bulk={topLevelSitemaps.length > 0 ? (
+                  <ActionMenu
+                    label={sitemapSubmissionProgress ? `Submitting ${sitemapSubmissionProgress.completed} of ${sitemapSubmissionProgress.total}` : 'Resubmit all'}
+                    menuLabel="Resubmit sitemaps to Google"
+                    disabled={!canSubmitSitemaps || submittingSitemaps}
+                    items={[
+                      {
+                        key: 'primary',
+                        label: primarySitemapSubmissionLabel,
+                        description: preferredIndexCount > 0 ? 'Google rereads every sitemap the index lists.' : 'Each sitemap in the list, once.',
+                        disabled: primarySitemapSubmissionUrls.length === 0,
+                        onSelect: () => void handleSubmitSitemaps(primarySitemapSubmissionUrls),
+                      },
+                      {
+                        key: 'files',
+                        label: 'Resubmit all files',
+                        description: 'Every file inside each index, one by one.',
+                        onSelect: () => void handleResubmitAllFiles(),
+                      },
+                    ]}
+                  />
+                ) : undefined}
+              />
 
              {/* URL Inspection */}
               <Card className="surface-card">
