@@ -3,7 +3,7 @@ import { eq, desc } from 'drizzle-orm'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { runs, projects, bingUrlInspections, bingCoverageSnapshots } from '@canonry/canonry-db'
 import { RunStatuses, describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@canonry/canonry-contracts'
-import { BingApiError, getUrlInfo, getCrawlIssues } from '@canonry/canonry-integration-bing'
+import { BingApiError, getUrlInfo, getCrawlIssues, isBlockingCrawlIssue, parseBingDate } from '@canonry/canonry-integration-bing'
 import type { CanonryConfig } from './config.js'
 import { fetchAndParseSitemap } from './sitemap-parser.js'
 import { inspectUrlsPaced, INSPECT_SWEEP_MAX_URLS, INSPECT_DAILY_QUOTA } from './gsc-inspect-paced.js'
@@ -42,22 +42,6 @@ interface BingInspectSitemapOptions {
    * failing URL takes longer than a default test timeout.
    */
   pacedDeps?: Pick<PacedInspectDeps, 'sleep' | 'jitter'>
-}
-
-function parseBingDate(value: string | undefined | null): string | null {
-  if (!value) return null
-  const match = /\/Date\((-?\d+)(?:[-+]\d+)?\)\//.exec(value)
-  if (!match) return null
-  const ms = parseInt(match[1]!, 10)
-  if (ms <= 0) return null
-  return new Date(ms).toISOString()
-}
-
-function isBlockingIssueType(issueType: string | null | undefined): boolean {
-  if (!issueType) return true
-  const trimmed = issueType.trim()
-  if (!trimmed) return true
-  return trimmed.split(/\s+/).some((flag) => !/^(?:None|Seo(?:Issues|Concerns))$/i.test(flag))
 }
 
 export async function executeBingInspectSitemap(
@@ -127,7 +111,7 @@ export async function executeBingInspectSitemap(
     try {
       const issues = await getCrawlIssues(conn.apiKey, conn.siteUrl)
       for (const issue of issues) {
-        if (issue.Url && isBlockingIssueType(issue.IssueType ?? null)) {
+        if (issue.Url && isBlockingCrawlIssue(issue.IssueType ?? null)) {
           blockedUrls.add(issue.Url)
         }
       }

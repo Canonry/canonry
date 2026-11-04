@@ -942,7 +942,7 @@ cnry bing inspect-sitemap <project> --sitemap-url <url> --wait  # explicit sitem
 cnry bing inspections <project>               # inspection history
 cnry bing request-indexing <project> <url>    # submit URL for indexing
 cnry bing request-indexing <project> --all-unindexed  # submit all unindexed (capped at the site's remaining Bing quota)
-cnry bing performance <project>               # live query rows from Bing, one row per query per week (`date`)
+cnry bing performance <project>               # stored query rows, one per query per week (`date`); `bing queries` gives window totals
 
 # Stored Bing data (written by `cnry bing sync`, which the daily data refresh runs)
 cnry bing sync <project> [--wait]             # read every Bing data method and store it (about 20 to 50 Bing calls)

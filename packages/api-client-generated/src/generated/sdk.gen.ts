@@ -3623,7 +3623,7 @@ export const postApiV1ProjectsByNameBingRequestIndexing = <ThrowOnError extends 
 });
 
 /**
- * Get Bing keyword performance
+ * Get stored Bing query rows, one per query per week (prefer /bing/queries for window totals)
  */
 export const getApiV1ProjectsByNameBingPerformance = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameBingPerformanceData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameBingPerformanceResponses, GetApiV1ProjectsByNameBingPerformanceErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameBingPerformanceResponses, GetApiV1ProjectsByNameBingPerformanceErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

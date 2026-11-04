@@ -17,8 +17,6 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/gbp/reviews/live',
   'GET /api/v1/projects/{name}/ga/properties',
   'GET /api/v1/projects/{name}/bing/sites',
-  // Performance reads query Bing directly rather than the local snapshot.
-  'GET /api/v1/projects/{name}/bing/performance',
   // Bing drill-downs and keyword research: one call to Bing per request.
   'GET /api/v1/projects/{name}/bing/query-pages',
   'GET /api/v1/projects/{name}/bing/page-queries',
@@ -220,6 +218,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/bing/status',
   'GET /api/v1/projects/{name}/bing/coverage/history',
   'GET /api/v1/projects/{name}/bing/inspections',
+  'GET /api/v1/projects/{name}/bing/performance',
   'GET /api/v1/projects/{name}/bing/traffic',
   'GET /api/v1/projects/{name}/bing/queries',
   'GET /api/v1/projects/{name}/bing/pages',

@@ -6658,7 +6658,7 @@ export const postApiV1ProjectsByNameBingRequestIndexingMutation = (options?: Par
 export const getApiV1ProjectsByNameBingPerformanceQueryKey = (options: Options<GetApiV1ProjectsByNameBingPerformanceData>) => createQueryKey('getApiV1ProjectsByNameBingPerformance', options);
 
 /**
- * Get Bing keyword performance
+ * Get stored Bing query rows, one per query per week (prefer /bing/queries for window totals)
  */
 export const getApiV1ProjectsByNameBingPerformanceOptions = (options: Options<GetApiV1ProjectsByNameBingPerformanceData>) => queryOptions<GetApiV1ProjectsByNameBingPerformanceResponse, GetApiV1ProjectsByNameBingPerformanceError, GetApiV1ProjectsByNameBingPerformanceResponse, ReturnType<typeof getApiV1ProjectsByNameBingPerformanceQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

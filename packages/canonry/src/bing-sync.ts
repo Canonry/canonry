@@ -26,6 +26,7 @@ import {
 import {
   BingApiError,
   bingDateToDay,
+  bingPositionOrNull,
   bingKeywordMarket,
   getActivePagePreviewBlocks,
   getBlockedUrls,
@@ -109,10 +110,6 @@ function isThrottle(err: unknown): boolean {
   return err instanceof BingApiError && (err.isThrottle || err.status === 429)
 }
 
-function positionOrNull(value: number | null | undefined): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
-}
-
 function count(value: number | null | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0
 }
@@ -154,13 +151,13 @@ function mergeWeekly(rows: readonly BingQueryStats[]): Array<{ date: string; key
     const impressions = count(row.Impressions)
     entry.clicks += clicks
     entry.impressions += impressions
-    const clickPos = positionOrNull(row.AvgClickPosition)
+    const clickPos = bingPositionOrNull(row.AvgClickPosition)
     if (clickPos !== null) {
       const weight = Math.max(clicks, 1)
       entry.clickPosSum += clickPos * weight
       entry.clickPosWeight += weight
     }
-    const imprPos = positionOrNull(row.AvgImpressionPosition)
+    const imprPos = bingPositionOrNull(row.AvgImpressionPosition)
     if (imprPos !== null) {
       const weight = Math.max(impressions, 1)
       entry.imprPosSum += imprPos * weight

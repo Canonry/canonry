@@ -4,7 +4,6 @@ export {
   getUrlInfo,
   submitUrl,
   submitUrlBatch,
-  getKeywordStats,
   getCrawlStats,
   getCrawlIssues,
   getRankAndTrafficStats,
@@ -39,6 +38,8 @@ export {
   parseBingDate,
   bingDateToDay,
   bingKeywordMarket,
+  bingPositionOrNull,
+  isBlockingCrawlIssue,
   __resetBingThrottleCooldownForTest,
 } from './bing-client.js'
 export type { BingKeywordMarket } from './bing-client.js'

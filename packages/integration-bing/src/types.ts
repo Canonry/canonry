@@ -58,9 +58,6 @@ export interface BingQueryStats {
   AvgImpressionPosition: number
 }
 
-/** Kept for callers of the original `getKeywordStats` (`GetQueryStats`). */
-export type BingKeywordStats = BingQueryStats
-
 /** `GetRankAndTrafficStats` / `GetQueryTrafficStats`: one row per DAY. */
 export interface BingRankAndTrafficStats {
   Date: BingWcfDate

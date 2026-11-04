@@ -41,6 +41,7 @@ import {
 import {
   BingApiError,
   bingDateToDay,
+  bingPositionOrNull,
   bingKeywordMarket,
   getChildrenUrlInfo,
   getChildrenUrlTrafficInfo,
@@ -157,10 +158,6 @@ function ctrOf(clicks: number, impressions: number): number {
   return impressions > 0 ? clicks / impressions : 0
 }
 
-function positionOrNull(value: number | null | undefined): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
-}
-
 function round(value: number | null): number | null {
   return value === null ? null : Math.round(value * 100) / 100
 }
@@ -197,8 +194,8 @@ function statsRows(rows: readonly BingQueryStats[]): BingStatsRowDto[] {
       clicks: Math.max(0, row.Clicks ?? 0),
       impressions: Math.max(0, row.Impressions ?? 0),
       ctr: ctrOf(row.Clicks ?? 0, row.Impressions ?? 0),
-      avgImpressionPosition: positionOrNull(row.AvgImpressionPosition),
-      avgClickPosition: positionOrNull(row.AvgClickPosition),
+      avgImpressionPosition: bingPositionOrNull(row.AvgImpressionPosition),
+      avgClickPosition: bingPositionOrNull(row.AvgClickPosition),
     }))
     .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || b.clicks - a.clicks || b.impressions - a.impressions)
 }
@@ -523,7 +520,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
         page,
         granularity: 'week',
         rows: rows
-          .map((row) => ({ date: bingDateToDay(row.Date), clicks: Math.max(0, row.Clicks ?? 0), impressions: Math.max(0, row.Impressions ?? 0), ctr: ctrOf(row.Clicks ?? 0, row.Impressions ?? 0), position: positionOrNull(row.Position) }))
+          .map((row) => ({ date: bingDateToDay(row.Date), clicks: Math.max(0, row.Clicks ?? 0), impressions: Math.max(0, row.Impressions ?? 0), ctr: ctrOf(row.Clicks ?? 0, row.Impressions ?? 0), position: bingPositionOrNull(row.Position) }))
           .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '')),
       }
     }

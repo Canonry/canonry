@@ -111,7 +111,7 @@ canonry bing status <project>
 # URL coverage summary (indexed / not indexed / unknown)
 canonry bing coverage <project>
 
-# Search performance data (impressions, clicks, CTR)
+# Stored query rows, one per query per week (impressions, clicks, CTR)
 canonry bing performance <project>
 
 # Inspect a specific URL

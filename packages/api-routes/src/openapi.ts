@@ -5933,7 +5933,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/bing/performance',
-    summary: 'Get Bing keyword performance',
+    summary: 'Get stored Bing query rows, one per query per week (prefer /bing/queries for window totals)',
     tags: ['bing'],
     parameters: [nameParameter, limitQueryParameter],
     responses: {

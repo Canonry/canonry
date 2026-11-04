@@ -85,7 +85,7 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'bing.links': 'live',
   'bing.page-queries': 'live',
   'bing.pages': 'stored',
-  'bing.performance': 'live',
+  'bing.performance': 'stored',
   'bing.queries': 'stored',
   'bing.query-history': 'live',
   'bing.query-pages': 'live',

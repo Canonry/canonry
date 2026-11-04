@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { bingUrlInspections, bingCoverageSnapshots, runs } from '@canonry/canonry-db'
+import { bingQueryStats, bingUrlInspections, bingCoverageSnapshots, runs } from '@canonry/canonry-db'
 import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@canonry/canonry-contracts'
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
@@ -16,28 +16,13 @@ import {
   getCrawlIssues,
   submitUrl,
   submitUrlBatch,
-  getKeywordStats,
   getUrlSubmissionQuota,
-  bingDateToDay,
+  isBlockingCrawlIssue,
+  parseBingDate,
   BING_SUBMIT_URL_BATCH_LIMIT,
   BING_SUBMIT_URL_DAILY_LIMIT,
 } from '@canonry/canonry-integration-bing'
 import { bingDataRoutes } from './bing-data.js'
-
-/**
- * Convert Bing's /Date(epoch-offset)/ format to an ISO 8601 string.
- * Returns null if the value is absent or represents the epoch-zero sentinel
- * (-62135568000000) that Bing uses for "never".
- */
-function parseBingDate(value: string | undefined | null): string | null {
-  if (!value) return null
-  const match = /\/Date\((-?\d+)(?:[-+]\d+)?\)\//.exec(value)
-  if (!match) return null
-  const ms = parseInt(match[1], 10)
-  // Bing uses -62135568000000 as a sentinel for "unknown / never"
-  if (ms <= 0) return null
-  return new Date(ms).toISOString()
-}
 
 function bingLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<string, unknown>): void {
   const entry = { ts: new Date().toISOString(), level, module: 'BingRoutes', action, ...ctx }
@@ -55,16 +40,6 @@ export function __resetBingCrawlIssuesCacheForTest(): void {
   crawlIssuesCache.clear()
 }
 
-// Bing's `IssueType` is a space-separated list of `CrawlIssueCategory` flag
-// names. Anything other than None / SeoIssues prevents the URL from being
-// served in search — downgrade those, but keep SEO-only warnings indexed.
-function isBlockingIssueType(issueType: string | null | undefined): boolean {
-  if (!issueType) return true
-  const trimmed = issueType.trim()
-  if (!trimmed) return true
-  return trimmed.split(/\s+/).some((flag) => !/^(?:None|Seo(?:Issues|Concerns))$/i.test(flag))
-}
-
 async function loadBlockingCrawlIssues(
   apiKey: string,
   siteUrl: string,
@@ -78,7 +53,7 @@ async function loadBlockingCrawlIssues(
   const issues = await getCrawlIssues(apiKey, siteUrl)
   const blockedUrls = new Set<string>()
   for (const issue of issues) {
-    if (issue.Url && isBlockingIssueType(issue.IssueType ?? null)) {
+    if (issue.Url && isBlockingCrawlIssue(issue.IssueType ?? null)) {
       blockedUrls.add(issue.Url)
     }
   }
@@ -141,17 +116,20 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     return conn
   }
 
+  const NO_SITE_MESSAGE = 'No Bing site configured. Run "canonry bing set-site <project> <url>" first.'
+
+  /** The project's Bing key and selected site; every route that calls Bing for a site goes through here. */
+  function requireSite(domain: string): { apiKey: string; siteUrl: string } {
+    const conn = requireConnection(requireConnectionStore(), domain)
+    if (!conn.siteUrl) throw validationError(NO_SITE_MESSAGE)
+    return { apiKey: conn.apiKey, siteUrl: conn.siteUrl }
+  }
+
   await bingDataRoutes(app, {
     claimScheduledSync: opts.claimScheduledSync,
     onSyncRequested: opts.onSyncRequested,
     requireApiKey: (domain) => requireConnection(requireConnectionStore(), domain).apiKey,
-    requireSite: (domain) => {
-      const conn = requireConnection(requireConnectionStore(), domain)
-      if (!conn.siteUrl) {
-        throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
-      }
-      return { apiKey: conn.apiKey, siteUrl: conn.siteUrl }
-    },
+    requireSite,
   })
 
   // POST /projects/:name/bing/connect
@@ -510,10 +488,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     const conn = outcome.guard(OutcomeReasonCodes.NOT_CONNECTED, () => requireConnection(store, project.canonicalDomain))
 
     if (!conn.siteUrl) {
-      throw outcome.refuse(
-        OutcomeReasonCodes.PROPERTY_NOT_FOUND,
-        validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.'),
-      )
+      throw outcome.refuse(OutcomeReasonCodes.PROPERTY_NOT_FOUND, validationError(NO_SITE_MESSAGE))
     }
 
     const { url } = request.body ?? {}
@@ -644,14 +619,8 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     Params: { name: string }
     Body: { sitemapUrl?: string }
   }>('/projects/:name/bing/inspect-sitemap', async (request) => {
-    const store = requireConnectionStore()
-
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain)
-
-    if (!conn.siteUrl) {
-      throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
-    }
+    requireSite(project.canonicalDomain)
 
     const now = new Date().toISOString()
     const runId = crypto.randomUUID()
@@ -680,14 +649,8 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     Params: { name: string }
     Body: { urls?: string[]; allUnindexed?: boolean }
   }>('/projects/:name/bing/request-indexing', async (request) => {
-    const store = requireConnectionStore()
-
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain)
-
-    if (!conn.siteUrl) {
-      throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
-    }
+    const conn = requireSite(project.canonicalDomain)
 
     let urlsToSubmit: string[] = request.body?.urls ?? []
 
@@ -813,33 +776,32 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   })
 
   // GET /projects/:name/bing/performance
+  //
+  // Bing's weekly query rows, one per query per week, from the `bing-sync`
+  // store. It used to call `GetQueryStats` live on every request, which
+  // duplicated `/bing/queries` and made every dashboard load a Bing call.
+  // The response shape is unchanged; `/bing/queries` is the windowed total.
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string }
   }>('/projects/:name/bing/performance', async (request) => {
-    const store = requireConnectionStore()
-
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain)
-
-    if (!conn.siteUrl) {
-      throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
-    }
-
-    const stats = await getKeywordStats(conn.apiKey, conn.siteUrl)
-
-    return stats.map((s) => ({
-      query: s.Query,
-      // Bing reports these per week, so a query repeats once per week.
-      date: bingDateToDay(s.Date),
-      impressions: s.Impressions,
-      clicks: s.Clicks,
-      ctr: s.Impressions > 0 ? s.Clicks / s.Impressions : 0,
-      averagePosition: s.AvgClickPosition > 0
-        ? s.AvgClickPosition
-        : s.AvgImpressionPosition > 0
-          ? s.AvgImpressionPosition
-          : 0,
+    const parsed = Number.parseInt(request.query.limit ?? '', 10)
+    const limit = Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 5000) : 5000
+    const rows = app.db
+      .select()
+      .from(bingQueryStats)
+      .where(eq(bingQueryStats.projectId, project.id))
+      .orderBy(desc(bingQueryStats.date), desc(bingQueryStats.clicks), bingQueryStats.query)
+      .limit(limit)
+      .all()
+    return rows.map((row) => ({
+      query: row.query,
+      date: row.date,
+      impressions: row.impressions,
+      clicks: row.clicks,
+      ctr: row.impressions > 0 ? row.clicks / row.impressions : 0,
+      averagePosition: row.avgClickPosition ?? row.avgImpressionPosition ?? 0,
     }))
   })
 }

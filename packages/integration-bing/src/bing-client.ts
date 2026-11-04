@@ -4,7 +4,6 @@ import { BING_WMT_API_BASE, BING_SUBMIT_URL_BATCH_LIMIT, BING_SUBMIT_URL_DAILY_L
 import type {
   BingSite,
   BingUrlInfo,
-  BingKeywordStats,
   BingCrawlStats,
   BingCrawlIssue,
   BingQueryStats,
@@ -337,14 +336,6 @@ export async function submitUrlBatch(apiKey: string, siteUrl: string, urls: stri
   }
 }
 
-export async function getKeywordStats(apiKey: string, siteUrl: string): Promise<BingKeywordStats[]> {
-  validateApiKey(apiKey)
-  validateSiteUrl(siteUrl)
-  const encodedSite = encodeURIComponent(siteUrl)
-  const data = await bingFetch<BingKeywordStats[]>(apiKey, `GetQueryStats?siteUrl=${encodedSite}`)
-  return data ?? []
-}
-
 export async function getCrawlStats(apiKey: string, siteUrl: string): Promise<BingCrawlStats[]> {
   validateApiKey(apiKey)
   validateSiteUrl(siteUrl)
@@ -644,3 +635,24 @@ export function bingKeywordMarket(country: string, language: string): BingKeywor
     language: lang.includes('-') ? lang : `${lang.toLowerCase()}-${cc.toUpperCase()}`,
   }
 }
+
+/**
+ * Bing sends `-1` (and sometimes `0`) for "no position". A real position is
+ * a positive number; everything else reads as no value.
+ */
+export function bingPositionOrNull(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+}
+
+/**
+ * Whether a crawl issue keeps a URL out of Bing results. `IssueType` is a
+ * space-separated list of flag names; anything other than None / SeoIssues /
+ * SeoConcerns blocks serving, and a missing value is treated as blocking.
+ */
+export function isBlockingCrawlIssue(issueType: string | null | undefined): boolean {
+  if (!issueType) return true
+  const trimmed = issueType.trim()
+  if (!trimmed) return true
+  return trimmed.split(/\s+/).some((flag) => !/^(?:None|Seo(?:Issues|Concerns))$/i.test(flag))
+}
+
