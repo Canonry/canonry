@@ -35,6 +35,29 @@ describe('buildSitemapCoverage', () => {
     expect(result.google!.missing).toEqual([{ url: `${S}/pages.xml`, foundIn: ['site'] }])
   })
 
+  it('does not suggest a submission the other engine reports errors for', () => {
+    // A page URL submitted as a sitemap by mistake: the other engine marks it Errors.
+    const result = buildSitemapCoverage({
+      site: site('/sitemap.xml'),
+      google: list(row('/sitemap.xml'), row('/journal/a-post', { state: 'errors', statusLabel: 'Errors', urlCount: null })),
+      bing: list(row('/sitemap.xml')),
+    })
+    expect(result.bing!.missing).toEqual([])
+  })
+
+  it('does not suggest a second index when this engine already has every sitemap the site declares there', () => {
+    const file = `${S}/__sitemap__/0.xml`
+    const google = list(row('/sitemap.xml', { isIndex: true }), row('/__sitemap__/0.xml', { parentUrl: `${S}/sitemap.xml`, submittedAt: null }))
+    const bing = list(row('/sitemap_index.xml', { isIndex: true }), row('/__sitemap__/0.xml'))
+    // The site's one sitemap file is in Google through its index: Bing's other index adds nothing.
+    expect(buildSitemapCoverage({ site: site('/__sitemap__/0.xml'), google, bing }).google!.missing).toEqual([])
+    // Without a scan there is nothing to compare against, so the index is still offered.
+    expect(missingUrls(buildSitemapCoverage({ site: site(), google, bing }).google!.missing)).toEqual(['/sitemap_index.xml'])
+    // A declared sitemap Google lacks means the index may carry it, so both are offered.
+    expect(missingUrls(buildSitemapCoverage({ site: { ...site(), sitemaps: [file, `${S}/news.xml`] }, google, bing }).google!.missing))
+      .toEqual(['/news.xml', '/sitemap_index.xml'])
+  })
+
   it('counts a file an engine holds inside an index as present, and drops a file whose missing index covers it', () => {
     const index = `${S}/index.xml`
     const result = buildSitemapCoverage({

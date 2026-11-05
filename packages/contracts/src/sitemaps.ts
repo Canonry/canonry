@@ -56,8 +56,10 @@ export const engineSitemapsDtoSchema = z.object({
   /**
    * Sitemaps the site declares or someone submitted to the other engine that
    * this engine does not have, by URL. A file inside an index that is itself missing is left
-   * out: adding the index covers it. Google lists only sitemaps inside the
-   * connected property.
+   * out: adding the index covers it. Not offered from the other engine: what it
+   * found by itself, what it reports errors for, and an index on a host where
+   * this engine already has every sitemap the site declares. Google lists only
+   * sitemaps inside the connected property.
    */
   missing: z.array(sitemapMissingDtoSchema),
 })
