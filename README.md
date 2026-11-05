@@ -8,12 +8,12 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-D93F45?style=flat" alt="License: MIT" /></a>
   <a href="https://discord.gg/8K9yY7GywJ"><img src="https://img.shields.io/badge/Discord-5865F2?logo=discord&amp;logoColor=white" alt="Join the Canonry Discord" /></a>
   <a href="https://x.com/canonry_ai"><img src="https://img.shields.io/badge/X-000000?logo=x&amp;logoColor=white" alt="Follow Canonry on X" /></a>
-  <img src="https://img.shields.io/badge/CLI%20%7C%20API%20%7C%20MCP%20%7C%20Web-4493F8?style=flat-square" alt="Interfaces: CLI, API, MCP, and web dashboard" />
+  <img src="https://img.shields.io/badge/API%20%7C%20CLI%20%7C%20MCP%20%7C%20Web-4493F8?style=flat-square" alt="Interfaces: REST API, CLI, MCP, and web dashboard" />
 </p>
 
 <p align="center">
   <strong>The agent-first AEO operating platform.</strong><br/>
-  Track mentions and citations across ChatGPT, Claude, Gemini, Perplexity, and more. Join them with Search Console, GA4, AI crawler traffic, site audits, and SEO data. Then let your agent publish fixes, get pages indexed, and measure what changed.<br/>
+  Track mentions and citations across ChatGPT, Claude, Gemini, Perplexity, and more. Join them with Search Console, GA4, ads, AI crawler traffic, site audits, and SEO data. Then let your agent publish fixes, manage ChatGPT ads, get pages indexed, and measure what changed.<br/>
   <sub>Open source · Self-hosted · Bring your own keys</sub>
 </p>
 
@@ -36,9 +36,11 @@ Track brand mentions and citations by query and answer engine. See where competi
 
 ### Built for Agents
 
-Every number in the dashboard is one `cnry … --format json`, REST call, or MCP tool away. Install the plugin for Claude Code or Codex, or connect ChatGPT, Claude Desktop, or any MCP client. [Plugin →](docs/plugins.md) · [MCP →](docs/mcp.md) · [CLI →](skills/canonry/references/canonry-cli.md)
+Everything runs on one REST API. The dashboard, CLI, MCP server, and plugins all call it, so your agent can read and do everything you see.
 
-<a href="skills/canonry/references/canonry-cli.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/cli-mobile.png" /><img src="docs/images/readme/cli.png" alt="Terminal running cnry citations visibility, with a per-query table of cited and mentioned results for Claude, Gemini, and OpenAI, with sample data" width="100%" /></picture></a>
+- **REST API:** every dashboard number has a typed endpoint under `/api/v1`. The full OpenAPI spec is at `GET /api/v1/openapi.json`. [API →](#self-hosting-and-api)
+- **CLI:** the same calls as `cnry <command> --format json`, for scripts and shell agents. [CLI →](skills/canonry/references/canonry-cli.md)
+- **MCP and plugins:** plugins for Claude Code and Codex, or a hosted MCP server for ChatGPT and Claude Desktop. [MCP →](docs/mcp.md) · [Plugin →](docs/plugins.md)
 
 ### Site Health
 
@@ -53,6 +55,12 @@ Crawl your site, score each page for AI readiness, and map the internal links be
 Keyword volume, difficulty, organic rankings, and search gaps against competitors, powered by DataForSEO Labs. [Docs →](docs/seo-data.md)
 
 <a href="docs/seo-data.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/seo-mobile.png" /><img src="docs/images/readme/seo.png" alt="SEO page with ranked searches, top-10 count, estimated organic traffic, and a table of positions, volume, and difficulty, with sample data" width="100%" /></picture></a>
+
+### Ads
+
+Let your agent run ChatGPT Ads: sync campaigns and daily results, create and edit campaigns, and switch them on only after you approve. Track Google Ads spend and conversions, and check each conversion's setup across Google Ads and Tag Manager. Paid results stay separate from organic mentions and citations. [ChatGPT Ads →](skills/canonry/references/canonry-cli.md#openai-ads-chatgpt-ads) · [Google Ads →](docs/google-marketing.md)
+
+<a href="docs/google-marketing.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/ads-mobile.png" /><img src="docs/images/readme/ads.png" alt="Google Ads performance: spend, conversions, cost per conversion, a daily chart, and campaign results, with sample data" width="100%" /></picture></a>
 
 ### AI Agent Traffic
 
@@ -134,7 +142,7 @@ Connect the sources you use. Each one adds evidence or tools to the same project
   <a href="docs/wordpress-setup.md"><kbd><img src="https://www.google.com/s2/favicons?domain=wordpress.org&amp;sz=64" alt="WordPress logo" width="16" valign="middle" /> WordPress</kbd></a> &nbsp;
   <a href="docs/seo-data.md"><kbd><img src="https://www.google.com/s2/favicons?domain=dataforseo.com&amp;sz=64" alt="DataForSEO logo" width="16" valign="middle" /> DataForSEO</kbd></a> &nbsp;
   <a href="skills/canonry/references/canonry-cli.md#backlinks-common-crawl"><kbd><img src="https://www.google.com/s2/favicons?domain=commoncrawl.org&amp;sz=64" alt="Common Crawl logo" width="16" valign="middle" /> Common Crawl</kbd></a> &nbsp;
-  <a href="docs/mcp.md#tool-surface"><kbd><img src="https://www.google.com/s2/favicons?domain=chatgpt.com&amp;sz=64" alt="ChatGPT logo" width="16" valign="middle" /> ChatGPT Ads</kbd></a>
+  <a href="skills/canonry/references/canonry-cli.md#openai-ads-chatgpt-ads"><kbd><img src="https://www.google.com/s2/favicons?domain=chatgpt.com&amp;sz=64" alt="ChatGPT logo" width="16" valign="middle" /> ChatGPT Ads</kbd></a>
 </p>
 
 ---
@@ -197,8 +205,6 @@ cnry serve
 ```
 
 Then open [http://127.0.0.1:4100/setup](http://127.0.0.1:4100/setup) and follow the setup to scan your site. The crawl saves a Page Health baseline. AI Visibility is optional and has a separate setup.
-
-_Moving from `@ainyc/canonry`? Run `npm uninstall -g @ainyc/canonry` first to free the shared command names. Your data in `~/.canonry` stays in place._
 
 <details>
 <summary>Scan and read results from the terminal</summary>
