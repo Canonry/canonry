@@ -111,6 +111,14 @@ describe('TrendCard, one figure charted at a time', () => {
     expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(tab(/^Sessions/).id)
   })
 
+  test('the open tab keeps its filled box and top bar', () => {
+    render(<SingleCard groups={[{ key: 'traffic', figures: figures() }]} />)
+    const cell = (name: RegExp) => screen.getByRole('tab', { name }).parentElement as HTMLElement
+    expect(cell(/^Sessions/).className).toContain('bg-surface-active')
+    expect(cell(/^Sessions/).querySelector('span.absolute')?.className).toContain('opacity-100')
+    expect(cell(/^Avg\. position/).className).not.toContain('bg-surface-active')
+  })
+
   test('a selection that cannot chart leaves the first chartable tab reachable by Tab', () => {
     render(<SingleCard groups={[{ key: 'traffic', figures: figures() }]} initial="pages" />)
 
@@ -224,6 +232,32 @@ describe('TrendCard, several figures compared', () => {
     expect(onSelect).toHaveBeenCalledWith('clicks')
     expect(screen.getByTestId('caller-chart')).toBeTruthy()
     expect(screen.queryByRole('tablist')).toBeNull()
+  })
+
+  test('a charted figure is marked by its filled dot alone, not a filled box and a top bar', () => {
+    // Two charted figures side by side used to merge into one grey block under a
+    // two-colour stripe, which read as a separate section from the rest.
+    render(
+      <TrendCard
+        name="Search performance figures"
+        mode="compare"
+        groups={[{ key: 'search', figures: [
+          { key: 'clicks', label: 'Clicks', value: '320', color: 'rgb(1, 2, 3)', interactive: true },
+          { key: 'ctr', label: 'CTR', value: '2%', color: 'rgb(4, 5, 6)', interactive: true },
+        ] }]}
+        selected={['clicks']}
+        onSelect={() => undefined}
+        chart={<div />}
+      />,
+    )
+    const box = (name: RegExp) => screen.getByRole('button', { name }).parentElement as HTMLElement
+    const dot = (cell: HTMLElement) => cell.querySelector('span.rounded-full') as HTMLElement
+    for (const cell of [box(/^Clicks/), box(/^CTR/)]) {
+      expect(cell.className).not.toContain('bg-surface-active')
+      expect(cell.querySelector('span.absolute')).toBeNull()
+    }
+    expect(dot(box(/^Clicks/)).style.backgroundColor).toBe('rgb(1, 2, 3)')
+    expect(dot(box(/^CTR/)).style.backgroundColor).toBe('transparent')
   })
 })
 

@@ -457,7 +457,9 @@ performance plus indexed pages, and Bing's the same way), Site Health and Backli
   adds "an improvement" or "a decline". A falling rank or bounce rate is green.
 - `mode="single"` charts one figure at a time (tabs, roving tabindex, the
   previous period dashed); `mode="compare"` makes the figures toggles over the
-  caller's `MultiAxisTrendChart`. A figure with fewer than two readings has
+  caller's `MultiAxisTrendChart`. The open tab gets a filled box and a top bar; a
+  compare toggle that is on gets only its filled series dot (hollow when off), so
+  charted figures never read as a separate block from the rest. A figure with fewer than two readings has
   nothing to chart unless `interactive` says otherwise: beside tabs or toggles
   it renders as an unavailable one (`aria-disabled` tab, disabled toggle) at
   full colour, since a tab list holds tabs only; a group of only such figures
