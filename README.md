@@ -34,6 +34,16 @@ Track brand mentions and citations by query and answer engine. See where competi
 
 <a href="https://custom-demo.canonry.ai/projects/summit-roofing"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/ai-visibility-mobile.png" /><img src="docs/images/readme/ai-visibility.png" alt="Where competitors are winning: mention share against two competitors, mention and citation gaps, and mentioned and cited counts by engine, with sample data" width="100%" /></picture></a>
 
+### Server-Side AI Traffic
+
+See what AI engines actually do on your site, straight from your server logs on Cloudflare, Vercel, Cloud Run, or WordPress. Mentions and citations show what models say about you. Server traffic shows what they do. [Docs →](skills/canonry/references/server-side-traffic.md)
+
+- **AI crawlers:** which pages GPTBot, ClaudeBot, and PerplexityBot crawl, and how often.
+- **AI user fetches:** which pages ChatGPT, Claude, and Perplexity open to answer a user, checked against each company's published IP list.
+- **AI referrals:** who clicks through from an AI answer, including visits GA4 misses because of consent banners or ad blockers, and whether they come back.
+
+<a href="skills/canonry/references/server-side-traffic.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/traffic-mobile.png" /><img src="docs/images/readme/traffic.png" alt="Server traffic for the last 24 hours: 105 AI crawler visits, 35 AI user fetches, and 46 AI referral sessions, with an hourly chart, with sample data" width="100%" /></picture></a>
+
 ### Built for Agents
 
 Everything runs on one REST API. The dashboard, CLI, MCP server, and plugins all call it, so your agent can read and do everything you see.
@@ -61,12 +71,6 @@ Keyword volume, difficulty, organic rankings, and search gaps against competitor
 Let your agent run ChatGPT Ads: sync campaigns and daily results, create and edit campaigns, and switch them on only after you approve. Track Google Ads spend and conversions, and check each conversion's setup across Google Ads and Tag Manager. Paid results stay separate from organic mentions and citations. [ChatGPT Ads →](skills/canonry/references/canonry-cli.md#openai-ads-chatgpt-ads) · [Google Ads →](docs/google-marketing.md)
 
 <a href="docs/google-marketing.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/ads-mobile.png" /><img src="docs/images/readme/ads.png" alt="Google Ads performance: spend, conversions, cost per conversion, a daily chart, and campaign results, with sample data" width="100%" /></picture></a>
-
-### AI Agent Traffic
-
-See which AI agents fetch your pages, checked against each company's published IP list. Follow AI-referred visitors when they come back. [Docs →](skills/canonry/references/server-side-traffic.md)
-
-<a href="skills/canonry/references/server-side-traffic.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/agent-traffic-mobile.png" /><img src="docs/images/readme/agent-traffic.png" alt="A verified ChatGPT-User request sequence with each page it fetched, with sample data" width="100%" /></picture></a>
 
 <a id="compare-competitors-and-measure-complex-portfolios"></a>
 <a id="act-on-the-evidence"></a>
