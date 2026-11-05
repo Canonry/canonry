@@ -50,8 +50,8 @@ export async function executeBingInspectSitemap(
   projectId: string,
   opts: BingInspectSitemapOptions,
 ): Promise<void> {
-  // Bing's coverage sweep is its only sync, so it reports as `bing` `sync`.
-  const reportOutcome = startRunOutcome(db, runId, FeatureNames.bing, 'sync')
+  // Coverage inspects URLs; `sync` is the separate Webmaster data refresh.
+  const reportOutcome = startRunOutcome(db, runId, FeatureNames.bing, 'inspect')
   // The error an all-failed sweep wraps, so the outcome reports its cause.
   let abortCause: unknown
   const startedAt = new Date().toISOString()

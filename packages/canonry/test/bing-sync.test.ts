@@ -110,6 +110,7 @@ describe('executeBingSync', () => {
   })
 
   beforeEach(() => {
+    trackEvent.mockReset()
     originalFetch = globalThis.fetch
     __resetBingThrottleCooldownForTest()
     for (const table of [bingTrafficDaily, bingQueryStats, bingPageStats, bingCrawlStats, bingSitemaps, sitemapListSyncs, bingSiteSnapshots, bingKeywordDemand, runs]) {
@@ -137,6 +138,9 @@ describe('executeBingSync', () => {
     await executeBingSync(db, runId, projectId, { config: buildConfig(), sleep: instantSleep })
 
     expect(run(runId)).toMatchObject({ status: RunStatuses.completed, error: null })
+    expect(trackEvent.mock.calls.filter(([event]) => event === 'feature.completed')).toEqual([
+      ['feature.completed', expect.objectContaining({ feature: 'bing', operation: 'sync', status: 'succeeded' }), undefined],
+    ])
 
     const traffic = db.select().from(bingTrafficDaily).where(eq(bingTrafficDaily.projectId, projectId)).all()
     expect(traffic).toHaveLength(4)

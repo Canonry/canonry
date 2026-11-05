@@ -347,6 +347,15 @@ anyone who is not an install administrator.
 
 ## Prompt-only Aero
 
+`SessionRegistry` also pauses automatic wakes for 24 hours after a provider auth
+or billing failure, shared across projects using that provider and credential.
+The in-process hold skips new wake notifications; stored runs remain available.
+Manual prompts bypass it; a successful request begun after the current failure
+can clear it. Each model call tracks its actual credential, including config
+reloads within a turn, and an older in-flight success cannot clear a newer hold.
+A replacement key has its own hold. The `provider.background-paused` log gives the reason, retry
+time, and recovery action. Restarting the server clears these in-process holds.
+
 Aero wakes itself after every `run.completed`. To keep the agent fully usable but
 never self-starting, set `agent.mode: 'prompt-only'` in `~/.canonry/config.yaml`,
 or `CANONRY_AGENT_PROMPT_ONLY=1` in the environment (env wins; `=0` forces the

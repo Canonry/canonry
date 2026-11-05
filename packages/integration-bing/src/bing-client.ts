@@ -137,7 +137,7 @@ async function bingFetchOnce<T>(apiKey: string, endpoint: string, opts?: { metho
 
   if (res.status === 429) {
     bingClientLog('error', 'http.rate-limited', { endpoint, method, httpStatus: 429 })
-    throw new BingApiError('Bing API rate limit exceeded', 429)
+    throw new BingApiError('Bing API rate limit exceeded', 429, null, res.headers.get('retry-after'))
   }
 
   if (!res.ok) {
@@ -150,7 +150,7 @@ async function bingFetchOnce<T>(apiKey: string, endpoint: string, opts?: { metho
     // status alone cannot tell a throttle from a bad request. Pull out its
     // ErrorCode and let BingApiError classify it.
     const bingErrorCode = parseBingErrorCode(body)
-    const err = new BingApiError(`Bing API error (${res.status}): ${detail}`, res.status, bingErrorCode)
+    const err = new BingApiError(`Bing API error (${res.status}): ${detail}`, res.status, bingErrorCode, res.headers.get('retry-after'))
     bingClientLog('error', err.isThrottle ? 'http.throttled' : 'http.error', {
       endpoint,
       method,
@@ -202,9 +202,15 @@ function throttleCooldownRemainingMs(apiKey: string): number {
   return remaining
 }
 
-function openThrottleCooldown(apiKey: string): void {
-  throttleCooldownUntil.set(cooldownKey(apiKey), cooldownNow() + BING_THROTTLE_COOLDOWN_MS)
-  bingClientLog('error', 'http.cooldown-open', { cooldownMs: BING_THROTTLE_COOLDOWN_MS })
+function openThrottleCooldown(apiKey: string, err: BingApiError): void {
+  const cooldownMs = Math.max(BING_THROTTLE_COOLDOWN_MS, retryAfterDelayMs(err) ?? 0)
+  const key = cooldownKey(apiKey)
+  const now = cooldownNow()
+  // Calls admitted before the hold can finish in either order. A later
+  // failure must never shorten another request's longer Retry-After.
+  const retryAt = Math.max(throttleCooldownUntil.get(key) ?? 0, now + cooldownMs)
+  throttleCooldownUntil.set(key, retryAt)
+  bingClientLog('error', 'http.cooldown-open', { cooldownMs: retryAt - now })
 }
 
 /** Test seam: reset cooldown state and optionally pin the clock. */
@@ -277,7 +283,7 @@ async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: 
     // Still throttled after every retry: that is a statement about the ACCOUNT,
     // not about this URL. Continuing to call is what keeps the limit asserted,
     // so the key goes quiet for a while and every caller fails fast meanwhile.
-    if (err instanceof BingApiError && err.isThrottle) openThrottleCooldown(apiKey)
+    if (err instanceof BingApiError && err.isThrottle) openThrottleCooldown(apiKey, err)
     throw err
   }
 }
