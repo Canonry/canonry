@@ -286,7 +286,8 @@ describe('SiteGraphSigma', () => {
   it('renders hovered labels with the theme contrast pair and preserves the node color', async () => {
     mockWebGl(true)
     render(<SiteGraphSigma nodes={nodes} edges={edges} />)
-    await waitFor(() => expect(sigmaMocks.containerProps).not.toBeNull())
+    // Handlers register in an effect after the container renders, so wait for them.
+    await waitFor(() => expect(sigmaMocks.handlers.enterNode).toBeTypeOf('function'))
     const normal = renderedNode('pricing')
     act(() => { sigmaMocks.handlers.enterNode!({ node: 'pricing', event: { x: 40, y: 30 } } as never) })
     const hovered = renderedNode('pricing', true)
