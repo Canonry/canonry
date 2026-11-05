@@ -648,8 +648,11 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   }
 
   /**
-   * Latest UTC scan date, then complete scans, then the largest observed page
-   * sample. `recordedBefore` replays that choice as it stood before an instant;
+   * Latest UTC scan date, then complete scans, newest first; among incomplete
+   * scans the largest observed page sample. Every complete scan covered the
+   * whole site, so the newest is the current state: a rescan after a fix can
+   * fetch fewer pages (a removed dead link was a fetched 404) and must still
+   * replace the scan it corrects. `recordedBefore` replays that choice as it stood before an instant;
    * `scoredOnly` applies it to the crawls that also stored a scorecard, while
    * `runSelection` still counts and lists every crawl on the selected date.
    */
@@ -661,6 +664,8 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   ) => {
     const filters = visibleCrawlFilters(projectId)
     if (scope.recordedBefore) filters.push(lt(siteCrawlSnapshots.createdAt, scope.recordedBefore))
+    // Null for an incomplete scan, so page count decides among those.
+    const newestIfComplete = sql`case when ${siteCrawlSnapshots.complete} then ${siteCrawlSnapshots.createdAt} end`
     if (requestedDate) {
       const nextDate = new Date(`${requestedDate}T00:00:00.000Z`)
       nextDate.setUTCDate(nextDate.getUTCDate() + 1)
@@ -677,6 +682,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       .orderBy(
         desc(sql`substr(${siteCrawlSnapshots.createdAt}, 1, 10)`),
         desc(siteCrawlSnapshots.complete),
+        desc(newestIfComplete),
         desc(siteCrawlSnapshots.pagesFetched),
         desc(siteCrawlSnapshots.createdAt),
         desc(siteCrawlSnapshots.runId),
@@ -697,7 +703,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       runId: siteCrawlSnapshots.runId, createdAt: siteCrawlSnapshots.createdAt,
       complete: siteCrawlSnapshots.complete, pages: siteCrawlSnapshots.pagesFetched,
     }).from(siteCrawlSnapshots).innerJoin(runs, eq(siteCrawlSnapshots.runId, runs.id))
-      .where(sameDate).orderBy(desc(siteCrawlSnapshots.complete), desc(siteCrawlSnapshots.pagesFetched),
+      .where(sameDate).orderBy(desc(siteCrawlSnapshots.complete), desc(newestIfComplete), desc(siteCrawlSnapshots.pagesFetched),
         desc(siteCrawlSnapshots.createdAt), desc(siteCrawlSnapshots.runId)).limit(10).all()
     const runSelection: SiteAuditRunSelectionDto = {
       reason: runId ? 'explicit-run'
@@ -725,10 +731,12 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       ...(recordedBefore ? [lt(siteAuditSnapshots.createdAt, recordedBefore)] : []),
     ]
     const complete = sql<boolean>`case when ${runs.status} = ${RunStatuses.completed} then 1 else 0 end`
+    // Same policy as resolveCrawl: the newest completed audit, else the most pages audited.
+    const newestIfComplete = sql`case when ${runs.status} = ${RunStatuses.completed} then ${siteAuditSnapshots.createdAt} end`
     const selectAudit = (pinnedRunId?: string) => app.db.select({ snap: siteAuditSnapshots, runStatus: runs.status })
       .from(siteAuditSnapshots).innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
       .where(and(...filters, pinnedRunId ? eq(siteAuditSnapshots.runId, pinnedRunId) : undefined))
-      .orderBy(desc(sql`substr(${siteAuditSnapshots.createdAt}, 1, 10)`), desc(complete),
+      .orderBy(desc(sql`substr(${siteAuditSnapshots.createdAt}, 1, 10)`), desc(complete), desc(newestIfComplete),
         desc(siteAuditSnapshots.pagesAudited), desc(siteAuditSnapshots.createdAt), desc(siteAuditSnapshots.runId))
       .limit(1).get()
     const auditOfCrawl = (target: ReturnType<typeof resolveCrawl>) => {
@@ -757,7 +765,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       runId: siteAuditSnapshots.runId, createdAt: siteAuditSnapshots.createdAt,
       complete, pages: siteAuditSnapshots.pagesAudited,
     }).from(siteAuditSnapshots).innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
-      .where(sameDate).orderBy(desc(complete), desc(siteAuditSnapshots.pagesAudited),
+      .where(sameDate).orderBy(desc(complete), desc(newestIfComplete), desc(siteAuditSnapshots.pagesAudited),
         desc(siteAuditSnapshots.createdAt), desc(siteAuditSnapshots.runId)).limit(10).all()
       .map(candidate => ({ ...candidate, complete: Boolean(candidate.complete) }))
     const runSelection: SiteAuditRunSelectionDto = {
