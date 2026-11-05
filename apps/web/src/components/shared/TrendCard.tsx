@@ -409,13 +409,14 @@ export function TrendCard({
     return (
       <div
         key={figure.slot ?? figure.key}
-        className={`relative flex min-w-0 flex-col px-4 pb-4 pt-3 transition-colors duration-150 ${active ? 'bg-surface-active' : interactive ? 'hover:bg-surface-hover' : ''}`}
+        className={`relative flex min-w-0 flex-col px-4 pb-4 pt-3 transition-colors duration-150 ${active && mode === 'single' ? 'bg-surface-active' : interactive ? 'hover:bg-surface-hover' : ''}`}
       >
-        <span
-          aria-hidden="true"
-          className={`absolute inset-x-0 top-0 h-[3px] transition-opacity duration-200 ${mode === 'single' ? 'bg-link' : ''} ${active ? 'opacity-100' : 'opacity-0'}`}
-          style={mode === 'compare' ? { backgroundColor: figure.color } : undefined}
-        />
+        {mode === 'single' && (
+          <span
+            aria-hidden="true"
+            className={`absolute inset-x-0 top-0 h-[3px] bg-link transition-opacity duration-200 ${active ? 'opacity-100' : 'opacity-0'}`}
+          />
+        )}
         {label}
         <button
           type="button"
