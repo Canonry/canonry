@@ -21,7 +21,7 @@
 <h3 align="center"><a href="https://custom-demo.canonry.ai/projects/summit-roofing"><ins>Try the live demo</ins></a> &nbsp;·&nbsp; <a href="#quick-start"><ins>Quick start</ins></a></h3>
 
 <p align="center">
-  <a href="https://custom-demo.canonry.ai/projects/summit-roofing"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/ai-visibility-trend.png" alt="Canonry dashboard showing the share of answer-engine brand mentions rising over time" width="960" /></a>
+  <a href="https://custom-demo.canonry.ai/projects/summit-roofing"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/hero-mobile.png" /><img src="docs/images/readme/hero.png" alt="Canonry dashboard: AI answers over time, with the share of non-brand answers that mention the brand for Claude, Gemini, and OpenAI, with sample data" width="100%" /></picture></a>
 </p>
 
 <a id="explore-the-evidence"></a>
@@ -29,80 +29,37 @@
 
 ## Features
 
-<table>
-<tr>
-<td width="50%" valign="middle">
-
 ### AI Visibility
 
-Track brand mentions and citations by query and answer engine. Find answers that cite competitors but leave you out, then open the exact answer and sources behind each result.
+Track brand mentions and citations by query and answer engine. See where competitors win, then open the exact answer and sources behind each result. [Docs →](docs/query-visibility.md)
 
-[Docs →](docs/query-visibility.md)
-
-</td>
-<td width="50%">
-  <a href="docs/query-visibility.md"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/ai-visibility-diagnostics.png" alt="Citation map showing which queries each answer engine cites and mentions" width="100%" /></a>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="middle">
+<a href="https://custom-demo.canonry.ai/projects/summit-roofing"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/ai-visibility-mobile.png" /><img src="docs/images/readme/ai-visibility.png" alt="Where competitors are winning: mention share against two competitors, mention and citation gaps, and mentioned and cited counts by engine, with sample data" width="100%" /></picture></a>
 
 ### Built for Agents
 
-Every number in the dashboard is one `cnry … --format json`, REST call, or MCP tool away. Install the plugin for Claude Code or Codex, or connect ChatGPT, Claude Desktop, or any MCP client.
+Every number in the dashboard is one `cnry … --format json`, REST call, or MCP tool away. Install the plugin for Claude Code or Codex, or connect ChatGPT, Claude Desktop, or any MCP client. [Plugin →](docs/plugins.md) · [MCP →](docs/mcp.md) · [CLI →](skills/canonry/references/canonry-cli.md)
 
-[Plugin →](docs/plugins.md) · [MCP →](docs/mcp.md) · [CLI →](skills/canonry/references/canonry-cli.md)
-
-</td>
-<td width="50%">
-  <a href="docs/mcp.md"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/hosted-agent-setup/after-desktop.png" alt="Agent setup page with the MCP URL to add to ChatGPT or Claude Desktop" width="100%" /></a>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="middle">
+<a href="skills/canonry/references/canonry-cli.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/cli-mobile.png" /><img src="docs/images/readme/cli.png" alt="Terminal running cnry citations visibility, with a per-query table of cited and mentioned results for Claude, Gemini, and OpenAI, with sample data" width="100%" /></picture></a>
 
 ### Site Health
 
-Crawl your site, score each page for AI readiness, and map the internal links between pages. Each finding lists the pages it affects.
+Crawl your site, score each page for AI readiness, and map the internal links between pages. Each finding lists the pages it affects. [Docs →](skills/canonry/references/canonry-cli.md#site-health-technical-aeo-compatibility)
 
-[Docs →](skills/canonry/references/canonry-cli.md#site-health-technical-aeo-compatibility)
-
-</td>
-<td width="50%">
-  <a href="skills/canonry/references/canonry-cli.md#site-health-technical-aeo-compatibility"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/dashboard.png" alt="Site map graph of crawled pages and the links between them" width="100%" /></a>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="middle">
+<a href="skills/canonry/references/canonry-cli.md#site-health-technical-aeo-compatibility"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/site-health-mobile.png" /><img src="docs/images/readme/site-health.png" alt="Site map of 205 crawled pages and the links between them, beside a list of site sections, with sample data" width="100%" /></picture></a>
 
 <a id="seo-data"></a>
 
 ### SEO Research
 
-Keyword volume, difficulty, organic rankings, and search gaps against competitors, powered by DataForSEO Labs.
+Keyword volume, difficulty, organic rankings, and search gaps against competitors, powered by DataForSEO Labs. [Docs →](docs/seo-data.md)
 
-[Docs →](docs/seo-data.md)
-
-</td>
-<td width="50%">
-  <a href="docs/seo-data.md"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/seo-competitor-gaps/after-gaps-dark.png" alt="SEO search gaps table comparing your Google rank with a competitor's, with sample data" width="100%" /></a>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="middle">
+<a href="docs/seo-data.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/seo-mobile.png" /><img src="docs/images/readme/seo.png" alt="SEO page with ranked searches, top-10 count, estimated organic traffic, and a table of positions, volume, and difficulty, with sample data" width="100%" /></picture></a>
 
 ### AI Agent Traffic
 
-See which AI agents fetch your pages, checked against each company's published IP list. Follow AI-referred visitors when they come back.
+See which AI agents fetch your pages, checked against each company's published IP list. Follow AI-referred visitors when they come back. [Docs →](skills/canonry/references/server-side-traffic.md)
 
-[Docs →](skills/canonry/references/server-side-traffic.md)
-
-</td>
-<td width="50%">
-  <a href="skills/canonry/references/server-side-traffic.md"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/agent-journeys/agent-requests-desktop.png" alt="Agent requests from ChatGPT, Claude, and Perplexity with a trust level for each, with sample data" width="100%" /></a>
-</td>
-</tr>
-</table>
+<a href="skills/canonry/references/server-side-traffic.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/agent-traffic-mobile.png" /><img src="docs/images/readme/agent-traffic.png" alt="A verified ChatGPT-User request sequence with each page it fetched, with sample data" width="100%" /></picture></a>
 
 <a id="compare-competitors-and-measure-complex-portfolios"></a>
 <a id="act-on-the-evidence"></a>
