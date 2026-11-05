@@ -40,6 +40,33 @@ export const calendarRecurrenceSchema = z.object({
 }).strict()
 export type CalendarRecurrence = z.infer<typeof calendarRecurrenceSchema>
 
+/**
+ * The checks a scheduled Site Health scan runs on top of the full-site crawl.
+ * The defaults match a manual scan run without flags: no dead-link check, no
+ * location checks, agent integration checks on. A weekly deep scan turns the
+ * first two on.
+ */
+export const siteAuditScheduleChecksSchema = z.object({
+  /** Request every internal link target and report the ones that fail. */
+  checkDeadLinks: z.boolean(),
+  /** Location and service-area checks. */
+  includeGeo: z.boolean(),
+  /** Agent integration checks (MCP server card, A2A agent card, and the like). */
+  includeAgentSkills: z.boolean(),
+}).strict()
+export type SiteAuditScheduleChecks = z.infer<typeof siteAuditScheduleChecksSchema>
+
+export const DEFAULT_SITE_AUDIT_SCHEDULE_CHECKS: SiteAuditScheduleChecks = Object.freeze({
+  checkDeadLinks: false,
+  includeGeo: false,
+  includeAgentSkills: true,
+})
+
+/** A site-audit schedule's checks, filling anything unset (or a row from before the column) with the defaults. */
+export function siteAuditScheduleChecks(stored: Partial<SiteAuditScheduleChecks> | null | undefined): SiteAuditScheduleChecks {
+  return { ...DEFAULT_SITE_AUDIT_SCHEDULE_CHECKS, ...(stored ?? {}) }
+}
+
 // --- DTOs ---
 
 export const scheduleDtoSchema = z.object({
@@ -56,6 +83,8 @@ export const scheduleDtoSchema = z.object({
   providers: z.array(providerNameSchema).default([]),
   /** Traffic-source UUID for `kind === 'traffic-sync'` schedules. Null otherwise. */
   sourceId: z.string().nullable().optional(),
+  /** What each scheduled scan checks, for `kind === 'site-audit'` schedules. Null otherwise. */
+  siteAudit: siteAuditScheduleChecksSchema.nullable().optional(),
   lastRunAt: z.string().nullable().optional(),
   nextRunAt: z.string().nullable().optional(),
   createdAt: z.string(),
@@ -95,6 +124,12 @@ export const scheduleUpsertRequestSchema = z.object({
   providers: z.array(providerNameSchema).optional().default([]),
   /** Required when kind === 'traffic-sync'. Forbidden for other kinds. Validated server-side. */
   sourceId: z.string().optional(),
+  /**
+   * Scan checks for kind === 'site-audit' only; unset fields take the defaults.
+   * Omit to keep the schedule's current checks (so enabling, pausing or moving
+   * a schedule never drops them); null goes back to the defaults.
+   */
+  siteAudit: siteAuditScheduleChecksSchema.partial().strict().nullable().optional(),
   /**
    * Optimistic concurrency guard. A timestamp updates only that exact version;
    * null creates only while the schedule is absent. Omit for legacy behavior.

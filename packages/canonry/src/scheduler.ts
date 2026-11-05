@@ -19,6 +19,7 @@ import {
   normalizeSiteAuditRunRequest,
   nextScheduleUpdatedAt,
   siteAuditRequestIdentity,
+  siteAuditScheduleChecks,
   describeError,
   type FeatureCompletedProperties,
   type OutcomeReasonCode,
@@ -184,7 +185,7 @@ export interface SchedulerCallbacks {
    * run row) when a site-audit run is already in flight for the project, since
    * a full-site crawl can run for minutes. Fire-and-forget.
    */
-  onSiteAuditRequested?: (runId: string, projectId: string, opts: { maxPages: number }) => void
+  onSiteAuditRequested?: (runId: string, projectId: string, opts: { maxPages: number; checkDeadLinks: boolean; includeGeo: boolean; includeAgentSkills: boolean }) => void
   /**
    * Fired when a seo-sync schedule triggers. The host starts one paid SEO
    * refresh per saved profile under the host's SEO spending policy; each
@@ -801,8 +802,10 @@ export class Scheduler {
         }
         const runId = crypto.randomUUID()
         // The project's saved budget, else the full site; the crawl still ends
-        // when it runs out of pages to fetch.
-        const effectiveRequest = normalizeSiteAuditRunRequest({}, project.siteAuditMaxPages)
+        // when it runs out of pages to fetch. The schedule decides the checks,
+        // so a weekly deep scan includes dead links and location checks.
+        const checks = siteAuditScheduleChecks(currentSchedule.siteAuditChecks)
+        const effectiveRequest = normalizeSiteAuditRunRequest(checks, project.siteAuditMaxPages)
         this.db.transaction((tx) => {
           tx.insert(runs).values({
             id: runId,
@@ -825,7 +828,12 @@ export class Scheduler {
           nextRunAt,
         })
         log.info('site-audit.triggered', { runId, projectName: project.name })
-        this.callbacks.onSiteAuditRequested(runId, projectId, { maxPages: effectiveRequest.maxPages })
+        this.callbacks.onSiteAuditRequested(runId, projectId, {
+          maxPages: effectiveRequest.maxPages,
+          checkDeadLinks: effectiveRequest.checkDeadLinks,
+          includeGeo: effectiveRequest.includeGeo,
+          includeAgentSkills: effectiveRequest.includeAgentSkills,
+        })
         return SLOT_FIRED
       }
 
