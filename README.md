@@ -3,7 +3,6 @@
 </h1>
 
 <p align="center">
-  <a href="https://github.com/Canonry/canonry"><img src="https://img.shields.io/github/stars/Canonry/canonry?style=flat&amp;label=%E2%98%85&amp;color=D93F45" alt="GitHub stars" /></a>
   <a href="https://www.npmjs.com/package/@canonry/canonry"><img src="https://img.shields.io/npm/v/@canonry/canonry?style=flat&amp;label=npm&amp;color=D93F45" alt="npm version" /></a>
   <a href="https://www.npmjs.com/package/@canonry/canonry"><img src="https://img.shields.io/npm/dt/@canonry/canonry?style=flat&amp;label=downloads&amp;color=D93F45" alt="Total npm downloads" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-D93F45?style=flat" alt="License: MIT" /></a>
@@ -13,9 +12,9 @@
 </p>
 
 <p align="center">
-  <strong>The agent-first AEO platform.</strong><br/>
-  Track how ChatGPT, Claude, Gemini, and Perplexity mention and cite your site, then act on it from your agent.<br/>
-  Open source, self-hosted on SQLite, with your own provider keys.
+  <strong>Your entire AEO stack, run by your agent.</strong><br/>
+  Track mentions and citations across ChatGPT, Claude, Gemini, Perplexity, and more. Join them with Search Console, GA4, AI crawler traffic, site audits, and SEO data. Then let your agent publish fixes, get pages indexed, and measure what changed.<br/>
+  <sub>Open source · Self-hosted · Bring your own keys</sub>
 </p>
 
 <h3 align="center"><a href="https://custom-demo.canonry.ai/projects/summit-roofing"><ins>Try the live demo</ins></a> &nbsp;·&nbsp; <a href="#quick-start"><ins>Quick start</ins></a></h3>
@@ -341,10 +340,6 @@ For local agent work, run tests only after changes are finalized and ready for p
 <a href="https://github.com/Canonry/canonry/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=Canonry/canonry" alt="Canonry contributors" />
 </a>
-
-<p align="center">
-  <a href="https://star-history.com/#Canonry/canonry&amp;Date"><img src="https://api.star-history.com/svg?repos=Canonry/canonry&amp;type=Date" alt="GitHub star history chart for Canonry/canonry" width="880" /></a>
-</p>
 
 ## License
 
