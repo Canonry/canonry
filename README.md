@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <strong>Your entire AEO stack, run by your agent.</strong><br/>
+  <strong>The agent-first AEO operating platform.</strong><br/>
   Track mentions and citations across ChatGPT, Claude, Gemini, Perplexity, and more. Join them with Search Console, GA4, AI crawler traffic, site audits, and SEO data. Then let your agent publish fixes, get pages indexed, and measure what changed.<br/>
   <sub>Open source · Self-hosted · Bring your own keys</sub>
 </p>
