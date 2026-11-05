@@ -2026,6 +2026,25 @@ describe('same-date site audit selection', () => {
     expect(pinned.body).toMatchObject({ runId: later, complete: false, runSelection: { reason: 'explicit-run' } })
   })
 
+  it('prefers the newest complete scan of the day even when it fetched fewer pages', async () => {
+    const date = '2030-04-12'
+    // A morning scan fetched a dead link's 404 as a page; the evening rescan after the fix did not.
+    const morning = seedScan(`${date}T04:38:00.000Z`, 77, true, 'manual', 77, 70)
+    const evening = seedScan(`${date}T16:27:00.000Z`, 76, true, 'manual', 76, 71)
+    for (const suffix of ['', '/pages', '/crawl']) {
+      const { body } = await get<{ runId: string; runSelection: SiteAuditScoreDto['runSelection'] }>(`/api/v1/projects/tech-aeo/technical-aeo${suffix}`)
+      expect(body.runId, suffix).toBe(evening)
+      expect(body.runSelection, suffix).toMatchObject({
+        reason: 'latest-date-complete', date, sameDateRunCount: 2,
+        candidates: [
+          { runId: evening, createdAt: `${date}T16:27:00.000Z`, complete: true, pages: 76 },
+          { runId: morning, createdAt: `${date}T04:38:00.000Z`, complete: true, pages: 77 },
+        ],
+      })
+    }
+    expect((await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs')).body.preferredRunId).toBe(evening)
+  })
+
   it('scores default reads from the preferred scored crawl when the preferred crawl audited no page', async () => {
     const crawlOnly = seedCrawlOnlyScan('2030-04-12T09:00:00.000Z', 30)
     const today = (await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${ctx.runB}`)).body.runSelection!.date
@@ -2155,9 +2174,10 @@ describe('same-date site audit selection', () => {
   })
 
   it.each([
-    { rescanPages: 498, preferred: 'scheduled' },
+    // The newest complete scan wins whatever its page count.
+    { rescanPages: 498, preferred: 'rescan' },
     { rescanPages: 502, preferred: 'rescan' },
-  ])('compares a complete same-date rescan with the complete scan before it ($preferred preferred)', async ({ rescanPages, preferred }) => {
+  ])('compares a complete same-date rescan of $rescanPages pages with the complete scan before it ($preferred preferred)', async ({ rescanPages, preferred }) => {
     const date = '2030-04-12'
     seedScan('2030-04-11T08:00:00.000Z', 500, true, 'manual', 500, 68)
     const scheduled = seedScan(`${date}T08:00:00.000Z`, 500, true, 'manual', 500, 60)
