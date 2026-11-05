@@ -27,6 +27,7 @@ import {
   normalizeIdentityText as normalizeText,
 } from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
+import { readQueryClasses } from './query-class-read.js'
 import { projectQueryClassifier, shareOfVoiceFromLandscape, mentionShareCompetitors } from './mention-share-inputs.js'
 import { computeVisibilityCompare, type VisibilityCompareSnapshotInput } from './visibility-compare.js'
 import { readVisibilityComparisonRuns } from './visibility-report.js'
@@ -49,6 +50,8 @@ export interface ComputeVisibilityStatsInput {
   snapshots: VisibilityStatsSnapshotInput[]
   /** `'provider'` to emit per-provider breakdowns, else `null`. */
   groupBy: VisibilityStatsGroupBy | null
+  /** Each tracked query's class (`readQueryClasses`); when given, rows carry it and totals are split by it. */
+  queryClasses?: ReadonlyMap<string, QueryClass | null>
 }
 
 export interface ComputeVisibilityStatsResult {
@@ -56,6 +59,8 @@ export interface ComputeVisibilityStatsResult {
   /** Present only when `groupBy === 'provider'`. */
   byProvider?: VisibilityStatsProviderEntry[]
   queries: VisibilityStatsQueryEntry[]
+  /** Present only when `queryClasses` was given. */
+  byQueryClass?: { branded: VisibilityStatsCounts; nonBrand: VisibilityStatsCounts; unclassified: VisibilityStatsCounts }
 }
 
 interface Agg {
@@ -164,6 +169,11 @@ export function computeVisibilityStats(input: ComputeVisibilityStatsInput): Comp
   const byQuery = new Map<string, QueryBucket>()
   const totals = emptyAgg()
   const totalsByProvider = new Map<string, Agg>()
+  const byClass = { branded: emptyAgg(), nonBrand: emptyAgg(), unclassified: emptyAgg() }
+  const classKey = (queryId: string): keyof typeof byClass => {
+    const queryClass = input.queryClasses?.get(queryId) ?? null
+    return queryClass === 'branded' ? 'branded' : queryClass === 'non-brand' ? 'nonBrand' : 'unclassified'
+  }
 
   for (const snap of input.snapshots) {
     const resolved = resolveCurrentQuery(attribution, snap)
@@ -176,6 +186,7 @@ export function computeVisibilityStats(input: ComputeVisibilityStatsInput): Comp
     }
     addSnapshot(bucket.agg, snap)
     addSnapshot(totals, snap)
+    if (input.queryClasses) addSnapshot(byClass[classKey(resolved.id)], snap)
 
     if (wantProviders) {
       const qpAgg = bucket.byProvider.get(snap.provider) ?? emptyAgg()
@@ -195,6 +206,7 @@ export function computeVisibilityStats(input: ComputeVisibilityStatsInput): Comp
       ...counts(bucket.agg),
       firstObserved: bucket.agg.first ?? '',
       lastObserved: bucket.agg.last ?? '',
+      ...(input.queryClasses ? { queryClass: input.queryClasses.get(bucket.id) ?? null } : {}),
       ...(wantProviders ? { providers: providerEntries(bucket.byProvider) } : {}),
     }))
     .sort((a, b) => a.query.localeCompare(b.query))
@@ -203,6 +215,9 @@ export function computeVisibilityStats(input: ComputeVisibilityStatsInput): Comp
     totals: counts(totals),
     ...(wantProviders ? { byProvider: providerEntries(totalsByProvider) } : {}),
     queries: queryEntries,
+    ...(input.queryClasses
+      ? { byQueryClass: { branded: counts(byClass.branded), nonBrand: counts(byClass.nonBrand), unclassified: counts(byClass.unclassified) } }
+      : {}),
   }
 }
 
@@ -341,7 +356,10 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
             .all()
         : []
 
-    const stats = computeVisibilityStats({ queries: projectQueries, snapshots, groupBy })
+    // The class each query is measured under, the same read the query list uses,
+    // so totals can be split and branded never pools with non-brand unseen.
+    const queryClasses = readQueryClasses(app.db, project, projectQueries)
+    const stats = computeVisibilityStats({ queries: projectQueries, snapshots, groupBy, queryClasses })
     const queryAttribution = buildQueryAttribution(projectQueries)
 
     // Share of voice (opt-in) — how often the project's brand is named in answer
@@ -388,6 +406,7 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
         runCount,
       },
       totals: stats.totals,
+      ...(stats.byQueryClass ? { byQueryClass: stats.byQueryClass } : {}),
       queries: stats.queries,
       // `groupBy` + `byProvider` appear together only when a breakdown was
       // requested; both are OMITTED otherwise (absent = no breakdown) so the

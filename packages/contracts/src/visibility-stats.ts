@@ -1,4 +1,5 @@
 import { shareOfVoiceContextFields } from './share-of-voice.js'
+import { queryClassSchema } from './query-class.js'
 import { z } from 'zod'
 import { fraction, percent } from './ratio-unit.js'
 import { competitorIdentityChangedAtSchema, competitorSetChangedAtSchema } from './analytics.js'
@@ -62,6 +63,12 @@ export const visibilityStatsQueryEntrySchema = visibilityStatsCountsSchema.exten
   query: z.string(),
   firstObserved: z.string(),
   lastObserved: z.string(),
+  /**
+   * The class the query is measured under, as the query list reports it:
+   * `branded` or `non-brand`, `null` when it has no single class (a project
+   * with no brand name, or an Advanced query assigned under both or neither).
+   */
+  queryClass: queryClassSchema.nullable().optional(),
   /**
    * Per-provider breakdown — present only when `groupBy=provider`. Each
    * entry's counts sum to this query's pooled counts.
@@ -144,8 +151,19 @@ export const visibilityStatsDtoSchema = z.object({
    */
   groupBy: visibilityStatsGroupBySchema.optional(),
   window: visibilityStatsWindowSchema,
-  /** Pooled counts across every tracked query in the window. */
+  /** Pooled counts across every tracked query in the window, branded and non-brand together. */
   totals: visibilityStatsCountsSchema,
+  /**
+   * `totals` split by each query's class. Branded and non-brand answers never
+   * share a rate, so compare these, not `totals`. `unclassified` holds queries
+   * with no single class. `queryClass` does not change it: that parameter
+   * scopes share of voice only.
+   */
+  byQueryClass: z.object({
+    branded: visibilityStatsCountsSchema,
+    nonBrand: visibilityStatsCountsSchema,
+    unclassified: visibilityStatsCountsSchema,
+  }).optional(),
   /**
    * Pooled per-provider counts across every tracked query — present only when
    * `groupBy=provider`. Each entry's counts sum to `totals`.

@@ -247,6 +247,23 @@ function printVisibilityStats(data: VisibilityStatsDto): void {
       formatPercent(data.totals.mentionRate).padStart(7),
     ].join('  '),
   )
+  // TOTAL pools branded and non-brand questions; print the split under it so
+  // the competitive (non-brand) figure is never read off the pooled line.
+  const split = data.byQueryClass
+  if (split) {
+    for (const [label, counts] of [['  non-brand', split.nonBrand], ['  branded', split.branded], ['  unclassified', split.unclassified]] as const) {
+      if (counts.total === 0) continue
+      console.log(
+        [
+          label.padEnd(queryWidth),
+          citedCell(counts).padEnd(citedWidth),
+          formatPercent(counts.citedRate).padStart(7),
+          mentionedCell(counts).padEnd(mentWidth),
+          formatPercent(counts.mentionRate).padStart(7),
+        ].join('  '),
+      )
+    }
+  }
 
   if (data.groupBy === 'provider' && data.byProvider && data.byProvider.length > 0) {
     console.log('')

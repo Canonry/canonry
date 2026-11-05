@@ -2103,7 +2103,7 @@ const rawCanonryMcpTools = [
       month: z.string().optional().describe('Aggregate one calendar month (YYYY-MM), expanded to that month\'s inclusive UTC bounds. Mutually exclusive with since/until/lastRuns.'),
       groupBy: z.enum(['provider']).optional().describe('Set to "provider" for a per-provider breakdown.'),
       shareOfVoice: z.boolean().optional().describe('Include brand-mention share with tracked/observed basis and availability across the same window (non-brand queries unless queryClass says otherwise).'),
-      queryClass: z.enum(['branded', 'non-brand']).optional().describe('Query class for shareOfVoice. Defaults to non-brand. There is no "all": branded and non-brand never share a denominator.'),
+      queryClass: z.enum(['branded', 'non-brand']).optional().describe('Query class for shareOfVoice. Defaults to non-brand. There is no "all": branded and non-brand never share a denominator. It does not filter the counts: `totals` pools both classes, and `byQueryClass` (plus `queryClass` on each query) carries the split.'),
     }),
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/visibility-stats'],

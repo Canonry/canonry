@@ -18812,6 +18812,32 @@ export type VisibilityStatsDto = {
         mentionRate: number | null;
         citedRate: number | null;
     };
+    byQueryClass?: {
+        branded: {
+            total: number;
+            checked: number;
+            mentioned: number;
+            cited: number;
+            mentionRate: number | null;
+            citedRate: number | null;
+        };
+        nonBrand: {
+            total: number;
+            checked: number;
+            mentioned: number;
+            cited: number;
+            mentionRate: number | null;
+            citedRate: number | null;
+        };
+        unclassified: {
+            total: number;
+            checked: number;
+            mentioned: number;
+            cited: number;
+            mentionRate: number | null;
+            citedRate: number | null;
+        };
+    };
     byProvider?: Array<{
         total: number;
         checked: number;
@@ -18834,6 +18860,7 @@ export type VisibilityStatsDto = {
         query: string;
         firstObserved: string;
         lastObserved: string;
+        queryClass?: 'branded' | 'non-brand' | null;
         providers?: Array<{
             total: number;
             checked: number;
