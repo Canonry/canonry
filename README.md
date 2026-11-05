@@ -20,7 +20,7 @@
 <h3 align="center"><a href="https://custom-demo.canonry.ai/projects/summit-roofing"><ins>Try the live demo</ins></a> &nbsp;·&nbsp; <a href="#quick-start"><ins>Quick start</ins></a></h3>
 
 <p align="center">
-  <a href="https://custom-demo.canonry.ai/projects/summit-roofing"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/hero-mobile.png" /><img src="docs/images/readme/hero.png" alt="Canonry dashboard: AI answers over time, with the share of non-brand answers that mention the brand for Claude, Gemini, and OpenAI, with sample data" width="100%" /></picture></a>
+  <a href="https://custom-demo.canonry.ai/projects/summit-roofing"><picture><source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/hero-mobile.png" /><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/hero.png" alt="Canonry dashboard: AI answers over time, with the share of non-brand answers that mention the brand for Claude, Gemini, and OpenAI, with sample data" width="100%" /></picture></a>
 </p>
 
 <a id="explore-the-evidence"></a>
@@ -40,19 +40,19 @@ Everything runs on one REST API. The dashboard, CLI, MCP server, and plugins all
 
 Track brand mentions and citations by query and answer engine. See where competitors win, then open the exact answer and sources behind each result. [Docs →](docs/query-visibility.md)
 
-<a href="https://custom-demo.canonry.ai/projects/summit-roofing"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/ai-visibility-mobile.png" /><img src="docs/images/readme/ai-visibility.png" alt="Where competitors are winning: mention share against two competitors, mention and citation gaps, and mentioned and cited counts by engine, with sample data" width="100%" /></picture></a>
+<a href="https://custom-demo.canonry.ai/projects/summit-roofing"><picture><source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/ai-visibility-mobile.png" /><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/ai-visibility.png" alt="Where competitors are winning: mention share against two competitors, mention and citation gaps, and mentioned and cited counts by engine, with sample data" width="100%" /></picture></a>
 
 ### Server-Side AI Traffic
 
 See what AI agents actually do on your site, from your server logs: which pages GPTBot, ClaudeBot, Meta AI, and Grok crawl, which pages ChatGPT, Claude, and Meta AI open for users, and who clicks through. [Docs →](skills/canonry/references/server-side-traffic.md)
 
-<a href="skills/canonry/references/server-side-traffic.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/traffic-mobile.png" /><img src="docs/images/readme/traffic.png" alt="Server traffic for the last 24 hours: 105 AI crawler visits, 35 AI user fetches, and 46 AI referral sessions, with an hourly chart, with sample data" width="100%" /></picture></a>
+<a href="skills/canonry/references/server-side-traffic.md"><picture><source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/traffic-mobile.png" /><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/traffic.png" alt="Server traffic for the last 24 hours: 105 AI crawler visits, 35 AI user fetches, and 46 AI referral sessions, with an hourly chart, with sample data" width="100%" /></picture></a>
 
 ### Site Health
 
 Crawl your site, score each page for AI readiness, and map the internal links between pages. Each finding lists the pages it affects. [Docs →](skills/canonry/references/canonry-cli.md#site-health-technical-aeo-compatibility)
 
-<a href="skills/canonry/references/canonry-cli.md#site-health-technical-aeo-compatibility"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/site-health-mobile.png" /><img src="docs/images/readme/site-health.png" alt="Site map of 205 crawled pages and the links between them, beside a list of site sections, with sample data" width="100%" /></picture></a>
+<a href="skills/canonry/references/canonry-cli.md#site-health-technical-aeo-compatibility"><picture><source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/site-health-mobile.png" /><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/site-health.png" alt="Site map of 205 crawled pages and the links between them, beside a list of site sections, with sample data" width="100%" /></picture></a>
 
 <a id="seo-data"></a>
 
@@ -60,13 +60,13 @@ Crawl your site, score each page for AI readiness, and map the internal links be
 
 Keyword volume, difficulty, organic rankings, and search gaps against competitors, powered by DataForSEO Labs. [Docs →](docs/seo-data.md)
 
-<a href="docs/seo-data.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/seo-mobile.png" /><img src="docs/images/readme/seo.png" alt="SEO page with ranked searches, top-10 count, estimated organic traffic, and a table of positions, volume, and difficulty, with sample data" width="100%" /></picture></a>
+<a href="docs/seo-data.md"><picture><source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/seo-mobile.png" /><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/seo.png" alt="SEO page with ranked searches, top-10 count, estimated organic traffic, and a table of positions, volume, and difficulty, with sample data" width="100%" /></picture></a>
 
 ### Ads
 
 Let your agent run ChatGPT Ads: sync campaigns and daily results, create and edit campaigns, and switch them on only after you approve. Track Google Ads spend and conversions, and check each conversion's setup across Google Ads and Tag Manager. Paid results stay separate from organic mentions and citations. [ChatGPT Ads →](skills/canonry/references/canonry-cli.md#openai-ads-chatgpt-ads) · [Google Ads →](docs/google-marketing.md)
 
-<a href="docs/google-marketing.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/ads-mobile.png" /><img src="docs/images/readme/ads.png" alt="Google Ads performance: spend, conversions, cost per conversion, a daily chart, and campaign results, with sample data" width="100%" /></picture></a>
+<a href="docs/google-marketing.md"><picture><source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/ads-mobile.png" /><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/ads.png" alt="Google Ads performance: spend, conversions, cost per conversion, a daily chart, and campaign results, with sample data" width="100%" /></picture></a>
 
 <a id="compare-competitors-and-measure-complex-portfolios"></a>
 <a id="act-on-the-evidence"></a>
