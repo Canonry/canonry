@@ -28,6 +28,14 @@
 
 ## Features
 
+### Built for Agents
+
+Everything runs on one REST API. The dashboard, CLI, MCP server, and plugins all call it, so your agent can read and do everything you see.
+
+- **REST API:** every dashboard number has a typed endpoint under `/api/v1`. The full OpenAPI spec is at `GET /api/v1/openapi.json`. [API →](#self-hosting-and-api)
+- **CLI:** the same calls as `cnry <command> --format json`, for scripts and shell agents. [CLI →](skills/canonry/references/canonry-cli.md)
+- **MCP and plugins:** plugins for Claude Code and Codex, or a hosted MCP server for ChatGPT and Claude Desktop. [MCP →](docs/mcp.md) · [Plugin →](docs/plugins.md)
+
 ### AI Visibility
 
 Track brand mentions and citations by query and answer engine. See where competitors win, then open the exact answer and sources behind each result. [Docs →](docs/query-visibility.md)
@@ -36,21 +44,9 @@ Track brand mentions and citations by query and answer engine. See where competi
 
 ### Server-Side AI Traffic
 
-See what AI engines actually do on your site, straight from your server logs on Cloudflare, Vercel, Cloud Run, or WordPress. Mentions and citations show what models say about you. Server traffic shows what they do. [Docs →](skills/canonry/references/server-side-traffic.md)
-
-- **AI crawlers:** which pages GPTBot, ClaudeBot, and PerplexityBot crawl, and how often.
-- **AI user fetches:** which pages ChatGPT, Claude, and Perplexity open to answer a user, checked against each company's published IP list.
-- **AI referrals:** who clicks through from an AI answer, including visits GA4 misses because of consent banners or ad blockers, and whether they come back.
+See what AI engines actually do on your site, from your server logs: which pages AI crawlers read, which pages ChatGPT, Claude, and Perplexity fetch for users, and who clicks through. [Docs →](skills/canonry/references/server-side-traffic.md)
 
 <a href="skills/canonry/references/server-side-traffic.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/traffic-mobile.png" /><img src="docs/images/readme/traffic.png" alt="Server traffic for the last 24 hours: 105 AI crawler visits, 35 AI user fetches, and 46 AI referral sessions, with an hourly chart, with sample data" width="100%" /></picture></a>
-
-### Built for Agents
-
-Everything runs on one REST API. The dashboard, CLI, MCP server, and plugins all call it, so your agent can read and do everything you see.
-
-- **REST API:** every dashboard number has a typed endpoint under `/api/v1`. The full OpenAPI spec is at `GET /api/v1/openapi.json`. [API →](#self-hosting-and-api)
-- **CLI:** the same calls as `cnry <command> --format json`, for scripts and shell agents. [CLI →](skills/canonry/references/canonry-cli.md)
-- **MCP and plugins:** plugins for Claude Code and Codex, or a hosted MCP server for ChatGPT and Claude Desktop. [MCP →](docs/mcp.md) · [Plugin →](docs/plugins.md)
 
 ### Site Health
 
