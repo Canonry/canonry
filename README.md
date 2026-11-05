@@ -1,15 +1,129 @@
-# Canonry <img src="https://raw.githubusercontent.com/Canonry/canonry/main/apps/web/public/favicon-32.png" alt="Canonry canary icon" width="24" />
+<h1 align="center">
+  <a href="https://canonry.ai"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/apps/web/public/apple-touch-icon.png" alt="Canonry" width="64" valign="middle" /></a> Canonry
+</h1>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![npm version](https://img.shields.io/npm/v/@canonry/canonry)](https://www.npmjs.com/package/@canonry/canonry)
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/8K9yY7GywJ)
-[![Twitter](https://img.shields.io/badge/Twitter-Follow-000000?logo=x&logoColor=white)](https://x.com/canonry_ai)
+<p align="center">
+  <a href="https://github.com/Canonry/canonry"><img src="https://img.shields.io/github/stars/Canonry/canonry?style=flat&amp;label=%E2%98%85&amp;color=D93F45" alt="GitHub stars" /></a>
+  <a href="https://www.npmjs.com/package/@canonry/canonry"><img src="https://img.shields.io/npm/v/@canonry/canonry?style=flat&amp;label=npm&amp;color=D93F45" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/@canonry/canonry"><img src="https://img.shields.io/npm/dt/@canonry/canonry?style=flat&amp;label=downloads&amp;color=D93F45" alt="Total npm downloads" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-D93F45?style=flat" alt="License: MIT" /></a>
+  <a href="https://discord.gg/8K9yY7GywJ"><img src="https://img.shields.io/badge/Discord-5865F2?logo=discord&amp;logoColor=white" alt="Join the Canonry Discord" /></a>
+  <a href="https://x.com/canonry_ai"><img src="https://img.shields.io/badge/X-000000?logo=x&amp;logoColor=white" alt="Follow Canonry on X" /></a>
+  <img src="https://img.shields.io/badge/CLI%20%7C%20API%20%7C%20MCP%20%7C%20Web-4493F8?style=flat-square" alt="Interfaces: CLI, API, MCP, and web dashboard" />
+</p>
 
-Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform with a comprehensive web UI.** Track AI visibility over time, investigate changes across search and traffic, and measure progress after you or your agent acts.
+<p align="center">
+  <strong>The agent-first AEO platform.</strong><br/>
+  Track how ChatGPT, Claude, Gemini, and Perplexity mention and cite your site, then act on it from your agent.<br/>
+  Open source, self-hosted on SQLite, with your own provider keys.
+</p>
 
-**Self-hosted, using SQLite, with your own (BYOK) provider keys.** The web UI and your agent see the same evidence.
+<h3 align="center"><a href="https://custom-demo.canonry.ai/projects/summit-roofing"><ins>Try the live demo</ins></a> &nbsp;·&nbsp; <a href="#quick-start"><ins>Quick start</ins></a></h3>
 
-[Live UI Demo](https://custom-demo.canonry.ai/projects/summit-roofing) · [Quick start](#quick-start) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
+<p align="center">
+  <a href="https://custom-demo.canonry.ai/projects/summit-roofing"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/ai-visibility-trend.png" alt="Canonry dashboard showing the share of answer-engine brand mentions rising over time" width="960" /></a>
+</p>
+
+<a id="explore-the-evidence"></a>
+<a id="add-ai-visibility-when-you-need-it"></a>
+
+## Features
+
+<table>
+<tr>
+<td width="50%" valign="middle">
+
+### AI Visibility
+
+Track brand mentions and citations by query and answer engine. Find answers that cite competitors but leave you out, then open the exact answer and sources behind each result.
+
+[Docs →](docs/query-visibility.md)
+
+</td>
+<td width="50%">
+  <a href="docs/query-visibility.md"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/ai-visibility-diagnostics.png" alt="Citation map showing which queries each answer engine cites and mentions" width="100%" /></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### Built for Agents
+
+Every number in the dashboard is one `cnry … --format json`, REST call, or MCP tool away. Install the plugin for Claude Code or Codex, or connect ChatGPT, Claude Desktop, or any MCP client.
+
+[Plugin →](docs/plugins.md) · [MCP →](docs/mcp.md) · [CLI →](skills/canonry/references/canonry-cli.md)
+
+</td>
+<td width="50%">
+  <a href="docs/mcp.md"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/hosted-agent-setup/after-desktop.png" alt="Agent setup page with the MCP URL to add to ChatGPT or Claude Desktop" width="100%" /></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### Site Health
+
+Crawl your site, score each page for AI readiness, and map the internal links between pages. Each finding lists the pages it affects.
+
+[Docs →](skills/canonry/references/canonry-cli.md#site-health-technical-aeo-compatibility)
+
+</td>
+<td width="50%">
+  <a href="skills/canonry/references/canonry-cli.md#site-health-technical-aeo-compatibility"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/dashboard.png" alt="Site map graph of crawled pages and the links between them" width="100%" /></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+<a id="seo-data"></a>
+
+### SEO Research
+
+Keyword volume, difficulty, organic rankings, and search gaps against competitors, powered by DataForSEO Labs.
+
+[Docs →](docs/seo-data.md)
+
+</td>
+<td width="50%">
+  <a href="docs/seo-data.md"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/seo-competitor-gaps/after-gaps-dark.png" alt="SEO search gaps table comparing your Google rank with a competitor's, with sample data" width="100%" /></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### AI Agent Traffic
+
+See which AI agents fetch your pages, checked against each company's published IP list. Follow AI-referred visitors when they come back.
+
+[Docs →](skills/canonry/references/server-side-traffic.md)
+
+</td>
+<td width="50%">
+  <a href="skills/canonry/references/server-side-traffic.md"><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/agent-journeys/agent-requests-desktop.png" alt="Agent requests from ChatGPT, Claude, and Perplexity with a trust level for each, with sample data" width="100%" /></a>
+</td>
+</tr>
+</table>
+
+<a id="compare-competitors-and-measure-complex-portfolios"></a>
+<a id="act-on-the-evidence"></a>
+
+**Also in the box:**
+
+- **[Aero](skills/aero/SKILL.md)** — A built-in analyst in the dashboard that reads your evidence and explains what changed.
+- **[Portfolios](skills/canonry/references/canonry-cli.md#target-measurement-plans)** — Versioned measurement plans for locations, products, or site sections. Branded and non-brand queries stay separate.
+- **[Competitor landscape](docs/competitor-landscape.md)** — Mention share, mentions, and citations for you and your competitors over time.
+- **[Query discovery and research](skills/canonry/references/canonry-cli.md#discovery-tracked-basket-expansion)** — Find new queries to track, or run one-off research without changing what you track.
+- **[Publish and index](skills/canonry/references/indexing.md)** — WordPress drafts, JSON-LD, and sitemap and URL submissions to Google and Bing.
+- **[Schedules and webhooks](skills/canonry/references/canonry-cli.md#scheduling--notifications)** — Rerun checks on a schedule and send alerts to Discord, Slack, or your systems.
+- **[Backlinks](skills/canonry/references/canonry-cli.md#backlinks-common-crawl)** — Common Crawl link data, queried locally with DuckDB.
+- **[Sentiment](docs/sentiment.md)** — Experimental, off by default. Rates branded answers as favorable, mixed, or unfavorable.
+- **And more** — browse the [documentation index](docs/README.md).
+
+**An example job for your connected agent:**
+
+> Find where competitors get cited and we don't. Use search data and the site audit to prepare a pull request or WordPress draft for review. After it ships, rerun checks and report what changed.
+
+## How it works
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg">
@@ -17,11 +131,65 @@ Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform 
   </a>
 </p>
 
+---
+
+## Supported Engines
+
+Compare direct AI engines, OpenRouter models, and search answers from Exa and Parallel. Each keeps its own results and history.
+
+<p>
+  <a href="https://platform.openai.com/api-keys"><kbd><img src="https://www.google.com/s2/favicons?domain=openai.com&amp;sz=64" alt="OpenAI logo" width="16" valign="middle" /> ChatGPT</kbd></a> &nbsp;
+  <a href="https://console.anthropic.com/settings/keys"><kbd><img src="https://www.google.com/s2/favicons?domain=claude.ai&amp;sz=64" alt="Claude logo" width="16" valign="middle" /> Claude</kbd></a> &nbsp;
+  <a href="https://aistudio.google.com/apikey"><kbd><img src="https://www.google.com/s2/favicons?domain=gemini.google.com&amp;sz=64" alt="Gemini logo" width="16" valign="middle" /> Gemini</kbd></a> &nbsp;
+  <a href="https://www.perplexity.ai/settings/api"><kbd><img src="https://www.google.com/s2/favicons?domain=perplexity.ai&amp;sz=64" alt="Perplexity logo" width="16" valign="middle" /> Perplexity</kbd></a> &nbsp;
+  <a href="https://dev.meta.ai/"><kbd><img src="https://www.google.com/s2/favicons?domain=meta.ai&amp;sz=64" alt="Meta logo" width="16" valign="middle" /> Meta (Muse)</kbd></a> &nbsp;
+  <a href="docs/providers/openrouter.md"><kbd><img src="https://www.google.com/s2/favicons?domain=openrouter.ai&amp;sz=64" alt="OpenRouter logo" width="16" valign="middle" /> OpenRouter</kbd></a> &nbsp;
+  <a href="docs/providers/answer-services/exa.md"><kbd><img src="https://www.google.com/s2/favicons?domain=exa.ai&amp;sz=64" alt="Exa logo" width="16" valign="middle" /> Exa</kbd></a> &nbsp;
+  <a href="docs/providers/answer-services/parallel.md"><kbd><img src="https://www.google.com/s2/favicons?domain=parallel.ai&amp;sz=64" alt="Parallel logo" width="16" valign="middle" /> Parallel</kbd></a> &nbsp;
+  <kbd>+ any OpenAI-compatible local model</kbd>
+</p>
+
+**Works with your agent:**
+
+<p>
+  <a href="docs/plugins.md#install-for-claude-code"><kbd><img src="https://www.google.com/s2/favicons?domain=claude.ai&amp;sz=64" alt="Claude Code logo" width="16" valign="middle" /> Claude Code</kbd></a> &nbsp;
+  <a href="docs/plugins.md#install-for-codex"><kbd><img src="https://www.google.com/s2/favicons?domain=openai.com&amp;sz=64" alt="Codex logo" width="16" valign="middle" /> Codex</kbd></a> &nbsp;
+  <a href="docs/mcp.md"><kbd><img src="https://www.google.com/s2/favicons?domain=chatgpt.com&amp;sz=64" alt="ChatGPT logo" width="16" valign="middle" /> ChatGPT</kbd></a> &nbsp;
+  <a href="docs/mcp.md"><kbd><img src="https://www.google.com/s2/favicons?domain=claude.ai&amp;sz=64" alt="Claude Desktop logo" width="16" valign="middle" /> Claude Desktop</kbd></a> &nbsp;
+  <kbd>+ any MCP client or shell-capable agent</kbd>
+</p>
+
+<a id="built-in-integrations-and-workflows"></a>
+
+## Integrations
+
+Connect the sources you use. Each one adds evidence or tools to the same project.
+
+<p>
+  <a href="docs/google-search-console-setup.md"><kbd><img src="https://www.google.com/s2/favicons?domain=search.google.com&amp;sz=64" alt="Google Search Console logo" width="16" valign="middle" /> Search Console</kbd></a> &nbsp;
+  <a href="docs/bing-webmaster-setup.md"><kbd><img src="https://www.google.com/s2/favicons?domain=bing.com&amp;sz=64" alt="Bing logo" width="16" valign="middle" /> Bing Webmaster Tools</kbd></a> &nbsp;
+  <a href="docs/google-analytics-setup.md"><kbd><img src="https://www.google.com/s2/favicons?domain=analytics.google.com&amp;sz=64" alt="Google Analytics logo" width="16" valign="middle" /> Google Analytics 4</kbd></a> &nbsp;
+  <a href="skills/canonry/references/google-business-profile.md"><kbd><img src="https://www.google.com/s2/favicons?domain=business.google.com&amp;sz=64" alt="Google Business Profile logo" width="16" valign="middle" /> Business Profile</kbd></a> &nbsp;
+  <a href="docs/google-marketing.md"><kbd><img src="https://www.google.com/s2/favicons?domain=ads.google.com&amp;sz=64" alt="Google Ads logo" width="16" valign="middle" /> Google Ads</kbd></a> &nbsp;
+  <a href="docs/google-marketing.md"><kbd><img src="https://www.google.com/s2/favicons?domain=tagmanager.google.com&amp;sz=64" alt="Google Tag Manager logo" width="16" valign="middle" /> Tag Manager</kbd></a> &nbsp;
+  <a href="docs/cloudflare-traffic-setup.md"><kbd><img src="https://www.google.com/s2/favicons?domain=cloudflare.com&amp;sz=64" alt="Cloudflare logo" width="16" valign="middle" /> Cloudflare</kbd></a> &nbsp;
+  <a href="skills/canonry/references/server-side-traffic.md"><kbd><img src="https://www.google.com/s2/favicons?domain=vercel.com&amp;sz=64" alt="Vercel logo" width="16" valign="middle" /> Vercel</kbd></a> &nbsp;
+  <a href="skills/canonry/references/server-side-traffic.md"><kbd><img src="https://www.google.com/s2/favicons?domain=cloud.google.com&amp;sz=64" alt="Google Cloud logo" width="16" valign="middle" /> Cloud Run</kbd></a> &nbsp;
+  <a href="docs/wordpress-setup.md"><kbd><img src="https://www.google.com/s2/favicons?domain=wordpress.org&amp;sz=64" alt="WordPress logo" width="16" valign="middle" /> WordPress</kbd></a> &nbsp;
+  <a href="docs/seo-data.md"><kbd><img src="https://www.google.com/s2/favicons?domain=dataforseo.com&amp;sz=64" alt="DataForSEO logo" width="16" valign="middle" /> DataForSEO</kbd></a> &nbsp;
+  <a href="skills/canonry/references/canonry-cli.md#backlinks-common-crawl"><kbd><img src="https://www.google.com/s2/favicons?domain=commoncrawl.org&amp;sz=64" alt="Common Crawl logo" width="16" valign="middle" /> Common Crawl</kbd></a> &nbsp;
+  <a href="docs/mcp.md#tool-surface"><kbd><img src="https://www.google.com/s2/favicons?domain=chatgpt.com&amp;sz=64" alt="ChatGPT logo" width="16" valign="middle" /> ChatGPT Ads</kbd></a>
+</p>
+
+---
+
 ## Quick start
 
 <a id="or-use-any-shell-capable-coding-agent"></a>
 
-### Start with your agent
+### With your agent
+
+Paste this into Claude Code, Codex, or any shell-capable coding agent.
 
 <details>
 <summary>Copy the first-time setup request</summary>
@@ -48,37 +216,33 @@ Pick one path and stay on it. Use connected Canonry tools (plugin or MCP) only i
 
 </details>
 
-### Or Use Official Claude and Codex Plugins
+### With the plugin
 
-Connect the [Agent Plugin](docs/plugins.md) or [MCP adapter](docs/mcp.md) to your own agent.
+```bash
+# Claude Code
+claude plugin marketplace add Canonry/canonry
+claude plugin install canonry@canonry
+
+# Codex
+codex plugin marketplace add Canonry/canonry
+codex plugin add canonry@canonry
+```
+
+Or connect the [MCP adapter](docs/mcp.md) to any MCP client. Full steps: [Agent Plugin guide](docs/plugins.md).
 
 <a id="get-a-page-health-baseline"></a>
 
-### Or start it locally yourself
+### On your own
 
-1. Install Canonry.
+```bash
+npm install -g @canonry/canonry
+cnry bootstrap
+cnry serve
+```
 
-   ```bash
-   npm install -g @canonry/canonry
-   ```
+Then open [http://127.0.0.1:4100/setup](http://127.0.0.1:4100/setup) and follow the setup to scan your site. The crawl saves a Page Health baseline. AI Visibility is optional and has a separate setup.
 
-   If you previously installed `@ainyc/canonry`, run `npm uninstall -g @ainyc/canonry` first to release the shared command names. Existing configuration and data in `~/.canonry` stay in place. New releases are published only under `@canonry`.
-
-2. Initialize Canonry.
-
-   ```bash
-   cnry bootstrap
-   ```
-
-3. Start Canonry.
-
-   ```bash
-   cnry serve
-   ```
-
-4. Open [http://127.0.0.1:4100/setup](http://127.0.0.1:4100/setup) and follow the setup to scan your site.
-
-The crawl saves a Page Health baseline. AI Visibility is optional and has a separate setup.
+_Moving from `@ainyc/canonry`? Run `npm uninstall -g @ainyc/canonry` first to free the shared command names. Your data in `~/.canonry` stays in place._
 
 <details>
 <summary>Scan and read results from the terminal</summary>
@@ -101,27 +265,6 @@ cnry technical-aeo pages my-site --run-id <run-id> --sort score-asc --limit 10 -
 If the scan fails or is cancelled, read the error with `cnry run show <run-id> --format json`.
 
 </details>
-
-## Explore the evidence
-
-Your agent and dashboard use the same project API. The dashboard makes trends, exact answers, and site findings available for human review.
-
-<a id="add-ai-visibility-when-you-need-it"></a>
-
-### AI visibility
-
-Track brand mentions and citations over time, by query and answer engine. Find answers that cite competitors but omit your site.
-
-Compare direct AI engines, OpenRouter models, and search answers from Exa and Parallel.
-
-![Canonry AI Visibility mention share trend across answer engines](https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/ai-visibility-trend.png)
-
-*Track your share of answer-engine brand mentions over time.*
-
-![Canonry AI Visibility citation map across queries and answer engines](https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/ai-visibility-diagnostics.png)
-
-The citation map shows mention and citation coverage across queries and engines.
-[Rank cited domains and pages](skills/canonry/references/canonry-cli.md#cited-source-rankings-cnry-sources), then inspect the exact answers and URLs behind each result.
 
 <details>
 <summary>Configure a provider and run visibility checks</summary>
@@ -181,67 +324,19 @@ For a configured portfolio destination, select one `--market <key>` or `--proper
 
 </details>
 
-<a id="compare-competitors-and-measure-complex-portfolios"></a>
+<a id="if-you-get-stuck"></a>
 
-### Search, traffic, and site health
+<details>
+<summary>Troubleshoot installation, scans, and visibility results</summary>
 
-Investigate visibility changes with evidence from search and local performance, crawler visits, AI page fetches, referrals, and conversions.
-Site audits show technical findings alongside that evidence.
-
-![Canonry Site Map graph](https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/dashboard.png)
-
-*Map crawlable pages and the internal links that connect them.*
-
-<a id="seo-data"></a>
-
-### SEO data with DataForSEO
-
-Use **DataForSEO Labs** for Google keyword research, organic rankings, and domain comparisons.
-Explore search volume, difficulty, CPC, ranking URLs, and estimated traffic through the dashboard, CLI, MCP, and API.
-
-[Configure DataForSEO](docs/seo-data.md).
-
-![Canonry DataForSEO integration showing domain metrics and ranked keywords](docs/images/seo-data-phase-one/desktop.jpg)
-
-*SEO dashboard with sample data: organic keyword totals, estimated traffic, and ranked keywords.*
-
-### Portfolios and competitors
-
-Use [versioned measurement plans](docs/mcp.md#tool-surface) for portfolios of locations, products, or site sections.
-
-- **Properties:** Assign queries, engines, models, and locations to each property. Keep branded and non-brand coverage separate.
-- **Market groups:** Organize overlapping sets of properties, each with its own competitors.
-- **Comparisons:** Compare properties, groups, engines, and locations. Open the exact answers and cited URLs behind each result.
-
-## Act on the evidence
-
-Your agent coordinates the work through Canonry and its own tools.
-
-- **Improve the site:** Combine your agent's coding tools with Canonry's content, [WordPress publishing](docs/wordpress-setup.md), JSON-LD, and [indexing workflows](skills/canonry/references/indexing.md).
-- **Measure after changes:** Configure [independent schedules](skills/canonry/references/canonry-cli.md#scheduling--notifications) for data syncs and checks. Compare new results with earlier evidence.
-- **Export and follow up:** Read [AI visibility evidence](docs/report-retirement.md) and [traffic analytics](docs/report-retirement.md). Send [webhook alerts](skills/canonry/references/canonry-cli.md#agent) to Discord, Slack, or your systems.
-
-**An example job for your connected agent:**
-
-> Find where competitors get cited and we don't. Use search data and the site audit to prepare a pull request or WordPress draft for review. After it ships, rerun checks and report what changed.
-
-<a id="built-in-integrations-and-workflows"></a>
-
-## Integrations
-
-Connect the sources you use. Each integration adds evidence or tools to the same project workflow.
-
-| Area | Supported integrations |
+| Problem | Next step |
 |---|---|
-| **AI answers** | ChatGPT · Claude · Gemini · Meta (Muse) · Perplexity · OpenAI-compatible local models |
-| **Search and local** | [Google Search Console](docs/google-search-console-setup.md) · [Bing Webmaster Tools](docs/bing-webmaster-setup.md) · [Google Business Profile](skills/canonry/references/google-business-profile.md) |
-| **SEO research** | **[DataForSEO Labs](docs/seo-data.md)**: keyword metrics, ranked keywords, and domain comparison |
-| **Analytics** | [Google Analytics 4](docs/google-analytics-setup.md) |
-| **Conversion measurement** | [Google Ads + Google Tag Manager](docs/google-marketing.md): read-only snapshots and declared conversion contracts |
-| **Server traffic** | [Cloudflare · Vercel · Cloud Run · WordPress](skills/canonry/references/server-side-traffic.md) |
-| **Backlinks** | [Common Crawl](skills/canonry/references/canonry-cli.md#backlinks-common-crawl) hyperlink releases, queried locally with DuckDB |
-| **Publishing and indexing** | [WordPress](docs/wordpress-setup.md) · JSON-LD · [sitemap and URL submissions](skills/canonry/references/indexing.md) |
-| **ChatGPT Ads** | [Campaign measurement, paused campaign editing, approved activation, and operation reconciliation](docs/mcp.md#tool-surface) |
+| Site scan is still active | Read exact counters with `cnry technical-aeo progress <project> --run-id <id> --format json`. |
+| Site scan failed | Read the error with `cnry run show <run-id> --format json`. Read the last phase and counters with the progress command. |
+| No visibility results | Inspect existing work with `cnry runs <project> --format json`, then `cnry run show <run-id> --format json`. This does not start another paid run. |
+| `npm install` fails on `node-gyp` | Install build tools for `better-sqlite3` ([guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md)). |
+
+</details>
 
 <a id="deployment-and-trust-boundary"></a>
 <a id="technical-surface"></a>
@@ -263,23 +358,18 @@ See the [deployment guide](docs/deployment.md) for reverse proxies, daemon mode,
 - **Install standalone agent skills:** `cnry skills install` ([guide](skills/canonry/SKILL.md))
 - **Browse all guides:** [Documentation index](docs/README.md)
 
-<a id="if-you-get-stuck"></a>
+---
 
-<details>
-<summary>Troubleshoot installation, scans, and visibility results</summary>
+<a id="support"></a>
 
-| Problem | Next step |
-|---|---|
-| Site scan is still active | Read exact counters with `cnry technical-aeo progress <project> --run-id <id> --format json`. |
-| Site scan failed | Read the error with `cnry run show <run-id> --format json`. Read the last phase and counters with the progress command. |
-| No visibility results | Inspect existing work with `cnry runs <project> --format json`, then `cnry run show <run-id> --format json`. This does not start another paid run. |
-| `npm install` fails on `node-gyp` | Install build tools for `better-sqlite3` ([guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md)). |
+## Community &amp; Support
 
-</details>
+- **Discord:** Join the community on **[Discord](https://discord.gg/8K9yY7GywJ)** for help and questions.
+- **Twitter / X:** Follow **[@canonry_ai](https://x.com/canonry_ai)** for updates.
+- **Feedback &amp; Ideas:** Missing something? [Open an issue](https://github.com/Canonry/canonry/issues).
+- **Show Support:** [Star](https://github.com/Canonry/canonry) this repo to follow along.
 
-## Support
-
-Join the [Canonry Discord](https://discord.gg/8K9yY7GywJ) for support and questions about Canonry.
+---
 
 ## Contributing
 
@@ -290,6 +380,14 @@ pnpm install
 
 For local agent work, run tests only after changes are finalized and ready for push or review.
 `pnpm verify` is optional locally. See [CONTRIBUTING.md](./CONTRIBUTING.md) and the [testing guide](docs/testing.md).
+
+<a href="https://github.com/Canonry/canonry/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=Canonry/canonry" alt="Canonry contributors" />
+</a>
+
+<p align="center">
+  <a href="https://star-history.com/#Canonry/canonry&amp;Date"><img src="https://api.star-history.com/svg?repos=Canonry/canonry&amp;type=Date" alt="GitHub star history chart for Canonry/canonry" width="880" /></a>
+</p>
 
 ## License
 
