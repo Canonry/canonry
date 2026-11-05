@@ -241,7 +241,9 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         actor: 'api',
         action: existing ? 'schedule.updated' : 'schedule.created',
         entityType: 'schedule',
-        diff: { kind, cronExpr, preset, recurrence, timezone, providers, sourceId, ...(siteAuditChecks ? { siteAudit: siteAuditChecks } : {}) },
+        // A scan schedule logs the checks it ends up with, so a reset to the
+        // defaults is as visible as turning deep checks on.
+        diff: { kind, cronExpr, preset, recurrence, timezone, providers, sourceId, ...(kind === SchedulableRunKinds['site-audit'] ? { siteAudit: siteAuditScheduleChecks(siteAuditChecks) } : {}) },
       })
 
       return {

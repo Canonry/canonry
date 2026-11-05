@@ -14,6 +14,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['schedule', 'set'],
     usage: 'canonry schedule set <project> (--preset <preset> | --cron <expr> | --every-days <n> --start-date <YYYY-MM-DD> --at <HH:mm>) [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit|ads-sync|doctor|seo-sync] [--source <id>] [--timezone <tz>] [--provider <name>...] [--check-dead-links] [--include-geo] [--no-agent-skills] [--default-checks] [--format json]',
+    help: 'Create or replace a schedule. Give exactly one timing (--preset, --cron, or --every-days with --start-date and --at); anything not given is kept from the current schedule. For --kind site-audit, --check-dead-links, --include-geo and --no-agent-skills set what every scheduled scan checks (any of them sets the whole list), and --default-checks resets them. Check flags alone keep the current timing.',
     options: {
       preset: stringOption(),
       cron: stringOption(),

@@ -5,7 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
-import { createClient, migrate, projects, schedules, trafficSources } from '@canonry/canonry-db'
+import { auditLog, createClient, migrate, projects, schedules, trafficSources } from '@canonry/canonry-db'
 import { SchedulableRunKinds, TrafficSourceStatuses, TrafficSourceTypes, type SchedulableRunKind } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
@@ -519,6 +519,11 @@ describe('site-audit schedule checks', () => {
     expect((await get()).siteAudit).toEqual({ checkDeadLinks: false, includeGeo: true, includeAgentSkills: true })
     await put({ ...weekly, siteAudit: null })
     expect((await get()).siteAudit).toEqual({ checkDeadLinks: false, includeGeo: false, includeAgentSkills: true })
+    // The audit log records the checks each save ends up with, so the reset shows.
+    const logged = harness.db.select().from(auditLog).where(eq(auditLog.entityType, 'schedule')).all()
+      .map((row) => (typeof row.diff === 'string' ? JSON.parse(row.diff) : row.diff) as { siteAudit?: unknown })
+    expect(logged.at(-1)?.siteAudit).toEqual({ checkDeadLinks: false, includeGeo: false, includeAgentSkills: true })
+    expect(logged[0]?.siteAudit).toEqual({ checkDeadLinks: true, includeGeo: true, includeAgentSkills: false })
   })
 
   it('rejects checks on another kind, and unknown check names', async () => {

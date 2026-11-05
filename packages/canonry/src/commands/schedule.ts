@@ -1,6 +1,6 @@
 import type { ScheduleDto, SiteAuditScheduleChecks } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { isMachineFormat } from '../cli-error.js'
+import { isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 export async function listSchedules(project: string, format?: string): Promise<void> {
@@ -57,6 +57,14 @@ export async function setSchedule(project: string, opts: {
   // schedule and carry forward everything the caller did not explicitly set,
   // exactly as enableSchedule/disableSchedule already do.
   const current = await readCurrentSchedule(client, project, opts.kind)
+  const timingGiven = Boolean(opts.everyDays || opts.startDate || opts.at || opts.preset || opts.cron)
+  if (!current && !timingGiven) {
+    // Check flags alone keep the current timing, so there has to be one.
+    throw usageError(`Error: "${project}" has no ${opts.kind ?? 'answer-visibility'} schedule yet; add --preset, --cron, or --every-days with --start-date and --at`, {
+      message: 'no schedule to keep the timing of; a timing is required to create one',
+      details: { command: 'schedule.set', project, kind: opts.kind ?? 'answer-visibility' },
+    })
+  }
   const body: Record<string, unknown> = {}
   if (opts.kind) body.kind = opts.kind
   else if (current) body.kind = current.kind

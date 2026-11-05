@@ -51,6 +51,14 @@ describe('schedule set: site-audit scan checks', () => {
     expect(mockPutSchedule).not.toHaveBeenCalled()
   })
 
+  it('asks for a timing when check flags meet a project with no scan schedule yet', async () => {
+    mockGetSchedule.mockRejectedValue(new Error('not found'))
+    const result = await invokeCli(['schedule', 'set', 'demo', '--kind', 'site-audit', '--check-dead-links'])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toMatch(/no site-audit schedule yet; add --preset, --cron, or --every-days/)
+    expect(mockPutSchedule).not.toHaveBeenCalled()
+  })
+
   it('leaves the checks out of the request when only the timing changes, so the server keeps them', async () => {
     await setSchedule('demo', { kind: 'site-audit', everyDays: '7', startDate: '2026-11-13', at: '09:00' })
     expect(mockPutSchedule.mock.calls[0]![1]).not.toHaveProperty('siteAudit')
