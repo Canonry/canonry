@@ -43,6 +43,15 @@ export function sitemapKey(url: string): string {
   }
 }
 
+/** A sitemap's host, lowercased, default port dropped; the URL itself when it does not parse. */
+function sitemapHost(url: string): string {
+  try {
+    return new URL(url).host.toLowerCase()
+  } catch {
+    return url
+  }
+}
+
 /** Search Console's verdict as the dashboard has always worded it. */
 export function googleSitemapState(row: { isPending: boolean; errors: number | null; warnings: number | null }): { state: SitemapState; statusLabel: string } {
   if (row.isPending) return { state: 'pending', statusLabel: 'Processing' }
@@ -78,11 +87,28 @@ function missingFor(
     candidates.set(key, entry)
   }
   for (const url of site) add(url, 'site')
-  // The other engine's own submissions. A sitemap it only found by itself (no
-  // submittedAt) is not a suggestion: it is often a stale or duplicate host,
-  // and if the site lists it, the site's entry already suggests it. Index files
-  // come with their index.
-  for (const row of other?.list.sitemaps ?? []) if (row.parentUrl === null && row.submittedAt !== null) add(row.url, other!.name)
+  // The other engine's own submissions. Index files come with their index.
+  // Three kinds are not suggestions:
+  // - one it only found by itself (no submittedAt): often a stale or duplicate
+  //   host, and if the site lists it, the site's entry already suggests it;
+  // - one it reports errors for: often a page URL submitted as a sitemap;
+  // - an index on a host where this engine already has every sitemap the site
+  //   declares: most often a second name for the same index (sitemap.xml and
+  //   sitemap_index.xml). With no declared sitemap on that host it still counts.
+  const declaredByHost = new Map<string, string[]>()
+  for (const url of site) {
+    const host = sitemapHost(url)
+    declaredByHost.set(host, [...(declaredByHost.get(host) ?? []), sitemapKey(url)])
+  }
+  const coversSite = (url: string) => {
+    const declared = declaredByHost.get(sitemapHost(url)) ?? []
+    return declared.length > 0 && declared.every((key) => have.has(key))
+  }
+  for (const row of other?.list.sitemaps ?? []) {
+    if (row.parentUrl !== null || row.submittedAt === null || row.state === 'errors') continue
+    if (row.isIndex && coversSite(row.url)) continue
+    add(row.url, other!.name)
+  }
   return [...candidates.entries()]
     .filter(([key]) => {
       const parent = parents.get(key)
