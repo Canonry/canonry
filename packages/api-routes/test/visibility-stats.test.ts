@@ -195,6 +195,36 @@ describe('computeVisibilityStats (pure)', () => {
     expect(queries).toEqual([])
   })
 
+  it('splits totals by query class and tags each query, when classes are given', () => {
+    const queries = [...Q, { id: 'q3', query: 'Acme reviews' }]
+    const queryClasses = new Map([['q1', 'non-brand' as const], ['q3', 'branded' as const], ['q2', null]])
+    const stats = computeVisibilityStats({
+      queries,
+      groupBy: null,
+      queryClasses,
+      snapshots: [
+        snap({ queryId: 'q1', answerMentioned: false }),
+        snap({ queryId: 'q1', answerMentioned: true, citationState: 'cited' }),
+        snap({ queryId: 'q3', queryText: 'Acme reviews', answerMentioned: true, citationState: 'cited' }),
+        snap({ queryId: 'q2', queryText: 'how to optimize for AI search', answerMentioned: null }),
+      ],
+    })
+    expect(stats.byQueryClass).toEqual({
+      nonBrand: { total: 2, checked: 2, mentioned: 1, cited: 1, mentionRate: 0.5, citedRate: 0.5 },
+      branded: { total: 1, checked: 1, mentioned: 1, cited: 1, mentionRate: 1, citedRate: 1 },
+      unclassified: { total: 1, checked: 0, mentioned: 0, cited: 0, mentionRate: null, citedRate: 0 },
+    })
+    // The split adds back up to the pooled totals.
+    expect(stats.totals).toMatchObject({ total: 4, checked: 3, mentioned: 2, cited: 2 })
+    expect(Object.fromEntries(stats.queries.map((q) => [q.queryId, q.queryClass]))).toEqual({ q1: 'non-brand', q2: null, q3: 'branded' })
+  })
+
+  it('leaves the split out when no classes are given', () => {
+    const stats = computeVisibilityStats({ queries: Q, groupBy: null, snapshots: [snap({})] })
+    expect(stats.byQueryClass).toBeUndefined()
+    expect(stats.queries[0]).not.toHaveProperty('queryClass')
+  })
+
   it('rounds rates to the fraction wire precision', () => {
     // 1 of 3 checked → 0.33333… → 0.33333333; 2 of 3 cited → 0.66666… → 0.66666667.
     const snapshots = [
@@ -346,6 +376,32 @@ describe('GET /projects/:name/visibility-stats', () => {
     expect(q.mentioned).toBe(1)
     expect(q.citedRate).toBe(0.5)
     expect(q.mentionRate).toBe(0.5)
+  })
+
+  it('splits the totals by query class from the project\'s brand names, whatever queryClass asks', async () => {
+    const branded = crypto.randomUUID()
+    ctx.db.insert(queriesTable).values({ id: branded, projectId: ctx.projectId, query: 'Vis Stats reviews', createdAt: iso(30) }).run()
+    seedRun({
+      createdAt: iso(2),
+      snapshots: [
+        { queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: false },
+        { queryId: ctx.q2, queryText: 'AI search optimization', provider: 'openai', cited: true, mentioned: true },
+        { queryId: branded, queryText: 'Vis Stats reviews', provider: 'openai', cited: true, mentioned: true },
+      ],
+    })
+    for (const qs of ['', '?queryClass=branded']) {
+      const { status, body } = await getStats(qs)
+      expect(status).toBe(200)
+      // queryClass scopes share of voice only: the pooled totals and the split are the same either way.
+      expect(body.totals).toMatchObject({ total: 3, mentioned: 2 })
+      expect(body.byQueryClass).toEqual({
+        nonBrand: { total: 2, checked: 2, mentioned: 1, cited: 1, mentionRate: 0.5, citedRate: 0.5 },
+        branded: { total: 1, checked: 1, mentioned: 1, cited: 1, mentionRate: 1, citedRate: 1 },
+        unclassified: { total: 0, checked: 0, mentioned: 0, cited: 0, mentionRate: null, citedRate: null },
+      })
+      expect(body.queries.find((q) => q.query === 'Vis Stats reviews')?.queryClass).toBe('branded')
+      expect(body.queries.find((q) => q.query === 'best AEO platform')?.queryClass).toBe('non-brand')
+    }
   })
 
   it('returns an empty, well-formed payload when there are no runs', async () => {

@@ -159,6 +159,24 @@ describe('showVisibilityStats', () => {
     expect(out).toContain('gemini')
   })
 
+  it('text prints the class split under TOTAL, non-brand first, and skips an empty class', async () => {
+    mockGetVisibilityStats.mockResolvedValue({
+      ...data,
+      byQueryClass: {
+        nonBrand: { total: 4, checked: 4, mentioned: 1, cited: 2, mentionRate: 0.25, citedRate: 0.5 },
+        branded: { total: 2, checked: 1, mentioned: 1, cited: 2, mentionRate: 1, citedRate: 1 },
+        unclassified: { total: 0, checked: 0, mentioned: 0, cited: 0, mentionRate: null, citedRate: null },
+      },
+    })
+    const cap = captureOutput(() => showVisibilityStats('acme', {}))
+    await cap.run
+    const lines = cap.lines()
+    const total = lines.findIndex((line) => line.startsWith('TOTAL'))
+    expect(lines[total + 1]).toMatch(/^ {2}non-brand\s+2\/4\s+50(\.0)?%\s+1\/4\s+25(\.0)?%/)
+    expect(lines[total + 2]).toMatch(/^ {2}branded\s+2\/2/)
+    expect(cap.text()).not.toContain('unclassified')
+  })
+
   it('text renders an empty-state hint when there are no rows', async () => {
     mockGetVisibilityStats.mockResolvedValue({
       ...data,
