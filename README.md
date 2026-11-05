@@ -13,7 +13,7 @@
 
 <p align="center">
   <strong>The agent-first AEO operating platform.</strong><br/>
-  Track mentions and citations across ChatGPT, Claude, Gemini, Perplexity, and more. Join them with Search Console, GA4, ads, AI crawler traffic, site audits, and SEO data. Then let your agent create content, publish fixes, manage ChatGPT ads, get pages indexed, and measure what changed.<br/>
+  Track mentions and citations across ChatGPT, Claude, Gemini, Meta Muse, and more. Join them with Search Console, GA4, ads, AI crawler traffic, site audits, and SEO data. Then let your agent create content, publish fixes, manage ChatGPT ads, get pages indexed, and measure what changed.<br/>
   <sub>Open source · Self-hosted · Bring your own keys</sub>
 </p>
 
@@ -44,7 +44,7 @@ Track brand mentions and citations by query and answer engine. See where competi
 
 ### Server-Side AI Traffic
 
-See what AI engines actually do on your site, from your server logs: which pages AI crawlers read, which pages ChatGPT, Claude, and Perplexity fetch for users, and who clicks through. [Docs →](skills/canonry/references/server-side-traffic.md)
+See what AI agents actually do on your site, from your server logs: which pages GPTBot, ClaudeBot, Meta AI, and Grok crawl, which pages ChatGPT, Claude, and Meta AI open for users, and who clicks through. [Docs →](skills/canonry/references/server-side-traffic.md)
 
 <a href="skills/canonry/references/server-side-traffic.md"><picture><source media="(max-width: 600px)" srcset="docs/images/readme/traffic-mobile.png" /><img src="docs/images/readme/traffic.png" alt="Server traffic for the last 24 hours: 105 AI crawler visits, 35 AI user fetches, and 46 AI referral sessions, with an hourly chart, with sample data" width="100%" /></picture></a>
 
