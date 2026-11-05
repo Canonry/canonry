@@ -483,6 +483,53 @@ describe('schedule per-kind invariants', () => {
   })
 })
 
+describe('site-audit schedule checks', () => {
+  let harness: Harness
+  beforeEach(async () => { harness = await buildHarness() })
+  afterEach(async () => { await teardown(harness) })
+
+  const put = (payload: Record<string, unknown>) => harness.app.inject({ method: 'PUT', url: '/api/v1/projects/site-a/schedule', payload })
+  const get = async () => JSON.parse((await harness.app.inject({ method: 'GET', url: '/api/v1/projects/site-a/schedule?kind=site-audit' })).payload)
+  const weekly = { kind: 'site-audit', recurrence: { everyDays: 7, startDate: '2030-01-03', time: '07:00' } }
+
+  it('reads the defaults for a scan schedule saved without checks, and null for other kinds', async () => {
+    expect((await put(weekly)).statusCode).toBe(201)
+    expect((await get()).siteAudit).toEqual({ checkDeadLinks: false, includeGeo: false, includeAgentSkills: true })
+    const refresh = await put({ kind: 'data-refresh', preset: 'daily' })
+    expect(JSON.parse(refresh.payload).siteAudit).toBeNull()
+  })
+
+  it('stores deep checks, fills unset ones with defaults, and keeps them through a move, a pause and a resume', async () => {
+    const created = await put({ ...weekly, siteAudit: { checkDeadLinks: true, includeGeo: true } })
+    expect(created.statusCode).toBe(201)
+    const deep = { checkDeadLinks: true, includeGeo: true, includeAgentSkills: true }
+    expect(JSON.parse(created.payload).siteAudit).toEqual(deep)
+    // Clients that only move, pause or resume the schedule send no checks.
+    expect((await put({ ...weekly, recurrence: { everyDays: 7, startDate: '2030-01-04', time: '08:00' } })).statusCode).toBe(200)
+    expect((await put({ ...weekly, enabled: false })).statusCode).toBe(200)
+    expect((await put({ ...weekly, enabled: true })).statusCode).toBe(200)
+    expect((await get()).siteAudit).toEqual(deep)
+    const row = harness.db.select().from(schedules).where(and(eq(schedules.projectId, harness.projectId), eq(schedules.kind, 'site-audit'))).get()
+    expect(row?.siteAuditChecks).toEqual(deep)
+  })
+
+  it('replaces the whole set when checks are sent, and resets to the defaults on null', async () => {
+    await put({ ...weekly, siteAudit: { checkDeadLinks: true, includeGeo: true, includeAgentSkills: false } })
+    await put({ ...weekly, siteAudit: { includeGeo: true } })
+    expect((await get()).siteAudit).toEqual({ checkDeadLinks: false, includeGeo: true, includeAgentSkills: true })
+    await put({ ...weekly, siteAudit: null })
+    expect((await get()).siteAudit).toEqual({ checkDeadLinks: false, includeGeo: false, includeAgentSkills: true })
+  })
+
+  it('rejects checks on another kind, and unknown check names', async () => {
+    const wrongKind = await put({ kind: 'data-refresh', preset: 'daily', siteAudit: { checkDeadLinks: true } })
+    expect(wrongKind.statusCode).toBe(400)
+    expect(JSON.parse(wrongKind.payload).error.message).toMatch(/siteAudit.*only valid.*site-audit/)
+    const unknown = await put({ ...weekly, siteAudit: { checkEverything: true } })
+    expect(unknown.statusCode).toBe(400)
+  })
+})
+
 describe('apply preserves traffic-sync schedules', () => {
   let harness: Harness
   beforeEach(async () => { harness = await buildHarness() })

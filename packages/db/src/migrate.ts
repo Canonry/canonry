@@ -5321,6 +5321,15 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_sitemap_list_syncs_project_engine ON sitemap_list_syncs(project_id, engine)`,
     ],
   },
+  {
+    version: 210,
+    name: 'schedule-site-audit-checks',
+    // A site-audit schedule's scan checks (dead links, location, agent checks).
+    // Null keeps the defaults, so existing schedules scan exactly as before.
+    statements: [
+      `ALTER TABLE schedules ADD COLUMN site_audit_checks TEXT`,
+    ],
+  },
 ]
 
 /**

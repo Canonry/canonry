@@ -15983,6 +15983,11 @@ export type ScheduleDto = {
     enabled: boolean;
     providers: Array<string>;
     sourceId?: string | null;
+    siteAudit?: {
+        checkDeadLinks: boolean;
+        includeGeo: boolean;
+        includeAgentSkills: boolean;
+    } | null;
     lastRunAt?: string | null;
     nextRunAt?: string | null;
     createdAt: string;
@@ -27104,6 +27109,14 @@ export type PutApiV1ProjectsByNameScheduleData = {
         enabled?: boolean;
         sourceId?: string;
         /**
+         * kind=site-audit only. What each scheduled scan checks; unset fields take the defaults (checkDeadLinks false, includeGeo false, includeAgentSkills true). Omit to keep the current checks; null resets them to the defaults.
+         */
+        siteAudit?: {
+            checkDeadLinks?: boolean;
+            includeGeo?: boolean;
+            includeAgentSkills?: boolean;
+        } | null;
+        /**
          * Update only this exact version; null creates only while absent. Omit for legacy unconditional behavior.
          */
         expectedUpdatedAt?: string | null;
@@ -27125,7 +27138,7 @@ export type PutApiV1ProjectsByNameScheduleData = {
 
 export type PutApiV1ProjectsByNameScheduleErrors = {
     /**
-     * Invalid payload (e.g. sourceId missing for kind=traffic-sync, or providers set for kind=traffic-sync).
+     * Invalid payload (e.g. sourceId missing for kind=traffic-sync, providers set for kind=traffic-sync, or siteAudit set for a kind other than site-audit).
      */
     400: ErrorEnvelope;
     /**

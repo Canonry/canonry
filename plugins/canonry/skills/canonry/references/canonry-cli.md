@@ -522,9 +522,12 @@ cnry technical-aeo score <project> [--format json]      # site score + per-facto
 cnry technical-aeo pages <project> [--status error] [--sort score-asc|score-desc|url] [--format json|jsonl]   # audited-page compatibility view (worst-first by default)
 cnry technical-aeo trend <project> [--format json|jsonl] # aggregate-score history across past audits
 cnry schedule set <project> --kind site-audit --preset weekly   # keep it fresh
+cnry schedule set <project> --kind site-audit --check-dead-links --include-geo   # make every scheduled scan a deep scan (keeps the timing)
 ```
 
 Agent integration checks run by default, inspecting discoverable actions, forms, and tool links. Use `--no-agent-skills` to disable them. Geographic checks are off by default; `--include-geo` adds location and service-area signals. Both selections change scan identity. Lighthouse is not exposed by Canonry.
+
+A scheduled scan always covers the full site (or the project's saved page budget). Which checks it runs belongs to the schedule: `schedule set --kind site-audit` takes the same `--check-dead-links`, `--include-geo` and `--no-agent-skills` flags as a manual scan, and any of them sets the whole list of checks. `--default-checks` goes back to the defaults (no dead links, no location checks, agent checks on). Without these flags the schedule keeps its checks, so moving, pausing or resuming it never drops them; check flags alone keep the current timing. `schedule show` prints them on a `Checks:` line, and the API returns them as `siteAudit` (PUT `siteAudit`: omit to keep, `null` to reset).
 
 For agent site readiness, begin with `cnry technical-aeo score <project> --format json`. Use `cnry site-health overview <project>` only to add crawl metadata; it never replaces the score. Use `cnry site-health page-audit` (MCP: `canonry_site_health_page_audit`) to tie a selected graph page's audit score to exact findings and fixes. Link score is importance, not an audit verdict. Then request a focused neighborhood, a shortest path, or scan-to-scan changes. Do not ask an agent to materialize the interactive graph: it can exceed the MCP tool-result limit. The matching traversal tools are `canonry_site_health_subgraph`, `canonry_site_health_path`, and `canonry_site_health_changes`; the subgraph tool defaults to a small focused result and should be expanded only when needed.
 
@@ -719,6 +722,7 @@ cnry schedule set <project> --kind data-refresh --preset daily   # refresh all c
 cnry schedule set <project> --kind backlinks-sync --preset weekly # re-probe Common Crawl; sync only when a newer rolling window is published (no --source/--provider)
 cnry doctor --project <project> --check site.reachability   # probe the homepage now; the server also probes every 10 min and pages health.degraded after two failed passes
 cnry schedule set <project> --kind site-audit --preset weekly     # Technical AEO: bounded full-site crawl and audit (no --source/--provider)
+cnry schedule set <project> --kind site-audit --check-dead-links --include-geo   # weekly deep scan: dead links + location checks on every scheduled scan
 cnry schedule set <project> --kind seo-sync --cron '0 7 2 * *'  # paid SEO refresh of every saved profile, monthly (needs seo.run; no --source/--provider)
 cnry schedule show <project>
 cnry schedule list <project> --format json      # all configured schedule kinds

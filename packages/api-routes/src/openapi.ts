@@ -3598,6 +3598,17 @@ const routeCatalog: OpenApiOperation[] = [
               providers: stringArraySchema,
               enabled: booleanSchema,
               sourceId: stringSchema,
+              siteAudit: {
+                type: 'object',
+                nullable: true,
+                additionalProperties: false,
+                description: 'kind=site-audit only. What each scheduled scan checks; unset fields take the defaults (checkDeadLinks false, includeGeo false, includeAgentSkills true). Omit to keep the current checks; null resets them to the defaults.',
+                properties: {
+                  checkDeadLinks: booleanSchema,
+                  includeGeo: booleanSchema,
+                  includeAgentSkills: booleanSchema,
+                },
+              },
               expectedUpdatedAt: {
                 type: 'string',
                 format: 'date-time',
@@ -3612,7 +3623,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Schedule updated.', 'ScheduleDto'),
       201: jsonResponse('Schedule created.', 'ScheduleDto'),
-      400: errorResponse('Invalid payload (e.g. sourceId missing for kind=traffic-sync, or providers set for kind=traffic-sync).'),
+      400: errorResponse('Invalid payload (e.g. sourceId missing for kind=traffic-sync, providers set for kind=traffic-sync, or siteAudit set for a kind other than site-audit).'),
       409: errorResponse('The schedule changed since the caller loaded it.'),
     },
   },

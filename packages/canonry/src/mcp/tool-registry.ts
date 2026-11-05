@@ -3942,7 +3942,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_schedule_set',
     title: 'Set schedule',
-    description: 'Create or replace the scheduled run configuration for a Canonry project.',
+    description: 'Create or replace the scheduled run configuration for a Canonry project. For kind "site-audit", `siteAudit` sets what each scheduled scan checks ({ checkDeadLinks, includeGeo, includeAgentSkills }); omit it to keep the current checks, or pass null to reset them to the defaults.',
     access: 'write',
     tier: 'setup',
     inputSchema: scheduleSetInputSchema,

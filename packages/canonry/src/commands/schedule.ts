@@ -1,4 +1,4 @@
-import type { ScheduleDto } from '@canonry/canonry-contracts'
+import type { ScheduleDto, SiteAuditScheduleChecks } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -38,6 +38,8 @@ async function readCurrentSchedule(
 export async function setSchedule(project: string, opts: {
   kind?: string
   sourceId?: string
+  /** Scan checks for a site-audit schedule; null resets them, undefined keeps them. */
+  siteAudit?: Partial<SiteAuditScheduleChecks> | null
   preset?: string
   cron?: string
   everyDays?: string
@@ -76,6 +78,9 @@ export async function setSchedule(project: string, opts: {
 
   if (opts.sourceId) body.sourceId = opts.sourceId
   else if (current?.sourceId) body.sourceId = current.sourceId
+
+  // Omitted, the server keeps the schedule's current checks.
+  if (opts.siteAudit !== undefined) body.siteAudit = opts.siteAudit
 
   // Only guard when there is a row to guard; a create must stay a create.
   if (current) body.expectedUpdatedAt = current.updatedAt
@@ -171,6 +176,13 @@ export function formatNextRun(nextRunAt: string, timezone: string): string {
   }
 }
 
+/** "full site, dead links, location, agent checks": what each scheduled scan covers. */
+export function siteAuditChecksLine(checks: SiteAuditScheduleChecks): string {
+  return ['full site', checks.checkDeadLinks && 'dead links', checks.includeGeo && 'location', checks.includeAgentSkills && 'agent checks']
+    .filter(Boolean)
+    .join(', ')
+}
+
 export function printSchedule(s: ScheduleDto): void {
   console.log(`  Kind:      ${s.kind}`)
   // Only show the friendly preset name when set — without this guard, schedules
@@ -190,6 +202,9 @@ export function printSchedule(s: ScheduleDto): void {
   console.log(`  Enabled:   ${s.enabled ? 'yes' : 'no'}`)
   if (s.kind === 'traffic-sync' && s.sourceId) {
     console.log(`  Source:    ${s.sourceId}`)
+  }
+  if (s.kind === 'site-audit' && s.siteAudit) {
+    console.log(`  Checks:    ${siteAuditChecksLine(s.siteAudit)}`)
   }
   if (s.providers.length) {
     console.log(`  Providers: ${s.providers.join(', ')}`)

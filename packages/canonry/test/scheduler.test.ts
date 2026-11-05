@@ -691,7 +691,8 @@ for (const { label, saved, expectedPages } of [
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.projectId).toBe('proj_site_audit')
-    expect(calls[0]!.opts).toEqual({ maxPages: expectedPages })
+    // A schedule with no saved checks scans with the defaults.
+    expect(calls[0]!.opts).toEqual({ maxPages: expectedPages, checkDeadLinks: false, includeGeo: false, includeAgentSkills: true })
     expect(db.select().from(runs).where(eq(runs.id, calls[0]!.runId)).get()).toMatchObject({
       kind: 'site-audit',
       status: 'queued',
@@ -716,3 +717,38 @@ for (const { label, saved, expectedPages } of [
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 }
+
+test('a site-audit schedule with deep checks scans for dead links and location, and records them', () => {
+  const { db, tmpDir } = createTempDb()
+  const now = new Date().toISOString()
+  db.insert(projects).values({
+    id: 'proj_deep_scan', name: 'deep-scan-project', displayName: 'Deep Scan Project', canonicalDomain: 'example.com',
+    country: 'US', language: 'en', createdAt: now, updatedAt: now,
+  }).run()
+  db.insert(schedules).values({
+    id: 'sched_deep_scan', projectId: 'proj_deep_scan', kind: 'site-audit', cronExpr: '0 7 * * 4', timezone: 'UTC',
+    enabled: true, providers: [], sourceId: null,
+    // Stored partially, as a row written by an older engine might be: the rest are defaults.
+    siteAuditChecks: { checkDeadLinks: true, includeGeo: true } as never,
+    createdAt: now, updatedAt: now,
+  }).run()
+
+  const calls: Array<{ runId: string; opts: Record<string, unknown> }> = []
+  const scheduler = new Scheduler(db, {
+    onRunCreated: () => {},
+    onSiteAuditRequested: (runId, _projectId, opts) => calls.push({ runId, opts }),
+  })
+  ;(scheduler as unknown as { triggerRun: (scheduleId: string, projectId: string, kind: 'site-audit') => void })
+    .triggerRun('sched_deep_scan', 'proj_deep_scan', 'site-audit')
+
+  expect(calls).toHaveLength(1)
+  expect(calls[0]!.opts).toEqual({ maxPages: 50_000, checkDeadLinks: true, includeGeo: true, includeAgentSkills: true })
+  expect(db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, calls[0]!.runId)).get()?.effectiveOptions).toMatchObject({
+    checkDeadLinks: true,
+    includeGeo: true,
+    includeAgentSkills: true,
+  })
+
+  scheduler.stop()
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+})

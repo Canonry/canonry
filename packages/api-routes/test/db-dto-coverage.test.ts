@@ -319,6 +319,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: scheduleDtoSchema,
     internal: {
       enabledAt: 'When the schedule last turned on; the SEO refresh doctor check grades only that enabled period, so time spent disabled is never overdue.',
+      siteAuditChecks: 'Exposed as `siteAudit` on the schedule DTO, with the defaults filled in (null for kinds other than site-audit).',
     },
   },
   siteAuditSnapshots: {
