@@ -431,7 +431,7 @@ describe('executeBingInspectSitemap', () => {
 
     beforeEach(() => trackEvent.mockReset())
 
-    it('reports the coverage sweep as the bing sync, with URL counts, after it is saved', async () => {
+    it('reports the coverage sweep as bing inspection, with URL counts, after it is saved', async () => {
       const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(2) })
       server = s.server
       const bingModule = await import('@canonry/canonry-integration-bing')
@@ -444,7 +444,7 @@ describe('executeBingInspectSitemap', () => {
 
       expect(featureCompleted()).toEqual([
         {
-          feature: 'bing', operation: 'sync', trigger: 'manual', status: 'succeeded',
+          feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'succeeded',
           durationBucket: 'under_1s', counts: { urls: 2, failures: 0, skipped: 0 },
         },
         undefined,
@@ -467,7 +467,7 @@ describe('executeBingInspectSitemap', () => {
 
       expect(featureCompleted()).toEqual([
         {
-          feature: 'bing', operation: 'sync', trigger: 'manual', status: 'partial', reasonCode: 'RATE_LIMITED',
+          feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'partial', reasonCode: 'RATE_LIMITED',
           errorName: 'BingApiError', durationBucket: 'under_1s', counts: { urls: 1, failures: 1, skipped: 0 },
         },
         { errorCode: 'RATE_LIMITED' },
@@ -487,7 +487,7 @@ describe('executeBingInspectSitemap', () => {
 
       expect(featureCompleted()).toEqual([
         {
-          feature: 'bing', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'RATE_LIMITED',
+          feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'RATE_LIMITED',
           errorName: 'BingApiError', durationBucket: 'under_1s',
         },
         { errorCode: 'RATE_LIMITED' },
@@ -513,11 +513,11 @@ describe('executeBingInspectSitemap', () => {
 
       expect(trackEvent.mock.calls.map((call) => call.slice(1))).toEqual([
         [
-          { feature: 'bing', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'Error', durationBucket: 'under_1s' },
+          { feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'Error', durationBucket: 'under_1s' },
           { errorCode: 'NOT_CONNECTED' },
         ],
         [
-          { feature: 'bing', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND', errorName: 'Error', durationBucket: 'under_1s' },
+          { feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND', errorName: 'Error', durationBucket: 'under_1s' },
           { errorCode: 'PROPERTY_NOT_FOUND' },
         ],
       ])

@@ -8,7 +8,7 @@ import {
 } from '@canonry/canonry-db'
 import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { agentBusy, AgentProviderIds, OutcomeTriggers, describeError, missingDependency } from '@canonry/canonry-contracts'
+import { agentBusy, AgentProviderIds, OutcomeTriggers, classifyProviderErrorMessage, describeError, isProviderAccountFailure, missingDependency } from '@canonry/canonry-contracts'
 import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
@@ -35,7 +35,7 @@ import {
 } from './tools.js'
 import { loadExternalMcpTools } from './remote-mcp.js'
 import { loadRecentForHydrate } from './memory-store.js'
-import { configureAeroRuntime, isSystemMessage, setAeroSystemPrompt } from './runtime.js'
+import { aeroTurnStatus, configureAeroRuntime, isSystemMessage, setAeroSystemPrompt } from './runtime.js'
 import { trackAeroTurn } from './turn-telemetry.js'
 import { buildAeroViewTool, aeroViewPrompt, readAeroViewEvidenceForTurn } from './view-context.js'
 import { aeroProjectShape } from './project-shape.js'
@@ -93,6 +93,10 @@ interface AgentSessionRow {
   updatedAt: string
 }
 
+interface ProviderCooldown {
+  retryAt: number
+}
+
 /**
  * Hybrid session registry for Aero — durable state in `agent_sessions`,
  * live pi-agent-core Agent instance in memory per project.
@@ -113,6 +117,9 @@ interface AgentSessionRow {
  * and bounded against the value-byte cap.
  */
 const MAX_HYDRATE_NOTES = 20
+
+// Account failures need operator action. Permit a daily automatic recovery probe.
+const PROVIDER_ACCOUNT_COOLDOWN_MS = 24 * 60 * 60 * 1000
 
 /**
  * Soft byte cap for the total memory block rendered into the system prompt.
@@ -157,6 +164,8 @@ export function withoutPersistedToolDetails(messages: readonly unknown[]): unkno
 export class SessionRegistry {
   private readonly live = new Map<string, Agent>()
   private readonly pending = new Map<string, AgentMessage[]>()
+  /** Shared across projects, scoped to the provider and a digest of its credential. */
+  private readonly providerCooldowns = new Map<string, ProviderCooldown>()
   /** Last tool scope used on the live Agent for a project. Read in getOrCreate to know when to swap. */
   private readonly scopes = new Map<string, AeroToolScope>()
   /** Last profile used on the live Agent for a project. Paired with scopes when rebuilding tools. */
@@ -730,6 +739,9 @@ export class SessionRegistry {
   queueFollowUp(projectName: string, message: AgentMessage): void {
     // Prompt-only: nothing wakes Aero, so nothing is worth queuing either.
     if (!this.proactive) return
+    // Wake notifications describe stored runs, so skip them during an account
+    // outage instead of building an unbounded backlog of stale prompts.
+    if (this.providerCoolingDown(projectName)) return
     if (this.live.has(projectName)) {
       this.appendPending(projectName, [message])
     } else {
@@ -765,6 +777,7 @@ export class SessionRegistry {
   async drainNow(projectName: string): Promise<void> {
     if (!this.proactive) return
     if (!this.hasPendingWork(projectName)) return
+    if (this.providerCoolingDown(projectName)) return
     try {
       let agent: Agent
       try {
@@ -782,6 +795,8 @@ export class SessionRegistry {
         if ((err as { code?: string }).code === 'AGENT_BUSY') return
         throw err
       }
+      // Another project's turn may have failed while this one was acquiring.
+      if (this.providerCoolingDown(projectName)) return
       const msgs = this.consumePending(projectName)
       if (msgs.length === 0) return
       await agent.prompt(msgs)
@@ -893,13 +908,63 @@ export class SessionRegistry {
    * arrives mid-CLI-turn would sit in pending until someone called drainNow.
    */
   private registerDrainHook(agent: Agent, projectName: string): void {
+    let lastRequest: { accountKey: string; cooldown: ProviderCooldown | undefined } | undefined
+    const resolveApiKey = agent.getApiKey
+    agent.getApiKey = async (provider) => {
+      // Config can reload between model calls within one turn. Track the key
+      // actually resolved for this request, not the key at agent_start.
+      lastRequest = undefined
+      const apiKey = await resolveApiKey?.(provider)
+      const accountKey = this.providerAccountKey(provider, apiKey)
+      lastRequest = { accountKey, cooldown: this.providerCooldowns.get(accountKey) }
+      return apiKey
+    }
     agent.subscribe((event) => {
+      if (event.type === 'agent_start') lastRequest = undefined
       if (event.type !== 'agent_end') return
+      if (lastRequest) {
+        const { accountKey, cooldown } = lastRequest
+        const reason = classifyProviderErrorMessage(agent.state.errorMessage ?? '')
+        if (isProviderAccountFailure(reason)) {
+          const retryAt = Date.now() + PROVIDER_ACCOUNT_COOLDOWN_MS
+          this.providerCooldowns.set(accountKey, { retryAt })
+          log.warn('provider.background-paused', {
+            projectName,
+            provider: agent.state.model.provider,
+            reason,
+            retryAt: new Date(retryAt).toISOString(),
+            recovery: 'Fix the provider credentials or billing, then send Aero a prompt to retry now.',
+          })
+        } else if (aeroTurnStatus(agent)?.reason === 'completed'
+          && this.providerCooldowns.get(accountKey) === cooldown) {
+          // Only a request made after the current failure proves recovery.
+          // Object identity also distinguishes failures in the same clock tick.
+          this.providerCooldowns.delete(accountKey)
+        }
+      }
       if ((this.pending.get(projectName) ?? []).length === 0) return
       // Fire-and-forget — the drain re-invokes prompt() which itself emits a
       // new agent_end, so we stay single-threaded via pi's internal guards.
       void this.drainNow(projectName)
     })
+  }
+
+  private providerAccountKey(provider: string, apiKey: string | undefined): string {
+    const canonical = coerceAgentProvider(provider)
+    const vendor = canonical ? getAgentProvider(canonical).piAiProvider : provider
+    return crypto.createHash('sha256')
+      .update(JSON.stringify([vendor, apiKey ?? '']))
+      .digest('hex')
+  }
+
+  private providerCoolingDown(projectName: string): boolean {
+    for (const [key, cooldown] of this.providerCooldowns) {
+      if (cooldown.retryAt <= Date.now()) this.providerCooldowns.delete(key)
+    }
+    const provider = this.turnProvider(projectName)
+    if (provider === undefined) return false
+    const vendor = getAgentProvider(provider).piAiProvider
+    return this.providerCooldowns.has(this.providerAccountKey(vendor, resolveApiKeyFor(vendor, this.opts.config)))
   }
 
   private resolveProjectId(projectName: string): string {

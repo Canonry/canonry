@@ -100,6 +100,26 @@ describe('bingFetch retry behaviour', () => {
     expect(calls).toBe(2)
   })
 
+  it.each([
+    [429, 'rate limited', '60'],
+    [400, THROTTLE_HOST_BODY, '60'],
+    [503, 'unavailable', 'Thu, 05 Nov 2026 12:01:00 GMT'],
+  ])('honours Retry-After on HTTP %s before sending the next request', async (status, body, retryAfter) => {
+    vi.setSystemTime(new Date('2026-11-05T12:00:00Z'))
+    const calls: number[] = []
+    globalThis.fetch = vi.fn(async () => {
+      calls.push(Date.now())
+      return calls.length === 1
+        ? new Response(body, { status, headers: { 'Retry-After': retryAfter } })
+        : jsonResponse({ d: [] })
+    })
+
+    await withTimersRun(getSites('key'))
+
+    expect(calls).toHaveLength(2)
+    expect(calls[1]! - calls[0]!).toBe(60_000)
+  })
+
   it('gives up after the retry budget and surfaces the throttle', async () => {
     let calls = 0
     globalThis.fetch = vi.fn(async () => {
@@ -119,7 +139,7 @@ describe('bingFetch retry behaviour', () => {
     let calls = 0
     globalThis.fetch = vi.fn(async () => {
       calls++
-      return new Response('nope', { status: 401 })
+      return new Response('nope', { status: 401, headers: { 'Retry-After': '60' } })
     }) as unknown as typeof globalThis.fetch
 
     await expect(withTimersRun(getSites('key'))).rejects.toThrow(/invalid or unauthorized/)
@@ -130,7 +150,7 @@ describe('bingFetch retry behaviour', () => {
     let calls = 0
     globalThis.fetch = vi.fn(async () => {
       calls++
-      return errorResponse(400, '{"ErrorCode":14,"Message":"ERROR!!! NotAuthorized"}')
+      return new Response('{"ErrorCode":14,"Message":"ERROR!!! NotAuthorized"}', { status: 400, headers: { 'Retry-After': '60' } })
     }) as unknown as typeof globalThis.fetch
 
     await expect(withTimersRun(getSites('key'))).rejects.toThrow(/NotAuthorized/)
@@ -282,6 +302,22 @@ describe('throttle cooldown', () => {
     await expect(withTimersRun(getUrlInfo('key-a', 'https://a.test/', 'https://a.test/r'))).resolves.toBeTruthy()
   })
 
+  it('keeps the account quiet for a final Retry-After longer than the default cooldown', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(THROTTLE_USER_BODY, {
+      status: 400, headers: { 'Retry-After': '1800' },
+    }))
+    await expect(withTimersRun(getSites('key-a'))).rejects.toThrow(/ThrottleUser/)
+
+    globalThis.fetch = vi.fn(async () => jsonResponse({ d: [] }))
+    clock += 11 * 60 * 1000
+    await expect(getSites('key-a')).rejects.toThrow(/cooldown/i)
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+
+    clock += 20 * 60 * 1000
+    await expect(getSites('key-a')).resolves.toEqual([])
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+  })
+
   it('is not opened by a non-throttle failure', async () => {
     // A 404 says something about the URL, not about the account.
     globalThis.fetch = vi.fn(async () =>
@@ -304,5 +340,38 @@ describe('throttle cooldown', () => {
     // A momentary throttle is exactly what retry is for — it must not trigger
     // the heavier account-level backoff.
     await expect(withTimersRun(getUrlInfo('key-a', 'https://a.test/', 'https://a.test/q'))).resolves.toBeTruthy()
+  })
+
+  it('preserves the longer Retry-After hold when an overlapping shorter throttle finishes later', async () => {
+    const attempts = new Map<string, number>()
+    let releaseShort!: () => void
+    let shortStarted!: () => void
+    const shortStartedPromise = new Promise<void>(resolve => { shortStarted = resolve })
+    const shortGate = new Promise<void>(resolve => { releaseShort = resolve })
+    globalThis.fetch = vi.fn(async input => {
+      const endpoint = String(input).includes('GetUserSites') ? 'long' : 'short'
+      const attempt = (attempts.get(endpoint) ?? 0) + 1
+      attempts.set(endpoint, attempt)
+      if (endpoint === 'short' && attempt === 1) { shortStarted(); await shortGate }
+      return new Response(THROTTLE_USER_BODY, {
+        status: 400,
+        headers: endpoint === 'long' && attempt === 5 ? { 'Retry-After': '1800' } : {},
+      })
+    })
+    const long = getSites('key-a').catch(error => error)
+    const short = getUrlInfo('key-a', 'https://a.test/', 'https://a.test/short').catch(error => error)
+    await shortStartedPromise
+    await vi.runAllTimersAsync()
+    expect(await long).toBeInstanceOf(BingApiError)
+    releaseShort()
+    await vi.runAllTimersAsync()
+    expect(await short).toBeInstanceOf(BingApiError)
+    clock += 11 * 60 * 1000
+    globalThis.fetch = vi.fn(async () => jsonResponse({ d: [] }))
+    await expect(getSites('key-a')).rejects.toThrow(/cooldown/i)
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    clock += 20 * 60 * 1000
+    await expect(getSites('key-a')).resolves.toEqual([])
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
   })
 })

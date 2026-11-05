@@ -262,12 +262,15 @@ export class BingApiError extends Error {
    * callers do not have to parse prose.
    */
   public isThrottle: boolean
+  /** Only the retry header is retained; never retain response credentials. */
+  public readonly headers: { 'retry-after': string } | undefined
 
-  constructor(message: string, status: number, bingErrorCode: number | null = null) {
+  constructor(message: string, status: number, bingErrorCode: number | null = null, retryAfter?: string | null) {
     super(message)
     this.name = 'BingApiError'
     this.status = status
     this.bingErrorCode = bingErrorCode
+    this.headers = retryAfter == null ? undefined : { 'retry-after': retryAfter }
     // 429 is rate limiting by definition; Bing's own codes cover the 400 form.
     this.isThrottle = status === 429 || (bingErrorCode != null && BING_THROTTLE_ERROR_CODES.has(bingErrorCode))
   }
