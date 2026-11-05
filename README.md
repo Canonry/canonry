@@ -13,7 +13,7 @@
 
 <p align="center">
   <strong>The agent-first AEO operating platform.</strong><br/>
-  Track mentions and citations across ChatGPT, Claude, Gemini, Perplexity, and more. Join them with Search Console, GA4, ads, AI crawler traffic, site audits, and SEO data. Then let your agent publish fixes, manage ChatGPT ads, get pages indexed, and measure what changed.<br/>
+  Track mentions and citations across ChatGPT, Claude, Gemini, Perplexity, and more. Join them with Search Console, GA4, ads, AI crawler traffic, site audits, and SEO data. Then let your agent create content, publish fixes, manage ChatGPT ads, get pages indexed, and measure what changed.<br/>
   <sub>Open source · Self-hosted · Bring your own keys</sub>
 </p>
 
@@ -77,6 +77,7 @@ See which AI agents fetch your pages, checked against each company's published I
 - **[Portfolios](skills/canonry/references/canonry-cli.md#target-measurement-plans)** — Versioned measurement plans for locations, products, or site sections. Branded and non-brand queries stay separate.
 - **[Competitor landscape](docs/competitor-landscape.md)** — Mention share, mentions, and citations for you and your competitors over time.
 - **[Query discovery and research](skills/canonry/references/canonry-cli.md#discovery-tracked-basket-expansion)** — Find new queries to track, or run one-off research without changing what you track.
+- **[Content engine](skills/canonry/references/canonry-cli.md#content-target-dismissals)** — Finds content gaps and the pages to write or improve next, so your agent can draft them and publish to WordPress for review.
 - **[Publish and index](skills/canonry/references/indexing.md)** — WordPress drafts, JSON-LD, and sitemap and URL submissions to Google and Bing.
 - **[Schedules and webhooks](skills/canonry/references/canonry-cli.md#scheduling--notifications)** — Rerun checks on a schedule and send alerts to Discord, Slack, or your systems.
 - **[Backlinks](skills/canonry/references/canonry-cli.md#backlinks-common-crawl)** — Common Crawl link data, queried locally with DuckDB.
