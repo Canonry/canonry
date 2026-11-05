@@ -244,6 +244,7 @@ For an existing project, configure a provider with your own key.
 | [OpenRouter](docs/providers/openrouter.md) | [OpenRouter keys](https://openrouter.ai/keys) | `OPENROUTER_API_KEY` |
 | [Exa](docs/providers/answer-services/exa.md) | [Exa dashboard](https://dashboard.exa.ai/api-keys) | `EXA_API_KEY` |
 | [Parallel](docs/providers/answer-services/parallel.md) | [Parallel platform](https://platform.parallel.ai) | `PARALLEL_API_KEY` |
+| [cloro](docs/providers/answer-services/cloro.md) | [cloro dashboard](https://dashboard.cloro.dev/api-keys?utm_source=canonry&utm_medium=byok) | `CLORO_API_KEY` |
 | Local model | Any OpenAI-compatible endpoint | `LOCAL_BASE_URL` |
 
 Add the queries that matter to your project:
