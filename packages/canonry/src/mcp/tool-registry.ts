@@ -85,7 +85,8 @@ import {
   trafficConnectCloudRunRequestSchema,
   trafficConnectWordpressRequestSchema,
   trafficConnectVercelRequestSchema,
-  trafficEventKindSchema,
+  parseTrafficEventKindFilter,
+  TRAFFIC_EVENT_KIND_FILTER_HINT,
   trafficSeriesGranularitySchema,
   measurementPlanAuthoringSchema,
   measurementPlanPublishRequestSchema,
@@ -1055,7 +1056,10 @@ const trafficEventsInputSchema = z.object({
   project: projectNameSchema,
   since: z.string().optional().describe('ISO 8601 lower bound. Defaults to 24h ago when omitted.'),
   until: z.string().optional().describe('ISO 8601 upper bound. Defaults to now when omitted.'),
-  kind: z.union([trafficEventKindSchema, z.literal('all')]).optional().describe('Filter to one traffic kind; "all" (default) returns every kind.'),
+  kind: z.string()
+    .refine((value) => parseTrafficEventKindFilter(value) !== null, { message: `kind must be ${TRAFFIC_EVENT_KIND_FILTER_HINT}` })
+    .optional()
+    .describe('Filter to "crawler", "ai-user-fetch", "ai-referral", a comma-separated list of them (e.g. "ai-user-fetch,ai-referral"), or "all" (default). Rows, totals and series cover only the kinds asked for.'),
   sourceId: z.string().min(1).optional().describe('Restrict to a single traffic source ID.'),
   limit: z.number().int().positive().max(5000).optional().describe('Max combined rows. Defaults to 500, max 5000. Totals always reflect the full window.'),
   granularity: trafficSeriesGranularitySchema.optional().describe('Full-window chart series bucket size: hour (default) or day.'),

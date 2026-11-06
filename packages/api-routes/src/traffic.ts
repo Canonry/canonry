@@ -44,6 +44,8 @@ import {
   TrafficSourceTypes,
   TrafficSourceAuthModes,
   TrafficEventKinds,
+  parseTrafficEventKindFilter,
+  TRAFFIC_EVENT_KIND_FILTER_HINT,
   TrafficSeriesGranularities,
   CloudflareTrafficDeliveryModes,
   CloudflareQueueDrainStopReasons,
@@ -4979,22 +4981,18 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       throw validationError('"since" must be ≤ "until"')
     }
 
-    const kindParam = request.query?.kind
-    let kind: TrafficEventKind | 'all' = 'all'
-    if (kindParam !== undefined) {
-      if (
-        kindParam === 'all'
-        || kindParam === TrafficEventKinds.crawler
-        || kindParam === TrafficEventKinds['ai-user-fetch']
-        || kindParam === TrafficEventKinds['ai-referral']
-      ) {
-        kind = kindParam
-      } else {
-        throw validationError(
-          `"kind" must be one of: all, ${TrafficEventKinds.crawler}, ${TrafficEventKinds['ai-user-fetch']}, ${TrafficEventKinds['ai-referral']}`,
-        )
-      }
+    // One kind, "all", or a comma-separated list. A list lets a caller ask for
+    // exactly the series it shows: with the crawler hidden, "all" under the row
+    // cap returns almost only crawler rows and the AI rows never load.
+    const kindParam: unknown = request.query?.kind
+    const kindList = kindParam === undefined
+      ? parseTrafficEventKindFilter('all')
+      // A repeated `kind` arrives as an array; only the comma form is accepted.
+      : typeof kindParam === 'string' ? parseTrafficEventKindFilter(kindParam) : null
+    if (!kindList) {
+      throw validationError(`"kind" must be ${TRAFFIC_EVENT_KIND_FILTER_HINT}`)
     }
+    const kinds = new Set<TrafficEventKind>(kindList)
 
     const limitParam = request.query?.limit
     const requestedLimit = limitParam ? parseInt(limitParam, 10) : 500
@@ -5033,7 +5031,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let totalEventRows = 0
     const seriesByBucket = new Map<string, TrafficSeriesPoint>()
 
-    if (kind === 'all' || kind === TrafficEventKinds.crawler) {
+    if (kinds.has(TrafficEventKinds.crawler)) {
       const crawlerFilters = [
         eq(crawlerEventsHourly.projectId, project.id),
         gte(crawlerEventsHourly.tsHour, sinceIso),
@@ -5165,7 +5163,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
     }
 
-    if (kind === 'all' || kind === TrafficEventKinds['ai-user-fetch']) {
+    if (kinds.has(TrafficEventKinds['ai-user-fetch'])) {
       const userFetchFilters = [
         eq(aiUserFetchEventsHourly.projectId, project.id),
         gte(aiUserFetchEventsHourly.tsHour, sinceIso),
@@ -5225,7 +5223,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
     }
 
-    if (kind === 'all' || kind === TrafficEventKinds['ai-referral']) {
+    if (kinds.has(TrafficEventKinds['ai-referral'])) {
       const aiFilters = [
         eq(aiReferralEventsHourly.projectId, project.id),
         gte(aiReferralEventsHourly.tsHour, sinceIso),
