@@ -348,7 +348,7 @@ export type GA4PropertiesDto = z.infer<typeof ga4PropertiesDtoSchema>
  * string" report (Search Console collection) is stored for. Each one is a
  * GA4-computed snapshot ending YESTERDAY in the property's reporting time
  * zone, exactly as GA4's own "Last N days" ranges are, so `28d` is the window
- * GA4's report opens on. Not the rolling `7d | 30d | 90d` of `/ga/traffic`.
+ * GA4's report opens on. Separate from the rolling windows of `/ga/traffic`.
  */
 export const gaSearchLandingWindowSchema = z.enum(WINDOW_SETS.gaSearchLanding)
 export type GaSearchLandingWindow = z.infer<typeof gaSearchLandingWindowSchema>
@@ -357,6 +357,7 @@ export const GA_SEARCH_LANDING_WINDOW_DAYS: Readonly<Record<GaSearchLandingWindo
   '7d': 7,
   '28d': 28,
   '90d': 90,
+  '180d': 180,
 }
 export const GA_SEARCH_LANDING_DEFAULT_WINDOW: GaSearchLandingWindow = '28d'
 export const GA_SEARCH_LANDING_DEFAULT_LIMIT = 50

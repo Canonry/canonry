@@ -6753,7 +6753,7 @@ const routeCatalog: OpenApiOperation[] = [
       {
         name: 'window',
         in: 'query',
-        description: 'Stored window, ending yesterday in the GA4 property time zone. 28d matches GA4\'s default "Last 28 days".',
+        description: 'Stored 7, 28, 90 or 180-day window, ending yesterday in the GA4 property time zone. 28d matches GA4\'s default "Last 28 days".',
         schema: { type: 'string', enum: [...gaSearchLandingWindowSchema.options], default: '28d' },
       },
       {

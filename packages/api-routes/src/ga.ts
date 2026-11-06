@@ -3,7 +3,7 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaWindowMetrics, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, gaSyncCoverage, runs } from '@canonry/canonry-db'
-import { GA_OVERVIEW_WINDOWS, shiftIsoCalendarDate, WINDOW_SETS, breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames } from '@canonry/canonry-contracts'
+import { GA_OVERVIEW_WINDOWS, GA_SEARCH_LANDING_WINDOWS, shiftIsoCalendarDate, WINDOW_SETS, breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames } from '@canonry/canonry-contracts'
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@canonry/canonry-contracts'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
@@ -16,7 +16,7 @@ import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttribu
 import { groupAiEngines, groupSocialPlatforms, paidSocialSummary, socialPlatformDailySeries } from './ga-referral-groups.js'
 import { clearGaDataOnPropertyChange, clearGaPropertyData, resolveCurrentGa4PropertyId, projectsSharingGa4Connection, readGa4Properties } from './ga-property-data.js'
 import { planGaSyncCoverage, saveGaSyncCoverage, fetchGaSyncRanges } from './ga-sync-coverage.js'
-import { persistSearchLandingFailure, persistSearchLandingSnapshot } from './ga-search-landing-pages.js'
+import { persistSearchLandingFailure, persistSearchLandingSnapshot, searchLandingWindowsToFetch } from './ga-search-landing-pages.js'
 import {
   getAccessToken,
   fetchTrafficByLandingPage,
@@ -971,12 +971,23 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         ...planInput, component: 'leads', definition: JSON.stringify([definition, ...leadEventNames]),
         requested: { startDate: shiftIsoCalendarDate(requested.endDate, -leadDays), endDate: requested.endDate },
       }, startedAt)
+      const searchRequestedAt = new Date()
+      const searchTimeZone = windowMetrics[0]!.timeZone ?? null
+      const searchWindows = syncSearchLanding
+        ? searchLandingWindowsToFetch(app.db, project.id, propertyId, searchTimeZone, searchRequestedAt.toISOString())
+        : []
       const measurementFetch = Promise.allSettled([
         fetchGaSyncRanges(acquisitionPlan, range => fetchAcquisitionByChannel(accessToken, propertyId, acquisitionDays, { dateRange: range })),
         leadEventNames.length > 0
           ? fetchGaSyncRanges(leadPlan, range => fetchLeadEvents(accessToken, propertyId, leadEventNames, leadDays, range))
           : Promise.resolve(null),
-        syncSearchLanding ? fetchSearchLandingPages(accessToken, propertyId) : Promise.resolve(null),
+        syncSearchLanding
+          ? searchWindows.length > 0
+            ? fetchSearchLandingPages(accessToken, propertyId, {
+              windows: searchWindows, now: searchRequestedAt, timeZone: searchTimeZone ?? undefined,
+            })
+            : Promise.resolve({ status: 'ready' as const, windows: [] })
+          : Promise.resolve(null),
       ])
       const [dailyReports, trafficReports, aiReports, socialReports] = await Promise.all([
         fetchGaSyncRanges(dailyPlan, range => fetchDailyTotals(accessToken, propertyId, undefined, { dateRange: range })),
@@ -1345,6 +1356,11 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             runId,
             syncedAt: measurementNow,
             windows: report.windows,
+            reuse: {
+              windows: GA_SEARCH_LANDING_WINDOWS.filter(window => !searchWindows.includes(window)),
+              timeZone: searchTimeZone,
+              requestedAt: searchRequestedAt.toISOString(),
+            },
           })
         } catch (error) {
           return recordSearchLandingFailure('error', error)
@@ -1367,7 +1383,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             ...(syncSummary ? ['summary'] : []),
             ...(syncAi ? ['ai'] : []),
             ...(syncSocial ? ['social'] : []),
-            ...(searchLandingResult?.status === 'ready' ? ['search-landing'] : []),
+            ...(searchLandingResult?.status === 'ready' && searchLandingResult.windows.length > 0 ? ['search-landing'] : []),
           ]
         : undefined
 

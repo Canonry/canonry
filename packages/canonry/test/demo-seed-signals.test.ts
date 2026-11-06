@@ -137,6 +137,15 @@ describe('seedDemoSignals', () => {
       expect(searchLandingBody.rows.map((row: { landingPage: string }) => row.landingPage)).toEqual(['/', '/services/'])
       expect(searchLandingBody.rows.reduce((sum: number, row: { organicGoogleSearchClicks: number }) => sum + row.organicGoogleSearchClicks, 0)).toBe(426)
 
+      for (const [project, clicks] of [[context.simple, 3360], [context.portfolio, 3960]] as const) {
+        const history = await app.inject({ method: 'GET', url: `/api/v1/projects/${project.name}/ga/search-landing-pages?window=180d` })
+        expect(history.statusCode).toBe(200)
+        expect(JSON.parse(history.payload)).toMatchObject({
+          status: 'ready', window: '180d', windowStart: '2026-03-13', windowEnd: '2026-09-08', windowDays: 180,
+          total: { organicGoogleSearchClicks: clicks }, totalRows: 2, reportRowCount: 24, rowsCapped: true,
+        })
+      }
+
       const crawl = await app.inject({ method: 'GET', url: `/api/v1/projects/${context.simple.name}/technical-aeo/crawl` })
       expect(crawl.statusCode).toBe(200)
       expect(JSON.parse(crawl.payload)).toMatchObject({ hasCrawlData: true, complete: true, detailsAvailable: true })

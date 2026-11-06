@@ -10,7 +10,7 @@ const selections: Array<[string[], string[]]> = [
   ...['traffic', 'ai-referral-history', 'ai-referral-daily', 'social-referral-history', 'session-history'].map(name => [['ga', name], ['7d', '30d', '90d', '180d', 'all']] as [string[], string[]]),
   [['ga', 'overview'], ['7d', '30d', '90d', '180d']],
   [['ga', 'measurement-analysis'], ['30d', '60d', '90d']],
-  [['ga', 'search-landing-pages'], ['7d', '28d', '90d']],
+  [['ga', 'search-landing-pages'], ['7d', '28d', '90d', '180d']],
   [['analytics'], metrics], [['sources'], metrics], [['competitor', 'landscape'], metrics],
   ...['performance', 'performance-daily', 'top-pages', 'query-totals'].map(name => [['google', name], metrics] as [string[], string[]]),
   [['google-ads', 'performance'], ['7d', '14d', '30d']],

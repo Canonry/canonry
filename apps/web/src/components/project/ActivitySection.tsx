@@ -944,7 +944,7 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
       )}
 
       {/* GA4's Search Console landing-page report: its own window picker,
-          because GA4 stores it for 7, 28 and 90 days ending yesterday. */}
+          because GA4 stores it for 7, 28, 90 and 180 days ending yesterday. */}
       <GoogleOrganicSearchPagesPanel projectName={projectName} />
 
       <p className="mt-6 text-copy-13 text-secondary">

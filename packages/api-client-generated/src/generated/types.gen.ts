@@ -7189,7 +7189,7 @@ export type Ga4SyncResponseDto = {
         searchLandingPages?: {
             status: 'ready' | 'unavailable' | 'error';
             windows: Array<{
-                window: '7d' | '28d' | '90d';
+                window: '7d' | '28d' | '90d' | '180d';
                 rowCount: number;
                 reportRowCount: number;
                 rowsCapped: boolean;
@@ -7310,7 +7310,7 @@ export type GaSearchLandingPagesResponse = {
     error: string | null;
     syncedAt: string | null;
     attemptedAt: string | null;
-    window: '7d' | '28d' | '90d';
+    window: '7d' | '28d' | '90d' | '180d';
     windowStart: string | null;
     windowEnd: string | null;
     windowDays: number | null;
@@ -34390,9 +34390,9 @@ export type GetApiV1ProjectsByNameGaSearchLandingPagesData = {
     };
     query?: {
         /**
-         * Stored window, ending yesterday in the GA4 property time zone. 28d matches GA4's default "Last 28 days".
+         * Stored 7, 28, 90 or 180-day window, ending yesterday in the GA4 property time zone. 28d matches GA4's default "Last 28 days".
          */
-        window?: '7d' | '28d' | '90d';
+        window?: '7d' | '28d' | '90d' | '180d';
         /**
          * Landing-page rows per page, ordered by clicks then impressions (descending), then landing page.
          */

@@ -142,3 +142,6 @@ export const GA4_SEARCH_LANDING_MAX_ROWS = 10_000
 
 /** Rows requested per page of the Search Console landing-page report. */
 export const GA4_SEARCH_LANDING_PAGE_SIZE = 10_000
+
+/** Change when the report's request or parsing semantics invalidate stored window reuse. */
+export const GA4_SEARCH_LANDING_REPORT_DEFINITION = 'search-landing-v1'

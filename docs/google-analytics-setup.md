@@ -104,7 +104,7 @@ The **Traffic** tab on each project page provides:
 - **Connection status** — shows the connected property ID and service account email
 - **Site traffic**: GA4 totals and daily charts for 7, 30, 90 or 180 days, compared with the previous period of the same length. Select a range and click Sync to refresh its traffic details.
 - **Top landing pages table** — sortable by sessions, organic sessions, users, and organic percentage
-- **Google organic search traffic**: GA4's "Google organic search traffic: Landing page + query string" report (clicks, impressions, CTR, average position and active users per landing page, with GA4's own Total row) for the last 7, 28 or 90 days. Needs the property's Search Console link; see [Search Console landing pages](#search-console-landing-pages).
+- **Google organic search traffic**: GA4's "Google organic search traffic: Landing page + query string" report (clicks, impressions, CTR, average position and active users per landing page, with GA4's own Total row) for the last 7, 28, 90 or 180 days. Needs the property's Search Console link; see [Search Console landing pages](#search-console-landing-pages).
 - **Sync** — pull the latest traffic data from GA4
 - **Disconnect** — remove the GA4 connection and purge stored traffic data
 
@@ -126,7 +126,7 @@ canonry ga traffic ainyc
 # Show landing page coverage with index + citation overlay
 canonry ga coverage ainyc
 
-# GA4's Search Console landing-page report (7d, 28d or 90d; 28d is GA4's default)
+# GA4's Search Console landing-page report (7d, 28d, 90d or 180d; 28d is GA4's default)
 canonry ga search-landing-pages my-project --window 28d
 
 # Refresh only that report
@@ -144,11 +144,12 @@ canonry ga disconnect ainyc
 `canonry ga search-landing-pages` and the dashboard's **Google organic search traffic** table show GA4's own "Google organic search traffic: Landing page + query string" report (Reports, Library, Search Console collection). GA4 only has these figures once the property is linked to Search Console:
 
 1. In GA4, open **Admin, Product links, Search Console links** and link the Search Console property for the site, choosing the web data stream.
-2. Run `canonry ga sync <project>` (or `--only search-landing`). Every GA sync, including a scheduled data refresh, refreshes the report.
+2. Run `canonry ga sync <project>` (or `--only search-landing`). GA syncs, including scheduled data refreshes, fetch missing or stale report windows. Matching snapshots less than one hour old are reused.
 
 What to expect:
 
-- Each window (7, 28 or 90 days) ends **yesterday in the GA4 property's time zone**, exactly like GA4's own "Last N days" ranges, so the 28-day window matches the report GA4 opens on.
+- Sync reuses complete snapshots only when the GA4 property, reporting time zone, exact dates and report definition match. A failed attempt is retried. Extending to 180 days fetches GA4's full 180-day report: distinct active users cannot be added from shorter windows. Reused snapshots keep their original sync time.
+- Each window (7, 28, 90 or 180 days) ends **yesterday in the GA4 property's time zone**, exactly like GA4's own "Last N days" ranges, so the 28-day window matches the report GA4 opens on.
 - The **Total** row is GA4's own total for every page, not a sum of the rows listed.
 - **Active users** is GA4's plain Active users metric from the same report, which is what GA4 shows in this column (it is not limited to Google organic sessions).
 - Search Console data reaches GA4 about **48 hours late**, so the last days of each window are thin, the same as in GA4.

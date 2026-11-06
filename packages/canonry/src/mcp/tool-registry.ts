@@ -2779,7 +2779,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_ga_search_landing_pages',
     title: 'Get GA4 Google organic search landing pages',
-    description: 'Read GA4\'s "Google organic search traffic: Landing page + query string" report (Search Console link) as the last GA sync stored it: clicks, impressions, CTR, average position and active users per landing page for the 7, 28 (default) or 90 days ending yesterday in the property time zone. `total` is GA4\'s own Total row; never sum `rows`. Status `unavailable` means GA4 refused the Search Console metrics (link Search Console in GA4); the previous snapshot is still returned. Stored data only.',
+    description: 'Read GA4\'s "Google organic search traffic: Landing page + query string" report (Search Console link) as the last GA sync stored it: clicks, impressions, CTR, average position and active users per landing page for the 7, 28 (default), 90 or 180 days ending yesterday in the property time zone. `total` is GA4\'s own Total row; never sum `rows`. Status `unavailable` means GA4 refused the Search Console metrics (link Search Console in GA4); the previous snapshot is still returned. Stored data only.',
     access: 'read',
     tier: 'ga',
     inputSchema: gaSearchLandingPagesInputSchema,

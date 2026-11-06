@@ -135,7 +135,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['ga', 'search-landing-pages'],
     windows: WINDOW_SETS.gaSearchLanding,
-    usage: 'canonry ga search-landing-pages <project> [--window 7d|28d|90d] [--limit 50] [--offset 0] [--format json|jsonl]',
+    usage: 'canonry ga search-landing-pages <project> [--window 7d|28d|90d|180d] [--limit 50] [--offset 0] [--format json|jsonl]',
     options: {
       window: stringOption(),
       limit: stringOption(),
@@ -143,7 +143,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     run: async (input) => {
       const { gaSearchLandingPages } = await import('../commands/ga.js')
-      const project = requireProject(input, 'ga.search-landing-pages', 'canonry ga search-landing-pages <project> [--window 7d|28d|90d] [--limit 50] [--offset 0] [--format json|jsonl]')
+      const project = requireProject(input, 'ga.search-landing-pages', 'canonry ga search-landing-pages <project> [--window 7d|28d|90d|180d] [--limit 50] [--offset 0] [--format json|jsonl]')
       // Forwarded verbatim: the server is the one place that validates them.
       await gaSearchLandingPages(project, {
         window: getString(input.values, 'window'),

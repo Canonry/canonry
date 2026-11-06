@@ -438,6 +438,8 @@ charts and tables are closed `.visibility-disclosure` rows (`DisclosureRow`)
 that mount their detail only while open, each summary carrying the API's
 count, or "None in this period". Never drop a figure while restyling this tab;
 the site-wide sessions chart disappeared once that way.
+Google organic search traffic keeps its independent 7d/28d/90d/180d picker and
+renders the selected window’s stored GA4 Total without summing its page rows.
 
 ### Trend cards
 

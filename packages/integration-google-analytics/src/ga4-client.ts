@@ -1855,13 +1855,17 @@ async function fetchSearchLandingWindow(
   accessToken: string,
   propertyId: string,
   window: GaSearchLandingWindow,
-  options: { requestedAt: string; pageSize: number; maxRows: number },
+  options: { requestedAt: string; pageSize: number; maxRows: number; timeZone?: string },
 ): Promise<GA4SearchLandingWindowReport & { emptyReason: string | null }> {
   const days = GA_SEARCH_LANDING_WINDOW_DAYS[window]
+  const explicitRange = options.timeZone === undefined ? null : {
+    startDate: isoDateDaysBeforeInTimeZone(options.requestedAt, days, options.timeZone),
+    endDate: isoDateDaysBeforeInTimeZone(options.requestedAt, 1, options.timeZone),
+  }
   const { rows: rawRows, firstPage, reportRowCount, capped } = await fetchPagedReportWithTotals(accessToken, propertyId, {
-    // Relative dates resolve in the property's reporting time zone, which is
-    // how GA4's own "Last N days" ranges end: yesterday, local to the property.
-    dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'yesterday' }],
+    // A known reporting zone pins the planner's calendar bounds across I/O.
+    // Otherwise GA4 resolves the relative range in its own reporting zone.
+    dateRanges: [explicitRange ?? { startDate: `${days}daysAgo`, endDate: 'yesterday' }],
     dimensions: [{ name: DIM.landingPagePlusQueryString }],
     metrics: SEARCH_LANDING_METRIC_NAMES.map((name) => ({ name })),
     metricAggregations: ['TOTAL'],
@@ -1906,8 +1910,8 @@ async function fetchSearchLandingWindow(
   const zone = timeZone ?? 'UTC'
   return {
     window,
-    periodStart: isoDateDaysBeforeInTimeZone(options.requestedAt, days, zone),
-    periodEnd: isoDateDaysBeforeInTimeZone(options.requestedAt, 1, zone),
+    periodStart: explicitRange?.startDate ?? isoDateDaysBeforeInTimeZone(options.requestedAt, days, zone),
+    periodEnd: explicitRange?.endDate ?? isoDateDaysBeforeInTimeZone(options.requestedAt, 1, zone),
     timeZone,
     total,
     rows,
@@ -1921,8 +1925,8 @@ async function fetchSearchLandingWindow(
 
 /**
  * Fetch GA4's "Google organic search traffic: Landing page + query string"
- * report for the 7, 28 and 90 days ending yesterday (property time zone): one
- * request per window, paged until every row is read or
+ * report for the 7, 28, 90 and 180 days ending yesterday (property time zone):
+ * one request per selected complete window, paged until every row is read or
  * `GA4_SEARCH_LANDING_MAX_ROWS` is reached.
  *
  * Returns `unavailable` (never throws) when GA4 refuses the Search Console
@@ -1933,10 +1937,16 @@ async function fetchSearchLandingWindow(
 export async function fetchSearchLandingPages(
   accessToken: string,
   propertyId: string,
-  options: { now?: Date; pageSize?: number; maxRows?: number } = {},
+  options: { now?: Date; pageSize?: number; maxRows?: number; windows?: readonly GaSearchLandingWindow[]; timeZone?: string } = {},
 ): Promise<GA4SearchLandingReport> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
+  const requestedWindows = options.windows ?? GA_SEARCH_LANDING_WINDOWS
+  if (requestedWindows.length === 0
+    || new Set(requestedWindows).size !== requestedWindows.length
+    || requestedWindows.some(window => !GA_SEARCH_LANDING_WINDOWS.includes(window))) {
+    throw new GA4ApiError('Search landing windows must be a non-empty selection of unique supported windows', 400)
+  }
   const requestedAt = (options.now ?? new Date()).toISOString()
   const pageSize = options.pageSize ?? GA4_SEARCH_LANDING_PAGE_SIZE
   const maxRows = options.maxRows ?? GA4_SEARCH_LANDING_MAX_ROWS
@@ -1944,8 +1954,8 @@ export async function fetchSearchLandingPages(
   ga4Log('info', 'fetch-search-landing.start', { propertyId })
   let windows: Array<GA4SearchLandingWindowReport & { emptyReason: string | null }>
   try {
-    windows = await Promise.all(GA_SEARCH_LANDING_WINDOWS.map((window) =>
-      fetchSearchLandingWindow(accessToken, propertyId, window, { requestedAt, pageSize, maxRows })))
+    windows = await Promise.all(requestedWindows.map((window) =>
+      fetchSearchLandingWindow(accessToken, propertyId, window, { requestedAt, pageSize, maxRows, timeZone: options.timeZone })))
   } catch (error) {
     if (!isSearchConsoleUnavailable(error)) throw error
     ga4Log('info', 'fetch-search-landing.unavailable', { propertyId, httpStatus: 400 })
