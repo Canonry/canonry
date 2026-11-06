@@ -895,7 +895,7 @@ test('AI traffic history shows visits by month', async () => {
 
   fireEvent.click(screen.getByRole('button', { name: 'Months' }))
   const strip = (await screen.findByText('October 2026')).parentElement as HTMLElement
-  expect(strip.textContent).toBe('October 202695visits, GA4120visits, server▲39.3%since Jun91from ChatGPT')
+  expect(strip.textContent).toBe('October 202695visits, GA4120visits, server▲39.3%trend since Jun91from ChatGPT')
   // Part months are hollow and off the line: May and November for the server.
   const serverPartial = screen.getByTestId('dots-serverPartial').querySelectorAll('circle')
   expect([...serverPartial].map(c => c.getAttribute('fill'))).toEqual(['none', 'none'])
@@ -904,7 +904,7 @@ test('AI traffic history shows visits by month', async () => {
 
   fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
   expect(screen.queryByTestId('dots-serverPartial')).toBeNull()
-  expect(strip.textContent).toBe('October 202695visits, GA4▲39.3%since Jun91from ChatGPT')
+  expect(strip.textContent).toBe('October 202695visits, GA4▲39.3%trend since Jun91from ChatGPT')
 })
 
 /** Real SDK reads with independently supplied source responses. */

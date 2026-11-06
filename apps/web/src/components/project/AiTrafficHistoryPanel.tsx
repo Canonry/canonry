@@ -655,7 +655,7 @@ export function AiTrafficHistoryPanel({
           {visitSource !== 'server' && monthlyTrend?.changePct != null && (
             <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
               {monthlyTrend.changePct > 0 ? '▲' : monthlyTrend.changePct < 0 ? '▼' : ''}{formatPercent(Math.abs(monthlyTrend.changePct), RatioUnits.percent)}</span>
-              since {formatMonthTick(monthlyTrend.startMonth)}</span>
+              trend since {formatMonthTick(monthlyTrend.startMonth)}</span>
           )}
           {visitSource !== 'server' && lastGaMonth?.month === stripMonth && lastGaMonth.engines[0] && (
             <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
