@@ -7,7 +7,7 @@ const metrics = ['7d', '30d', '90d', 'all']
 const cases: Array<[string, string, string[]]> = [
   ['ga/acquisition', 'window', metrics], ['ga/traffic', 'window', ['7d', '30d', '90d', '180d', 'all']], ['google/gsc/performance', 'window', metrics],
   ['analytics/competitors', 'window', metrics],
-  ['ga/search-landing-pages', 'window', ['7d', '28d', '90d']],
+  ['ga/search-landing-pages', 'window', ['7d', '28d', '90d', '180d']],
   ['ga/measurement-analysis', 'window', ['30d', '60d', '90d']],
   ['google-ads/performance', 'window', ['7d', '14d', '30d']],
   ['traffic/analytics', 'period', ['7d', '14d', '30d', '90d']],

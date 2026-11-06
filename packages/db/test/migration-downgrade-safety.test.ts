@@ -49,6 +49,19 @@ const REVIEWED_DATA_STATEMENTS: ReadonlyMap<number, readonly RegExp[]> = new Map
   [200, [
     /^UPDATE raw_event_samples SET event_type = 'ai_user_fetch' WHERE event_type = 'ai-user-fetch'$/i,
   ]],
+  // v212 rebuilds only these two tables to admit 180d, preserving all columns,
+  // defaults, indexes and project/run cascades. Older writers still use 7d,
+  // 28d or 90d and omit the nullable report_definition column. The migration
+  // upgrade/replay test in ga-search-landing-migration.test.ts proves retained
+  // figures, provenance, uniqueness and cascades. INSERT must copy the same
+  // named columns verbatim; do not allow arbitrary transforms or other tables.
+  [212, [
+    /^DROP TABLE IF EXISTS ga_search_landing_(windows|pages)_v212$/i,
+    /^CREATE TABLE ga_search_landing_(windows|pages)_v212 \(.+\)$/i,
+    /^INSERT INTO ga_search_landing_(windows|pages)_v212 \(( [a-z_, ]+ )\) SELECT\2FROM ga_search_landing_\1$/i,
+    /^DROP TABLE ga_search_landing_(windows|pages)$/i,
+    /^ALTER TABLE ga_search_landing_(windows|pages)_v212 RENAME TO ga_search_landing_\1$/i,
+  ]],
 ])
 
 test(`every migration after v${DOWNGRADE_BASELINE} has additive schema or reviewed data changes (downgrade-safe)`, () => {
