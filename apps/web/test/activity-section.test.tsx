@@ -40,9 +40,7 @@ vi.mock('recharts', () => {
     // Its label is rendered so a test can prove a band is drawn and what it says.
     ReferenceArea: ({ label }: { label?: { value?: string } }) =>
       label?.value ? <div data-testid="reference-area">{label.value}</div> : null,
-    // A labelled marker renders its label, so a test can prove it is drawn.
-    ReferenceLine: ({ label }: { label?: { value?: string } }) =>
-      label?.value ? <div data-testid="reference-line">{label.value}</div> : null,
+    ReferenceLine: () => null,
     XAxis: () => null,
     YAxis: () => null,
     Tooltip: () => null,
@@ -834,11 +832,11 @@ test('AI traffic history bands server visits counted by the older rule', async (
  */
 /**
  * Months read the long view the monthly report draws: visits by calendar month,
- * the project's start marked, part months (recording began inside one, or it
- * is still running) drawn hollow off the line, and the newest complete month's
- * figures in one strip, all as the API reports them.
+ * part months (recording began inside one, or it is still running) drawn
+ * hollow off the line, and the newest complete month's figures in one strip,
+ * all as the API reports them.
  */
-test('AI traffic history shows visits by month with the start marked', async () => {
+test('AI traffic history shows visits by month', async () => {
   const months = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11']
   const restoreFetch = mockFetch((url) => {
     const [path, query = ''] = url.split('?') as [string, string?]
@@ -855,7 +853,7 @@ test('AI traffic history shows visits by month with the start marked', async () 
           { month: '2026-10', sessions: 95, complete: true, engines: [{ key: 'chatgpt', label: 'ChatGPT', sessions: 91 }, { key: 'gemini', label: 'Gemini', sessions: 4 }] },
           { month: '2026-11', sessions: 24, complete: false, engines: [] },
         ],
-        monthlyTrend: { slope: 9.7, intercept: 41.6, r2: 0.15, start: 99.8, end: 138.6, n: 5, startIndex: 3, endIndex: 7, startMonth: '2026-06', endMonth: '2026-10', changePct: 39 },
+        monthlyTrend: { slope: 9.7, intercept: 41.6, r2: 0.15, start: 99.8, end: 138.6, n: 5, startIndex: 3, endIndex: 7, startMonth: '2026-06', endMonth: '2026-10', changePct: 39.25 },
       })
     }
     if (path.endsWith('/projects/test-project/traffic/events')) {
@@ -890,17 +888,14 @@ test('AI traffic history shows visits by month with the start marked', async () 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={queryClient}>
-      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} startedOn="2026-06-01" />
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
     </QueryClientProvider>,
   )
   await screen.findByText('AI crawlers')
-  // Days: June 1 is outside a window of one November day, so nothing is marked.
-  expect(screen.queryByText('We started')).toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: 'Months' }))
   const strip = (await screen.findByText('October 2026')).parentElement as HTMLElement
-  expect(strip.textContent).toBe('October 202695visits, GA4120visits, server▲39%since Jun91from ChatGPT')
-  expect(screen.getAllByTestId('reference-line').map(el => el.textContent)).toEqual(['We started'])
+  expect(strip.textContent).toBe('October 202695visits, GA4120visits, server▲39.3%since Jun91from ChatGPT')
   // Part months are hollow and off the line: May and November for the server.
   const serverPartial = screen.getByTestId('dots-serverPartial').querySelectorAll('circle')
   expect([...serverPartial].map(c => c.getAttribute('fill'))).toEqual(['none', 'none'])
@@ -909,7 +904,134 @@ test('AI traffic history shows visits by month with the start marked', async () 
 
   fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
   expect(screen.queryByTestId('dots-serverPartial')).toBeNull()
-  expect(strip.textContent).toBe('October 202695visits, GA4▲39%since Jun91from ChatGPT')
+  expect(strip.textContent).toBe('October 202695visits, GA4▲39.3%since Jun91from ChatGPT')
+})
+
+/** Real SDK reads with independently supplied source responses. */
+function renderMonthlyHistory(input: {
+  dailyActive?: boolean
+  serverConnected?: boolean
+  gaStatus?: () => Response | Promise<Response>
+  server: () => Response | Promise<Response>
+  ga: () => Response | Promise<Response>
+}) {
+  onTestFinished(mockFetch((url) => {
+    const parsed = new URL(url, window.location.origin)
+    if (parsed.pathname.endsWith('/ga/status')) return input.gaStatus?.() ?? jsonResponse(GA_STATUS)
+    if (parsed.pathname.endsWith('/ga/ai-referral-daily')) {
+      return parsed.searchParams.has('startDate') ? input.ga() : jsonResponse(EMPTY_AI_DAILY_RESPONSE)
+    }
+    if (parsed.pathname.endsWith('/traffic/sources')) {
+      return jsonResponse({ sources: input.serverConnected === false ? [] : [{ id: 'server', status: 'connected' }] })
+    }
+    if (parsed.pathname.endsWith('/traffic/events')) {
+      if (parsed.searchParams.get('granularity') === 'month') return input.server()
+      const count = input.dailyActive === false ? 0 : 1
+      return jsonResponse({
+        events: [], totals: { crawlerContentHits: count, aiUserFetchHits: 0, aiReferralLandedHits: count },
+        series: {
+          coverageStart: input.serverConnected === false ? null : '2026-05-01T00:00:00.000Z',
+          points: [{ bucket: '2026-11-05', crawlerContentHits: count, aiReferralLandedHits: count, measured: input.serverConnected !== false }],
+        },
+      })
+    }
+    throw new Error(`Unexpected history request: ${url}`)
+  }))
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={queryClient}>
+    <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+  </QueryClientProvider>)
+}
+
+test.each([true, false])('monthly history remains reachable with quiet daily traffic and server connected=%s', async (serverConnected) => {
+  renderMonthlyHistory({
+    dailyActive: false,
+    serverConnected,
+    server: () => jsonResponse({ series: { points: serverConnected ? [{ bucket: '2026-10', aiReferralLandedHits: 42, measured: true }] : [] } }),
+    ga: () => jsonResponse({ months: [{ month: '2026-10', sessions: 23, complete: true, engines: [] }] }),
+  })
+  await screen.findByText(serverConnected ? 'No AI activity recorded in this period.' : 'No server-side traffic source connected yet.')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  const strip = (await screen.findByText('October 2026')).parentElement as HTMLElement
+  await waitFor(() => expect(strip.textContent).toBe(serverConnected ? 'October 202623visits, GA442visits, server' : 'October 202623visits, GA4'))
+  // With no server buckets, GA4 must still supply a plotted reading.
+  expect(screen.getByTestId('dots-ga4Visits').querySelectorAll('circle')).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button', { name: 'Days' }))
+  expect(screen.queryByText('October 2026')).toBeNull()
+})
+
+test('monthly history draws adjacent partial months for both sources', async () => {
+  renderMonthlyHistory({
+    server: () => jsonResponse({ series: {
+      partialBuckets: ['2026-10', '2026-11'],
+      points: [{ bucket: '2026-10', aiReferralLandedHits: 42 }, { bucket: '2026-11', aiReferralLandedHits: 11 }],
+    } }),
+    ga: () => jsonResponse({ months: [
+      { month: '2026-10', sessions: 23, complete: false, engines: [] },
+      { month: '2026-11', sessions: 7, complete: false, engines: [] },
+    ] }),
+  })
+  await screen.findByText('AI crawlers')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  await waitFor(() => {
+    expect(screen.getByTestId('dots-serverPartial').querySelectorAll('circle[fill="none"]')).toHaveLength(2)
+    expect(screen.getByTestId('dots-ga4Partial').querySelectorAll('circle[fill="none"]')).toHaveLength(2)
+  })
+  expect(screen.getByTestId('dots-aiReferralLandedHits').querySelectorAll('circle')).toHaveLength(0)
+  expect(screen.getByTestId('dots-ga4Visits').querySelectorAll('circle')).toHaveLength(0)
+})
+
+test('monthly summary follows the selected source when GA4 history ends earlier', async () => {
+  renderMonthlyHistory({
+    server: () => jsonResponse({ series: { points: [
+      { bucket: '2026-09', aiReferralLandedHits: 30 },
+      { bucket: '2026-10', aiReferralLandedHits: 42 },
+    ] } }),
+    ga: () => jsonResponse({ months: [{ month: '2026-09', sessions: 23, complete: true, engines: [] }] }),
+  })
+  await screen.findByText('AI crawlers')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  await screen.findByText('September 2026')
+  fireEvent.click(screen.getByRole('button', { name: 'Server' }))
+  expect((await screen.findByText('October 2026')).parentElement?.textContent).toBe('October 202642visits, server')
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.getByText('September 2026').parentElement?.textContent).toBe('September 202623visits, GA4')
+})
+
+test.each(['server', 'ga', 'status'] as const)('monthly history reports and retries a failed %s read without claiming zero', async (source) => {
+  let finishRequest!: (response: Response) => void
+  const pendingResponse = new Promise<Response>((resolve) => { finishRequest = resolve })
+  let attempts = 0
+  const server = () => jsonResponse({ series: { points: source === 'status' ? [] : [{ bucket: '2026-10', aiReferralLandedHits: 42 }] } })
+  const ga = () => jsonResponse({ months: [{ month: '2026-10', sessions: 23, complete: true, engines: [] }] })
+  const read = (lane: 'server' | 'ga' | 'status') => {
+    if (lane === source && attempts++ === 0) return pendingResponse
+    if (lane === 'status') return jsonResponse(GA_STATUS)
+    return lane === 'server' ? server() : ga()
+  }
+  renderMonthlyHistory({ server: () => read('server'), ga: () => read('ga'), gaStatus: () => read('status') })
+  await screen.findByText('AI crawlers')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  const loading = source === 'status' ? 'Checking the GA4 connection…' : source === 'server' ? 'Loading monthly server visits…' : 'Loading monthly GA4 visits…'
+  expect(await screen.findByText(loading)).toBeTruthy()
+  expect(screen.queryByText('No monthly visits recorded yet.')).toBeNull()
+  finishRequest(new Response('failed', { status: 500 }))
+  expect((await screen.findByRole('alert')).textContent).toBe(source === 'status' ? 'Could not check the GA4 connection.' : source === 'server' ? 'Could not load monthly server visits.' : 'Could not load monthly GA4 visits.')
+  expect(screen.queryByText('No monthly visits recorded yet.')).toBeNull()
+  if (source === 'status') {
+    // The unresolved connection must remain an error in GA4-only mode too.
+    fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+    expect(screen.getByRole('alert').textContent).toBe('Could not check the GA4 connection.')
+    fireEvent.click(screen.getByRole('button', { name: 'Both' }))
+  } else {
+    const strip = (await screen.findByText('October 2026')).parentElement as HTMLElement
+    expect(strip.textContent).toBe(source === 'server' ? 'October 202623visits, GA4' : 'October 202642visits, server')
+    expect(screen.getByTestId(source === 'server' ? 'dots-ga4Visits' : 'dots-aiReferralLandedHits').querySelectorAll('circle')).toHaveLength(1)
+  }
+  fireEvent.click(screen.getByRole('button', { name: source === 'status' ? 'Retry GA4 connection check' : source === 'server' ? 'Retry monthly server visits' : 'Retry monthly GA4 visits' }))
+  await waitFor(() => expect(screen.getByText('October 2026').parentElement?.textContent).toBe(source === 'status' ? 'October 202623visits, GA4' : 'October 202623visits, GA442visits, server'))
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(attempts).toBe(2)
 })
 
 test('AI traffic history draws the GA4 trend where the GA4 line is', async () => {

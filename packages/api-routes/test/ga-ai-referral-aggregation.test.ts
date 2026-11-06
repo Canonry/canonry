@@ -51,7 +51,7 @@ describe('resolveWinningDimensions', () => {
     expect(winners[0]!.paidSessions).toBe(0)
   })
 
-  it('keeps the dimension reporting the most sessions when the lenses disagree', () => {
+  it('counts the session lens when the lenses disagree, as GA4 and the client report do', () => {
     const rows = [
       ...landingPageRows({ date: '2026-07-20', source: 'chatgpt', pages: 4, dimensions: ['session'] }),
       ...landingPageRows({ date: '2026-07-20', source: 'chatgpt', pages: 9, dimensions: ['first_user'] }),
@@ -60,8 +60,19 @@ describe('resolveWinningDimensions', () => {
     const winners = resolveWinningDimensions(rows)
 
     expect(winners).toHaveLength(1)
-    // 9, the winning lens. Not 4 (the other lens), not 13 (their sum).
-    expect(winners[0]!.organicSessions).toBe(9)
+    // 4, the session lens. Not 9 (a larger lens), not 13 (their sum).
+    expect(winners[0]!.organicSessions).toBe(4)
+  })
+
+  it('counts nothing for a source and day the session lens never saw', () => {
+    const rows = [
+      ...landingPageRows({ date: '2026-07-20', source: 'chatgpt', pages: 2, dimensions: ['session'] }),
+      // A returning visitor whose first visit was from Claude, back today from elsewhere.
+      ...landingPageRows({ date: '2026-07-20', source: 'claude.ai', pages: 3, dimensions: ['first_user', 'manual_utm'] }),
+    ]
+
+    expect(resolveWinningDimensions(rows).map(w => [w.source, w.organicSessions])).toEqual([['chatgpt', 2]])
+    expect(buildAiReferralDailySeries(rows).totalSessions).toBe(2)
   })
 
   it('partitions the winning dimension by traffic class without letting class split the tuple', () => {
@@ -174,7 +185,7 @@ describe('conservation between the daily series and the window summary', () => {
     ...landingPageRows({ date: '2026-07-24', source: 'claude.ai', pages: 2 }),
     ...landingPageRows({ date: '2026-07-23', source: 'chatgpt', pages: 1, dimensions: ['session'] }),
     ...landingPageRows({ date: '2026-07-22', source: 'chatgpt', medium: 'cpc', trafficClass: 'paid', pages: 9, dimensions: ['session', 'first_user'] }),
-    // A lens disagreement, so the winner rule actually decides the total.
+    // A lens disagreement, so the session-lens rule actually decides the total.
     ...landingPageRows({ date: '2026-07-21', source: 'perplexity.ai', pages: 3, dimensions: ['session'] }),
     ...landingPageRows({ date: '2026-07-21', source: 'perplexity.ai', pages: 11, dimensions: ['manual_utm'] }),
   ]
@@ -186,8 +197,9 @@ describe('conservation between the daily series and the window summary', () => {
     expect(series.totalSessions).toBe(summary.deduped.sessions)
     expect(series.totalPaidSessions).toBe(summary.paidDeduped.sessions)
     expect(series.totalOrganicSessions).toBe(summary.organicDeduped.sessions)
-    // Guard the assertion itself against an all-zero fixture.
-    expect(series.totalSessions).toBe(76)
+    // Guard the assertion itself against an all-zero fixture. 35 + 18 + 2 + 1 + 9
+    // + 3: the Perplexity day counts its session lens (3), not the larger 11.
+    expect(series.totalSessions).toBe(68)
   })
 
   it('reports the same per-source total as the summary for the same source', () => {

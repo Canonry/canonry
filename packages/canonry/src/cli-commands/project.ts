@@ -11,7 +11,6 @@ import {
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 import {
-  calendarDateSchema,
   competitorAutoAliasModeSchema,
   OperationAccesses,
   gbpNegativeReviewMaxStarsSchema,
@@ -67,7 +66,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'update'],
     supportsDryRun: true,
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--started-on <YYYY-MM-DD|none>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--count-key-events | --no-count-key-events] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json] [--dry-run]',
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--count-key-events | --no-count-key-events] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json] [--dry-run]',
     accessFor: ({ values, dryRun }) => dryRun && getString(values, 'competitor-auto-aliases') === 'apply' ? OperationAccesses.stored : OperationAccesses.write,
     options: {
       domain: { type: 'string', short: 'd' },
@@ -90,7 +89,6 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'clear-dispatch-mode': multiStringOption(),
       'negative-review-max-stars': stringOption(),
       'site-audit-max-pages': stringOption(),
-      'started-on': stringOption(),
       'competitor-auto-aliases': stringOption(),
       'expect-revision': stringOption(),
       'lead-event': multiStringOption(),
@@ -110,7 +108,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--started-on <YYYY-MM-DD|none>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--count-key-events | --no-count-key-events] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json]',
+        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--count-key-events | --no-count-key-events] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json]',
       )
       const providers = getStringArray(input.values, 'provider')
       const expectedRevisionRaw = getString(input.values, 'expect-revision')
@@ -150,7 +148,6 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         clearDispatchModes,
         negativeReviewMaxStars: parseNegativeReviewMaxStars(getString(input.values, 'negative-review-max-stars')),
         siteAuditMaxPages: parseSiteAuditMaxPages(getString(input.values, 'site-audit-max-pages'), 'project.update'),
-        startedOn: parseStartedOn(getString(input.values, 'started-on')),
         competitorAutoAliases: parseCompetitorAutoAliasMode(getString(input.values, 'competitor-auto-aliases')),
         expectedConfigRevision,
         measurement: parseMeasurementFlags(input.values),
@@ -341,23 +338,6 @@ function parseSiteAuditMaxPages(raw: string | undefined, command: string): numbe
     })
   }
   return parsed.data
-}
-
-/**
- * A calendar date saves the day work on the project began; `none` clears it;
- * absent leaves the stored date alone.
- */
-function parseStartedOn(raw: string | undefined): string | null | undefined {
-  if (raw === undefined) return undefined
-  const value = raw.trim()
-  if (value.toLowerCase() === 'none') return null
-  if (!calendarDateSchema.safeParse(value).success) {
-    throw usageError('Error: --started-on must be a date as YYYY-MM-DD, or "none" to clear it', {
-      message: '--started-on must be YYYY-MM-DD or "none"',
-      details: { command: 'project.update', option: 'started-on', value: raw },
-    })
-  }
-  return value
 }
 
 /**

@@ -43,10 +43,9 @@ reaches back before it. On Cloudflare and Cloud Run sources a one-time
 recount rebuilds the older hours that AI visitor journeys cover, so the mark
 moves back to where journeys began. GA4's daily AI series carries its own
 fitted `trend`, which can span the whole window. For the long view, read GA4
-`months` and `monthlyTrend` (from the project's `startedOn` month, set with
-`cnry project update <p> --started-on YYYY-MM-DD`) and server-side
-`--granularity month`; never chart a month listed in `partialBuckets`, or one
-whose GA4 `complete` is false, as a full reading.
+`months` and `monthlyTrend` and server-side `--granularity month`; never chart
+a month listed in `partialBuckets`, or one whose GA4 `complete` is false, as a
+full reading.
 
 ## Check the instrument before you report a zero
 

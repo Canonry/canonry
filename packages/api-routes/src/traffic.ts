@@ -5420,9 +5420,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         for (const pt of points) {
           pt.measured = coverageKey === null ? false : seriesBucketOf(pt.bucket, granularity) >= coverageKey
         }
-        // The FIRST measured bucket is itself partial whenever recording began
-        // INSIDE it rather than on its boundary. `measured` cannot see that: it
-        // compares at bucket granularity, so the bucket holding `coverageStart`
+        // The FIRST measured bucket is itself partial whenever recording or the
+        // requested range began INSIDE it rather than on its boundary.
+        // `measured` compares at bucket granularity, so that first bucket
         // reads as fully measured while holding only the tail of one. Left in,
         // a site flat at 10 hits/hour whose source connected at 14:00 contributes
         // a 100-hit first day against 240-hit neighbours, and the fit returns a
@@ -5433,8 +5433,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         const leadingBucketIsPartial = firstMeasuredIdx >= 0
           && coverageStartMs !== null
           && Number.isFinite(coverageStartMs)
-          // Strict: coverage starting exactly on the boundary is a WHOLE bucket.
-          && coverageStartMs > bucketStartMs(points[firstMeasuredIdx]!.bucket)
+          // Strict: recording and range starting on the boundary leave a WHOLE bucket.
+          && Math.max(coverageStartMs, since.getTime()) > bucketStartMs(points[firstMeasuredIdx]!.bucket)
         // Fitted server-side so the CLI and every other consumer get the same
         // line the chart draws (the UI/CLI parity rule). Points are densified,
         // so a quiet day is a real 0 in the fit rather than a gap.
@@ -5453,8 +5453,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           //
           // Leading: unmeasured buckets predate recording, so they are the
           // ABSENCE of a reading, not a reading of zero. The first MEASURED
-          // bucket goes too when recording began inside it, since a fraction of
-          // a bucket read as a whole one slopes the fit up out of nothing.
+          // bucket goes too when recording or the range began inside it, since
+          // a fraction of a bucket read as a whole slopes the fit up out of nothing.
           //
           // Trailing: `until` defaults to now, so the newest bucket holds only
           // the elapsed fraction of the current period. A site flat at 500/day
@@ -5477,17 +5477,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
               && !(i === points.length - 1 && trailingBucketIsPartial)
             const countedByCurrentRule = (pt: TrafficSeriesPoint) =>
               referralCountingChangedMs === null || bucketStartMs(pt.bucket) >= referralCountingChangedMs
-            // Visits trend from the project's start date when it has one: the
-            // bucket holding that day counts, earlier ones do not.
-            const startedBucket = project.startedOn ? seriesBucketOf(project.startedOn, granularity) : null
-            const sinceStarted = (pt: TrafficSeriesPoint) =>
-              startedBucket === null || seriesBucketOf(pt.bucket, granularity) >= startedBucket
             const series = (pick: (pt: TrafficSeriesPoint) => number, include: (pt: TrafficSeriesPoint) => boolean = () => true) =>
               linearTrend(points.map((pt, i) => (usable(pt, i) && include(pt) ? pick(pt) : null)))
             return {
               crawlerContentHits: series((pt) => pt.crawlerContentHits),
               aiUserFetchHits: series((pt) => pt.aiUserFetchHits),
-              aiReferralLandedHits: series((pt) => pt.aiReferralLandedHits, (pt) => countedByCurrentRule(pt) && sinceStarted(pt)),
+              aiReferralLandedHits: series((pt) => pt.aiReferralLandedHits, countedByCurrentRule),
             }
           })(),
         }

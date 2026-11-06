@@ -800,8 +800,7 @@ export const trafficEventsResponseSchema = z.object({
      * arrivals and read high; stored hourly rows keep no visitor, so they
      * cannot be recounted. Like `coverageStart`, not bound to the window.
      * `trends.aiReferralLandedHits` is fitted only over buckets that begin at
-     * or after it, and from the bucket holding the project's `startedOn` when
-     * set. Optional so a newer client reads an older API.
+     * or after it. Optional so a newer client reads an older API.
      */
     aiReferralCountingChangedAt: z.string().nullable().optional(),
     /**

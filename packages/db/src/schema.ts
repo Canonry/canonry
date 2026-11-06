@@ -18,8 +18,6 @@ export const projects = sqliteTable('projects', {
   qualifiedAliases: text('qualified_aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
   /** Site Health page budget for scans that set none; null means the full site (up to 50,000 pages). */
   siteAuditMaxPages: integer('site_audit_max_pages'),
-  /** The day work on this project began (YYYY-MM-DD); charts mark it "We started". NULL when unset. */
-  startedOn: text('started_on'),
   /**
    * What the unattended answer-derived competitor alias pass does
    * (`CompetitorAutoAliasMode`), queued after a completed or partial sweep, a

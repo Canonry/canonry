@@ -194,7 +194,6 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: body.autoExtractBacklinks ?? false,
         siteAuditMaxPages: body.siteAuditMaxPages ?? null,
-        startedOn: body.startedOn ?? null,
         competitorAutoAliases: body.competitorAutoAliases ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
@@ -229,7 +228,6 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     nextDefaultLocation: string | null
     nextAutoExtractBacklinks: boolean
     nextSiteAuditMaxPages: number | null
-    nextStartedOn: string | null
     nextCompetitorAutoAliases: CompetitorAutoAliasMode
     nextNegativeReviewMaxStars: number | null
     nextMeasurement: MeasurementConfig
@@ -285,8 +283,6 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       ? body.autoExtractBacklinks
       : existing?.autoExtractBacklinks ?? false
     const nextSiteAuditMaxPages = body.siteAuditMaxPages !== undefined ? body.siteAuditMaxPages : existing?.siteAuditMaxPages ?? null
-    // Omitted keeps the stored start date, as for the page budget; null clears it.
-    const nextStartedOn = body.startedOn !== undefined ? body.startedOn : existing?.startedOn ?? null
     const nextCompetitorAutoAliases = body.competitorAutoAliases
       ?? existing?.competitorAutoAliases
       ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE
@@ -321,7 +317,6 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       nextDefaultLocation,
       nextAutoExtractBacklinks,
       nextSiteAuditMaxPages,
-      nextStartedOn,
       nextCompetitorAutoAliases,
       nextNegativeReviewMaxStars,
       nextMeasurement,
@@ -372,7 +367,6 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         defaultLocation: prepared.nextDefaultLocation,
         autoExtractBacklinks: prepared.nextAutoExtractBacklinks,
         siteAuditMaxPages: prepared.nextSiteAuditMaxPages,
-        startedOn: prepared.nextStartedOn,
         competitorAutoAliases: prepared.nextCompetitorAutoAliases,
         ...(options.preserveConfigSource ? {} : { configSource: body.configSource ?? 'api' }),
         configRevision: existing.configRevision + 1,
@@ -436,7 +430,6 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       autoExtractBacklinks?: boolean
       negativeReviewMaxStars?: number | null
       siteAuditMaxPages?: number | null
-      startedOn?: string | null
       competitorAutoAliases?: CompetitorAutoAliasMode
       configSource?: string
       providerModels?: Record<string, string>
@@ -485,7 +478,6 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         defaultLocation: prepared.nextDefaultLocation,
         autoExtractBacklinks: prepared.nextAutoExtractBacklinks,
         siteAuditMaxPages: prepared.nextSiteAuditMaxPages,
-        startedOn: prepared.nextStartedOn,
         competitorAutoAliases: prepared.nextCompetitorAutoAliases,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
@@ -561,7 +553,6 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       ...(patch.qualifiedAliases !== undefined ? { qualifiedAliases: patch.qualifiedAliases } : {}),
       ...(patch.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: patch.negativeReviewMaxStars } : {}),
       ...(patch.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: patch.siteAuditMaxPages } : {}),
-      ...(patch.startedOn !== undefined ? { startedOn: patch.startedOn } : {}),
       ...(patch.competitorAutoAliases !== undefined ? { competitorAutoAliases: patch.competitorAutoAliases } : {}),
     }
     const prepared = prepareProjectUpdate(request, body, existing)
@@ -856,7 +847,6 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         ...(project.autoExtractBacklinks ? { autoExtractBacklinks: true } : {}),
         ...(negativeReviewMaxStars !== null ? { negativeReviewMaxStars } : {}),
         ...(project.siteAuditMaxPages !== null ? { siteAuditMaxPages: project.siteAuditMaxPages } : {}),
-        ...(project.startedOn !== null ? { startedOn: project.startedOn } : {}),
         // Only a mode other than the default, so a preview project's export is unchanged.
         ...(project.competitorAutoAliases !== DEFAULT_COMPETITOR_AUTO_ALIAS_MODE ? { competitorAutoAliases: project.competitorAutoAliases } : {}),
         notifications: notificationRows.map((row) => {
@@ -1014,7 +1004,6 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
     autoExtractBacklinks: row.autoExtractBacklinks,
     negativeReviewMaxStars,
     siteAuditMaxPages: row.siteAuditMaxPages ?? null,
-    startedOn: row.startedOn ?? null,
     competitorAutoAliases: row.competitorAutoAliases,
     answerFieldsRecompute: row.answerFieldsRecompute,
     configSource: row.configSource,

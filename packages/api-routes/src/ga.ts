@@ -3,7 +3,7 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaWindowMetrics, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, gaSyncCoverage, runs } from '@canonry/canonry-db'
-import { GA_OVERVIEW_WINDOWS, GA_SEARCH_LANDING_WINDOWS, shiftIsoCalendarDate, WINDOW_SETS, breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames, linearTrend, type GA4AiReferralDailyTrend, type GA4AiReferralMonth, type GA4AiReferralMonthlyTrend } from '@canonry/canonry-contracts'
+import { GA_OVERVIEW_WINDOWS, GA_SEARCH_LANDING_WINDOWS, shiftIsoCalendarDate, calendarDateRange, WINDOW_SETS, breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames, linearTrend, type GA4AiReferralDailyTrend, type GA4AiReferralMonth, type GA4AiReferralMonthlyTrend } from '@canonry/canonry-contracts'
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@canonry/canonry-contracts'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
@@ -90,13 +90,10 @@ export function aiReferralDailyTrend(
   measuredDates: readonly string[],
   firstAiDate: string | null,
   now: Date,
-  /** The project's start date: when set, the line starts there, not before. */
-  startedOn: string | null = null,
 ): GA4AiReferralDailyTrend | null {
   if (!firstAiDate) return null
   const fillingFrom = gaFillingFrom(now)
-  const from = startedOn && startedOn > firstAiDate ? startedOn : firstAiDate
-  const usable = [...new Set(measuredDates)].filter(date => date >= from && date < fillingFrom).sort()
+  const usable = [...new Set(measuredDates)].filter(date => date >= firstAiDate && date < fillingFrom).sort()
   if (usable.length < 2) return null
   const sessionsByDate = new Map(days.map(day => [day.date, day.sessions]))
   const measured = new Set(usable)
@@ -115,9 +112,9 @@ const lastDayOf = (month: string) => new Date(Date.parse(`${addMonths(month, 1)}
 
 /**
  * The daily AI sessions folded into calendar months across the range, and a
- * line through the complete ones from the project's start month. A month is
- * complete when the range holds all of it and none of it is still filling; a
- * month GA4 reported no day of reads null, not zero.
+ * line through the complete ones. A month is complete when the range holds
+ * all of it, every day has a reported site total, and none is still filling.
+ * A month GA4 reported no day of reads null, not zero.
  */
 export function aiReferralMonthlySeries(input: {
   days: readonly { date: string, sessions: number }[]
@@ -125,23 +122,23 @@ export function aiReferralMonthlySeries(input: {
   measuredDates: readonly string[]
   range: { startDate: string | null, endDate: string | null }
   firstAiDate: string | null
-  startedOn: string | null
   now: Date
 }): { months: GA4AiReferralMonth[], monthlyTrend: GA4AiReferralMonthlyTrend | null } {
   const today = input.now.toISOString().slice(0, 10)
   const fillingFrom = gaFillingFrom(input.now)
-  const firstDay = input.range.startDate ?? input.days[0]?.date ?? input.measuredDates.slice().sort()[0]
+  const firstDay = input.range.startDate ?? [...input.days.map(day => day.date), ...input.measuredDates].sort()[0]
   if (!firstDay) return { months: [], monthlyTrend: null }
   const lastDay = input.range.endDate && input.range.endDate < today ? input.range.endDate : today
   const labels = new Map(input.byEngine.series.map(s => [s.key, s.label]))
   const measured = new Set(input.measuredDates)
-  // A month GA4 began reporting partway through is not a whole month.
-  const firstMeasured = input.measuredDates.slice().sort()[0] ?? null
   const months: GA4AiReferralMonth[] = []
   for (let month = firstDay.slice(0, 7); month <= lastDay.slice(0, 7); month = addMonths(month, 1)) {
     const inMonth = (date: string) => date.startsWith(month)
+    const monthStart = `${month}-01`
+    const monthEnd = lastDayOf(month)
+    const monthDates = calendarDateRange(monthStart, monthEnd)
     const days = input.days.filter(day => inMonth(day.date))
-    const reported = days.length > 0 || [...measured].some(inMonth)
+    const reported = days.length > 0 || monthDates.some(date => measured.has(date))
     const engines = new Map<string, number>()
     for (const day of input.byEngine.days) {
       if (!inMonth(day.date)) continue
@@ -150,13 +147,13 @@ export function aiReferralMonthlySeries(input: {
     months.push({
       month,
       sessions: reported ? days.reduce((sum, day) => sum + day.sessions, 0) : null,
-      complete: reported && `${month}-01` >= firstDay && lastDayOf(month) < fillingFrom
-        && firstMeasured !== null && firstMeasured <= `${month}-01`,
+      complete: reported && monthStart >= firstDay && monthEnd <= lastDay && monthEnd < fillingFrom
+        && monthDates.every(date => measured.has(date)),
       engines: [...engines].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
         .map(([key, sessions]) => ({ key, label: labels.get(key) ?? key, sessions })),
     })
   }
-  const fromMonth = [input.firstAiDate?.slice(0, 7), input.startedOn?.slice(0, 7)].filter((m): m is string => Boolean(m)).sort().at(-1)
+  const fromMonth = input.firstAiDate?.slice(0, 7)
   const fit = fromMonth
     ? linearTrend(months.map(m => (m.complete && m.month >= fromMonth ? m.sessions : null)))
     : null
@@ -164,7 +161,7 @@ export function aiReferralMonthlySeries(input: {
     ...fit,
     startMonth: months[fit.startIndex]!.month,
     endMonth: months[fit.endIndex]!.month,
-    changePct: fit.start > 0 ? Math.round(100 * (fit.end / fit.start - 1)) : null,
+    changePct: fit.start > 0 ? deltaPercent(fit.end, fit.start) : null,
   } : null
   return { months, monthlyTrend }
 }
@@ -1767,11 +1764,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     // Dedupe across attribution dimensions: 'session', 'first_user', and
     // 'manual_utm' are overlapping lenses on the same visit, not disjoint
     // events. Returning all three would inflate the row count (e.g. 1 source
-    // showing as 6 rows). Keep the winning dimension — the one with the
-    // highest session count — per (source, medium) for `aiReferrals` and per
-    // (source, medium, landingPage) for `aiReferralLandingPages`. The cross-
-    // cutting / session-only totals (`aiSessionsDeduped`, `aiSessionsBySession`)
-    // are computed independently below and are unaffected.
+    // showing as 6 rows). Keep only the session lens for both `aiReferrals`
+    // and `aiReferralLandingPages`, matching the lens counted by the window
+    // totals (`aiSessionsDeduped`, `aiSessionsBySession`).
     const aiReferrals = keepWinningDimensionRows(aiReferralRows, (r) => r.source)
     const aiReferralLandingPages = keepWinningDimensionRows(
       aiReferralLandingPageRows,
@@ -1889,9 +1884,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       // every date in the window) counted one visitor once per row. Withdrawn
       // in 4.135.0; see `ga-ai-referral-aggregation.ts` for why no correct
       // figure can be computed or fetched.
-      // Shares of the rows' own sum, not of `aiSessionsDeduped`: that total
-      // keeps the winning lens per day, these rows one lens per source over the
-      // window, so it can exceed what the rows add up to.
+      // Shares of the rows' own sum, which agrees with `aiSessionsDeduped`:
+      // both count only the session lens across the same window.
       aiReferrals: aiReferralDtos,
       aiEngines: groupAiEngines(aiReferralDtos),
       aiReferralLandingPages: aiReferralLandingPages.map((r) => ({
@@ -2052,11 +2046,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const now = new Date()
     return {
       ...series,
-      trend: aiReferralDailyTrend(series.days, measuredDates, firstAiDate, now, project.startedOn ?? null),
-      ...aiReferralMonthlySeries({
-        days: series.days, byEngine: series.byEngine, measuredDates, range, firstAiDate,
-        startedOn: project.startedOn ?? null, now,
-      }),
+      trend: aiReferralDailyTrend(series.days, measuredDates, firstAiDate, now),
+      ...aiReferralMonthlySeries({ days: series.days, byEngine: series.byEngine, measuredDates, range, firstAiDate, now }),
     }
   })
 

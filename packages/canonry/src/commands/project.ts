@@ -153,8 +153,6 @@ export async function showProject(name: string, format?: string): Promise<void> 
   if (project.siteAuditMaxPages !== undefined) {
     console.log(`  Site Health page budget: ${formatSiteAuditPageBudget(project.siteAuditMaxPages)}`)
   }
-  // Absent only from a server that predates the field: say nothing rather than guess.
-  if (project.startedOn !== undefined) console.log(`  Started on: ${project.startedOn ?? 'not set'}`)
   // Absent only from a server that predates the setting.
   if (project.competitorAutoAliases !== undefined) {
     console.log(`  Competitor auto aliases: ${formatCompetitorAutoAliasMode(project.competitorAutoAliases)}`)
@@ -249,8 +247,6 @@ export async function updateProjectSettings(
     negativeReviewMaxStars?: number | null
     /** 1-50,000 sets the Site Health page budget, null means the full site, undefined leaves it. */
     siteAuditMaxPages?: number | null
-    /** YYYY-MM-DD sets the day work began, null clears it, undefined leaves it. */
-    startedOn?: string | null
     /** Sets the answer-derived competitor alias detection mode; undefined leaves it. */
     competitorAutoAliases?: CompetitorAutoAliasMode
     expectedConfigRevision?: number
@@ -397,7 +393,6 @@ export async function updateProjectSettings(
     ...(touchesDispatch ? { providerDispatchModes } : {}),
     ...(opts.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: opts.negativeReviewMaxStars } : {}),
     ...(opts.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: opts.siteAuditMaxPages } : {}),
-    ...(opts.startedOn !== undefined ? { startedOn: opts.startedOn } : {}),
     ...(opts.competitorAutoAliases !== undefined ? { competitorAutoAliases: opts.competitorAutoAliases } : {}),
     ...(opts.measurement !== undefined ? { measurement: resolveMeasurementUpdate(project, opts.measurement) } : {}),
   }
@@ -440,7 +435,6 @@ export async function updateProjectSettings(
       autoExtractBacklinks: project.autoExtractBacklinks,
       ...(opts.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: opts.negativeReviewMaxStars } : {}),
       ...(opts.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: opts.siteAuditMaxPages } : {}),
-      ...(opts.startedOn !== undefined ? { startedOn: opts.startedOn } : {}),
       ...(opts.competitorAutoAliases !== undefined ? { competitorAutoAliases: opts.competitorAutoAliases } : {}),
       ...(opts.measurement !== undefined ? { measurement: resolveMeasurementUpdate(project, opts.measurement) } : {}),
     }

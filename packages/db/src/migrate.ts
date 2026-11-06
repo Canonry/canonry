@@ -5445,15 +5445,6 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_run ON ga_search_landing_pages(sync_run_id)`,
     ],
   },
-  {
-    version: 214,
-    name: 'project-started-on',
-    // The day work on a project began, for "We started" chart markers and
-    // trends fitted from it. Null until an operator sets it.
-    statements: [
-      `ALTER TABLE projects ADD COLUMN started_on TEXT`,
-    ],
-  },
 ]
 
 /**
