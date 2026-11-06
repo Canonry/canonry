@@ -1044,6 +1044,8 @@ cnry traffic sources <project> --format json
 # Windowed events (defaults to last 24h):
 cnry traffic events <project> --kind crawler --limit 200 --format json
 cnry traffic events <project> --kind ai-referral --since 2026-04-01 --until 2026-04-30
+# Several kinds at once (rows, totals and series cover only those kinds):
+cnry traffic events <project> --kind ai-user-fetch,ai-referral --format json
 ```
 
 The `traffic status` composite returns the same per-source detail

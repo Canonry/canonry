@@ -37227,7 +37227,7 @@ export type GetApiV1ProjectsByNameTrafficEventsData = {
          */
         until?: string;
         /**
-         * Filter to "crawler", "ai-user-fetch", "ai-referral", or "all" (default).
+         * Filter to "crawler", "ai-user-fetch", "ai-referral", a comma-separated list of them (e.g. "ai-user-fetch,ai-referral"), or "all" (default). Rows, totals and series cover only the kinds asked for.
          */
         kind?: string;
         /**

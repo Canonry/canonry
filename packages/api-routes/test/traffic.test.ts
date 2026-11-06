@@ -35,7 +35,7 @@ import {
   RunStatuses,
   RunTriggers,
 } from '@canonry/canonry-contracts'
-import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
+import type { NormalizedTrafficRequest, TrafficEventsResponse } from '@canonry/canonry-contracts'
 import type { CloudRunTrafficEventsPage } from '@canonry/canonry-integration-cloud-run'
 import type {
   ListWordpressTrafficEventsOptions,
@@ -5465,6 +5465,125 @@ describe('GET /traffic/events', () => {
       })
       expect(res.statusCode).toBe(400)
       expect(JSON.parse(res.payload).error.message).toMatch(/kind/)
+    } finally { await h.close() }
+  })
+
+  // A caller showing two series asks for exactly those two. Under the row cap,
+  // "all" is almost only crawler rows on a busy site, so the AI rows a chart
+  // shows never reach the table.
+  it('filters by a comma-separated list of kinds', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/bar', status: 200, observedAt: fromBase(2) }),
+      buildEvent({ userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: null, path: '/', status: 200, observedAt: fromBase(5) }),
+      buildEvent({ userAgent: 'Mozilla/5.0', path: '/landing', queryString: 'utm_source=chatgpt.com', status: 200, observedAt: fromBase(15) }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+      const read = async (query: string) => {
+        const res = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events${query}` })
+        expect(res.statusCode).toBe(200)
+        return JSON.parse(res.payload) as TrafficEventsResponse
+      }
+
+      const body = await read('?kind=ai-user-fetch,ai-referral')
+      expect(body.events.map(e => e.kind).sort()).toEqual(['ai-referral', 'ai-user-fetch'])
+      expect(body.eventRows.total).toBe(2)
+      // Totals and series cover the listed kinds only, like a single kind.
+      expect(body.totals.crawlerHits).toBe(0)
+      expect(body.totals.aiUserFetchHits).toBe(1)
+      expect(body.totals.aiReferralHits).toBe(1)
+      const sum = (key: 'crawlerHits' | 'aiUserFetchHits' | 'aiReferralHits') =>
+        body.series.points.reduce((n, point) => n + point[key], 0)
+      expect(sum('crawlerHits')).toBe(0)
+      expect(sum('aiUserFetchHits')).toBe(1)
+      expect(sum('aiReferralHits')).toBe(1)
+
+      // The list's order does not matter, and spaces around a member are fine.
+      const reordered = await read(`?kind=${encodeURIComponent('ai-referral, ai-user-fetch')}`)
+      expect(reordered.totals).toEqual(body.totals)
+      expect(reordered.events.length).toBe(2)
+
+      // Every kind listed is the same read as no filter.
+      const everyKind = await read('?kind=crawler,ai-user-fetch,ai-referral')
+      const unfiltered = await read('')
+      expect(everyKind.totals).toEqual(unfiltered.totals)
+      expect(everyKind.events.length).toBe(unfiltered.events.length)
+      expect(everyKind.eventRows.total).toBe(unfiltered.eventRows.total)
+    } finally { await h.close() }
+  })
+
+  it('rejects a kind list with an unknown or empty member', async () => {
+    const { h } = await syncedHarness()
+    try {
+      for (const kind of ['crawler,bogus', ',', 'all,crawler']) {
+        const res = await h.app.inject({
+          method: 'GET',
+          url: `/api/v1/projects/test-project/traffic/events?kind=${encodeURIComponent(kind)}`,
+        })
+        expect(res.statusCode, kind).toBe(400)
+        expect(JSON.parse(res.payload).error.message).toMatch(/kind/)
+      }
+      // A repeated parameter arrives as an array: refused, not a server error.
+      const repeated = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events?kind=crawler&kind=ai-referral',
+      })
+      expect(repeated.statusCode).toBe(400)
+    } finally { await h.close() }
+  })
+
+  // The dashboard fetches a clicked hour bar's rows with since and until both
+  // set to that hour, so the hour's rows load however many newer rows exist.
+  it('returns exactly one hour when since and until are that hour', async () => {
+    const baseTime = new Date(Date.now() - 3 * 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/early', status: 200, observedAt: fromBase(5) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(65) }),
+      buildEvent({ userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: null, path: '/', status: 200, observedAt: fromBase(70) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/late', status: 200, observedAt: fromBase(125) }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 300 },
+      })
+      const hour = new Date(baseTime.getTime() + 60 * 60_000).toISOString()
+      const window = `since=${encodeURIComponent(hour)}&until=${encodeURIComponent(hour)}`
+
+      const res = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?${window}` })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload) as TrafficEventsResponse
+      expect(body.events.map(e => e.tsHour)).toEqual([hour, hour])
+      expect(body.events.map(e => e.kind).sort()).toEqual(['ai-user-fetch', 'crawler'])
+
+      const narrowed = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?${window}&kind=ai-user-fetch` })
+      const narrowedBody = JSON.parse(narrowed.payload) as TrafficEventsResponse
+      expect(narrowedBody.events.map(e => e.kind)).toEqual(['ai-user-fetch'])
     } finally { await h.close() }
   })
 

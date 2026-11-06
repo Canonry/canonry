@@ -23,8 +23,16 @@ test('a single selected series is fetched as that series, not as everything', ()
   expect(trafficFetchKind(new Set(['crawler']))).toBe('crawler')
 })
 
-test('several or no series fall back to all, which is already their union', () => {
-  expect(trafficFetchKind(new Set(['crawler', 'ai-referral']))).toBe('all')
+test('two selected series are fetched as exactly those two', () => {
+  // With the crawler off, 'all' under the row cap is still almost only crawler
+  // rows, and the AI rows the chart shows never load. Order is fixed so the
+  // query key does not change with toggle order.
+  expect(trafficFetchKind(new Set(['ai-referral', 'ai-user-fetch']))).toBe('ai-user-fetch,ai-referral')
+  expect(trafficFetchKind(new Set(['ai-referral', 'crawler']))).toBe('crawler,ai-referral')
+  expect(trafficFetchKind(new Set(['ai-user-fetch', 'crawler']))).toBe('crawler,ai-user-fetch')
+})
+
+test('every series or none fetches all, which is already their union', () => {
   expect(trafficFetchKind(new Set(['crawler', 'ai-user-fetch', 'ai-referral']))).toBe('all')
   expect(trafficFetchKind(new Set([]))).toBe('all')
 })
