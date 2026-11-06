@@ -298,7 +298,7 @@ describe('GA4 routes', () => {
     expect(summaries[0]!.totalSessions).toBe(80)
     expect(summaries[0]!.totalOrganicSessions).toBe(30)
 
-    // Verify per-window summaries were written (one row per 7d/30d/90d).
+    // Verify per-window summaries were written (one row per 7d/30d/90d/180d).
     // Drives the deduplicated totalUsers headline when a window filter is
     // active in /ga/traffic — summing snapshots overcounts users who land
     // on multiple pages.
@@ -306,7 +306,7 @@ describe('GA4 routes', () => {
       .where(eq(gaTrafficWindowSummaries.projectId, projectId))
       .all()
       .sort((a, b) => a.windowKey.localeCompare(b.windowKey))
-    expect(windowSummaries.map((r) => r.windowKey)).toEqual(['30d', '7d', '90d'])
+    expect(windowSummaries.map((r) => r.windowKey)).toEqual(['180d', '30d', '7d', '90d'])
     const byKey = Object.fromEntries(windowSummaries.map((r) => [r.windowKey, r]))
     expect(byKey['7d']!.totalUsers).toBe(15)
     expect(byKey['30d']!.totalUsers).toBe(55)
@@ -3154,11 +3154,11 @@ describe('GA4 routes', () => {
       const { body, windowArgs, dailyTotalsArgs } = await syncWithDays(500, 'ga-clamp-over')
 
       expect(body.synced).toBe(true)
-      expect(body.days).toBe(90)
+      expect(body.days).toBe(180)
       expect(body.requestedDays).toBe(500)
       expect(body.clamped).toBe(true)
       // The fetch layer got the bounded window, not the raw request.
-      expect(windowArgs).toEqual([90])
+      expect(windowArgs).toEqual([180])
       expect(dailyTotalsArgs).toEqual([undefined])
     })
 
@@ -3172,10 +3172,10 @@ describe('GA4 routes', () => {
     })
 
     it('treats the cap itself as an exact, unclamped window', async () => {
-      const { body } = await syncWithDays(90, 'ga-clamp-boundary')
+      const { body } = await syncWithDays(180, 'ga-clamp-boundary')
 
-      expect(body.days).toBe(90)
-      expect(body.requestedDays).toBe(90)
+      expect(body.days).toBe(180)
+      expect(body.requestedDays).toBe(180)
       expect(body.clamped).toBe(false)
     })
 

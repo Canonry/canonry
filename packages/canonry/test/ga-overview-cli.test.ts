@@ -73,16 +73,16 @@ describe('canonry ga overview', () => {
     expect(row('Views')).toEqual(['Views', '—', '—', '—'])
   })
 
-  it('prints the API document unchanged as json, and on one line as jsonl', async () => {
-    const document = overview()
+  it.each([undefined, '180d'] as const)('prints the %s API document unchanged as json and jsonl', async window => {
+    const document = overview(window ? { window } : {})
     mockGaOverview.mockResolvedValue(document)
 
-    const json = captureLog(() => gaOverview('demo', { format: 'json' }))
+    const json = captureLog(() => gaOverview('demo', { window, format: 'json' }))
     await json.run
     expect(JSON.parse(json.lines().join('\n'))).toEqual(document)
-    expect(mockGaOverview).toHaveBeenLastCalledWith('demo', undefined)
+    expect(mockGaOverview).toHaveBeenLastCalledWith('demo', window)
 
-    const jsonl = captureLog(() => gaOverview('demo', { format: 'jsonl' }))
+    const jsonl = captureLog(() => gaOverview('demo', { window, format: 'jsonl' }))
     await jsonl.run
     expect(jsonl.lines()).toHaveLength(1)
     expect(JSON.parse(jsonl.lines()[0]!)).toEqual(document)
@@ -99,7 +99,7 @@ describe('canonry ga overview', () => {
   })
 
   it('refuses a window the overview does not have, before asking the API', async () => {
-    await expect(gaOverview('demo', { window: '60d' })).rejects.toThrow(/7d, 30d or 90d/)
+    await expect(gaOverview('demo', { window: '60d' })).rejects.toThrow(/7d, 30d, 90d or 180d/)
     expect(mockGaOverview).not.toHaveBeenCalled()
   })
 })

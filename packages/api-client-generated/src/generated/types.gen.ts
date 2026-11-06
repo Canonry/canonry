@@ -7061,7 +7061,7 @@ export type Ga4SessionHistoryEntry = {
 };
 
 export type GaOverviewResponse = {
-    window: '7d' | '30d' | '90d' | 'all';
+    window: '7d' | '30d' | '90d' | '180d' | 'all';
     current: {
         startDate: string | null;
         endDate: string | null;
@@ -7201,7 +7201,7 @@ export type Ga4SyncResponseDto = {
         searchLandingPages?: {
             status: 'ready' | 'unavailable' | 'error';
             windows: Array<{
-                window: '7d' | '28d' | '90d';
+                window: '7d' | '28d' | '90d' | '180d';
                 rowCount: number;
                 reportRowCount: number;
                 rowsCapped: boolean;
@@ -7322,7 +7322,7 @@ export type GaSearchLandingPagesResponse = {
     error: string | null;
     syncedAt: string | null;
     attemptedAt: string | null;
-    window: '7d' | '28d' | '90d';
+    window: '7d' | '28d' | '90d' | '180d';
     windowStart: string | null;
     windowEnd: string | null;
     windowDays: number | null;
@@ -34404,9 +34404,9 @@ export type GetApiV1ProjectsByNameGaSearchLandingPagesData = {
     };
     query?: {
         /**
-         * Stored window, ending yesterday in the GA4 property time zone. 28d matches GA4's default "Last 28 days".
+         * Stored 7, 28, 90 or 180-day window, ending yesterday in the GA4 property time zone. 28d matches GA4's default "Last 28 days".
          */
-        window?: '7d' | '28d' | '90d';
+        window?: '7d' | '28d' | '90d' | '180d';
         /**
          * Landing-page rows per page, ordered by clicks then impressions (descending), then landing page.
          */
@@ -34500,7 +34500,7 @@ export type GetApiV1ProjectsByNameGaTrafficData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -34547,7 +34547,7 @@ export type GetApiV1ProjectsByNameGaAiReferralHistoryData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -34594,7 +34594,7 @@ export type GetApiV1ProjectsByNameGaAiReferralDailyData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -34641,7 +34641,7 @@ export type GetApiV1ProjectsByNameGaSocialReferralHistoryData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -34756,14 +34756,14 @@ export type GetApiV1ProjectsByNameGaOverviewData = {
         /**
          * Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.
          */
-        window?: '7d' | '30d' | '90d';
+        window?: '7d' | '30d' | '90d' | '180d';
     };
     url: '/api/v1/projects/{name}/ga/overview';
 };
 
 export type GetApiV1ProjectsByNameGaOverviewErrors = {
     /**
-     * GA4 is not connected, or the window is not 7d, 30d or 90d.
+     * GA4 is not connected, or the window is not 7d, 30d, 90d or 180d.
      */
     400: ErrorEnvelope;
     /**
@@ -34795,7 +34795,7 @@ export type GetApiV1ProjectsByNameGaSessionHistoryData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */

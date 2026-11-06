@@ -5350,6 +5350,101 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         )`,
     ],
   },
+  {
+    version: 212,
+    name: 'ga-sync-coverage',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ga_sync_coverage (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        component TEXT NOT NULL,
+        sync_run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        definition TEXT NOT NULL,
+        settled INTEGER NOT NULL,
+        synced_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, component, date)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_sync_coverage_run ON ga_sync_coverage(sync_run_id)`,
+    ],
+  },
+  {
+    version: 213,
+    name: 'ga-search-landing-180-day-windows',
+    // The two tables reference projects/runs, not each other. Rebuilding them
+    // keeps foreign keys enabled and preserves the original sync provenance.
+    // Add the nullable definition first so replay copies it without erasing it.
+    statements: [
+      `ALTER TABLE ga_search_landing_windows ADD COLUMN report_definition TEXT`,
+      `DROP TABLE IF EXISTS ga_search_landing_windows_v213`,
+      `CREATE TABLE ga_search_landing_windows_v213 (
+        id                        TEXT PRIMARY KEY,
+        project_id                TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        property_id               TEXT NOT NULL,
+        window_key                TEXT NOT NULL CHECK (window_key IN ('7d', '28d', '90d', '180d')),
+        period_start              TEXT NOT NULL,
+        period_end                TEXT NOT NULL,
+        time_zone                 TEXT,
+        report_definition         TEXT,
+        total_clicks              INTEGER NOT NULL DEFAULT 0,
+        total_impressions         INTEGER NOT NULL DEFAULT 0,
+        total_ctr                 REAL CHECK (total_ctr IS NULL OR (total_ctr >= 0 AND total_ctr <= 1)),
+        total_average_position    REAL,
+        total_active_users        INTEGER NOT NULL DEFAULT 0,
+        report_row_count          INTEGER NOT NULL DEFAULT 0,
+        rows_capped               INTEGER NOT NULL DEFAULT 0,
+        subject_to_thresholding   INTEGER NOT NULL DEFAULT 0,
+        data_loss_from_other_row  INTEGER NOT NULL DEFAULT 0,
+        synced_at                 TEXT NOT NULL,
+        sync_run_id               TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        created_at                TEXT NOT NULL,
+        CHECK (total_clicks >= 0 AND total_impressions >= 0 AND total_active_users >= 0 AND report_row_count >= 0)
+      )`,
+      `INSERT INTO ga_search_landing_windows_v213 (
+        id, project_id, property_id, window_key, period_start, period_end,
+        time_zone, report_definition, total_clicks, total_impressions, total_ctr,
+        total_average_position, total_active_users, report_row_count, rows_capped,
+        subject_to_thresholding, data_loss_from_other_row, synced_at, sync_run_id, created_at
+      ) SELECT
+        id, project_id, property_id, window_key, period_start, period_end,
+        time_zone, report_definition, total_clicks, total_impressions, total_ctr,
+        total_average_position, total_active_users, report_row_count, rows_capped,
+        subject_to_thresholding, data_loss_from_other_row, synced_at, sync_run_id, created_at
+      FROM ga_search_landing_windows`,
+      `DROP TABLE ga_search_landing_windows`,
+      `ALTER TABLE ga_search_landing_windows_v213 RENAME TO ga_search_landing_windows`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_search_landing_windows_project_window ON ga_search_landing_windows(project_id, window_key)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_windows_run ON ga_search_landing_windows(sync_run_id)`,
+      `DROP TABLE IF EXISTS ga_search_landing_pages_v213`,
+      `CREATE TABLE ga_search_landing_pages_v213 (
+        id                TEXT PRIMARY KEY,
+        project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        window_key        TEXT NOT NULL CHECK (window_key IN ('7d', '28d', '90d', '180d')),
+        landing_page      TEXT NOT NULL,
+        clicks            INTEGER NOT NULL DEFAULT 0,
+        impressions       INTEGER NOT NULL DEFAULT 0,
+        ctr               REAL CHECK (ctr IS NULL OR (ctr >= 0 AND ctr <= 1)),
+        average_position  REAL,
+        active_users      INTEGER NOT NULL DEFAULT 0,
+        synced_at         TEXT NOT NULL,
+        sync_run_id       TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        created_at        TEXT NOT NULL,
+        CHECK (clicks >= 0 AND impressions >= 0 AND active_users >= 0)
+      )`,
+      `INSERT INTO ga_search_landing_pages_v213 (
+        id, project_id, window_key, landing_page, clicks, impressions, ctr,
+        average_position, active_users, synced_at, sync_run_id, created_at
+      ) SELECT
+        id, project_id, window_key, landing_page, clicks, impressions, ctr,
+        average_position, active_users, synced_at, sync_run_id, created_at
+      FROM ga_search_landing_pages`,
+      `DROP TABLE ga_search_landing_pages`,
+      `ALTER TABLE ga_search_landing_pages_v213 RENAME TO ga_search_landing_pages`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_search_landing_pages_grain ON ga_search_landing_pages(project_id, window_key, landing_page)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_order ON ga_search_landing_pages(project_id, window_key, clicks)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_run ON ga_search_landing_pages(sync_run_id)`,
+    ],
+  },
 ]
 
 /**
