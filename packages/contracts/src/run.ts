@@ -31,6 +31,7 @@ export const runKindSchema = z.enum([
   'google-ads-sync',
   'gtm-sync',
   'seo-sync',
+  'social-monitor',
 ])
 export type RunKind = z.infer<typeof runKindSchema>
 export const RunKinds = runKindSchema.enum
