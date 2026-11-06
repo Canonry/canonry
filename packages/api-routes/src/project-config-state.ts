@@ -58,6 +58,7 @@ export function readProjectConfigState(
       autoExtractBacklinks: project.autoExtractBacklinks,
       negativeReviewMaxStars: readNegativeReviewMaxStars(db, project.id),
       siteAuditMaxPages: project.siteAuditMaxPages,
+      startedOn: project.startedOn,
       competitorAutoAliases: project.competitorAutoAliases,
       configSource: project.configSource,
     },

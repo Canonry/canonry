@@ -30,6 +30,7 @@ const projectFieldsStateSchema = z.object({
   autoExtractBacklinks: z.boolean().optional(),
   negativeReviewMaxStars: z.number().int().nullable().optional(),
   siteAuditMaxPages: z.number().int().nullable().optional(),
+  startedOn: z.string().nullable().optional(),
   competitorAutoAliases: z.enum(['off', 'preview', 'apply']).optional(),
   configSource: configSourceSchema.optional(),
 }).strict()
@@ -55,6 +56,7 @@ const projectFieldsChangeSchema = z.object({
   autoExtractBacklinks: fieldChangeSchema(z.boolean()).optional(),
   negativeReviewMaxStars: fieldChangeSchema(z.number().int()).optional(),
   siteAuditMaxPages: fieldChangeSchema(z.number().int().nullable()).optional(),
+  startedOn: fieldChangeSchema(z.string().nullable()).optional(),
   competitorAutoAliases: fieldChangeSchema(z.enum(['off', 'preview', 'apply'])).optional(),
   configSource: fieldChangeSchema(configSourceSchema).optional(),
 }).strict()

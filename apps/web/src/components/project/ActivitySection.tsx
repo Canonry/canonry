@@ -230,7 +230,7 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
   )
 }
 
-export function ActivitySection({ projectName }: { projectName: string }) {
+export function ActivitySection({ projectName, startedOn = null }: { projectName: string; startedOn?: string | null }) {
   // Owned here so every panel below reads the same range. The GA4 overview only
   // shows the control in its heading; no GA4 state can take it away.
   const [trafficWindow, setTrafficWindow] = useState<MetricsWindow>('30d')
@@ -261,6 +261,7 @@ export function ActivitySection({ projectName }: { projectName: string }) {
               <AiTrafficHistoryPanel
                 projectName={projectName}
                 sinceMinutes={TRAFFIC_WINDOW_MINUTES[trafficWindow]}
+                startedOn={startedOn}
               />
             </section>
           </>

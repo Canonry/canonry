@@ -1070,6 +1070,7 @@ function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars
     autoExtractBacklinks: row.autoExtractBacklinks,
     negativeReviewMaxStars,
     siteAuditMaxPages: row.siteAuditMaxPages ?? null,
+    startedOn: row.startedOn ?? null,
     competitorAutoAliases: row.competitorAutoAliases,
     configSource: row.configSource,
     configRevision: row.configRevision,

@@ -6280,6 +6280,55 @@ describe('crawler-hit content/infra segmentation', () => {
     }
   })
 
+  /**
+   * Months are UTC calendar months. The month recording began inside and the
+   * month still running are named partial and left out of the fits, and the
+   * visits fit starts at the month holding the project's start date.
+   *
+   * Fixture: recording begins May 25; visits 10 in June, 20 a month July to
+   * October, 3 so far in November. With a July 15 start the fit is the four
+   * flat months July to October; without one it is June to October.
+   */
+  it('buckets the series by month', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-06T13:45:00.000Z'))
+    for (const scenario of [
+      { name: 'started mid-July', startedOn: '2026-07-15', trend: { slope: 0, intercept: 20, r2: 1, start: 20, end: 20, n: 4, startIndex: 3, endIndex: 6 } },
+      { name: 'no start date', startedOn: null, trend: { n: 5, startIndex: 2, endIndex: 6 } },
+    ]) {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(projects).set({ startedOn: scenario.startedOn }).where(eq(projects.id, source.projectId)).run()
+        insertSeriesReferralRows(h, source, [
+          { tsHour: '2026-05-25T10:00:00.000Z', hits: 5 },
+          { tsHour: '2026-06-10T10:00:00.000Z', hits: 10 },
+          ...['07', '08', '09', '10'].map(month => ({ tsHour: `2026-${month}-10T10:00:00.000Z`, hits: 20 })),
+          { tsHour: '2026-11-02T10:00:00.000Z', hits: 3 },
+        ])
+        const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-04-01T00%3A00%3A00.000Z&granularity=month' })
+        expect(res.statusCode, scenario.name).toBe(200)
+        const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+        expect(body.series.granularity).toBe('month')
+        expect(body.series.points.map(p => [p.bucket, p.aiReferralLandedHits, p.measured]), scenario.name).toEqual([
+          ['2026-04', 0, false], ['2026-05', 5, true], ['2026-06', 10, true], ['2026-07', 20, true],
+          ['2026-08', 20, true], ['2026-09', 20, true], ['2026-10', 20, true], ['2026-11', 3, true],
+        ])
+        expect(body.series.points.reduce((sum, p) => sum + p.aiReferralLandedHits, 0), 'buckets sum to the total').toBe(body.totals.aiReferralLandedHits)
+        expect(body.series.partialBuckets, scenario.name).toEqual(['2026-05', '2026-11'])
+        expect(body.series.trends.aiReferralLandedHits, scenario.name).toMatchObject(scenario.trend)
+      } finally { await h.close() }
+    }
+  })
+
+  it('refuses an unknown granularity', async () => {
+    const { h } = await emptySeriesHarness()
+    try {
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?granularity=week' })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.payload).error.message).toBe('"granularity" must be one of: hour, day, month')
+    } finally { await h.close() }
+  })
+
   it('rejects sinceMinutes rather than silently answering for 24 hours', async () => {
     const { h } = await mixedPathHarness()
     try {

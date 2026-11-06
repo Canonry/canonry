@@ -2945,6 +2945,10 @@ export type ApplyPreviewDto = {
             before: number | null;
             after: number | null;
         };
+        startedOn?: {
+            before: string | null;
+            after: string | null;
+        };
         competitorAutoAliases?: {
             before: 'off' | 'preview' | 'apply' | null;
             after: 'off' | 'preview' | 'apply' | null;
@@ -6825,6 +6829,29 @@ export type Ga4AiReferralDailyDto = {
         endIndex: number;
         startDate: string;
         endDate: string;
+    } | null;
+    months?: Array<{
+        month: string;
+        sessions: number | null;
+        complete: boolean;
+        engines: Array<{
+            key: string;
+            label: string;
+            sessions: number;
+        }>;
+    }>;
+    monthlyTrend?: {
+        slope: number;
+        intercept: number;
+        r2: number;
+        start: number;
+        end: number;
+        n: number;
+        startIndex: number;
+        endIndex: number;
+        startMonth: string;
+        endMonth: string;
+        changePct: number | null;
     } | null;
 };
 
@@ -13929,6 +13956,7 @@ export type ProjectCreateRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    startedOn?: string | null;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
      */
@@ -13975,6 +14003,7 @@ export type ProjectDto = {
     autoExtractBacklinks: boolean;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    startedOn?: string | null;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
      */
@@ -14026,6 +14055,7 @@ export type ProjectPatchRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    startedOn?: string | null;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
      */
@@ -14069,6 +14099,7 @@ export type ProjectUpsertRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    startedOn?: string | null;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
      */
@@ -14153,6 +14184,7 @@ export type ProjectConfig = {
         autoExtractBacklinks?: boolean;
         negativeReviewMaxStars?: number;
         siteAuditMaxPages?: number | null;
+        startedOn?: string | null;
         /**
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
          */
@@ -14237,6 +14269,7 @@ export type ProjectConfigExport = {
         autoExtractBacklinks?: boolean;
         negativeReviewMaxStars?: number;
         siteAuditMaxPages?: number | null;
+        startedOn?: string | null;
         /**
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
          */
@@ -14550,6 +14583,7 @@ export type ProjectOverviewDto = {
         autoExtractBacklinks: boolean;
         negativeReviewMaxStars?: number | null;
         siteAuditMaxPages?: number | null;
+        startedOn?: string | null;
         /**
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
          */
@@ -17953,7 +17987,7 @@ export type TrafficEventsResponse = {
     windowStart: string;
     windowEnd: string;
     series: {
-        granularity: 'hour' | 'day';
+        granularity: 'hour' | 'day' | 'month';
         points: Array<{
             bucket: string;
             crawlerHits: number;
@@ -17965,6 +17999,7 @@ export type TrafficEventsResponse = {
         }>;
         coverageStart: string | null;
         aiReferralCountingChangedAt?: string | null;
+        partialBuckets?: Array<string>;
         trends: {
             crawlerContentHits: {
                 slope: number;
@@ -37239,9 +37274,9 @@ export type GetApiV1ProjectsByNameTrafficEventsData = {
          */
         sourceId?: string;
         /**
-         * Full-window series bucket size: "hour" (default) or "day".
+         * Full-window series bucket size: "hour" (default), "day" or "month" (UTC calendar months).
          */
-        granularity?: 'hour' | 'day';
+        granularity?: 'hour' | 'day' | 'month';
     };
     url: '/api/v1/projects/{name}/traffic/events';
 };

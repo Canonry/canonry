@@ -14,6 +14,7 @@ import { providerDispatchModesSchema } from './provider-batch.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 import { competitorEntrySchema } from './competitor-aliases.js'
 import { siteAuditPageBudgetSchema } from './technical-aeo.js'
+import { calendarDateSchema } from './google-ads.js'
 
 export const configMetadataSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, {
@@ -106,6 +107,11 @@ const configSpecShape = {
    * mentions it cannot undo a budget set in the dashboard.
    */
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  /**
+   * The day work on this project began (YYYY-MM-DD); null clears it. Absent
+   * leaves the stored value alone.
+   */
+  startedOn: calendarDateSchema.nullable().optional(),
   /**
    * Answer-derived competitor alias detection: `off`, `preview` (log only) or
    * `apply`. Absent leaves the stored mode alone; a new project starts in

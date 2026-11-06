@@ -942,6 +942,31 @@ export const ga4AiReferralDailyTrendSchema = linearTrendSchema.extend({
 })
 export type GA4AiReferralDailyTrend = z.infer<typeof ga4AiReferralDailyTrendSchema>
 
+/** One calendar month of the same AI sessions, for charts that read by month. */
+export const ga4AiReferralMonthSchema = z.object({
+  /** `YYYY-MM`, in the property's reporting days. */
+  month: z.string(),
+  /** Sessions on the month's days inside the requested range; null when GA4 reported none of those days. */
+  sessions: z.number().nullable(),
+  /** Every day of the month is inside the range and no longer filling, so the month can be compared. */
+  complete: z.boolean(),
+  /** The month's sessions by engine, largest first, keyed as `byEngine`. */
+  engines: z.array(z.object({ key: z.string(), label: z.string(), sessions: z.number() })),
+})
+export type GA4AiReferralMonth = z.infer<typeof ga4AiReferralMonthSchema>
+
+/**
+ * A least-squares line through complete months (index = position in
+ * `months`), from the project's start month when it has one. `changePct` is the
+ * fitted end against the fitted start; null when that start is not above zero.
+ */
+export const ga4AiReferralMonthlyTrendSchema = linearTrendSchema.extend({
+  startMonth: z.string(),
+  endMonth: z.string(),
+  changePct: z.number().nullable(),
+})
+export type GA4AiReferralMonthlyTrend = z.infer<typeof ga4AiReferralMonthlyTrendSchema>
+
 export const ga4AiReferralDailyDtoSchema = z.object({
   /** Ascending by date. Dates with no AI referrals are absent, not zero-filled. */
   days: z.array(ga4AiReferralDailyEntrySchema),
@@ -965,6 +990,13 @@ export const ga4AiReferralDailyDtoSchema = z.object({
    * client reads an older API.
    */
   trend: ga4AiReferralDailyTrendSchema.nullable().optional(),
+  /**
+   * The same sessions by calendar month across the range, oldest first, with
+   * the line fitted through complete months from the project's `startedOn`
+   * month. Optional so a newer client reads an older API.
+   */
+  months: z.array(ga4AiReferralMonthSchema).optional(),
+  monthlyTrend: ga4AiReferralMonthlyTrendSchema.nullable().optional(),
 })
 export type GA4AiReferralDailyDto = z.infer<typeof ga4AiReferralDailyDtoSchema>
 

@@ -2681,7 +2681,7 @@ function ProjectPageContent({
       ) : tab === 'history' ? (
         <ProjectHistorySection projectName={model.project.name} />
       ) : tab === 'activity' ? (
-        <ActivitySection projectName={model.project.name} />
+        <ActivitySection projectName={model.project.name} startedOn={model.project.startedOn ?? null} />
       ) : tab === 'backlinks' ? (
         <BacklinksSection projectName={model.project.name} />
       ) : tab === 'seo-data' ? (

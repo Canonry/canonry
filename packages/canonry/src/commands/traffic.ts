@@ -13,7 +13,7 @@ import type {
   TrafficStatusResponse,
   TrafficSyncResponse,
 } from '@canonry/canonry-contracts'
-import { RunStatuses, TRAFFIC_EVENT_KIND_FILTER_HINT, TrafficEventKinds, TrafficSeriesGranularities, describeError, formatPercent, parseTrafficAnalyticsPeriod, parseTrafficEventKindFilter } from '@canonry/canonry-contracts'
+import { RunStatuses, TRAFFIC_EVENT_KIND_FILTER_HINT, TrafficEventKinds, trafficSeriesGranularitySchema, describeError, formatPercent, parseTrafficAnalyticsPeriod, parseTrafficEventKindFilter } from '@canonry/canonry-contracts'
 import fs from 'node:fs'
 import { getCloudflareTrafficConnectionBySourceId } from '../cloudflare-traffic-config.js'
 import {
@@ -1147,13 +1147,12 @@ export async function trafficEvents(project: string, opts: {
 
   if (
     opts.granularity
-    && opts.granularity !== TrafficSeriesGranularities.hour
-    && opts.granularity !== TrafficSeriesGranularities.day
+    && !trafficSeriesGranularitySchema.safeParse(opts.granularity).success
   ) {
     throw new CliError({
       code: 'TRAFFIC_INVALID_GRANULARITY',
-      message: `--granularity must be one of: ${TrafficSeriesGranularities.hour}, ${TrafficSeriesGranularities.day}`,
-      displayMessage: `Error: --granularity must be "${TrafficSeriesGranularities.hour}" or "${TrafficSeriesGranularities.day}"`,
+      message: `--granularity must be one of: ${trafficSeriesGranularitySchema.options.join(', ')}`,
+      displayMessage: `Error: --granularity must be "hour", "day" or "month"`,
       details: { project, granularity: opts.granularity },
     })
   }

@@ -7,6 +7,7 @@ import { brandLabelFromDomain, normalizeProjectDomain } from './url-normalize.js
 import { brandKeyFromText } from './brand-matching.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 import { siteAuditPageBudgetSchema } from './technical-aeo.js'
+import { calendarDateSchema } from './google-ads.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
 import { competitorDomainSchema, competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
 import { competitorAutoAliasSchema } from './competitor-auto-aliases.js'
@@ -167,6 +168,11 @@ export const projectUpsertRequestSchema = z.object({
    */
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
   /**
+   * The day work on this project began (YYYY-MM-DD). Omit to keep the stored
+   * value; null clears it.
+   */
+  startedOn: calendarDateSchema.nullable().optional(),
+  /**
    * Answer-derived competitor alias detection: `off`, `preview` (log only) or
    * `apply` (`competitorAutoAliasModeSchema`). Omit to keep the stored mode; a
    * new project starts in `preview`.
@@ -202,6 +208,7 @@ export const projectPatchRequestSchema = z.object({
     .max(PROJECT_QUALIFIED_ALIAS_LIMIT).optional(),
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  startedOn: calendarDateSchema.nullable().optional(),
   competitorAutoAliases: competitorAutoAliasModeInputSchema,
   expectedConfigRevision: z.number().int().positive().optional(),
 }).strict()
@@ -272,6 +279,12 @@ export const projectDtoSchema = z.object({
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
   /** Site Health page budget for scans that set none; null means the full site (up to 50,000 pages). */
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  /**
+   * The day work on this project began (YYYY-MM-DD), or null. AI visit charts
+   * mark it "We started" and fit their visit trends from it. Optional so a
+   * newer client reads an older API.
+   */
+  startedOn: calendarDateSchema.nullable().optional(),
   /**
    * Answer-derived competitor alias detection mode (`competitorAutoAliasModeSchema`).
    * Absent only from a server that predates the setting.

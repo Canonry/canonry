@@ -267,6 +267,8 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           autoExtractBacklinks: config.spec.autoExtractBacklinks ?? false,
           // Present sets (null = full site); absent leaves the stored budget alone.
           ...(config.spec.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: config.spec.siteAuditMaxPages } : {}),
+          // Present sets (null clears); absent leaves the stored start date alone.
+          ...(config.spec.startedOn !== undefined ? { startedOn: config.spec.startedOn } : {}),
           // Present sets; absent leaves the stored detection mode alone.
           ...(config.spec.competitorAutoAliases !== undefined ? { competitorAutoAliases: config.spec.competitorAutoAliases } : {}),
           configSource: 'config-file',
@@ -307,6 +309,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           defaultLocation: config.spec.defaultLocation ?? null,
           autoExtractBacklinks: config.spec.autoExtractBacklinks ?? false,
           siteAuditMaxPages: config.spec.siteAuditMaxPages ?? null,
+          startedOn: config.spec.startedOn ?? null,
           competitorAutoAliases: config.spec.competitorAutoAliases ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
           configSource: 'config-file',
           configRevision: 1,
@@ -523,6 +526,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       autoExtractBacklinks: project.autoExtractBacklinks,
       negativeReviewMaxStars: readNegativeReviewMaxStars(app.db, project.id),
       siteAuditMaxPages: project.siteAuditMaxPages ?? null,
+      startedOn: project.startedOn ?? null,
       competitorAutoAliases: project.competitorAutoAliases,
       configSource: project.configSource,
       configRevision: project.configRevision,

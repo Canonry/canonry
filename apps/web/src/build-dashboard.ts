@@ -50,6 +50,7 @@ function toProjectDto(p: ApiProject): ProjectDto {
     autoExtractBacklinks: p.autoExtractBacklinks ?? false,
     // Null is the full site, as the server's own project formatter reads an unset budget.
     siteAuditMaxPages: p.siteAuditMaxPages ?? null,
+    startedOn: p.startedOn ?? null,
     configSource: p.configSource as ProjectDto['configSource'],
     configRevision: p.configRevision,
     createdAt: p.createdAt,

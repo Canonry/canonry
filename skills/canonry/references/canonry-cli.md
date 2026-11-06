@@ -144,6 +144,7 @@ cnry project update <name> --dispatch-mode claude=batch   # scheduled sweeps bat
 cnry project update <name> --clear-dispatch-mode claude   # back to sync
 cnry project update <name> --negative-review-max-stars 2   # review.negative for 1-2 star Google reviews only (1-4, or "default" for 3)
 cnry project update <name> --site-audit-max-pages 2500   # Site Health page budget for scans that set none (1-50000, or "full" for the full site); create takes it too, spec.siteAuditMaxPages in apply
+cnry project update <name> --started-on 2026-06-01      # the day work on the project began ("none" clears it); AI visit charts mark it "We started" and fit visit trends from it; spec.startedOn in apply
 cnry project update <name> --competitor-auto-aliases apply   # store answer-derived competitor names after each sweep (off | preview | apply; default preview logs only); spec.competitorAutoAliases in apply
 cnry project update <name> --add-qualified-alias "Acme NYC"      # sentiment treats this existing alias as the brand's own name (see Brand aliases)
 cnry project update <name> --remove-qualified-alias "Acme NYC"   # repeatable; create takes --qualified-alias
@@ -1075,6 +1076,7 @@ cnry traffic sources <project> --format json
 cnry traffic status <project> --format json
 cnry traffic analytics <project> --period 30 --format json    # complete 7|14|30|90-day totals, prior-period changes and breakdowns
 cnry traffic events <project> --source <source-id> --format json
+cnry traffic events <project> --kind ai-referral --since 2025-12-01T00:00:00Z --granularity month --format json   # series by UTC month; series.partialBuckets names part months (recording began inside, or still running), left out of the fits
 cnry traffic referral-assessment <project> --start-date 2026-08-01 --end-date 2026-08-31 --burst-threshold 100 --ratio-threshold 3 --limit 100 --format json
 cnry traffic declare-gap <project> --source <source-id>   # record an unrecovered skip as lost (WordPress, or past provider retention); clears the doctor check
 
@@ -1222,6 +1224,11 @@ cnry ga ai-referral-daily <project> [--window 30d] [--start YYYY-MM-DD] [--end Y
                                                   # Use this for any AI session COUNT. Sessions only: GA
                                                   # counts users DISTINCT per grain, so an AI-referral user
                                                   # count cannot be summed from these rows or fetched.
+                                                  # months[] folds the same days by calendar month
+                                                  # ({month, sessions, complete, engines[]}) and
+                                                  # monthlyTrend fits complete months from the
+                                                  # project's startedOn month (changePct = fitted end
+                                                  # vs start). Pass --start YYYY-MM-01 for whole months.
 cnry ga ai-referral-history <project> [--window 30d] [--start YYYY-MM-DD] [--end YYYY-MM-DD]
                                                   # RAW DETAIL, one row per (day × source × dimension ×
                                                   # landing page): {date, source, medium, attribution,

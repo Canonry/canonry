@@ -5350,6 +5350,15 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         )`,
     ],
   },
+  {
+    version: 212,
+    name: 'project-started-on',
+    // The day work on a project began, for "We started" chart markers and
+    // trends fitted from it. Null until an operator sets it.
+    statements: [
+      `ALTER TABLE projects ADD COLUMN started_on TEXT`,
+    ],
+  },
 ]
 
 /**

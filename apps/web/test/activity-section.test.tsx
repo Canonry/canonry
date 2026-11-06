@@ -40,7 +40,9 @@ vi.mock('recharts', () => {
     // Its label is rendered so a test can prove a band is drawn and what it says.
     ReferenceArea: ({ label }: { label?: { value?: string } }) =>
       label?.value ? <div data-testid="reference-area">{label.value}</div> : null,
-    ReferenceLine: () => null,
+    // A labelled marker renders its label, so a test can prove it is drawn.
+    ReferenceLine: ({ label }: { label?: { value?: string } }) =>
+      label?.value ? <div data-testid="reference-line">{label.value}</div> : null,
     XAxis: () => null,
     YAxis: () => null,
     Tooltip: () => null,
@@ -818,6 +820,86 @@ test('AI traffic history bands server visits counted by the older rule', async (
  * GA4 counted AI sessions the same way the whole time, so its server-fitted
  * trend is drawn wherever the GA4 line is: Both and GA4, never Server.
  */
+/**
+ * Months read the long view the monthly report draws: visits by calendar month,
+ * the project's start marked, part months (recording began inside one, or it
+ * is still running) drawn hollow off the line, and the newest complete month's
+ * figures in one strip, all as the API reports them.
+ */
+test('AI traffic history shows visits by month with the start marked', async () => {
+  const months = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11']
+  const restoreFetch = mockFetch((url) => {
+    const [path, query = ''] = url.split('?') as [string, string?]
+    if (path.endsWith('/ga/status')) return jsonResponse({ connected: true, propertyId: 'p', clientEmail: null, lastSyncedAt: null })
+    if (path.endsWith('/ga/ai-referral-daily')) {
+      if (!query.includes('startDate=')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+      return jsonResponse({
+        days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0,
+        months: [
+          { month: '2026-03', sessions: null, complete: false, engines: [] },
+          { month: '2026-04', sessions: 46, complete: false, engines: [] },
+          ...[['2026-05', 86], ['2026-06', 90], ['2026-07', 88], ['2026-08', 148], ['2026-09', 175]].map(([month, sessions]) =>
+            ({ month, sessions, complete: true, engines: [{ key: 'chatgpt', label: 'ChatGPT', sessions }] })),
+          { month: '2026-10', sessions: 95, complete: true, engines: [{ key: 'chatgpt', label: 'ChatGPT', sessions: 91 }, { key: 'gemini', label: 'Gemini', sessions: 4 }] },
+          { month: '2026-11', sessions: 24, complete: false, engines: [] },
+        ],
+        monthlyTrend: { slope: 9.7, intercept: 41.6, r2: 0.15, start: 99.8, end: 138.6, n: 5, startIndex: 3, endIndex: 7, startMonth: '2026-06', endMonth: '2026-10', changePct: 39 },
+      })
+    }
+    if (path.endsWith('/projects/test-project/traffic/events')) {
+      if (query.includes('granularity=month')) {
+        return jsonResponse({
+          events: [], eventRows: { total: 0, returned: 0, truncated: false },
+          totals: { crawlerHits: 0, crawlerContentHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0 },
+          series: {
+            granularity: 'month', coverageStart: '2026-05-21T00:00:00.000Z', partialBuckets: ['2026-05', '2026-11'],
+            trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+            points: months.map((bucket, i) => ({
+              bucket, crawlerHits: 0, crawlerContentHits: 0, aiUserFetchHits: 0, aiReferralHits: 0,
+              aiReferralLandedHits: [0, 14, 127, 135, 216, 235, 120, 31][i], measured: i > 0,
+            })),
+          },
+        })
+      }
+      return jsonResponse({
+        events: [], eventRows: { total: 0, returned: 0, truncated: false },
+        totals: { crawlerHits: 5, crawlerContentHits: 5, aiUserFetchHits: 1, aiReferralHits: 2, aiReferralLandedHits: 2 },
+        series: {
+          granularity: 'day', coverageStart: '2026-05-21T00:00:00.000Z',
+          trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: [{ bucket: '2026-11-05', crawlerHits: 5, crawlerContentHits: 5, aiUserFetchHits: 1, aiReferralHits: 2, aiReferralLandedHits: 2, measured: true }],
+        },
+      })
+    }
+    return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} startedOn="2026-06-01" />
+    </QueryClientProvider>,
+  )
+  await screen.findByText('AI crawlers')
+  // Days: June 1 is outside a window of one November day, so nothing is marked.
+  expect(screen.queryByText('We started')).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  const strip = (await screen.findByText('October 2026')).parentElement as HTMLElement
+  expect(strip.textContent).toBe('October 202695visits, GA4120visits, server▲39%since Jun91from ChatGPT')
+  expect(screen.getAllByTestId('reference-line').map(el => el.textContent)).toEqual(['We started'])
+  // Part months are hollow and off the line: May and November for the server.
+  const serverPartial = screen.getByTestId('dots-serverPartial').querySelectorAll('circle')
+  expect([...serverPartial].map(c => c.getAttribute('fill'))).toEqual(['none', 'none'])
+  // April (GA4 history began inside it) and November for GA4.
+  expect(screen.getByTestId('dots-ga4Partial').querySelectorAll('circle[fill="none"]').length).toBe(2)
+
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.queryByTestId('dots-serverPartial')).toBeNull()
+  expect(strip.textContent).toBe('October 202695visits, GA4▲39%since Jun91from ChatGPT')
+})
+
 test('AI traffic history draws the GA4 trend where the GA4 line is', async () => {
   const days = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']
   const restoreFetch = mockFetch((url) => {

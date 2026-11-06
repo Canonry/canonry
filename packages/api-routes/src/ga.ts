@@ -3,7 +3,7 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaWindowMetrics, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@canonry/canonry-db'
-import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames, linearTrend, type GA4AiReferralDailyTrend } from '@canonry/canonry-contracts'
+import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames, linearTrend, type GA4AiReferralDailyTrend, type GA4AiReferralMonth, type GA4AiReferralMonthlyTrend } from '@canonry/canonry-contracts'
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@canonry/canonry-contracts'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
@@ -81,15 +81,21 @@ const GA_TREND_FILLING_DAYS = 2
  * the last two UTC days. Positions keep their calendar gaps, as in
  * `linearTrend`.
  */
+const gaFillingFrom = (now: Date) =>
+  new Date(Date.parse(now.toISOString().slice(0, 10)) - (GA_TREND_FILLING_DAYS - 1) * DAY_MS).toISOString().slice(0, 10)
+
 export function aiReferralDailyTrend(
   days: readonly { date: string, sessions: number }[],
   measuredDates: readonly string[],
   firstAiDate: string | null,
   now: Date,
+  /** The project's start date: when set, the line starts there, not before. */
+  startedOn: string | null = null,
 ): GA4AiReferralDailyTrend | null {
   if (!firstAiDate) return null
-  const fillingFrom = new Date(Date.parse(now.toISOString().slice(0, 10)) - (GA_TREND_FILLING_DAYS - 1) * DAY_MS).toISOString().slice(0, 10)
-  const usable = [...new Set(measuredDates)].filter(date => date >= firstAiDate && date < fillingFrom).sort()
+  const fillingFrom = gaFillingFrom(now)
+  const from = startedOn && startedOn > firstAiDate ? startedOn : firstAiDate
+  const usable = [...new Set(measuredDates)].filter(date => date >= from && date < fillingFrom).sort()
   if (usable.length < 2) return null
   const sessionsByDate = new Map(days.map(day => [day.date, day.sessions]))
   const measured = new Set(usable)
@@ -98,6 +104,68 @@ export function aiReferralDailyTrend(
   const axis = Array.from({ length }, (_, i) => new Date(firstMs + i * DAY_MS).toISOString().slice(0, 10))
   const fit = linearTrend(axis.map(date => (measured.has(date) ? sessionsByDate.get(date) ?? 0 : null)))
   return fit ? { ...fit, startDate: axis[fit.startIndex]!, endDate: axis[fit.endIndex]! } : null
+}
+
+const addMonths = (month: string, n: number) => {
+  const [y, m] = month.split('-').map(Number) as [number, number]
+  return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7)
+}
+const lastDayOf = (month: string) => new Date(Date.parse(`${addMonths(month, 1)}-01T00:00:00.000Z`) - DAY_MS).toISOString().slice(0, 10)
+
+/**
+ * The daily AI sessions folded into calendar months across the range, and a
+ * line through the complete ones from the project's start month. A month is
+ * complete when the range holds all of it and none of it is still filling; a
+ * month GA4 reported no day of reads null, not zero.
+ */
+export function aiReferralMonthlySeries(input: {
+  days: readonly { date: string, sessions: number }[]
+  byEngine: { series: readonly { key: string, label: string }[], days: readonly { date: string, values: Record<string, number> }[] }
+  measuredDates: readonly string[]
+  range: { startDate: string | null, endDate: string | null }
+  firstAiDate: string | null
+  startedOn: string | null
+  now: Date
+}): { months: GA4AiReferralMonth[], monthlyTrend: GA4AiReferralMonthlyTrend | null } {
+  const today = input.now.toISOString().slice(0, 10)
+  const fillingFrom = gaFillingFrom(input.now)
+  const firstDay = input.range.startDate ?? input.days[0]?.date ?? input.measuredDates.slice().sort()[0]
+  if (!firstDay) return { months: [], monthlyTrend: null }
+  const lastDay = input.range.endDate && input.range.endDate < today ? input.range.endDate : today
+  const labels = new Map(input.byEngine.series.map(s => [s.key, s.label]))
+  const measured = new Set(input.measuredDates)
+  // A month GA4 began reporting partway through is not a whole month.
+  const firstMeasured = input.measuredDates.slice().sort()[0] ?? null
+  const months: GA4AiReferralMonth[] = []
+  for (let month = firstDay.slice(0, 7); month <= lastDay.slice(0, 7); month = addMonths(month, 1)) {
+    const inMonth = (date: string) => date.startsWith(month)
+    const days = input.days.filter(day => inMonth(day.date))
+    const reported = days.length > 0 || [...measured].some(inMonth)
+    const engines = new Map<string, number>()
+    for (const day of input.byEngine.days) {
+      if (!inMonth(day.date)) continue
+      for (const [key, value] of Object.entries(day.values)) engines.set(key, (engines.get(key) ?? 0) + value)
+    }
+    months.push({
+      month,
+      sessions: reported ? days.reduce((sum, day) => sum + day.sessions, 0) : null,
+      complete: reported && `${month}-01` >= firstDay && lastDayOf(month) < fillingFrom
+        && firstMeasured !== null && firstMeasured <= `${month}-01`,
+      engines: [...engines].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+        .map(([key, sessions]) => ({ key, label: labels.get(key) ?? key, sessions })),
+    })
+  }
+  const fromMonth = [input.firstAiDate?.slice(0, 7), input.startedOn?.slice(0, 7)].filter((m): m is string => Boolean(m)).sort().at(-1)
+  const fit = fromMonth
+    ? linearTrend(months.map(m => (m.complete && m.month >= fromMonth ? m.sessions : null)))
+    : null
+  const monthlyTrend = fit ? {
+    ...fit,
+    startMonth: months[fit.startIndex]!.month,
+    endMonth: months[fit.endIndex]!.month,
+    changePct: fit.start > 0 ? Math.round(100 * (fit.end / fit.start - 1)) : null,
+  } : null
+  return { months, monthlyTrend }
 }
 
 // Inclusive `date >= start` / `date <= end` predicates for a resolved range.
@@ -1937,7 +2005,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .all().map(row => row.date)
     const firstAiDate = app.db.select({ date: sql<string | null>`MIN(${gaAiReferrals.date})` })
       .from(gaAiReferrals).where(eq(gaAiReferrals.projectId, project.id)).get()?.date ?? null
-    return { ...series, trend: aiReferralDailyTrend(series.days, measuredDates, firstAiDate, new Date()) }
+    const now = new Date()
+    return {
+      ...series,
+      trend: aiReferralDailyTrend(series.days, measuredDates, firstAiDate, now, project.startedOn ?? null),
+      ...aiReferralMonthlySeries({
+        days: series.days, byEngine: series.byEngine, measuredDates, range, firstAiDate,
+        startedOn: project.startedOn ?? null, now,
+      }),
+    }
   })
 
   // GET /projects/:name/ga/social-referral-history
