@@ -31,7 +31,8 @@ vi.mock('recharts', () => {
               (dot as (p: Record<string, unknown>) => React.ReactNode)({ cx: i, cy: 1, index: i, key: `dot-${i}` }))}
           </div>
         )
-        : null,
+        // Any other line leaves a marker, so a test can tell which are drawn.
+        : <div data-testid={`line-${dataKey}`} />,
     CartesianGrid: () => null,
     Bar: () => null,
     BarChart: passthrough,
@@ -811,6 +812,50 @@ test('AI traffic history bands server visits counted by the older rule', async (
     cleanup()
     restoreFetch()
   }
+})
+
+/**
+ * GA4 counted AI sessions the same way the whole time, so its server-fitted
+ * trend is drawn wherever the GA4 line is: Both and GA4, never Server.
+ */
+test('AI traffic history draws the GA4 trend where the GA4 line is', async () => {
+  const days = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']
+  const restoreFetch = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/ga/status')) return jsonResponse({ connected: true, propertyId: 'p', clientEmail: null, lastSyncedAt: null })
+    if (path.endsWith('/ga/ai-referral-daily')) {
+      return jsonResponse({
+        days: days.map(date => ({ date, sessions: 5 })),
+        trend: { slope: 0, intercept: 5, r2: 1, start: 5, end: 5, n: 4, startIndex: 0, endIndex: 3, startDate: '2026-10-01', endDate: '2026-10-04' },
+      })
+    }
+    if (path.endsWith('/projects/test-project/traffic/events')) {
+      return jsonResponse({
+        events: [], eventRows: { total: 0, returned: 0, truncated: false },
+        totals: { crawlerHits: 4, crawlerContentHits: 4, aiUserFetchHits: 0, aiReferralHits: 4, aiReferralLandedHits: 4 },
+        series: {
+          granularity: 'day', coverageStart: '2026-09-01T00:00:00.000Z',
+          trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: days.map(bucket => ({ bucket, crawlerHits: 1, crawlerContentHits: 1, aiUserFetchHits: 0, aiReferralHits: 1, aiReferralLandedHits: 1, measured: true })),
+        },
+      })
+    }
+    return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+    </QueryClientProvider>,
+  )
+
+  await waitFor(() => expect(screen.getByTestId('line-ga4Trend')).toBeTruthy())
+  fireEvent.click(screen.getByRole('button', { name: 'Server' }))
+  expect(screen.queryByTestId('line-ga4Trend')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.getByTestId('line-ga4Trend')).toBeTruthy()
 })
 
 /**

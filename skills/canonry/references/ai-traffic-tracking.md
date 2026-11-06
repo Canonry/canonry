@@ -32,7 +32,10 @@ that upgrade; for earlier hours quote GA4, or AI visitor journeys where they
 exist. `aiReferralCountingChangedAt` on the traffic events series and on
 traffic analytics says when the older count ended; the fitted referral trend
 starts after it, and referral changes are null while the prior window
-reaches back before it.
+reaches back before it. On Cloudflare and Cloud Run sources a one-time
+recount rebuilds the older hours that AI visitor journeys cover, so the mark
+moves back to where journeys began. GA4's daily AI series carries its own
+fitted `trend`, which can span the whole window.
 
 ## Check the instrument before you report a zero
 

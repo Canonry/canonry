@@ -2740,8 +2740,10 @@ export const trafficSources = sqliteTable('traffic_sources', {
    * arrival rule, which also counted a visitor's later pages, assets and API
    * calls. Set by migration v211, only for a source holding referral rows
    * written before v207 changed the rule; NULL otherwise. Hours before it can
-   * read high and cannot be recounted, so charts mark them and trend fits and
-   * comparisons leave them out.
+   * read high, so charts mark them and trend fits and comparisons leave them
+   * out. A one-time recount (`ai-referral-recount.ts`) rebuilds the hours AI
+   * visitor journeys cover on Cloudflare and Cloud Run sources and moves this
+   * back to where journeys began, or clears it when no older hour is left.
    */
   aiReferralOlderCountUntil: text('ai_referral_older_count_until'),
   archivedAt: text('archived_at'),

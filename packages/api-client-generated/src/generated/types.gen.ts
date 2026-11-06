@@ -6814,6 +6814,18 @@ export type Ga4AiReferralDailyDto = {
             };
         }>;
     };
+    trend?: {
+        slope: number;
+        intercept: number;
+        r2: number;
+        start: number;
+        end: number;
+        n: number;
+        startIndex: number;
+        endIndex: number;
+        startDate: string;
+        endDate: string;
+    } | null;
 };
 
 export type Ga4AiReferralHistoryEntry = {

@@ -108,6 +108,18 @@ function trendSeries(trend: Trend | null | undefined, length: number): (number |
 }
 
 /**
+ * The GA4 fit's value on a calendar day, or null outside the fitted span. Its
+ * ends carry dates rather than chart indices, so it lines up with any window.
+ */
+function ga4TrendAt(trend: { startDate: string; endDate: string; start: number; end: number } | null, day: string): number | null {
+  if (!trend || day < trend.startDate || day > trend.endDate) return null
+  const startMs = Date.parse(`${trend.startDate}T00:00:00.000Z`)
+  const spanMs = Date.parse(`${trend.endDate}T00:00:00.000Z`) - startMs
+  if (spanMs <= 0) return null
+  return trend.start + (trend.end - trend.start) * ((Date.parse(`${day}T00:00:00.000Z`) - startMs) / spanMs)
+}
+
+/**
  * A LONE reading has no neighbour to draw a segment to. With
  * `connectNulls={false}` and `dot={false}`, Recharts therefore renders it as
  * NOTHING, so a day's visits vanish from a chart whose whole job is visits.
@@ -176,6 +188,9 @@ export function AiTrafficHistoryPanel({
     const dto = gaDaily.data as GA4AiReferralDailyDto | undefined
     return new Map((dto?.days ?? []).map((d) => [d.date, d.sessions]))
   }, [gaDaily.data])
+  // Fitted server side over complete GA4 days. GA4 counted the same way the
+  // whole time, so its line can span days the server count cannot.
+  const gaTrend = (gaDaily.data as GA4AiReferralDailyDto | undefined)?.trend ?? null
 
   // The stretch before recording began. Charted as a band rather than left to
   // read as a flat zero, which is what an unmeasured day looks like otherwise.
@@ -234,11 +249,12 @@ export function AiTrafficHistoryPanel({
       aiUserFetchHits: pt.measured !== false ? num(pt.aiUserFetchHits) : null,
       aiReferralLandedHits: pt.measured !== false ? num(pt.aiReferralLandedHits) : null,
       ga4Visits: gaByDate.get(pt.bucket) ?? null,
+      ga4Trend: ga4TrendAt(gaTrend, pt.bucket),
       crawlTrend: crawlTrend[i],
       fetchTrend: fetchTrend[i],
       visitTrend: visitTrend[i],
     }))
-  }, [points, gaByDate, trends])
+  }, [points, gaByDate, gaTrend, trends])
 
   // Read from the response rather than re-summed here. AGENTS.md UI/CLI parity:
   // a component must not aggregate. The two also disagree — `totals` covers the
@@ -476,6 +492,11 @@ export function AiTrafficHistoryPanel({
           {showTrend && visitSource !== 'ga4' && (
             <Line type="linear" dataKey="visitTrend" legendType="none" name="Visits trend" dot={false} tooltipType="none"
                   stroke={VISIT_COLOR} strokeWidth={1.3} strokeDasharray="5 4" connectNulls />
+          )}
+          {showTrend && visitSource !== 'server' && (
+            // Dotted, not dashed: the GA4 visits line is already dashed.
+            <Line type="linear" dataKey="ga4Trend" legendType="none" name="GA4 visits trend" dot={false} tooltipType="none"
+                  stroke={GA4_COLOR} strokeWidth={1.6} strokeDasharray="1 4" strokeLinecap="round" connectNulls />
           )}
         </ComposedChart>
       </ResponsiveContainer>

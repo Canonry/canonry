@@ -9,6 +9,7 @@ import { aiReferralTrafficClassSchema } from './traffic-class.js'
 import { aiReferralEngineSchema } from './ai-referral-engine.js'
 import { socialPlatformSchema } from './social-platform.js'
 import { stackedDailySeriesSchema } from './stacked-series.js'
+import { linearTrendSchema } from './statistics.js'
 
 export const ga4ConnectionDtoSchema = z.object({
   id: z.string(),
@@ -930,6 +931,17 @@ export type GA4AiReferralDailyEntry = z.infer<typeof ga4AiReferralDailyEntrySche
  * is nothing true to report. `ga_daily_totals` cannot stand in either, since
  * it is property-level across ALL traffic rather than AI-scoped or per-source.
  */
+/**
+ * A least-squares line through daily AI sessions, as `linearTrend` returns it
+ * (index = days since the first fitted date), plus the calendar dates its two
+ * ends sit on, so a chart on any date axis can draw it.
+ */
+export const ga4AiReferralDailyTrendSchema = linearTrendSchema.extend({
+  startDate: z.string(),
+  endDate: z.string(),
+})
+export type GA4AiReferralDailyTrend = z.infer<typeof ga4AiReferralDailyTrendSchema>
+
 export const ga4AiReferralDailyDtoSchema = z.object({
   /** Ascending by date. Dates with no AI referrals are absent, not zero-filled. */
   days: z.array(ga4AiReferralDailyEntrySchema),
@@ -944,6 +956,15 @@ export const ga4AiReferralDailyDtoSchema = z.object({
    * winner set as `days`, so each day's values add up to that day's sessions.
    */
   byEngine: stackedDailySeriesSchema,
+  /**
+   * Fitted over the window's complete GA4 days, server side so every consumer
+   * draws the same line. A day counts once GA4 reported the site's daily total
+   * for it, so a date with no AI row is a measured zero; days before the
+   * project's first stored AI row, and the last two UTC days (still filling),
+   * are left out. Null with fewer than two such days. Optional so a newer
+   * client reads an older API.
+   */
+  trend: ga4AiReferralDailyTrendSchema.nullable().optional(),
 })
 export type GA4AiReferralDailyDto = z.infer<typeof ga4AiReferralDailyDtoSchema>
 
