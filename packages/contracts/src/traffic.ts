@@ -649,6 +649,27 @@ export const trafficEventKindSchema = z.enum(['crawler', 'ai-user-fetch', 'ai-re
 export type TrafficEventKind = z.infer<typeof trafficEventKindSchema>
 export const TrafficEventKinds = trafficEventKindSchema.enum
 
+/** What the events read's `kind` filter accepts, for error messages. */
+export const TRAFFIC_EVENT_KIND_FILTER_HINT = `all, or one or more (comma-separated) of: ${trafficEventKindSchema.options.join(', ')}`
+
+/**
+ * Reads the events read's `kind` filter: "all", one kind, or a comma-separated
+ * list of kinds (spaces around a member are fine). Returns the kinds asked
+ * for, each once, or null when the list is empty or a member is not a kind.
+ * The route, the CLI and the MCP tool share it, so none accepts a value
+ * another refuses.
+ */
+export function parseTrafficEventKindFilter(value: string): TrafficEventKind[] | null {
+  if (value === 'all') return [...trafficEventKindSchema.options]
+  const kinds: TrafficEventKind[] = []
+  for (const member of value.split(',').map((part) => part.trim()).filter(Boolean)) {
+    const parsed = trafficEventKindSchema.safeParse(member)
+    if (!parsed.success) return null
+    if (!kinds.includes(parsed.data)) kinds.push(parsed.data)
+  }
+  return kinds.length > 0 ? kinds : null
+}
+
 export const trafficSeriesGranularitySchema = z.enum(['hour', 'day'])
 export type TrafficSeriesGranularity = z.infer<typeof trafficSeriesGranularitySchema>
 export const TrafficSeriesGranularities = trafficSeriesGranularitySchema.enum

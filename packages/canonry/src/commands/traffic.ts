@@ -13,7 +13,7 @@ import type {
   TrafficStatusResponse,
   TrafficSyncResponse,
 } from '@canonry/canonry-contracts'
-import { RunStatuses, TrafficEventKinds, TrafficSeriesGranularities, describeError, formatPercent, parseTrafficAnalyticsPeriod } from '@canonry/canonry-contracts'
+import { RunStatuses, TRAFFIC_EVENT_KIND_FILTER_HINT, TrafficEventKinds, TrafficSeriesGranularities, describeError, formatPercent, parseTrafficAnalyticsPeriod, parseTrafficEventKindFilter } from '@canonry/canonry-contracts'
 import fs from 'node:fs'
 import { getCloudflareTrafficConnectionBySourceId } from '../cloudflare-traffic-config.js'
 import {
@@ -1133,17 +1133,11 @@ export async function trafficEvents(project: string, opts: {
   granularity?: string
   format?: string
 }): Promise<void> {
-  if (
-    opts.kind
-    && opts.kind !== 'all'
-    && opts.kind !== TrafficEventKinds.crawler
-    && opts.kind !== TrafficEventKinds['ai-user-fetch']
-    && opts.kind !== TrafficEventKinds['ai-referral']
-  ) {
+  if (opts.kind && !parseTrafficEventKindFilter(opts.kind)) {
     throw new CliError({
       code: 'TRAFFIC_INVALID_KIND',
-      message: `--kind must be one of: all, ${TrafficEventKinds.crawler}, ${TrafficEventKinds['ai-user-fetch']}, ${TrafficEventKinds['ai-referral']}`,
-      displayMessage: `Error: --kind must be "all", "${TrafficEventKinds.crawler}", "${TrafficEventKinds['ai-user-fetch']}", or "${TrafficEventKinds['ai-referral']}"`,
+      message: `--kind must be ${TRAFFIC_EVENT_KIND_FILTER_HINT}`,
+      displayMessage: `Error: --kind must be ${TRAFFIC_EVENT_KIND_FILTER_HINT}`,
       details: { project, kind: opts.kind },
     })
   }

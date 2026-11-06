@@ -327,6 +327,13 @@
     font: inherit;
   }
 
+  /* A click on a chart focuses one of Recharts' layer groups (tabindex -1),
+     and the browser rings the whole plot. Tab never reaches those groups: the
+     keyboard target is the chart surface, and its ring stays. */
+  .recharts-wrapper :focus:not(:focus-visible) {
+    outline: none;
+  }
+
   ::selection {
     background: color-mix(in oklab, var(--color-accent) 12%, transparent);
     color: var(--color-accent);
