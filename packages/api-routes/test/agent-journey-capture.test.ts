@@ -33,7 +33,11 @@ describe('durable agent request capture', () => {
     // Exercise an installed database upgrade, not only a fresh table bootstrap.
     migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 200))
     db.insert(projects).values({ id: 'project', name: 'example', displayName: 'Example', canonicalDomain: 'https://Example.com', country: 'US', language: 'en', createdAt: NOW, updatedAt: NOW }).run()
-    for (const sourceId of ['source', 'second']) db.insert(trafficSources).values({ id: sourceId, projectId: 'project', sourceType: TrafficSourceTypes['cloud-run'], displayName: sourceId, status: 'connected', createdAt: NOW, updatedAt: NOW }).run()
+    // Raw SQL: the current schema's insert would name columns added after v199.
+    for (const sourceId of ['source', 'second']) {
+      db.run(sql`INSERT INTO traffic_sources (id, project_id, source_type, display_name, status, config_json, created_at, updated_at)
+        VALUES (${sourceId}, 'project', ${TrafficSourceTypes['cloud-run']}, ${sourceId}, 'connected', '{}', ${NOW}, ${NOW})`)
+    }
     migrate(db)
   })
   afterEach(() => db.$client.close())

@@ -145,7 +145,7 @@ import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from 
 import { enforceJourneyRetention, recordJourneyBatch } from './journeys.js'
 import { recordAgentJourneyBatch } from './agent-journey-capture.js'
 import { planScannerBursts, saveScannerBursts } from './agent-scanner-bursts.js'
-import { planAiReferralArrivals, saveAiReferralArrivals } from './ai-referral-arrivals.js'
+import { aiReferralOlderCountUntil, planAiReferralArrivals, saveAiReferralArrivals } from './ai-referral-arrivals.js'
 import { addLikelyFakeAgentHits, clearLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
@@ -1760,6 +1760,25 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
         && Number.isFinite(recordedSkipMs)
         && windowStart.getTime() <= recordedSkipMs
 
+      // Replacement rows use the current arrival rule even at old event dates.
+      // Reuse v211's write-time test: a journey recount may already have moved
+      // the source's cutoff earlier than the original v207 rule change.
+      let olderCountUntil = latestSource.aiReferralOlderCountUntil
+      if (olderCountUntil !== null) {
+        const ruleChange = tx.get<{ appliedAt: string | null } | undefined>(sql`
+          SELECT strftime('%Y-%m-%dT%H:%M:%fZ', applied_at) AS appliedAt
+          FROM _migrations WHERE version = 207
+        `)
+        if (ruleChange?.appliedAt) {
+          const olderReferral = tx.select({ sourceId: aiReferralEventsHourly.sourceId }).from(aiReferralEventsHourly)
+            .where(and(
+              eq(aiReferralEventsHourly.sourceId, sourceRow.id),
+              lt(aiReferralEventsHourly.createdAt, ruleChange.appliedAt),
+            )).limit(1).get()
+          if (!olderReferral) olderCountUntil = null
+        }
+      }
+
       tx
         .update(trafficSources)
         .set({
@@ -1767,6 +1786,7 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           lastSyncedAt: nextLastSyncedAt,
           lastError: null,
           lastEventIds: newRingBuffer,
+          aiReferralOlderCountUntil: olderCountUntil,
           ...(skipRecovered ? { skippedThroughAt: null } : {}),
           updatedAt: finishedAt,
         })
@@ -5350,6 +5370,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             .from(aiReferralEventsHourly)
             .where(coverageScope(aiReferralEventsHourly.projectId, aiReferralEventsHourly.sourceId)).get()?.v,
         ].filter((v): v is string => typeof v === 'string' && v.length > 0)
+        // Referral hours counted by the older arrival rule can read high and cannot
+        // be recounted. Same selection scope as coverage, and likewise not
+        // window-bound.
+        const referralCountingChangedAt = aiReferralOlderCountUntil(app.db, { projectId: project.id, sourceId: sourceIdParam })
+        const referralCountingChangedMs = referralCountingChangedAt === null ? null : Date.parse(referralCountingChangedAt)
         const coverageStart = firsts.length ? firsts.slice().sort()[0]! : null
         // A DAY bucket is `YYYY-MM-DD` (`substr(ts_hour, 1, 10)`) and needs a time
         // appended; an HOUR bucket IS `ts_hour`, ALREADY a full ISO instant
@@ -5401,6 +5426,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           granularity,
           points,
           coverageStart,
+          aiReferralCountingChangedAt: referralCountingChangedAt,
           // Two edges are excluded from the fit, both for the same reason: a
           // bucket that is not a full reading must not be treated as one.
           //
@@ -5416,6 +5442,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           // error as the leading edge, and the one the leading guard alone
           // would have left in place.
           //
+          // The referral fit also drops every bucket that begins before the
+          // arrival rule changed, the bucket it changed inside included: those
+          // hours were counted by an older rule that can read high, and a line
+          // across the change slopes down for traffic that held steady.
+          //
           // linearTrend skips nulls while surviving points keep their true
           // index, so dropping an edge does not compress the x-axis.
           trends: (() => {
@@ -5423,12 +5454,14 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
               pt.measured
               && !(i === firstMeasuredIdx && leadingBucketIsPartial)
               && !(i === points.length - 1 && trailingBucketIsPartial)
-            const series = (pick: (pt: TrafficSeriesPoint) => number) =>
-              linearTrend(points.map((pt, i) => (usable(pt, i) ? pick(pt) : null)))
+            const countedByCurrentRule = (pt: TrafficSeriesPoint) =>
+              referralCountingChangedMs === null || bucketStartMs(pt.bucket) >= referralCountingChangedMs
+            const series = (pick: (pt: TrafficSeriesPoint) => number, include: (pt: TrafficSeriesPoint) => boolean = () => true) =>
+              linearTrend(points.map((pt, i) => (usable(pt, i) && include(pt) ? pick(pt) : null)))
             return {
               crawlerContentHits: series((pt) => pt.crawlerContentHits),
               aiUserFetchHits: series((pt) => pt.aiUserFetchHits),
-              aiReferralLandedHits: series((pt) => pt.aiReferralLandedHits),
+              aiReferralLandedHits: series((pt) => pt.aiReferralLandedHits, countedByCurrentRule),
             }
           })(),
         }

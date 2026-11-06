@@ -23,7 +23,7 @@ import { insertLegacyProject, insertLegacyRow } from './legacy-rows.js'
 // four defaulted sync-state columns.
 
 const SEARCH_LANDING_VERSION = 176
-const SEARCH_LANDING_180_VERSION = 212
+const SEARCH_LANDING_180_VERSION = 213
 const NOW = '2026-10-08T15:00:00.000Z'
 
 function tempDb(versions = MIGRATION_VERSIONS): DatabaseClient {

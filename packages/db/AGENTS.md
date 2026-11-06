@@ -278,6 +278,6 @@ see every paid attempt.
 
 ### GA4 sync coverage
 
-Migration 211 adds `ga_sync_coverage`: one receipt per project/component/day, with property and definition identity, maturity and sync time. Empty successful reports create receipts too. A receipt is committed with its data and deleted with GA property data or its sync run. Historical rows are not assumed complete during migration.
+Migration 212 adds `ga_sync_coverage`: one receipt per project/component/day, with property and definition identity, maturity and sync time. Empty successful reports create receipts too. A receipt is committed with its data and deleted with GA property data or its sync run. Historical rows are not assumed complete during migration.
 
-Migration 212 widens both Search Console landing-page tables to `180d` and adds nullable `ga_search_landing_windows.report_definition`. It preserves all existing figures and sync provenance; a null definition keeps a legacy snapshot readable but excludes it from reuse. Fresh complete windows are reusable only under the API’s matching property, reporting-zone, date-range and definition checks.
+Migration 213 widens both Search Console landing-page tables to `180d` and adds nullable `ga_search_landing_windows.report_definition`. It preserves all existing figures and sync provenance; a null definition keeps a legacy snapshot readable but excludes it from reuse. Fresh complete windows are reusable only under the API’s matching property, reporting-zone, date-range and definition checks.

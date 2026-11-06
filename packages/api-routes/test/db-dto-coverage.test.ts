@@ -1015,6 +1015,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       lastWorkerVersion: 'Semver reported by the most recently ingested Cloudflare Worker batch, whether direct or Queue. Surfaced through the doctor check, not the source DTO.',
       syncLeaseOwner: 'Ephemeral owner of a pull-source sync lease; internal concurrency state.',
       syncLeaseExpiresAt: 'Expiry for stale pull-source lease recovery; internal concurrency state.',
+      aiReferralOlderCountUntil: 'End of the older AI-referral arrival count; surfaced as `aiReferralCountingChangedAt` on traffic events and analytics, not on the source DTO.',
     },
   },
 

@@ -6814,6 +6814,18 @@ export type Ga4AiReferralDailyDto = {
             };
         }>;
     };
+    trend?: {
+        slope: number;
+        intercept: number;
+        r2: number;
+        start: number;
+        end: number;
+        n: number;
+        startIndex: number;
+        endIndex: number;
+        startDate: string;
+        endDate: string;
+    } | null;
 };
 
 export type Ga4AiReferralHistoryEntry = {
@@ -15139,6 +15151,7 @@ export type TrafficAnalyticsResponse = {
         windowEnd: string;
         coverageStart: string | null;
         priorWindowComplete: boolean;
+        aiReferralCountingChangedAt?: string | null;
         /**
          * True when the selected or prior window has stored crawler, user-fetch, countable referral or operator evidence, or the selected window has referral redirects. False means no qualifying stored evidence; it can occur with no, paused, errored or never-synced ingestion and out-of-window observations. It does not establish measured zero traffic or source health.
          */
@@ -17951,6 +17964,7 @@ export type TrafficEventsResponse = {
             measured: boolean;
         }>;
         coverageStart: string | null;
+        aiReferralCountingChangedAt?: string | null;
         trends: {
             crawlerContentHits: {
                 slope: number;

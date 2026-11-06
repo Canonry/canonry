@@ -5332,6 +5332,26 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   },
   {
     version: 211,
+    name: 'ai-referral-older-count-until',
+    // v207 began counting each AI-referral arrival once per visit. Hours a
+    // source wrote before it also counted the visitor's later requests and
+    // cannot be recounted, so stamp when that older count ended, for sources
+    // that hold such rows. A fresh install holds none and stamps nothing.
+    statements: [
+      `ALTER TABLE traffic_sources ADD COLUMN ai_referral_older_count_until TEXT`,
+      `UPDATE traffic_sources
+        SET ai_referral_older_count_until = (
+          SELECT strftime('%Y-%m-%dT%H:%M:%fZ', applied_at) FROM _migrations WHERE version = 207
+        )
+        WHERE EXISTS (
+          SELECT 1 FROM ai_referral_events_hourly r
+          WHERE r.source_id = traffic_sources.id
+            AND r.created_at < (SELECT strftime('%Y-%m-%dT%H:%M:%fZ', applied_at) FROM _migrations WHERE version = 207)
+        )`,
+    ],
+  },
+  {
+    version: 212,
     name: 'ga-sync-coverage',
     statements: [
       `CREATE TABLE IF NOT EXISTS ga_sync_coverage (
@@ -5349,15 +5369,15 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
-    version: 212,
+    version: 213,
     name: 'ga-search-landing-180-day-windows',
     // The two tables reference projects/runs, not each other. Rebuilding them
     // keeps foreign keys enabled and preserves the original sync provenance.
     // Add the nullable definition first so replay copies it without erasing it.
     statements: [
       `ALTER TABLE ga_search_landing_windows ADD COLUMN report_definition TEXT`,
-      `DROP TABLE IF EXISTS ga_search_landing_windows_v212`,
-      `CREATE TABLE ga_search_landing_windows_v212 (
+      `DROP TABLE IF EXISTS ga_search_landing_windows_v213`,
+      `CREATE TABLE ga_search_landing_windows_v213 (
         id                        TEXT PRIMARY KEY,
         project_id                TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         property_id               TEXT NOT NULL,
@@ -5380,7 +5400,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         created_at                TEXT NOT NULL,
         CHECK (total_clicks >= 0 AND total_impressions >= 0 AND total_active_users >= 0 AND report_row_count >= 0)
       )`,
-      `INSERT INTO ga_search_landing_windows_v212 (
+      `INSERT INTO ga_search_landing_windows_v213 (
         id, project_id, property_id, window_key, period_start, period_end,
         time_zone, report_definition, total_clicks, total_impressions, total_ctr,
         total_average_position, total_active_users, report_row_count, rows_capped,
@@ -5392,11 +5412,11 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         subject_to_thresholding, data_loss_from_other_row, synced_at, sync_run_id, created_at
       FROM ga_search_landing_windows`,
       `DROP TABLE ga_search_landing_windows`,
-      `ALTER TABLE ga_search_landing_windows_v212 RENAME TO ga_search_landing_windows`,
+      `ALTER TABLE ga_search_landing_windows_v213 RENAME TO ga_search_landing_windows`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_search_landing_windows_project_window ON ga_search_landing_windows(project_id, window_key)`,
       `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_windows_run ON ga_search_landing_windows(sync_run_id)`,
-      `DROP TABLE IF EXISTS ga_search_landing_pages_v212`,
-      `CREATE TABLE ga_search_landing_pages_v212 (
+      `DROP TABLE IF EXISTS ga_search_landing_pages_v213`,
+      `CREATE TABLE ga_search_landing_pages_v213 (
         id                TEXT PRIMARY KEY,
         project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         window_key        TEXT NOT NULL CHECK (window_key IN ('7d', '28d', '90d', '180d')),
@@ -5411,7 +5431,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         created_at        TEXT NOT NULL,
         CHECK (clicks >= 0 AND impressions >= 0 AND active_users >= 0)
       )`,
-      `INSERT INTO ga_search_landing_pages_v212 (
+      `INSERT INTO ga_search_landing_pages_v213 (
         id, project_id, window_key, landing_page, clicks, impressions, ctr,
         average_position, active_users, synced_at, sync_run_id, created_at
       ) SELECT
@@ -5419,7 +5439,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         average_position, active_users, synced_at, sync_run_id, created_at
       FROM ga_search_landing_pages`,
       `DROP TABLE ga_search_landing_pages`,
-      `ALTER TABLE ga_search_landing_pages_v212 RENAME TO ga_search_landing_pages`,
+      `ALTER TABLE ga_search_landing_pages_v213 RENAME TO ga_search_landing_pages`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_search_landing_pages_grain ON ga_search_landing_pages(project_id, window_key, landing_page)`,
       `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_order ON ga_search_landing_pages(project_id, window_key, clicks)`,
       `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_run ON ga_search_landing_pages(sync_run_id)`,
