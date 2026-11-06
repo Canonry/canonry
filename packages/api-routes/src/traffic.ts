@@ -1760,6 +1760,25 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
         && Number.isFinite(recordedSkipMs)
         && windowStart.getTime() <= recordedSkipMs
 
+      // Replacement rows use the current arrival rule even at old event dates.
+      // Reuse v211's write-time test: a journey recount may already have moved
+      // the source's cutoff earlier than the original v207 rule change.
+      let olderCountUntil = latestSource.aiReferralOlderCountUntil
+      if (olderCountUntil !== null) {
+        const ruleChange = tx.get<{ appliedAt: string | null } | undefined>(sql`
+          SELECT strftime('%Y-%m-%dT%H:%M:%fZ', applied_at) AS appliedAt
+          FROM _migrations WHERE version = 207
+        `)
+        if (ruleChange?.appliedAt) {
+          const olderReferral = tx.select({ sourceId: aiReferralEventsHourly.sourceId }).from(aiReferralEventsHourly)
+            .where(and(
+              eq(aiReferralEventsHourly.sourceId, sourceRow.id),
+              lt(aiReferralEventsHourly.createdAt, ruleChange.appliedAt),
+            )).limit(1).get()
+          if (!olderReferral) olderCountUntil = null
+        }
+      }
+
       tx
         .update(trafficSources)
         .set({
@@ -1767,6 +1786,7 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           lastSyncedAt: nextLastSyncedAt,
           lastError: null,
           lastEventIds: newRingBuffer,
+          aiReferralOlderCountUntil: olderCountUntil,
           ...(skipRecovered ? { skippedThroughAt: null } : {}),
           updatedAt: finishedAt,
         })

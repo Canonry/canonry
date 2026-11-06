@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import {
   createClient,
   migrate,
@@ -4151,6 +4151,77 @@ describe('POST /traffic/sources/:id/backfill', () => {
     } finally {
       await h.close()
       vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    { name: 'clears the marker after replacing its last older row', olderOutsideWindow: false, expectedHits: 1 },
+    { name: 'retains the moved marker while older rows remain', olderOutsideWindow: true, expectedHits: 8 },
+  ])('$name', async ({ olderOutsideWindow, expectedHits }) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-06T12:00:00.000Z'))
+    const movedCutoff = '2026-10-25T01:00:00.000Z'
+    const h = await buildHarness([buildEvent({
+      eventId: 'recounted-ai-arrival', observedAt: '2026-10-24T10:15:00.000Z',
+      userAgent: 'Mozilla/5.0', path: '/landing', requestUrl: 'https://example.com/landing?utm_source=chatgpt.com',
+      queryString: 'utm_source=chatgpt.com', referer: 'https://chatgpt.com/',
+    })])
+    try {
+      const connected = await h.app.inject({
+        method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'recount-backfill', keyJson: SA_KEY },
+      })
+      expect(connected.statusCode, connected.payload).toBe(200)
+      const sourceId = JSON.parse(connected.payload).id as string
+      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      h.db.run(sql`UPDATE _migrations SET applied_at = '2026-11-04 12:00:00' WHERE version = 207`)
+      h.db.update(trafficSources).set({ aiReferralOlderCountUntil: movedCutoff, createdAt: '2026-08-16T18:00:00.000Z' })
+        .where(eq(trafficSources.id, sourceId)).run()
+      const peerId = `${sourceId}-peer`
+      h.db.insert(trafficSources).values({
+        ...source, id: peerId, status: TrafficSourceStatuses.paused,
+        createdAt: '2026-08-16T18:00:00.000Z', aiReferralOlderCountUntil: movedCutoff,
+      }).run()
+      // A journey recount already moved the cutoff back. These delayed rows
+      // were written after that boundary but before v207 changed the rule.
+      const referral = {
+        projectId: source.projectId, sourceId, tsHour: '2026-10-24T10:00:00.000Z',
+        product: 'ChatGPT', operator: 'OpenAI', sourceDomain: 'chatgpt.com', evidenceType: 'utm',
+        landingPathNormalized: '/landing', status: 200, sessionsOrHits: 100,
+        paidSessionsOrHits: 0, organicSessionsOrHits: 100,
+        createdAt: '2026-11-03T10:20:00.000Z', updatedAt: '2026-11-03T10:20:00.000Z',
+      }
+      h.db.insert(aiReferralEventsHourly).values([
+        referral,
+        { ...referral, sourceId: peerId, sessionsOrHits: 17, organicSessionsOrHits: 17 },
+        ...(olderOutsideWindow ? [{
+          ...referral, tsHour: '2026-10-22T10:00:00.000Z', sessionsOrHits: 7, organicSessionsOrHits: 7,
+        }] : []),
+      ]).run()
+      const query = 'since=2026-10-20T00%3A00%3A00.000Z&granularity=day'
+      const url = `/api/v1/projects/test-project/traffic/events?sourceId=${sourceId}&${query}`
+      const before = await h.app.inject({ method: 'GET', url })
+      expect(before.statusCode).toBe(200)
+      expect(trafficEventsResponseSchema.parse(JSON.parse(before.payload)).series.aiReferralCountingChangedAt).toBe(movedCutoff)
+
+      const submitted = await h.app.inject({
+        method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`, payload: { days: 14 },
+      })
+      expect(submitted.statusCode, submitted.payload).toBe(200)
+      expect((await waitForRunComplete(h.db, JSON.parse(submitted.payload).runId)).status).toBe(RunStatuses.completed)
+
+      const after = await h.app.inject({ method: 'GET', url })
+      expect(after.statusCode).toBe(200)
+      const body = trafficEventsResponseSchema.parse(JSON.parse(after.payload))
+      expect(body.totals.aiReferralLandedHits).toBe(expectedHits)
+      expect(body.series.aiReferralCountingChangedAt).toBe(olderOutsideWindow ? movedCutoff : null)
+      const peer = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?sourceId=${peerId}&${query}` })
+      expect(peer.statusCode).toBe(200)
+      const peerBody = trafficEventsResponseSchema.parse(JSON.parse(peer.payload))
+      expect(peerBody.totals.aiReferralLandedHits).toBe(17)
+      expect(peerBody.series.aiReferralCountingChangedAt).toBe(movedCutoff)
+    } finally {
+      await h.close()
     }
   })
 
