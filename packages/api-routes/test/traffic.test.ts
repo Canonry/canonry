@@ -6026,6 +6026,70 @@ describe('crawler-hit content/infra segmentation', () => {
     } finally { await h.close() }
   })
 
+  function insertSeriesReferralRows(
+    h: Awaited<ReturnType<typeof buildHarness>>,
+    source: typeof trafficSources.$inferSelect,
+    observations: { tsHour: string; hits: number }[],
+  ) {
+    h.db.insert(aiReferralEventsHourly).values(observations.map(observation => ({
+      projectId: source.projectId, sourceId: source.id, tsHour: observation.tsHour,
+      product: 'ChatGPT', operator: 'OpenAI', sourceDomain: 'chatgpt.com', evidenceType: 'utm',
+      landingPathNormalized: '/', status: 200, sessionsOrHits: observation.hits,
+      paidSessionsOrHits: 0, organicSessionsOrHits: observation.hits, usersEstimated: null,
+      createdAt: '2026-05-07T13:45:00.000Z', updatedAt: '2026-05-07T13:45:00.000Z',
+    }))).run()
+  }
+
+  /**
+   * Hours a source counted by the older AI-referral rule read high, so a line
+   * fitted across the change slopes down for traffic that held steady.
+   *
+   * Fixture: two older days at 100, the count changing at 12:00 on the second,
+   * then three whole days flat at 10. The fit must use only those three days;
+   * without the marker the same rows fit a steep decline.
+   */
+  it('fits the AI-referral trend only after the older count ended', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-07T13:45:00.000Z'))
+    for (const scenario of [
+      { name: 'older count marked', until: '2026-05-03T12:00:00.000Z' },
+      { name: 'no older count', until: null },
+    ]) {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        if (scenario.until) {
+          h.db.update(trafficSources).set({ aiReferralOlderCountUntil: scenario.until })
+            .where(eq(trafficSources.id, source.id)).run()
+        }
+        insertSeriesReferralRows(h, source, [
+          { tsHour: '2026-05-02T00:00:00.000Z', hits: 100 },
+          { tsHour: '2026-05-03T00:00:00.000Z', hits: 100 },
+          ...[4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, hits: 10 })),
+        ])
+        insertSeriesCrawlerRows(h, source, [2, 3, 4, 5, 6].map(day => ({
+          tsHour: `2026-05-0${day}T12:00:00.000Z`, pathNormalized: `/blog/day-${day}`, hits: 50,
+        })))
+        const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-04-30T13%3A45%3A00.000Z&granularity=day' })
+        expect(res.statusCode, scenario.name).toBe(200)
+        const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+        expect(body.series.aiReferralCountingChangedAt, scenario.name).toBe(scenario.until)
+        expect(body.series.points.map(point => point.aiReferralLandedHits), 'raw counts are unchanged').toEqual([0, 0, 100, 100, 10, 10, 10, 0])
+        // Other series keep every measured day.
+        expect(body.series.trends.crawlerContentHits, scenario.name).toEqual({
+          slope: 0, intercept: 50, r2: 1, start: 50, end: 50, n: 5, startIndex: 2, endIndex: 6,
+        })
+        if (scenario.until) {
+          expect(body.series.trends.aiReferralLandedHits, 'three whole days after the change, at their own indices').toEqual({
+            slope: 0, intercept: 10, r2: 1, start: 10, end: 10, n: 3, startIndex: 4, endIndex: 6,
+          })
+        } else {
+          expect(body.series.trends.aiReferralLandedHits?.n).toBe(5)
+          expect(body.series.trends.aiReferralLandedHits?.slope).toBeLessThan(0)
+        }
+      } finally { await h.close() }
+    }
+  })
+
   it('rejects sinceMinutes rather than silently answering for 24 hours', async () => {
     const { h } = await mixedPathHarness()
     try {

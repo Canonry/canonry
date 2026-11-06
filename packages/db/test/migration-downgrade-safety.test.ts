@@ -49,6 +49,12 @@ const REVIEWED_DATA_STATEMENTS: ReadonlyMap<number, readonly RegExp[]> = new Map
   [200, [
     /^UPDATE raw_event_samples SET event_type = 'ai_user_fetch' WHERE event_type = 'ai-user-fetch'$/i,
   ]],
+  // v211 only fills its own new nullable column, from v207's applied time, on
+  // sources holding referral rows written before v207. Older binaries never
+  // read the column, so a rollback ignores it.
+  [211, [
+    /^UPDATE traffic_sources SET ai_referral_older_count_until = \( SELECT strftime\('[^']+', applied_at\) FROM _migrations WHERE version = 207 \) WHERE EXISTS \( SELECT 1 FROM ai_referral_events_hourly r WHERE r\.source_id = traffic_sources\.id AND r\.created_at < \(SELECT strftime\('[^']+', applied_at\) FROM _migrations WHERE version = 207\) \)$/i,
+  ]],
 ])
 
 test(`every migration after v${DOWNGRADE_BASELINE} has additive schema or reviewed data changes (downgrade-safe)`, () => {

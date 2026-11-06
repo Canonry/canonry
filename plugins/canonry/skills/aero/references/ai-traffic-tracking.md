@@ -36,7 +36,10 @@ their trend, not their totals. Server-side arrivals stored before Canonry
 the landing page's utm, about one per minute of the visit, so those hours can
 read several times high and cannot be corrected. Never read a trend across
 that upgrade; for earlier hours quote GA4, or AI visitor journeys where they
-exist.
+exist. `aiReferralCountingChangedAt` on the traffic events series and on
+traffic analytics says when the older count ended; the fitted referral trend
+starts after it, and referral changes are null while the prior window
+reaches back before it.
 
 ## Check the instrument before you report a zero
 

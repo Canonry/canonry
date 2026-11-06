@@ -5330,6 +5330,26 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE schedules ADD COLUMN site_audit_checks TEXT`,
     ],
   },
+  {
+    version: 211,
+    name: 'ai-referral-older-count-until',
+    // v207 began counting each AI-referral arrival once per visit. Hours a
+    // source wrote before it also counted the visitor's later requests and
+    // cannot be recounted, so stamp when that older count ended, for sources
+    // that hold such rows. A fresh install holds none and stamps nothing.
+    statements: [
+      `ALTER TABLE traffic_sources ADD COLUMN ai_referral_older_count_until TEXT`,
+      `UPDATE traffic_sources
+        SET ai_referral_older_count_until = (
+          SELECT strftime('%Y-%m-%dT%H:%M:%fZ', applied_at) FROM _migrations WHERE version = 207
+        )
+        WHERE EXISTS (
+          SELECT 1 FROM ai_referral_events_hourly r
+          WHERE r.source_id = traffic_sources.id
+            AND r.created_at < (SELECT strftime('%Y-%m-%dT%H:%M:%fZ', applied_at) FROM _migrations WHERE version = 207)
+        )`,
+    ],
+  },
 ]
 
 /**

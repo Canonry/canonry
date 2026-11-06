@@ -773,6 +773,16 @@ export const trafficEventsResponseSchema = z.object({
      */
     coverageStart: z.string().nullable(),
     /**
+     * When the selected sources began counting AI-referral arrivals once per
+     * visit, or null when none holds hours counted by the older rule. Hours
+     * before it also counted a visitor's later pages, assets and API calls as
+     * arrivals and read high; stored hourly rows keep no visitor, so they
+     * cannot be recounted. Like `coverageStart`, not bound to the window.
+     * `trends.aiReferralLandedHits` is fitted only over buckets that begin at
+     * or after it. Optional so a newer client reads an older API.
+     */
+    aiReferralCountingChangedAt: z.string().nullable().optional(),
+    /**
      * Least-squares fit per charted metric, over the densified points.
      *
      * Fitted HERE rather than in a chart component: a regression computed in the
