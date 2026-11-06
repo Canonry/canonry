@@ -1,5 +1,6 @@
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const api = vi.hoisted(() => ({
   fetchCdpStatus: vi.fn(),
@@ -21,7 +22,9 @@ afterEach(() => {
 test('shows a Chrome status error and recovery path outside Advanced', async () => {
   api.fetchCdpStatus.mockRejectedValueOnce(new Error('Connection refused'))
 
-  render(<CdpConfigCard />)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => client.clear())
+  render(<QueryClientProvider client={client}><CdpConfigCard /></QueryClientProvider>)
 
   const error = await screen.findByRole('alert')
   expect(error.textContent).toContain('Could not check Chrome: Connection refused.')

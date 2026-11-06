@@ -763,6 +763,11 @@ cnry settings --format json
 cnry settings reload-providers --format json   # apply the server's saved provider config
 cnry settings provider gemini --api-key <KEY> --model gemini-flash-latest
 cnry settings provider openai --max-per-day 1000 --max-per-minute 20
+cnry settings provider-info openai --format json   # saved config, defaults and project impact
+cnry settings provider openai --reset-model --reset-limits
+cnry settings provider local --remove-key         # remove an optional Local key
+cnry settings disconnect-provider openai          # inspect impact; makes no changes
+cnry settings disconnect-provider openai --confirm --if-impact-revision <REVISION>
 cnry settings provider perplexity --api-key <KEY> --model fast
 cnry settings provider muse --api-key <KEY> --model muse-spark-1.3
 cnry settings provider openrouter --api-key <KEY>
@@ -770,7 +775,23 @@ cnry settings provider openrouter --api-key <KEY>
 
 Perplexity runs on its Agent API. `--model` takes a preset (`fast` default, `low`, `medium`, `high`, `xhigh`) or a `vendor/model` slug such as `perplexity/sonar`. Retired Sonar names still work and run as their replacement (`sonar` → `fast`, `sonar-pro` → `low`).
 
-Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`
+Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`.
+Use `--reset-limits` to inherit all connection limits, or repeat
+`--reset-quota maxConcurrency|maxRequestsPerMinute|maxRequestsPerDay` for individual
+fields. `--reset-model` removes the connection override. `--reset-base-url` restores a built-in endpoint (Local requires an explicit endpoint). Project overrides remain
+independent. `--if-revision <revision>` from `provider-info` rejects stale updates.
+
+`provider-info` is a stored read: it exposes no credentials and makes no vendor
+calls. It returns editable capabilities, effective/default/overridden limits,
+host-managed Vertex/batch/pricing settings, active-work blockers, and projects
+that reference the connection through defaults, schedules or Advanced plans/drafts.
+Disconnect previews use the same response. Without `--confirm` no state changes;
+with it, the connection is removed from the connected server's saved config and
+runtime. Project selections and result history remain available, and the key is
+not revoked at its vendor. Reconnect before running those engine selections again.
+Pass the preview's `impactRevision` with `--if-impact-revision` to reject changed
+project impact. Resets and disconnect require install administrator authority and
+`settings.write`; host-managed credentials must be changed on the host.
 
 `reload-providers` rereads the connected server's config file: provider keys,
 models, Vertex AI settings, batch settings, pricing, quotas, and CDP. Any config

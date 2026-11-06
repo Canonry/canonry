@@ -729,7 +729,7 @@ describe('MCP over Streamable HTTP', () => {
       expect(typeof tool.annotations.openWorldHint, tool.name).toBe('boolean')
     }
     const names = tools.map(tool => tool.name)
-    for (const name of ['canonry_doctor', 'canonry_gbp_accounts', 'canonry_gsc_sitemaps', 'canonry_research_run_start', 'canonry_providers_reload', 'canonry_provider_settings_update', 'canonry_load_toolkit']) {
+    for (const name of ['canonry_doctor', 'canonry_gbp_accounts', 'canonry_gsc_sitemaps', 'canonry_research_run_start', 'canonry_providers_reload', 'canonry_provider_settings_update', 'canonry_provider_disconnect', 'canonry_load_toolkit']) {
       expect(names).not.toContain(name)
       expect((await rpc('tools/call', { name, arguments: {} })).error).toMatchObject({ code: -32602 })
     }

@@ -341,6 +341,9 @@ import type {
   ResultsExportFormat,
   IntegrationSettingsSummaryDto,
   ProviderSummaryEntryDto,
+  ProviderConnectionSettingsDto,
+  ProviderSettingsUpdateRequest,
+  ProviderDisconnectRequest,
   ProviderReloadRequest,
   ProviderReloadResponseDto,
   TelemetryStatusDto,
@@ -415,6 +418,8 @@ import {
   getApiV1Settings,
   putApiV1SettingsGoogle,
   putApiV1SettingsProvidersByName,
+  getApiV1SettingsProvidersByName,
+  deleteApiV1SettingsProvidersByName,
   postApiV1SettingsProvidersReload,
   postApiV1Snapshot,
   getApiV1Telemetry,
@@ -2675,15 +2680,22 @@ export class ApiClient {
 
   async updateProvider(
     name: string,
-    body: {
-      apiKey?: string
-      baseUrl?: string
-      model?: string
-      quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number }
-    },
+    body: ProviderSettingsUpdateRequest,
   ): Promise<ProviderSummaryEntryDto> {
     return this.invoke<ProviderSummaryEntryDto>(() =>
       putApiV1SettingsProvidersByName({ client: this.heyClient, path: { name }, body }),
+    )
+  }
+
+  async getProviderSettings(name: string): Promise<ProviderConnectionSettingsDto> {
+    return this.invoke<ProviderConnectionSettingsDto>(() =>
+      getApiV1SettingsProvidersByName({ client: this.heyClient, path: { name } }),
+    )
+  }
+
+  async disconnectProvider(name: string, body: ProviderDisconnectRequest): Promise<ProviderConnectionSettingsDto> {
+    return this.invoke<ProviderConnectionSettingsDto>(() =>
+      deleteApiV1SettingsProvidersByName({ client: this.heyClient, path: { name }, body }),
     )
   }
 

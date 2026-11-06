@@ -7,6 +7,7 @@ import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { SettingsPage } from '../src/pages/SettingsPage.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
+import { connectionFixture, settingsFixture } from './provider-settings-fixtures.js'
 
 vi.mock('@tanstack/react-router', async importOriginal => ({
   ...await importOriginal<typeof import('@tanstack/react-router')>(),
@@ -19,11 +20,15 @@ test('saving the OpenRouter key offers project model selection without choosing 
   const fixture = createDashboardFixture()
   fixture.dashboard.settings.providerStatuses = [{ name: 'openrouter', displayName: 'OpenRouter', state: 'needs-config', detail: 'Connect OpenRouter.' }]
   const writes: { path: string; method?: string; body: unknown }[] = []
+  let connection = connectionFixture({ name: 'openrouter', displayName: 'OpenRouter', kind: 'model-gateway', configured: false, apiKeyConfigured: false, defaultModel: null, effectiveModel: null, capabilities: { apiKey: true, clearApiKey: false, baseUrl: true, resetBaseUrl: true, model: false, quota: true, disconnect: true, reload: true } })
   const restore = mockFetch((url, init) => {
     const path = pathOf(url)
+    if (path === '/api/v1/settings') return jsonResponse(settingsFixture([connection]))
     if (path === '/api/v1/cdp/status' && init?.method === 'GET') return jsonResponse({ connected: false, targets: [] })
+    if (path === '/api/v1/settings/providers/openrouter' && init?.method === 'GET') return jsonResponse(connection)
     if (path === '/api/v1/settings/providers/openrouter' && init?.method === 'PUT') {
       writes.push({ path, method: init.method, body: init.body ? JSON.parse(String(init.body)) : null })
+      connection = { ...connection, configured: true, apiKeyConfigured: true }
       return jsonResponse({ name: 'openrouter', configured: true })
     }
     throw new Error(`Unexpected fetch: ${init?.method} ${path}`)
@@ -32,12 +37,14 @@ test('saving the OpenRouter key offers project model selection without choosing 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   onTestFinished(() => client.clear())
   render(<QueryClientProvider client={client}><DashboardProvider value={fixture}><SettingsPage /></DashboardProvider></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Add provider' }))
   const provider = screen.getByText('OpenRouter').closest('#provider-openrouter') as HTMLElement
   fireEvent.click(within(provider).getByRole('button', { name: 'Configure' }))
   expect(screen.queryByRole('textbox', { name: 'Model (optional)' })).toBeNull()
-  fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'openrouter-test-key' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }))
+  fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'openrouter-test-key' } })
+  expect(screen.queryByText('Instance model')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Save connection', exact: true }))
   const destination = await screen.findByRole('link', { name: 'Choose project models' })
   expect(destination.getAttribute('href')).toBe(`/projects/${fixture.dashboard.projects[0]!.project.name}/settings#answer-engines`)
-  await waitFor(() => expect(writes).toEqual([{ path: '/api/v1/settings/providers/openrouter', method: 'PUT', body: { apiKey: 'openrouter-test-key' } }]))
+  await waitFor(() => expect(writes).toEqual([{ path: '/api/v1/settings/providers/openrouter', method: 'PUT', body: { apiKey: 'openrouter-test-key', expectedRevision: 'saved-revision' } }]))
 })

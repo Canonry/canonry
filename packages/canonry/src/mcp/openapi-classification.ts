@@ -196,6 +196,8 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/settings': 'included',
   // MCP exposes only non-secret model/quota edits; credential fields remain operator-only.
   'PUT /api/v1/settings/providers/{name}': 'included',
+  'GET /api/v1/settings/providers/{name}': 'included',
+  'DELETE /api/v1/settings/providers/{name}': 'included',
   'POST /api/v1/settings/providers/reload': 'included',
   'PUT /api/v1/settings/google': 'deferred',
   'POST /api/v1/snapshot': 'included',

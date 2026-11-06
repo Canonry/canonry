@@ -22,6 +22,7 @@ import {
   measurementDraftApplyGroupMembershipRequestSchema,
   measurementDraftEtag,
   measurementDraftEtagStale,
+  measurementDraftProviderNames,
   measurementDraftPublishRequestSchema,
   measurementDraftPreviewAssignmentsRequestSchema,
   measurementDraftRouteMarketsRequestSchema,
@@ -138,16 +139,6 @@ export interface MeasurementDraftRoutesOptions extends MarketPinWriteHooks {
 /** Key-order-independent identity, so "did this action change anything" never turns on serialization order. */
 function authoringIdentity(authoring: MeasurementDraftAuthoring): string {
   return canonicalJson(authoring)
-}
-
-function draftExecutionProviders(authoring: MeasurementDraftAuthoring): string[] {
-  return [
-    ...authoring.defaultContext.providers,
-    ...authoring.assignments.flatMap(assignment => [
-      ...(assignment.contextOverride?.providers ?? []),
-      ...(assignment.executionContexts?.flatMap(context => context.providers) ?? []),
-    ]),
-  ]
 }
 
 function storedPlanExecutionProviders(plan: StoredMeasurementPlan): string[] {
@@ -899,7 +890,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
 
       const before = parseStoredAuthoring(row.authoringJson)
       const result = applyDraftAction(action, before, request.body, actionContextFor(app.db, gate.project))
-      assertProviderRouteScope(request, draftExecutionProviders(result.authoring), [...gate.project.providers, ...draftExecutionProviders(before)], opts.providerRouteFamilies)
+      assertProviderRouteScope(request, measurementDraftProviderNames(result.authoring), [...gate.project.providers, ...measurementDraftProviderNames(before)], opts.providerRouteFamilies)
       // A no-op leaves the counter alone: the ETag must change after every
       // successful MUTATION, and nothing was mutated.
       const changed = authoringIdentity(result.authoring) !== authoringIdentity(before)

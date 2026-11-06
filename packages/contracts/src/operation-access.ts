@@ -170,6 +170,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/visibility-compare',
   'GET /api/v1/projects/{name}/snapshots/diff',
   'GET /api/v1/settings',
+  'GET /api/v1/settings/providers/{name}',
   'GET /api/v1/keys',
   'GET /api/v1/keys/self',
   'GET /api/v1/users',

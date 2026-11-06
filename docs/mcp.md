@@ -140,8 +140,20 @@ canonry mcp config  --client codex            # print snippet for clients withou
 
 Operational settings support uses the same API permissions: `canonry_telemetry_update`
 and `canonry_provider_settings_update` require `settings.write`. The provider tool
-accepts only model/quota changes for an existing configuration; credentials,
-base URLs, and token creation/rotation remain in the operator setup flow.
+accepts model/quota changes and explicit resets for an existing configuration,
+including restoring a built-in endpoint or removing an optional Local key. Setting credentials, base URLs and
+credential rotation remain in the operator setup flow. Resets require install
+administrator authority. `canonry_provider_settings_get` is a stored, credential-free
+administrator read of defaults, overrides, capabilities, host-managed settings,
+blockers and project usage (including Advanced plans/drafts). Pass its `revision`
+as `expectedRevision` when updating to reject stale edits.
+
+`canonry_provider_disconnect` requires explicit operator approval, install
+administrator authority and `settings.write`. Inspect the connection first and
+show its impact; its `impactRevision` is required as `expectedImpactRevision`.
+Stale previews and outstanding work block removal. Disconnect preserves project
+selections and historical results and does not revoke the vendor key. Provider
+updates, disconnect and reload are excluded from native Aero.
 `canonry_providers_reload` mirrors `canonry settings reload-providers`: after
 explicit operator approval it reloads the connected host's saved provider
 credentials, models, quotas and batch settings without restarting the server.

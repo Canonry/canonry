@@ -261,13 +261,14 @@ test('runs route renders the operational timeline and filters', async () => {
   expect(html).toMatch(/Citation losses on emergency-intent prompts/)
 })
 
-test('settings route renders provider state, quota summary, and service health', async () => {
+test('settings route loads connection details while retaining integration and service health', async () => {
   const html = await renderApp('/settings')
 
   expect(html).toMatch(/Settings/)
-  expect(html).toMatch(/Rate limit/)
+  expect(html).toMatch(/Provider connections/)
+  expect(html).toMatch(/Loading connections/)
   expect(html).toMatch(/Service health/)
-  expect(html).toMatch(/Gemini/)
+  expect(html).toMatch(/Google OAuth/)
 })
 
 test('traffic route offers a source-agnostic connect entry point', async () => {

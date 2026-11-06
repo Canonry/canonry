@@ -1,6 +1,10 @@
+import { OperationAccesses, ProviderQuotaFields, providerSettingsUpdateRequestSchema } from '@canonry/canonry-contracts'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getString,
+  getBoolean,
+  getStringArray,
+  multiStringOption,
   parseIntegerOption,
   requirePositional,
   stringOption,
@@ -8,7 +12,29 @@ import {
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
+const PROVIDER_USAGE = 'canonry settings provider <name> [--api-key <key>] [--base-url <url> | --reset-base-url] [--model <model> | --reset-model] [--remove-key] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--reset-quota <field>] [--reset-limits] [--if-revision <revision>] [--format json]'
+
 export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['settings', 'provider-info'],
+    usage: 'canonry settings provider-info <name> [--format json]',
+    run: async input => {
+      const { showProviderSettings } = await import('../commands/settings.js')
+      const name = requirePositional(input, 0, { command: 'settings.provider-info', usage: 'canonry settings provider-info <name> [--format json]', message: 'provider name is required' })
+      await showProviderSettings(name, input.format)
+    },
+  },
+  {
+    path: ['settings', 'disconnect-provider'],
+    usage: 'canonry settings disconnect-provider <name> [--confirm] [--if-impact-revision <revision>] [--format json]',
+    options: { confirm: { type: 'boolean' }, 'if-impact-revision': stringOption() },
+    accessFor: ({ values }) => getBoolean(values, 'confirm') ? OperationAccesses.write : OperationAccesses.stored,
+    run: async input => {
+      const { disconnectProvider } = await import('../commands/settings.js')
+      const name = requirePositional(input, 0, { command: 'settings.disconnect-provider', usage: 'canonry settings disconnect-provider <name> [--confirm] [--format json]', message: 'provider name is required' })
+      await disconnectProvider(name, { confirm: getBoolean(input.values, 'confirm'), expectedImpactRevision: getString(input.values, 'if-impact-revision'), format: input.format })
+    },
+  },
   {
     path: ['settings', 'reload-providers'],
     usage: 'canonry settings reload-providers [--format json]',
@@ -19,7 +45,7 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['settings', 'provider'],
-    usage: 'canonry settings provider <name> [--api-key <key>] [--base-url <url>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
+    usage: PROVIDER_USAGE,
     options: {
       'api-key': stringOption(),
       'base-url': stringOption(),
@@ -27,12 +53,18 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'max-concurrent': stringOption(),
       'max-per-minute': stringOption(),
       'max-per-day': stringOption(),
+      'reset-model': { type: 'boolean' },
+      'reset-base-url': { type: 'boolean' },
+      'remove-key': { type: 'boolean' },
+      'reset-limits': { type: 'boolean' },
+      'reset-quota': multiStringOption(),
+      'if-revision': stringOption(),
     },
     run: async (input) => {
       const { setProvider } = await import('../commands/settings.js')
       const name = requirePositional(input, 0, {
         command: 'settings.provider',
-        usage: 'canonry settings provider <name> [--api-key <key>] [--base-url <url>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
+        usage: PROVIDER_USAGE,
         message: 'provider name is required (e.g. gemini, openai, claude, perplexity, muse, local)',
       })
       const apiKey = getString(input.values, 'api-key')
@@ -40,47 +72,19 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const model = getString(input.values, 'model')
       const maxConcurrency = parseIntegerOption(input, 'max-concurrent', {
         command: 'settings.provider',
-        usage: 'canonry settings provider <name> [--api-key <key>] [--base-url <url>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
+        usage: PROVIDER_USAGE,
         message: '--max-concurrent must be an integer',
       })
       const maxRequestsPerMinute = parseIntegerOption(input, 'max-per-minute', {
         command: 'settings.provider',
-        usage: 'canonry settings provider <name> [--api-key <key>] [--base-url <url>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
+        usage: PROVIDER_USAGE,
         message: '--max-per-minute must be an integer',
       })
       const maxRequestsPerDay = parseIntegerOption(input, 'max-per-day', {
         command: 'settings.provider',
-        usage: 'canonry settings provider <name> [--api-key <key>] [--base-url <url>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
+        usage: PROVIDER_USAGE,
         message: '--max-per-day must be an integer',
       })
-      const hasNonCredentialEdit = Boolean(model) || maxConcurrency != null || maxRequestsPerMinute != null || maxRequestsPerDay != null
-      if (name === 'local') {
-        if (!baseUrl && !hasNonCredentialEdit) {
-          throw usageError(
-            'Error: --base-url is required for the local provider\nUsage: canonry settings provider local --base-url <url> [--api-key <key>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
-            {
-              message: '--base-url is required for the local provider',
-              details: {
-                command: 'settings.provider',
-                usage: 'canonry settings provider local --base-url <url> [--api-key <key>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
-                required: ['base-url'],
-              },
-            },
-          )
-        }
-      } else if (!apiKey && !baseUrl && !hasNonCredentialEdit) {
-        throw usageError(
-          `Error: --api-key is required\nUsage: canonry settings provider ${name} --api-key <key> [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]`,
-          {
-            message: '--api-key is required',
-            details: {
-              command: 'settings.provider',
-              usage: `canonry settings provider ${name} --api-key <key> [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]`,
-              required: ['api-key'],
-            },
-          },
-        )
-      }
 
       const quota =
         maxConcurrency != null || maxRequestsPerMinute != null || maxRequestsPerDay != null
@@ -91,13 +95,21 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
             }
           : undefined
 
-      await setProvider(name, {
-        apiKey,
-        baseUrl,
-        model,
-        quota,
-        format: input.format,
-      })
+      const resetQuota = getBoolean(input.values, 'reset-limits')
+        ? Object.values(ProviderQuotaFields)
+        : getStringArray(input.values, 'reset-quota')
+      const resetModel = getBoolean(input.values, 'reset-model')
+      const removeKey = getBoolean(input.values, 'remove-key')
+      const resetBaseUrl = getBoolean(input.values, 'reset-base-url')
+      const reset = resetModel || removeKey || resetQuota || resetBaseUrl
+        ? { ...(resetBaseUrl ? { baseUrl: true } : {}), ...(resetModel ? { model: true } : {}), ...(removeKey ? { apiKey: true } : {}), ...(resetQuota ? { quota: resetQuota } : {}) }
+        : undefined
+      const parsed = providerSettingsUpdateRequestSchema.safeParse({ apiKey, baseUrl, model, quota, reset, expectedRevision: getString(input.values, 'if-revision') })
+      if (!parsed.success) {
+        const message = parsed.error.issues.map(issue => issue.message).join('; ')
+        throw usageError(`Error: ${message}\nUsage: ${PROVIDER_USAGE}`, { message, details: { command: 'settings.provider', usage: PROVIDER_USAGE } })
+      }
+      await setProvider(name, { ...parsed.data, format: input.format })
     },
   },
   {
@@ -150,7 +162,7 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['settings'],
-    usage: 'canonry settings [provider|reload-providers|google] [args]',
+    usage: 'canonry settings [provider|provider-info|disconnect-provider|reload-providers|google] [args]',
     run: async (input) => {
       const { showSettings } = await import('../commands/settings.js')
       const subcommand = input.positionals[0]
@@ -161,8 +173,8 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
 
       unknownSubcommand(subcommand, {
         command: 'settings',
-        usage: 'canonry settings [provider|reload-providers|google] [args]',
-        available: ['provider', 'reload-providers', 'google'],
+        usage: 'canonry settings [provider|provider-info|disconnect-provider|reload-providers|google] [args]',
+        available: ['provider', 'provider-info', 'disconnect-provider', 'reload-providers', 'google'],
       })
     },
   },

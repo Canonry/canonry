@@ -155,3 +155,10 @@ outcome codes) narrows the page to those outcomes, is echoed as `selection.outco
 is bound into the cursor. Branded summaries carry the server's `criticizedProperties`. Configure accepts only enabled
 state, and no active tool accepts theme settings. Credentials are never accepted. Native Aero gets the seven reads; configure
 and backfill submit start paid classifier work and stay excluded (`AERO_EXCLUDED_MCP_TOOLS`).
+
+Provider lifecycle setup tools read credential-free saved connection detail and
+apply explicit model/quota resets, optional Local-key removal, or a disconnect.
+Disconnect requires the preview's `expectedImpactRevision`; updates can bind
+`expectedRevision`. Resets/disconnect need install administrator authority plus
+`settings.write`. Keep all provider mutations excluded from native Aero. New
+credentials and endpoint changes stay in the secure operator setup flow.

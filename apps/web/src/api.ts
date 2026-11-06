@@ -1,4 +1,4 @@
-import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto } from '@canonry/canonry-contracts'
+import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto, ProviderConnectionSettingsDto, ProviderSettingsUpdateRequest, ProviderReloadResponseDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@canonry/canonry-contracts'
 import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
@@ -33,6 +33,9 @@ import {
   postApiV1Apply,
   getApiV1Settings,
   putApiV1SettingsProvidersByName,
+  getApiV1SettingsProvidersByName,
+  deleteApiV1SettingsProvidersByName,
+  postApiV1SettingsProvidersReload,
   putApiV1SettingsGoogle,
   putApiV1SettingsBing,
   putApiV1SettingsCdp,
@@ -1025,6 +1028,7 @@ export interface ApiProviderSummary {
 
 export interface ApiSettings {
   providers: ApiProviderSummary[]
+  providerConnections?: ProviderConnectionSettingsDto[]
   /** Credential-free adapter metadata, including routed connections and answer-service profiles. */
   providerCatalog: ProviderCatalogEntryDto[]
   google: {
@@ -1130,12 +1134,7 @@ export async function fetchHealthCheck(): Promise<{ status: string }> {
   return res.json() as Promise<{ status: string }>
 }
 
-export function updateProviderConfig(provider: string, body: {
-  apiKey?: string
-  baseUrl?: string
-  model?: string
-  quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number }
-}): Promise<ApiProviderSummary> {
+export function updateProviderConfig(provider: string, body: ProviderSettingsUpdateRequest): Promise<ApiProviderSummary> {
   return invokeWeb<ApiProviderSummary>(() =>
     putApiV1SettingsProvidersByName({
       client: heyClient,
@@ -1143,6 +1142,18 @@ export function updateProviderConfig(provider: string, body: {
       body,
     }),
   )
+}
+
+export function fetchProviderConnection(provider: string): Promise<ProviderConnectionSettingsDto> {
+  return invokeWeb<ProviderConnectionSettingsDto>(() => getApiV1SettingsProvidersByName({ client: heyClient, path: { name: provider } }))
+}
+
+export function disconnectProvider(provider: string, expectedImpactRevision: string): Promise<ProviderConnectionSettingsDto> {
+  return invokeWeb<ProviderConnectionSettingsDto>(() => deleteApiV1SettingsProvidersByName({ client: heyClient, path: { name: provider }, body: { expectedImpactRevision } }))
+}
+
+export function reloadProviderConnections(): Promise<ProviderReloadResponseDto> {
+  return invokeWeb<ProviderReloadResponseDto>(() => postApiV1SettingsProvidersReload({ client: heyClient, body: {} }))
 }
 
 /**

@@ -78,6 +78,10 @@ import {
   logQuerySchema,
   operationalLogListReadSchema,
   providerSummaryEntryDtoSchema,
+  providerConnectionSettingsDtoSchema,
+  providerSettingsUpdateRequestSchema,
+  providerSettingsResetSchema,
+  providerDisconnectRequestSchema,
   providerReloadRequestSchema,
   providerReloadResponseDtoSchema,
   providerQuotaPolicySchema,
@@ -2402,16 +2406,44 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_provider_settings_update',
     title: 'Update non-secret provider settings',
-    description: 'Change model or quota for an already-configured provider, with explicit approval and settings.write. Preserves existing credentials. Does not accept API keys, base URLs, or credential rotation; use the secure operator setup flow for those.',
+    description: 'With explicit approval and settings.write, change or reset model/quota overrides for an already-configured provider, restore its built-in endpoint, or remove an optional Local API key. Resets require install administrator authority. Read canonry_provider_settings_get first and supply its revision as expectedRevision to reject stale edits. Does not accept API keys, base URLs, or credential rotation; use secure operator setup for those.',
     access: 'write',
     requiredScope: 'settings.write',
     tier: 'setup',
-    inputSchema: z.object({ provider: z.string().min(1), model: z.string().trim().min(1).optional(), quota: providerQuotaPolicySchema.partial().strict().optional() }).strict()
-      .refine(input => input.model !== undefined || (input.quota !== undefined && Object.keys(input.quota).length > 0), 'Provide a model or at least one quota field'),
+    inputSchema: z.object({ provider: z.string().min(1), model: z.string().trim().min(1).optional(), quota: providerQuotaPolicySchema.partial().strict().optional(), reset: providerSettingsResetSchema.optional(), expectedRevision: z.string().min(1).optional() }).strict()
+      .superRefine(({ provider: _provider, ...request }, context) => {
+        const parsed = providerSettingsUpdateRequestSchema.safeParse(request)
+        if (!parsed.success) for (const issue of parsed.error.issues) context.addIssue({ code: 'custom', path: issue.path, message: issue.message })
+      }),
     outputSchema: providerSummaryEntryDtoSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['PUT /api/v1/settings/providers/{name}'],
     handler: async (client, { provider, ...request }) => client.updateProvider(provider, request),
+  }),
+  defineTool({
+    name: 'canonry_provider_settings_get',
+    title: 'Inspect provider connection',
+    description: 'Read credential-free saved provider configuration, inherited defaults, edit capabilities, host-managed settings, blockers and affected projects (Simple and Advanced). Requires install administrator authority. Makes no provider calls. Use impactRevision when approving a disconnect, and revision when updating settings.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: z.object({ provider: z.string().min(1) }).strict(),
+    outputSchema: providerConnectionSettingsDtoSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/settings/providers/{name}'],
+    handler: (client, input) => client.getProviderSettings(input.provider),
+  }),
+  defineTool({
+    name: 'canonry_provider_disconnect',
+    title: 'Disconnect provider',
+    description: 'With explicit operator approval, remove a saved provider connection. First inspect canonry_provider_settings_get and show affected projects, host uses and blockers; pass its impactRevision. Requires install administrator authority and settings.write. Preserves project engine selections and historical results. Does not revoke the vendor key. Stale impact or active work blocks the change.',
+    access: 'write',
+    requiredScope: 'settings.write',
+    tier: 'setup',
+    inputSchema: providerDisconnectRequestSchema.required().extend({ provider: z.string().min(1) }),
+    outputSchema: providerConnectionSettingsDtoSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['DELETE /api/v1/settings/providers/{name}'],
+    handler: (client, { provider, ...request }) => client.disconnectProvider(provider, request),
   }),
   defineTool({
     name: 'canonry_providers_reload',

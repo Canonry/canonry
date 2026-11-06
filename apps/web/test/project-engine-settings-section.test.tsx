@@ -18,6 +18,36 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 
 afterEach(() => { cleanup(); resetToasts() })
 
+test('retains unavailable selections when every connection is removed and allows returning to automatic selection', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: ['gemini'], providerModels: {} }, { ...settings, providers: settings.providers.map(provider => ({ ...provider, configured: false })) })
+  const selected = await screen.findByRole('checkbox', { name: /Gemini/ })
+  expect(selected).toHaveProperty('checked', true)
+  expect(selected).toHaveProperty('disabled', false)
+  expect(screen.getByText('Not configured, skipped')).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Manage connection' })).toBeTruthy()
+  fireEvent.click(selected)
+  fireEvent.click(screen.getByRole('radio', { name: 'All connected engines' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: [], providerModels: {} }))
+})
+
+test('searching engine choices never removes selected models from the saved project', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: ['gemini', 'openrouter:google/gemini-model'], providerModels: { gemini: 'gemini-2.5-pro' } }, openRouterSettings)
+  const search = await screen.findByRole('searchbox', { name: 'Search answer engines' })
+  fireEvent.change(search, { target: { value: 'no matching engine' } })
+  expect(screen.getByText('No engines match this filter.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['gemini', 'openrouter:google/gemini-model'], providerModels: { gemini: 'gemini-2.5-pro' } }))
+})
+
+test('an empty custom model draft must be corrected before saving', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: ['gemini'], providerModels: {} })
+  fireEvent.change(await screen.findByLabelText('Model'), { target: { value: '__custom__' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Enter a custom model ID or use the instance setting.')
+  expect(onSave).not.toHaveBeenCalled()
+})
+
 const settings = {
   providers: [{ name: 'gemini', displayName: 'Gemini', configured: true }, { name: 'openai', displayName: 'OpenAI', configured: false }],
   providerCatalog: [
@@ -310,7 +340,7 @@ test('groups connected services and keeps their profile order when choosing engi
     ],
   } as typeof settings)
   await screen.findByLabelText('Standard · Fake Answers')
-  expect(screen.getAllByRole('checkbox').map(input => input.closest('label')?.textContent?.trim())).toEqual([
+  expect(screen.getAllByRole('checkbox', { name: /Answers/ }).map(input => input.closest('label')?.textContent?.trim())).toEqual([
     'Standard · Fake Answers', 'Advanced · Fake Answers', 'Low · Other Answers', 'High · Other Answers',
   ])
   expect(screen.getByText('Nothing selected to run.')).toBeTruthy()

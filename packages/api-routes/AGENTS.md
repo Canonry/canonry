@@ -78,6 +78,14 @@ Ad hoc `/snapshot` has no saved project roster, so any explicit OpenRouter route
 
 Draft engine changes preserve existing location overrides, including an explicit empty location list. Rerouting uses `frozenMeasurementDraftExecutionKeys` from the draft compiler to reuse matching executions across Properties and remaps market edges to those keys. Identical provider work must not acquire a second execution key that the queue deduplicates but reports still expect.
 
+### Provider connection lifecycle
+
+`GET /settings/providers/:name` is a stored-only install-administrator read; it never discovers models or tests a key. Hosts expose credential-free configuration through `getProviderConnections`; the same details appear in `/settings` only for install administrators. `provider-settings-usage.ts` counts distinct projects from explicit/inherited Simple selections, schedules, published Advanced execution nodes and authoring drafts. Routed selections resolve to their connection while their exact provider identifiers remain in the usage rows. This preview never rewrites Property, Target, market, query-class or historical scope.
+
+Existing provider PUT preserves omitted settings. Explicit `reset` removes model, endpoint or individual quota overrides; only Local permits optional key removal, and its required endpoint cannot be reset. Browser endpoint changes retain `/settings/cdp`; generic lifecycle mutations use only host-advertised capabilities. Reset and DELETE require both `settings.write` and install-administrator authority. Hosts without lifecycle hooks return `NOT_IMPLEMENTED`, never a success inferred from a stale summary.
+
+DELETE preserves projects, plans, schedules and historical results. `expectedImpactRevision` binds the inspected configuration revision, project usage, host uses and blockers; stale impact returns `OPERATION_IN_PROGRESS`. The route forwards the current host revision so the host can check the saved configuration again immediately before mutation and enforce outstanding-batch guards. PUT's `expectedRevision` is the same configuration precondition. These are concurrency identity guards, not execution tuning; neither operation reuses provider work. Vertex credentials, batch configuration and pricing remain host-managed, and endpoint URLs with private fields must be withheld or redacted by the host.
+
 ### Run admission
 
 Visibility admission is locked by `(projectId, kind)` in `queueRunIfProjectIdle`

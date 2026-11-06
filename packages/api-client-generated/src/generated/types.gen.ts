@@ -15293,6 +15293,114 @@ export type ProjectSearchResponseDto = {
     }>;
 };
 
+export type ProviderConnectionSettingsDto = {
+    name: string;
+    displayName: string;
+    kind: 'answer-engine' | 'model-gateway' | 'answer-service';
+    mode: 'api' | 'browser';
+    configured: boolean;
+    revision: string;
+    apiKeyConfigured: boolean;
+    /**
+     * Saved endpoint override, or null when the adapter default is selected or a private endpoint is withheld. Consult capabilities and blockers before editing.
+     */
+    baseUrl: string | null;
+    model: string | null;
+    defaultModel: string | null;
+    effectiveModel: string | null;
+    quota: {
+        defaults: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+        overrides: {
+            maxConcurrency?: number;
+            maxRequestsPerMinute?: number;
+            maxRequestsPerDay?: number;
+        };
+        effective: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+    };
+    capabilities: {
+        apiKey: boolean;
+        clearApiKey: boolean;
+        baseUrl: boolean;
+        resetBaseUrl: boolean;
+        model: boolean;
+        quota: boolean;
+        disconnect: boolean;
+        reload: boolean;
+    };
+    hostManaged: {
+        vertex: {
+            project: string;
+            region: string | null;
+            credentialsConfigured: boolean;
+        } | null;
+        batch: {
+            enabled: boolean;
+            maxRequestsPerBatch?: number;
+            deadlineHours?: number;
+        } | null;
+        pricing: {
+            models: {
+                [key: string]: {
+                    inputPerMTok: number;
+                    cachedInputPerMTok?: number;
+                    cacheWritePerMTok?: number;
+                    outputPerMTok: number;
+                    searchPer1k?: number;
+                    searchUnit?: 'query' | 'prompt';
+                    batchTokenDiscount?: number;
+                };
+            };
+        } | null;
+    };
+    hostUses: Array<string>;
+    blockers: Array<{
+        code: string;
+        message: string;
+        runIds: Array<string>;
+        batchIds: Array<string>;
+    }>;
+    usage: {
+        projectCount: number;
+        projects: Array<{
+            name: string;
+            displayName: string;
+            providers: Array<string>;
+            sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+        }>;
+    };
+    impactRevision: string;
+};
+
+export type ProviderDisconnectRequest = {
+    expectedImpactRevision?: string;
+};
+
+export type ProviderSettingsUpdateRequest = {
+    apiKey?: string;
+    baseUrl?: string;
+    model?: string;
+    quota?: {
+        maxConcurrency?: number;
+        maxRequestsPerMinute?: number;
+        maxRequestsPerDay?: number;
+    };
+    reset?: {
+        model?: true;
+        baseUrl?: true;
+        apiKey?: true;
+        quota?: Array<'maxConcurrency' | 'maxRequestsPerMinute' | 'maxRequestsPerDay'>;
+    };
+    expectedRevision?: string;
+};
+
 export type ProviderReloadRequest = {
     configPath?: string;
     databasePath?: string;
@@ -16108,6 +16216,91 @@ export type SettingsDto = {
         keyCheck?: 'verified-without-spending' | 'saved-not-verified';
         keyUrl?: string;
         vendorDocsUrl?: string;
+    }>;
+    providerConnections?: Array<{
+        name: string;
+        displayName: string;
+        kind: 'answer-engine' | 'model-gateway' | 'answer-service';
+        mode: 'api' | 'browser';
+        configured: boolean;
+        revision: string;
+        apiKeyConfigured: boolean;
+        /**
+         * Saved endpoint override, or null when the adapter default is selected or a private endpoint is withheld. Consult capabilities and blockers before editing.
+         */
+        baseUrl: string | null;
+        model: string | null;
+        defaultModel: string | null;
+        effectiveModel: string | null;
+        quota: {
+            defaults: {
+                maxConcurrency: number;
+                maxRequestsPerMinute: number;
+                maxRequestsPerDay: number;
+            };
+            overrides: {
+                maxConcurrency?: number;
+                maxRequestsPerMinute?: number;
+                maxRequestsPerDay?: number;
+            };
+            effective: {
+                maxConcurrency: number;
+                maxRequestsPerMinute: number;
+                maxRequestsPerDay: number;
+            };
+        };
+        capabilities: {
+            apiKey: boolean;
+            clearApiKey: boolean;
+            baseUrl: boolean;
+            resetBaseUrl: boolean;
+            model: boolean;
+            quota: boolean;
+            disconnect: boolean;
+            reload: boolean;
+        };
+        hostManaged: {
+            vertex: {
+                project: string;
+                region: string | null;
+                credentialsConfigured: boolean;
+            } | null;
+            batch: {
+                enabled: boolean;
+                maxRequestsPerBatch?: number;
+                deadlineHours?: number;
+            } | null;
+            pricing: {
+                models: {
+                    [key: string]: {
+                        inputPerMTok: number;
+                        cachedInputPerMTok?: number;
+                        cacheWritePerMTok?: number;
+                        outputPerMTok: number;
+                        searchPer1k?: number;
+                        searchUnit?: 'query' | 'prompt';
+                        batchTokenDiscount?: number;
+                    };
+                };
+            } | null;
+        };
+        hostUses: Array<string>;
+        blockers: Array<{
+            code: string;
+            message: string;
+            runIds: Array<string>;
+            batchIds: Array<string>;
+        }>;
+        usage: {
+            projectCount: number;
+            projects: Array<{
+                name: string;
+                displayName: string;
+                providers: Array<string>;
+                sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+            }>;
+        };
+        impactRevision: string;
     }>;
     google: {
         configured: boolean;
@@ -26558,15 +26751,92 @@ export type GetApiV1SettingsResponses = {
 
 export type GetApiV1SettingsResponse = GetApiV1SettingsResponses[keyof GetApiV1SettingsResponses];
 
-export type PutApiV1SettingsProvidersByNameData = {
-    body: {
-        apiKey?: string;
-        baseUrl?: string;
-        model?: string;
-        quota?: {
-            [key: string]: unknown;
-        };
+export type DeleteApiV1SettingsProvidersByNameData = {
+    body?: ProviderDisconnectRequest;
+    path: {
+        /**
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
+         */
+        name: string;
     };
+    query?: never;
+    url: '/api/v1/settings/providers/{name}';
+};
+
+export type DeleteApiV1SettingsProvidersByNameErrors = {
+    /**
+     * Invalid disconnect request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator authority and settings.write are required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Unknown provider connection.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Provider configuration, usage, or outstanding work prevents disconnection.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Provider disconnection is not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type DeleteApiV1SettingsProvidersByNameError = DeleteApiV1SettingsProvidersByNameErrors[keyof DeleteApiV1SettingsProvidersByNameErrors];
+
+export type DeleteApiV1SettingsProvidersByNameResponses = {
+    /**
+     * Provider disconnected; saved references and history retained.
+     */
+    200: ProviderConnectionSettingsDto;
+};
+
+export type DeleteApiV1SettingsProvidersByNameResponse = DeleteApiV1SettingsProvidersByNameResponses[keyof DeleteApiV1SettingsProvidersByNameResponses];
+
+export type GetApiV1SettingsProvidersByNameData = {
+    body?: never;
+    path: {
+        /**
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/providers/{name}';
+};
+
+export type GetApiV1SettingsProvidersByNameErrors = {
+    /**
+     * Install administrator authority is required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Unknown provider connection.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Provider connection details are not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type GetApiV1SettingsProvidersByNameError = GetApiV1SettingsProvidersByNameErrors[keyof GetApiV1SettingsProvidersByNameErrors];
+
+export type GetApiV1SettingsProvidersByNameResponses = {
+    /**
+     * Provider connection settings and usage returned.
+     */
+    200: ProviderConnectionSettingsDto;
+};
+
+export type GetApiV1SettingsProvidersByNameResponse = GetApiV1SettingsProvidersByNameResponses[keyof GetApiV1SettingsProvidersByNameResponses];
+
+export type PutApiV1SettingsProvidersByNameData = {
+    body: ProviderSettingsUpdateRequest;
     path: {
         /**
          * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
@@ -26586,6 +26856,10 @@ export type PutApiV1SettingsProvidersByNameErrors = {
      * The credential lacks settings.write.
      */
     403: ErrorEnvelope;
+    /**
+     * Provider configuration changed or outstanding work prevents this update.
+     */
+    409: ErrorEnvelope;
     /**
      * Provider updates are not supported.
      */

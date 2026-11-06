@@ -363,6 +363,8 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'settings': 'stored',
   'settings.google': 'write',
   'settings.provider': 'write',
+  'settings.provider-info': 'stored',
+  'settings.disconnect-provider': 'write',
   'settings.reload-providers': 'write',
   'skills': 'write',
   'skills.install': 'write',

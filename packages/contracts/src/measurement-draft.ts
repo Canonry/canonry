@@ -148,6 +148,17 @@ export const measurementDraftAuthoringSchema = z.object({
 }).strict()
 export type MeasurementDraftAuthoring = z.output<typeof measurementDraftAuthoringSchema>
 
+/** Every provider selected by draft defaults or an assignment's explicit execution context. */
+export function measurementDraftProviderNames(authoring: MeasurementDraftAuthoring): string[] {
+  return [
+    ...authoring.defaultContext.providers,
+    ...authoring.assignments.flatMap(assignment => [
+      ...(assignment.contextOverride?.providers ?? []),
+      ...(assignment.executionContexts?.flatMap(context => context.providers) ?? []),
+    ]),
+  ]
+}
+
 export const measurementPlanDraftSchema = z.object({
   id: z.string().trim().min(1),
   projectId: z.string().trim().min(1),

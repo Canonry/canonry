@@ -188,6 +188,25 @@ with no search-backend controls. Aero and classifiers choose their own models.
 
 Render answer services from `/settings` data (`kind`, `connection`, `selectionKind`, `profiles`, `workflows`), never from a vendor name. `lib/provider-routes.ts` rebuilds route families from the catalog. A routed connection (OpenRouter, an answer service) is never an engine checkbox or a preselected engine; answer-service profiles are opt-in rows, never part of "All configured engines", never the research default, and never count toward setup readiness. Research results show the server's `evidence` and `citationMeasured` as returned, without deriving counts.
 
+### Provider connection settings
+
+`ProviderConnectionsSection` separates instance connections from project answer
+engines. Its editor reads credential-free saved values and capabilities from
+`/settings/providers/:name`, sends `expectedRevision` on writes, and uses explicit
+resets for inheritance. Keys stay in component state only; a saved key is not a
+successful network check. Disconnect reads fresh impact and sends that
+`impactRevision`; project selections and history remain available. Batch blockers
+lock identity fields while quota-only edits remain possible. Host-managed Vertex,
+batch and pricing fields stay read-only. Hosts without lifecycle metadata retain
+the compact setup form, without advertising unavailable reset or disconnect.
+
+`useUnsavedChanges` guards editor switching and router navigation. Project
+engine settings use the same draft guard for Simple and Advanced project defaults.
+Keep selected unavailable routes removable even when no connection is configured;
+search only filters the displayed choices and never changes the draft. A direct
+provider still has one project model override, while gateway models and service
+profiles remain separate explicit selections.
+
 ### Build workflow
 
 `pnpm --filter @canonry/canonry-web build` builds into a temporary directory before updating `dist/`.

@@ -1,15 +1,20 @@
-import { useState, type ReactNode } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
+import * as Dialog from '@radix-ui/react-dialog'
+import { describeError, ProviderKinds, ProviderNames, ProviderQuotaFields, type ProviderCatalogEntryDto, type ProviderConnectionSettingsDto, type ProviderQuotaField, type ProviderSettingsUpdateRequest } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
-import { updateProviderConfig } from '../../api.js'
+import { disconnectProvider, fetchProviderConnection, fetchSettings, reloadProviderConnections, updateProviderConfig } from '../../api.js'
+import { useUnsavedChanges } from '../../hooks/use-unsaved-changes.js'
+import { ToneBadge } from '../shared/ToneBadge.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 
-export function ProviderConfigForm({ providerName, keyUrl, modelHint, kind, compact = false, offerFreeTier = true, leadingField, secondaryActions, onSaved }: {
+export function ProviderConfigForm({ providerName, keyUrl, modelHint, kind, compact = false, offerFreeTier = true, leadingField, secondaryActions, onSaved, onDirtyChange, onBusyChange }: {
   providerName: string
   keyUrl?: string
   modelHint?: string
@@ -24,6 +29,8 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, kind, comp
   /** Keep connection actions together in the compact form footer. */
   secondaryActions?: ReactNode
   onSaved: () => void
+  onDirtyChange?: (dirty: boolean) => void
+  onBusyChange?: (busy: boolean) => void
 }) {
   const queryClient = useQueryClient()
   const isLocal = providerName.toLowerCase() === 'local'
@@ -41,10 +48,13 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, kind, comp
   const [success, setSuccess] = useState(false)
 
   const canSave = isLocal ? baseUrl.trim().length > 0 : apiKey.trim().length > 0
+  const dirty = Boolean(apiKey || baseUrl || model || maxConcurrency || maxPerMinute || maxPerDay)
+  useEffect(() => { onDirtyChange?.(dirty) }, [dirty, onDirtyChange])
 
   async function handleSave() {
     if (!canSave) return
     setSaving(true)
+    onBusyChange?.(true)
     setError(null)
     setSuccess(false)
     try {
@@ -87,9 +97,10 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, kind, comp
       })
       onSaved()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update provider')
+      setError(describeError(err))
     } finally {
       setSaving(false)
+      onBusyChange?.(false)
     }
   }
 
@@ -246,4 +257,285 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, kind, comp
       {compact ? <div className="flex flex-wrap items-center gap-2">{saveButton}{secondaryActions}</div> : saveButton}
     </div>
   )
+}
+
+const quotaFields: { key: ProviderQuotaField; label: string }[] = [
+  { key: ProviderQuotaFields.maxConcurrency, label: 'Concurrent requests' },
+  { key: ProviderQuotaFields.maxRequestsPerMinute, label: 'Requests per minute' },
+  { key: ProviderQuotaFields.maxRequestsPerDay, label: 'Requests per day' },
+]
+
+function ProviderConnectionEditor({ connection, catalog, onDirtyChange, onBusyChange, onSaved, onCancel }: {
+  connection: ProviderConnectionSettingsDto
+  catalog?: ProviderCatalogEntryDto
+  onDirtyChange: (dirty: boolean) => void
+  onBusyChange: (busy: boolean) => void
+  onSaved: () => Promise<void>
+  onCancel: () => void
+}) {
+  const id = useId()
+  const [apiKey, setApiKey] = useState('')
+  const [clearKey, setClearKey] = useState(false)
+  const [baseUrl, setBaseUrl] = useState(connection.baseUrl ?? '')
+  const [inheritEndpoint, setInheritEndpoint] = useState(connection.capabilities.resetBaseUrl && connection.baseUrl === null)
+  const [model, setModel] = useState(connection.model ?? '')
+  const [inheritModel, setInheritModel] = useState(connection.model === null)
+  const [quota, setQuota] = useState(() => Object.fromEntries(quotaFields.map(({ key }) => [key, String(connection.quota.overrides[key] ?? connection.quota.defaults[key])])))
+  const [inherited, setInherited] = useState(() => new Set(quotaFields.filter(({ key }) => connection.quota.overrides[key] === undefined).map(({ key }) => key)))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const capabilities = connection.capabilities
+  const batchPending = connection.blockers.some(blocker => blocker.code === 'outstanding-batches')
+  const dirty = apiKey.trim() !== '' || clearKey
+    || (inheritEndpoint ? connection.baseUrl !== null : baseUrl.trim() !== (connection.baseUrl ?? ''))
+    || (inheritModel ? connection.model !== null : model.trim() !== (connection.model ?? '') || connection.model === null)
+    || quotaFields.some(({ key }) => inherited.has(key) ? connection.quota.overrides[key] !== undefined : Number(quota[key]) !== connection.quota.overrides[key])
+
+  useEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
+
+  async function save() {
+    if (!dirty || saving) return
+    const body: ProviderSettingsUpdateRequest = { expectedRevision: connection.revision }
+    const reset: NonNullable<ProviderSettingsUpdateRequest['reset']> = {}
+    if (capabilities.apiKey && apiKey.trim()) body.apiKey = apiKey.trim()
+    if (capabilities.clearApiKey && clearKey) reset.apiKey = true
+    if (capabilities.resetBaseUrl && inheritEndpoint && connection.baseUrl !== null) reset.baseUrl = true
+    else if (capabilities.baseUrl && !inheritEndpoint && baseUrl.trim() !== (connection.baseUrl ?? '')) body.baseUrl = baseUrl.trim()
+    if (capabilities.model) {
+      if (inheritModel && connection.model !== null) reset.model = true
+      else if (!inheritModel && model.trim() !== connection.model) body.model = model.trim()
+    }
+    if (capabilities.quota) {
+      const changes: NonNullable<ProviderSettingsUpdateRequest['quota']> = {}
+      const resets: ProviderQuotaField[] = []
+      for (const { key } of quotaFields) {
+        if (inherited.has(key)) { if (connection.quota.overrides[key] !== undefined) resets.push(key) }
+        else if (Number(quota[key]) !== connection.quota.overrides[key]) changes[key] = Number(quota[key])
+      }
+      if (Object.keys(changes).length) body.quota = changes
+      if (resets.length) reset.quota = resets
+    }
+    if (Object.keys(reset).length) body.reset = reset
+    setSaving(true)
+    onBusyChange(true)
+    setError(null)
+    try {
+      await updateProviderConfig(connection.name, body)
+      // A successful write must clear the secret even if the follow-up read fails.
+      setApiKey('')
+      onDirtyChange(false)
+      await onSaved()
+    } catch (cause) {
+      setError(describeError(cause))
+    } finally {
+      setSaving(false)
+      onBusyChange(false)
+    }
+  }
+
+  return <form className="mt-4 space-y-5 border-t border-default pt-4" aria-label={`${connection.displayName} connection settings`} aria-busy={saving} onSubmit={event => { event.preventDefault(); void save() }}>
+    {connection.blockers.map(blocker => <p key={blocker.code} role="status" className="text-copy-14 text-caution-400">{blocker.message}</p>)}
+    <fieldset disabled={saving} className="space-y-5">
+      {(capabilities.apiKey || connection.apiKeyConfigured) && <div className="max-w-xl space-y-2">
+        <label htmlFor={`${id}-key`} className="block text-label-14 text-heading">{connection.apiKeyConfigured ? 'Replace API key' : 'API key'}</label>
+        {capabilities.apiKey ? <input id={`${id}-key`} className="setup-input w-full" type="password" autoComplete="new-password" value={apiKey} disabled={clearKey || batchPending} onChange={event => setApiKey(event.target.value)} placeholder={connection.apiKeyConfigured ? 'Leave blank to keep the saved key' : 'Enter API key'} /> : <p className="text-copy-14 text-secondary">Managed on the host.</p>}
+        <p className="text-copy-14 text-secondary">{connection.apiKeyConfigured ? 'A key is saved. Its value is never returned to the browser.' : 'No API key is saved.'}{catalog?.keyUrl && <> <a className="text-link" href={catalog.keyUrl} target="_blank" rel="noreferrer">Get an API key</a></>}</p>
+        {capabilities.clearApiKey && connection.apiKeyConfigured && <label className="flex items-center gap-2 text-label-14 text-secondary"><input type="checkbox" checked={clearKey} disabled={batchPending} onChange={event => { setClearKey(event.target.checked); setApiKey('') }} />Remove the saved API key</label>}
+      </div>}
+      {(capabilities.baseUrl || connection.baseUrl) && <details open={connection.name === ProviderNames.local || connection.baseUrl !== null} className="max-w-xl">
+        <summary className="cursor-pointer text-label-14 text-heading">Endpoint</summary>
+        <div className="mt-3 space-y-2">
+          {capabilities.resetBaseUrl && <label className="flex items-center gap-2 text-label-14 text-secondary"><input type="checkbox" checked={inheritEndpoint} disabled={batchPending} onChange={event => setInheritEndpoint(event.target.checked)} />Use provider default endpoint</label>}
+          {!inheritEndpoint && <><label htmlFor={`${id}-endpoint`} className="block text-label-14 text-heading">Endpoint URL</label><input id={`${id}-endpoint`} className="setup-input w-full" type="url" value={baseUrl} required disabled={!capabilities.baseUrl || batchPending} onChange={event => setBaseUrl(event.target.value)} placeholder={connection.name === ProviderNames.local ? 'http://localhost:11434/v1' : 'https://api.example.com/v1'} /></>}
+          <p className="text-copy-14 text-secondary">{connection.name === ProviderNames.local ? 'Use the OpenAI-compatible base URL, including its API path. A key is optional for a local endpoint.' : 'Override only when your provider uses a custom API endpoint.'}</p>
+        </div>
+      </details>}
+      {capabilities.model && <div className="max-w-xl space-y-2">
+        <p className="text-label-14 text-heading">{connection.kind === ProviderKinds['model-gateway'] ? 'Text generation model' : 'Instance model'}</p>
+        <label className="flex items-center gap-2 text-label-14 text-secondary"><input type="checkbox" checked={inheritModel} disabled={batchPending} onChange={event => setInheritModel(event.target.checked)} />Use provider default{connection.defaultModel ? `: ${connection.defaultModel}` : ''}</label>
+        {!inheritModel && <><label htmlFor={`${id}-model`} className="sr-only">Model ID</label><input id={`${id}-model`} className="setup-input w-full" list={`${id}-models`} value={model} required disabled={batchPending} onChange={event => setModel(event.target.value)} placeholder={connection.defaultModel ?? 'Model ID'} /><datalist id={`${id}-models`}>{catalog?.knownModels.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</datalist></>}
+        <p className="text-copy-14 text-secondary">{connection.kind === ProviderKinds['model-gateway'] ? 'Used by text generation features that inherit the connection model. Project routes keep their selected model.' : 'Projects inherit this model unless they choose an override.'}{catalog?.modelValidationHint ? ` ${catalog.modelValidationHint}` : ''}</p>
+      </div>}
+      {capabilities.quota && <details>
+        <summary className="cursor-pointer text-label-14 text-heading">Request limits</summary>
+        <p className="mt-2 text-copy-14 text-secondary">Shared by projects using this connection. Provider defaults stay inherited when they change.</p>
+        <div className="mt-3 grid gap-4 sm:grid-cols-3">{quotaFields.map(({ key, label }) => <div key={key} className="space-y-2">
+          <label htmlFor={`${id}-${key}`} className="block text-label-14 text-heading">{label}</label>
+          <input id={`${id}-${key}`} className="setup-input w-full" type="number" min="1" step="1" required disabled={inherited.has(key)} value={inherited.has(key) ? connection.quota.defaults[key] : quota[key]} onChange={event => setQuota(current => ({ ...current, [key]: event.target.value }))} />
+          <label className="flex items-center gap-2 text-label-12 text-secondary"><input type="checkbox" checked={inherited.has(key)} onChange={event => setInherited(current => { const next = new Set(current); if (event.target.checked) next.add(key); else next.delete(key); return next })} />Use default ({connection.quota.defaults[key]})</label>
+        </div>)}</div>
+        <Button type="button" variant="ghost" size="sm" className="mt-2" onClick={() => setInherited(new Set(quotaFields.map(field => field.key)))}>Reset all limits to defaults</Button>
+      </details>}
+      {(connection.hostManaged.vertex || connection.hostManaged.batch || connection.hostManaged.pricing || connection.hostUses.length > 0) && <details>
+        <summary className="cursor-pointer text-label-14 text-heading">Managed on the host</summary>
+        <p className="mt-2 text-copy-14 text-secondary">Update these settings in the host configuration, then reload connections.</p>
+        <dl className="definition-list mt-3">
+          {connection.hostManaged.vertex && <><div><dt>Vertex project</dt><dd>{connection.hostManaged.vertex.project}</dd></div><div><dt>Region</dt><dd>{connection.hostManaged.vertex.region ?? 'Provider default'}</dd></div><div><dt>Credentials</dt><dd>{connection.hostManaged.vertex.credentialsConfigured ? 'Configured' : 'Application default credentials'}</dd></div></>}
+          {connection.hostManaged.batch && <><div><dt>Batch processing</dt><dd>{connection.hostManaged.batch.enabled ? 'Enabled' : 'Disabled'}</dd></div>{connection.hostManaged.batch.maxRequestsPerBatch && <div><dt>Requests per batch</dt><dd>{connection.hostManaged.batch.maxRequestsPerBatch}</dd></div>}{connection.hostManaged.batch.deadlineHours && <div><dt>Batch deadline</dt><dd>{connection.hostManaged.batch.deadlineHours} hours</dd></div>}</>}
+          {connection.hostUses.map(use => <div key={use}><dt>Host usage</dt><dd>{use}</dd></div>)}
+        </dl>
+        {connection.hostManaged.pricing && <details className="mt-3"><summary className="cursor-pointer text-label-14 text-secondary">Model pricing overrides</summary><pre className="mt-2 overflow-auto text-label-12-mono text-secondary">{JSON.stringify(connection.hostManaged.pricing, null, 2)}</pre></details>}
+      </details>}
+      {error && <p role="alert" className="text-copy-14 text-negative-400">{error}</p>}
+      <div className="flex flex-wrap items-center gap-2"><Button type="submit" disabled={!dirty}>{saving ? 'Saving…' : 'Save connection'}</Button><Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>{dirty && <span className="text-label-12 text-secondary">Unsaved changes</span>}</div>
+    </fieldset>
+  </form>
+}
+
+export function ProviderConnectionsSection({ projects }: { projects: { name: string; displayName?: string | null }[] }) {
+  const queryClient = useQueryClient()
+  const settings = useQuery({ queryKey: ['settings'], queryFn: fetchSettings, staleTime: 60_000 })
+  const [adding, setAdding] = useState(() => window.location.hash.startsWith('#provider-'))
+  const [fallbackEditing, setFallbackEditing] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [editing, setEditing] = useState<ProviderConnectionSettingsDto | null>(null)
+  const [dirty, setDirty] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [disconnecting, setDisconnecting] = useState<ProviderConnectionSettingsDto | null>(null)
+  const [disconnectError, setDisconnectError] = useState<string | null>(null)
+  const [projectName, setProjectName] = useState('')
+  const guard = useUnsavedChanges(dirty, busy)
+  const connections = settings.data?.providerConnections
+  const selectedProject = projectName || projects[0]?.name
+
+  async function refresh() {
+    await queryClient.invalidateQueries({ queryKey: ['settings'] })
+    void invalidateProjectQueryDomain(queryClient, 'runAdmission')
+  }
+
+  async function openEditor(name: string) {
+    setBusy(true)
+    setError(null)
+    try {
+      const connection = await fetchProviderConnection(name)
+      setEditing(connection)
+      setDirty(false)
+    } catch (cause) { setError(describeError(cause)) }
+    finally { setBusy(false) }
+  }
+
+  async function previewDisconnect(name: string) {
+    setEditing(null)
+    setDirty(false)
+    setBusy(true)
+    setError(null)
+    setDisconnectError(null)
+    try { setDisconnecting(await fetchProviderConnection(name)) }
+    catch (cause) { setError(describeError(cause)) }
+    finally { setBusy(false) }
+  }
+
+  async function disconnect() {
+    if (!disconnecting) return
+    setBusy(true)
+    setDisconnectError(null)
+    try {
+      await disconnectProvider(disconnecting.name, disconnecting.impactRevision)
+      setDisconnecting(null)
+      addToast('Connection removed. Project selections and history are retained.', 'positive')
+      await refresh()
+    } catch (cause) { setDisconnectError(describeError(cause)) }
+    finally { setBusy(false) }
+  }
+
+  async function reload() {
+    setEditing(null)
+    setDirty(false)
+    setBusy(true)
+    setError(null)
+    try {
+      await reloadProviderConnections()
+      await refresh()
+      addToast('Connections reloaded from the host', 'positive')
+    } catch (cause) { setError(describeError(cause)) }
+    finally { setBusy(false) }
+  }
+
+  function connectionRow(connection: ProviderConnectionSettingsDto) {
+    const catalog = settings.data?.providerCatalog?.find(entry => entry.name === connection.name)
+    const routed = connection.kind !== ProviderKinds['answer-engine']
+    const active = editing?.name === connection.name
+    const managed = !connection.capabilities.apiKey && !connection.capabilities.baseUrl
+    return <div key={connection.name} id={`provider-${connection.name}`} className="scroll-mt-24 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-copy-14-strong text-heading">{connection.displayName}</p>
+          <p className="mt-1 break-words text-copy-14 text-secondary">{connection.mode === 'browser' ? 'Browser connection' : connection.kind === ProviderKinds['model-gateway'] ? 'Model gateway · choose models in each project' : connection.kind === ProviderKinds['answer-service'] ? 'Search answer service · choose profiles in each project' : connection.effectiveModel ?? 'Direct answer engine'}{connection.baseUrl ? ` · ${connection.baseUrl}` : ''}</p>
+          {connection.usage.projectCount > 0 && <p className="mt-1 text-label-12 text-secondary">Used by {connection.usage.projectCount} {connection.usage.projectCount === 1 ? 'project' : 'projects'}</p>}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <ToneBadge tone={connection.configured ? 'neutral' : 'caution'}>{connection.configured ? 'Configured' : 'Not configured'}</ToneBadge>
+          {managed && connection.mode !== 'browser' && <span className="text-label-12 text-secondary">Host managed</span>}
+          {connection.mode === 'browser' ? <Button type="button" variant="outline" size="sm" asChild><Link to="/settings" hash="browser-connection">Browser settings</Link></Button> : <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => guard.request(() => { if (active) { setEditing(null); setDirty(false) } else void openEditor(connection.name) })}>{active ? 'Close' : connection.configured ? 'Manage' : 'Configure'}</Button>}
+        </div>
+      </div>
+      {active && editing && <ProviderConnectionEditor key={`${editing.name}:${editing.revision}`} connection={editing} {...(catalog ? { catalog } : {})} onDirtyChange={setDirty} onBusyChange={setBusy} onCancel={() => guard.request(() => { setEditing(null); setDirty(false) })} onSaved={async () => {
+        setEditing(null)
+        setDirty(false)
+        await refresh()
+        addToast('Connection saved', 'positive')
+      }} />}
+      {active && connection.configured && <div className="mt-4 border-t border-default pt-4">
+        <Button type="button" variant="ghost" size="sm" disabled={busy || !connection.capabilities.disconnect} onClick={() => guard.request(() => void previewDisconnect(connection.name))}>Disconnect {connection.displayName}</Button>
+        {!connection.capabilities.disconnect && <p className="mt-1 text-copy-14 text-secondary">This connection must be removed on the host.</p>}
+      </div>}
+      {routed && connection.configured && <div className="mt-3 flex flex-wrap items-center gap-3">
+        {projects.length > 1 && <label className="text-label-14 text-secondary">Project <select className="setup-input ml-2" value={selectedProject} onChange={event => setProjectName(event.target.value)}>{projects.map(project => <option key={project.name} value={project.name}>{project.displayName ?? project.name}</option>)}</select></label>}
+        {selectedProject ? <Link className="text-label-14 text-link" to="/projects/$projectName/settings" params={{ projectName: selectedProject }} hash="answer-engines">{connection.kind === ProviderKinds['answer-service'] ? 'Choose project profiles' : 'Choose project models'}</Link> : <Link className="text-label-14 text-link" to="/setup">Create a project</Link>}
+      </div>}
+    </div>
+  }
+
+  const available = connections?.filter(connection => !connection.configured && connection.name !== editing?.name && `${connection.displayName} ${connection.name} ${connection.kind}`.toLowerCase().includes(search.toLowerCase())) ?? []
+  const catalogGroups = [
+    { label: 'Direct providers', entries: available.filter(connection => connection.mode !== 'browser' && connection.kind === ProviderKinds['answer-engine']) },
+    { label: 'Model gateways', entries: available.filter(connection => connection.kind === ProviderKinds['model-gateway']) },
+    { label: 'Search answer services', entries: available.filter(connection => connection.kind === ProviderKinds['answer-service']) },
+    { label: 'Browser providers', entries: available.filter(connection => connection.mode === 'browser') },
+  ]
+
+  return <section aria-labelledby="provider-connections-title" aria-busy={busy || settings.isLoading}>
+    <div className="section-head">
+      <div><p className="eyebrow eyebrow-soft">Instance settings</p><h2 id="provider-connections-title">Provider connections</h2></div>
+      {connections && <div className="flex flex-wrap gap-2">{connections.some(connection => connection.capabilities.reload) && <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => guard.request(() => void reload())}>Reload from host</Button>}<Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setAdding(current => !current)}>{adding ? 'Close catalog' : 'Add provider'}</Button></div>}
+    </div>
+    <p className="mb-4 text-copy-14 text-secondary">Save credentials and defaults here. Each project chooses the answer engines it runs.</p>
+    {settings.isLoading && <p role="status" className="text-copy-14 text-secondary">Loading connections…</p>}
+    {(settings.isError || error) && <div className="mb-4 space-y-2"><p role="alert" className="text-copy-14 text-negative-400">{error ?? 'Could not load provider connections.'}</p><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { setError(null); void settings.refetch() }}>Retry</Button></div>}
+    {connections ? <>
+      <div className="divide-y divide-default border-y border-default">{connections.filter(connection => connection.configured || connection.name === editing?.name).map(connectionRow)}</div>
+      {!connections.some(connection => connection.configured) && !editing && <p className="py-4 text-copy-14 text-secondary">No provider connections configured. Add a provider to start choosing answer engines.</p>}
+      {adding && <div className="mt-5 rounded-lg border border-default p-4">
+        <label htmlFor="provider-catalog-search" className="text-label-14 text-heading">Add provider</label>
+        <input id="provider-catalog-search" type="search" className="setup-input mt-2 w-full" placeholder="Search providers" value={search} onChange={event => setSearch(event.target.value)} />
+        {catalogGroups.filter(group => group.entries.length > 0).map(group => <div key={group.label} className="mt-4"><h3 className="text-label-12 text-secondary">{group.label}</h3><div className="mt-1 divide-y divide-default">{group.entries.map(connectionRow)}</div></div>)}
+        {available.length === 0 && <p className="py-4 text-copy-14 text-secondary">{search ? 'No matching providers.' : 'All available providers are configured.'}</p>}
+      </div>}
+    </> : settings.data && <div className="divide-y divide-default border-y border-default">
+      <p className="py-4 text-copy-14 text-secondary">This host supports connection setup. Saved credential details, resets and disconnect are unavailable here.</p>
+      {settings.data.providers.map(provider => <div key={provider.name} id={`provider-${provider.name}`} className="scroll-mt-24 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-copy-14-strong text-heading">{provider.displayName ?? provider.name}</p><p className="text-copy-14 text-secondary">{provider.model ?? provider.defaultModel}</p></div><div className="flex items-center gap-2"><ToneBadge tone={provider.configured ? 'neutral' : 'caution'}>{provider.configured ? 'Configured' : 'Not configured'}</ToneBadge><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => guard.request(() => { setFallbackEditing(current => current === provider.name ? null : provider.name); setDirty(false) })}>{fallbackEditing === provider.name ? 'Cancel' : provider.configured ? 'Update' : 'Configure'}</Button></div></div>
+        {fallbackEditing === provider.name && <ProviderConfigForm key={provider.name} providerName={provider.name} keyUrl={provider.keyUrl} modelHint={provider.modelHint} {...(provider.kind ? { kind: provider.kind } : {})} onDirtyChange={setDirty} onBusyChange={setBusy} onSaved={() => { setFallbackEditing(null); setDirty(false); void refresh() }} />}
+        {provider.configured && (provider.name === 'openrouter' || provider.kind === ProviderKinds['model-gateway'] || provider.kind === ProviderKinds['answer-service']) && selectedProject && <Link className="mt-3 block text-label-14 text-link" to="/projects/$projectName/settings" params={{ projectName: selectedProject }} hash="answer-engines">{provider.kind === ProviderKinds['answer-service'] ? 'Choose project profiles' : 'Choose project models'}</Link>}
+      </div>)}
+    </div>}
+    {guard.dialog}
+    <Dialog.Root open={disconnecting !== null} onOpenChange={open => { if (!open && !busy) setDisconnecting(null) }}><Dialog.Portal>
+      <Dialog.Overlay className="fixed inset-0 z-50 bg-overlay-scrim/80" />
+      <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[calc(100%_-_2rem)] w-[calc(100%_-_2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-lg border border-default bg-bg p-6 shadow-xl" onEscapeKeyDown={event => { if (busy) event.preventDefault() }} onPointerDownOutside={event => { if (busy) event.preventDefault() }}>
+        <Dialog.Title className="text-heading-16 text-heading">Disconnect {disconnecting?.displayName}?</Dialog.Title>
+        <Dialog.Description className="mt-2 text-copy-14 text-secondary">Remove this connection's saved configuration. Project selections and recorded history remain. Selected engines using it will be unavailable until it is configured again.</Dialog.Description>
+        {disconnecting && <div className="mt-4 space-y-3 text-copy-14 text-secondary">
+          <p>{disconnecting.usage.projectCount} {disconnecting.usage.projectCount === 1 ? 'project references' : 'projects reference'} this connection.</p>
+          {disconnecting.usage.projects.length > 0 && <ul className="space-y-2">{disconnecting.usage.projects.map(project => <li key={project.name}><span className="text-heading">{project.displayName}</span><span className="block break-words text-label-12">{project.providers.join(', ')} · {project.sources.join(', ')}</span></li>)}</ul>}
+          {disconnecting.hostUses.map(use => <p key={use}>Host usage: {use}</p>)}
+          {disconnecting.blockers.map(blocker => <p key={blocker.code} role="status" className="text-caution-400">{blocker.message}</p>)}
+          {!disconnecting.capabilities.disconnect && <p className="text-caution-400">This connection cannot be disconnected here.</p>}
+        </div>}
+        {disconnectError && <div className="mt-3 space-y-2"><p role="alert" className="text-copy-14 text-negative-400">{disconnectError}</p><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { if (disconnecting) void previewDisconnect(disconnecting.name) }}>Refresh impact</Button></div>}
+        <div className="mt-5 flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" disabled={busy} onClick={() => setDisconnecting(null)}>Keep connection</Button><Button type="button" variant="destructive" disabled={busy || !disconnecting?.capabilities.disconnect || disconnecting.blockers.some(blocker => blocker.code === 'outstanding-batches')} onClick={() => void disconnect()}>{busy ? 'Disconnecting…' : 'Disconnect'}</Button></div>
+      </Dialog.Content>
+    </Dialog.Portal></Dialog.Root>
+  </section>
 }
