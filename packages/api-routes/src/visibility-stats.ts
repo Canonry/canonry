@@ -9,6 +9,7 @@ import {
   effectiveBrandNames,
   parseInclusiveEndMs,
   RatioUnits,
+  RetrievalStatuses,
   roundRatio,
   RunKinds,
   RunStatuses,
@@ -18,6 +19,7 @@ import {
   type VisibilityCompareSelection,
   type VisibilityCompareDto,
   type QueryClass,
+  type RetrievalStatus,
   type VisibilityStatsCounts,
   type VisibilityStatsDto,
   type VisibilityStatsGroupBy,
@@ -42,6 +44,8 @@ export interface VisibilityStatsSnapshotInput {
   citationState: string
   answerMentioned: boolean | null
   createdAt: string
+  /** Absent / null for rows written before retrieval was recorded: they stay in the cited denominator. */
+  retrievalStatus?: RetrievalStatus | null
 }
 
 export interface ComputeVisibilityStatsInput {
@@ -68,16 +72,30 @@ interface Agg {
   checked: number
   mentioned: number
   cited: number
+  excludedNoRetrieval: number
   first: string | null
   last: string | null
 }
 
 function emptyAgg(): Agg {
-  return { total: 0, checked: 0, mentioned: 0, cited: 0, first: null, last: null }
+  return { total: 0, checked: 0, mentioned: 0, cited: 0, excludedNoRetrieval: 0, first: null, last: null }
 }
 
 function addSnapshot(agg: Agg, snap: VisibilityStatsSnapshotInput): void {
-  agg.total++
+  // An answer written with no retrieval step at all cites nothing by
+  // construction (#1161): it leaves the cited numerator AND denominator
+  // rather than counting as a searched miss. It stays in the mention
+  // denominator, since brand recall does not need search, and its
+  // first/last still bound the window. Rows that predate retrieval
+  // recording (`retrievalStatus` null / absent) are NOT excluded — an
+  // unobserved absence is not an observed one.
+  const noRetrieval = snap.retrievalStatus === RetrievalStatuses['not-used']
+  if (noRetrieval) agg.excludedNoRetrieval++
+  else {
+    agg.total++
+    // Citation is independent of mention and is always populated.
+    if (snap.citationState === CitationStates.cited) agg.cited++
+  }
   // Tri-state: `null`/`undefined` ("not checked") is EXCLUDED from `checked`
   // and never coerced to not-mentioned. Only an explicit boolean counts as
   // checked; only `true` counts as mentioned. This intentionally reads the
@@ -87,8 +105,6 @@ function addSnapshot(agg: Agg, snap: VisibilityStatsSnapshotInput): void {
   // size this proportion depends on.
   if (snap.answerMentioned === true || snap.answerMentioned === false) agg.checked++
   if (snap.answerMentioned === true) agg.mentioned++
-  // Citation is independent of mention and is always populated.
-  if (snap.citationState === CitationStates.cited) agg.cited++
   if (agg.first === null || snap.createdAt < agg.first) agg.first = snap.createdAt
   if (agg.last === null || snap.createdAt > agg.last) agg.last = snap.createdAt
 }
@@ -100,9 +116,14 @@ function counts(agg: Agg): VisibilityStatsCounts {
     mentioned: agg.mentioned,
     cited: agg.cited,
     // mention proportion is over the CHECKED sample; citation proportion is
-    // over the full total (every snapshot is checked for citation).
+    // over the total, which excludes answers written without retrieval
+    // (see addSnapshot: they leave the cited denominator, counted in
+    // `excludedNoRetrieval` when nonzero).
     mentionRate: agg.checked > 0 ? roundRatio(agg.mentioned / agg.checked, RatioUnits.fraction) : null,
     citedRate: agg.total > 0 ? roundRatio(agg.cited / agg.total, RatioUnits.fraction) : null,
+    // Present only when nonzero, so a smaller cited denominator is always
+    // visible next to the rate it shrank.
+    ...(agg.excludedNoRetrieval > 0 ? { excludedNoRetrieval: agg.excludedNoRetrieval } : {}),
   }
 }
 
@@ -349,6 +370,7 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
               provider: querySnapshots.provider,
               citationState: querySnapshots.citationState,
               answerMentioned: querySnapshots.answerMentioned,
+              retrievalStatus: querySnapshots.retrievalStatus,
               createdAt: querySnapshots.createdAt,
             })
             .from(querySnapshots)

@@ -18811,6 +18811,7 @@ export type VisibilityStatsDto = {
         cited: number;
         mentionRate: number | null;
         citedRate: number | null;
+        excludedNoRetrieval?: number;
     };
     byQueryClass?: {
         branded: {
@@ -18820,6 +18821,7 @@ export type VisibilityStatsDto = {
             cited: number;
             mentionRate: number | null;
             citedRate: number | null;
+            excludedNoRetrieval?: number;
         };
         nonBrand: {
             total: number;
@@ -18828,6 +18830,7 @@ export type VisibilityStatsDto = {
             cited: number;
             mentionRate: number | null;
             citedRate: number | null;
+            excludedNoRetrieval?: number;
         };
         unclassified: {
             total: number;
@@ -18836,6 +18839,7 @@ export type VisibilityStatsDto = {
             cited: number;
             mentionRate: number | null;
             citedRate: number | null;
+            excludedNoRetrieval?: number;
         };
     };
     byProvider?: Array<{
@@ -18845,6 +18849,7 @@ export type VisibilityStatsDto = {
         cited: number;
         mentionRate: number | null;
         citedRate: number | null;
+        excludedNoRetrieval?: number;
         provider: string;
         firstObserved: string;
         lastObserved: string;
@@ -18856,6 +18861,7 @@ export type VisibilityStatsDto = {
         cited: number;
         mentionRate: number | null;
         citedRate: number | null;
+        excludedNoRetrieval?: number;
         queryId: string | null;
         query: string;
         firstObserved: string;
@@ -18868,6 +18874,7 @@ export type VisibilityStatsDto = {
             cited: number;
             mentionRate: number | null;
             citedRate: number | null;
+            excludedNoRetrieval?: number;
             provider: string;
             firstObserved: string;
             lastObserved: string;

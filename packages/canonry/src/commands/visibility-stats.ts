@@ -198,6 +198,13 @@ function printVisibilityStats(data: VisibilityStatsDto): void {
   console.log('Visibility stats (cited = source list, mentioned = answer text)')
   console.log(`Window: ${windowParts.join(' · ')}`)
   console.log('Cited = cited/total snapshots · Mentioned = mentioned/checked (checked excludes "not checked")')
+  // Answers the provider wrote with no web search at all leave the cited
+  // denominator (#1161); the excluded count rides next to the rate, in the
+  // API response as `excludedNoRetrieval` and here as a plain line.
+  const excludedNoRetrieval = data.totals.excludedNoRetrieval ?? 0
+  if (excludedNoRetrieval > 0) {
+    console.log(`Excluded from the cited rate: ${excludedNoRetrieval} answer${excludedNoRetrieval === 1 ? '' : 's'} written without a web search`)
+  }
   console.log('')
 
   if (data.queries.length === 0) {

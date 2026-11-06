@@ -159,6 +159,22 @@ describe('showVisibilityStats', () => {
     expect(out).toContain('gemini')
   })
 
+  it('text names the answers excluded from the cited rate when the API reports them (#1161)', async () => {
+    mockGetVisibilityStats.mockResolvedValue({
+      ...data,
+      totals: { ...data.totals, excludedNoRetrieval: 1 },
+    })
+    const cap = captureOutput(() => showVisibilityStats('acme', { format: undefined, byProvider: true }))
+    await cap.run
+    expect(cap.text()).toContain('Excluded from the cited rate: 1 answer written without a web search')
+  })
+
+  it('text stays silent about exclusions when none were excluded', async () => {
+    const cap = captureOutput(() => showVisibilityStats('acme', { format: undefined, byProvider: true }))
+    await cap.run
+    expect(cap.text()).not.toContain('Excluded from the cited rate')
+  })
+
   it('text prints the class split under TOTAL, non-brand first, and skips an empty class', async () => {
     mockGetVisibilityStats.mockResolvedValue({
       ...data,
