@@ -13,10 +13,10 @@ import {
 } from '@canonry/canonry-contracts'
 
 
-/** The overview's `window` query value: 30d when absent; GA4 comparisons exist for 7d, 30d and 90d only. */
+/** The overview's `window` query value: 30d when absent; GA4 comparisons exist for 7d, 30d, 90d and 180d only. */
 export function parseGaOverviewWindow(value: string | undefined): GaOverviewWindow {
   if (value === undefined || value === '') return '30d'
-  if (!isGaOverviewWindow(value)) throw validationError(`Invalid window "${value}": the GA4 overview supports 7d, 30d or 90d.`)
+  if (!isGaOverviewWindow(value)) throw validationError(`Invalid window "${value}": the GA4 overview supports 7d, 30d, 90d or 180d.`)
   return value
 }
 

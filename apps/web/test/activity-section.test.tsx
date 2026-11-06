@@ -467,15 +467,27 @@ test('social groups sources by platform from the API and opens the raw rows in p
 
 test('top time picker reloads every GA surface, social included, from the same window', async () => {
   const seen = new Set<string>()
+  const syncDays: number[] = []
+  const serverStarts: string[] = []
   const platforms = {
     '7d': { label: 'LinkedIn', platform: 'linkedin', source: 'linkedin.com', sessions: 7 },
     '30d': { label: 'Facebook', platform: 'facebook', source: 'facebook.com', sessions: 30 },
     '90d': { label: 'X', platform: 'x', source: 'x.com', sessions: 90 },
+    '180d': { label: 'Instagram', platform: 'instagram', source: 'instagram.com', sessions: 180 },
   } as const
   const surfaces = ['traffic', 'ai-referral-daily', 'session-history', 'overview'] as const
 
-  onTestFinished(mockFetch((url) => {
+  onTestFinished(mockFetch((url, init) => {
     const parsed = new URL(url, window.location.origin)
+    if (parsed.pathname.endsWith('/traffic/sources')) return jsonResponse({ sources: [] })
+    if (parsed.pathname.endsWith('/traffic/events')) {
+      serverStarts.push(parsed.searchParams.get('since')!)
+      return jsonResponse({ events: [], totals: {}, series: { points: [] } })
+    }
+    if (parsed.pathname.endsWith('/ga/sync')) {
+      syncDays.push((JSON.parse(String(init?.body)) as { days: number }).days)
+      return jsonResponse({ rowCount: 0, aiReferralCount: 0, socialReferralCount: 0, days: 180 })
+    }
     if (parsed.pathname.endsWith('/projects/test-project/ga/status')) return jsonResponse(GA_STATUS)
     if (parsed.pathname.endsWith('/projects/test-project/ga/search-landing-pages')) return jsonResponse(EMPTY_SEARCH_LANDING)
     if (parsed.pathname.endsWith('/ga/social-referral-history')) throw new Error('the Social section reads /ga/traffic only')
@@ -495,12 +507,6 @@ test('top time picker reloads every GA surface, social included, from the same w
     }))
   }))
 
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const renderWindow = (windowKey: keyof typeof platforms) => (
-    <QueryClientProvider client={queryClient}>
-      <ClickThroughActivity projectName="test-project" window={windowKey} />
-    </QueryClientProvider>
-  )
   // Social's figures stay in view while its tables are closed rows, so the
   // top platform figure is what proves the section reloaded for the window.
   const topPlatform = () => {
@@ -514,12 +520,18 @@ test('top time picker reloads every GA surface, social included, from the same w
     })
   }
 
-  const { rerender } = render(renderWindow('30d'))
+  renderActivitySection()
   await assertWindow('30d')
-  rerender(renderWindow('7d'))
-  await assertWindow('7d')
-  rerender(renderWindow('90d'))
-  await assertWindow('90d')
+  const picker = screen.getByRole('group', { name: 'Traffic time period' })
+  for (const window of ['7d', '90d', '180d'] as const) {
+    fireEvent.click(within(picker).getByRole('button', { name: window }))
+    await assertWindow(window)
+  }
+  expect(within(picker).getByRole('button', { name: '180d' }).getAttribute('aria-pressed')).toBe('true')
+  expect(within(sectionByHeading('Site traffic')).getAllByText('vs prior 180 days').length).toBeGreaterThan(0)
+  expect(Math.round((Date.now() - Date.parse(serverStarts.at(-1)!)) / 86_400_000)).toBe(180)
+  fireEvent.click(within(sectionByHeading('Site traffic')).getByRole('button', { name: 'Sync' }))
+  await waitFor(() => expect(syncDays).toEqual([180]))
 })
 
 /**

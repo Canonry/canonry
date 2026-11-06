@@ -241,7 +241,7 @@ export function AiTrafficHistoryPanel({
     ...getApiV1ProjectsByNameGaAiReferralDailyOptions({
       client: heyClient,
       path: { name: projectName },
-      query: { window: sinceMinutes >= 90 * 24 * 60 ? '90d' : sinceMinutes >= 30 * 24 * 60 ? '30d' : '7d' },
+      query: { window: sinceMinutes >= 180 * 24 * 60 ? '180d' : sinceMinutes >= 90 * 24 * 60 ? '90d' : sinceMinutes >= 30 * 24 * 60 ? '30d' : '7d' },
     }),
     enabled: Boolean(projectName) && gaConnected,
     staleTime: TRAFFIC_STALE_MS,

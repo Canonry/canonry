@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import type { GaSearchLandingWindow } from '@canonry/canonry-contracts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { _resetGa4ConcurrencyStateForTests, fetchSearchLandingPages } from '../src/ga4-client.js'
 import { GA4_DIMENSIONS, GA4_MAX_PAGES, GA4_MAX_RETRIES, GA4_METRICS } from '../src/constants.js'
@@ -83,7 +84,7 @@ describe('fetchSearchLandingPages', () => {
 
     const report = await fetchSearchLandingPages('fake-token', '123456')
 
-    expect(requests).toHaveLength(3)
+    expect(requests).toHaveLength(4)
     const expectedBody = (days: number) => ({
       dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'yesterday' }],
       dimensions: [{ name: GA4_DIMENSIONS.landingPagePlusQueryString }],
@@ -105,7 +106,7 @@ describe('fetchSearchLandingPages', () => {
       limit: 10_000,
       offset: 0,
     })
-    expect(requests).toEqual([expectedBody(7), expectedBody(28), expectedBody(90)])
+    expect(requests).toEqual([expectedBody(7), expectedBody(28), expectedBody(90), expectedBody(180)])
     // No date, source, medium or channel dimension and no filter: GA4 rejects
     // them beside the Search Console metrics.
     expect(requests.every((request) => request.dimensionFilter === undefined)).toBe(true)
@@ -118,7 +119,7 @@ describe('fetchSearchLandingPages', () => {
 
     expect(report.status).toBe('ready')
     if (report.status !== 'ready') return
-    expect(report.windows.map((window) => window.window)).toEqual(['7d', '28d', '90d'])
+    expect(report.windows.map((window) => window.window)).toEqual(['7d', '28d', '90d', '180d'])
     const window = report.windows[1]!
     expect(window).toMatchObject({
       window: '28d',
@@ -157,6 +158,72 @@ describe('fetchSearchLandingPages', () => {
 
     expect(report.windows[0]).toMatchObject({ periodStart: '2026-10-01', periodEnd: '2026-10-07' })
     expect(report.windows[2]).toMatchObject({ periodStart: '2026-07-10', periodEnd: '2026-10-07' })
+    expect(report.windows[3]).toMatchObject({ periodStart: '2026-04-11', periodEnd: '2026-10-07' })
+  })
+
+  it('fetches only a requested missing window and retains its native GA4 metrics', async () => {
+    const requests = serveCapture(fetchSpy)
+
+    const report = await fetchSearchLandingPages('fake-token', '123456', { windows: ['180d'] })
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.dateRanges).toEqual([{ startDate: '180daysAgo', endDate: 'yesterday' }])
+    expect(report.status).toBe('ready')
+    if (report.status !== 'ready') return
+    expect(report.windows).toHaveLength(1)
+    expect(report.windows[0]).toMatchObject({
+      window: '180d',
+      periodStart: '2026-04-11',
+      periodEnd: '2026-10-07',
+      total: {
+        clicks: 837,
+        impressions: 41422,
+        ctr: 0.020206653469170971,
+        averagePosition: 7.31567765921491,
+        activeUsers: 1093,
+      },
+    })
+    expect(report.windows[0]?.rows[0]).toEqual({
+      landingPage: '/',
+      clicks: 612,
+      impressions: 13940,
+      ctr: 0.043902439024390241,
+      averagePosition: 7.2103299856527974,
+      activeUsers: 734,
+    })
+  })
+
+  it.each([
+    { label: 'empty', windows: [] },
+    { label: 'duplicate', windows: ['180d', '180d'] },
+    { label: 'unsupported', windows: ['30d'] },
+  ])('rejects a $label window selection before calling GA4', async ({ windows }) => {
+    await expect(fetchSearchLandingPages('fake-token', '123456', {
+      windows: windows as GaSearchLandingWindow[],
+    })).rejects.toThrow('Search landing windows must be a non-empty selection of unique supported windows')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('pins a selected window to the planning time and reporting zone before I/O', async () => {
+    const requests = serveCapture(fetchSpy)
+
+    // The call starts after LA midnight, but its plan was made before it.
+    const report = await fetchSearchLandingPages('fake-token', '123456', {
+      windows: ['180d'],
+      now: new Date('2026-10-08T03:00:00.000Z'),
+      timeZone: 'America/Los_Angeles',
+    })
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.dateRanges).toEqual([{ startDate: '2026-04-10', endDate: '2026-10-06' }])
+    expect(report.status).toBe('ready')
+    if (report.status !== 'ready') return
+    expect(report.windows[0]).toMatchObject({
+      window: '180d',
+      periodStart: '2026-04-10',
+      periodEnd: '2026-10-06',
+      timeZone: 'America/Los_Angeles',
+    })
   })
 
   it('pages with limit/offset until every row is read and keeps the first page\'s Total', async () => {
@@ -167,12 +234,13 @@ describe('fetchSearchLandingPages', () => {
 
     const report = await fetchSearchLandingPages('fake-token', '123456', { pageSize: 7 })
 
-    expect(requests).toHaveLength(6)
+    expect(requests).toHaveLength(8)
     expect(requests.map((request) => [request.dateRanges[0]!.startDate, request.offset, request.limit])).toEqual(
       expect.arrayContaining([
         ['7daysAgo', 0, 7], ['7daysAgo', 7, 7],
         ['28daysAgo', 0, 7], ['28daysAgo', 7, 7],
         ['90daysAgo', 0, 7], ['90daysAgo', 7, 7],
+        ['180daysAgo', 0, 7], ['180daysAgo', 7, 7],
       ]),
     )
     expect(report.status).toBe('ready')
@@ -197,7 +265,7 @@ describe('fetchSearchLandingPages', () => {
 
     const report = await fetchSearchLandingPages('fake-token', '123456', { pageSize: 10, maxRows: 10 })
 
-    expect(requests).toHaveLength(3)
+    expect(requests).toHaveLength(4)
     expect(requests.every((request) => request.limit === 10 && request.offset === 0)).toBe(true)
     expect(report.status).toBe('ready')
     if (report.status !== 'ready') return
@@ -215,7 +283,7 @@ describe('fetchSearchLandingPages', () => {
     // 2 rows a page can read at most GA4_MAX_PAGES * 2 rows of the 10,000 asked for.
     const report = await fetchSearchLandingPages('fake-token', '123456', { pageSize: 2, maxRows: 10_000 })
 
-    expect(requests).toHaveLength(3 * GA4_MAX_PAGES)
+    expect(requests).toHaveLength(4 * GA4_MAX_PAGES)
     expect(report.status).toBe('ready')
     if (report.status !== 'ready') return
     for (const window of report.windows) {
@@ -288,6 +356,7 @@ describe('fetchSearchLandingPages', () => {
       { window: '7d', periodStart: '2026-09-30', periodEnd: '2026-10-06' },
       { window: '28d', periodStart: '2026-09-09', periodEnd: '2026-10-06' },
       { window: '90d', periodStart: '2026-07-09', periodEnd: '2026-10-06' },
+      { window: '180d', periodStart: '2026-04-10', periodEnd: '2026-10-06' },
     ])
   })
 
@@ -363,7 +432,7 @@ describe('fetchSearchLandingPages', () => {
     expect(report.reason).toContain('GA4 API error (400)')
     expect(report.reason).toContain(message)
     // A 400 is not retried.
-    expect(fetchSpy).toHaveBeenCalledTimes(3)
+    expect(fetchSpy).toHaveBeenCalledTimes(4)
   })
 
   it('throws other client errors instead of reading them as unavailable', async () => {
@@ -385,7 +454,7 @@ describe('fetchSearchLandingPages', () => {
 
     expect(error).toBeInstanceOf(GA4ApiError)
     expect((error as GA4ApiError).status).toBe(503)
-    // Three windows, each tried once plus GA4_MAX_RETRIES times.
-    expect(fetchSpy).toHaveBeenCalledTimes(3 * (GA4_MAX_RETRIES + 1))
+    // Four windows, each tried once plus GA4_MAX_RETRIES times.
+    expect(fetchSpy).toHaveBeenCalledTimes(4 * (GA4_MAX_RETRIES + 1))
   })
 })

@@ -425,7 +425,7 @@ counted disclosures in Advanced and Research views.
 `ActivitySection` orders Server activity, Site traffic (GA4's overview), AI
 traffic history, then the GA4 detail sections (Traffic by channel, Social, Top
 landing pages, Google organic search traffic). `ActivitySection` owns the one
-7d/30d/90d control and shows it in the Site traffic heading in every GA4 state;
+7d/30d/90d/180d control and shows it in the Site traffic heading in every GA4 state;
 `ClickThroughActivity` renders the AI traffic history in its `between` slot,
 outside every GA4 state, so a disconnected GA4 removes neither. Site traffic is
 `SiteTrafficCard` over `/ga/overview` (complete days ending yesterday against
@@ -438,6 +438,8 @@ charts and tables are closed `.visibility-disclosure` rows (`DisclosureRow`)
 that mount their detail only while open, each summary carrying the API's
 count, or "None in this period". Never drop a figure while restyling this tab;
 the site-wide sessions chart disappeared once that way.
+Google organic search traffic keeps its independent 7d/28d/90d/180d picker and
+renders the selected window’s stored GA4 Total without summing its page rows.
 
 ### Trend cards
 

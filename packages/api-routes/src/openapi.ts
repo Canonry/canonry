@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import {
+  WINDOW_SETS,
   AdsAdGroupBillingEventTypes,
   AdsCampaignBiddingTypes,
   AdsOperationStates,
@@ -460,11 +461,16 @@ const analyticsWindowParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] },
 }
 
+const gaTrafficWindowParameter: OpenApiParameter = {
+  ...analyticsWindowParameter,
+  schema: { type: 'string', enum: [...WINDOW_SETS.gaTraffic] },
+}
+
 const gaOverviewWindowParameter: OpenApiParameter = {
   name: 'window',
   in: 'query',
   description: 'Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.',
-  schema: { type: 'string', enum: ['7d', '30d', '90d'] },
+  schema: { type: 'string', enum: [...WINDOW_SETS.gaOverview] },
 }
 
 const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
@@ -6747,7 +6753,7 @@ const routeCatalog: OpenApiOperation[] = [
       {
         name: 'window',
         in: 'query',
-        description: 'Stored window, ending yesterday in the GA4 property time zone. 28d matches GA4\'s default "Last 28 days".',
+        description: 'Stored 7, 28, 90 or 180-day window, ending yesterday in the GA4 property time zone. 28d matches GA4\'s default "Last 28 days".',
         schema: { type: 'string', enum: [...gaSearchLandingWindowSchema.options], default: '28d' },
       },
       {
@@ -6802,7 +6808,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get GA4 landing page traffic, channel breakdown, and AI referral landing pages',
     description: 'Every figure is measured over one window (windowStart to windowEnd). Each AI and social referral row carries share, its fraction of that table\'s sessions, so a table\'s shares add up to 1; each top page carries organicShare, its organic sessions over its own sessions.',
     tags: ['ga4'],
-    parameters: [nameParameter, limitQueryParameter, analyticsWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
+    parameters: [nameParameter, limitQueryParameter, gaTrafficWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
     responses: {
       200: jsonResponse('GA4 traffic data returned.', 'GaTrafficResponse'),
       400: errorResponse('GA4 is not connected.'),
@@ -6815,7 +6821,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get raw AI referral detail rows per day, landing page, and attribution dimension',
     description: 'Detail rows, not totals. One row per landing page per attribution dimension, so a single day of one source is many rows and each is commonly worth one session. Use /ga/ai-referral-daily for per-date or per-source session counts.',
     tags: ['ga4'],
-    parameters: [nameParameter, analyticsWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
+    parameters: [nameParameter, gaTrafficWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
     responses: {
       200: jsonArrayResponse('AI referral history returned.', 'GA4AiReferralHistoryEntry'),
       400: errorResponse('GA4 is not connected.'),
@@ -6828,7 +6834,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get AI referral sessions per day and per source',
     description: 'Sums landing pages within one attribution dimension and never across dimensions, so totalSessions equals the aiSessionsDeduped reported by /ga/traffic for the same window. Sessions only: GA counts users as a distinct count at the grain requested, so an AI-referral user total cannot be summed from these rows and no un-dimensioned AI-referral fetch exists to supply one.',
     tags: ['ga4'],
-    parameters: [nameParameter, analyticsWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
+    parameters: [nameParameter, gaTrafficWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
     responses: {
       200: jsonResponse('AI referral daily series returned.', 'GA4AiReferralDailyDto'),
       400: errorResponse('GA4 is not connected.'),
@@ -6840,7 +6846,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ga/social-referral-history',
     summary: 'Get social media referral sessions per day grouped by source',
     tags: ['ga4'],
-    parameters: [nameParameter, analyticsWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
+    parameters: [nameParameter, gaTrafficWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
     responses: {
       200: jsonArrayResponse('Social referral history returned.', 'GA4SocialReferralHistoryEntry'),
       400: errorResponse('GA4 is not connected.'),
@@ -6881,7 +6887,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter, gaOverviewWindowParameter],
     responses: {
       200: jsonResponse('GA4 overview returned.', 'GaOverviewResponse'),
-      400: errorResponse('GA4 is not connected, or the window is not 7d, 30d or 90d.'),
+      400: errorResponse('GA4 is not connected, or the window is not 7d, 30d, 90d or 180d.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -6890,7 +6896,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ga/session-history',
     summary: 'Get total sessions per day for the project',
     tags: ['ga4'],
-    parameters: [nameParameter, analyticsWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
+    parameters: [nameParameter, gaTrafficWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
     responses: {
       200: jsonArrayResponse('Session history returned.', 'GA4SessionHistoryEntry'),
       400: errorResponse('GA4 is not connected.'),
