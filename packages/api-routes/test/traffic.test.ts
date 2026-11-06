@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import {
   createClient,
   migrate,
@@ -4154,6 +4154,77 @@ describe('POST /traffic/sources/:id/backfill', () => {
     }
   })
 
+  it.each([
+    { name: 'clears the marker after replacing its last older row', olderOutsideWindow: false, expectedHits: 1 },
+    { name: 'retains the moved marker while older rows remain', olderOutsideWindow: true, expectedHits: 8 },
+  ])('$name', async ({ olderOutsideWindow, expectedHits }) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-06T12:00:00.000Z'))
+    const movedCutoff = '2026-10-25T01:00:00.000Z'
+    const h = await buildHarness([buildEvent({
+      eventId: 'recounted-ai-arrival', observedAt: '2026-10-24T10:15:00.000Z',
+      userAgent: 'Mozilla/5.0', path: '/landing', requestUrl: 'https://example.com/landing?utm_source=chatgpt.com',
+      queryString: 'utm_source=chatgpt.com', referer: 'https://chatgpt.com/',
+    })])
+    try {
+      const connected = await h.app.inject({
+        method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'recount-backfill', keyJson: SA_KEY },
+      })
+      expect(connected.statusCode, connected.payload).toBe(200)
+      const sourceId = JSON.parse(connected.payload).id as string
+      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      h.db.run(sql`UPDATE _migrations SET applied_at = '2026-11-04 12:00:00' WHERE version = 207`)
+      h.db.update(trafficSources).set({ aiReferralOlderCountUntil: movedCutoff, createdAt: '2026-08-16T18:00:00.000Z' })
+        .where(eq(trafficSources.id, sourceId)).run()
+      const peerId = `${sourceId}-peer`
+      h.db.insert(trafficSources).values({
+        ...source, id: peerId, status: TrafficSourceStatuses.paused,
+        createdAt: '2026-08-16T18:00:00.000Z', aiReferralOlderCountUntil: movedCutoff,
+      }).run()
+      // A journey recount already moved the cutoff back. These delayed rows
+      // were written after that boundary but before v207 changed the rule.
+      const referral = {
+        projectId: source.projectId, sourceId, tsHour: '2026-10-24T10:00:00.000Z',
+        product: 'ChatGPT', operator: 'OpenAI', sourceDomain: 'chatgpt.com', evidenceType: 'utm',
+        landingPathNormalized: '/landing', status: 200, sessionsOrHits: 100,
+        paidSessionsOrHits: 0, organicSessionsOrHits: 100,
+        createdAt: '2026-11-03T10:20:00.000Z', updatedAt: '2026-11-03T10:20:00.000Z',
+      }
+      h.db.insert(aiReferralEventsHourly).values([
+        referral,
+        { ...referral, sourceId: peerId, sessionsOrHits: 17, organicSessionsOrHits: 17 },
+        ...(olderOutsideWindow ? [{
+          ...referral, tsHour: '2026-10-22T10:00:00.000Z', sessionsOrHits: 7, organicSessionsOrHits: 7,
+        }] : []),
+      ]).run()
+      const query = 'since=2026-10-20T00%3A00%3A00.000Z&granularity=day'
+      const url = `/api/v1/projects/test-project/traffic/events?sourceId=${sourceId}&${query}`
+      const before = await h.app.inject({ method: 'GET', url })
+      expect(before.statusCode).toBe(200)
+      expect(trafficEventsResponseSchema.parse(JSON.parse(before.payload)).series.aiReferralCountingChangedAt).toBe(movedCutoff)
+
+      const submitted = await h.app.inject({
+        method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`, payload: { days: 14 },
+      })
+      expect(submitted.statusCode, submitted.payload).toBe(200)
+      expect((await waitForRunComplete(h.db, JSON.parse(submitted.payload).runId)).status).toBe(RunStatuses.completed)
+
+      const after = await h.app.inject({ method: 'GET', url })
+      expect(after.statusCode).toBe(200)
+      const body = trafficEventsResponseSchema.parse(JSON.parse(after.payload))
+      expect(body.totals.aiReferralLandedHits).toBe(expectedHits)
+      expect(body.series.aiReferralCountingChangedAt).toBe(olderOutsideWindow ? movedCutoff : null)
+      const peer = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?sourceId=${peerId}&${query}` })
+      expect(peer.statusCode).toBe(200)
+      const peerBody = trafficEventsResponseSchema.parse(JSON.parse(peer.payload))
+      expect(peerBody.totals.aiReferralLandedHits).toBe(17)
+      expect(peerBody.series.aiReferralCountingChangedAt).toBe(movedCutoff)
+    } finally {
+      await h.close()
+    }
+  })
+
   it('stores unrecognized agents from a pull sync and replaces them on backfill', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
@@ -6143,6 +6214,70 @@ describe('crawler-hit content/infra segmentation', () => {
         slope: 0, intercept: 100, r2: 1, start: 100, end: 100, n: 5, startIndex: 1, endIndex: 5,
       })
     } finally { await h.close() }
+  })
+
+  function insertSeriesReferralRows(
+    h: Awaited<ReturnType<typeof buildHarness>>,
+    source: typeof trafficSources.$inferSelect,
+    observations: { tsHour: string; hits: number }[],
+  ) {
+    h.db.insert(aiReferralEventsHourly).values(observations.map(observation => ({
+      projectId: source.projectId, sourceId: source.id, tsHour: observation.tsHour,
+      product: 'ChatGPT', operator: 'OpenAI', sourceDomain: 'chatgpt.com', evidenceType: 'utm',
+      landingPathNormalized: '/', status: 200, sessionsOrHits: observation.hits,
+      paidSessionsOrHits: 0, organicSessionsOrHits: observation.hits, usersEstimated: null,
+      createdAt: '2026-05-07T13:45:00.000Z', updatedAt: '2026-05-07T13:45:00.000Z',
+    }))).run()
+  }
+
+  /**
+   * Hours a source counted by the older AI-referral rule read high, so a line
+   * fitted across the change slopes down for traffic that held steady.
+   *
+   * Fixture: two older days at 100, the count changing at 12:00 on the second,
+   * then three whole days flat at 10. The fit must use only those three days;
+   * without the marker the same rows fit a steep decline.
+   */
+  it('fits the AI-referral trend only after the older count ended', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-07T13:45:00.000Z'))
+    for (const scenario of [
+      { name: 'older count marked', until: '2026-05-03T12:00:00.000Z' },
+      { name: 'no older count', until: null },
+    ]) {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        if (scenario.until) {
+          h.db.update(trafficSources).set({ aiReferralOlderCountUntil: scenario.until })
+            .where(eq(trafficSources.id, source.id)).run()
+        }
+        insertSeriesReferralRows(h, source, [
+          { tsHour: '2026-05-02T00:00:00.000Z', hits: 100 },
+          { tsHour: '2026-05-03T00:00:00.000Z', hits: 100 },
+          ...[4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, hits: 10 })),
+        ])
+        insertSeriesCrawlerRows(h, source, [2, 3, 4, 5, 6].map(day => ({
+          tsHour: `2026-05-0${day}T12:00:00.000Z`, pathNormalized: `/blog/day-${day}`, hits: 50,
+        })))
+        const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-04-30T13%3A45%3A00.000Z&granularity=day' })
+        expect(res.statusCode, scenario.name).toBe(200)
+        const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+        expect(body.series.aiReferralCountingChangedAt, scenario.name).toBe(scenario.until)
+        expect(body.series.points.map(point => point.aiReferralLandedHits), 'raw counts are unchanged').toEqual([0, 0, 100, 100, 10, 10, 10, 0])
+        // Other series keep every measured day.
+        expect(body.series.trends.crawlerContentHits, scenario.name).toEqual({
+          slope: 0, intercept: 50, r2: 1, start: 50, end: 50, n: 5, startIndex: 2, endIndex: 6,
+        })
+        if (scenario.until) {
+          expect(body.series.trends.aiReferralLandedHits, 'three whole days after the change, at their own indices').toEqual({
+            slope: 0, intercept: 10, r2: 1, start: 10, end: 10, n: 3, startIndex: 4, endIndex: 6,
+          })
+        } else {
+          expect(body.series.trends.aiReferralLandedHits?.n).toBe(5)
+          expect(body.series.trends.aiReferralLandedHits?.slope).toBeLessThan(0)
+        }
+      } finally { await h.close() }
+    }
   })
 
   it('rejects sinceMinutes rather than silently answering for 24 hours', async () => {

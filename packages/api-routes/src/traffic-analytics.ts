@@ -13,6 +13,7 @@ import {
 } from '@canonry/canonry-contracts'
 import { countableReferralCondition, nonSubresourceReferralPathCondition } from './ai-referral-status.js'
 import { resolveProject } from './helpers.js'
+import { aiReferralOlderCountUntil } from './ai-referral-arrivals.js'
 
 const SERVER_ACTIVITY_TOP_PATHS_LIMIT = 10
 
@@ -57,6 +58,13 @@ function readTrafficActivity(db: DatabaseClient, projectId: string, windowDays: 
   const priorWindowComplete = coverageStart !== null && Date.parse(coverageStart) <= priorStartMs
   const recordedChange = (current: number, prior: number) =>
     priorWindowComplete ? deltaPercent(current, prior) : null
+  // Referral hours counted by the older arrival rule can read high and cannot be
+  // recounted, so a comparison whose prior window starts before that count
+  // ended reads a fall for traffic that held steady.
+  const referralCountingChangedAt = aiReferralOlderCountUntil(db, { projectId })
+  const referralsComparable = referralCountingChangedAt === null || Date.parse(referralCountingChangedAt) <= priorStartMs
+  const referralChange = (current: number, prior: number) =>
+    referralsComparable ? recordedChange(current, prior) : null
 
   // 2. Headline + prior totals (verified crawlers + referral sessions).
   // The headline upper bound uses `lte` (inclusive) so the current hour bucket
@@ -450,6 +458,7 @@ function readTrafficActivity(db: DatabaseClient, projectId: string, windowDays: 
     windowEnd: headlineEnd,
     coverageStart,
     priorWindowComplete,
+    aiReferralCountingChangedAt: referralCountingChangedAt,
     hasData: verifiedCurrent + unverifiedCurrent + userFetchCurrent + referralCurrent.total
       + verifiedPrior + unverifiedPrior + userFetchPrior + referralPrior.total
       + referralRedirects > 0
@@ -474,24 +483,24 @@ function readTrafficActivity(db: DatabaseClient, projectId: string, windowDays: 
     referralArrivals: {
       current: referralCurrent.total,
       prior: referralPrior.total,
-      deltaPct: recordedChange(referralCurrent.total, referralPrior.total),
+      deltaPct: referralChange(referralCurrent.total, referralPrior.total),
     },
     referralRedirects,
     referralArrivalsByClass: {
       paid: {
         current: referralCurrent.paid,
         prior: referralPrior.paid,
-        deltaPct: recordedChange(referralCurrent.paid, referralPrior.paid),
+        deltaPct: referralChange(referralCurrent.paid, referralPrior.paid),
       },
       organic: {
         current: referralCurrent.organic,
         prior: referralPrior.organic,
-        deltaPct: recordedChange(referralCurrent.organic, referralPrior.organic),
+        deltaPct: referralChange(referralCurrent.organic, referralPrior.organic),
       },
       unclassified: {
         current: referralCurrent.unknown,
         prior: referralPrior.unknown,
-        deltaPct: recordedChange(referralCurrent.unknown, referralPrior.unknown),
+        deltaPct: referralChange(referralCurrent.unknown, referralPrior.unknown),
       },
     },
     referralArrivalsClassSummary: formatAiReferralClassSummary(referralCurrent),

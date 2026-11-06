@@ -25,6 +25,7 @@ import {
   CHART_GRID_STROKE,
   CHART_TOOLTIP_STYLE,
   ReferenceArea,
+  ReferenceLine,
   CHART_SERIES_COLORS,
   formatChartDateLabel,
   formatChartDateTick,
@@ -48,6 +49,8 @@ const CRAWLER_COLOR = CHART_SERIES_COLORS[0]
 const FETCH_COLOR = CHART_SERIES_COLORS[1]
 const VISIT_COLOR = CHART_SERIES_COLORS[2]
 const GA4_COLOR = CHART_SERIES_COLORS[3]
+// The measurement-change marker colour the visibility trend uses for setup changes.
+const COUNT_CHANGE_COLOR = CHART_SERIES_COLORS[4]
 
 // The shared segmented control is not window-specific; it takes any token
 // list. Hand-rolling it again is how the control drifted between tabs before.
@@ -79,6 +82,10 @@ const LEGEND_STYLE = { fontSize: 12, paddingTop: 6 } as const
 const formatTooltipValue = (value: unknown) =>
   typeof value === 'number' ? formatNumber(Math.round(value)) : String(value)
 
+const SERVER_VISITS_NAME = 'Visits, server'
+/** Hover label for a server visit counted under the older arrival rule. */
+const OLDER_SERVER_VISITS_NAME = `${SERVER_VISITS_NAME} (older count)`
+
 /** Coerce a wire number that an older API may not send at all. */
 const num = (v: number | undefined): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 
@@ -98,6 +105,18 @@ function trendSeries(trend: Trend | null | undefined, length: number): (number |
     i < trend.startIndex || i > trend.endIndex
       ? null
       : trend.start + (i - trend.startIndex) * perStep)
+}
+
+/**
+ * The GA4 fit's value on a calendar day, or null outside the fitted span. Its
+ * ends carry dates rather than chart indices, so it lines up with any window.
+ */
+function ga4TrendAt(trend: { startDate: string; endDate: string; start: number; end: number } | null, day: string): number | null {
+  if (!trend || day < trend.startDate || day > trend.endDate) return null
+  const startMs = Date.parse(`${trend.startDate}T00:00:00.000Z`)
+  const spanMs = Date.parse(`${trend.endDate}T00:00:00.000Z`) - startMs
+  if (spanMs <= 0) return null
+  return trend.start + (trend.end - trend.start) * ((Date.parse(`${day}T00:00:00.000Z`) - startMs) / spanMs)
 }
 
 /**
@@ -169,6 +188,9 @@ export function AiTrafficHistoryPanel({
     const dto = gaDaily.data as GA4AiReferralDailyDto | undefined
     return new Map((dto?.days ?? []).map((d) => [d.date, d.sessions]))
   }, [gaDaily.data])
+  // Fitted server side over complete GA4 days. GA4 counted the same way the
+  // whole time, so its line can span days the server count cannot.
+  const gaTrend = (gaDaily.data as GA4AiReferralDailyDto | undefined)?.trend ?? null
 
   // The stretch before recording began. Charted as a band rather than left to
   // read as a flat zero, which is what an unmeasured day looks like otherwise.
@@ -183,6 +205,34 @@ export function AiTrafficHistoryPanel({
   }, [points])
 
   const coverageStart = (events.data as { series?: { coverageStart?: string | null } } | undefined)?.series?.coverageStart ?? null
+
+  // Server visits on days before the API's `aiReferralCountingChangedAt` were
+  // counted by an older rule that also counted a visitor's later pages, assets
+  // and API calls, so they can read high and cannot be recounted. The day the rule
+  // changed is included: part of it was counted the old way. Banded from the
+  // first measured day, so it never overlaps the "not measured" band. The
+  // server-fitted trend already starts after it.
+  const countingChangedAt = (events.data as { series?: { aiReferralCountingChangedAt?: string | null } } | undefined)
+    ?.series?.aiReferralCountingChangedAt ?? null
+  const olderCount = useMemo(() => {
+    if (!countingChangedAt) return null
+    const firstMeasured = points.find((pt) => pt.measured !== false)
+    const lastDay = points[points.length - 1]?.bucket
+    if (!firstMeasured || !lastDay) return null
+    const changedDay = countingChangedAt.slice(0, 10)
+    if (changedDay < firstMeasured.bucket) return null
+    return { from: firstMeasured.bucket, to: changedDay < lastDay ? changedDay : lastDay }
+  }, [countingChangedAt, points])
+
+  const olderCountShown = olderCount !== null && visitSource !== 'ga4'
+
+  const visitsTooltipFormatter = (value: unknown, name: unknown, item: { payload?: { bucket?: string } }) => {
+    const bucket = item.payload?.bucket
+    if (olderCount && name === SERVER_VISITS_NAME && bucket !== undefined && bucket <= olderCount.to) {
+      return [formatTooltipValue(value), OLDER_SERVER_VISITS_NAME] as [string, string]
+    }
+    return formatTooltipValue(value)
+  }
 
   const trends = (events.data as { series?: { trends?: Record<string, Trend | null> } } | undefined)?.series?.trends
 
@@ -199,11 +249,12 @@ export function AiTrafficHistoryPanel({
       aiUserFetchHits: pt.measured !== false ? num(pt.aiUserFetchHits) : null,
       aiReferralLandedHits: pt.measured !== false ? num(pt.aiReferralLandedHits) : null,
       ga4Visits: gaByDate.get(pt.bucket) ?? null,
+      ga4Trend: ga4TrendAt(gaTrend, pt.bucket),
       crawlTrend: crawlTrend[i],
       fetchTrend: fetchTrend[i],
       visitTrend: visitTrend[i],
     }))
-  }, [points, gaByDate, trends])
+  }, [points, gaByDate, gaTrend, trends])
 
   // Read from the response rather than re-summed here. AGENTS.md UI/CLI parity:
   // a component must not aggregate. The two also disagree — `totals` covers the
@@ -295,8 +346,11 @@ export function AiTrafficHistoryPanel({
             {
               label: 'AI visitors',
               value: formatNumber(totals.visits),
-              detail: 'arrived from an AI answer',
-              tooltip: 'Visits your server answered that came from an AI engine. Requests answered with a redirect are excluded: a redirect is a hop, not an arrival.',
+              detail: olderCount ? 'older days may read high' : 'arrived from an AI answer',
+              tooltip: 'Visits your server answered that came from an AI engine. Requests answered with a redirect are excluded: a redirect is a hop, not an arrival.'
+                + (olderCount
+                  ? ` Days through ${formatChartDateLabel(olderCount.to)} were counted by an older rule that also counted a visitor's later pages, so they can read high and cannot be recounted.`
+                  : ''),
             },
           ]}
         />
@@ -396,8 +450,10 @@ export function AiTrafficHistoryPanel({
           formatOption={(src) => (src === 'ga4' ? 'GA4' : src === 'both' ? 'Both' : 'Server')}
         />
       </div>
-      <ResponsiveContainer width="100%" height={176}>
-        <ComposedChart data={chartRows} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+      <ResponsiveContainer width="100%" height={olderCountShown ? 192 : 176}>
+        {/* Extra top margin holds the older-count label above the plot, where
+            the line can never run through it. */}
+        <ComposedChart data={chartRows} margin={{ top: olderCountShown ? 20 : 4, right: 8, left: -18, bottom: 0 }}>
           <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
           <XAxis dataKey="bucket" tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE}
                  tickFormatter={formatChartDateTick} minTickGap={28} />
@@ -406,15 +462,26 @@ export function AiTrafficHistoryPanel({
                            labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
                            itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
                            labelFormatter={formatChartDateLabel}
-                           formatter={formatTooltipValue} />
+                           formatter={visitsTooltipFormatter} />
           {unmeasured && (
             <ReferenceArea x1={unmeasured.from} x2={unmeasured.to} fill="var(--color-overlay-hover)"
                            fillOpacity={0.5} stroke="none"
                            label={{ value: 'not measured', position: 'insideTop', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
           )}
+          {/* Only where the server line is drawn: GA4 never used this rule. The
+              dashed line marks the day the count changed, so the boundary reads
+              even where the shading is faint. */}
+          {olderCount && olderCountShown && (
+            <ReferenceArea x1={olderCount.from} x2={olderCount.to} fill="var(--color-overlay-hover)"
+                           fillOpacity={0.3} stroke="none"
+                           label={{ value: 'older server count, may read high', position: 'top', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
+          )}
+          {olderCount && olderCountShown && (
+            <ReferenceLine x={olderCount.to} stroke={COUNT_CHANGE_COLOR} strokeDasharray="4 4" strokeWidth={1.5} />
+          )}
           <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14} />
           {visitSource !== 'ga4' && (
-            <Line type="monotone" dataKey="aiReferralLandedHits" name="Visits, server"
+            <Line type="monotone" dataKey="aiReferralLandedHits" name={SERVER_VISITS_NAME}
                   stroke={VISIT_COLOR} strokeWidth={2} dot={false} />
           )}
           {visitSource !== 'server' && (
@@ -425,6 +492,11 @@ export function AiTrafficHistoryPanel({
           {showTrend && visitSource !== 'ga4' && (
             <Line type="linear" dataKey="visitTrend" legendType="none" name="Visits trend" dot={false} tooltipType="none"
                   stroke={VISIT_COLOR} strokeWidth={1.3} strokeDasharray="5 4" connectNulls />
+          )}
+          {showTrend && visitSource !== 'server' && (
+            // Dotted, not dashed: the GA4 visits line is already dashed.
+            <Line type="linear" dataKey="ga4Trend" legendType="none" name="GA4 visits trend" dot={false} tooltipType="none"
+                  stroke={GA4_COLOR} strokeWidth={1.6} strokeDasharray="1 4" strokeLinecap="round" connectNulls />
           )}
         </ComposedChart>
       </ResponsiveContainer>

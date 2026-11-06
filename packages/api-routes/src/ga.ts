@@ -3,7 +3,7 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaWindowMetrics, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@canonry/canonry-db'
-import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames } from '@canonry/canonry-contracts'
+import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames, linearTrend, type GA4AiReferralDailyTrend } from '@canonry/canonry-contracts'
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@canonry/canonry-contracts'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
@@ -67,6 +67,37 @@ function formatSharePct(numerator: number, total: number): string {
 function withSessionShares<T extends { sessions: number }>(rows: readonly T[]): Array<T & { share: number }> {
   const shares = breakdownShares(rows.map((row) => row.sessions))
   return rows.map((row, index) => ({ ...row, share: shares[index] ?? 0 }))
+}
+
+const DAY_MS = 86_400_000
+/** Most recent UTC days GA4 is still filling: left out of a fitted line. */
+const GA_TREND_FILLING_DAYS = 2
+
+/**
+ * Least-squares fit of daily AI sessions over complete GA4 days. A day counts
+ * when GA4 reported the site's daily total for it, which makes a date with no
+ * AI row a measured zero. Days before the project's first stored AI row are
+ * left out, since that history may never have been synced for AI, and so are
+ * the last two UTC days. Positions keep their calendar gaps, as in
+ * `linearTrend`.
+ */
+export function aiReferralDailyTrend(
+  days: readonly { date: string, sessions: number }[],
+  measuredDates: readonly string[],
+  firstAiDate: string | null,
+  now: Date,
+): GA4AiReferralDailyTrend | null {
+  if (!firstAiDate) return null
+  const fillingFrom = new Date(Date.parse(now.toISOString().slice(0, 10)) - (GA_TREND_FILLING_DAYS - 1) * DAY_MS).toISOString().slice(0, 10)
+  const usable = [...new Set(measuredDates)].filter(date => date >= firstAiDate && date < fillingFrom).sort()
+  if (usable.length < 2) return null
+  const sessionsByDate = new Map(days.map(day => [day.date, day.sessions]))
+  const measured = new Set(usable)
+  const firstMs = Date.parse(`${usable[0]}T00:00:00.000Z`)
+  const length = Math.round((Date.parse(`${usable[usable.length - 1]}T00:00:00.000Z`) - firstMs) / DAY_MS) + 1
+  const axis = Array.from({ length }, (_, i) => new Date(firstMs + i * DAY_MS).toISOString().slice(0, 10))
+  const fit = linearTrend(axis.map(date => (measured.has(date) ? sessionsByDate.get(date) ?? 0 : null)))
+  return fit ? { ...fit, startDate: axis[fit.startIndex]!, endDate: axis[fit.endIndex]! } : null
 }
 
 // Inclusive `date >= start` / `date <= end` predicates for a resolved range.
@@ -1900,7 +1931,13 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .where(and(...conditions))
       .all()
 
-    return buildAiReferralDailySeries(rows)
+    const series = buildAiReferralDailySeries(rows)
+    const measuredDates = app.db.selectDistinct({ date: gaDailyTotals.date }).from(gaDailyTotals)
+      .where(and(eq(gaDailyTotals.projectId, project.id), ...dateRangeConditions(gaDailyTotals.date, range)))
+      .all().map(row => row.date)
+    const firstAiDate = app.db.select({ date: sql<string | null>`MIN(${gaAiReferrals.date})` })
+      .from(gaAiReferrals).where(eq(gaAiReferrals.projectId, project.id)).get()?.date ?? null
+    return { ...series, trend: aiReferralDailyTrend(series.days, measuredDates, firstAiDate, new Date()) }
   })
 
   // GET /projects/:name/ga/social-referral-history
