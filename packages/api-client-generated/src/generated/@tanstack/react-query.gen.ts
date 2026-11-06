@@ -3595,6 +3595,8 @@ export const getApiV1ProjectsByNameAnalyticsMetricsQueryKey = (options: Options<
 
 /**
  * Get citation trend analytics
+ *
+ * Citation + mention rates over the window, overall, per provider, and per time bucket. The cited rate leaves out answers written with no web search (`retrievalStatus = 'not-used'`, counted as `excludedNoRetrieval`): they cite nothing by construction, so counting them would read an unsearched answer as a searched miss. `total` is every snapshot observed — the mention denominator, since brand recall does not need search — so `cited / total` is not the cited rate when `excludedNoRetrieval` is nonzero.
  */
 export const getApiV1ProjectsByNameAnalyticsMetricsOptions = (options: Options<GetApiV1ProjectsByNameAnalyticsMetricsData>) => queryOptions<GetApiV1ProjectsByNameAnalyticsMetricsResponse, GetApiV1ProjectsByNameAnalyticsMetricsError, GetApiV1ProjectsByNameAnalyticsMetricsResponse, ReturnType<typeof getApiV1ProjectsByNameAnalyticsMetricsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

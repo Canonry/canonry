@@ -1,4 +1,4 @@
-import { buildModelChangeNotice, formatPercent, formatSignedPointDelta, queryClassFilterSchema, type ModelPointerChangeDisclosure, type QueryClassFilter, type WindowRateChange } from '@canonry/canonry-contracts'
+import { buildModelChangeNotice, excludedNoRetrievalLabel, formatPercent, formatSignedPointDelta, queryClassFilterSchema, type ModelPointerChangeDisclosure, type QueryClassFilter, type WindowRateChange } from '@canonry/canonry-contracts'
 import { createApiClient, type BrandMetricsDto, type GapAnalysisDto, type SourceBreakdownDto } from '../client.js'
 import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 
@@ -118,6 +118,11 @@ function printMetrics(data: BrandMetricsDto): void {
   }
 
   console.log(`  Overall: ${formatPercent(data.overall.citationRate)} (${data.overall.cited}/${data.overall.total})`)
+  // The (cited/total) pair is the mention population, not the cited
+  // denominator: no-retrieval answers leave the cited rate but stay in the
+  // total, so name them before the reader does the division themselves.
+  const excludedLabel = excludedNoRetrievalLabel(data.overall)
+  if (excludedLabel !== null) console.log(`  ${excludedLabel}`)
   console.log(`  Trend:   ${data.trend}`)
   printWindowChange(data)
 

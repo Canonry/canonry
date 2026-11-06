@@ -3129,6 +3129,8 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/analytics/metrics',
     summary: 'Get citation trend analytics',
+    description:
+      'Citation + mention rates over the window, overall, per provider, and per time bucket. The cited rate leaves out answers written with no web search (`retrievalStatus = \'not-used\'`, counted as `excludedNoRetrieval`): they cite nothing by construction, so counting them would read an unsearched answer as a searched miss. `total` is every snapshot observed — the mention denominator, since brand recall does not need search — so `cited / total` is not the cited rate when `excludedNoRetrieval` is nonzero.',
     tags: ['analytics'],
     parameters: [nameParameter, analyticsWindowParameter, metricsQueryClassParameter],
     responses: {
