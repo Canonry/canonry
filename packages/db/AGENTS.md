@@ -275,3 +275,7 @@ retry runs at the end of its refresh, and a retry is never retried.
 for which attempt counts: a retry replaces its first attempt unless it was
 cancelled. Status, counts and evidence read through it; operator receipts still
 see every paid attempt.
+
+### GA4 sync coverage
+
+Migration 211 adds `ga_sync_coverage`: one receipt per project/component/day, with property and definition identity, maturity and sync time. Empty successful reports create receipts too. A receipt is committed with its data and deleted with GA property data or its sync run. Historical rows are not assumed complete during migration.

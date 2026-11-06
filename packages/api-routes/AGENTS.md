@@ -625,15 +625,19 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 `src/ga.ts` (Google Analytics 4 routes): **ONE WINDOW PER RESPONSE.**
 
 - `/ga/traffic` resolves a single `measuredRange` before it builds any query, and the snapshot, AI-referral, and social-referral predicates all derive from it; `windowStart` / `windowEnd` / `windowDays` report it, and `periodStart` / `periodEnd` are retained aliases.
-- Exact 7d/30d/90d reads may use the matching precomputed summary for the denominator and deduplicated users.
+- Exact 7d/30d/90d/180d reads may use the matching precomputed summary for the denominator and deduplicated users.
 - `all` and an omitted window mean full retained history: totals and sibling history routes stay unbounded.
 - The latest sync summary may supply deduplicated users only when its dates cover every retained detail row; otherwise `totalUsers` is null. Never use that summary to narrow `all`.
 - Any new figure added to `/ga/traffic`, and any new route whose numbers are read beside it, must use the same resolved range.
 - Row shares are computed here, never in a surface: each `aiReferrals` / `socialReferrals` row's `share` comes from `breakdownShares`, so a table adds up to 1 (AI rows over their own sum, which can sit below `aiSessionsDeduped` because that total picks the winning lens per day), and each top page's `organicShare` from `shareOf`.
 
+### GA4 incremental sync
+
+`ga-sync-coverage.ts` records successful queried days per project, GA4 property, reporting time zone, component and definition, including empty days. A sync fetches missing ranges and the latest two weeks; a day fetched while still recent is fetched again before it becomes reusable. Older receipts expire after 30 days for reconciliation. Save receipts in the same transaction as their rows, never after a failed/truncated fetch. Keep native whole-window summaries for distinct users and rates. Definition changes (including counted lead events) invalidate reuse. Property changes/disconnect clear coverage with the data. Existing rows without receipts get one full fetch.
+
 ### GA4 property-bound data
 
-`src/ga-property-data.ts`. GA rows record no GA4 property (only the landing-page windows do), so a project's GA data must come from the one property it resolves to now (`resolveCurrentGa4PropertyId`: its service account, then its domain's OAuth `ga4` connection).
+`src/ga-property-data.ts`. GA rows record no GA4 property (only the landing-page windows and sync coverage do), so a project's GA data must come from the one property it resolves to now (`resolveCurrentGa4PropertyId`: its service account, then its domain's OAuth `ga4` connection).
 
 - `GA_PROPERTY_TABLES` lists every table a sync fills, `ga_measurement_sync_state` included: its timestamps would turn the new property's first sync into an incremental one. Add a new GA table there; `ga-property-data.test.ts` reads every `ga_*` table from the schema and fails on one a clear leaves behind.
 - `ga disconnect` clears the project with `clearGaPropertyData`. Every other GA4 connection write reads the affected projects' properties first (`readGa4Properties`), then calls `clearGaDataOnPropertyChange` in the transaction that writes its audit entry: `ga connect` (both paths) and the Google routes for `ga4` (OAuth callback, `DELETE /google/connections/ga4`, `PUT .../ga4/property`). A new write path does the same.

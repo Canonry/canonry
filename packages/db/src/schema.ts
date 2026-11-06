@@ -2095,6 +2095,21 @@ export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
   index('idx_ga_traffic_run').on(table.syncRunId),
 ])
 
+/** Successful queried days, including empty days; never inferred from traffic rows. */
+export const gaSyncCoverage = sqliteTable('ga_sync_coverage', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  component: text('component').notNull(),
+  syncRunId: text('sync_run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  propertyId: text('property_id').notNull(),
+  definition: text('definition').notNull(),
+  settled: integer('settled', { mode: 'boolean' }).notNull(),
+  syncedAt: text('synced_at').notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.projectId, t.component, t.date] }),
+  index('idx_ga_sync_coverage_run').on(t.syncRunId),
+])
+
 /**
  * Property-level GA4 totals for one day, fetched with NO landing-page
  * dimension — the daily counterpart to `ga_summaries`' windowed totals.

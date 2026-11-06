@@ -102,7 +102,7 @@ GA4 connected for project "ainyc" (property 527609434).
 The **Traffic** tab on each project page provides:
 
 - **Connection status** — shows the connected property ID and service account email
-- **Traffic overview** — total sessions, organic sessions, and total users
+- **Site traffic**: GA4 totals and daily charts for 7, 30, 90 or 180 days, compared with the previous period of the same length. Select a range and click Sync to refresh its traffic details.
 - **Top landing pages table** — sortable by sessions, organic sessions, users, and organic percentage
 - **Google organic search traffic**: GA4's "Google organic search traffic: Landing page + query string" report (clicks, impressions, CTR, average position and active users per landing page, with GA4's own Total row) for the last 7, 28 or 90 days. Needs the property's Search Console link; see [Search Console landing pages](#search-console-landing-pages).
 - **Sync** — pull the latest traffic data from GA4
@@ -113,6 +113,12 @@ The **Traffic** tab on each project page provides:
 ```bash
 # Sync last 30 days of traffic data
 canonry ga sync ainyc
+
+# Read six months against the previous six months
+canonry ga overview ainyc --window 180d
+
+# Refresh six months of traffic details
+canonry ga sync ainyc --days 180
 
 # Show top landing pages by sessions
 canonry ga traffic ainyc
@@ -200,3 +206,5 @@ property, or disconnecting it, deletes them with the rest of its GA data; the
 next sync fills them from the property it uses now. GA4 can threshold or fold
 long tails into `(other)`; these are reported sessions, not a reconciliation
 with other GA totals.
+
+GA4 syncs reuse previously fetched daily data when you widen the range. They fetch missing dates, refresh the latest two weeks for late updates, and reconcile older dates monthly. Unique-user totals and rates still come from GA4 reports for each complete window. The first sync after upgrading establishes coverage; existing rows alone do not prove that a day was fully fetched.

@@ -91,7 +91,7 @@ describe('seedDemoSignals', () => {
       // Every daily total a sync keeps, so each overview window has its previous period.
       expect(db.select().from(gaDailyTotals).where(eq(gaDailyTotals.projectId, project.id)).all()).toHaveLength(GA_OVERVIEW_HISTORY_DAYS)
       // Both periods of each overview window.
-      expect(db.select().from(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, project.id)).all()).toHaveLength(6)
+      expect(db.select().from(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, project.id)).all()).toHaveLength(8)
       expect(db.select().from(gaAiReferrals).where(eq(gaAiReferrals.projectId, project.id)).all().length).toBeGreaterThan(1)
       expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.projectId, project.id)).get()?.complete).toBe(true)
       expect(db.select().from(siteCrawlGraphNodes).where(eq(siteCrawlGraphNodes.projectId, project.id)).all().length).toBeGreaterThan(2)

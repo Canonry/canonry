@@ -603,7 +603,7 @@ async function submitGscSitemapsFromMcp(
 // over `window` server-side.
 const gaWindowInputSchema = z.object({
   project: projectNameSchema,
-  window: analyticsWindowSchema.optional(),
+  window: z.enum(WINDOW_SETS.gaTraffic).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
 })
@@ -2870,7 +2870,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_ga_overview',
     title: 'Get the GA4 overview',
-    description: 'Get GA4\'s overview for a window (7d, 30d or 90d of complete days ending yesterday, as GA4 counts them): users, new users, sessions, organic sessions, views, event count, key events, engagement rate, bounce rate and average engagement time, each against the previous period, plus both periods by day.',
+    description: 'Get GA4\'s overview for a window (7d, 30d, 90d or 180d of complete days ending yesterday, as GA4 counts them): users, new users, sessions, organic sessions, views, event count, key events, engagement rate, bounce rate and average engagement time, each against the previous period, plus both periods by day.',
     access: 'read',
     tier: 'ga',
     inputSchema: gaOverviewInputSchema,

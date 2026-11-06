@@ -7049,7 +7049,7 @@ export type Ga4SessionHistoryEntry = {
 };
 
 export type GaOverviewResponse = {
-    window: '7d' | '30d' | '90d' | 'all';
+    window: '7d' | '30d' | '90d' | '180d' | 'all';
     current: {
         startDate: string | null;
         endDate: string | null;
@@ -34486,7 +34486,7 @@ export type GetApiV1ProjectsByNameGaTrafficData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -34533,7 +34533,7 @@ export type GetApiV1ProjectsByNameGaAiReferralHistoryData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -34580,7 +34580,7 @@ export type GetApiV1ProjectsByNameGaAiReferralDailyData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -34627,7 +34627,7 @@ export type GetApiV1ProjectsByNameGaSocialReferralHistoryData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -34742,14 +34742,14 @@ export type GetApiV1ProjectsByNameGaOverviewData = {
         /**
          * Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.
          */
-        window?: '7d' | '30d' | '90d';
+        window?: '7d' | '30d' | '90d' | '180d';
     };
     url: '/api/v1/projects/{name}/ga/overview';
 };
 
 export type GetApiV1ProjectsByNameGaOverviewErrors = {
     /**
-     * GA4 is not connected, or the window is not 7d, 30d or 90d.
+     * GA4 is not connected, or the window is not 7d, 30d, 90d or 180d.
      */
     400: ErrorEnvelope;
     /**
@@ -34781,7 +34781,7 @@ export type GetApiV1ProjectsByNameGaSessionHistoryData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */

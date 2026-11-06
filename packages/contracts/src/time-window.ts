@@ -4,7 +4,8 @@ import { validationError } from './errors.js'
 export const WINDOW_SETS = {
   metrics: ['7d', '30d', '90d', 'all'],
   gaMeasurementAnalysis: ['30d', '60d', '90d'],
-  gaOverview: ['7d', '30d', '90d'],
+  gaOverview: ['7d', '30d', '90d', '180d'],
+  gaTraffic: ['7d', '30d', '90d', '180d', 'all'],
   gaSearchLanding: ['7d', '28d', '90d'],
   googleAdsMetrics: ['7d', '14d', '30d'],
   trafficAnalytics: ['7d', '14d', '30d', '90d'],

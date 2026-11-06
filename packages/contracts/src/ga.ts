@@ -523,10 +523,10 @@ export const ga4SyncResponseDtoSchema = z.object({
   aiReferralCount: z.number().int().nonnegative(),
   socialReferralCount: z.number().int().nonnegative(),
   /**
-   * The window that was ACTUALLY fetched and written, in days — the request's
-   * `days` bounded to GA4's supported sync range (1–90). Read this, not
+   * The requested coverage window, in days — reused mature days plus fetched gaps. The request's
+   * `days` is bounded to GA4's supported sync range (1–180). Read this, not
    * `requestedDays`, when reporting or reasoning about coverage: a
-   * `--days 500` sync writes 90 days, and this field says 90.
+   * `--days 500` sync covers 180 days, and this field says 180.
    */
   days: z.number().int().nonnegative(),
   /** The window the caller asked for, before bounding. Equals `days` unless `clamped`. */
@@ -703,7 +703,7 @@ export const gaOverviewChangeSchema = z.object({
 export type GaOverviewChange = z.infer<typeof gaOverviewChangeSchema>
 
 /** The overview windows, in days. */
-export const GA_OVERVIEW_WINDOW_DAYS = { '7d': 7, '30d': 30, '90d': 90 } as const
+export const GA_OVERVIEW_WINDOW_DAYS = { '7d': 7, '30d': 30, '90d': 90, '180d': 180 } as const
 export type GaOverviewWindow = keyof typeof GA_OVERVIEW_WINDOW_DAYS
 export const GA_OVERVIEW_WINDOWS: readonly GaOverviewWindow[] = WINDOW_SETS.gaOverview
 
@@ -715,7 +715,7 @@ export function isGaOverviewWindow(value: unknown): value is GaOverviewWindow {
  * Days of GA4 daily totals a sync keeps: the longest window and the period of
  * the same length before it.
  */
-export const GA_OVERVIEW_HISTORY_DAYS = 2 * GA_OVERVIEW_WINDOW_DAYS['90d']
+export const GA_OVERVIEW_HISTORY_DAYS = 2 * GA_OVERVIEW_WINDOW_DAYS['180d']
 
 /**
  * A window and the period of the same length just before it, as days before
@@ -774,7 +774,7 @@ export const gaOverviewDaySchema = z.object({
 export type GaOverviewDay = z.infer<typeof gaOverviewDaySchema>
 
 export const gaOverviewResponseSchema = z.object({
-  window: metricsWindowSchema,
+  window: z.enum(WINDOW_SETS.gaTraffic),
   current: gaOverviewPeriodSchema,
   /** The period just before `current`, of the same length. */
   previous: gaOverviewPeriodSchema,

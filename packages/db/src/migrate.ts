@@ -5330,6 +5330,24 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE schedules ADD COLUMN site_audit_checks TEXT`,
     ],
   },
+  {
+    version: 211,
+    name: 'ga-sync-coverage',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ga_sync_coverage (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        component TEXT NOT NULL,
+        sync_run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        definition TEXT NOT NULL,
+        settled INTEGER NOT NULL,
+        synced_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, component, date)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_sync_coverage_run ON ga_sync_coverage(sync_run_id)`,
+    ],
+  },
 ]
 
 /**

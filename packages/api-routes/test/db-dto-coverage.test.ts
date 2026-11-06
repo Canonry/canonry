@@ -848,6 +848,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Typed GA4 attributed lead-event foundation; its public read model lands in the follow-up measurement API PR.',
   },
+  gaSyncCoverage: {
+    kind: 'internal-only',
+    reason: 'Per-day ingestion receipts decide which GA4 dates to fetch; report values remain on the existing GA DTOs.',
+  },
   gaMeasurementSyncStates: {
     kind: 'internal-only',
     reason: 'Component-level sync completeness and error state backing the follow-up measurement API.',
