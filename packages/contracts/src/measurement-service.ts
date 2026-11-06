@@ -174,13 +174,17 @@ export type MeasurementMetricReason = z.infer<typeof measurementMetricReasonSche
 
 /**
  * A rate is either measured or wholly unavailable. A missing answer never
- * shrinks a denominator. Two kinds of saved answer leave both sides of a rate
- * and are counted beside it instead (absent means none):
+ * shrinks a denominator. Saved answers leave both sides of a rate and are
+ * counted beside it instead (absent means none):
  * - `unattributed`, on a mention rate: the answer's identity could not be tied
  *   to one Property.
  * - `unchecked`, on a citation rate: the answer's source-link capture was
  *   incomplete. A link it did capture is not counted either.
- * One rate reads one signal, so the two never appear together.
+ * - `excludedNoRetrieval`, on a citation rate: the provider wrote the answer
+ *   with no web search, so it cites nothing by construction and is not a
+ *   searched miss. It may share a citation rate with `unchecked`; it never
+ *   shares a rate with the mention-side `unattributed`.
+ * One rate reads one signal, so mention and citation counts never appear together.
  */
 export const measurementRateSchema = z.union([
   z.object({
@@ -189,6 +193,7 @@ export const measurementRateSchema = z.union([
     rate: fraction(z.number().min(0).max(1)),
     unattributed: z.number().int().positive().optional(),
     unchecked: z.number().int().positive().optional(),
+    excludedNoRetrieval: z.number().int().positive().optional(),
   }).strict(),
   z.object({
     numerator: z.null(),
@@ -202,6 +207,9 @@ export const measurementRateSchema = z.union([
   }
   if (value.numerator !== null && value.unattributed !== undefined && value.unchecked !== undefined) {
     ctx.addIssue({ code: 'custom', path: ['unchecked'], message: 'A rate reads one signal: unattributed (mention) and unchecked (citation) cannot share it' })
+  }
+  if (value.numerator !== null && value.unattributed !== undefined && value.excludedNoRetrieval !== undefined) {
+    ctx.addIssue({ code: 'custom', path: ['excludedNoRetrieval'], message: 'A rate reads one signal: unattributed (mention) and excludedNoRetrieval (citation) cannot share it' })
   }
 })
 export type MeasurementRate = z.infer<typeof measurementRateSchema>
