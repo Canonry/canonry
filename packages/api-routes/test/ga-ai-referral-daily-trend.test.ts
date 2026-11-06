@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { linearTrend } from '@canonry/canonry-contracts'
-import { aiReferralDailyTrend } from '../src/ga.js'
+import { calendarDateRange, linearTrend } from '@canonry/canonry-contracts'
+import { aiReferralDailyTrend, aiReferralMonthlySeries } from '../src/ga.js'
 
 /**
  * GA4 counted AI sessions the same way the whole time, so its fitted line can
@@ -33,5 +33,134 @@ describe('aiReferralDailyTrend', () => {
   it('returns null without enough complete days', () => {
     expect(aiReferralDailyTrend(days, measured, null, now)).toBeNull()
     expect(aiReferralDailyTrend(days, ['2026-11-04', '2026-11-05', '2026-11-06'], '2026-10-01', now)).toBeNull()
+  })
+})
+
+/**
+ * Months fold the same deduped days, so each month's sessions are the sum of
+ * its days and its engines add up to it. A month counts as complete only when
+ * the range and GA4's own history hold all of it and none of it is filling;
+ * the line runs through the complete months.
+ */
+describe('aiReferralMonthlySeries', () => {
+  const now = new Date('2026-11-06T15:00:00.000Z')
+  const day = (date: string, sessions: number, engines: Record<string, number> = { chatgpt: sessions }) =>
+    ({ date, sessions, values: engines })
+  const engineDays = [
+    day('2026-04-28', 10), // GA4 history starts mid-April: April is not a whole month
+    day('2026-05-10', 80, { chatgpt: 70, claude: 10 }),
+    day('2026-06-10', 90),
+    day('2026-07-10', 100, { chatgpt: 90, gemini: 10 }),
+    day('2026-08-10', 110),
+    day('2026-09-10', 120),
+    day('2026-10-10', 130, { chatgpt: 120, perplexity: 10 }),
+    day('2026-11-02', 20), // still running
+  ]
+  const measured = calendarDateRange('2026-04-27', '2026-11-06')
+  const input = (firstAiDate = '2026-04-28') => ({
+    days: engineDays.map(({ date, sessions }) => ({ date, sessions })),
+    byEngine: {
+      series: [{ key: 'chatgpt', label: 'ChatGPT' }, { key: 'claude', label: 'Claude' }, { key: 'gemini', label: 'Gemini' }, { key: 'perplexity', label: 'Perplexity' }],
+      days: engineDays.map(({ date, values }) => ({ date, values })),
+    },
+    measuredDates: measured,
+    range: { startDate: '2026-03-01', endDate: null },
+    firstAiDate,
+    now,
+  })
+
+  it('folds days into months with completeness and engines', () => {
+    const { months } = aiReferralMonthlySeries(input())
+    expect(months.map(m => [m.month, m.sessions, m.complete])).toEqual([
+      ['2026-03', null, false],
+      ['2026-04', 10, false],
+      ['2026-05', 80, true],
+      ['2026-06', 90, true],
+      ['2026-07', 100, true],
+      ['2026-08', 110, true],
+      ['2026-09', 120, true],
+      ['2026-10', 130, true],
+      ['2026-11', 20, false],
+    ])
+    expect(months.find(m => m.month === '2026-10')!.engines).toEqual([
+      { key: 'chatgpt', label: 'ChatGPT', sessions: 120 },
+      { key: 'perplexity', label: 'Perplexity', sessions: 10 },
+    ])
+    for (const m of months) expect(m.engines.reduce((sum, e) => sum + e.sessions, 0)).toBe(m.sessions ?? 0)
+  })
+
+  it('fits the complete months, with the change of the fitted line', () => {
+    // May to October, 80 rising 10 a month to 130: up 62.5%.
+    expect(aiReferralMonthlySeries(input()).monthlyTrend).toEqual({
+      slope: 10, intercept: 60, r2: 1, start: 80, end: 130, n: 6, startIndex: 2, endIndex: 7,
+      startMonth: '2026-05', endMonth: '2026-10', changePct: 62.5,
+    })
+  })
+
+  it('keeps a month cut off by the requested end date out of the trend', () => {
+    const fixture = input()
+    const range = { startDate: '2026-05-01', endDate: '2026-10-15' }
+    // The route supplies only rows inside the inclusive requested dates.
+    const inRange = (date: string) => date >= range.startDate && date <= range.endDate
+    const { months, monthlyTrend } = aiReferralMonthlySeries({
+      ...fixture,
+      range,
+      days: fixture.days.filter(day => inRange(day.date)),
+      byEngine: { ...fixture.byEngine, days: fixture.byEngine.days.filter(day => inRange(day.date)) },
+      measuredDates: fixture.measuredDates.filter(inRange),
+    })
+    expect(months.map(month => [month.month, month.sessions, month.complete])).toEqual([
+      ['2026-05', 80, true], ['2026-06', 90, true], ['2026-07', 100, true],
+      ['2026-08', 110, true], ['2026-09', 120, true], ['2026-10', 130, false],
+    ])
+    expect(monthlyTrend).toMatchObject({
+      n: 5, start: 80, end: 120, slope: 10,
+      startMonth: '2026-05', endMonth: '2026-09', changePct: 50,
+    })
+  })
+
+  it.each([
+    { name: 'the last sync stopped midmonth', reportedThrough: '2026-10-15', missingDate: null },
+    { name: 'a daily total is missing inside the month', reportedThrough: '2026-11-06', missingDate: '2026-10-15' },
+  ])('marks a past month partial when $name', ({ reportedThrough, missingDate }) => {
+    const fixture = input()
+    const { months, monthlyTrend } = aiReferralMonthlySeries({
+      ...fixture,
+      days: fixture.days.filter(day => day.date <= reportedThrough),
+      byEngine: { ...fixture.byEngine, days: fixture.byEngine.days.filter(day => day.date <= reportedThrough) },
+      measuredDates: fixture.measuredDates.filter(date => date <= reportedThrough && date !== missingDate),
+    })
+    expect(months.find(month => month.month === '2026-10')).toEqual({
+      month: '2026-10', sessions: 130, complete: false,
+      engines: [{ key: 'chatgpt', label: 'ChatGPT', sessions: 120 }, { key: 'perplexity', label: 'Perplexity', sessions: 10 }],
+    })
+    expect(monthlyTrend).toMatchObject({
+      n: 5, start: 80, end: 120, slope: 10,
+      startMonth: '2026-05', endMonth: '2026-09', changePct: 50,
+    })
+  })
+
+  it('keeps a fully measured first month when its first AI visit arrives midmonth', () => {
+    const fixture = input('2026-05-10')
+    const firstMeasuredDate = '2026-05-01'
+    const { months, monthlyTrend } = aiReferralMonthlySeries({
+      ...fixture,
+      range: { startDate: null, endDate: null },
+      days: fixture.days.filter(day => day.date >= firstMeasuredDate),
+      byEngine: { ...fixture.byEngine, days: fixture.byEngine.days.filter(day => day.date >= firstMeasuredDate) },
+      measuredDates: fixture.measuredDates.filter(date => date >= firstMeasuredDate),
+    })
+    expect(months[0]).toEqual({
+      month: '2026-05', sessions: 80, complete: true,
+      engines: [{ key: 'chatgpt', label: 'ChatGPT', sessions: 70 }, { key: 'claude', label: 'Claude', sessions: 10 }],
+    })
+    expect(monthlyTrend).toMatchObject({
+      n: 6, start: 80, end: 130, slope: 10,
+      startMonth: '2026-05', endMonth: '2026-10', changePct: 62.5,
+    })
+  })
+
+  it('has no line with fewer than two complete months', () => {
+    expect(aiReferralMonthlySeries(input('2026-10-01')).monthlyTrend).toBeNull()
   })
 })

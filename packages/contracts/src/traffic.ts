@@ -670,14 +670,14 @@ export function parseTrafficEventKindFilter(value: string): TrafficEventKind[] |
   return kinds.length > 0 ? kinds : null
 }
 
-export const trafficSeriesGranularitySchema = z.enum(['hour', 'day'])
+export const trafficSeriesGranularitySchema = z.enum(['hour', 'day', 'month'])
 export type TrafficSeriesGranularity = z.infer<typeof trafficSeriesGranularitySchema>
 export const TrafficSeriesGranularities = trafficSeriesGranularitySchema.enum
 
 export const trafficSeriesPointSchema = z.object({
   /**
-   * UTC bucket key: an ISO hour for hourly series, or `YYYY-MM-DD` for daily
-   * series. The response includes zero-value buckets across the full window.
+   * UTC bucket key: an ISO hour for hourly series, `YYYY-MM-DD` for daily
+   * series, or `YYYY-MM` for monthly series. The response includes zero-value buckets across the full window.
    */
   bucket: z.string(),
   crawlerHits: z.number().int().nonnegative(),
@@ -803,6 +803,13 @@ export const trafficEventsResponseSchema = z.object({
      * or after it. Optional so a newer client reads an older API.
      */
     aiReferralCountingChangedAt: z.string().nullable().optional(),
+    /**
+     * Buckets holding only part of their period: the one recording began
+     * inside, and the newest while it is still running. Trend fits leave them
+     * out; a chart should not draw them as full readings. Optional so a newer
+     * client reads an older API.
+     */
+    partialBuckets: z.array(z.string()).optional(),
     /**
      * Least-squares fit per charted metric, over the densified points.
      *

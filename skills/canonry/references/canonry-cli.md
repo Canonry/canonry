@@ -1075,6 +1075,7 @@ cnry traffic sources <project> --format json
 cnry traffic status <project> --format json
 cnry traffic analytics <project> --period 30 --format json    # complete 7|14|30|90-day totals, prior-period changes and breakdowns
 cnry traffic events <project> --source <source-id> --format json
+cnry traffic events <project> --kind ai-referral --since 2025-12-01T00:00:00Z --granularity month --format json   # series by UTC month; series.partialBuckets names part months (recording began inside, or still running), left out of the fits
 cnry traffic referral-assessment <project> --start-date 2026-08-01 --end-date 2026-08-31 --burst-threshold 100 --ratio-threshold 3 --limit 100 --format json
 cnry traffic declare-gap <project> --source <source-id>   # record an unrecovered skip as lost (WordPress, or past provider retention); clears the doctor check
 
@@ -1222,6 +1223,11 @@ cnry ga ai-referral-daily <project> [--window 30d] [--start YYYY-MM-DD] [--end Y
                                                   # Use this for any AI session COUNT. Sessions only: GA
                                                   # counts users DISTINCT per grain, so an AI-referral user
                                                   # count cannot be summed from these rows or fetched.
+                                                  # months[] folds the same days by calendar month
+                                                  # ({month, sessions, complete, engines[]}) and
+                                                  # monthlyTrend fits the complete months
+                                                  # (changePct = fitted end vs start).
+                                                  # Pass --start YYYY-MM-01 for whole months.
 cnry ga ai-referral-history <project> [--window 30d] [--start YYYY-MM-DD] [--end YYYY-MM-DD]
                                                   # RAW DETAIL, one row per (day × source × dimension ×
                                                   # landing page): {date, source, medium, attribution,

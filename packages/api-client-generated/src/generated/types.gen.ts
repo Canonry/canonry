@@ -6826,6 +6826,29 @@ export type Ga4AiReferralDailyDto = {
         startDate: string;
         endDate: string;
     } | null;
+    months?: Array<{
+        month: string;
+        sessions: number | null;
+        complete: boolean;
+        engines: Array<{
+            key: string;
+            label: string;
+            sessions: number;
+        }>;
+    }>;
+    monthlyTrend?: {
+        slope: number;
+        intercept: number;
+        r2: number;
+        start: number;
+        end: number;
+        n: number;
+        startIndex: number;
+        endIndex: number;
+        startMonth: string;
+        endMonth: string;
+        changePct: number | null;
+    } | null;
 };
 
 export type Ga4AiReferralHistoryEntry = {
@@ -17953,7 +17976,7 @@ export type TrafficEventsResponse = {
     windowStart: string;
     windowEnd: string;
     series: {
-        granularity: 'hour' | 'day';
+        granularity: 'hour' | 'day' | 'month';
         points: Array<{
             bucket: string;
             crawlerHits: number;
@@ -17965,6 +17988,7 @@ export type TrafficEventsResponse = {
         }>;
         coverageStart: string | null;
         aiReferralCountingChangedAt?: string | null;
+        partialBuckets?: Array<string>;
         trends: {
             crawlerContentHits: {
                 slope: number;
@@ -37239,9 +37263,9 @@ export type GetApiV1ProjectsByNameTrafficEventsData = {
          */
         sourceId?: string;
         /**
-         * Full-window series bucket size: "hour" (default) or "day".
+         * Full-window series bucket size: "hour" (default), "day" or "month" (UTC calendar months).
          */
-        granularity?: 'hour' | 'day';
+        granularity?: 'hour' | 'day' | 'month';
     };
     url: '/api/v1/projects/{name}/traffic/events';
 };

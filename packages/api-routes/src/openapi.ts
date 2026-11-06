@@ -8038,7 +8038,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'kind', in: 'query', description: 'Filter to "crawler", "ai-user-fetch", "ai-referral", a comma-separated list of them (e.g. "ai-user-fetch,ai-referral"), or "all" (default). Rows, totals and series cover only the kinds asked for.', schema: stringSchema },
       { name: 'limit', in: 'query', description: 'Max newest combined detail rows in the events array (default 500, max 5000).', schema: stringSchema },
       { name: 'sourceId', in: 'query', description: 'Restrict to a single traffic source.', schema: stringSchema },
-      { name: 'granularity', in: 'query', description: 'Full-window series bucket size: "hour" (default) or "day".', schema: { type: 'string', enum: ['hour', 'day'] } },
+      { name: 'granularity', in: 'query', description: 'Full-window series bucket size: "hour" (default), "day" or "month" (UTC calendar months).', schema: { type: 'string', enum: ['hour', 'day', 'month'] } },
     ],
     responses: {
       200: jsonResponse('Events returned with windowed totals.', 'TrafficEventsResponse'),

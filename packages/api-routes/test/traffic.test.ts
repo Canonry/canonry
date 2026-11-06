@@ -6280,6 +6280,77 @@ describe('crawler-hit content/infra segmentation', () => {
     }
   })
 
+  /**
+   * Months are UTC calendar months. The month recording began inside and the
+   * month still running are named partial and left out of the fits.
+   *
+   * Fixture: recording begins May 25; visits 10 in June, 20 a month July to
+   * October, 3 so far in November. The fit is June to October.
+   */
+  it('buckets the series by month', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-06T13:45:00.000Z'))
+    const { h, source } = await emptySeriesHarness()
+    try {
+      insertSeriesReferralRows(h, source, [
+        { tsHour: '2026-05-25T10:00:00.000Z', hits: 5 },
+        { tsHour: '2026-06-10T10:00:00.000Z', hits: 10 },
+        ...['07', '08', '09', '10'].map(month => ({ tsHour: `2026-${month}-10T10:00:00.000Z`, hits: 20 })),
+        { tsHour: '2026-11-02T10:00:00.000Z', hits: 3 },
+      ])
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-04-01T00%3A00%3A00.000Z&granularity=month' })
+      expect(res.statusCode).toBe(200)
+      const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+      expect(body.series.granularity).toBe('month')
+      expect(body.series.points.map(p => [p.bucket, p.aiReferralLandedHits, p.measured])).toEqual([
+        ['2026-04', 0, false], ['2026-05', 5, true], ['2026-06', 10, true], ['2026-07', 20, true],
+        ['2026-08', 20, true], ['2026-09', 20, true], ['2026-10', 20, true], ['2026-11', 3, true],
+      ])
+      expect(body.totals.aiReferralLandedHits).toBe(98)
+      expect(body.series.points.reduce((sum, p) => sum + p.aiReferralLandedHits, 0), 'buckets sum to the total').toBe(body.totals.aiReferralLandedHits)
+      expect(body.series.partialBuckets).toEqual(['2026-05', '2026-11'])
+      expect(body.series.trends.aiReferralLandedHits).toEqual({
+        slope: 2, intercept: 10, r2: 0.5, start: 14, end: 22, n: 5, startIndex: 2, endIndex: 6,
+      })
+
+      // Prior coverage cannot make a requested slice of June a complete month.
+      for (const scenario of [
+        {
+          since: '2026-06-01T00:00:00.000Z', juneHits: 10, partialBuckets: ['2026-11'],
+          trend: { slope: 2, intercept: 14, r2: 0.5, start: 14, end: 22, n: 5, startIndex: 0, endIndex: 4 },
+        },
+        {
+          since: '2026-06-15T00:00:00.000Z', juneHits: 0, partialBuckets: ['2026-06', '2026-11'],
+          trend: { slope: 0, intercept: 20, r2: 1, start: 20, end: 20, n: 4, startIndex: 1, endIndex: 4 },
+        },
+      ]) {
+        const ranged = await h.app.inject({
+          method: 'GET',
+          url: `/api/v1/projects/test-project/traffic/events?since=${encodeURIComponent(scenario.since)}&granularity=month`,
+        })
+        expect(ranged.statusCode, scenario.since).toBe(200)
+        const rangedBody = trafficEventsResponseSchema.parse(JSON.parse(ranged.payload))
+        expect(rangedBody.series.coverageStart, scenario.since).toBe('2026-05-25T10:00:00.000Z')
+        expect(rangedBody.series.points.map(p => [p.bucket, p.aiReferralLandedHits, p.measured]), scenario.since).toEqual([
+          ['2026-06', scenario.juneHits, true], ['2026-07', 20, true], ['2026-08', 20, true],
+          ['2026-09', 20, true], ['2026-10', 20, true], ['2026-11', 3, true],
+        ])
+        expect(rangedBody.totals.aiReferralLandedHits, scenario.since).toBe(scenario.juneHits + 83)
+        expect(rangedBody.series.partialBuckets, scenario.since).toEqual(scenario.partialBuckets)
+        expect(rangedBody.series.trends.aiReferralLandedHits, scenario.since).toEqual(scenario.trend)
+      }
+    } finally { await h.close() }
+  })
+
+  it('refuses an unknown granularity', async () => {
+    const { h } = await emptySeriesHarness()
+    try {
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?granularity=week' })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.payload).error.message).toBe('"granularity" must be one of: hour, day, month')
+    } finally { await h.close() }
+  })
+
   it('rejects sinceMinutes rather than silently answering for 24 hours', async () => {
     const { h } = await mixedPathHarness()
     try {
