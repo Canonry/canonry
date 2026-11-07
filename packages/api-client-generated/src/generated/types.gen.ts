@@ -6814,6 +6814,41 @@ export type Ga4AiReferralDailyDto = {
             };
         }>;
     };
+    trend?: {
+        slope: number;
+        intercept: number;
+        r2: number;
+        start: number;
+        end: number;
+        n: number;
+        startIndex: number;
+        endIndex: number;
+        startDate: string;
+        endDate: string;
+    } | null;
+    months?: Array<{
+        month: string;
+        sessions: number | null;
+        complete: boolean;
+        engines: Array<{
+            key: string;
+            label: string;
+            sessions: number;
+        }>;
+    }>;
+    monthlyTrend?: {
+        slope: number;
+        intercept: number;
+        r2: number;
+        start: number;
+        end: number;
+        n: number;
+        startIndex: number;
+        endIndex: number;
+        startMonth: string;
+        endMonth: string;
+        changePct: number | null;
+    } | null;
 };
 
 export type Ga4AiReferralHistoryEntry = {
@@ -7049,7 +7084,7 @@ export type Ga4SessionHistoryEntry = {
 };
 
 export type GaOverviewResponse = {
-    window: '7d' | '30d' | '90d' | 'all';
+    window: '7d' | '30d' | '90d' | '180d' | 'all';
     current: {
         startDate: string | null;
         endDate: string | null;
@@ -7189,7 +7224,7 @@ export type Ga4SyncResponseDto = {
         searchLandingPages?: {
             status: 'ready' | 'unavailable' | 'error';
             windows: Array<{
-                window: '7d' | '28d' | '90d';
+                window: '7d' | '28d' | '90d' | '180d';
                 rowCount: number;
                 reportRowCount: number;
                 rowsCapped: boolean;
@@ -7310,7 +7345,7 @@ export type GaSearchLandingPagesResponse = {
     error: string | null;
     syncedAt: string | null;
     attemptedAt: string | null;
-    window: '7d' | '28d' | '90d';
+    window: '7d' | '28d' | '90d' | '180d';
     windowStart: string | null;
     windowEnd: string | null;
     windowDays: number | null;
@@ -13500,6 +13535,16 @@ export type UiTelemetryEvent = {
     eventId: string;
     uiSessionId: string;
     page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    event: 'ui.page_time';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    visitId: string;
+    foregroundMs: number;
+    activeMs: number;
+    completed: boolean;
+} | {
+    eventId: string;
+    uiSessionId: string;
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.page_viewed';
     tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
 } | {
@@ -13507,7 +13552,7 @@ export type UiTelemetryEvent = {
     uiSessionId: string;
     page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.action';
-    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'bing.sync' | 'sitemap.submit' | 'journeys.visitor_open' | 'journeys.visit_open' | 'journeys.agent_open' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
+    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'feedback.submit' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'bing.sync' | 'sitemap.submit' | 'journeys.visitor_open' | 'journeys.visit_open' | 'journeys.agent_open' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
     tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
     integration?: 'google' | 'gsc' | 'ga' | 'bing' | 'gbp' | 'wordpress' | 'openai_ads' | 'google_ads' | 'gtm' | 'traffic_cloudflare' | 'traffic_vercel' | 'traffic_cloud_run' | 'traffic_wordpress';
     format?: 'csv' | 'json' | 'html';
@@ -15139,6 +15184,7 @@ export type TrafficAnalyticsResponse = {
         windowEnd: string;
         coverageStart: string | null;
         priorWindowComplete: boolean;
+        aiReferralCountingChangedAt?: string | null;
         /**
          * True when the selected or prior window has stored crawler, user-fetch, countable referral or operator evidence, or the selected window has referral redirects. False means no qualifying stored evidence; it can occur with no, paused, errored or never-synced ingestion and out-of-window observations. It does not establish measured zero traffic or source health.
          */
@@ -17940,7 +17986,7 @@ export type TrafficEventsResponse = {
     windowStart: string;
     windowEnd: string;
     series: {
-        granularity: 'hour' | 'day';
+        granularity: 'hour' | 'day' | 'month';
         points: Array<{
             bucket: string;
             crawlerHits: number;
@@ -17951,6 +17997,8 @@ export type TrafficEventsResponse = {
             measured: boolean;
         }>;
         coverageStart: string | null;
+        aiReferralCountingChangedAt?: string | null;
+        partialBuckets?: Array<string>;
         trends: {
             crawlerContentHits: {
                 slope: number;
@@ -27542,6 +27590,10 @@ export type PostApiV1TelemetryUiErrors = {
      * Invalid UI telemetry event.
      */
     400: ErrorEnvelope;
+    /**
+     * UI telemetry rate limit reached; try again later.
+     */
+    429: ErrorEnvelope;
 };
 
 export type PostApiV1TelemetryUiError = PostApiV1TelemetryUiErrors[keyof PostApiV1TelemetryUiErrors];
@@ -34397,9 +34449,9 @@ export type GetApiV1ProjectsByNameGaSearchLandingPagesData = {
     };
     query?: {
         /**
-         * Stored window, ending yesterday in the GA4 property time zone. 28d matches GA4's default "Last 28 days".
+         * Stored 7, 28, 90 or 180-day window, ending yesterday in the GA4 property time zone. 28d matches GA4's default "Last 28 days".
          */
-        window?: '7d' | '28d' | '90d';
+        window?: '7d' | '28d' | '90d' | '180d';
         /**
          * Landing-page rows per page, ordered by clicks then impressions (descending), then landing page.
          */
@@ -34493,7 +34545,7 @@ export type GetApiV1ProjectsByNameGaTrafficData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -34540,7 +34592,7 @@ export type GetApiV1ProjectsByNameGaAiReferralHistoryData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -34587,7 +34639,7 @@ export type GetApiV1ProjectsByNameGaAiReferralDailyData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -34634,7 +34686,7 @@ export type GetApiV1ProjectsByNameGaSocialReferralHistoryData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -34749,14 +34801,14 @@ export type GetApiV1ProjectsByNameGaOverviewData = {
         /**
          * Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.
          */
-        window?: '7d' | '30d' | '90d';
+        window?: '7d' | '30d' | '90d' | '180d';
     };
     url: '/api/v1/projects/{name}/ga/overview';
 };
 
 export type GetApiV1ProjectsByNameGaOverviewErrors = {
     /**
-     * GA4 is not connected, or the window is not 7d, 30d or 90d.
+     * GA4 is not connected, or the window is not 7d, 30d, 90d or 180d.
      */
     400: ErrorEnvelope;
     /**
@@ -34788,7 +34840,7 @@ export type GetApiV1ProjectsByNameGaSessionHistoryData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -37220,7 +37272,7 @@ export type GetApiV1ProjectsByNameTrafficEventsData = {
          */
         until?: string;
         /**
-         * Filter to "crawler", "ai-user-fetch", "ai-referral", or "all" (default).
+         * Filter to "crawler", "ai-user-fetch", "ai-referral", a comma-separated list of them (e.g. "ai-user-fetch,ai-referral"), or "all" (default). Rows, totals and series cover only the kinds asked for.
          */
         kind?: string;
         /**
@@ -37232,9 +37284,9 @@ export type GetApiV1ProjectsByNameTrafficEventsData = {
          */
         sourceId?: string;
         /**
-         * Full-window series bucket size: "hour" (default) or "day".
+         * Full-window series bucket size: "hour" (default), "day" or "month" (UTC calendar months).
          */
-        granularity?: 'hour' | 'day';
+        granularity?: 'hour' | 'day' | 'month';
     };
     url: '/api/v1/projects/{name}/traffic/events';
 };

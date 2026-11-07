@@ -55,11 +55,13 @@ const state = {
   memory: new Map<string, Set<string>>(),
   sentAt: null as number[] | null,
   now: () => Date.now(),
+  onDisabled: undefined as (() => void) | undefined,
 }
 
-export function configureUiTelemetry(options: { send: Sender; enabled?: boolean; now?: () => number }): void {
+export function configureUiTelemetry(options: { send: Sender; enabled?: boolean; now?: () => number; onDisabled?: () => void }): void {
   state.sender = options.enabled === false ? null : options.send
   state.disabled = false
+  state.onDisabled = options.onDisabled
   if (options.now) state.now = options.now
 }
 
@@ -76,6 +78,7 @@ export function resetUiTelemetryForTests(options: { keepStorage?: boolean } = {}
   state.memory.clear()
   state.sentAt = null
   state.now = () => Date.now()
+  state.onDisabled = undefined
   for (const timer of filterTimers.values()) clearTimeout(timer)
   filterTimers.clear()
   if (searchTimer) clearTimeout(searchTimer)
@@ -89,6 +92,12 @@ export function resetUiTelemetryForTests(options: { keepStorage?: boolean } = {}
 
 export function currentUiPage(): UiPage {
   return state.page
+}
+
+/** The timer owns attribution: a checkpoint can belong to the screen just left. */
+export function trackUiPageTime(event: Omit<Extract<UiTelemetryEvent, { event: 'ui.page_time' }>, 'eventId' | 'uiSessionId' | 'tab'>): void {
+  const { page, ...pending } = event
+  emit(pending, page)
 }
 
 /** Called on every resolved navigation with the leaf route's `fullPath`. */
@@ -411,7 +420,12 @@ function emit(pending: PendingEvent, pageOverride?: UiPage): boolean {
       ...(tab ? { tab } : {}),
     } as UiTelemetryEvent
     void sender(event).then(
-      result => { if (result && result.accepted === false) state.disabled = true },
+      result => {
+        if (result && result.accepted === false && !state.disabled) {
+          state.disabled = true
+          state.onDisabled?.()
+        }
+      },
       () => { /* best effort: measurement never surfaces an error */ },
     )
     return true

@@ -61,6 +61,12 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 
 ## Patterns
 
+`ui-telemetry.ts` includes `ui.page_time`: a random visit UUID, cumulative integer
+foreground/active milliseconds (0 < foreground <= 24 hours, active <= foreground),
+and a completed flag. The collector in canonry.ai mirrors the strict schema;
+canonry-telemetry takes per-visit maxima, never sums checkpoints. Older page views
+contain no duration and must never be converted to zero-time visits.
+
 `src/agent-journeys.ts` defines stored user-triggered request timelines, bounded
 capture/read limits, and independent operator-verification and request-correlation
 fields. IP+UA correlation is inferred; missing-IP requests stay unlinked. Advanced

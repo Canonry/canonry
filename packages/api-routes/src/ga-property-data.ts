@@ -4,6 +4,7 @@ import {
   gaAcquisitionDaily,
   gaAiReferrals,
   gaDailyTotals,
+  gaSyncCoverage,
   gaLeadEventsDaily,
   gaMeasurementSyncStates,
   gaSearchLandingPages,
@@ -49,8 +50,8 @@ export function resolveCurrentGa4PropertyId(
 }
 
 /**
- * Every table a GA4 sync fills from the project's property. Only the Search
- * Console landing-page windows record which property they were read from, so
+ * Every table a GA4 sync fills from the project's property. Only coverage and
+ * Search Console landing-page windows record their property, so
  * once two properties' rows are stored, nothing tells them apart. The sync
  * state is cleared with them: its timestamps would turn the next sync's full
  * backfill into an incremental refresh.
@@ -61,6 +62,7 @@ const GA_PROPERTY_TABLES = [
   gaTrafficWindowSummaries,
   gaWindowMetrics,
   gaDailyTotals,
+  gaSyncCoverage,
   gaAiReferrals,
   gaSocialReferrals,
   gaAcquisitionDaily,

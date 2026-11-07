@@ -681,6 +681,21 @@ describe('traffic CLI commands', () => {
     expect(result.stderr).toMatch(/--kind must be/i)
   })
 
+  it('accepts a comma-separated --kind list and rejects one with an unknown member', async () => {
+    const listed = await invokeCli([
+      'traffic', 'events', 'test-proj', '--kind', 'ai-user-fetch,ai-referral', '--format', 'json',
+    ])
+    expect(listed.exitCode).toBeUndefined()
+    const body = parseJsonOutput(listed.stdout) as { totals: { crawlerHits: number }; events: unknown[] }
+    expect(body.totals.crawlerHits).toBe(0)
+
+    const bad = await invokeCli([
+      'traffic', 'events', 'test-proj', '--kind', 'ai-referral,bogus',
+    ])
+    expect(bad.exitCode).not.toBe(0)
+    expect(bad.stderr).toMatch(/--kind must be/i)
+  })
+
   it('rejects an invalid --granularity value', async () => {
     const result = await invokeCli([
       'traffic', 'events', 'test-proj', '--granularity', 'week',

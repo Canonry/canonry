@@ -30,6 +30,14 @@ export const trafficActivitySummarySchema = z.object({
   coverageStart: z.string().nullable(),
   /** Recording began on or before the prior window start. This does not establish uninterrupted ingestion. */
   priorWindowComplete: z.boolean(),
+  /**
+   * When the project's sources began counting AI-referral arrivals once per
+   * visit, or null when none holds hours counted by the older rule. Earlier hours
+   * also counted a visitor's later requests and read high, and cannot be
+   * recounted, so referral deltas are null while the prior window starts
+   * before it. Not window-bound. Optional so a newer client reads an older API.
+   */
+  aiReferralCountingChangedAt: z.string().nullable().optional(),
   hasData: z.boolean().describe('True when the selected or prior window has stored crawler, user-fetch, countable referral or operator evidence, or the selected window has referral redirects. False means no qualifying stored evidence; it can occur with no, paused, errored or never-synced ingestion and out-of-window observations. It does not establish measured zero traffic or source health.'),
 
   /** Verified crawler hits during the selected period and the equal preceding period. */

@@ -31,12 +31,15 @@ vi.mock('recharts', () => {
               (dot as (p: Record<string, unknown>) => React.ReactNode)({ cx: i, cy: 1, index: i, key: `dot-${i}` }))}
           </div>
         )
-        : null,
+        // Any other line leaves a marker, so a test can tell which are drawn.
+        : <div data-testid={`line-${dataKey}`} />,
     CartesianGrid: () => null,
     Bar: () => null,
     BarChart: passthrough,
     Cell: () => null,
-    ReferenceArea: () => null,
+    // Keep unlabeled bands observable, including their calendar boundaries.
+    ReferenceArea: ({ label, x1, x2 }: { label?: { value?: string }; x1?: string; x2?: string }) =>
+      <div data-testid="reference-area" data-from={x1} data-to={x2}>{label?.value}</div>,
     ReferenceLine: () => null,
     XAxis: () => null,
     YAxis: () => null,
@@ -462,15 +465,27 @@ test('social groups sources by platform from the API and opens the raw rows in p
 
 test('top time picker reloads every GA surface, social included, from the same window', async () => {
   const seen = new Set<string>()
+  const syncDays: number[] = []
+  const serverStarts: string[] = []
   const platforms = {
     '7d': { label: 'LinkedIn', platform: 'linkedin', source: 'linkedin.com', sessions: 7 },
     '30d': { label: 'Facebook', platform: 'facebook', source: 'facebook.com', sessions: 30 },
     '90d': { label: 'X', platform: 'x', source: 'x.com', sessions: 90 },
+    '180d': { label: 'Instagram', platform: 'instagram', source: 'instagram.com', sessions: 180 },
   } as const
   const surfaces = ['traffic', 'ai-referral-daily', 'session-history', 'overview'] as const
 
-  onTestFinished(mockFetch((url) => {
+  onTestFinished(mockFetch((url, init) => {
     const parsed = new URL(url, window.location.origin)
+    if (parsed.pathname.endsWith('/traffic/sources')) return jsonResponse({ sources: [] })
+    if (parsed.pathname.endsWith('/traffic/events')) {
+      serverStarts.push(parsed.searchParams.get('since')!)
+      return jsonResponse({ events: [], totals: {}, series: { points: [] } })
+    }
+    if (parsed.pathname.endsWith('/ga/sync')) {
+      syncDays.push((JSON.parse(String(init?.body)) as { days: number }).days)
+      return jsonResponse({ rowCount: 0, aiReferralCount: 0, socialReferralCount: 0, days: 180 })
+    }
     if (parsed.pathname.endsWith('/projects/test-project/ga/status')) return jsonResponse(GA_STATUS)
     if (parsed.pathname.endsWith('/projects/test-project/ga/search-landing-pages')) return jsonResponse(EMPTY_SEARCH_LANDING)
     if (parsed.pathname.endsWith('/ga/social-referral-history')) throw new Error('the Social section reads /ga/traffic only')
@@ -490,12 +505,6 @@ test('top time picker reloads every GA surface, social included, from the same w
     }))
   }))
 
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const renderWindow = (windowKey: keyof typeof platforms) => (
-    <QueryClientProvider client={queryClient}>
-      <ClickThroughActivity projectName="test-project" window={windowKey} />
-    </QueryClientProvider>
-  )
   // Social's figures stay in view while its tables are closed rows, so the
   // top platform figure is what proves the section reloaded for the window.
   const topPlatform = () => {
@@ -509,12 +518,18 @@ test('top time picker reloads every GA surface, social included, from the same w
     })
   }
 
-  const { rerender } = render(renderWindow('30d'))
+  renderActivitySection()
   await assertWindow('30d')
-  rerender(renderWindow('7d'))
-  await assertWindow('7d')
-  rerender(renderWindow('90d'))
-  await assertWindow('90d')
+  const picker = screen.getByRole('group', { name: 'Traffic time period' })
+  for (const window of ['7d', '90d', '180d'] as const) {
+    fireEvent.click(within(picker).getByRole('button', { name: window }))
+    await assertWindow(window)
+  }
+  expect(within(picker).getByRole('button', { name: '180d' }).getAttribute('aria-pressed')).toBe('true')
+  expect(within(sectionByHeading('Site traffic')).getAllByText('vs prior 180 days').length).toBeGreaterThan(0)
+  expect(Math.round((Date.now() - Date.parse(serverStarts.at(-1)!)) / 86_400_000)).toBe(180)
+  fireEvent.click(within(sectionByHeading('Site traffic')).getByRole('button', { name: 'Sync' }))
+  await waitFor(() => expect(syncDays).toEqual([180]))
 })
 
 /**
@@ -755,6 +770,331 @@ test('AI traffic charts carry a legend', async () => {
   await screen.findByText('AI crawlers')
   // One per chart: machines, and people arriving.
   expect(screen.getAllByTestId('chart-legend').length).toBe(2)
+})
+
+/**
+ * Server visits before the API's `aiReferralCountingChangedAt` were counted by
+ * an older rule that also counted a visitor's later pages, and can read many
+ * times high. The chart keeps them, bands them where the server line is drawn,
+ * and says so on the visitors total; GA4 never used that rule, so its view
+ * carries no band.
+ */
+test('AI traffic history bands server visits counted by the older rule', async () => {
+  const days = ['2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05']
+  for (const changedAt of ['2026-11-02T18:31:33.000Z', null]) {
+    const restoreFetch = mockFetch((url) => {
+      const path = url.split('?')[0]!
+      if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+      if (path.endsWith('/projects/test-project/traffic/events')) {
+        return jsonResponse({
+          events: [], eventRows: { total: 0, returned: 0, truncated: false },
+          totals: { crawlerHits: 60, crawlerContentHits: 60, aiUserFetchHits: 6, aiReferralHits: 336, aiReferralLandedHits: 336 },
+          series: {
+            granularity: 'day', coverageStart: '2026-08-16T18:00:00.000Z', aiReferralCountingChangedAt: changedAt,
+            trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+            points: days.map((bucket, i) => ({
+              bucket, crawlerHits: 10, crawlerContentHits: 10, aiUserFetchHits: 1,
+              aiReferralHits: i < 3 ? 100 : 2, aiReferralLandedHits: i < 3 ? 100 : 2, measured: true,
+            })),
+          },
+        })
+      }
+      return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+    })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+      </QueryClientProvider>,
+    )
+    const visitorsTile = (await screen.findByText('AI visitors')).closest('div') as HTMLElement
+
+    if (changedAt) {
+      // Raw totals and their caveat remain; the historical band has no caption.
+      expect(within(visitorsTile).getByText('336')).toBeTruthy()
+      expect(within(visitorsTile).getByText('older days may read high')).toBeTruthy()
+      const band = screen.getByTestId('reference-area')
+      expect(band.getAttribute('data-from')).toBe('2026-10-31')
+      expect(band.getAttribute('data-to')).toBe('2026-11-02')
+      expect(band.textContent).toBe('')
+      fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+      expect(screen.queryAllByTestId('reference-area')).toEqual([])
+    } else {
+      expect(within(visitorsTile).getByText('arrived from an AI answer')).toBeTruthy()
+      expect(screen.queryAllByTestId('reference-area')).toEqual([])
+    }
+    cleanup()
+    restoreFetch()
+  }
+})
+
+/**
+ * GA4 counted AI sessions the same way the whole time, so its server-fitted
+ * trend is drawn wherever the GA4 line is: Both and GA4, never Server.
+ */
+/**
+ * Months read the long view the monthly report draws: visits by calendar month,
+ * part months (recording began inside one, or it is still running) drawn
+ * hollow off the line, and the newest complete month's figures in one strip,
+ * all as the API reports them.
+ */
+test('AI traffic history shows visits by month', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-06T12:00:00.000Z'))
+  onTestFinished(() => vi.useRealTimers())
+  const months = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11']
+  const restoreFetch = mockFetch((url) => {
+    const [path, query = ''] = url.split('?') as [string, string?]
+    if (path.endsWith('/ga/status')) return jsonResponse({ connected: true, propertyId: 'p', clientEmail: null, lastSyncedAt: null })
+    if (path.endsWith('/ga/ai-referral-daily')) {
+      if (!query.includes('startDate=')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+      return jsonResponse({
+        days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0,
+        months: [
+          { month: '2026-03', sessions: null, complete: false, engines: [] },
+          { month: '2026-04', sessions: 46, complete: false, engines: [] },
+          ...[['2026-05', 86], ['2026-06', 90], ['2026-07', 88], ['2026-08', 148], ['2026-09', 175]].map(([month, sessions]) =>
+            ({ month, sessions, complete: true, engines: [{ key: 'chatgpt', label: 'ChatGPT', sessions }] })),
+          { month: '2026-10', sessions: 95, complete: true, engines: [{ key: 'chatgpt', label: 'ChatGPT', sessions: 91 }, { key: 'gemini', label: 'Gemini', sessions: 4 }] },
+          { month: '2026-11', sessions: 24, complete: false, engines: [] },
+        ],
+        monthlyTrend: { slope: 9.7, intercept: 41.6, r2: 0.15, start: 99.8, end: 138.6, n: 5, startIndex: 3, endIndex: 7, startMonth: '2026-06', endMonth: '2026-10', changePct: 39.25 },
+      })
+    }
+    if (path.endsWith('/projects/test-project/traffic/events')) {
+      if (query.includes('granularity=month')) {
+        return jsonResponse({
+          events: [], eventRows: { total: 0, returned: 0, truncated: false },
+          totals: { crawlerHits: 0, crawlerContentHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0 },
+          series: {
+            granularity: 'month', coverageStart: '2026-05-21T00:00:00.000Z', partialBuckets: ['2026-05', '2026-11'],
+            trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+            points: months.map((bucket, i) => ({
+              bucket, crawlerHits: 0, crawlerContentHits: 0, aiUserFetchHits: 0, aiReferralHits: 0,
+              aiReferralLandedHits: [0, 14, 127, 135, 216, 235, 120, 31][i], measured: i > 0,
+            })),
+          },
+        })
+      }
+      return jsonResponse({
+        events: [], eventRows: { total: 0, returned: 0, truncated: false },
+        totals: { crawlerHits: 5, crawlerContentHits: 5, aiUserFetchHits: 1, aiReferralHits: 2, aiReferralLandedHits: 2 },
+        series: {
+          granularity: 'day', coverageStart: '2026-05-21T00:00:00.000Z',
+          trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: [{ bucket: '2026-11-05', crawlerHits: 5, crawlerContentHits: 5, aiUserFetchHits: 1, aiReferralHits: 2, aiReferralLandedHits: 2, measured: true }],
+        },
+      })
+    }
+    return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+    </QueryClientProvider>,
+  )
+  await screen.findByText('AI crawlers')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  const strip = (await screen.findByText('October 2026')).parentElement as HTMLElement
+  expect(strip.textContent).toBe('October 202695visits, GA4120visits, server▲39.3%trend since Jun91from ChatGPT')
+  const current = screen.getByRole('group', { name: 'Month so far' })
+  expect(within(current).getByText('November 2026 so far')).toBeTruthy()
+  expect(within(current).getByText('Hollow dots: partial months')).toBeTruthy()
+  expect(current.textContent).toMatch(/24\s*visits, GA4/)
+  expect(current.textContent).toMatch(/31\s*visits, server/)
+  // Part months are hollow and off the line: May and November for the server.
+  const serverPartial = screen.getByTestId('dots-serverPartial').querySelectorAll('circle')
+  expect([...serverPartial].map(c => c.getAttribute('fill'))).toEqual(['none', 'none'])
+  // April (GA4 history began inside it) and November for GA4.
+  expect(screen.getByTestId('dots-ga4Partial').querySelectorAll('circle[fill="none"]').length).toBe(2)
+
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.queryByTestId('dots-serverPartial')).toBeNull()
+  expect(strip.textContent).toBe('October 202695visits, GA4▲39.3%trend since Jun91from ChatGPT')
+  expect(current.textContent).toMatch(/24\s*visits, GA4/)
+  expect(current.textContent).not.toContain('visits, server')
+  fireEvent.click(screen.getByRole('button', { name: 'Server' }))
+  expect(current.textContent).toMatch(/31\s*visits, server/)
+  expect(current.textContent).not.toContain('visits, GA4')
+  fireEvent.click(screen.getByRole('button', { name: 'Days' }))
+  expect(screen.queryByRole('group', { name: 'Month so far' })).toBeNull()
+})
+
+/** Real SDK reads with independently supplied source responses. */
+function renderMonthlyHistory(input: {
+  dailyActive?: boolean
+  serverConnected?: boolean
+  gaStatus?: () => Response | Promise<Response>
+  server: () => Response | Promise<Response>
+  ga: () => Response | Promise<Response>
+}) {
+  onTestFinished(mockFetch((url) => {
+    const parsed = new URL(url, window.location.origin)
+    if (parsed.pathname.endsWith('/ga/status')) return input.gaStatus?.() ?? jsonResponse(GA_STATUS)
+    if (parsed.pathname.endsWith('/ga/ai-referral-daily')) {
+      return parsed.searchParams.has('startDate') ? input.ga() : jsonResponse(EMPTY_AI_DAILY_RESPONSE)
+    }
+    if (parsed.pathname.endsWith('/traffic/sources')) {
+      return jsonResponse({ sources: input.serverConnected === false ? [] : [{ id: 'server', status: 'connected' }] })
+    }
+    if (parsed.pathname.endsWith('/traffic/events')) {
+      if (parsed.searchParams.get('granularity') === 'month') return input.server()
+      const count = input.dailyActive === false ? 0 : 1
+      return jsonResponse({
+        events: [], totals: { crawlerContentHits: count, aiUserFetchHits: 0, aiReferralLandedHits: count },
+        series: {
+          coverageStart: input.serverConnected === false ? null : '2026-05-01T00:00:00.000Z',
+          points: [{ bucket: '2026-11-05', crawlerContentHits: count, aiReferralLandedHits: count, measured: input.serverConnected !== false }],
+        },
+      })
+    }
+    throw new Error(`Unexpected history request: ${url}`)
+  }))
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={queryClient}>
+    <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+  </QueryClientProvider>)
+}
+
+test.each([true, false])('monthly history remains reachable with quiet daily traffic and server connected=%s', async (serverConnected) => {
+  renderMonthlyHistory({
+    dailyActive: false,
+    serverConnected,
+    server: () => jsonResponse({ series: { points: serverConnected ? [{ bucket: '2026-10', aiReferralLandedHits: 42, measured: true }] : [] } }),
+    ga: () => jsonResponse({ months: [{ month: '2026-10', sessions: 23, complete: true, engines: [] }] }),
+  })
+  await screen.findByText(serverConnected ? 'No AI activity recorded in this period.' : 'No server-side traffic source connected yet.')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  const strip = (await screen.findByText('October 2026')).parentElement as HTMLElement
+  await waitFor(() => expect(strip.textContent).toBe(serverConnected ? 'October 202623visits, GA442visits, server' : 'October 202623visits, GA4'))
+  // With no server buckets, GA4 must still supply a plotted reading.
+  expect(screen.getByTestId('dots-ga4Visits').querySelectorAll('circle')).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button', { name: 'Days' }))
+  expect(screen.queryByText('October 2026')).toBeNull()
+})
+
+test('monthly history draws adjacent partial months for both sources', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-12-06T12:00:00.000Z'))
+  onTestFinished(() => vi.useRealTimers())
+  renderMonthlyHistory({
+    server: () => jsonResponse({ series: {
+      partialBuckets: ['2026-10', '2026-11'],
+      points: [{ bucket: '2026-10', aiReferralLandedHits: 42 }, { bucket: '2026-11', aiReferralLandedHits: 11 }],
+    } }),
+    ga: () => jsonResponse({ months: [
+      { month: '2026-10', sessions: 23, complete: false, engines: [] },
+      { month: '2026-11', sessions: 7, complete: false, engines: [] },
+    ] }),
+  })
+  await screen.findByText('AI crawlers')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  await waitFor(() => {
+    expect(screen.getByTestId('dots-serverPartial').querySelectorAll('circle[fill="none"]')).toHaveLength(2)
+    expect(screen.getByTestId('dots-ga4Partial').querySelectorAll('circle[fill="none"]')).toHaveLength(2)
+  })
+  expect(screen.getByTestId('dots-aiReferralLandedHits').querySelectorAll('circle')).toHaveLength(0)
+  expect(screen.getByTestId('dots-ga4Visits').querySelectorAll('circle')).toHaveLength(0)
+  // Stale incomplete months remain plotted, but are not the current month.
+  expect(screen.queryByRole('group', { name: 'Month so far' })).toBeNull()
+})
+
+test('monthly summary follows the selected source when GA4 history ends earlier', async () => {
+  renderMonthlyHistory({
+    server: () => jsonResponse({ series: { points: [
+      { bucket: '2026-09', aiReferralLandedHits: 30 },
+      { bucket: '2026-10', aiReferralLandedHits: 42 },
+    ] } }),
+    ga: () => jsonResponse({ months: [{ month: '2026-09', sessions: 23, complete: true, engines: [] }] }),
+  })
+  await screen.findByText('AI crawlers')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  await screen.findByText('September 2026')
+  fireEvent.click(screen.getByRole('button', { name: 'Server' }))
+  expect((await screen.findByText('October 2026')).parentElement?.textContent).toBe('October 202642visits, server')
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.getByText('September 2026').parentElement?.textContent).toBe('September 202623visits, GA4')
+})
+
+test.each(['server', 'ga', 'status'] as const)('monthly history reports and retries a failed %s read without claiming zero', async (source) => {
+  let finishRequest!: (response: Response) => void
+  const pendingResponse = new Promise<Response>((resolve) => { finishRequest = resolve })
+  let attempts = 0
+  const server = () => jsonResponse({ series: { points: source === 'status' ? [] : [{ bucket: '2026-10', aiReferralLandedHits: 42 }] } })
+  const ga = () => jsonResponse({ months: [{ month: '2026-10', sessions: 23, complete: true, engines: [] }] })
+  const read = (lane: 'server' | 'ga' | 'status') => {
+    if (lane === source && attempts++ === 0) return pendingResponse
+    if (lane === 'status') return jsonResponse(GA_STATUS)
+    return lane === 'server' ? server() : ga()
+  }
+  renderMonthlyHistory({ server: () => read('server'), ga: () => read('ga'), gaStatus: () => read('status') })
+  await screen.findByText('AI crawlers')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  const loading = source === 'status' ? 'Checking the GA4 connection…' : source === 'server' ? 'Loading monthly server visits…' : 'Loading monthly GA4 visits…'
+  expect(await screen.findByText(loading)).toBeTruthy()
+  expect(screen.queryByText('No monthly visits recorded yet.')).toBeNull()
+  finishRequest(new Response('failed', { status: 500 }))
+  expect((await screen.findByRole('alert')).textContent).toBe(source === 'status' ? 'Could not check the GA4 connection.' : source === 'server' ? 'Could not load monthly server visits.' : 'Could not load monthly GA4 visits.')
+  expect(screen.queryByText('No monthly visits recorded yet.')).toBeNull()
+  if (source === 'status') {
+    // The unresolved connection must remain an error in GA4-only mode too.
+    fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+    expect(screen.getByRole('alert').textContent).toBe('Could not check the GA4 connection.')
+    fireEvent.click(screen.getByRole('button', { name: 'Both' }))
+  } else {
+    const strip = (await screen.findByText('October 2026')).parentElement as HTMLElement
+    expect(strip.textContent).toBe(source === 'server' ? 'October 202623visits, GA4' : 'October 202642visits, server')
+    expect(screen.getByTestId(source === 'server' ? 'dots-ga4Visits' : 'dots-aiReferralLandedHits').querySelectorAll('circle')).toHaveLength(1)
+  }
+  fireEvent.click(screen.getByRole('button', { name: source === 'status' ? 'Retry GA4 connection check' : source === 'server' ? 'Retry monthly server visits' : 'Retry monthly GA4 visits' }))
+  await waitFor(() => expect(screen.getByText('October 2026').parentElement?.textContent).toBe(source === 'status' ? 'October 202623visits, GA4' : 'October 202623visits, GA442visits, server'))
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(attempts).toBe(2)
+})
+
+test('AI traffic history draws the GA4 trend where the GA4 line is', async () => {
+  const days = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']
+  const restoreFetch = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/ga/status')) return jsonResponse({ connected: true, propertyId: 'p', clientEmail: null, lastSyncedAt: null })
+    if (path.endsWith('/ga/ai-referral-daily')) {
+      return jsonResponse({
+        days: days.map(date => ({ date, sessions: 5 })),
+        trend: { slope: 0, intercept: 5, r2: 1, start: 5, end: 5, n: 4, startIndex: 0, endIndex: 3, startDate: '2026-10-01', endDate: '2026-10-04' },
+      })
+    }
+    if (path.endsWith('/projects/test-project/traffic/events')) {
+      return jsonResponse({
+        events: [], eventRows: { total: 0, returned: 0, truncated: false },
+        totals: { crawlerHits: 4, crawlerContentHits: 4, aiUserFetchHits: 0, aiReferralHits: 4, aiReferralLandedHits: 4 },
+        series: {
+          granularity: 'day', coverageStart: '2026-09-01T00:00:00.000Z',
+          trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: days.map(bucket => ({ bucket, crawlerHits: 1, crawlerContentHits: 1, aiUserFetchHits: 0, aiReferralHits: 1, aiReferralLandedHits: 1, measured: true })),
+        },
+      })
+    }
+    return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+    </QueryClientProvider>,
+  )
+
+  await waitFor(() => expect(screen.getByTestId('line-ga4Trend')).toBeTruthy())
+  fireEvent.click(screen.getByRole('button', { name: 'Server' }))
+  expect(screen.queryByTestId('line-ga4Trend')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.getByTestId('line-ga4Trend')).toBeTruthy()
 })
 
 /**

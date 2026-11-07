@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { isIP } from 'node:net'
 import { isDeepStrictEqual } from 'node:util'
 import { countableReferralCondition, referralLandedCondition } from './ai-referral-status.js'
-import { and, desc, eq, gt, gte, inArray, lt, lte, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, gte, inArray, lt, lte, sql, type SQL } from 'drizzle-orm'
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { cloudflareWorkerVersionFor } from './cloudflare-worker-version.js'
@@ -44,7 +44,10 @@ import {
   TrafficSourceTypes,
   TrafficSourceAuthModes,
   TrafficEventKinds,
+  parseTrafficEventKindFilter,
+  TRAFFIC_EVENT_KIND_FILTER_HINT,
   TrafficSeriesGranularities,
+  trafficSeriesGranularitySchema,
   CloudflareTrafficDeliveryModes,
   CloudflareQueueDrainStopReasons,
   type CloudflareQueueDrainStopReason,
@@ -143,7 +146,7 @@ import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from 
 import { enforceJourneyRetention, recordJourneyBatch } from './journeys.js'
 import { recordAgentJourneyBatch } from './agent-journey-capture.js'
 import { planScannerBursts, saveScannerBursts } from './agent-scanner-bursts.js'
-import { planAiReferralArrivals, saveAiReferralArrivals } from './ai-referral-arrivals.js'
+import { aiReferralOlderCountUntil, planAiReferralArrivals, saveAiReferralArrivals } from './ai-referral-arrivals.js'
 import { addLikelyFakeAgentHits, clearLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
@@ -826,30 +829,60 @@ function emptyTrafficSeriesPoint(bucket: string): TrafficSeriesPoint {
   return { bucket, crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0, crawlerContentHits: 0, measured: true }
 }
 
+/**
+ * Characters of an ISO instant that name its series bucket: `YYYY-MM` for a
+ * month, `YYYY-MM-DD` for a day; an hour bucket is `ts_hour` itself.
+ */
+const SERIES_BUCKET_LENGTH: Record<TrafficSeriesGranularity, number | null> = {
+  [TrafficSeriesGranularities.hour]: null,
+  [TrafficSeriesGranularities.day]: 10,
+  [TrafficSeriesGranularities.month]: 7,
+}
+
+function seriesBucketSql(tsHour: SQLiteColumn, granularity: TrafficSeriesGranularity): SQLiteColumn | SQL<string> {
+  const length = SERIES_BUCKET_LENGTH[granularity]
+  return length === null ? tsHour : sql<string>`substr(${tsHour}, 1, ${sql.raw(String(length))})`
+}
+
+/** The bucket an ISO instant falls in, in the same form `seriesBucketSql` returns. */
+function seriesBucketOf(iso: string, granularity: TrafficSeriesGranularity): string {
+  const length = SERIES_BUCKET_LENGTH[granularity]
+  return length === null ? iso.slice(0, 13) : iso.slice(0, length)
+}
+
+/** Epoch ms where a bucket starts, and where the next one does. */
+function seriesBucketStartMs(bucket: string, granularity: TrafficSeriesGranularity): number {
+  if (granularity === TrafficSeriesGranularities.month) return Date.parse(`${bucket}-01T00:00:00.000Z`)
+  if (granularity === TrafficSeriesGranularities.day) return Date.parse(`${bucket}T00:00:00.000Z`)
+  // An hour bucket is `ts_hour`, a full instant; `seriesBucketOf` gives its first 13 characters.
+  return Date.parse(bucket.length === 13 ? `${bucket}:00:00.000Z` : bucket)
+}
+
+function nextSeriesBucketStartMs(startMs: number, granularity: TrafficSeriesGranularity): number {
+  if (granularity === TrafficSeriesGranularities.month) {
+    const start = new Date(startMs)
+    return Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1)
+  }
+  return startMs + (granularity === TrafficSeriesGranularities.day ? 86_400_000 : 3_600_000)
+}
+
 function completeTrafficSeries(
   windowStart: Date,
   windowEnd: Date,
   granularity: TrafficSeriesGranularity,
   pointsByBucket: ReadonlyMap<string, TrafficSeriesPoint>,
 ): TrafficSeriesPoint[] {
-  const cursor = new Date(windowStart)
-  const last = new Date(windowEnd)
-  if (granularity === TrafficSeriesGranularities.day) {
-    cursor.setUTCHours(0, 0, 0, 0)
-    last.setUTCHours(0, 0, 0, 0)
-  } else {
-    cursor.setUTCMinutes(0, 0, 0)
-    last.setUTCMinutes(0, 0, 0)
-  }
-
+  const firstBucket = seriesBucketOf(windowStart.toISOString(), granularity)
+  const lastBucketStartMs = seriesBucketStartMs(seriesBucketOf(windowEnd.toISOString(), granularity), granularity)
   const points: TrafficSeriesPoint[] = []
-  while (cursor <= last) {
-    const bucket = granularity === TrafficSeriesGranularities.day
-      ? cursor.toISOString().slice(0, 10)
-      : cursor.toISOString()
+  for (
+    let ms = seriesBucketStartMs(firstBucket, granularity);
+    ms <= lastBucketStartMs;
+    ms = nextSeriesBucketStartMs(ms, granularity)
+  ) {
+    const iso = new Date(ms).toISOString()
+    const bucket = granularity === TrafficSeriesGranularities.hour ? iso : seriesBucketOf(iso, granularity)
     points.push(pointsByBucket.get(bucket) ?? emptyTrafficSeriesPoint(bucket))
-    if (granularity === TrafficSeriesGranularities.day) cursor.setUTCDate(cursor.getUTCDate() + 1)
-    else cursor.setUTCHours(cursor.getUTCHours() + 1)
   }
   return points
 }
@@ -1758,6 +1791,25 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
         && Number.isFinite(recordedSkipMs)
         && windowStart.getTime() <= recordedSkipMs
 
+      // Replacement rows use the current arrival rule even at old event dates.
+      // Reuse v211's write-time test: a journey recount may already have moved
+      // the source's cutoff earlier than the original v207 rule change.
+      let olderCountUntil = latestSource.aiReferralOlderCountUntil
+      if (olderCountUntil !== null) {
+        const ruleChange = tx.get<{ appliedAt: string | null } | undefined>(sql`
+          SELECT strftime('%Y-%m-%dT%H:%M:%fZ', applied_at) AS appliedAt
+          FROM _migrations WHERE version = 207
+        `)
+        if (ruleChange?.appliedAt) {
+          const olderReferral = tx.select({ sourceId: aiReferralEventsHourly.sourceId }).from(aiReferralEventsHourly)
+            .where(and(
+              eq(aiReferralEventsHourly.sourceId, sourceRow.id),
+              lt(aiReferralEventsHourly.createdAt, ruleChange.appliedAt),
+            )).limit(1).get()
+          if (!olderReferral) olderCountUntil = null
+        }
+      }
+
       tx
         .update(trafficSources)
         .set({
@@ -1765,6 +1817,7 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           lastSyncedAt: nextLastSyncedAt,
           lastError: null,
           lastEventIds: newRingBuffer,
+          aiReferralOlderCountUntil: olderCountUntil,
           ...(skipRecovered ? { skippedThroughAt: null } : {}),
           updatedAt: finishedAt,
         })
@@ -4979,22 +5032,18 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       throw validationError('"since" must be ≤ "until"')
     }
 
-    const kindParam = request.query?.kind
-    let kind: TrafficEventKind | 'all' = 'all'
-    if (kindParam !== undefined) {
-      if (
-        kindParam === 'all'
-        || kindParam === TrafficEventKinds.crawler
-        || kindParam === TrafficEventKinds['ai-user-fetch']
-        || kindParam === TrafficEventKinds['ai-referral']
-      ) {
-        kind = kindParam
-      } else {
-        throw validationError(
-          `"kind" must be one of: all, ${TrafficEventKinds.crawler}, ${TrafficEventKinds['ai-user-fetch']}, ${TrafficEventKinds['ai-referral']}`,
-        )
-      }
+    // One kind, "all", or a comma-separated list. A list lets a caller ask for
+    // exactly the series it shows: with the crawler hidden, "all" under the row
+    // cap returns almost only crawler rows and the AI rows never load.
+    const kindParam: unknown = request.query?.kind
+    const kindList = kindParam === undefined
+      ? parseTrafficEventKindFilter('all')
+      // A repeated `kind` arrives as an array; only the comma form is accepted.
+      : typeof kindParam === 'string' ? parseTrafficEventKindFilter(kindParam) : null
+    if (!kindList) {
+      throw validationError(`"kind" must be ${TRAFFIC_EVENT_KIND_FILTER_HINT}`)
     }
+    const kinds = new Set<TrafficEventKind>(kindList)
 
     const limitParam = request.query?.limit
     const requestedLimit = limitParam ? parseInt(limitParam, 10) : 500
@@ -5006,14 +5055,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     const granularityParam = request.query?.granularity
     let granularity: TrafficSeriesGranularity = TrafficSeriesGranularities.hour
     if (granularityParam !== undefined) {
-      if (
-        granularityParam === TrafficSeriesGranularities.hour
-        || granularityParam === TrafficSeriesGranularities.day
-      ) {
-        granularity = granularityParam
+      const parsed = trafficSeriesGranularitySchema.safeParse(granularityParam)
+      if (parsed.success) {
+        granularity = parsed.data
       } else {
         throw validationError(
-          `"granularity" must be one of: ${TrafficSeriesGranularities.hour}, ${TrafficSeriesGranularities.day}`,
+          `"granularity" must be one of: ${trafficSeriesGranularitySchema.options.join(', ')}`,
         )
       }
     }
@@ -5033,7 +5080,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let totalEventRows = 0
     const seriesByBucket = new Map<string, TrafficSeriesPoint>()
 
-    if (kind === 'all' || kind === TrafficEventKinds.crawler) {
+    if (kinds.has(TrafficEventKinds.crawler)) {
       const crawlerFilters = [
         eq(crawlerEventsHourly.projectId, project.id),
         gte(crawlerEventsHourly.tsHour, sinceIso),
@@ -5066,9 +5113,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         + crawlerSegments.other
       totalEventRows += pathTotals.reduce((sum, row) => sum + Number(row.rows), 0)
 
-      const crawlerSeriesBucket = granularity === TrafficSeriesGranularities.day
-        ? sql<string>`substr(${crawlerEventsHourly.tsHour}, 1, 10)`
-        : crawlerEventsHourly.tsHour
+      const crawlerSeriesBucket = seriesBucketSql(crawlerEventsHourly.tsHour, granularity)
       // Content-vs-infrastructure is decided per PATH, but grouping the series by
       // (bucket, path) materializes one row per path per bucket, which on a large
       // site is millions of rows for a 90-day window. Instead: read the DISTINCT
@@ -5165,7 +5210,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
     }
 
-    if (kind === 'all' || kind === TrafficEventKinds['ai-user-fetch']) {
+    if (kinds.has(TrafficEventKinds['ai-user-fetch'])) {
       const userFetchFilters = [
         eq(aiUserFetchEventsHourly.projectId, project.id),
         gte(aiUserFetchEventsHourly.tsHour, sinceIso),
@@ -5185,9 +5230,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       aiUserFetchTotal = Number(total?.total ?? 0)
       totalEventRows += Number(total?.rows ?? 0)
 
-      const userFetchSeriesBucket = granularity === TrafficSeriesGranularities.day
-        ? sql<string>`substr(${aiUserFetchEventsHourly.tsHour}, 1, 10)`
-        : aiUserFetchEventsHourly.tsHour
+      const userFetchSeriesBucket = seriesBucketSql(aiUserFetchEventsHourly.tsHour, granularity)
       const userFetchSeries = app.db
         .select({
           bucket: userFetchSeriesBucket,
@@ -5225,7 +5268,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
     }
 
-    if (kind === 'all' || kind === TrafficEventKinds['ai-referral']) {
+    if (kinds.has(TrafficEventKinds['ai-referral'])) {
       const aiFilters = [
         eq(aiReferralEventsHourly.projectId, project.id),
         gte(aiReferralEventsHourly.tsHour, sinceIso),
@@ -5260,9 +5303,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       )
       totalEventRows += Number(total?.rows ?? 0)
 
-      const referralSeriesBucket = granularity === TrafficSeriesGranularities.day
-        ? sql<string>`substr(${aiReferralEventsHourly.tsHour}, 1, 10)`
-        : aiReferralEventsHourly.tsHour
+      const referralSeriesBucket = seriesBucketSql(aiReferralEventsHourly.tsHour, granularity)
       const referralSeries = app.db
         .select({
           bucket: referralSeriesBucket,
@@ -5352,6 +5393,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             .from(aiReferralEventsHourly)
             .where(coverageScope(aiReferralEventsHourly.projectId, aiReferralEventsHourly.sourceId)).get()?.v,
         ].filter((v): v is string => typeof v === 'string' && v.length > 0)
+        // Referral hours counted by the older arrival rule can read high and cannot
+        // be recounted. Same selection scope as coverage, and likewise not
+        // window-bound.
+        const referralCountingChangedAt = aiReferralOlderCountUntil(app.db, { projectId: project.id, sourceId: sourceIdParam })
+        const referralCountingChangedMs = referralCountingChangedAt === null ? null : Date.parse(referralCountingChangedAt)
         const coverageStart = firsts.length ? firsts.slice().sort()[0]! : null
         // A DAY bucket is `YYYY-MM-DD` (`substr(ts_hour, 1, 10)`) and needs a time
         // appended; an HOUR bucket IS `ts_hour`, ALREADY a full ISO instant
@@ -5359,31 +5405,24 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         // `...000Z:00:00.000Z`, which parses to NaN, so the `Number.isFinite`
         // guard below always failed and the partial-hour exclusion was dead code
         // on the hourly series: flat traffic read mid-hour reported a decline.
-        const bucketStartMs = (bucket: string): number => Date.parse(
-          granularity === TrafficSeriesGranularities.day ? `${bucket}T00:00:00.000Z` : bucket,
-        )
+        const bucketStartMs = (bucket: string): number => seriesBucketStartMs(bucket, granularity)
         // The newest bucket is partial whenever `until` lands inside it rather
         // than on its boundary, which is the default case (`until` = now).
-        const bucketMs = granularity === TrafficSeriesGranularities.day ? 86_400_000 : 3_600_000
         const lastBucket = points.length ? points[points.length - 1]!.bucket : null
         const lastBucketStartMs = lastBucket === null ? null : bucketStartMs(lastBucket)
         const trailingBucketIsPartial = lastBucketStartMs !== null
           && Number.isFinite(lastBucketStartMs)
-          && until.getTime() < lastBucketStartMs + bucketMs
+          && until.getTime() < nextSeriesBucketStartMs(lastBucketStartMs, granularity)
         // A bucket before coverage reads 0 because nothing was recording, not
         // because nothing happened. Compare on the bucket's own granularity so
         // the day coverage began is measured, not half-measured.
-        const coverageKey = coverageStart === null
-          ? null
-          : (granularity === TrafficSeriesGranularities.day ? coverageStart.slice(0, 10) : coverageStart.slice(0, 13))
+        const coverageKey = coverageStart === null ? null : seriesBucketOf(coverageStart, granularity)
         for (const pt of points) {
-          pt.measured = coverageKey === null
-            ? false
-            : (granularity === TrafficSeriesGranularities.day ? pt.bucket.slice(0, 10) : pt.bucket.slice(0, 13)) >= coverageKey
+          pt.measured = coverageKey === null ? false : seriesBucketOf(pt.bucket, granularity) >= coverageKey
         }
-        // The FIRST measured bucket is itself partial whenever recording began
-        // INSIDE it rather than on its boundary. `measured` cannot see that: it
-        // compares at bucket granularity, so the bucket holding `coverageStart`
+        // The FIRST measured bucket is itself partial whenever recording or the
+        // requested range began INSIDE it rather than on its boundary.
+        // `measured` compares at bucket granularity, so that first bucket
         // reads as fully measured while holding only the tail of one. Left in,
         // a site flat at 10 hits/hour whose source connected at 14:00 contributes
         // a 100-hit first day against 240-hit neighbours, and the fit returns a
@@ -5394,8 +5433,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         const leadingBucketIsPartial = firstMeasuredIdx >= 0
           && coverageStartMs !== null
           && Number.isFinite(coverageStartMs)
-          // Strict: coverage starting exactly on the boundary is a WHOLE bucket.
-          && coverageStartMs > bucketStartMs(points[firstMeasuredIdx]!.bucket)
+          // Strict: recording and range starting on the boundary leave a WHOLE bucket.
+          && Math.max(coverageStartMs, since.getTime()) > bucketStartMs(points[firstMeasuredIdx]!.bucket)
         // Fitted server-side so the CLI and every other consumer get the same
         // line the chart draws (the UI/CLI parity rule). Points are densified,
         // so a quiet day is a real 0 in the fit rather than a gap.
@@ -5403,13 +5442,19 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           granularity,
           points,
           coverageStart,
+          aiReferralCountingChangedAt: referralCountingChangedAt,
+          // The same two edges the fits leave out, named for a chart to draw as partial.
+          partialBuckets: [
+            ...(firstMeasuredIdx >= 0 && leadingBucketIsPartial ? [points[firstMeasuredIdx]!.bucket] : []),
+            ...(trailingBucketIsPartial && lastBucket !== null && !(points.length - 1 === firstMeasuredIdx && leadingBucketIsPartial) ? [lastBucket] : []),
+          ],
           // Two edges are excluded from the fit, both for the same reason: a
           // bucket that is not a full reading must not be treated as one.
           //
           // Leading: unmeasured buckets predate recording, so they are the
           // ABSENCE of a reading, not a reading of zero. The first MEASURED
-          // bucket goes too when recording began inside it, since a fraction of
-          // a bucket read as a whole one slopes the fit up out of nothing.
+          // bucket goes too when recording or the range began inside it, since
+          // a fraction of a bucket read as a whole slopes the fit up out of nothing.
           //
           // Trailing: `until` defaults to now, so the newest bucket holds only
           // the elapsed fraction of the current period. A site flat at 500/day
@@ -5418,6 +5463,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           // error as the leading edge, and the one the leading guard alone
           // would have left in place.
           //
+          // The referral fit also drops every bucket that begins before the
+          // arrival rule changed, the bucket it changed inside included: those
+          // hours were counted by an older rule that can read high, and a line
+          // across the change slopes down for traffic that held steady.
+          //
           // linearTrend skips nulls while surviving points keep their true
           // index, so dropping an edge does not compress the x-axis.
           trends: (() => {
@@ -5425,12 +5475,14 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
               pt.measured
               && !(i === firstMeasuredIdx && leadingBucketIsPartial)
               && !(i === points.length - 1 && trailingBucketIsPartial)
-            const series = (pick: (pt: TrafficSeriesPoint) => number) =>
-              linearTrend(points.map((pt, i) => (usable(pt, i) ? pick(pt) : null)))
+            const countedByCurrentRule = (pt: TrafficSeriesPoint) =>
+              referralCountingChangedMs === null || bucketStartMs(pt.bucket) >= referralCountingChangedMs
+            const series = (pick: (pt: TrafficSeriesPoint) => number, include: (pt: TrafficSeriesPoint) => boolean = () => true) =>
+              linearTrend(points.map((pt, i) => (usable(pt, i) && include(pt) ? pick(pt) : null)))
             return {
               crawlerContentHits: series((pt) => pt.crawlerContentHits),
               aiUserFetchHits: series((pt) => pt.aiUserFetchHits),
-              aiReferralLandedHits: series((pt) => pt.aiReferralLandedHits),
+              aiReferralLandedHits: series((pt) => pt.aiReferralLandedHits, countedByCurrentRule),
             }
           })(),
         }

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import {
   createClient,
   migrate,
@@ -35,7 +35,7 @@ import {
   RunStatuses,
   RunTriggers,
 } from '@canonry/canonry-contracts'
-import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
+import type { NormalizedTrafficRequest, TrafficEventsResponse } from '@canonry/canonry-contracts'
 import type { CloudRunTrafficEventsPage } from '@canonry/canonry-integration-cloud-run'
 import type {
   ListWordpressTrafficEventsOptions,
@@ -4154,6 +4154,77 @@ describe('POST /traffic/sources/:id/backfill', () => {
     }
   })
 
+  it.each([
+    { name: 'clears the marker after replacing its last older row', olderOutsideWindow: false, expectedHits: 1 },
+    { name: 'retains the moved marker while older rows remain', olderOutsideWindow: true, expectedHits: 8 },
+  ])('$name', async ({ olderOutsideWindow, expectedHits }) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-06T12:00:00.000Z'))
+    const movedCutoff = '2026-10-25T01:00:00.000Z'
+    const h = await buildHarness([buildEvent({
+      eventId: 'recounted-ai-arrival', observedAt: '2026-10-24T10:15:00.000Z',
+      userAgent: 'Mozilla/5.0', path: '/landing', requestUrl: 'https://example.com/landing?utm_source=chatgpt.com',
+      queryString: 'utm_source=chatgpt.com', referer: 'https://chatgpt.com/',
+    })])
+    try {
+      const connected = await h.app.inject({
+        method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'recount-backfill', keyJson: SA_KEY },
+      })
+      expect(connected.statusCode, connected.payload).toBe(200)
+      const sourceId = JSON.parse(connected.payload).id as string
+      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      h.db.run(sql`UPDATE _migrations SET applied_at = '2026-11-04 12:00:00' WHERE version = 207`)
+      h.db.update(trafficSources).set({ aiReferralOlderCountUntil: movedCutoff, createdAt: '2026-08-16T18:00:00.000Z' })
+        .where(eq(trafficSources.id, sourceId)).run()
+      const peerId = `${sourceId}-peer`
+      h.db.insert(trafficSources).values({
+        ...source, id: peerId, status: TrafficSourceStatuses.paused,
+        createdAt: '2026-08-16T18:00:00.000Z', aiReferralOlderCountUntil: movedCutoff,
+      }).run()
+      // A journey recount already moved the cutoff back. These delayed rows
+      // were written after that boundary but before v207 changed the rule.
+      const referral = {
+        projectId: source.projectId, sourceId, tsHour: '2026-10-24T10:00:00.000Z',
+        product: 'ChatGPT', operator: 'OpenAI', sourceDomain: 'chatgpt.com', evidenceType: 'utm',
+        landingPathNormalized: '/landing', status: 200, sessionsOrHits: 100,
+        paidSessionsOrHits: 0, organicSessionsOrHits: 100,
+        createdAt: '2026-11-03T10:20:00.000Z', updatedAt: '2026-11-03T10:20:00.000Z',
+      }
+      h.db.insert(aiReferralEventsHourly).values([
+        referral,
+        { ...referral, sourceId: peerId, sessionsOrHits: 17, organicSessionsOrHits: 17 },
+        ...(olderOutsideWindow ? [{
+          ...referral, tsHour: '2026-10-22T10:00:00.000Z', sessionsOrHits: 7, organicSessionsOrHits: 7,
+        }] : []),
+      ]).run()
+      const query = 'since=2026-10-20T00%3A00%3A00.000Z&granularity=day'
+      const url = `/api/v1/projects/test-project/traffic/events?sourceId=${sourceId}&${query}`
+      const before = await h.app.inject({ method: 'GET', url })
+      expect(before.statusCode).toBe(200)
+      expect(trafficEventsResponseSchema.parse(JSON.parse(before.payload)).series.aiReferralCountingChangedAt).toBe(movedCutoff)
+
+      const submitted = await h.app.inject({
+        method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`, payload: { days: 14 },
+      })
+      expect(submitted.statusCode, submitted.payload).toBe(200)
+      expect((await waitForRunComplete(h.db, JSON.parse(submitted.payload).runId)).status).toBe(RunStatuses.completed)
+
+      const after = await h.app.inject({ method: 'GET', url })
+      expect(after.statusCode).toBe(200)
+      const body = trafficEventsResponseSchema.parse(JSON.parse(after.payload))
+      expect(body.totals.aiReferralLandedHits).toBe(expectedHits)
+      expect(body.series.aiReferralCountingChangedAt).toBe(olderOutsideWindow ? movedCutoff : null)
+      const peer = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?sourceId=${peerId}&${query}` })
+      expect(peer.statusCode).toBe(200)
+      const peerBody = trafficEventsResponseSchema.parse(JSON.parse(peer.payload))
+      expect(peerBody.totals.aiReferralLandedHits).toBe(17)
+      expect(peerBody.series.aiReferralCountingChangedAt).toBe(movedCutoff)
+    } finally {
+      await h.close()
+    }
+  })
+
   it('stores unrecognized agents from a pull sync and replaces them on backfill', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
@@ -5468,6 +5539,125 @@ describe('GET /traffic/events', () => {
     } finally { await h.close() }
   })
 
+  // A caller showing two series asks for exactly those two. Under the row cap,
+  // "all" is almost only crawler rows on a busy site, so the AI rows a chart
+  // shows never reach the table.
+  it('filters by a comma-separated list of kinds', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/bar', status: 200, observedAt: fromBase(2) }),
+      buildEvent({ userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: null, path: '/', status: 200, observedAt: fromBase(5) }),
+      buildEvent({ userAgent: 'Mozilla/5.0', path: '/landing', queryString: 'utm_source=chatgpt.com', status: 200, observedAt: fromBase(15) }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+      const read = async (query: string) => {
+        const res = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events${query}` })
+        expect(res.statusCode).toBe(200)
+        return JSON.parse(res.payload) as TrafficEventsResponse
+      }
+
+      const body = await read('?kind=ai-user-fetch,ai-referral')
+      expect(body.events.map(e => e.kind).sort()).toEqual(['ai-referral', 'ai-user-fetch'])
+      expect(body.eventRows.total).toBe(2)
+      // Totals and series cover the listed kinds only, like a single kind.
+      expect(body.totals.crawlerHits).toBe(0)
+      expect(body.totals.aiUserFetchHits).toBe(1)
+      expect(body.totals.aiReferralHits).toBe(1)
+      const sum = (key: 'crawlerHits' | 'aiUserFetchHits' | 'aiReferralHits') =>
+        body.series.points.reduce((n, point) => n + point[key], 0)
+      expect(sum('crawlerHits')).toBe(0)
+      expect(sum('aiUserFetchHits')).toBe(1)
+      expect(sum('aiReferralHits')).toBe(1)
+
+      // The list's order does not matter, and spaces around a member are fine.
+      const reordered = await read(`?kind=${encodeURIComponent('ai-referral, ai-user-fetch')}`)
+      expect(reordered.totals).toEqual(body.totals)
+      expect(reordered.events.length).toBe(2)
+
+      // Every kind listed is the same read as no filter.
+      const everyKind = await read('?kind=crawler,ai-user-fetch,ai-referral')
+      const unfiltered = await read('')
+      expect(everyKind.totals).toEqual(unfiltered.totals)
+      expect(everyKind.events.length).toBe(unfiltered.events.length)
+      expect(everyKind.eventRows.total).toBe(unfiltered.eventRows.total)
+    } finally { await h.close() }
+  })
+
+  it('rejects a kind list with an unknown or empty member', async () => {
+    const { h } = await syncedHarness()
+    try {
+      for (const kind of ['crawler,bogus', ',', 'all,crawler']) {
+        const res = await h.app.inject({
+          method: 'GET',
+          url: `/api/v1/projects/test-project/traffic/events?kind=${encodeURIComponent(kind)}`,
+        })
+        expect(res.statusCode, kind).toBe(400)
+        expect(JSON.parse(res.payload).error.message).toMatch(/kind/)
+      }
+      // A repeated parameter arrives as an array: refused, not a server error.
+      const repeated = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events?kind=crawler&kind=ai-referral',
+      })
+      expect(repeated.statusCode).toBe(400)
+    } finally { await h.close() }
+  })
+
+  // The dashboard fetches a clicked hour bar's rows with since and until both
+  // set to that hour, so the hour's rows load however many newer rows exist.
+  it('returns exactly one hour when since and until are that hour', async () => {
+    const baseTime = new Date(Date.now() - 3 * 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/early', status: 200, observedAt: fromBase(5) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(65) }),
+      buildEvent({ userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: null, path: '/', status: 200, observedAt: fromBase(70) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/late', status: 200, observedAt: fromBase(125) }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 300 },
+      })
+      const hour = new Date(baseTime.getTime() + 60 * 60_000).toISOString()
+      const window = `since=${encodeURIComponent(hour)}&until=${encodeURIComponent(hour)}`
+
+      const res = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?${window}` })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload) as TrafficEventsResponse
+      expect(body.events.map(e => e.tsHour)).toEqual([hour, hour])
+      expect(body.events.map(e => e.kind).sort()).toEqual(['ai-user-fetch', 'crawler'])
+
+      const narrowed = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?${window}&kind=ai-user-fetch` })
+      const narrowedBody = JSON.parse(narrowed.payload) as TrafficEventsResponse
+      expect(narrowedBody.events.map(e => e.kind)).toEqual(['ai-user-fetch'])
+    } finally { await h.close() }
+  })
+
   it('rejects invalid since/until and reversed windows', async () => {
     const { h } = await syncedHarness()
     try {
@@ -6023,6 +6213,141 @@ describe('crawler-hit content/infra segmentation', () => {
       expect(body.series.trends.crawlerContentHits, 'exact five complete flat hours, excluding only the in-progress hour').toEqual({
         slope: 0, intercept: 100, r2: 1, start: 100, end: 100, n: 5, startIndex: 1, endIndex: 5,
       })
+    } finally { await h.close() }
+  })
+
+  function insertSeriesReferralRows(
+    h: Awaited<ReturnType<typeof buildHarness>>,
+    source: typeof trafficSources.$inferSelect,
+    observations: { tsHour: string; hits: number }[],
+  ) {
+    h.db.insert(aiReferralEventsHourly).values(observations.map(observation => ({
+      projectId: source.projectId, sourceId: source.id, tsHour: observation.tsHour,
+      product: 'ChatGPT', operator: 'OpenAI', sourceDomain: 'chatgpt.com', evidenceType: 'utm',
+      landingPathNormalized: '/', status: 200, sessionsOrHits: observation.hits,
+      paidSessionsOrHits: 0, organicSessionsOrHits: observation.hits, usersEstimated: null,
+      createdAt: '2026-05-07T13:45:00.000Z', updatedAt: '2026-05-07T13:45:00.000Z',
+    }))).run()
+  }
+
+  /**
+   * Hours a source counted by the older AI-referral rule read high, so a line
+   * fitted across the change slopes down for traffic that held steady.
+   *
+   * Fixture: two older days at 100, the count changing at 12:00 on the second,
+   * then three whole days flat at 10. The fit must use only those three days;
+   * without the marker the same rows fit a steep decline.
+   */
+  it('fits the AI-referral trend only after the older count ended', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-07T13:45:00.000Z'))
+    for (const scenario of [
+      { name: 'older count marked', until: '2026-05-03T12:00:00.000Z' },
+      { name: 'no older count', until: null },
+    ]) {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        if (scenario.until) {
+          h.db.update(trafficSources).set({ aiReferralOlderCountUntil: scenario.until })
+            .where(eq(trafficSources.id, source.id)).run()
+        }
+        insertSeriesReferralRows(h, source, [
+          { tsHour: '2026-05-02T00:00:00.000Z', hits: 100 },
+          { tsHour: '2026-05-03T00:00:00.000Z', hits: 100 },
+          ...[4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, hits: 10 })),
+        ])
+        insertSeriesCrawlerRows(h, source, [2, 3, 4, 5, 6].map(day => ({
+          tsHour: `2026-05-0${day}T12:00:00.000Z`, pathNormalized: `/blog/day-${day}`, hits: 50,
+        })))
+        const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-04-30T13%3A45%3A00.000Z&granularity=day' })
+        expect(res.statusCode, scenario.name).toBe(200)
+        const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+        expect(body.series.aiReferralCountingChangedAt, scenario.name).toBe(scenario.until)
+        expect(body.series.points.map(point => point.aiReferralLandedHits), 'raw counts are unchanged').toEqual([0, 0, 100, 100, 10, 10, 10, 0])
+        // Other series keep every measured day.
+        expect(body.series.trends.crawlerContentHits, scenario.name).toEqual({
+          slope: 0, intercept: 50, r2: 1, start: 50, end: 50, n: 5, startIndex: 2, endIndex: 6,
+        })
+        if (scenario.until) {
+          expect(body.series.trends.aiReferralLandedHits, 'three whole days after the change, at their own indices').toEqual({
+            slope: 0, intercept: 10, r2: 1, start: 10, end: 10, n: 3, startIndex: 4, endIndex: 6,
+          })
+        } else {
+          expect(body.series.trends.aiReferralLandedHits?.n).toBe(5)
+          expect(body.series.trends.aiReferralLandedHits?.slope).toBeLessThan(0)
+        }
+      } finally { await h.close() }
+    }
+  })
+
+  /**
+   * Months are UTC calendar months. The month recording began inside and the
+   * month still running are named partial and left out of the fits.
+   *
+   * Fixture: recording begins May 25; visits 10 in June, 20 a month July to
+   * October, 3 so far in November. The fit is June to October.
+   */
+  it('buckets the series by month', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-06T13:45:00.000Z'))
+    const { h, source } = await emptySeriesHarness()
+    try {
+      insertSeriesReferralRows(h, source, [
+        { tsHour: '2026-05-25T10:00:00.000Z', hits: 5 },
+        { tsHour: '2026-06-10T10:00:00.000Z', hits: 10 },
+        ...['07', '08', '09', '10'].map(month => ({ tsHour: `2026-${month}-10T10:00:00.000Z`, hits: 20 })),
+        { tsHour: '2026-11-02T10:00:00.000Z', hits: 3 },
+      ])
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-04-01T00%3A00%3A00.000Z&granularity=month' })
+      expect(res.statusCode).toBe(200)
+      const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+      expect(body.series.granularity).toBe('month')
+      expect(body.series.points.map(p => [p.bucket, p.aiReferralLandedHits, p.measured])).toEqual([
+        ['2026-04', 0, false], ['2026-05', 5, true], ['2026-06', 10, true], ['2026-07', 20, true],
+        ['2026-08', 20, true], ['2026-09', 20, true], ['2026-10', 20, true], ['2026-11', 3, true],
+      ])
+      expect(body.totals.aiReferralLandedHits).toBe(98)
+      expect(body.series.points.reduce((sum, p) => sum + p.aiReferralLandedHits, 0), 'buckets sum to the total').toBe(body.totals.aiReferralLandedHits)
+      expect(body.series.partialBuckets).toEqual(['2026-05', '2026-11'])
+      expect(body.series.trends.aiReferralLandedHits).toEqual({
+        slope: 2, intercept: 10, r2: 0.5, start: 14, end: 22, n: 5, startIndex: 2, endIndex: 6,
+      })
+
+      // Prior coverage cannot make a requested slice of June a complete month.
+      for (const scenario of [
+        {
+          since: '2026-06-01T00:00:00.000Z', juneHits: 10, partialBuckets: ['2026-11'],
+          trend: { slope: 2, intercept: 14, r2: 0.5, start: 14, end: 22, n: 5, startIndex: 0, endIndex: 4 },
+        },
+        {
+          since: '2026-06-15T00:00:00.000Z', juneHits: 0, partialBuckets: ['2026-06', '2026-11'],
+          trend: { slope: 0, intercept: 20, r2: 1, start: 20, end: 20, n: 4, startIndex: 1, endIndex: 4 },
+        },
+      ]) {
+        const ranged = await h.app.inject({
+          method: 'GET',
+          url: `/api/v1/projects/test-project/traffic/events?since=${encodeURIComponent(scenario.since)}&granularity=month`,
+        })
+        expect(ranged.statusCode, scenario.since).toBe(200)
+        const rangedBody = trafficEventsResponseSchema.parse(JSON.parse(ranged.payload))
+        expect(rangedBody.series.coverageStart, scenario.since).toBe('2026-05-25T10:00:00.000Z')
+        expect(rangedBody.series.points.map(p => [p.bucket, p.aiReferralLandedHits, p.measured]), scenario.since).toEqual([
+          ['2026-06', scenario.juneHits, true], ['2026-07', 20, true], ['2026-08', 20, true],
+          ['2026-09', 20, true], ['2026-10', 20, true], ['2026-11', 3, true],
+        ])
+        expect(rangedBody.totals.aiReferralLandedHits, scenario.since).toBe(scenario.juneHits + 83)
+        expect(rangedBody.series.partialBuckets, scenario.since).toEqual(scenario.partialBuckets)
+        expect(rangedBody.series.trends.aiReferralLandedHits, scenario.since).toEqual(scenario.trend)
+      }
+    } finally { await h.close() }
+  })
+
+  it('refuses an unknown granularity', async () => {
+    const { h } = await emptySeriesHarness()
+    try {
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?granularity=week' })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.payload).error.message).toBe('"granularity" must be one of: hour, day, month')
     } finally { await h.close() }
   })
 

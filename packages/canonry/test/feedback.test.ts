@@ -64,6 +64,14 @@ describe('sendFeedback', () => {
       .rejects.toMatchObject({ code: 'DELIVERY_FAILED' })
   })
 
+  it.each([{}, null, { accepted: false, id: 'refused' }, { accepted: true }, { accepted: true, id: '' }, { accepted: 'true', id: 'bad' }])(
+    'does not claim delivery for an invalid or refused successful HTTP receipt: %j', async body => {
+      await expect(sendFeedback({ kind: 'bug', summary: 'x' }, {}, {
+        fetch: collector(202, body).fetchFn, telemetryEnabled: () => false,
+      })).rejects.toMatchObject({ code: 'DELIVERY_FAILED' })
+    },
+  )
+
   it('redacts credentials in every free-text field, including area and errorCode', async () => {
     const { calls, fetchFn } = collector(202)
     await sendFeedback(

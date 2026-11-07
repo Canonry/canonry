@@ -848,6 +848,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Typed GA4 attributed lead-event foundation; its public read model lands in the follow-up measurement API PR.',
   },
+  gaSyncCoverage: {
+    kind: 'internal-only',
+    reason: 'Per-day ingestion receipts decide which GA4 dates to fetch; report values remain on the existing GA DTOs.',
+  },
   gaMeasurementSyncStates: {
     kind: 'internal-only',
     reason: 'Component-level sync completeness and error state backing the follow-up measurement API.',
@@ -1011,6 +1015,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       lastWorkerVersion: 'Semver reported by the most recently ingested Cloudflare Worker batch, whether direct or Queue. Surfaced through the doctor check, not the source DTO.',
       syncLeaseOwner: 'Ephemeral owner of a pull-source sync lease; internal concurrency state.',
       syncLeaseExpiresAt: 'Expiry for stale pull-source lease recovery; internal concurrency state.',
+      aiReferralOlderCountUntil: 'End of the older AI-referral arrival count; surfaced as `aiReferralCountingChangedAt` on traffic events and analytics, not on the source DTO.',
     },
   },
 
