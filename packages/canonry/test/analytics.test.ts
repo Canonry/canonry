@@ -171,6 +171,43 @@ describe('analytics command', () => {
     expect(stdout).toMatch(/Overall:/)
   })
 
+  it('names the no-retrieval answers the cited rate left out, and stays silent when there are none', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      window: '30d',
+      buckets: [],
+      overall: { citationRate: 0.3333, cited: 1, total: 4, mentionRate: 0.75, mentionedCount: 3, excludedNoRetrieval: 1 },
+      byProvider: {},
+      trend: 'stable',
+      mentionTrend: 'stable',
+      queryChanges: [],
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain('Overall: 33.3% (1/4)')
+      expect(stdout).toContain('Excluded from the cited rate: 1 answer(s) written without a web search')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+
+    const cleanSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      window: '30d',
+      buckets: [],
+      overall: { citationRate: 0.5, cited: 1, total: 2, mentionRate: 0.5, mentionedCount: 1 },
+      byProvider: {},
+      trend: 'stable',
+      mentionTrend: 'stable',
+      queryChanges: [],
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).not.toContain('Excluded from the cited rate')
+    } finally {
+      cleanSpy.mockRestore()
+    }
+  })
+
   it('prints latest model evidence and ordered attribution events', async () => {
     const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
       window: '30d',

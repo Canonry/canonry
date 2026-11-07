@@ -7,7 +7,7 @@ import {
   effectiveDomains, evaluateModelPointerExposure, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses,
   RunTriggers, windowCutoff, validationError, notFound, compileBrandAliases, hostMatchesAnyDomain, hostMatchesDomain,
   hostOf, matcherMatchesText, normalizeQueryText, queryClassFilterSchema, sourceBreakdownQuerySchema, answerProseForMentions,
-  prepareBrandMatchText, LATEST_RUN_ID, SOURCE_BREAKDOWN_COUNT_UNITS, RatioUnits, roundRatio,
+  prepareBrandMatchText, LATEST_RUN_ID, SOURCE_BREAKDOWN_COUNT_UNITS, RatioUnits, roundRatio, RetrievalStatuses,
 } from '@canonry/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
@@ -15,7 +15,7 @@ import type {
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent, QueryClass,
   RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount, ModelEvidenceState,
   ModelExposureWindow, ModelPointerChangeDisclosure, ModelServiceMismatch, ExecutionIdentityChangeEvent,
-  WindowChange, WindowRateChange,
+  WindowChange, WindowRateChange, RetrievalStatus,
 } from '@canonry/canonry-contracts'
 import { buildMentionShare, type MentionShareCompetitor } from '@canonry/canonry-intelligence'
 import { mentionShareCompetitors as mentionShareCompetitorsFor, projectQueryClassifier } from './mention-share-inputs.js'
@@ -155,6 +155,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
         mentionIdentity: querySnapshots.mentionIdentity,
+        retrievalStatus: querySnapshots.retrievalStatus,
         answerText: querySnapshots.answerText,
       })
       .from(querySnapshots)
@@ -1106,6 +1107,14 @@ interface SnapshotLike {
   citationState: string
   resolvedMentioned: boolean
   answerText: string | null
+  /**
+   * Whether retrieval ran for the answer (`null` on rows stored before the
+   * field existed). Only an explicit `'not-used'` leaves the cited
+   * denominator; `null` / `unknown` / `not-applicable` stay in it, because
+   * they assert no absence — `unknown` means the response could not be
+   * judged, and `not-applicable` surfaces have no retrieval step to report.
+   */
+  retrievalStatus: RetrievalStatus | null
   /** Canonical observation time: the parent run's logical sweep timestamp. */
   runCreatedAt: string
   /**
@@ -1129,14 +1138,23 @@ interface SnapshotLike {
 
 function computeProviderMetric(snapshots: SnapshotLike[]): ProviderMetric {
   const total = snapshots.length
-  const cited = snapshots.filter(s => s.citationState === CitationStates.cited).length
+  // An answer written with no web search cites nothing by construction, so it
+  // leaves the cited denominator rather than counting as a searched miss.
+  // It stays in `total` (the mention denominator): brand recall does not need
+  // search. Only an explicit 'not-used' is excluded — legacy `null` rows and
+  // `unknown` / `not-applicable` assert no absence.
+  const excludedNoRetrieval = snapshots.filter(s => s.retrievalStatus === RetrievalStatuses['not-used']).length
+  const citable = snapshots.filter(s => s.retrievalStatus !== RetrievalStatuses['not-used'])
+  const cited = citable.filter(s => s.citationState === CitationStates.cited).length
+  const citedDenominator = total - excludedNoRetrieval
   const mentionedCount = snapshots.filter(s => s.resolvedMentioned).length
   return {
-    citationRate: total > 0 ? Math.round((cited / total) * 10000) / 10000 : 0,
+    citationRate: citedDenominator > 0 ? Math.round((cited / citedDenominator) * 10000) / 10000 : 0,
     cited,
     total,
     mentionRate: total > 0 ? Math.round((mentionedCount / total) * 10000) / 10000 : 0,
     mentionedCount,
+    ...(excludedNoRetrieval > 0 ? { excludedNoRetrieval } : {}),
   }
 }
 
@@ -1237,6 +1255,7 @@ function computeBuckets(
         queryCount,
         mentionRate: metric.mentionRate,
         mentionedCount: metric.mentionedCount,
+        ...(metric.excludedNoRetrieval !== undefined ? { excludedNoRetrieval: metric.excludedNoRetrieval } : {}),
         mentionShare: computeMentionShareBucketMetric(usable, mentionShareCompetitors, classificationAvailable),
         byProvider,
         modelEvidenceByProvider,

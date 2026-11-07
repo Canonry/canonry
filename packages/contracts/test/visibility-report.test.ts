@@ -10,7 +10,7 @@ import {
   visibilityReportScopeErrorDetailsSchema,
   VisibilityReportScopeErrorReasons,
 } from '../src/visibility-report.js'
-import { uncheckedSourcesLabel, unattributedAnswersLabel } from '../src/visibility-display.js'
+import { excludedNoRetrievalLabel, uncheckedSourcesLabel, unattributedAnswersLabel } from '../src/visibility-display.js'
 
 describe('visibility report contract', () => {
   it('defaults to the non-brand population and preserves explicit no-location', () => {
@@ -147,6 +147,20 @@ describe('unchecked sources line', () => {
     // A mention rate's left-out answers are not a citation statement.
     expect(uncheckedSourcesLabel({ numerator: 1, denominator: 2, rate: 0.5, unattributed: 1 })).toBeNull()
     expect(uncheckedSourcesLabel({})).toBeNull()
+  })
+})
+
+describe('excluded no-retrieval line', () => {
+  it('names the answers the cited rate left out', () => {
+    expect(excludedNoRetrievalLabel({ excludedNoRetrieval: 1 }))
+      .toBe('Excluded from the cited rate: 1 answer(s) written without a web search')
+    expect(excludedNoRetrievalLabel({ excludedNoRetrieval: 3 }))
+      .toBe('Excluded from the cited rate: 3 answer(s) written without a web search')
+  })
+
+  it('says nothing when nothing was left out', () => {
+    expect(excludedNoRetrievalLabel({})).toBeNull()
+    expect(excludedNoRetrievalLabel({ excludedNoRetrieval: 0 })).toBeNull()
   })
 })
 

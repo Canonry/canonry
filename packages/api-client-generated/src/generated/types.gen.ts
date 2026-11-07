@@ -4739,6 +4739,7 @@ export type BrandMetricsDto = {
         queryCount: number;
         mentionRate: number;
         mentionedCount: number;
+        excludedNoRetrieval?: number;
         mentionShare: {
             scope: 'non-brand' | 'pooled';
             rate: number | null;
@@ -4752,6 +4753,7 @@ export type BrandMetricsDto = {
                 total: number;
                 mentionRate: number;
                 mentionedCount: number;
+                excludedNoRetrieval?: number;
             };
         };
         modelEvidenceByProvider: {
@@ -4774,6 +4776,7 @@ export type BrandMetricsDto = {
         total: number;
         mentionRate: number;
         mentionedCount: number;
+        excludedNoRetrieval?: number;
     };
     byProvider: {
         [key: string]: {
@@ -4782,6 +4785,7 @@ export type BrandMetricsDto = {
             total: number;
             mentionRate: number;
             mentionedCount: number;
+            excludedNoRetrieval?: number;
         };
     };
     trend: 'improving' | 'declining' | 'stable';

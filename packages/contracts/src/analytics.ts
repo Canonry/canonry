@@ -24,11 +24,31 @@ export const VisibilityMetricModes = visibilityMetricModeSchema.enum
 
 /** Citation + mention rates for one provider (or the overall roll-up) within a window or bucket. */
 export const providerMetricSchema = z.object({
+  /**
+   * `cited / (total - excludedNoRetrieval)`, rounded to 4 dp; `0` when no
+   * answer could be cited. Answers written with no web search
+   * (`retrievalStatus = 'not-used'`) cite nothing by construction, so they
+   * leave the cited denominator rather than count as a searched miss.
+   */
   citationRate: fraction(),
+  /** Snapshots where `citationState === 'cited'` among the cited denominator. */
   cited: z.number().int(),
+  /**
+   * Every snapshot observed — the mention denominator. Brand recall does not
+   * need search, so no-retrieval answers stay in it; only the cited rate
+   * leaves them out (see `excludedNoRetrieval`).
+   */
   total: z.number().int(),
   mentionRate: fraction(),
   mentionedCount: z.number().int(),
+  /**
+   * Answers written with no web search (`retrievalStatus = 'not-used'`).
+   * They cite nothing by construction, so they leave the cited denominator
+   * rather than count as a searched miss; they remain in the mention
+   * denominator, since brand recall does not need search. Only set when
+   * nonzero, and only on frames that record retrieval status.
+   */
+  excludedNoRetrieval: z.number().int().nonnegative().optional(),
 })
 export type ProviderMetric = z.infer<typeof providerMetricSchema>
 
@@ -240,12 +260,32 @@ export const timeBucketSchema = z.object({
    * — surface that rather than implying a single reading.
    */
   sweepCount: z.number().int().nonnegative(),
+  /**
+   * `cited / (total - excludedNoRetrieval)`, rounded to 4 dp; `0` when no
+   * answer could be cited. Answers written with no web search
+   * (`retrievalStatus = 'not-used'`) cite nothing by construction, so they
+   * leave the cited denominator rather than count as a searched miss.
+   */
   citationRate: fraction(),
+  /** Snapshots where `citationState === 'cited'` among the cited denominator. */
   cited: z.number().int(),
+  /**
+   * Every snapshot observed in the bucket — the mention denominator. Brand
+   * recall does not need search, so no-retrieval answers stay in it; only
+   * the cited rate leaves them out (see `excludedNoRetrieval`).
+   */
   total: z.number().int(),
   queryCount: z.number().int(),
   mentionRate: fraction(),
   mentionedCount: z.number().int(),
+  /**
+   * Answers written with no web search (`retrievalStatus = 'not-used'`).
+   * They cite nothing by construction, so they leave the cited denominator
+   * rather than count as a searched miss; they remain in the mention
+   * denominator, since brand recall does not need search. Only set when
+   * nonzero, and only on frames that record retrieval status.
+   */
+  excludedNoRetrieval: z.number().int().nonnegative().optional(),
   mentionShare: mentionShareBucketMetricSchema,
   byProvider: z.record(z.string(), providerMetricSchema),
   /** Evidence from the exact normalized snapshots that produced each provider rate. */
