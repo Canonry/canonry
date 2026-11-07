@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { and, eq, gte, inArray, lte, ne, sql } from 'drizzle-orm'
-import { addLikelyFakeAgentHits, correctBackgroundCallJourneys, mergeSplitJourneyVisitors, writeUnrecognizedAgentBuckets, type BackgroundCallJourneyCorrection, type SplitVisitorMerge } from '@canonry/canonry-api-routes'
+import { addLikelyFakeAgentHits, correctBackgroundCallJourneys, mergeSplitJourneyVisitors, repairAiReferralArrivalsOnStartup, writeUnrecognizedAgentBuckets, type BackgroundCallJourneyCorrection, type SplitVisitorMerge } from '@canonry/canonry-api-routes'
 import {
   AgentTrustLevels,
   AgentTrustReasons,
@@ -712,23 +712,19 @@ export function startTrafficReclassification(opts: { db: DatabaseClient, delayMs
     reclassifyStoredTrafficIfRulesChanged(opts.db, { shouldStop: () => stopped })
       .then((outcome) => {
         if (!outcome.ran || !outcome.result) return
-        const { samples, unrecognized, agentHits, agentRequests, journeys, journeyMerges } = outcome.result
-        log.info('traffic-reclassify.completed', {
-          samplesReclassified: samples.reclassified,
-          samplesCounted: samples.counted,
-          samplesRemoved: samples.removed,
-          unrecognizedMoved: unrecognized.moved,
-          unrecognizedMovedHits: unrecognized.movedHits,
-          unrecognizedRenamed: unrecognized.renamed,
-          unrecognizedRemoved: unrecognized.removed,
-          agentHitsMoved: agentHits.movedHits,
-          agentRequestsRemoved: agentRequests.removed,
-          journeyVisitorsRemoved: journeys.visitorsRemoved,
-          journeyVisitsRemoved: journeys.visitsRemoved,
-          journeyVisitsRelanded: journeys.visitsRelanded,
-          journeyVisitorsMerged: journeyMerges.visitorsMerged,
-          journeyVisitsJoined: journeyMerges.visitsJoined,
-        })
+        logReclassification(outcome.result)
+      })
+      .then(() => {
+        if (stopped) return
+        // Journeys are corrected by now, so the older AI-referral hours they
+        // cover can be counted again. Once per install; a failure retries next start.
+        try {
+          for (const recount of repairAiReferralArrivalsOnStartup(opts.db) ?? []) {
+            log.info('traffic-reclassify.ai-referral-recount', { ...recount })
+          }
+        } catch (err) {
+          log.error('traffic-reclassify.ai-referral-recount-failed', { error: describeError(err) })
+        }
       })
       .catch((err: unknown) => {
         if (!stopped) log.error('traffic-reclassify.failed', { error: describeError(err) })
@@ -739,4 +735,24 @@ export function startTrafficReclassification(opts: { db: DatabaseClient, delayMs
     stopped = true
     clearTimeout(timer)
   }
+}
+
+function logReclassification(result: StoredTrafficReclassification): void {
+  const { samples, unrecognized, agentHits, agentRequests, journeys, journeyMerges } = result
+  log.info('traffic-reclassify.completed', {
+    samplesReclassified: samples.reclassified,
+    samplesCounted: samples.counted,
+    samplesRemoved: samples.removed,
+    unrecognizedMoved: unrecognized.moved,
+    unrecognizedMovedHits: unrecognized.movedHits,
+    unrecognizedRenamed: unrecognized.renamed,
+    unrecognizedRemoved: unrecognized.removed,
+    agentHitsMoved: agentHits.movedHits,
+    agentRequestsRemoved: agentRequests.removed,
+    journeyVisitorsRemoved: journeys.visitorsRemoved,
+    journeyVisitsRemoved: journeys.visitsRemoved,
+    journeyVisitsRelanded: journeys.visitsRelanded,
+    journeyVisitorsMerged: journeyMerges.visitorsMerged,
+    journeyVisitsJoined: journeyMerges.visitsJoined,
+  })
 }

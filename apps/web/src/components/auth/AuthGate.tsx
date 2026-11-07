@@ -105,12 +105,15 @@ export function AuthGate() {
       const qc = createQueryClient()
       queryClientRef.current = qc
       routerRef.current = createAppRouter(qc)
-      // Page views follow the live router (a no-op until main.tsx installs telemetry).
-      attachUiTelemetryRouter(routerRef.current)
       cachedForPrincipalRef.current = principalKey
     }
     return { queryClient: queryClientRef.current!, router: routerRef.current! }
   }
+
+  const activeRouter = authState === 'ready' ? getRouter().router : null
+  useEffect(() => {
+    if (activeRouter) return attachUiTelemetryRouter(activeRouter)
+  }, [activeRouter])
 
   const applyAccountSession = (session: ApiAccountSession): boolean => {
     if (!session.authRequired) return false

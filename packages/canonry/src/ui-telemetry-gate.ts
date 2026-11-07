@@ -1,4 +1,4 @@
-import type { UiTelemetryEvent } from '@canonry/canonry-contracts'
+import { quotaExceeded, type UiTelemetryEvent } from '@canonry/canonry-contracts'
 import { isTelemetryEnabled, recordDashboardEvent } from './telemetry.js'
 
 /** Burst of 60, refilling one per second. */
@@ -16,8 +16,8 @@ export interface UiTelemetryGateOptions {
  * The host side of `POST /api/v1/telemetry/ui`: forward one dashboard event and
  * say whether it was accepted. Answers `false` while telemetry is effectively
  * off (config, DO_NOT_TRACK, CI, env), so the dashboard stops sending for the
- * session, and past a per-process cap of two token buckets, so a misbehaving
- * tab cannot flood the collector.
+ * session. Temporary rate limits return 429 instead, so the next cumulative
+ * checkpoint can recover after the buckets refill.
  */
 export function createUiTelemetryGate(options: UiTelemetryGateOptions = {}): (event: UiTelemetryEvent) => boolean {
   const now = options.now ?? Date.now
@@ -35,7 +35,7 @@ export function createUiTelemetryGate(options: UiTelemetryGateOptions = {}): (ev
     const elapsed = Math.max(0, at - refilledAt)
     refilledAt = at
     for (const bucket of buckets) bucket.tokens = Math.min(bucket.capacity, bucket.tokens + elapsed * bucket.perMs)
-    if (buckets.some(bucket => bucket.tokens < 1)) return false
+    if (buckets.some(bucket => bucket.tokens < 1)) throw quotaExceeded('UI telemetry events', { retryLater: true })
     for (const bucket of buckets) bucket.tokens -= 1
     record(event)
     return true

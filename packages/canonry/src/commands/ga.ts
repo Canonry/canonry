@@ -745,7 +745,7 @@ export async function gaSocialReferralHistory(project: string, opts?: GaRangeOpt
 export async function gaOverview(project: string, opts?: { window?: string; format?: string }): Promise<void> {
   const window = opts?.window
   if (window !== undefined && !isGaOverviewWindow(window)) {
-    throw usageError(`Invalid --window "${window}": the GA4 overview supports 7d, 30d or 90d.`)
+    throw usageError(`Invalid --window "${window}": the GA4 overview supports 7d, 30d, 90d or 180d.`)
   }
   const client = getClient()
   const result: GaOverviewResponse = await client.gaOverview(project, window)

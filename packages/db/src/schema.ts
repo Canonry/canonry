@@ -2095,6 +2095,21 @@ export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
   index('idx_ga_traffic_run').on(table.syncRunId),
 ])
 
+/** Successful queried days, including empty days; never inferred from traffic rows. */
+export const gaSyncCoverage = sqliteTable('ga_sync_coverage', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  component: text('component').notNull(),
+  syncRunId: text('sync_run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  propertyId: text('property_id').notNull(),
+  definition: text('definition').notNull(),
+  settled: integer('settled', { mode: 'boolean' }).notNull(),
+  syncedAt: text('synced_at').notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.projectId, t.component, t.date] }),
+  index('idx_ga_sync_coverage_run').on(t.syncRunId),
+])
+
 /**
  * Property-level GA4 totals for one day, fetched with NO landing-page
  * dimension — the daily counterpart to `ga_summaries`' windowed totals.
@@ -2401,7 +2416,7 @@ export const gaWindowMetrics = sqliteTable('ga_window_metrics', {
 // (Search Console link), one snapshot per window (v176). Every figure is
 // GA4-computed for the window: the Total lives here and is never a sum of
 // ga_search_landing_pages rows (users are distinct per grain; CTR and position
-// are ratios). A sync replaces all windows together or none.
+// are ratios). A sync atomically replaces only the windows it fetched.
 export const gaSearchLandingWindows = sqliteTable('ga_search_landing_windows', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
@@ -2416,6 +2431,8 @@ export const gaSearchLandingWindows = sqliteTable('ga_search_landing_windows', {
   periodEnd: text('period_end').notNull(),
   /** GA4 property reporting time zone the period dates are in. */
   timeZone: text('time_zone'),
+  /** Report definition that produced this snapshot; null legacy snapshots cannot be reused. */
+  reportDefinition: text('report_definition'),
   totalClicks: integer('total_clicks').notNull().default(0),
   totalImpressions: integer('total_impressions').notNull().default(0),
   /** GA4's CTR for the window (0..1); null when there were no impressions. */
@@ -2433,7 +2450,7 @@ export const gaSearchLandingWindows = sqliteTable('ga_search_landing_windows', {
 }, (table) => [
   uniqueIndex('idx_ga_search_landing_windows_project_window').on(table.projectId, table.windowKey),
   index('idx_ga_search_landing_windows_run').on(table.syncRunId),
-  check('chk_ga_search_landing_windows_window', sql`${table.windowKey} IN ('7d', '28d', '90d')`),
+  check('chk_ga_search_landing_windows_window', sql`${table.windowKey} IN ('7d', '28d', '90d', '180d')`),
   check('chk_ga_search_landing_windows_counts', sql`${table.totalClicks} >= 0 AND ${table.totalImpressions} >= 0 AND ${table.totalActiveUsers} >= 0 AND ${table.reportRowCount} >= 0`),
   check('chk_ga_search_landing_windows_ctr', sql`${table.totalCtr} IS NULL OR (${table.totalCtr} >= 0 AND ${table.totalCtr} <= 1)`),
 ])
@@ -2458,7 +2475,7 @@ export const gaSearchLandingPages = sqliteTable('ga_search_landing_pages', {
   uniqueIndex('idx_ga_search_landing_pages_grain').on(table.projectId, table.windowKey, table.landingPage),
   index('idx_ga_search_landing_pages_order').on(table.projectId, table.windowKey, table.clicks),
   index('idx_ga_search_landing_pages_run').on(table.syncRunId),
-  check('chk_ga_search_landing_pages_window', sql`${table.windowKey} IN ('7d', '28d', '90d')`),
+  check('chk_ga_search_landing_pages_window', sql`${table.windowKey} IN ('7d', '28d', '90d', '180d')`),
   check('chk_ga_search_landing_pages_counts', sql`${table.clicks} >= 0 AND ${table.impressions} >= 0 AND ${table.activeUsers} >= 0`),
   check('chk_ga_search_landing_pages_ctr', sql`${table.ctr} IS NULL OR (${table.ctr} >= 0 AND ${table.ctr} <= 1)`),
 ])
@@ -2735,6 +2752,17 @@ export const trafficSources = sqliteTable('traffic_sources', {
    */
   skippedThroughAt: text('skipped_through_at'),
   lastEventIds: text('last_event_ids', { mode: 'json' }).$type<string[]>(),
+  /**
+   * When this source's AI-referral hours stopped being counted by the older
+   * arrival rule, which also counted a visitor's later pages, assets and API
+   * calls. Set by migration v211, only for a source holding referral rows
+   * written before v207 changed the rule; NULL otherwise. Hours before it can
+   * read high, so charts mark them and trend fits and comparisons leave them
+   * out. A one-time recount (`ai-referral-recount.ts`) rebuilds the hours AI
+   * visitor journeys cover on Cloudflare and Cloud Run sources and moves this
+   * back to where journeys began, or clears it when no older hour is left.
+   */
+  aiReferralOlderCountUntil: text('ai_referral_older_count_until'),
   archivedAt: text('archived_at'),
   configJson: text('config_json', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
   // sha256 hex of the per-source bearer token issued at connect time. Only

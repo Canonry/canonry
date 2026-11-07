@@ -49,19 +49,18 @@ describe('AI referral attribution dedup', () => {
     expect(summarizeAiReferralCounts(rows).deduped.sessions).toBe(2)
   })
 
-  it('takes the largest lens rather than the sum when they disagree', () => {
+  it('takes the session lens rather than the sum or the larger lens when they disagree', () => {
     const rows = [
       { date: '2026-08-15', source: 'chatgpt.com', medium: 'ai-assistant', sourceDimension: 'session', channelGroup: 'AI Assistant', trafficClass: 'organic', sessions: 3 },
       { date: '2026-08-15', source: 'chatgpt.com', medium: '(not set)', sourceDimension: 'manual_utm', channelGroup: 'AI Assistant', trafficClass: 'organic', sessions: 7 },
     ]
-    expect(summarizeAiReferralCounts(rows).deduped.sessions).toBe(7)
+    expect(summarizeAiReferralCounts(rows).deduped.sessions).toBe(3)
   })
 
-  it('breaks a tie toward the session lens so row order cannot change the answer', () => {
-    const tied = new Map([['first_user', 5], ['manual_utm', 5], ['session', 5]])
-    expect(pickWinningAttributionDimension(tied)).toBe('session')
-    const reordered = new Map([['session', 5], ['manual_utm', 5], ['first_user', 5]])
-    expect(pickWinningAttributionDimension(reordered)).toBe('session')
+  it('picks the session lens whatever the counts or row order, and nothing without it', () => {
+    expect(pickWinningAttributionDimension(new Map([['first_user', 9], ['manual_utm', 7], ['session', 5]]))).toBe('session')
+    expect(pickWinningAttributionDimension(new Map([['session', 5], ['manual_utm', 5], ['first_user', 5]]))).toBe('session')
+    expect(pickWinningAttributionDimension(new Map([['first_user', 9], ['manual_utm', 7]]))).toBeUndefined()
   })
 
   it('still partitions paid and organic within the winning lens', () => {

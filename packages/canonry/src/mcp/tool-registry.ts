@@ -85,7 +85,8 @@ import {
   trafficConnectCloudRunRequestSchema,
   trafficConnectWordpressRequestSchema,
   trafficConnectVercelRequestSchema,
-  trafficEventKindSchema,
+  parseTrafficEventKindFilter,
+  TRAFFIC_EVENT_KIND_FILTER_HINT,
   trafficSeriesGranularitySchema,
   measurementPlanAuthoringSchema,
   measurementPlanPublishRequestSchema,
@@ -603,7 +604,7 @@ async function submitGscSitemapsFromMcp(
 // over `window` server-side.
 const gaWindowInputSchema = z.object({
   project: projectNameSchema,
-  window: analyticsWindowSchema.optional(),
+  window: z.enum(WINDOW_SETS.gaTraffic).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
 })
@@ -1055,10 +1056,13 @@ const trafficEventsInputSchema = z.object({
   project: projectNameSchema,
   since: z.string().optional().describe('ISO 8601 lower bound. Defaults to 24h ago when omitted.'),
   until: z.string().optional().describe('ISO 8601 upper bound. Defaults to now when omitted.'),
-  kind: z.union([trafficEventKindSchema, z.literal('all')]).optional().describe('Filter to one traffic kind; "all" (default) returns every kind.'),
+  kind: z.string()
+    .refine((value) => parseTrafficEventKindFilter(value) !== null, { message: `kind must be ${TRAFFIC_EVENT_KIND_FILTER_HINT}` })
+    .optional()
+    .describe('Filter to "crawler", "ai-user-fetch", "ai-referral", a comma-separated list of them (e.g. "ai-user-fetch,ai-referral"), or "all" (default). Rows, totals and series cover only the kinds asked for.'),
   sourceId: z.string().min(1).optional().describe('Restrict to a single traffic source ID.'),
   limit: z.number().int().positive().max(5000).optional().describe('Max combined rows. Defaults to 500, max 5000. Totals always reflect the full window.'),
-  granularity: trafficSeriesGranularitySchema.optional().describe('Full-window chart series bucket size: hour (default) or day.'),
+  granularity: trafficSeriesGranularitySchema.optional().describe('Full-window chart series bucket size: hour (default), day, or month (UTC calendar months).'),
 })
 // ai-referral rows and totals split sessions into paid / organic / unclassified.
 // `unclassified` are rows ingested before the classifier shipped; their UTM tags
@@ -2779,7 +2783,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_ga_search_landing_pages',
     title: 'Get GA4 Google organic search landing pages',
-    description: 'Read GA4\'s "Google organic search traffic: Landing page + query string" report (Search Console link) as the last GA sync stored it: clicks, impressions, CTR, average position and active users per landing page for the 7, 28 (default) or 90 days ending yesterday in the property time zone. `total` is GA4\'s own Total row; never sum `rows`. Status `unavailable` means GA4 refused the Search Console metrics (link Search Console in GA4); the previous snapshot is still returned. Stored data only.',
+    description: 'Read GA4\'s "Google organic search traffic: Landing page + query string" report (Search Console link) as the last GA sync stored it: clicks, impressions, CTR, average position and active users per landing page for the 7, 28 (default), 90 or 180 days ending yesterday in the property time zone. `total` is GA4\'s own Total row; never sum `rows`. Status `unavailable` means GA4 refused the Search Console metrics (link Search Console in GA4); the previous snapshot is still returned. Stored data only.',
     access: 'read',
     tier: 'ga',
     inputSchema: gaSearchLandingPagesInputSchema,
@@ -2870,7 +2874,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_ga_overview',
     title: 'Get the GA4 overview',
-    description: 'Get GA4\'s overview for a window (7d, 30d or 90d of complete days ending yesterday, as GA4 counts them): users, new users, sessions, organic sessions, views, event count, key events, engagement rate, bounce rate and average engagement time, each against the previous period, plus both periods by day.',
+    description: 'Get GA4\'s overview for a window (7d, 30d, 90d or 180d of complete days ending yesterday, as GA4 counts them): users, new users, sessions, organic sessions, views, event count, key events, engagement rate, bounce rate and average engagement time, each against the previous period, plus both periods by day.',
     access: 'read',
     tier: 'ga',
     inputSchema: gaOverviewInputSchema,
