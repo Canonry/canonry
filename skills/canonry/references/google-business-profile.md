@@ -106,7 +106,15 @@ Rules that hold for both sources:
 
 Subscribe: `cnry notify add <project> --webhook <url> --events review.negative,review.rating-dropped`. Discord and Slack webhook URLs get a formatted message; any other URL gets the signed JSON payload. The doctor check warns only when a project subscribes to review events and some location has no review source at all; missing v4 access alone reports as skipped, since it is the normal state.
 
-**Account-credential gotcha:** API calls use your **Application Default Credentials** (`gcloud auth application-default login` → `print-access-token`), while `gcloud services enable` uses the separate **gcloud CLI account** (`gcloud config get-value account`). These can be different identities. Verify the token's real account with `curl "https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=$TOKEN"` before concluding anything about access — a "wrong account" symptom is often just the two credential stores disagreeing.
+**Account-credential gotcha:** Application Default Credentials (ADC) and the
+gcloud CLI have separate authentication configurations. An API diagnostic
+using ADC can therefore run as a different identity from `gcloud services
+enable`, which uses the CLI account shown by `gcloud config get-value account`.
+Confirm which credential source the diagnostic uses and which account was
+authorized for it before concluding that API access is missing. If the local
+ADC identity is wrong, have the operator authorize the intended account with
+`gcloud auth application-default login`; changing the CLI's active account
+does not change ADC. See [Google's ADC configuration and search order](https://cloud.google.com/docs/authentication/application-default-credentials).
 
 ### Create OAuth client credentials
 
