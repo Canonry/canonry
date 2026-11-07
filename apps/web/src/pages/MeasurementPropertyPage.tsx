@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON } from '@canonry/canonry-contracts'
+import { formatModelName, formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON } from '@canonry/canonry-contracts'
 import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
@@ -26,6 +26,7 @@ import { formatObservedInstantLabel, observedInstant } from '../components/share
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { DIFFERENT_SUBJECT_COPY } from '../lib/mention-identity-copy.js'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../components/shared/AnswerMarkdown.js'
+import { AnswerEngineLabel } from '../components/shared/AnswerEngineLabel.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { excludedAnswersFlag, type CoverageSignal } from '../lib/format-helpers.js'
 import { SourceLink } from '../components/shared/SourceLink.js'
@@ -35,6 +36,7 @@ import { MARKET_SCOPE_COPY } from '../components/project/VisibilityScopePicker.j
 import { useAccount } from '../contexts/account-context.js'
 import { matcherLabel } from '../components/project/advanced-measurement/v2-overview-adapter.js'
 import { PropertyNamesSection } from '../components/project/advanced-measurement/PropertyNamesEditor.js'
+import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 
 type QueryClass = 'branded' | 'non-brand'
 type MetricValue = MeasurementOverviewResponse['metrics']['mentionCoverage']
@@ -250,7 +252,7 @@ function reasonText(metric: Extract<MetricValue, { state: 'unavailable' }>): str
  * "Not measured" and carries the server's reason, so an unmeasured Property can
  * never be read as a measured zero.
  */
-function MetricCell({ metric, signal, queryClass, emphasis = false }: { metric: MetricValue; signal: CoverageSignal; queryClass: QueryClass; emphasis?: boolean }) {
+function MetricCell({ metric, signal, queryClass, emphasis = false, compact = false }: { metric: MetricValue; signal: CoverageSignal; queryClass: QueryClass; emphasis?: boolean; compact?: boolean }) {
   if (metric.state === 'unavailable') {
     return (
       <span className="inline-flex flex-col gap-0.5">
@@ -268,6 +270,16 @@ function MetricCell({ metric, signal, queryClass, emphasis = false }: { metric: 
   // signal: not tied to one property under Mentioned, sources that could not be
   // checked under Cited. The count above already excludes them; this keeps them visible.
   const excluded = excludedAnswersFlag(metric, signal)
+  if (compact) return (
+    <span className="inline-flex flex-col items-end gap-0.5">
+      <span className="engine-comparison-metric">
+        <span className="text-label-14-strong text-primary">{percent}</span>
+        {counted ? <span className="text-label-13 text-secondary" aria-hidden="true">{metric.numerator}/{metric.denominator}</span> : null}
+        <span className="sr-only">{counted ? ` · ${counted} answers` : ''} · {queryClass} queries</span>
+      </span>
+      {excluded ? <span className="flex"><InfoTooltip tone="caution" placement="bottom" label={excluded.label} text={excluded.text} /></span> : null}
+    </span>
+  )
   return (
     <span className="inline-flex flex-col gap-0.5 tabular-nums">
       <span className={emphasis ? 'text-label-18-strong text-heading' : 'text-label-14-strong text-primary'}>{percent}</span>
@@ -504,15 +516,15 @@ function ProviderBreakdown({ row, queryClass, isError }: { row: PropertyRow | un
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="evidence-table min-w-[520px]">
+          <table className="engine-comparison">
             <caption className="sr-only">Per-engine mention and citation coverage</caption>
-            <thead><tr><th>Engine</th><th>Mentioned</th><th>Cited</th></tr></thead>
+            <thead><tr><th scope="col">Engine</th><th scope="col">Mentioned</th><th scope="col">Cited</th></tr></thead>
             <tbody>
               {row.providers.map(provider => (
                 <tr key={provider.provider}>
-                  <td className="text-label-14-strong text-heading">{provider.provider}</td>
-                  <td><MetricCell metric={provider.mentionCoverage} signal="mentioned" queryClass={queryClass} /></td>
-                  <td><MetricCell metric={provider.citationCoverage} signal="cited" queryClass={queryClass} /></td>
+                  <td><AnswerEngineLabel provider={provider.provider} /></td>
+                  <td><MetricCell metric={provider.mentionCoverage} signal="mentioned" queryClass={queryClass} compact /></td>
+                  <td><MetricCell metric={provider.citationCoverage} signal="cited" queryClass={queryClass} compact /></td>
                 </tr>
               ))}
             </tbody>
@@ -604,7 +616,7 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
                     <td className="text-strong">{row.name}</td>
                     <td className="tabular-nums text-secondary">{row.occurrences}</td>
                     <td className="text-secondary">
-                      {row.providers.join(', ')}
+                      {row.providers.map(provider => providerDisplayName(provider)).join(', ')}
                       {row.providersTruncated ? ` +${row.providerTotal - row.providers.length}` : ''}
                     </td>
                     <td className="text-right">
@@ -789,7 +801,7 @@ function CitedOnOtherQueries({
                       <tr>
                         <td className="text-secondary">
                           <span className="block text-label-14-strong text-heading">{row.queryText}</span>
-                          <span className="mt-1 block text-label-12 text-muted">{[row.provider, row.location].filter(Boolean).join(' · ')}</span>
+                          <span className="mt-1 block text-label-12 text-muted">{[providerDisplayName(row.provider), row.location].filter(Boolean).join(' · ')}</span>
                         </td>
                         <td>
                           <ul className="space-y-1">
@@ -873,8 +885,8 @@ function CitedOnOtherQueries({
 function carriedFilterHelp(selection: VisibilitySelectionState, marketLabel: string | undefined): string | null {
   const filters = [
     selection.marketKey ? marketLabel ?? 'the selected market' : null,
-    selection.provider ? `the ${selection.provider} answer engine` : null,
-    selection.model ? `the ${selection.model} model` : null,
+    selection.provider ? `the ${providerDisplayName(selection.provider)} answer engine` : null,
+    selection.model ? `the ${formatModelName(selection.model)} model` : null,
     selection.location ? `location ${selection.location}` : null,
     selection.from || selection.to ? 'a date range' : null,
     selection.measurementRunId ? 'a saved check' : null,
@@ -1260,7 +1272,7 @@ export function MeasurementPropertyPage() {
                           <td className="text-secondary">
                             <h3 className="text-heading-14 text-heading">{item.queryText}</h3>
                             <span className="mt-1 block text-label-12 text-muted">
-                              {[item.provider, item.location].filter(Boolean).join(' · ')}
+                              {[providerDisplayName(item.provider), item.location].filter(Boolean).join(' · ')}
                             </span>
                             {item.historical || item.bridged ? (
                               <span className="mt-1 flex"><ToneBadge tone="caution">Historical</ToneBadge></span>

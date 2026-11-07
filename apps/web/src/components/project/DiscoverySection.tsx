@@ -1,3 +1,5 @@
+import { formatModelName, openRouterRouteModel } from '@canonry/canonry-contracts'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -1120,7 +1122,7 @@ function uniqueContextInputs(contexts: readonly QueryTrackingContextInput[]): Qu
 function contextLabel(context: QueryTrackingContextInput): string {
   const engines = context.providers.map(provider => {
     const model = context.models[provider]
-    return model ? `${provider} (${model})` : provider
+    return model && model !== openRouterRouteModel(provider) ? `${providerDisplayName(provider)} (${openRouterRouteModel(provider) ? formatModelName(model) : model})` : providerDisplayName(provider)
   }).join(', ')
   return `${context.location ?? 'No location'} · ${engines}`
 }

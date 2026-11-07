@@ -181,7 +181,11 @@ that a search matched nothing. The bare
 `openrouter` connection never counts as an automatically selected sweep engine.
 Each `openrouter:<vendor/model>` selection keeps its own checkbox, result row,
 filter value and comparison history; use `providerDisplayName` to identify the
-model via OpenRouter alongside direct providers. Search behavior is automatic,
+model via OpenRouter alongside direct providers. The formatter uses catalog names
+when available and `formatModelName` from contracts for readable historical names
+without an admin settings read; raw route IDs remain filter/execution identities.
+Do not repeat the model beside its route label unless the recorded model differs.
+Global connection settings show the selected project's saved models inline. Search behavior is automatic,
 with no search-backend controls. Aero and classifiers choose their own models.
 
 ### Search answer services
@@ -383,10 +387,13 @@ no class split, so the class control never touches them. The section needs no
 read beyond /overview.
 
 Above the query table, "By engine" (`CitationVisibilitySection`,
-`byEngineClasses`) is one class at a time, Mentioned and Cited query counts per
-engine from GET /citations/visibility, one "Competitor cited instead of you"
-answer count with its base, and the cited-but-not-named split in Details; no
-summary tiles or per-model rate table. Below query evidence, "Past sweeps"
+GET /visibility-report) shows one class at a time and one row per stored engine,
+including each selected OpenRouter route. Both signals use their own API rate
+and answer denominator. The compact `.engine-comparison` table is shared with
+Advanced Property engine breakdowns: a readable model name above the secondary
+"via OpenRouter" route, then right-aligned percentages and compact fractions.
+Keep full answer counts and query class accessible, and unavailable reasons visible.
+Below query evidence, "Past sweeps"
 (`PastSweeps`, operator only) starts collapsed and retains one line per sweep:
 time, trigger ("Spot check" for a probe) and duration in words, with a partial or failed sweep's error detail kept; the time
 opens the run, and RunsPage keeps `RunRow`. "Competitors over time" is the
@@ -394,12 +401,11 @@ opens the run, and RunsPage keeps `RunRow`. "Competitors over time" is the
 closed "Competitor history" in both Simple and Advanced. Fetch historical
 competitors when that disclosure opens. Every class,
 metric and window control on these cards, the trend's included, uses
-`SegmentedRadioGroup`. On a phone all three fit the card with no inner
-scroller, in CSS only: By engine closes up its columns and wraps "Of 11
-queries" (`.av-grid-dense`), Past sweeps puts the trigger and duration under
+`SegmentedRadioGroup`. On a phone the historical grids fit the card with no inner
+scroller, in CSS only: Past sweeps puts the trigger and duration under
 the time (`.av-grid-sweeps`), and Competitors over time gives each brand's name
 and Pin/Unpin their own line above its three figures (`.av-grid-brands`). The
-desktop grids are unchanged. The Simple context
+desktop historical grids are unchanged. The Simple context
 row and the embed header name no date range ("All time" read over latest-sweep
 figures); each card states its own sweep, point or window.
 
@@ -677,7 +683,7 @@ Each population opens with its headline strip: the class heading, a caption, and
 Those collapsed rows are one list, not five components. `Property outcomes`, `Query results` and `Competitors` here, plus `Project signals` and `Competitor history` in `ProjectPage.tsx`, all use `.visibility-disclosure` / `-summary` / `-label` / `-meta` from `styles.css`, so one label weight, one row rhythm, one divider and one focus ring cover the whole stack; they came from two components and read as two designs (64px bold rows against 44px quiet ones, a section gap in the middle, a focus ring on only three). Keep the utilities in the stylesheet rather than at the call sites: `design-tokens.test.ts` compiles the rule, which is the only place drift is visible. The Simple overview is the exception: it shows the same `CompetitorLandscape` as the "Competitors over time" card among its page sections, loaded on arrival. `Project signals` and Advanced `Competitor history` carry no count: their data loads when the row opens, so any number before that would be invented.
 
 The Advanced `Property outcomes` disclosure matches its Query results and Competitors siblings: a bold label and, beside it, the server's own `summary.outcomes.total` as `12 properties` (`1 property` singular). Never sum the buckets to get it; the response schema already requires the partition to sum to `total`, so a drift must stay visible rather than be papered over by a UI count. The buckets keep their labels and order (mentioned and cited, mentioned only, cited only, neither signal, not measured). `REPORT_OUTCOMES_HELP` explains all of it, and its `InfoTooltip` sits in the opened panel beside the bucket list, never inside the `<summary>` — a button there would toggle the disclosure on click and join the summary's accessible name. Its copy states what the server computes in `outcomeCounts` / `targetPresence` and nothing beyond it: the buckets count properties rather than answers, `citedOnly` is the engine using the page as a source without naming it in the answer, `notMeasured` covers both an unmeasured property and a half-measured one (calling that "mentioned but not cited" would assert an absence nothing measured), and one verified signal survives a later uncertain answer. The partition reads a property's own two signals and no competitor's, so neither this copy nor the same sentence on `measurementOutcomeCountsSchema` may say a rival was recommended instead — `citedOnly` never measured one. Give the five buckets five distinct counts in any test fixture, or a rotated tuple list renders one bucket's count under another label and still passes.
-Never draw an empty trend chart when every server rate is unavailable. Chart tooltip labels show the observation date without the time. When a chart has rates, retain its history table for screen readers without a duplicate visible disclosure; comparison warnings stay beside the chart. If no rates can be plotted, show the history table for recorded sweeps, including dates and comparison markers for partial measurements.
+Never draw an empty trend chart when every server rate is unavailable. Chart tooltip labels show the observation date without the time. When a chart has rates, retain its history table for screen readers without a duplicate visible disclosure; comparison guidance lives in the info tooltip beside the trend legend and the chart’s accessible description. If no rates can be plotted, show the history table for recorded sweeps, including dates and comparison markers for partial measurements.
 The scope picker starts with top-level Groups. Browse uses explicit frozen parent-group relationships and property memberships; keep query-context Markets separate. Search can find nested Groups and Properties. Never infer hierarchy from labels or property counts. Report recovery reads the typed `error.details` through `apiErrorDetails` and `parseVisibilityReportScopeErrorDetails`, never the message text: a retired market offers Show all markets and clears only `measurementMarketKey`, a retired scope offers Show whole site, and any other failure offers Retry.
 Scope changes must preserve unrelated URL state. `measurementRunId` must never write the global `runId` drawer parameter.
 Keep `Run AI sweep` project-wide and admin-gated. Do not offer scoped sweeps or expose query administration in embeds.

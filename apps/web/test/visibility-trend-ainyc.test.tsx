@@ -192,7 +192,7 @@ test('collapses What changed to one line and opens a table by engine, newest fir
   expect(screen.queryByText(/The model behind/)).toBeNull()
   // fast is a Perplexity preset: its served model is the preset working, so no
   // amber row, and the preset's own answer model is named on its row.
-  expect(within(changes).getByRole('button', { name: 'Preset picks its own model. Answered with openai/gpt-6-luna (was sonar).' })).toBeTruthy()
+  expect(within(changes).getByRole('button', { name: 'Preset picks its own model. Answered with GPT-6 Luna (was sonar).' })).toBeTruthy()
   expect(screen.queryByRole('list', { name: 'Model substitutions' })).toBeNull()
 
   // Stored keys are lowercase; Details names the queries as they were written,
@@ -202,7 +202,7 @@ test('collapses What changed to one line and opens a table by engine, newest fir
     'Claude last answered with claude-sonnet-5 on Sep 29',
     'Gemini last answered with gemini-3.5-flash on Sep 29',
     'OpenAI last answered with chat-latest on Sep 29',
-    'Perplexity last answered with openai/gpt-6-luna on Sep 29',
+    'Perplexity last answered with GPT-6 Luna on Sep 29',
   ])
 })
 
@@ -235,7 +235,7 @@ test('dates every model change "on or before" Sep 29 on 7 days, bounded by the J
     'Claude last answered with claude-sonnet-5 on Sep 29',
     'Gemini last answered with gemini-3.5-flash on Sep 29',
     'OpenAI last answered with chat-latest on Sep 29',
-    'Perplexity last answered with openai/gpt-6-luna on Sep 29',
+    'Perplexity last answered with GPT-6 Luna on Sep 29',
   ])
   expect(within(changes).getByRole('button', { name: /Check before: Jul 14\.$/ })).toBeTruthy()
 

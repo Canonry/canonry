@@ -804,18 +804,23 @@ describe('Property page', () => {
         mentionCoverage: available(3, 4),
         citationCoverage: available(2, 4),
         providers: [
-          { provider: 'gemini', mentionCoverage: available(1, 2), citationCoverage: available(0, 2) },
+          { provider: 'openrouter:google/gemini-2.5-pro', mentionCoverage: available(1, 2), citationCoverage: available(0, 2) },
           { provider: 'openai', mentionCoverage: available(2, 2), citationCoverage: available(2, 2) },
         ],
       }),
     })
 
     const providers = await screen.findByRole('table', { name: 'Per-engine mention and citation coverage' })
-    const gemini = within(providers).getByText('gemini').closest('tr')!
-    const openai = within(providers).getByText('openai').closest('tr')!
+    const gemini = within(providers).getByText('Gemini 2.5 Pro').closest('tr')!
+    const openai = within(providers).getByText('OpenAI').closest('tr')!
 
     expect(within(gemini).getByText('50.0%')).toBeTruthy()
     expect(within(gemini).getByText('0%')).toBeTruthy()
+    expect(within(gemini).getByText('via OpenRouter')).toBeTruthy()
+    expect(within(gemini).getByText('1/2').getAttribute('aria-hidden')).toBe('true')
+    expect(within(gemini).getByText('· 1 of 2 answers · non-brand queries')).toBeTruthy()
+    expect(within(gemini).getByText('0/2').getAttribute('aria-hidden')).toBe('true')
+    expect(within(gemini).getByText('· 0 of 2 answers · non-brand queries')).toBeTruthy()
     expect(within(openai).getAllByText('100%')).toHaveLength(2)
   })
 
@@ -851,9 +856,9 @@ describe('Property page', () => {
     expect(within(branded).getByText('No answer could be tied to one property')).toBeTruthy()
 
     const providers = screen.getByRole('table', { name: 'Per-engine mention and citation coverage' })
-    const gemini = within(providers).getByText('gemini').closest('tr')!
+    const gemini = within(providers).getByText('Gemini').closest('tr')!
     expect(within(gemini).getByRole('button', { name: '4 unattributed. 4 of 5 answers could not be tied to one property, so this rate leaves them out.' })).toBeTruthy()
-    const openai = within(providers).getByText('openai').closest('tr')!
+    const openai = within(providers).getByText('OpenAI').closest('tr')!
     expect(within(openai).getByText('No answer could be tied to one property')).toBeTruthy()
   })
 
@@ -891,12 +896,12 @@ describe('Property page', () => {
     expect(branded.querySelectorAll('td')[2]!.textContent).toBe('Not measured · branded queriesSource evidence is incomplete')
 
     const providers = screen.getByRole('table', { name: 'Per-engine mention and citation coverage' })
-    const gemini = within(providers).getByText('gemini').closest('tr')!
-    expect(gemini.querySelectorAll('td')[2]!.textContent).toBe('33.3% · non-brand queries1 of 32 unchecked')
+    const gemini = within(providers).getByText('Gemini').closest('tr')!
+    expect(gemini.querySelectorAll('td')[2]!.textContent).toBe('33.3%1/3 · 1 of 3 answers · non-brand queries2 unchecked')
     expect(within(gemini.querySelectorAll('td')[2]!).getByRole('button', { name: '2 unchecked. 2 of 5 answers had sources that could not be checked, so this rate leaves them out.' })).toBeTruthy()
-    expect(gemini.querySelectorAll('td')[1]!.textContent).toBe('40.0% · non-brand queries2 of 5')
-    const openai = within(providers).getByText('openai').closest('tr')!
-    expect(openai.querySelectorAll('td')[2]!.textContent).toBe('20.0% · non-brand queries1 of 5')
+    expect(gemini.querySelectorAll('td')[1]!.textContent).toBe('40.0%2/5 · 2 of 5 answers · non-brand queries')
+    const openai = within(providers).getByText('OpenAI').closest('tr')!
+    expect(openai.querySelectorAll('td')[2]!.textContent).toBe('20.0%1/5 · 1 of 5 answers · non-brand queries')
   })
 
   it('lists the assigned questions, URLs, and scoped evidence for the selected class', async () => {
@@ -1401,7 +1406,7 @@ describe('Named instead of this Property', () => {
     const section = await screen.findByRole('region', { name: /Named instead of this Property/ })
     expect(within(section).getByText('Harborline Homes')).toBeTruthy()
     expect(within(section).getByText('The Sutton')).toBeTruthy()
-    expect(within(section).getByText('openai, gemini')).toBeTruthy()
+    expect(within(section).getByText('OpenAI, Gemini')).toBeTruthy()
     expect(within(section).getByText(/3 of 4 answers to non-brand queries did not name this Property/)).toBeTruthy()
   })
 

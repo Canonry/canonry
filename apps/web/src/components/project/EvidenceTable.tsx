@@ -438,7 +438,6 @@ export function EvidenceTable({
                               <span id={metadataId} className="query-evidence-meta">
                                 <span>{queryClassLabel(queryClass)}</span>
                                 {compareLocations && <span>{location ?? 'No location'}</span>}
-                                {items.filter(item => item.provider).map(item => <span key={item.id}>{providerDisplayName(item.provider)}</span>)}
                               </span>
                             </span>
                           </button>
@@ -491,7 +490,7 @@ export function EvidenceTable({
                                 className="pointer-coarse:min-h-11"
                                 type="button"
                                 title={`View ${item.provider ? providerDisplayName(item.provider) : 'saved'} answer for ${item.query}`}
-                                onClick={(e) => { e.stopPropagation(); void openEvidence(item.id) }}
+                                onClick={(e) => { e.stopPropagation(); e.currentTarget.focus({ preventScroll: true }); void openEvidence(item.id) }}
                               >
                                 View
                               </Button>
@@ -679,7 +678,7 @@ function AnswerInlinePanel({
           type="button"
           variant="ghost"
           className="pointer-coarse:min-h-11"
-          onClick={(e) => { e.stopPropagation(); onViewFull() }}
+          onClick={(e) => { e.stopPropagation(); e.currentTarget.focus({ preventScroll: true }); onViewFull() }}
         >
           View full answer
         </Button>

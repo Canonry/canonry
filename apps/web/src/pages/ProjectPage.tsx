@@ -634,7 +634,7 @@ function OverviewSignals({
                 <span className="min-w-0 flex-1 text-label-14 text-strong">{phrase.query}</span>
                 {phrase.provider ? <ProviderBadge provider={phrase.provider} /> : null}
                 {!isEmbed() && phrase.evidenceId ? (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => { void openEvidence(phrase.evidenceId) }}>
+                  <Button type="button" variant="ghost" size="sm" onClick={event => { event.currentTarget.focus({ preventScroll: true }); void openEvidence(phrase.evidenceId) }}>
                     View evidence
                   </Button>
                 ) : null}

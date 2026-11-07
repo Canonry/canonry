@@ -168,10 +168,10 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
   expect(screen.queryByRole('tab', { name: 'Find queries' })).toBeNull()
   expect(await screen.findByLabelText('Answer engine')).toBeTruthy()
   expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(true)
-  expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gpt-5-mini` }) as HTMLOptionElement).selected).toBe(true)
+  expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · GPT-5 Mini` }) as HTMLOptionElement).selected).toBe(true)
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-5' } })
   fireEvent.change(screen.getByLabelText('Answer engine'), { target: { value: 'gemini' } })
-  expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gemini-2.5-flash` }) as HTMLOptionElement).selected).toBe(true)
+  expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · Gemini 2.5 Flash` }) as HTMLOptionElement).selected).toBe(true)
 
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which AEO platform fits an agency?' } })
   const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
@@ -807,7 +807,7 @@ test('sends one explicitly selected context for a new advanced group assignment'
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
   await screen.findByText('Confirm tracked query changes')
-  expect(screen.getByText('Acme · Group: North East · New York · openai (gpt-5)')).toBeTruthy()
+  expect(screen.getByText('Acme · Group: North East · New York · OpenAI (gpt-5)')).toBeTruthy()
   expect(previewBody).toEqual({
     expectedWorkspaceVersion: workspaceVersion,
     additions: [{

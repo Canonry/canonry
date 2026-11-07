@@ -483,7 +483,7 @@ function ReadySetupPage({
 
   const projectProviders = (setupEngineProject?.providers ?? resumeProject?.project.providers ?? []).map(normalizeProviderName)
   // OpenRouter routes are named from OpenRouter's catalog (the administrator
-  // settings read), so setup shows "OpenAI: GPT-6 Luna via OpenRouter" rather
+  // settings read), so setup shows a readable model name via OpenRouter rather
   // than the raw model ID.
   const settingsCatalogQuery = useQuery({
     queryKey: ['settings'],
@@ -491,15 +491,10 @@ function ReadySetupPage({
     staleTime: 60_000,
     enabled: isAdmin && openRouterConnected && projectProviders.some(isOpenRouterRoute),
   })
-  const openRouterModelNames = new Map((settingsCatalogQuery.data?.providerCatalog ?? []).find(provider => provider.name === 'openrouter')?.knownModels.map(model => [model.id, model.displayName]) ?? [])
-  const openRouterRouteLabel = (route: string) => {
-    const model = openRouterRouteModel(route)
-    return model && openRouterModelNames.has(model) ? `${openRouterModelNames.get(model)} via OpenRouter` : providerDisplayName(route)
-  }
   const readyProviders = [
     // A search answer service runs only where a project picks its profiles, so it never makes setup ready.
     ...settings.providerStatuses.filter(provider => (provider.state === 'ready' || provider.state === 'configured') && provider.name !== 'openrouter' && provider.kind !== 'answer-service'),
-    ...(openRouterConnected ? projectProviders.filter(isOpenRouterRoute).map(name => ({ name, displayName: openRouterRouteLabel(name), model: openRouterRouteModel(name), state: 'ready' as const, detail: 'OpenRouter model configured.' })) : []),
+    ...(openRouterConnected ? projectProviders.filter(isOpenRouterRoute).map(name => ({ name, displayName: providerDisplayName(name, settingsCatalogQuery.data?.providerCatalog), model: openRouterRouteModel(name), state: 'ready' as const, detail: 'OpenRouter model configured.' })) : []),
   ]
   const runnableApiProviders = readyProviders.filter(provider => (
     projectProviders.length === 0 || projectProviders.includes(normalizeProviderName(provider.name))

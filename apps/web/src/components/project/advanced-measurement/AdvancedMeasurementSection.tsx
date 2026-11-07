@@ -9,7 +9,7 @@ import type {
   MeasurementDraftWarning,
   MeasurementSetupResponse,
 } from '@canonry/canonry-contracts'
-import { hostOf, isOpenRouterRoute, isSweepProvider, measurementV2UsageEdgeKey } from '@canonry/canonry-contracts'
+import { formatModelName, hostOf, isOpenRouterRoute, isSweepProvider, measurementV2UsageEdgeKey, openRouterRouteModel } from '@canonry/canonry-contracts'
 import type { QueryDto } from '@canonry/canonry-api-client'
 import type { MeasurementPlanResponse } from '@canonry/canonry-api-client'
 
@@ -1054,7 +1054,7 @@ export function AdvancedMeasurementSection({
           edge,
           property: target.label,
           query: queries.find(query => query.id === assignment.queryId)?.query ?? 'Unavailable query',
-          context: `${context.providers.map(provider => `${providerDisplayName(provider)}${context.models[provider] ? ` · ${context.models[provider]}` : ''}`).join(', ')} · ${context.location?.label ?? 'No location'}`,
+          context: `${context.providers.map(provider => `${providerDisplayName(provider)}${context.models[provider] && context.models[provider] !== openRouterRouteModel(provider) ? ` · ${formatModelName(context.models[provider])}` : ''}`).join(', ')} · ${context.location?.label ?? 'No location'}`,
           queryClass: assignment.queryClass === 'branded' ? 'Branded' : assignment.queryClass === 'non-brand' ? 'Non-brand' : 'Unknown class',
           groupIds: (viewDraft?.authoring.groups ?? []).filter(group => group.targetKeys.includes(assignment.targetKey)).map(group => group.stableKey),
         }]
@@ -1073,7 +1073,7 @@ export function AdvancedMeasurementSection({
         options.set(id, {
           id,
           provider,
-          label: model ? `${providerDisplayName(provider)} · ${model}` : providerDisplayName(provider),
+          label: model ? `${providerDisplayName(provider)} · ${formatModelName(model)}` : providerDisplayName(provider),
           ...(model ? { model } : {}),
         })
       }

@@ -226,7 +226,7 @@ test('project route keeps the core metric and evidence class baseline stable', a
   }).toMatchInlineSnapshot(`
     {
       "evidenceDisclosure": "overview-disclosure page-section-divider scroll-mt-24",
-      "firstCard": "overview-brief",
+      "firstCard": "overview-brief max-w-2xl",
       "firstMetricFill": "metric-card-bar-fill progress-fill-caution",
       "firstSectionCard": "visibility-trend",
       "firstSectionDivider": "overview-disclosure page-section-divider scroll-mt-24",

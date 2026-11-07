@@ -596,8 +596,8 @@ test('never flags a Perplexity preset, and says in What changed which model it a
 
   await screen.findByRole('list', { name: 'Engines' })
   expect(screen.queryByRole('list', { name: 'Model substitutions' })).toBeNull()
-  expect(changeRows(whatChanged())).toEqual([['Perplexity', expect.stringMatching(/^Apr 11/), 'perplexity/sonar', 'fast']])
-  expect(within(whatChanged()).getByRole('button', { name: 'Preset picks its own model. Answered with openai/gpt-6-luna (was perplexity/sonar).' })).toBeTruthy()
+  expect(changeRows(whatChanged())).toEqual([['Perplexity', expect.stringMatching(/^Apr 11/), 'Perplexity: Sonar', 'fast']])
+  expect(within(whatChanged()).getByRole('button', { name: 'Preset picks its own model. Answered with GPT-6 Luna (was Perplexity: Sonar).' })).toBeTruthy()
 })
 
 test('says nothing about served models when the API omits them', async () => {

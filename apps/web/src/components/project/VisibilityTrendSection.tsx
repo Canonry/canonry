@@ -3,7 +3,7 @@ import { VISIBILITY_DISPLAY_COPY } from '@canonry/canonry-contracts'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { buildModelChangeNotice, describeError, formatPercent, formatPointDelta, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@canonry/canonry-contracts'
+import { buildModelChangeNotice, describeError, formatModelName, openRouterRouteModel, formatPercent, formatPointDelta, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@canonry/canonry-contracts'
 import type { BasketChangeEvent, BrandMetricsDto, MetricsWindow, ModelEvidenceState, PointDeltaDirection, QueryClass, QueryClassFilter } from '@canonry/canonry-contracts'
 import type { VisibilityReportComparison, VisibilityReportQueryRow, VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation, VisibilityReportSummary } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameVisibilityReportOptions } from '@canonry/canonry-api-client/react-query'
@@ -423,14 +423,14 @@ function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHea
     {group.rows.map(row => <tr className="measurement-engine-result" key={JSON.stringify([row.provider, row.model, row.location])}>
       <td className="measurement-result-engine">
         <span className="text-label-14-strong text-heading">{providerDisplayName(row.provider)}</span>
-        <span className="block break-words text-label-14 text-secondary">{row.model ?? 'Model not recorded'}</span>
+        {(!row.model || row.model !== openRouterRouteModel(row.provider)) && <span className="block break-words text-label-14 text-secondary" title={row.model ?? undefined}>{row.model ? (openRouterRouteModel(row.provider) ? formatModelName(row.model) : row.model) : 'Model not recorded'}</span>}
         {advanced && !sharedTargets ? <div className="mt-1 text-label-14 text-secondary"><QueryProperties targetKeys={row.targetKeys} labels={targetLabels} /></div> : null}
         {!sharedLocation ? <span className="mt-1 block text-label-14 text-secondary">{locationLabel(row.location)}</span> : null}
         <SentimentAnswerOutcome showLabel showSubjects={advanced} queryId={row.queryId} sourceSnapshotIds={row.sourceSnapshotIds ?? []} queryClass={queryClass === 'unknown' ? null : queryClass} provider={row.provider} model={row.model} location={row.location} />
       </td>
       <td><span className="measurement-result-mobile-label" aria-hidden="true">Mentioned</span><QueryResultRate value={row.mentionCoverage} signal="mentioned" singleAnswer={row.answerCount === 1} /></td>
       <td><span className="measurement-result-mobile-label" aria-hidden="true">Cited</span><QueryResultRate value={row.citationCoverage} signal="cited" singleAnswer={row.answerCount === 1} row={row} targetLabels={targetLabels} /></td>
-      <td className="measurement-result-action"><Button variant="ghost" className="pointer-coarse:min-h-11" aria-label={`View answers for ${row.query} · ${row.provider}`} onClick={event => onViewAnswers(row, event.currentTarget)}>{row.answerCount === 1 ? 'View answer' : 'View answers'}<ChevronRight size={16} aria-hidden="true" /></Button></td>
+      <td className="measurement-result-action"><Button variant="ghost" className="pointer-coarse:min-h-11" aria-label={`View answers for ${row.query} · ${providerDisplayName(row.provider)}`} onClick={event => onViewAnswers(row, event.currentTarget)}>{row.answerCount === 1 ? 'View answer' : 'View answers'}<ChevronRight size={16} aria-hidden="true" /></Button></td>
     </tr>)}
   </tbody>
 }
@@ -482,15 +482,16 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
   const TrendDataContainer = hasMultipleMeasuredPoints ? 'div' : 'details'
   return <>
     {hasMultipleMeasuredPoints ? <>
-      <fieldset className="flex flex-wrap gap-x-5 py-1 text-label-14 text-secondary">
+      <fieldset className="flex flex-wrap items-center gap-x-5 py-1 text-label-14 text-secondary">
         <legend className="sr-only">Trend legend</legend>
         {REPORT_TREND_SERIES.map(series => <label key={series.key} className="flex min-h-11 items-center gap-2">
           <input type="checkbox" className="size-4 accent-mono-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" checked={visibleSeries[series.key]} disabled={visibleSeries[series.key] && visibleKeys.length === 1} onChange={() => toggleSeries(series.key)} />
           <svg aria-hidden="true" className="shrink-0" width="24" height="10" viewBox="0 0 24 10"><line x1="0" y1="5" x2="24" y2="5" stroke={series.color} strokeWidth="2" strokeDasharray={series.dashed ? '6 4' : undefined} /><circle cx="12" cy="5" r="3" fill={series.dashed ? REPORT_TREND_HOLLOW_DOT : series.color} stroke={series.color} strokeWidth="2" /></svg>
           {series.label}
         </label>)}
+        {notes.length > 0 && <InfoTooltip text={notes.join(' ')} />}
       </fieldset>
-      {notes.length > 0 && <p id={descriptionId} className="pb-3 text-copy-14 text-secondary">{notes.join(' ')}</p>}
+      {notes.length > 0 && <span id={descriptionId} className="sr-only">{notes.join(' ')}</span>}
       <div className="visibility-trend-chart" role="img" data-visible-series={visibleKeys.join(' ')} aria-describedby={notes.length > 0 ? descriptionId : undefined} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -559,7 +560,7 @@ export const VISIBILITY_TOOLBAR_COPY = {
   manageQueries: 'Manage queries',
   removeFilter: (label: string) => `Remove filter ${label}`,
   engine: (provider: string) => `Engine: ${providerDisplayName(provider)}`,
-  model: (model: string) => `Model: ${model}`,
+  model: (model: string) => `Model: ${model.includes('/') ? formatModelName(model) : model}`,
   location: (location: string) => `Requested search location: ${location}`,
   noLocation: 'No location requested',
   dateRange: (from: string, to: string) => `${from} to ${to} (UTC)`,
@@ -719,7 +720,7 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
       <div className="visibility-report-filters">
         {filterSelect('Answer engine', 'measurementProvider', provider, withSelectedChoice([{ value: '', label: 'All engines' }, ...filterOptions.providers.map(value => ({ value, label: providerDisplayName(value) }))], provider, providerDisplayName(provider)))}
         {filterSelect('Requested search location', 'measurementLocation', location, withSelectedChoice([{ value: '', label: 'All requested locations' }, ...filterOptions.locations.flatMap(option => option.kind === 'exact' ? [{ value: option.value, label: option.value }] : option.kind === 'none' ? [{ value: 'none', label: VISIBILITY_TOOLBAR_COPY.noLocation }] : [])], location, location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : location))}
-        {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value }))], model, model), 'Filter by the AI model recorded with each answer. This does not change the model used by future checks.')}
+        {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value.includes('/') ? formatModelName(value) : value }))], model, model.includes('/') ? formatModelName(model) : model), 'Filter by the AI model recorded with each answer. This does not change the model used by future checks.')}
         {dateInput('Start date (UTC)', 'measurementFrom', selection.from, 'T00:00:00.000Z')}
         {dateInput('End date (UTC)', 'measurementTo', selection.to, 'T23:59:59.999Z')}
         {filterSelect('Results from', 'measurementRunId', runId, withSelectedChoice([{ value: '', label: 'Latest saved check' }, ...[...population.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], runId, 'Selected check'), 'Choose a saved AI Visibility check to view its results. No new check starts.')}
@@ -837,7 +838,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         {answers.items.map(answer => <article key={answer.answerId} className="border-b border-default py-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <strong className="text-label-14 text-heading">{providerDisplayName(answer.provider)}</strong>
-            {answer.model ? <span className="text-label-13 text-secondary">{answer.model}</span> : null}
+            {answer.model && answer.model !== openRouterRouteModel(answer.provider) ? <span className="text-label-13 text-secondary" title={answer.model}>{openRouterRouteModel(answer.provider) ? formatModelName(answer.model) : answer.model}</span> : null}
             <span className="text-label-13 text-secondary">{answer.location === null ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(answer.location)}</span>
             <span className="text-label-13 text-secondary">{new Date(answer.createdAt).toLocaleDateString()}</span>
             <ToneBadge tone="neutral">{answer.mentioned === null ? answer.mentionUnavailableReason === 'identity-ambiguous' ? VISIBILITY_DISPLAY_COPY.ambiguous : 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge>
@@ -1317,7 +1318,7 @@ function presetHelp(row: ModelChangeRow, latestServedIds: readonly string[] | nu
   if (!isPerplexityPreset(row.provider, row.to)) return null
   if (row.served) return `Preset picks its own model. Answered with ${formatModelEvidence(row.served.to)} (was ${formatModelEvidence(row.served.from)}).`
   return latestServedIds && latestServedIds.length > 0
-    ? `Preset picks its own model. Answered with ${latestServedIds.join(', ')}.`
+    ? `Preset picks its own model. Answered with ${latestServedIds.map(model => model.includes('/') ? formatModelName(model) : model).join(', ')}.`
     : 'Preset picks its own model.'
 }
 
@@ -1445,7 +1446,7 @@ function WhatChanged({
   for (const [provider, entry] of Object.entries(served).sort(([a], [b]) => providerDisplayName(a).localeCompare(providerDisplayName(b)))) {
     // An older API sends no served ids; the recorded model stands in.
     const servedIds = (entry.latestServedModelIds as readonly string[] | undefined) ?? []
-    const ids = servedIds.length > 0 ? servedIds.join(', ') : formatModelEvidence(entry.latestObservation.state)
+    const ids = servedIds.length > 0 ? servedIds.map(model => model.includes('/') ? formatModelName(model) : model).join(', ') : formatModelEvidence(entry.latestObservation.state)
     details.push(<>{providerDisplayName(provider)} last answered with <strong>{ids}</strong> on <strong>{day(observedInstant(entry.latestObservation.observedAt))}</strong></>)
   }
 

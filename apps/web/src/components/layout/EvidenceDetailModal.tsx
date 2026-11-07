@@ -1,3 +1,4 @@
+import { formatModelName, openRouterRouteModel } from '@canonry/canonry-contracts'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Search, X } from 'lucide-react'
@@ -103,10 +104,12 @@ export function EvidenceDetailModal({
   evidence,
   project,
   onClose,
+  onClosed,
 }: {
   evidence: CitationInsightVm
   project: ProjectCommandCenterVm
   onClose: () => void
+  onClosed?: () => void
 }) {
   const [showFullAnswer, setShowFullAnswer] = useState(false)
   const [sidebarTab, setSidebarTab] = useState<'mentions' | 'sources'>('mentions')
@@ -337,13 +340,13 @@ export function EvidenceDetailModal({
 
   // Hero copy
   const showModelInHeadline = isViewingHistory || evidence.historyScope !== 'provider'
-  const providerIdentity = showModelInHeadline && display.model
-    ? `${providerDisplayName(display.provider)} (${display.model})`
+  const providerIdentity = showModelInHeadline && display.model && display.model !== openRouterRouteModel(display.provider)
+    ? `${providerDisplayName(display.provider)} (${openRouterRouteModel(display.provider) ? formatModelName(display.model) : display.model})`
     : providerDisplayName(display.provider)
   const providerMeta = isUnmeasured ? providerIdentity : `${providerIdentity} \u00b7 ${display.changeLabel.toLowerCase()}`
   const providerMetaNote = !isViewingHistory && evidence.historyScope === 'provider'
     ? [
-        evidence.model ? `Current model: ${evidence.model}` : null,
+        evidence.model && evidence.model !== openRouterRouteModel(evidence.provider) ? `Current model: ${openRouterRouteModel(evidence.provider) ? formatModelName(evidence.model) : evidence.model}` : null,
         evidence.modelsSeen && evidence.modelsSeen.length > 1 ? `History spans ${evidence.modelsSeen.length} models` : null,
       ].filter(Boolean).join(' \u00b7 ')
     : ''
@@ -396,11 +399,11 @@ export function EvidenceDetailModal({
         <Dialog.Content
           className="evidence-modal"
           aria-describedby={undefined}
+          onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}
         >
           {/* ── Header ── */}
           <div className="evidence-modal-header">
             <div className="min-w-0 flex-1">
-              <p className="eyebrow eyebrow-soft">{project.project.name} {'\u00b7'} {display.provider || 'All providers'}</p>
               <Dialog.Title className="text-heading-20 text-primary truncate">{evidence.query}</Dialog.Title>
             </div>
             <Dialog.Close className="inline-flex size-8 items-center justify-center rounded-md text-muted transition hover:bg-mono-800 hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 shrink-0">
@@ -432,7 +435,7 @@ export function EvidenceDetailModal({
                       onClick={() => { void selectHistoricalRun(i === history.length - 1 ? -1 : i) }}
                       aria-label={[
                         `Run ${label}: ${mentionStatusLabel(status)}`,
-                        run.model ? `model ${run.model}` : null,
+                        run.model ? `model ${run.model.includes('/') ? formatModelName(run.model) : run.model}` : null,
                         modelChanged ? 'model changed' : null,
                       ].filter(Boolean).join(' \u2014 ')}
                       aria-pressed={isSelected}

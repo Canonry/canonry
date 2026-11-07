@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode, type ComponentProps
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import * as Dialog from '@radix-ui/react-dialog'
-import { describeError, ProviderKinds, ProviderNames, ProviderQuotaFields, type ProviderCatalogEntryDto, type ProviderConnectionSettingsDto, type ProviderQuotaField, type ProviderSettingsUpdateRequest } from '@canonry/canonry-contracts'
+import { describeError, isOpenRouterRoute, ProviderKinds, ProviderNames, ProviderQuotaFields, type ProviderCatalogEntryDto, type ProviderConnectionSettingsDto, type ProviderQuotaField, type ProviderSettingsUpdateRequest } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { disconnectProvider, fetchProviderConnection, fetchSettings, reloadProviderConnections, updateProviderConfig } from '../../api.js'
@@ -419,7 +419,7 @@ function ProviderConnectionEditor({ connection, catalog, compact = false, onDirt
   </form>
 }
 
-export function ProviderConnectionsSection({ projects }: { projects: { name: string; displayName?: string | null }[] }) {
+export function ProviderConnectionsSection({ projects }: { projects: { name: string; displayName?: string | null; providers: string[] }[] }) {
   const queryClient = useQueryClient()
   const settings = useQuery({ queryKey: ['settings'], queryFn: fetchSettings, staleTime: 60_000 })
   const [adding, setAdding] = useState(() => window.location.hash.startsWith('#provider-'))
@@ -438,6 +438,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
   const guard = useUnsavedChanges(dirty, busy)
   const connections = settings.data?.providerConnections
   const selectedProject = projectName || projects[0]?.name
+  const selectedModels = projects.find(project => project.name === selectedProject)?.providers.filter(isOpenRouterRoute) ?? []
 
   useEffect(() => {
     if (editing || busy || returnFocusToConnection.current === null) return
@@ -506,6 +507,14 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
     finally { setBusy(false) }
   }
 
+  function projectSelection(name: string, kind?: ProviderConnectionSettingsDto['kind']) {
+    return <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+      {projects.length > 1 && <label className="shrink-0 text-label-14 text-secondary">Project <select className="setup-input ml-2" value={selectedProject} onChange={event => setProjectName(event.target.value)}>{projects.map(project => <option key={project.name} value={project.name}>{project.displayName ?? project.name}</option>)}</select></label>}
+      {selectedProject && name === ProviderNames.openrouter && <p className="min-w-0 flex-1 basis-64 break-words text-copy-14 text-secondary"><span className="sr-only">Selected models: </span>{selectedModels.length > 0 ? selectedModels.map(model => providerDisplayName(model, settings.data?.providerCatalog)).join(' · ') : 'No models selected'}</p>}
+      {selectedProject ? <Link className="shrink-0 text-label-14 text-link" to="/projects/$projectName/settings" params={{ projectName: selectedProject }} hash="answer-engines">{kind === ProviderKinds['answer-service'] ? 'Choose project profiles' : 'Choose project models'}</Link> : <Link className="text-label-14 text-link" to="/setup">Create a project</Link>}
+    </div>
+  }
+
   function connectionRow(connection: ProviderConnectionSettingsDto) {
     const catalog = settings.data?.providerCatalog?.find(entry => entry.name === connection.name)
     const routed = connection.kind !== ProviderKinds['answer-engine']
@@ -515,7 +524,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-copy-14-strong text-heading">{connection.displayName}</p>
-          <p className="mt-1 break-words text-copy-14 text-secondary">{connection.mode === 'browser' ? 'Browser connection' : connection.kind === ProviderKinds['model-gateway'] ? 'Model gateway · choose models in each project' : connection.kind === ProviderKinds['answer-service'] ? 'Search answer service · choose profiles in each project' : connection.effectiveModel ?? 'Direct answer engine'}{connection.baseUrl ? ` · ${connection.baseUrl}` : ''}</p>
+          <p className="mt-1 break-words text-copy-14 text-secondary">{connection.mode === 'browser' ? 'Browser connection' : connection.kind === ProviderKinds['model-gateway'] ? 'Model gateway' : connection.kind === ProviderKinds['answer-service'] ? 'Search answer service · choose profiles in each project' : connection.effectiveModel ?? 'Direct answer engine'}{connection.baseUrl ? ` · ${connection.baseUrl}` : ''}</p>
           {connection.usage.projectCount > 0 && <p className="mt-1 text-label-12 text-secondary">Used by {connection.usage.projectCount} {connection.usage.projectCount === 1 ? 'project' : 'projects'}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -533,10 +542,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
         <Button type="button" variant="ghost" size="sm" disabled={busy || !connection.capabilities.disconnect} onClick={() => guard.request(() => void previewDisconnect(connection.name))}>Disconnect {connection.displayName}</Button>
         {!connection.capabilities.disconnect && <p className="mt-1 text-copy-14 text-secondary">This connection must be removed on the host.</p>}
       </div>}
-      {routed && connection.configured && <div className="mt-3 flex flex-wrap items-center gap-3">
-        {projects.length > 1 && <label className="text-label-14 text-secondary">Project <select className="setup-input ml-2" value={selectedProject} onChange={event => setProjectName(event.target.value)}>{projects.map(project => <option key={project.name} value={project.name}>{project.displayName ?? project.name}</option>)}</select></label>}
-        {selectedProject ? <Link className="text-label-14 text-link" to="/projects/$projectName/settings" params={{ projectName: selectedProject }} hash="answer-engines">{connection.kind === ProviderKinds['answer-service'] ? 'Choose project profiles' : 'Choose project models'}</Link> : <Link className="text-label-14 text-link" to="/setup">Create a project</Link>}
-      </div>}
+      {routed && connection.configured && projectSelection(connection.name, connection.kind)}
     </div>
   }
 
@@ -572,7 +578,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
       {settings.data.providers.map(provider => <div key={provider.name} id={`provider-${provider.name}`} className="scroll-mt-24 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-copy-14-strong text-heading">{provider.displayName ?? provider.name}</p><p className="text-copy-14 text-secondary">{provider.model ?? provider.defaultModel}</p></div><div className="flex items-center gap-2"><ToneBadge tone={provider.configured ? 'neutral' : 'caution'}>{provider.configured ? 'Configured' : 'Not configured'}</ToneBadge><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => guard.request(() => { setFallbackEditing(current => current === provider.name ? null : provider.name); setDirty(false) })}>{fallbackEditing === provider.name ? 'Cancel' : provider.configured ? 'Update' : 'Configure'}</Button></div></div>
         {fallbackEditing === provider.name && <ProviderConfigForm key={provider.name} providerName={provider.name} keyUrl={provider.keyUrl} modelHint={provider.modelHint} {...(provider.kind ? { kind: provider.kind } : {})} onDirtyChange={setDirty} onBusyChange={setBusy} onSaved={() => { setFallbackEditing(null); setDirty(false); void refresh() }} />}
-        {provider.configured && (provider.name === 'openrouter' || provider.kind === ProviderKinds['model-gateway'] || provider.kind === ProviderKinds['answer-service']) && selectedProject && <Link className="mt-3 block text-label-14 text-link" to="/projects/$projectName/settings" params={{ projectName: selectedProject }} hash="answer-engines">{provider.kind === ProviderKinds['answer-service'] ? 'Choose project profiles' : 'Choose project models'}</Link>}
+        {provider.configured && (provider.name === 'openrouter' || provider.kind === ProviderKinds['model-gateway'] || provider.kind === ProviderKinds['answer-service']) && projectSelection(provider.name, provider.kind)}
       </div>)}
     </div>}
     {guard.dialog}
@@ -583,7 +589,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
         <Dialog.Description className="mt-2 text-copy-14 text-secondary">Remove this connection's saved configuration. Project selections and recorded history remain. Selected engines using it will be unavailable until it is configured again.</Dialog.Description>
         {disconnecting && <div className="mt-4 space-y-3 text-copy-14 text-secondary">
           <p>{disconnecting.usage.projectCount} {disconnecting.usage.projectCount === 1 ? 'project references' : 'projects reference'} this connection.</p>
-          {disconnecting.usage.projects.length > 0 && <ul className="space-y-2">{disconnecting.usage.projects.map(project => <li key={project.name}><span className="text-heading">{project.displayName}</span><span className="block break-words text-label-12">{project.providers.join(', ')} · {project.sources.join(', ')}</span></li>)}</ul>}
+          {disconnecting.usage.projects.length > 0 && <ul className="space-y-2">{disconnecting.usage.projects.map(project => <li key={project.name}><span className="text-heading">{project.displayName}</span><span className="block break-words text-label-12">{project.providers.map(provider => providerDisplayName(provider, settings.data?.providerCatalog)).join(', ')} · {project.sources.join(', ')}</span></li>)}</ul>}
           {disconnecting.hostUses.map(use => <p key={use}>Host usage: {use}</p>)}
           {disconnecting.blockers.map(blocker => <p key={blocker.code} role="status" className="text-caution-400">{blocker.message}</p>)}
           {!disconnecting.capabilities.disconnect && <p className="text-caution-400">This connection cannot be disconnected here.</p>}

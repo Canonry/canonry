@@ -1025,9 +1025,9 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     await screen.findByRole('heading', { name: 'Queries' })
 
-    expect(screen.getByRole('option', { name: 'OpenAI · gpt-market-a' })).toBeTruthy()
-    const secondModel = screen.getByRole('option', { name: 'OpenAI · gpt-market-b' }) as HTMLOptionElement
-    expect(screen.getByRole('option', { name: 'google/gemini-2.5-pro via OpenRouter' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'OpenAI · GPT Market A' })).toBeTruthy()
+    const secondModel = screen.getByRole('option', { name: 'OpenAI · GPT Market B' }) as HTMLOptionElement
+    expect(screen.getByRole('option', { name: 'Gemini 2.5 Pro via OpenRouter' })).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'group:group-texas' } })
     fireEvent.change(screen.getByLabelText('Answer engine for these assignments'), { target: { value: secondModel.value } })
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
@@ -1184,7 +1184,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     await screen.findByRole('heading', { name: 'Review & publish' })
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     await screen.findByRole('heading', { name: 'Queries' })
-    const engine = screen.getByRole('option', { name: 'OpenAI · gpt-5-search' }) as HTMLOptionElement
+    const engine = screen.getByRole('option', { name: 'OpenAI · GPT-5 Search' }) as HTMLOptionElement
     fireEvent.change(screen.getByLabelText('Answer engine for these assignments'), { target: { value: engine.value } })
     fireEvent.click(screen.getByRole('button', { name: `Replace query assignments for ${QUERIES[0]!.query}` }))
     fireEvent.click(screen.getAllByRole('button', { name: 'Clear selection' }).at(-1)!)

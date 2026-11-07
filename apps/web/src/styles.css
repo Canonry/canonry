@@ -1340,6 +1340,32 @@
     @apply text-strong text-label-14-strong;
   }
 
+  .engine-comparison {
+    @apply w-full max-w-2xl table-fixed border-collapse;
+  }
+
+  .engine-comparison th,
+  .engine-comparison td {
+    @apply w-1/4 py-2 pl-6 text-right align-middle;
+  }
+
+  .engine-comparison th:first-child,
+  .engine-comparison td:first-child {
+    @apply w-1/2 pl-0 text-left;
+  }
+
+  .engine-comparison thead th {
+    @apply text-label-13 text-secondary;
+  }
+
+  .engine-comparison tbody tr + tr {
+    @apply border-t border-default;
+  }
+
+  .engine-comparison-metric {
+    @apply flex items-baseline justify-end gap-2.5 tabular-nums;
+  }
+
   /* A real space separates the figure for screen readers; the margin tops it
      up to the design's gap. */
   .av-of {

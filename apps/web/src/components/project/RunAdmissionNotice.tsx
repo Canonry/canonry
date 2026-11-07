@@ -2,7 +2,7 @@ import { useId, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { getApiV1ProjectsByNameRunPreviewOptions, getApiV1ProjectsByNameRunAdmissionOptions, getApiV1SettingsOptions } from '@canonry/canonry-api-client/react-query'
-import { providerConnectionName, ProviderErrorCodes, type ProviderAccountStreak, type ProviderErrorCode, type RunAdmissionDto, type RunPreviewDto } from '@canonry/canonry-contracts'
+import { providerConnectionName, formatModelName, openRouterRouteModel, ProviderErrorCodes, type ProviderAccountStreak, type ProviderErrorCode, type RunAdmissionDto, type RunPreviewDto } from '@canonry/canonry-contracts'
 import { heyClient } from '../../api.js'
 import { formatSweepInstant } from '../../lib/format-helpers.js'
 import { catalogRouteFamilies } from '../../lib/provider-routes.js'
@@ -180,9 +180,10 @@ export function RunPreviewSummary({ preview, pending, failed, onRetry }: {
     </div>
     <p className="text-label-12 text-muted">{preview.queryClasses.filter(item => item.queryCount > 0).map(item => `${item.queryCount} ${item.queryClass === 'unknown' ? 'unclassified' : item.queryClass} ${item.queryCount === 1 ? 'query' : 'queries'}`).join(' · ')}</p>
     {preview.revision !== null && <p className="text-copy-14 text-secondary">Published plan · revision {preview.revision}. Unpublished changes are not included.</p>}
-    {preview.engines.length > 0 && <div className="overflow-x-auto"><table className="evidence-table"><thead><tr><th>Engine</th><th>Model</th><th className="text-right">Requests</th></tr></thead><tbody>{preview.engines.map(engine => {
+    {preview.engines.length > 0 && <div className="overflow-x-auto"><table className="evidence-table"><thead><tr><th>Engine</th><th className="text-right">Requests</th></tr></thead><tbody>{preview.engines.map(engine => {
       const hold = preview.admission.providers[engine.provider]
-      return <tr key={engine.provider}><td>{providerDisplayName(engine.provider)}{hold ? <span className="block text-copy-13 text-caution">Skipped: {accountFailure(hold.code).label}. On hold until <When iso={hold.retryAfter} />.</span> : !engine.available && <span className="block text-copy-13 text-caution">Not available</span>}</td><td className="break-words text-copy-13-mono">{engine.models.join(', ') || 'Default model'}</td><td className="text-right tabular-nums">{engine.requestCount}</td></tr>
+      const models = engine.models.filter(model => model !== openRouterRouteModel(engine.provider)).map(model => openRouterRouteModel(engine.provider) ? formatModelName(model) : model)
+      return <tr key={engine.provider}><td>{providerDisplayName(engine.provider)}{(models.length > 0 || !openRouterRouteModel(engine.provider)) && <span className="block break-words text-copy-13 text-secondary">{models.join(', ') || 'Default model'}</span>}{hold ? <span className="block text-copy-13 text-caution">Skipped: {accountFailure(hold.code).label}. On hold until <When iso={hold.retryAfter} />.</span> : !engine.available && <span className="block text-copy-13 text-caution">Not available</span>}</td><td className="text-right tabular-nums">{engine.requestCount}</td></tr>
     })}</tbody></table></div>}
     {preview.locations.length > 0 && <p className="text-copy-14 text-secondary">Location: {preview.locations.map(item => item.location ?? 'No location targeting').join(' · ')}</p>}
     {preview.requestCount !== preview.expectedRequestCount && <p className="text-copy-14 text-caution">{preview.requestCount} of {preview.expectedRequestCount} planned requests can run.</p>}

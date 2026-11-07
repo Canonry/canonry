@@ -24,6 +24,7 @@ import { AINYC_LATEST_RUN, ainycComparison, ainycEvidence, ainycLandscape, ainyc
 import { toRunListItem } from '../src/build-dashboard.js'
 import { mapInsightDtosToVms } from '../src/mappers/insight-mapper.js'
 import { AdvancedMeasurementSection } from '../src/components/project/advanced-measurement/AdvancedMeasurementSection.js'
+import { mockFetch } from './mock-fetch.js'
 import {
   getApiV1CdpStatusQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
@@ -843,6 +844,41 @@ test.each([false, true])('Simple query evidence stays open with its class and si
   if (embed) expect(section!.textContent).not.toContain('Manage queries')
 })
 
+test('closing Simple answer evidence restores its View control after a direct-link visit', async () => {
+  const fixture = createDashboardFixture({})
+  const project = fixture.dashboard.projects.find(item => item.project.id === 'project_citypoint')!
+  const evidence = project.visibilityEvidence[0]!
+  onTestFinished(mockFetch(url => {
+    const path = new URL(url).pathname
+    if (path.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (path.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
+    if (path.endsWith('/runs')) return jsonResponse([])
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }))
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  const router = createAppRouter(queryClient, { initialEntries: [`/projects/project_citypoint?evidenceId=${encodeURIComponent(evidence.id)}`] })
+  await router.load()
+  const page = render(<QueryClientProvider client={queryClient}><DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}><RouterProvider router={router} /></DashboardProvider></QueryClientProvider>)
+  const directLink = await page.findByRole('dialog', { name: evidence.query })
+  fireEvent.keyDown(directLink, { key: 'Escape' })
+  await waitFor(() => expect(page.queryByRole('dialog')).toBeNull())
+  expect(router.state.location.search.evidenceId).toBeUndefined()
+
+  const table = document.querySelector<HTMLElement>('#evidence-section')!
+  fireEvent.click(within(table).getByRole('button', { name: evidence.query, exact: true }))
+  const opener = within(table).getAllByRole('button', { name: 'View', exact: true })[0]!
+  for (const close of ['Escape', 'Close']) {
+    fireEvent.click(opener)
+    const dialog = await page.findByRole('dialog', { name: evidence.query })
+    if (close === 'Escape') fireEvent.keyDown(dialog, { key: 'Escape' })
+    else fireEvent.click(within(dialog).getByRole('button', { name: 'Close', exact: true }))
+    await waitFor(() => expect(page.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(opener))
+    expect(router.state.location.search.evidenceId).toBeUndefined()
+  }
+})
+
 test('an unpublished Advanced draft and stale report filters do not replace the Simple overview', async () => {
   const html = await renderAt('/projects/project_citypoint?measurementScope=group&measurementScopeKey=old&queryClass=unknown', undefined, {
     plan: { active: null },
@@ -1103,7 +1139,7 @@ test('the unified visibility report owns scope, class, paging, search, and answe
   expect(await page.findByText('Harbor Search Result')).toBeTruthy()
   expect(observed.some(path => path.includes('/measurement-report?'))).toBe(false)
 
-  fireEvent.click(page.getByRole('button', { name: 'View answers for Harbor Search Result · openai' }))
+  fireEvent.click(page.getByRole('button', { name: 'View answers for Harbor Search Result · OpenAI' }))
   expect(await page.findByText('Stored answer text.')).toBeTruthy()
   await waitFor(() => expect(observed.some(path => path.includes('queryKey=visibility-query-old'))).toBe(true))
   fireEvent.click(page.getByRole('button', { name: 'Close answers' }))
@@ -1997,7 +2033,7 @@ test('What changed names ainyc\'s added queries as written and dates the sweep b
     'Claude last answered with claude-sonnet-5 on Sep 29',
     'Gemini last answered with gemini-3.5-flash on Sep 29',
     'OpenAI last answered with chat-latest on Sep 29',
-    'Perplexity last answered with openai/gpt-6-luna on Sep 29',
+    'Perplexity last answered with GPT-6 Luna on Sep 29',
   ])
   expect([...changes.querySelectorAll('button[aria-label]')].map(button => button.getAttribute('aria-label')))
     .toContainEqual(expect.stringMatching(/ Check before: Jul 14\.$/))
@@ -2046,7 +2082,7 @@ test('Where competitors are winning and the query table read ainyc\'s latest swe
   expect([...table.querySelectorAll('.query-evidence-new')].map(label => label.closest('tr')!.querySelector('button')!.getAttribute('aria-label')))
     .toEqual(['Canonry', 'Canonry AEO agency', 'Canonry reviews'])
   expect(table.textContent).not.toContain('First mention')
-  expect([...table.querySelector('tbody .query-evidence-meta')!.children].map(item => item.textContent)).toEqual(['Non-brand', 'Claude', 'Gemini', 'OpenAI', 'Perplexity'])
+  expect([...table.querySelector('tbody .query-evidence-meta')!.children].map(item => item.textContent)).toEqual(['Non-brand'])
   expect(doc.querySelector('#evidence-section')!.textContent).toContain('1 to 14 of 14 queries')
   expect(html.indexOf('Where competitors are winning')).toBeLessThan(html.indexOf('Query evidence'))
 })

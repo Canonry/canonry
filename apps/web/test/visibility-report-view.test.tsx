@@ -375,6 +375,37 @@ describe('shared production visibility view', () => {
     expect(within(screen.getByRole('region', { name: 'AI visibility results' })).queryAllByRole('combobox')).toEqual([])
   })
 
+  it('names OpenRouter models separately while preserving their exact engine filter identities', () => {
+    const report = reportFixture()
+    const gemini = 'openrouter:google/gemini-2.5-pro'
+    const claude = 'openrouter:anthropic/claude-3.7-sonnet'
+    report.filterOptions.providers = [gemini, claude]
+    const population = report.populations[0]!
+    const query = population.queries.items[0]!
+    population.queries.items = [
+      { ...query, provider: gemini, model: 'google/gemini-2.5-pro' },
+      { ...query, provider: claude, model: 'anthropic/claude-3.7-sonnet' },
+    ]
+    population.queries.total = 2
+    const select = vi.fn()
+    render(<>
+      <VisibilityResultsToolbar report={report} selection={parseVisibilitySelection({ queryClass: 'non-brand' })} onSelectionChange={select} />
+      <VisibilityReportView report={report} onSelectionChange={select} />
+    </>)
+    fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+    const results = screen.getByRole('table', { name: 'Non-brand queries engine results' })
+    expect(within(results).getByText('Gemini 2.5 Pro via OpenRouter')).toBeTruthy()
+    expect(within(results).getByText('Claude 3.7 Sonnet via OpenRouter')).toBeTruthy()
+    expect(within(results).queryByText('google/gemini-2.5-pro')).toBeNull()
+    expect(within(results).queryByText('anthropic/claude-3.7-sonnet')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }))
+    const engines = screen.getByRole('combobox', { name: 'Answer engine' })
+    expect(within(engines).getByRole('option', { name: 'Gemini 2.5 Pro via OpenRouter' })).toHaveProperty('value', gemini)
+    expect(within(engines).getByRole('option', { name: 'Claude 3.7 Sonnet via OpenRouter' })).toHaveProperty('value', claude)
+    fireEvent.change(engines, { target: { value: claude } })
+    expect(select).toHaveBeenLastCalledWith({ measurementProvider: claude, measurementQueryKey: undefined })
+  })
+
   it('paginates large property breakdowns and searches all properties without changing server metrics', () => {
     const report = reportFixture()
     const population = report.populations[0]!
@@ -449,8 +480,8 @@ describe('shared production visibility view', () => {
 
     const table = container.querySelector('table.measurement-responsive-table')!
     expect(table.querySelectorAll('[data-query-key="query-context"]')).toHaveLength(1)
-    expect(within(table).getByRole('button', { name: 'View answers for apartments near transit · gemini' })).toBeTruthy()
-    expect(within(table).getByRole('button', { name: 'View answers for apartments near transit · openai' })).toBeTruthy()
+    expect(within(table).getByRole('button', { name: 'View answers for apartments near transit · Gemini' })).toBeTruthy()
+    expect(within(table).getByRole('button', { name: 'View answers for apartments near transit · OpenAI' })).toBeTruthy()
     expect(within(table).getByText('gpt-5.6')).toBeTruthy()
     expect(within(table).getByText('Requested search location: Detroit')).toBeTruthy()
     if (showsProperties) {
@@ -640,7 +671,7 @@ describe('shared production visibility view', () => {
       expect(within(table).getByText('Park House')).toBeTruthy()
       expect(within(table).getByText('Lake House')).toBeTruthy()
     } else expect(within(table).queryByText('2 properties')).toBeNull()
-    fireEvent.click(within(table).getByRole('button', { name: 'View answers for apartments near transit · openai' }))
+    fireEvent.click(within(table).getByRole('button', { name: 'View answers for apartments near transit · OpenAI' }))
     expect(JSON.parse(select.mock.lastCall![0].measurementAnswer)).toMatchObject({ queryKey: 'query-context', provider: 'openai', model: 'gpt-test', location: null, runId: 'run-2', revision: 2 })
   })
 
@@ -781,7 +812,7 @@ describe('shared production visibility view', () => {
     const flag = '1 unchecked. 1 of 3 answers had sources that could not be checked, so this rate leaves it out.'
 
     fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
-    const engine = within(screen.getByRole('table', { name: 'Non-brand queries engine results' })).getByRole('button', { name: 'View answers for apartments near transit · gemini' }).closest('tr')!
+    const engine = within(screen.getByRole('table', { name: 'Non-brand queries engine results' })).getByRole('button', { name: 'View answers for apartments near transit · Gemini' }).closest('tr')!
     const [, mentioned, cited] = [...engine.querySelectorAll('td')]
     expect(mentioned!.textContent).toBe('Mentioned33.3%1 of 3')
     expect(cited!.textContent).toBe('Cited50.0%1 of 21 unchecked')
@@ -814,12 +845,12 @@ describe('shared production visibility view', () => {
 
     fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
     const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
-    const cited = (provider: string) => [...within(table).getByRole('button', { name: `View answers for apartments near transit · ${provider}` }).closest('tr')!.querySelectorAll('td')][2]!
-    expect(cited('gemini').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}Saved links cite Park House`)
-    expect(cited('openai').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}No saved link cites Lake House`)
-    expect(cited('claude').textContent).toBe('Cited50.0%1 of 21 uncheckedSaved links cite Park House')
+    const cited = (engineLabel: string) => [...within(table).getByRole('button', { name: `View answers for apartments near transit · ${engineLabel}` }).closest('tr')!.querySelectorAll('td')][2]!
+    expect(cited('Gemini').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}Saved links cite Park House`)
+    expect(cited('OpenAI').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}No saved link cites Lake House`)
+    expect(cited('Claude').textContent).toBe('Cited50.0%1 of 21 uncheckedSaved links cite Park House')
     // "Unchecked" is explained in plain words instead of the missing-evidence note.
-    for (const provider of ['gemini', 'openai', 'claude']) {
+    for (const provider of ['Gemini', 'OpenAI', 'Claude']) {
       expect(within(cited(provider)).getByRole('button', { name: UNCHECKED_SOURCES_COPY.help })).toBeTruthy()
       expect(within(cited(provider)).queryByRole('button', { name: /The saved evidence is incomplete/ })).toBeNull()
     }
@@ -842,7 +873,7 @@ describe('shared production visibility view', () => {
     expect(screen.queryByText(/only because an answer's sources were partly saved/)).toBeNull()
   })
 
-  it('notes under the trend that Cited counts only checked answers when a plotted point left some out, and only then', () => {
+  it('explains in a trend tooltip that Cited counts only checked answers when a plotted point left some out, and only then', () => {
     const report = reportFixture()
     const population = report.populations[0]!
     const point = (index: number, citationCoverage: typeof population.summary.citationCoverage) => ({
@@ -854,11 +885,11 @@ describe('shared production visibility view', () => {
     population.trend = [point(0, { numerator: 1, denominator: 3, rate: 1 / 3 }), point(1, { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 })]
     const view = render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
     expect(REPORT_TREND_UNCHECKED_NOTE).toBe('Cited counts only answers whose sources could be checked.')
-    expect(screen.getByText(REPORT_TREND_UNCHECKED_NOTE, { exact: false })).toBeTruthy()
+    expect(screen.getByRole('button', { name: new RegExp(REPORT_TREND_UNCHECKED_NOTE) })).toBeTruthy()
     view.unmount()
     population.trend = [point(0, { numerator: 1, denominator: 3, rate: 1 / 3 }), point(1, { numerator: 2, denominator: 3, rate: 2 / 3 })]
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
-    expect(screen.queryByText(REPORT_TREND_UNCHECKED_NOTE, { exact: false })).toBeNull()
+    expect(screen.queryByRole('button', { name: new RegExp(REPORT_TREND_UNCHECKED_NOTE) })).toBeNull()
   })
 
   it.each(['definition-changed', 'model-changed', 'legacy-unknown'] as const)('explains %s trend gaps beside the chart', state => {
@@ -876,6 +907,7 @@ describe('shared production visibility view', () => {
     const explanation = document.getElementById(chart.getAttribute('aria-describedby')!)!
     expect(explanation.textContent).toContain(state === 'definition-changed' ? 'changes to what was measured' : state === 'model-changed' ? 'changes to answer engines or models' : 'Older runs lack')
     expect(explanation.textContent).toContain('Missing citation results mean the saved evidence is incomplete.')
+    expect(screen.getByRole('button', { name: /Missing citation results mean the saved evidence is incomplete\./ })).toBeTruthy()
     expect(explanation.closest('details')).toBeNull()
   })
 
@@ -938,7 +970,7 @@ describe('shared production visibility view', () => {
     }
     render(<Harness />)
     fireEvent.click(document.querySelector('details[data-query-results] > summary')!)
-    const trigger = screen.getByRole('button', { name: name => name.endsWith(`${secondEngine.query} · ${secondEngine.provider}`) })
+    const trigger = screen.getByRole('button', { name: 'View answers for apartments near transit · OpenAI' })
     trigger.focus()
     fireEvent.click(trigger)
 
@@ -1137,7 +1169,7 @@ describe('shared production visibility view', () => {
     const view = render(<QueryClientProvider client={client()}><Harness startingSearch={initialSearch} /></QueryClientProvider>)
     fireEvent.click(await screen.findByRole('button', { name: /^Filters/ }))
     fireEvent.click((await screen.findByText('Query results', { selector: 'span' })).closest('summary')!)
-    fireEvent.click(screen.getByRole('button', { name: 'View answers for apartments near transit · gemini' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View answers for apartments near transit · Gemini' }))
     expect((await screen.findByText('Stored negative evidence for this exact context.')).closest('article')?.textContent).toContain('Requested search location: Detroit')
     expect(screen.getByText('Not mentioned')).toBeTruthy()
     expect(screen.getByText('Not cited')).toBeTruthy()
@@ -1145,7 +1177,7 @@ describe('shared production visibility view', () => {
     expect(screen.getByRole('combobox', { name: 'Answer engine' })).toHaveProperty('value', '')
     expect(screen.getByRole('combobox', { name: 'Requested search location' })).toHaveProperty('value', '')
     expect(screen.queryByText('0%')).toBeNull()
-    expect(screen.getByRole('button', { name: 'View answers for apartments near transit · openai' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'View answers for apartments near transit · OpenAI' })).toBeTruthy()
     expect(currentSearch.queryClass).toBe('non-brand')
     for (const key of ['measurementScope', 'measurementScopeKey', 'measurementProvider', 'measurementModel', 'measurementLocation', 'measurementRevision', 'measurementFrom', 'measurementTo', 'measurementRunId', 'runId', 'evidenceId']) {
       expect(currentSearch[key]).toEqual(initialSearch[key])
@@ -1191,7 +1223,7 @@ describe('shared production visibility view', () => {
     expect(screen.queryByText('Answer from a different disclosed model.')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Next answers' }))
     expect((await screen.findByText('Answer with no disclosed model or location.')).closest('article')?.textContent).toContain('No location requested')
-    expect(screen.getByRole('button', { name: 'View answers for apartments near transit · gemini' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'View answers for apartments near transit · Gemini' })).toBeTruthy()
     expect(requests.filter(request => !request.searchParams.has('queryKey'))).toHaveLength(1)
     expect(Object.fromEntries(requests.at(-1)!.searchParams)).toMatchObject({ provider: 'gemini', location: 'none', runId: 'run-2', revision: '2', cursor: 'null-model-page-2' })
     expect(requests.at(-1)!.searchParams.has('model')).toBe(false)
@@ -1278,7 +1310,7 @@ describe('shared production visibility view', () => {
     expect(await screen.findByRole('button', { name: 'Retry answers' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Filters' }))
     expect(screen.getByRole('combobox', { name: 'Answer engine' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'View answers for apartments near transit · gemini' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'View answers for apartments near transit · Gemini' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'AI visibility unavailable' })).toBeNull()
     failEvidence = false
     fireEvent.click(screen.getByRole('button', { name: 'Retry answers' }))

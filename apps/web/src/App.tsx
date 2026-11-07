@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
 
@@ -23,7 +23,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import { CitationStates, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@canonry/canonry-contracts'
+import { CitationStates, formatModelName, openRouterRouteModel, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 
 import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
@@ -365,6 +365,19 @@ export function RootLayout() {
 
   // ── Router state ──
   const { runId, evidenceId, closeDrawer } = useDrawer()
+  const evidenceOpener = useRef<HTMLElement | null>(null)
+  const openEvidenceId = useRef(evidenceId)
+  useLayoutEffect(() => {
+    // Keep the original control across the loading drawer and answer modal.
+    if (evidenceId && !openEvidenceId.current) {
+      const focused = document.activeElement
+      evidenceOpener.current = focused instanceof HTMLElement && focused !== document.body ? focused : null
+    }
+    openEvidenceId.current = evidenceId
+  }, [evidenceId])
+  const restoreEvidenceFocus = () => {
+    if (!openEvidenceId.current && evidenceOpener.current?.isConnected) evidenceOpener.current.focus()
+  }
 
   // ── UI state ──
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -1029,8 +1042,8 @@ export function RootLayout() {
                         </Badge>
                       </div>
                     </div>
-                    {snap.model && (
-                      <p className="text-copy-13-mono text-muted">{snap.model}</p>
+                    {snap.model && snap.model !== openRouterRouteModel(snap.provider) && (
+                      <p className="text-copy-13 text-secondary" title={snap.model}>{openRouterRouteModel(snap.provider) ? formatModelName(snap.model) : snap.model}</p>
                     )}
                     {snap.citedDomains.length > 0 && (
                       <p className="text-copy-13 text-muted mt-1">
@@ -1105,7 +1118,7 @@ export function RootLayout() {
       ) : null}
 
       {evidenceId && !selectedEvidenceContext ? (
-        <Drawer open title={evidenceLoading ? 'Loading answer' : 'Answer unavailable'} subtitle="Query evidence" onClose={closeDrawer}>
+        <Drawer open title={evidenceLoading ? 'Loading answer' : 'Answer unavailable'} subtitle="Query evidence" onClose={closeDrawer} onClosed={restoreEvidenceFocus}>
           {evidenceLoading ? (
             <p role="status" className="text-copy-14 text-secondary">Loading answer…</p>
           ) : (
@@ -1117,7 +1130,7 @@ export function RootLayout() {
         </Drawer>
       ) : null}
       {selectedEvidenceContext ? (
-        <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={closeDrawer} />
+        <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={closeDrawer} onClosed={restoreEvidenceFocus} />
       ) : null}
 
       <RunNotificationObserver />

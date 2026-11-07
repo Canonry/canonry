@@ -53,10 +53,14 @@ function renderCard(data: VisibilityReportResponse | { failed: unknown }) {
 describe('By engine report', () => {
   test('keeps the non-brand and branded server denominators separate and renders rates without recalculating', () => {
     const report = reportFixture()
+    report.populations[1]!.breakdown.providers![0]!.provider = 'openrouter:google/gemini-2.5-flash'
     // Deliberately not numerator / denominator: the UI presents the wire rate.
     report.populations[1]!.breakdown.providers![0]!.citationCoverage = { numerator: 1, denominator: 2, rate: 0.43 }
     renderCard(report)
     const nonBrand = screen.getByRole('table', { name: 'By engine, non-brand queries' })
+    const model = within(nonBrand).getByRole('rowheader', { name: 'Gemini 2.5 Flash via OpenRouter' })
+    expect(within(model).getByText('Gemini 2.5 Flash')).toBeTruthy()
+    expect(within(model).getByText('via OpenRouter')).toBeTruthy()
     expect(within(nonBrand).getByText('43.0%')).toBeTruthy()
     expect(within(nonBrand).getByText('0 of 2 answers')).toBeTruthy()
     expect(within(nonBrand).getByText('1 of 2 answers')).toBeTruthy()

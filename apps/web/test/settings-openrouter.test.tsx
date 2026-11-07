@@ -55,6 +55,40 @@ test('saving the OpenRouter key offers project model selection without choosing 
   await waitFor(() => expect(writes).toEqual([{ path: '/api/v1/settings/providers/openrouter', method: 'PUT', body: { apiKey: 'openrouter-test-key', expectedRevision: 'saved-revision' } }]))
 })
 
+test.each([true, false])('shows saved models for the selected project with connection lifecycle metadata %s', async lifecycle => {
+  const fixture = createDashboardFixture()
+  const first = fixture.dashboard.projects[0]!.project
+  const second = fixture.dashboard.projects[1]!.project
+  const third = fixture.dashboard.projects[2]!.project
+  first.providers = ['openrouter:google/gemini-2.5-flash', 'openrouter:anthropic/claude-sonnet-4', 'gemini']
+  second.providers = ['openrouter:google/gemini-2.5-flash']
+  third.providers = []
+  const connection = connectionFixture({ name: 'openrouter', displayName: 'OpenRouter', kind: 'model-gateway', defaultModel: null, effectiveModel: null })
+  const settings = settingsFixture([connection])
+  settings.providerCatalog![0]!.knownModels = [
+    { id: 'google/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', tier: 'standard' },
+    { id: 'anthropic/claude-sonnet-4', displayName: 'Claude Sonnet 4', tier: 'standard' },
+  ]
+  if (!lifecycle) delete settings.providerConnections
+  const restore = mockFetch((url, init) => {
+    const path = pathOf(url)
+    if (path === '/api/v1/settings') return jsonResponse(settings)
+    if (path === '/api/v1/cdp/status' && init?.method === 'GET') return jsonResponse({ connected: false, targets: [] })
+    throw new Error(`Unexpected fetch: ${init?.method} ${path}`)
+  })
+  onTestFinished(restore)
+  await renderSettings(fixture)
+  expect(await screen.findByText('Gemini 2.5 Flash via OpenRouter · Claude Sonnet 4 via OpenRouter')).toBeTruthy()
+  const project = screen.getByRole('combobox', { name: 'Project' })
+  fireEvent.change(project, { target: { value: second.name } })
+  expect(screen.getByText('Gemini 2.5 Flash via OpenRouter')).toBeTruthy()
+  expect(screen.queryByText(/Claude Sonnet 4 via OpenRouter/)).toBeNull()
+  expect(screen.getByRole('link', { name: 'Choose project models' }).getAttribute('href')).toBe(`/projects/${encodeURIComponent(second.name)}/settings#answer-engines`)
+  fireEvent.change(project, { target: { value: third.name } })
+  expect(screen.getByText('No models selected')).toBeTruthy()
+  expect(screen.queryByText('Gemini 2.5 Flash via OpenRouter')).toBeNull()
+})
+
 test.each(['ok', 'error'] as const)('keeps optional connections collapsed, exposes a browser deep link, and shows %s service health appropriately', async state => {
   const fixture = createDashboardFixture()
   fixture.health.workerStatus = { label: 'Worker', state, detail: state === 'ok' ? 'Worker is healthy.' : 'Worker heartbeat has stopped.' }

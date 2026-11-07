@@ -11,6 +11,7 @@ import {
   ResearchRunStatuses,
   deduplicateResearchQueries,
   expandResearchTemplate,
+  formatModelName,
   isOpenRouterRoute,
   openRouterRouteModel,
   researchTemplateBindings,
@@ -199,14 +200,14 @@ export function ResearchQueriesSection({
         const routeCatalog = savedRoute ?? (openRouterCatalog ? {
           ...openRouterCatalog,
           name,
-          displayName: serverRoute?.displayName ?? providerDisplayName(name),
+          displayName: providerDisplayName(name, [...catalogEntries, ...serverRoutes.values()]),
           modelConfigurable: false,
           defaultModel: model,
           knownModels: openRouterCatalog.knownModels.filter(candidate => candidate.id === model),
         } : serverRoute)
         return routeCatalog ? [{
           name,
-          displayName: serverRoute?.displayName ?? providerDisplayName(name),
+          displayName: providerDisplayName(name, [...catalogEntries, ...serverRoutes.values()]),
           configured: true,
           defaultModel: model,
           catalog: routeCatalog,
@@ -233,8 +234,8 @@ export function ResearchQueriesSection({
   const resolvedModel = (configurableModel ? model.trim() : '') || visibilityModel
   const modelOptions = selectedProvider
     ? [...new Map([
-        { id: selectedProvider.catalog.defaultModel, displayName: selectedProvider.catalog.defaultModel },
-        ...(model.trim() ? [{ id: model.trim(), displayName: model.trim() }] : []),
+        { id: selectedProvider.catalog.defaultModel, displayName: formatModelName(selectedProvider.catalog.defaultModel) },
+        ...(model.trim() ? [{ id: model.trim(), displayName: formatModelName(model.trim()) }] : []),
         ...selectedProvider.catalog.knownModels,
       ].map(item => [item.id, item])).values()]
     : []
@@ -334,7 +335,7 @@ export function ResearchQueriesSection({
                   {runs.map(run => (
                     <tr key={run.id} className={selectedRunId === run.id ? 'bg-bg-elevated/40' : undefined}>
                       <td><button type="button" className="text-left text-button-14 text-heading hover:text-link focus:outline-none focus:underline" onClick={() => setSelectedRunId(run.id)}>{formatResearchDate(run.createdAt)}</button></td>
-                      <td className="text-secondary"><span className="block">{run.provider}</span><span className="text-label-12-mono text-muted">{run.requestedModel ?? run.resolvedModel}</span></td>
+                      <td className="text-secondary"><span className="block" title={run.provider}>{providerDisplayName(run.provider, settingsQuery.data?.providerCatalog)}</span>{(run.requestedModel ?? run.resolvedModel) !== openRouterRouteModel(run.provider) && <span className="text-label-13 text-secondary" title={run.requestedModel ?? run.resolvedModel}>{formatModelName(run.requestedModel ?? run.resolvedModel)}</span>}</td>
                       <td className="text-secondary">{run.scope?.label ?? 'Whole site'}</td>
                       <td className="text-secondary">{run.location?.label ?? 'No location'}</td>
                       <td className="tabular-nums text-secondary">{run.completedQueries + run.failedQueries}/{run.totalQueries}</td>
@@ -350,7 +351,7 @@ export function ResearchQueriesSection({
         </Card>
       </div>
 
-      {!historyError && detailQuery.isError ? <div role="alert" className="text-label-14 text-negative"><p>Could not load saved research results.</p><Button variant="outline" onClick={() => { void detailQuery.refetch() }}>Retry results</Button></div> : !historyError ? <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching} onReviewForTracking={publicDemo ? undefined : onReviewForTracking} /> : null}
+      {!historyError && detailQuery.isError ? <div role="alert" className="text-label-14 text-negative"><p>Could not load saved research results.</p><Button variant="outline" onClick={() => { void detailQuery.refetch() }}>Retry results</Button></div> : !historyError ? <ResearchRunDetail detail={detail} engineLabel={detail ? providerDisplayName(detail.provider, settingsQuery.data?.providerCatalog) : undefined} isLoading={detailQuery.isFetching} onReviewForTracking={publicDemo ? undefined : onReviewForTracking} /> : null}
     </div>
   )
 }
@@ -393,6 +394,12 @@ const NO_LOCATION = '__none__'
 
 function ResearchBatchComposer(props: ComposerProps) {
   const { projectName, locations, provider, resolvedModel, planRevision } = props
+  const providerCatalog = props.providerOptions.map(item => ({ ...item, knownModels: item.catalog.knownModels }))
+  const pinnedModel = openRouterRouteModel(provider)
+  const engineSummary = [
+    provider ? providerDisplayName(provider, providerCatalog) : 'Choose an engine',
+    resolvedModel && resolvedModel !== pinnedModel ? formatModelName(resolvedModel) : !resolvedModel ? 'Choose a model' : null,
+  ].filter(Boolean).join(' · ')
   const queryClient = useQueryClient()
   const [mode, setMode] = useState<ResearchMode>('once')
   const [queryText, setQueryText] = useState('')
@@ -598,24 +605,24 @@ function ResearchBatchComposer(props: ComposerProps) {
           {saveError && <p role="alert" className="text-copy-14 text-negative">{saveError}</p>}
         </div>
       </details>}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block text-label-14-strong text-heading">Answer engine<select className={INPUT_CLASS} value={provider} onChange={event => props.onProviderChange(event.target.value)}><option value="" disabled>Choose an answer engine</option>{props.providerOptions.map(item => <option key={item.name} value={item.name}>{item.displayName ?? item.name}</option>)}</select></label>
-        <label className="block text-label-14-strong text-heading">Model
-          {props.limitedAccess ? <select className={INPUT_CLASS} value={props.model} disabled={!provider || !props.configurableModel} onChange={event => props.onModelChange(event.target.value)}><option value="">Use AI Visibility model · {props.visibilityModel}</option>{props.modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select>
+      <div className={`grid gap-4${pinnedModel ? '' : ' sm:grid-cols-2'}`}>
+        <label className="block text-label-14-strong text-heading">Answer engine<select className={INPUT_CLASS} value={provider} onChange={event => props.onProviderChange(event.target.value)}><option value="" disabled>Choose an answer engine</option>{props.providerOptions.map(item => <option key={item.name} value={item.name}>{providerDisplayName(item.name, providerCatalog)}</option>)}</select></label>
+        {!pinnedModel && <label className="block text-label-14-strong text-heading">Model
+          {props.limitedAccess ? <select className={INPUT_CLASS} value={props.model} disabled={!provider || !props.configurableModel} onChange={event => props.onModelChange(event.target.value)}><option value="">Use AI Visibility model{props.visibilityModel ? ` · ${formatModelName(props.visibilityModel)}` : ''}</option>{props.modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select>
             : <><input aria-label="Model" className={INPUT_CLASS} list="research-known-models" placeholder={resolvedModel ?? 'Choose an answer engine'} value={props.model} disabled={!provider || !props.configurableModel} onChange={event => props.onModelChange(event.target.value)} /><datalist id="research-known-models">{props.modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</datalist></>}
-        </label>
+        </label>}
       </div>
       {visibleErrors.length > 0 && <InlineErrors errors={visibleErrors} />}
       {mode !== 'once' && <div className="space-y-4 border-t border-default pt-4">
         <Button variant="outline" size="sm" disabled={props.isPending || !props.projectReady} onClick={createPreview}><RefreshCw size={14} />{preview ? RESEARCH_COPY.refreshPreview : 'Preview queries'}</Button>
-        {preview && <><h4 className="text-heading-14 text-heading">Queries to run</h4><p className="text-copy-14 text-secondary">{rows.length} query executions in {groups.length} saved runs · {provider} · {resolvedModel}. Edit any query or location below.</p>
+        {preview && <><h4 className="text-heading-14 text-heading">Queries to run</h4><p className="text-copy-14 text-secondary">{rows.length} query executions in {groups.length} saved runs · {engineSummary}. Edit any query or location below.</p>
           <ConcretePreview rows={rows} locations={locations} onChange={(id, changes) => setPreview(current => current ? { ...current, rows: current.rows.map(row => row.id === id ? { ...row, ...changes } : row) } : current)} />
         </>}
       </div>}
       {props.errorMessage && <p role="alert" className="text-copy-14 text-negative">{props.errorMessage} Your entries are preserved. Retry unchanged entries to avoid duplicate work.</p>}
       <div className="flex flex-wrap items-center gap-3 border-t border-default pt-4">
         {!props.isEmbed && <Button size="sm" disabled={!canRun} onClick={() => { if (canRun) { const request = buildRequest(); props.onSubmit(request, JSON.stringify({ projectName, ...request })) } }}><Play size={14} />{props.isPending ? 'Starting…' : RESEARCH_COPY.runAction}</Button>}
-        <p className="text-copy-14 text-secondary">{mode === 'once' ? `${directQueries.length} queries` : `${rows.length} reviewed queries`} · {provider || 'Choose an engine'} · {resolvedModel || 'Choose a model'}. Uses your configured answer engine.</p>
+        <p className="text-copy-14 text-secondary">{mode === 'once' ? `${directQueries.length} queries` : `${rows.length} reviewed queries`} · {engineSummary}</p>
       </div>
     </fieldset>
   </Card>
@@ -646,10 +653,12 @@ function groupPreviewRows(rows: readonly PreviewRow[]) {
 }
 function ResearchRunDetail({
   detail,
+  engineLabel,
   isLoading,
   onReviewForTracking,
 }: {
   detail: ResearchRunDetailDto | null
+  engineLabel?: string
   isLoading: boolean
   onReviewForTracking?: (source: ResearchTrackingSource) => void
 }) {
@@ -672,8 +681,8 @@ function ResearchRunDetail({
       </div>
       {detail && <div className="mt-3 space-y-3 text-label-14 text-secondary">
         <dl className="flex flex-wrap gap-x-6 gap-y-2 [overflow-wrap:anywhere]">
-          <div><dt className="text-label-14-strong">Answer engine</dt><dd>{detail.provider}</dd></div>
-          <div><dt className="text-label-14-strong">Requested model</dt><dd className="font-mono">{detail.requestedModel ?? detail.resolvedModel}</dd></div>
+          <div><dt className="text-label-14-strong">Answer engine</dt><dd title={detail.provider}>{engineLabel ?? providerDisplayName(detail.provider)}</dd></div>
+          {(detail.requestedModel ?? detail.resolvedModel) !== openRouterRouteModel(detail.provider) && <div><dt className="text-label-14-strong">Requested model</dt><dd title={detail.requestedModel ?? detail.resolvedModel}>{formatModelName(detail.requestedModel ?? detail.resolvedModel)}</dd></div>}
           <div><dt className="text-label-14-strong">Location</dt><dd>{detail.location?.label ?? 'No location'}</dd></div>
           <div><dt className="text-label-14-strong">Destination</dt><dd>{detail.scope?.label ?? 'Whole site'}</dd></div>
         </dl>

@@ -1,3 +1,4 @@
+import { formatModelName } from '@canonry/canonry-contracts'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { AlertTriangle } from 'lucide-react'
@@ -57,6 +58,11 @@ export function ProjectEngineSettingsSection({
     staleTime: 60_000,
     enabled: isAdmin && !isEmbed(),
   })
+  useEffect(() => {
+    if (!settings.isLoading && window.location.hash === '#answer-engines') {
+      document.getElementById('answer-engines')?.scrollIntoView({ block: 'start' })
+    }
+  }, [settings.isLoading, project.name])
   const [automatic, setAutomatic] = useState(project.providers.length === 0)
   const [selected, setSelected] = useState<string[]>(project.providers)
   const [addedRoutes, setAddedRoutes] = useState<string[]>(project.providers.filter(isOpenRouterRoute))
@@ -256,7 +262,6 @@ export function ProjectEngineSettingsSection({
     && (!selectedOnly || selected.includes(provider.name))
     && `${provider.displayName} ${provider.name} ${provider.defaultModel}`.toLowerCase().includes(engineSearch.trim().toLowerCase()))
   const showSave = !noDirectEngine || selected.length > 0 || hasUnsavedChanges
-  const openRouterNames = new Map(openRouterCatalog?.knownModels.map(model => [model.id, model.displayName]))
   const connectLink = rows.some(provider => !configured.has(rowConnection(provider)))
     ? <Link to="/settings" className="block w-fit text-label-14 text-secondary underline decoration-border-strong underline-offset-4 hover:text-heading">Connect another engine</Link>
     : null
@@ -278,7 +283,7 @@ export function ProjectEngineSettingsSection({
     const selectValue = model === undefined ? '__inherit__' : known ? model : '__custom__'
     return (
       <div key={provider.name} className="project-engine-row">
-        <label className="project-engine-provider w-full"><input type="checkbox" aria-label={routed ? provider.displayName : undefined} checked={checked} disabled={!configuredNow && !checked} onChange={event => toggleProvider(provider.name, event.target.checked)} /> <span title={routed ? provider.defaultModel : undefined}>{routed ? (openRouterNames.get(provider.defaultModel) ?? provider.displayName.replace(/ via OpenRouter$/, '')) : provider.displayName}</span>{routed && <span className="ml-auto text-label-14 text-secondary">OpenRouter</span>}{!routed && !provider.modelConfigurable && <InfoTooltip text={routeHelp(provider)} />}{stale && <span className="text-label-12 text-caution-400">Not configured, skipped</span>}</label>
+        <label className="project-engine-provider w-full"><input type="checkbox" aria-label={routed ? providerDisplayName(provider.name, catalog) : undefined} checked={checked} disabled={!configuredNow && !checked} onChange={event => toggleProvider(provider.name, event.target.checked)} /> <span title={routed ? provider.defaultModel : undefined}>{routed ? formatModelName(provider.defaultModel, openRouterCatalog?.knownModels) : provider.displayName}</span>{routed && <span className="ml-auto text-label-14 text-secondary">via OpenRouter</span>}{!routed && !provider.modelConfigurable && <InfoTooltip text={routeHelp(provider)} />}{stale && <span className="text-label-12 text-caution-400">Not configured, skipped</span>}</label>
         {stale && <Link to="/settings" hash={`provider-${rowConnection(provider)}`} className="text-label-12 text-link">Manage connection</Link>}
         {checked && (provider.modelConfigurable ? (
           <div className="project-engine-model">

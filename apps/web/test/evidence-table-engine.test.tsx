@@ -26,10 +26,11 @@ test('keeps direct Gemini and two OpenRouter models independently selectable wit
     evidence('Best widgets', 'gemini'), evidence('Best widgets', first), evidence('Best widgets', second),
   ]} />)
   expect(screen.getByRole('option', { name: 'Gemini' })).toHaveProperty('value', 'gemini')
-  expect(screen.getByRole('option', { name: 'google/gemini-model via OpenRouter' })).toHaveProperty('value', first)
-  expect(screen.getByRole('option', { name: 'anthropic/claude-model via OpenRouter' })).toHaveProperty('value', second)
+  expect(screen.getByRole('option', { name: 'Gemini Model via OpenRouter' })).toHaveProperty('value', first)
+  expect(screen.getByRole('option', { name: 'Claude Model via OpenRouter' })).toHaveProperty('value', second)
   selectEngine(second)
   fireEvent.click(screen.getByRole('button', { name: 'Best widgets', exact: true }))
+  expect(within(screen.getByRole('button', { name: 'View', exact: true }).closest('tr')!).getByText('Claude Model via OpenRouter')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'View', exact: true }))
   expect(openEvidence).toHaveBeenCalledWith(`Best widgets-${second}`)
 })
@@ -51,8 +52,8 @@ test('filters engine evidence before grouping, including counts, history, both s
   selectEngine('claude')
   const row = screen.getByText('Best widgets').closest('tr')!
   expect(screen.queryByText('Gemini only')).toBeNull()
-  // Engines read by their display names, never the stored lowercase ids.
-  expect(within(row).getByText('Claude')).toBeTruthy()
+  // Collapsed rows stay compact; model identities belong to their expanded answers.
+  expect(within(row).queryByText('Claude')).toBeNull()
   expect(within(row).queryByText('Gemini')).toBeNull()
   expect(within(row).getByTitle('1 of 1 engines mentioned').textContent).toBe('1/1')
   expect(within(row).getByText('First mention')).toBeTruthy()
