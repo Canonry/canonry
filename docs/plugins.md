@@ -1,4 +1,4 @@
-# Portable Agent Plugin with Codex and Claude Code adapters
+# Portable Agent Plugin for Hermes, Codex, and Claude Code
 
 Canonry's plugin targets the [Agent Plugins 1.0.0 format](https://agent-plugins.org/). The portable core is `plugins/canonry/plugin.json`, `skills/`, and `mcp.json`. It bundles the Canonry and Aero playbooks and launches the existing `canonry-mcp` stdio adapter. It does not add a second API, execution path, or credential store.
 
@@ -94,8 +94,28 @@ claude plugin marketplace add Canonry/canonry
 claude plugin install canonry@canonry
 ```
 
-Both clients install from their own marketplace manifest in this repository.
-Those catalogs point at the same portable plugin directory.
+Codex and Claude Code install from their own marketplace manifest in this
+repository. Those catalogs point at the same portable plugin directory.
+
+## Install for Hermes
+
+Hermes loads the portable `plugin.json`, both skills, and `mcp.json` directly.
+Choose a reviewed full 40-character commit SHA from the Canonry repository:
+
+```bash
+hermes plugins install 'Canonry/canonry#plugins/canonry' --ref <full-commit-sha> --enable
+hermes plugins list
+```
+
+The configured Canonry runtime must be installed separately, with `canonry-mcp`
+on Hermes's `PATH`. Direct Git installation runs Hermes's plugin security scan.
+Installing by catalog name requires a merged entry in the
+[Hermes plugin catalog](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugin-catalog).
+The catalog pins the same monorepo subdirectory to a reviewed commit; no
+separate MCP server or plugin repository is needed.
+
+## Verify the runtime
+
 Ensure Canonry's local daemon is running, then verify the live advisory plugin
 check:
 

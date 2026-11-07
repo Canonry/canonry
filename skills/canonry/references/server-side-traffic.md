@@ -482,39 +482,44 @@ same-origin assets, or the account is on Workers Paid.
 
 ### Excluding static assets from the route
 
-A route with NO script disables Workers on that path, and Cloudflare applies
-the most specific match. This removes the bundle without losing any crawler
-evidence, because crawlers request pages, not JS chunks.
+A route with no Worker assigned bypasses Workers on that path. Cloudflare's
+most-specific-match rule lets an asset route override the broader Canonry
+route. This reduces invocations while retaining page traffic; requests to the
+excluded asset paths are intentionally absent from Canonry's evidence.
 
-```bash
-# assets -> no worker. Omitting "script" is what disables it.
-curl -s -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
-  --data '{"pattern":"<host>/_nuxt/*"}' \
-  "https://api.cloudflare.com/client/v4/zones/$ZONE/workers/routes"
+Use the zone's route management or the [Workers Routes API](https://developers.cloudflare.com/api/resources/workers/subresources/routes/methods/create/)
+to create the exclusion. For a Nuxt site, the route creation payload is:
+
+```json
+{"pattern":"<host>/_nuxt/*"}
 ```
 
-Prefixes by framework: `/_nuxt/*` Nuxt, `/_next/*` Next.js, plus `/assets/*`,
-`/static/*`, `/build/*`.
+Replace `<host>` with the canonical hostname and omit `script` so no Worker is
+assigned. Verify the saved route has the intended pattern and no Worker. Keep
+the broader `<host>/*` route assigned to the Canonry Worker. Other asset
+prefixes include `/_next/*` for Next.js, `/assets/*`, `/static/*`, and `/build/*`.
+See [Cloudflare's route matching rules](https://developers.cloudflare.com/workers/configuration/routing/routes/#matching-behavior).
 
 **The Worker's own "Domains and Routes" tab cannot do this.** That screen only
 attaches routes TO that Worker, so adding the asset path there routes assets
-INTO the Worker and doubles the load. Asset exclusion is zone-level: the zone's
-Workers Routes page, or the API above.
+INTO the Worker. Asset exclusion must leave the Worker unassigned, using zone
+route management or the API above.
 
-### Fail open defaults to OFF
+### Verify the route's fail mode
 
-`request_limit_fail_open` is per route and defaults to `false`. Left off, a
-Worker error or an exhausted request allowance returns 5xx for every request on
-that route, which on a catch-all is the whole site. Setting it is not optional
-and it is not the default, so verify rather than assume:
+For a Worker used only to collect traffic, configure the route to **fail open**.
+Cloudflare then bypasses the Worker if the Free account exhausts its daily
+request allowance; fail closed returns a Cloudflare `1027` error page. This
+keeps the origin available while traffic collection is interrupted. A Worker
+that also enforces security needs its own fail-mode decision.
 
-```bash
-curl -s -H "Authorization: Bearer $CF_TOKEN" \
-  "https://api.cloudflare.com/client/v4/zones/$ZONE/workers/routes" \
-  | jq '.result[] | {pattern, script, request_limit_fail_open}'
-```
+In the Cloudflare dashboard, inspect the corresponding route and set its fail
+mode to open, then reopen it to confirm the saved setting. The API's
+`request_limit_fail_open` field represents this route setting; verify it is
+`true` when inspecting route state. Do not infer the setting from a successful
+deployment. See [Cloudflare's daily request limits and route fail modes](https://developers.cloudflare.com/workers/platform/limits/#daily-requests).
 
-Both route operations need `Zone | Workers Routes | Edit` on the token.
+API route changes require `Zone | Workers Routes | Edit` permission.
 
 ```bash
 npm install -g wrangler@latest
