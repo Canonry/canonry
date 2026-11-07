@@ -11,6 +11,7 @@ import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
+  getApiV1RunsByIdQueryKey,
 } from '@canonry/canonry-api-client/react-query'
 import { fetchHealthCheck, fetchServiceStatus, heyClient } from '../src/api.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
@@ -161,6 +162,7 @@ async function renderApp(
   options: Parameters<typeof createDashboardFixture>[0] = {},
   mutateFixture?: (fixture: ReturnType<typeof createDashboardFixture>) => void,
   trackedQueries: Record<string, { query: string }[]> = {},
+  seedClient?: (queryClient: QueryClient, fixture: ReturnType<typeof createDashboardFixture>) => void,
 ): Promise<string> {
   const fixture = createDashboardFixture(options)
   mutateFixture?.(fixture)
@@ -173,6 +175,7 @@ async function renderApp(
 
   seedNoMeasurementPlan(queryClient, fixture)
   seedVisibilityReport(queryClient, fixture, pathname)
+  seedClient?.(queryClient, fixture)
 
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
@@ -212,10 +215,18 @@ test('project route renders a concise visibility summary with progressive detail
   // embed configs pass that id on the wire (CANONRY_EMBED_PROJECT_TABS), so
   // renaming it would break an existing install's allowlist.
   expect(html).toMatch(/AI Visibility/)
-  expect(html).toMatch(/Search Engines/)
   // The route/embed token remains `technical-aeo`; only the product label changes.
   expect(html).toMatch(/Site Health/)
-  expect(html).toMatch(/Queries/)
+  const subnav = new DOMParser().parseFromString(html, 'text/html').querySelector('.project-subnav')
+  const visibleTabs = [...(subnav?.querySelectorAll('.project-subnav-link') ?? [])]
+    .filter(link => !link.closest('.project-subnav-measure'))
+    .map(link => link.textContent?.trim())
+  expect(visibleTabs).toEqual([
+    'AI Visibility', 'Search Engines', 'SEO', 'Activity', 'Site Health', 'Journeys', 'Server traffic', 'More',
+  ])
+  const projectSettings = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('a.sidebar-link')]
+    .find(link => link.textContent?.includes('Project settings'))
+  expect(projectSettings?.getAttribute('href')).toBe('/projects/Citypoint%20Dental%20NYC/settings')
   // The trend chart is the first card after the tabs: no Visibility card above it.
   const doc = new DOMParser().parseFromString(html, 'text/html')
   expect(doc.getElementById('overview-brief-title')).toBeNull()
@@ -338,11 +349,28 @@ test('setup treats a cancelled first run as retryable, not complete', async () =
     fixture.dashboard.runs = [cancelled]
   }, {
     'Citypoint Dental NYC': [{ query: 'emergency dentist brooklyn' }],
+  }, (queryClient, fixture) => {
+    const run = fixture.dashboard.runs[0]!
+    // Static markup never fetches. The wizard waits for this run's details
+    // before it will call a resumed check cancelled or complete.
+    queryClient.setQueryData(
+      getApiV1RunsByIdQueryKey({ client: heyClient, path: { id: run.id } }),
+      {
+        id: run.id,
+        projectId: run.projectId,
+        kind: run.kind,
+        status: 'cancelled',
+        createdAt: run.createdAt,
+        snapshots: [],
+      },
+    )
   })
 
   expect(html).toMatch(/Cancelled/)
+  expect(html).toMatch(/The check was cancelled before it produced a baseline/)
   expect(html).toMatch(/Retry check/)
   expect(html).not.toMatch(/Setup is complete/)
+  expect(html).not.toMatch(/The check finished without saving any engine results/)
 })
 
 test('setup recognizes an older baseline outside the global run window', async () => {
@@ -420,6 +448,10 @@ test('project search console route renders the Search Engines section', async ()
   const html = await renderApp('/projects/project_citypoint/search-console')
   const page = document.createElement('div')
   page.innerHTML = html
+  // Tab names come from aria-labelledby. A detached tree's root is the div,
+  // which has no getElementById, so the nodes have to be in the document.
+  document.body.appendChild(page)
+  onTestFinished(() => page.remove())
   const google = within(page).getByRole('tab', { name: 'Google' })
   const bing = within(page).getByRole('tab', { name: 'Bing' })
   expect(google.tabIndex).toBe(0)

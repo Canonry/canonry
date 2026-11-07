@@ -50,7 +50,6 @@ import {
   writeEmbedTabMemory,
 } from './embed.js'
 import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@canonry/canonry-api-client/react-query'
-import { serviceStatusTooltip } from './lib/health-helpers.js'
 import { addToast, type ToastTone } from './lib/toast-store.js'
 import {
   getRunTrackerState,
@@ -310,7 +309,7 @@ export function RootLayout() {
   // ── Who is signed in ──
   // Full access on an install with no accounts, which is what every screen
   // already assumed before accounts existed.
-  const { account, isAdmin } = useAccount()
+  const { account, canWrite, isAdmin } = useAccount()
 
   // ── Context-based initial data (tests inject via DashboardProvider) ──
   const contextDashboard = useInitialDashboard()
@@ -718,6 +717,18 @@ export function RootLayout() {
               <span>Settings</span>
             </Link>
           )}
+          {currentProjectName && (canWrite || isPublicDemo()) && (
+            <Link
+              to="/projects/$projectName/settings"
+              params={{ projectName: currentProjectName }}
+              className="sidebar-link"
+              activeProps={{ className: 'sidebar-link sidebar-link-active' }}
+              activeOptions={{ exact: true }}
+            >
+              <Settings className="sidebar-icon" />
+              <span>Project settings</span>
+            </Link>
+          )}
 
           {isLoading ? (
             <>
@@ -831,20 +842,6 @@ export function RootLayout() {
             <FeedbackPanel />
             <ThemeSelector />
             <TaskCenter />
-            {(!isFocusedSetup || healthSnapshot.apiStatus.state !== 'ok' || healthSnapshot.workerStatus.state !== 'ok') && <div className="health-pill-row">
-              <span
-                className={`health-pill health-pill-${healthSnapshot.apiStatus.state}`}
-                title={serviceStatusTooltip(healthSnapshot.apiStatus)}
-              >
-                API {healthSnapshot.apiStatus.state === 'ok' ? 'ok' : healthSnapshot.apiStatus.state}
-              </span>
-              <span
-                className={`health-pill health-pill-${healthSnapshot.workerStatus.state}`}
-                title={serviceStatusTooltip(healthSnapshot.workerStatus)}
-              >
-                {`Worker ${healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}`}
-              </span>
-            </div>}
             {(<Dialog.Trigger asChild>
               <Button
                 className="nav-toggle lg:hidden"
@@ -903,6 +900,17 @@ export function RootLayout() {
           {isAdmin && (
             <Link to="/settings" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
               Settings
+            </Link>
+          )}
+          {currentProjectName && (canWrite || isPublicDemo()) && (
+            <Link
+              to="/projects/$projectName/settings"
+              params={{ projectName: currentProjectName }}
+              className="mobile-nav-link"
+              activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }}
+              activeOptions={{ exact: true }}
+            >
+              Project settings
             </Link>
           )}
           {safeDashboard && safeDashboard.projects.length > 0 ? (

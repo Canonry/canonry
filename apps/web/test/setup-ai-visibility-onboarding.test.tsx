@@ -488,7 +488,8 @@ test('waits for resumed check evidence before deciding whether a completed check
     createdAt: '2026-09-05T12:00:00Z', snapshots: [setupResultSnapshot({ answerText: 'A saved answer after resuming.' })],
   })))
   expect(await screen.findByRole('heading', { name: 'Saved answers' })).toBeTruthy()
-  expect(screen.getByText('A saved answer after resuming.')).toBeTruthy()
+  // The preview and the full-answer disclosure both render the saved text.
+  expect(screen.getAllByText('A saved answer after resuming.').length).toBeGreaterThan(0)
 })
 
 test('keeps scoped-writer launch blocked while project provider readiness loads', async () => {

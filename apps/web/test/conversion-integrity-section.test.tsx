@@ -171,7 +171,15 @@ describe('ConversionIntegritySection', () => {
     render(<ConversionIntegritySection workspace={workspace()} onPrimaryAction={onPrimaryAction} />)
 
     expect(screen.getByText('Website event was observed')).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Runtime verification checklist' })).toBeTruthy()
+    const checklist = screen.getByText('Runtime verification checklist', { selector: 'summary' })
+    const guidance = checklist.closest('details') as HTMLDetailsElement
+    expect(guidance.id).toBe('conversion-integrity-runtime-guidance')
+    expect(guidance.open).toBe(false)
+    expect(checklist.getAttribute('tabindex')).toBeNull()
+    fireEvent.click(checklist)
+    expect(guidance.open).toBe(true)
+    expect(guidance.textContent).toContain('example.com')
+    expect(guidance.textContent).toContain('booking_complete')
     expect(screen.queryByRole('button', { name: 'Review findings' })).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Review runtime verification' }))
@@ -192,6 +200,10 @@ describe('ConversionIntegritySection', () => {
       />,
     )
 
+    const assessment = screen.getByText('Assessment details', { selector: 'summary' }).closest('details') as HTMLDetailsElement
+    expect(assessment.open).toBe(false)
+    fireEvent.click(assessment.querySelector('summary')!)
+    expect(assessment.open).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Change Google Ads account' }))
     fireEvent.click(screen.getByRole('button', { name: 'Change Tag Manager container' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add conversion' }))
@@ -214,6 +226,9 @@ describe('ConversionIntegritySection', () => {
       </AccountProvider>,
     )
 
+    const assessment = screen.getByText('Assessment details', { selector: 'summary' }).closest('details') as HTMLDetailsElement
+    expect(assessment.open).toBe(false)
+    fireEvent.click(assessment.querySelector('summary')!)
     expect(screen.getByRole('button', { name: 'Change Google Ads account' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByRole('button', { name: 'Change Tag Manager container' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByRole('button', { name: 'Add conversion' }).hasAttribute('disabled')).toBe(true)
@@ -365,6 +380,10 @@ describe('ConversionIntegritySection', () => {
       </AccountProvider>,
     )
 
+    const checklist = screen.getByText('Runtime verification checklist', { selector: 'summary' })
+    expect(checklist.getAttribute('tabindex')).toBeNull()
+    fireEvent.click(checklist)
+    expect((checklist.closest('details') as HTMLDetailsElement).open).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Review runtime verification' }))
     expect(action).toHaveBeenCalledWith('review-runtime-verification')
   })

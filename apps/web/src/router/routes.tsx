@@ -347,6 +347,12 @@ export const projectActivityRoute = createRoute({
   component: () => <LazyProjectPage tab="activity" />,
 })
 
+export const projectTrafficRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/traffic',
+  component: () => <LazyProjectPage tab="traffic" />,
+})
+
 export const projectBacklinksRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/backlinks',
@@ -439,6 +445,7 @@ export const routeTree = rootRoute.addChildren([
     projectMeasurementPropertyRoute,
     projectReportRoute,
     projectActivityRoute,
+    projectTrafficRoute,
     projectBacklinksRoute,
     projectTechnicalAeoRoute,
     projectHistoryRoute,

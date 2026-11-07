@@ -165,7 +165,7 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
         title="Server activity"
         tooltip="Crawler, AI fetch and AI referral activity from connected traffic sources over the last 24 hours."
         meta="Last 24 hours"
-        actions={!isEmbed() && sources.length > 0 ? <Link to="/traffic" className="text-label-14 text-link hover:underline">Manage sources</Link> : undefined}
+        actions={!isEmbed() && sources.length > 0 ? <Link to="/projects/$projectName/traffic" params={{ projectName }} className="text-label-14 text-link hover:underline">Manage sources</Link> : undefined}
       />
       {isLoading ? (
         <p className="text-copy-14 text-secondary">Loading server activity…</p>
@@ -174,7 +174,7 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
       ) : sources.length === 0 ? (
         <p className="text-copy-14 text-secondary">
           No traffic source connected.{' '}
-          {!isEmbed() && <Link to="/traffic" className="text-link hover:underline">Connect a source</Link>}
+          {!isEmbed() && <Link to="/projects/$projectName/traffic" params={{ projectName }} className="text-link hover:underline">Connect a source</Link>}
         </p>
       ) : (
         <div className="overflow-x-auto">

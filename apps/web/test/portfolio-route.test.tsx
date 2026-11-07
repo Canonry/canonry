@@ -1527,7 +1527,7 @@ test('the legacy Discovery route opens the separate research workspace without t
   )
 
   expect(await page.findByRole('heading', { name: 'Queries' })).toBeTruthy()
-  expect(await page.findByRole('heading', { name: 'Generate and check questions' })).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Describe your customer' })).toBeTruthy()
   expect(page.getByRole('tab', { name: 'Research' }).getAttribute('aria-selected')).toBe('true')
   expect(page.getByRole('tab', { name: 'Find queries' }).getAttribute('aria-selected')).toBe('true')
   await waitFor(() => expect(observed.some(path => path.includes('/discover/sessions'))).toBe(true))
@@ -3335,7 +3335,9 @@ test('a viewer on Advanced tracked Queries gets exactly one scope trigger, in th
   expect(observed.some(url => url.pathname.endsWith('/measurement-setup') || url.pathname.endsWith('/measurement-plan'))).toBe(false)
   const nav = page.getByRole('navigation', { name: 'Project sections' })
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
-  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Change History'])
+  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
+    'Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Change History',
+  ])
 })
 
 test('a viewer without research access who opens Research gets the tracked table and the row trigger', async () => {
@@ -3374,7 +3376,9 @@ test('Simple tracked Queries have no scope trigger', async () => {
   expect(contextRow(page.container).querySelector('.project-context-scope')).toBeNull()
   const nav = page.getByRole('navigation', { name: 'Project sections' })
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
-  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Change History'])
+  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
+    'Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Change History',
+  ])
 })
 
 test.each([
@@ -3382,7 +3386,7 @@ test.each([
   ['the legacy Discovery route', '/projects/project_citypoint/discovery'],
 ])('%s has no scope trigger and no tracking read', async (_name, entry) => {
   const { observed, page } = await renderScopeRoute(entry, trackingRoute())
-  expect(await page.findByRole('heading', { name: 'Generate and check questions' })).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Describe your customer' })).toBeTruthy()
   expect(page.container.querySelector('.visibility-scope-trigger')).toBeNull()
   expect(contextRow(page.container).querySelector('.project-context-scope')).toBeNull()
   expect(observed.some(url => url.pathname.endsWith('/query-tracking'))).toBe(false)

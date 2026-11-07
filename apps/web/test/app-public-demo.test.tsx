@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import React from 'react'
 import { afterEach, beforeAll, expect, onTestFinished, test, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -101,18 +99,10 @@ test.each([false, true])('agent setup navigation is available only outside the p
   if (!demo) expect(mobileLinks[0]!.getAttribute('href')).toBe('/agent-setup')
 })
 
-test('the demo worker pill reads as disabled, not healthy', async () => {
+test('the shell does not show API or worker status pills', async () => {
   const document = await renderDemoApp(await demoHealth())
-  const pill = Array.from(document.querySelectorAll('.health-pill')).find(element => element.textContent?.startsWith('Worker'))
-  expect(pill?.textContent).toBe('Worker disabled')
-  expect(pill?.classList.contains('health-pill-ok')).toBe(false)
-  expect(pill?.classList.contains('health-pill-disabled')).toBe(true)
-  expect(pill?.getAttribute('title')).toBe('Background execution is disabled in this public demo.')
-
-  const css = readFileSync(resolve(import.meta.dirname, '../src/styles.css'), 'utf8')
-  const rule = css.match(/\.health-pill-disabled \{([^}]*)\}/)?.[1] ?? ''
-  expect(rule).not.toBe('')
-  expect(rule).not.toMatch(/positive|negative|caution/)
+  expect(document.querySelector('.health-pill')).toBeNull()
+  expect(document.body.textContent).not.toMatch(/API ok|Worker disabled/)
 })
 
 test('a demo project page offers the Aero preview to the read-only visitor', async () => {

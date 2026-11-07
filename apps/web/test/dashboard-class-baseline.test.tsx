@@ -180,11 +180,9 @@ test('overview route keeps the dark dashboard class baseline stable', async () =
     pageHeader: classFor(html, '.page-header'),
     pageTitle: classFor(html, '.page-title'),
     healthList: classFor(html, '.page-section > .divide-y'),
-    firstHealthPill: classFor(html, '.health-pill'),
   }).toMatchInlineSnapshot(`
     {
       "appShell": "app-shell ",
-      "firstHealthPill": "health-pill health-pill-ok",
       "healthList": "divide-y divide-default border-y border-default",
       "pageContainer": "page-container",
       "pageHeader": "page-header",

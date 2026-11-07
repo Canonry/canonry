@@ -39,6 +39,7 @@ import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence }
 import { EvidenceTable, QueryEvidenceSummary } from '../components/project/EvidenceTable.js'
 import { BingSection } from '../components/project/BingSection.js'
 import { ActivitySection } from '../components/project/ActivitySection.js'
+import { ServerTrafficSection } from '../components/project/ServerTrafficSection.js'
 import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
@@ -135,7 +136,7 @@ import {
 } from '../lib/ai-visibility-provider-readiness.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'traffic' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
 export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [], preview, previewPending = false, previewFailed = false, onRetryPreview = () => {} }: {
   open: boolean
@@ -1979,30 +1980,28 @@ function ProjectPageContent({
     return updated
   }
 
-  // Quiet underline tabs (Vercel/Linear lineage), not a pill rack. Section nav
-  // is chrome: plain text that recedes, the active tab marked by a Snow
-  // underline on the bar's hairline. Low-frequency sections live in a
-  // trailing "More" overflow; Settings is split out at the far right (universal
-  // convention). "Local Presence" only appears once GBP is connected.
+  // Quiet underline tabs. The bar keeps the sections an operator returns
+  // to; everything else is in More. Settings stays at the far right. Narrow
+  // widths can still move a primary section into More, and the active one
+  // stays visible. `key` is a wire value for embed allowlists and saved URLs.
   const projectTabBase = `/projects/${encodeURIComponent(model.project.name)}`
   const projectTabItemsAll: ProjectTabItem[] = [
-    // `key` is a WIRE value: embed installs list it in CANONRY_EMBED_PROJECT_TABS
-    // and it appears in saved URLs, so it stays `overview` however the label reads.
     { key: 'overview', label: 'AI Visibility', href: projectTabBase },
     { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
     { key: 'seo-data', label: 'SEO', href: `${projectTabBase}/seo-data` },
     { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
+    // `technical-aeo` is a stable route and embed token. Site Health is the product label.
+    { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },
     // Journeys reads private visitor evidence: never for view-only accounts, and
     // absent from the embed allowlist, so embeds drop it automatically.
     ...(account?.role !== UserRoles.viewer ? [{ key: 'journeys' as const, label: 'Journeys', href: `${projectTabBase}/journeys` }] : []),
-    // `technical-aeo` is a stable route and embed token. Site Health is the product label.
-    { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },
+    { key: 'traffic', label: 'Server traffic', href: `${projectTabBase}/traffic` },
+  ]
+  const projectOverflowTabItemsAll: ProjectTabItem[] = [
     { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },
     { key: 'local', label: 'Local Presence', href: `${projectTabBase}/local` },
     { key: 'queries', label: 'Queries', href: `${projectTabBase}/queries` },
     { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
-  ]
-  const projectOverflowTabItemsAll: ProjectTabItem[] = [
     { key: 'history', label: 'Change History', href: `${projectTabBase}/history` },
   ]
   // In embed mode the effective allowlist narrows the subnav to the curated
@@ -2299,7 +2298,7 @@ function ProjectPageContent({
       <ProjectSubnav
         items={projectTabItems}
         overflowItems={projectOverflowTabItems}
-        settingsItem={projectSettingsTab}
+        settingsItem={isEmbed() ? projectSettingsTab : null}
         activeTab={tab}
       />
 
@@ -2697,6 +2696,8 @@ function ProjectPageContent({
         <ProjectHistorySection projectName={model.project.name} />
       ) : tab === 'activity' ? (
         <ActivitySection projectName={model.project.name} />
+      ) : tab === 'traffic' ? (
+        <ServerTrafficSection projectName={model.project.name} />
       ) : tab === 'backlinks' ? (
         <BacklinksSection projectName={model.project.name} />
       ) : tab === 'seo-data' ? (

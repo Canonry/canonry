@@ -52,6 +52,7 @@ export const EMBED_PROJECT_TABS = [
   'seo-data',
   'local',
   'activity',
+  'traffic',
   'backlinks',
   'technical-aeo',
   'history',

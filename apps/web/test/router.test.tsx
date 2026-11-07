@@ -172,7 +172,12 @@ test('unknown path renders the not-found page', async () => {
 
 test('/projects/$id/search-console renders the search engines tab', async () => {
   const { container } = await renderRoute('/projects/project_citypoint/search-console')
-  expect(container.innerHTML).toMatch(/Search Engines/)
+  expect(container.innerHTML).toMatch(/Google Search Console/)
+  const nav = container.querySelector('.project-subnav')
+  const tabs = [...(nav?.querySelectorAll('.project-subnav-link') ?? [])]
+    .filter(link => !link.closest('.project-subnav-measure'))
+    .map(link => link.textContent?.trim())
+  expect(tabs.slice(0, 2)).toEqual(['AI Visibility', 'Search Engines'])
 })
 
 test('/projects/$id/conversions renders the conversion integrity workspace', async () => {
@@ -211,7 +216,7 @@ test('/projects/$id/local renders the local presence tab', async () => {
 
 test('/projects/$id/discovery renders the discovery tab with plain-language copy', async () => {
   const { container } = await renderRoute('/projects/project_citypoint/discovery')
-  expect(container.innerHTML).toMatch(/Generate and check questions/)
+  expect(container.innerHTML).not.toMatch(/Generate and check questions/)
   expect(container.innerHTML).toMatch(/Describe your customer/)
 })
 

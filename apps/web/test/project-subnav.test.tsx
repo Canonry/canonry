@@ -8,21 +8,25 @@ import { ProjectSubnav, type ProjectPageTab } from '../src/pages/ProjectPage.js'
 const items = [
   { key: 'overview', label: 'AI Visibility' },
   { key: 'search-console', label: 'Search Engines' },
+  { key: 'seo-data', label: 'SEO' },
   { key: 'activity', label: 'Activity' },
   { key: 'technical-aeo', label: 'Site Health' },
-  { key: 'conversions', label: 'Conversions' },
-  { key: 'local', label: 'Local Presence' },
-  { key: 'queries', label: 'Queries' },
-  { key: 'backlinks', label: 'Backlinks' },
+  { key: 'journeys', label: 'Journeys' },
+  { key: 'traffic', label: 'Server traffic' },
 ].map(item => ({ ...item, key: item.key as ProjectPageTab, href: `/projects/demo/${item.key}` }))
 const overflowItems = [
+  { key: 'conversions' as const, label: 'Conversions', href: '/projects/demo/conversions' },
+  { key: 'local' as const, label: 'Local Presence', href: '/projects/demo/local' },
+  { key: 'queries' as const, label: 'Queries', href: '/projects/demo/queries' },
+  { key: 'backlinks' as const, label: 'Backlinks', href: '/projects/demo/backlinks' },
   { key: 'history' as const, label: 'Change History', href: '/projects/demo/history' },
 ]
 const settingsItem = { key: 'settings' as const, label: 'Settings', href: '/projects/demo/settings' }
 const baseWidths: Record<string, number> = {
-  overview: 112, 'search-console': 132, activity: 84, 'technical-aeo': 108,
-  conversions: 120, local: 140, queries: 88, backlinks: 100, more: 80, settings: 88,
+  overview: 112, 'search-console': 132, 'seo-data': 56, activity: 84, 'technical-aeo': 108, journeys: 96, traffic: 132,
+  more: 80, settings: 88,
 }
+const moreLabels = ['Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Change History']
 let widths = { ...baseWidths }
 let containerWidth = 1600
 let resize: (() => void) | undefined
@@ -77,40 +81,41 @@ async function renderNav(activeTab: ProjectPageTab = 'overview', filtered = fals
   return { ...view, nav, router }
 }
 
-test('wide navigation keeps primary sections and Settings visible', async () => {
+test('wide navigation keeps the primary sections and Settings visible', async () => {
   const { nav } = await renderNav()
-  expect(within(nav).getAllByRole('link')).toHaveLength(9)
+  expect(within(nav).getAllByRole('link').map(item => item.textContent)).toEqual([
+    'AI Visibility', 'Search Engines', 'SEO', 'Activity', 'Site Health', 'Journeys', 'Server traffic', 'Settings',
+  ])
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
-  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Change History'])
+  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(moreLabels)
 })
 
-test('a narrow container moves excess sections into More without a viewport resize', async () => {
+test('a narrow container moves excess primary sections into More without a viewport resize', async () => {
   const { nav } = await renderNav()
   const viewportWidth = window.innerWidth
-  act(() => { containerWidth = 650; resize?.() })
+  act(() => { containerWidth = 500; resize?.() })
   expect(window.innerWidth).toBe(viewportWidth)
-  expect(within(nav).queryByRole('link', { name: 'Queries' })).toBeNull()
-  expect(within(nav).getByRole('link', { name: 'Site Health' })).toBeTruthy()
+  expect(within(nav).queryByRole('link', { name: 'Activity' })).toBeNull()
+  expect(within(nav).getByRole('link', { name: 'SEO' })).toBeTruthy()
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-    'Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Change History',
+    'Activity', 'Site Health', 'Journeys', 'Server traffic', ...moreLabels,
   ])
   act(() => { containerWidth = 1600; resize?.() })
-  expect(within(nav).getByRole('link', { name: 'Queries' })).toBeTruthy()
+  expect(within(nav).getByRole('link', { name: 'Site Health' })).toBeTruthy()
   expect(within(nav).queryByRole('menu')).toBeNull()
 })
 
 test('the active primary section stays visible and Settings overflows on very narrow panels', async () => {
   containerWidth = 220
-  const { nav } = await renderNav('queries')
-  expect(within(nav).getAllByRole('link').map(item => item.textContent)).toEqual(['Queries'])
-  expect(within(nav).getByRole('link', { name: 'Queries' }).getAttribute('aria-current')).toBe('page')
+  const { nav } = await renderNav('technical-aeo')
+  expect(within(nav).getAllByRole('link').map(item => item.textContent)).toEqual(['Site Health'])
+  expect(within(nav).getByRole('link', { name: 'Site Health' }).getAttribute('aria-current')).toBe('page')
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getByRole('menuitem', { name: 'Settings' })).toBeTruthy()
 })
 
 test('the overflow menu supports keyboard navigation and restores focus on Escape', async () => {
-  containerWidth = 650
   const { nav } = await renderNav()
   const trigger = within(nav).getByRole('button', { name: 'More' })
   trigger.focus()
@@ -163,26 +168,26 @@ test('an active low-frequency section remains identified inside More', async () 
 
 test('a long active tab remains reachable at narrow widths and other tabs return when widened', async () => {
   containerWidth = 210
-  widths.local = 280
-  const { nav } = await renderNav('local')
-  const active = within(nav).getByRole('link', { name: 'Local Presence' })
+  widths['technical-aeo'] = 280
+  const { nav } = await renderNav('technical-aeo')
+  const active = within(nav).getByRole('link', { name: 'Site Health' })
   expect(active.classList.contains('project-subnav-current')).toBe(true)
   expect(active.querySelector('.project-subnav-label')).toBeTruthy()
   expect(within(nav).getAllByRole('link')).toHaveLength(1)
   expect(within(nav).getByRole('button', { name: 'More' })).toBeTruthy()
-  act(() => { containerWidth = 1600; resize?.() })
-  expect(within(nav).getAllByRole('link')).toHaveLength(9)
-  expect(within(nav).getByRole('link', { name: 'Local Presence' }).getAttribute('aria-current')).toBe('page')
+  act(() => { containerWidth = 1600; widths['technical-aeo'] = baseWidths['technical-aeo']!; resize?.() })
+  expect(within(nav).getAllByRole('link')).toHaveLength(8)
+  expect(within(nav).getByRole('link', { name: 'Site Health' }).getAttribute('aria-current')).toBe('page')
 })
 
 test('font or label width changes remeasure the available tab budget', async () => {
-  containerWidth = 650
+  containerWidth = 500
   const { nav } = await renderNav()
-  expect(within(nav).getByRole('link', { name: 'Site Health' })).toBeTruthy()
-  act(() => { widths['search-console'] = 260; resize?.() })
-  expect(within(nav).queryByRole('link', { name: 'Site Health' })).toBeNull()
+  expect(within(nav).getByRole('link', { name: 'SEO' })).toBeTruthy()
+  act(() => { widths['seo-data'] = 200; resize?.() })
+  expect(within(nav).queryByRole('link', { name: 'SEO' })).toBeNull()
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
-  expect(within(nav).getByRole('menuitem', { name: 'Site Health' })).toBeTruthy()
+  expect(within(nav).getByRole('menuitem', { name: 'SEO' })).toBeTruthy()
 })
 
 test('compiled navigation styles prevent wrapping without hiding the overflow menu', async () => {
