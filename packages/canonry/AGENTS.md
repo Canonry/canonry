@@ -961,7 +961,7 @@ top-level envelope:
 
 `ui.error.route` must pass `isUiApiRouteTemplate` (contracts `ui-telemetry.ts`): the collector's shape rule, at most 160 characters, and after an id collection (`UI_ROUTE_ID_COLLECTIONS`) only a `{param}` or a listed fixed child (`UI_ROUTE_FIXED_CHILDREN`). Both sets are mirrored by value in canonry.ai `lib/telemetry/validation.ts` and canonry-telemetry `lib/metrics.py`. **Adding an API path:** `packages/api-routes/test/ui-telemetry-route-templates.test.ts` checks every OpenAPI path against the rule; if yours fails, add its fixed sub-path to the contracts sets and to both mirrors in the same change.
 
-`/api/v1/telemetry/ui` answers `accepted: false` while telemetry is effectively off (config, DO_NOT_TRACK, CI, env) or past its per-process cap (`createUiTelemetryGate`: a burst of 60 refilling one a second, and 600 an hour), and the dashboard then stops sending for the tab session. The dashboard also caps itself at 30 a minute and 120 an hour per tab (the hour persisted in sessionStorage), and sends with `keepalive` so events flushed on page hide are delivered. The dashboard adds `tab` to EVERY event sent from a project page, so every `ui.*` shape accepts it. The route is `readSemantic` (it writes nothing on the install), so a signed-in view-only account's dashboard reports usage too; a read-only API key is still refused, and so is a viewer's `PUT /telemetry`.
+`/api/v1/telemetry/ui` answers `accepted: false` while telemetry is effectively off (config, DO_NOT_TRACK, CI, env) and the dashboard then stops sending for the tab session. Its per-process cap (`createUiTelemetryGate`: a burst of 60 refilling one a second, and 600 an hour) returns 429, so later cumulative checkpoints can recover. The dashboard also caps itself at 30 a minute and 120 an hour per tab (the hour persisted in sessionStorage), and sends with `keepalive` so events flushed on page hide are delivered. The dashboard adds `tab` to EVERY event sent from a project page, so every `ui.*` shape accepts it. The route is `readSemantic` (it writes nothing on the install), so a signed-in view-only account's dashboard reports usage too; a read-only API key is still refused, and so is a viewer's `PUT /telemetry`.
 | `run.aborted` | `{ reason, providerCount, providers, trigger?, domainHash?, location?, queryCount?, durationMs?, phases?, providerOutcomes? }` | A sweep that ended or never started without reaching provider work. The job runner sends `no_provider`, `project_not_found`, `quota_exceeded`, `run_not_found` and `run_not_executable` for a setup abort (the run row is still `failed`). The scheduler sends `providers_failing` (top-level `errorCode` `PROVIDERS_FAILING`, `providerOutcomes` each provider's account code, `buildRunRefusedProps`) when it skips a slot because every provider keeps failing on its account: once per refusal, with its `run.refused` audit row, not once per slot. |
 | `run.requested` | `{ flowVersion, onboardingSessionId, origin, result, kind?, providerCountBucket, queryCountBucket, reasonCode? }` | Setup launch attempt, including synchronous rejection. `kind` is `answer_visibility` or `site_health`; absent on older clients means `answer_visibility`. |
 | `activation.completed` | `{ flowVersion, kind, status, providerCountBucket?, queryCountBucket?, snapshotCountBucket?, pagesAuditedBucket? }` | Once per project per `kind`. `answer_visibility` (with the provider/query/snapshot buckets): the first non-probe answer-visibility run that persists at least one snapshot. `site_health` (with `pagesAuditedBucket`): the first site audit that scores at least one page. Events without `kind` predate the field and are `answer_visibility`. |
@@ -979,6 +979,11 @@ The three outcome events go through the helpers in `src/outcome-telemetry.ts` (`
 A new event name must also be added to `ALLOWED_EVENTS` in the canonry.ai collector (`lib/telemetry/validation.ts`) before it ships; the collector rejects unknown names with a 400, and `trackEvent` never surfaces that failure. Property values must be string, number, boolean, string array, or a flat object: `null` rejects the whole event.
 
 ### Adding a new event
+
+`ui.page_time` uses the existing dashboard forwarder and gate. Its cumulative
+`foregroundMs` and `activeMs`, random `visitId`, and `completed` flag are validated
+by contracts and mirrored in the canonry.ai collector before client rollout.
+No additional endpoint, replay service, browser SDK, or raw URL collection is used.
 
 1. Pick a stable `event` name and add it to the catalog above.
 2. Call `trackEvent(event, properties, options)` from the originating code path. Pass `options.source` if the default global source is wrong; pass `options.errorCode` for failure events.
@@ -1115,3 +1120,5 @@ renews task leases, and never resubmits uncertain requests. `JobRunner` skips
 Fleet tenants run this same `canonry serve` runtime. The lightweight `apps/api`
 entry point has saved reads but reports SEO execution unavailable without a runtime.
 SEO completion does not trigger Aero or another paid workflow.
+
+Feedback delivery requires a valid positive collector receipt with a non-empty id; HTTP success alone is not confirmation. `src/feedback.ts` preserves the explicit-submission path while telemetry is disabled, omitting the anonymous install id.

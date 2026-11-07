@@ -68,6 +68,7 @@ import { Badge } from './components/ui/badge.js'
 import { BrandLockup } from './components/shared/BrandLockup.js'
 import { ProviderBadge } from './components/shared/ProviderBadge.js'
 import { ThemeSelector } from './components/shared/ThemeSelector.js'
+import { FeedbackPanel } from './components/shared/FeedbackPanel.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
 import { EvidenceDetailModal } from './components/layout/EvidenceDetailModal.js'
@@ -815,6 +816,7 @@ export function RootLayout() {
           </div>
 
           <div className="topbar-actions">
+            <FeedbackPanel />
             <ThemeSelector />
             <TaskCenter />
             <div className="health-pill-row">

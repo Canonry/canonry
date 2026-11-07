@@ -464,6 +464,7 @@ describe('Bing routes', () => {
     ]).run()
 
     const bingModule = await import('@canonry/canonry-integration-bing')
+    vi.spyOn(bingModule, 'getUrlSubmissionQuota').mockResolvedValue({ DailyQuota: 10, MonthlyQuota: 100 })
     const submitUrlBatchSpy = vi.spyOn(bingModule, 'submitUrlBatch').mockResolvedValue()
 
     const res = await app.inject({

@@ -3832,6 +3832,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       202: jsonResponse('UI event accepted.', 'TelemetryEventAcceptedDto'),
       400: errorResponse('Invalid UI telemetry event.'),
+      429: errorResponse('UI telemetry rate limit reached; try again later.'),
     },
   },
   {

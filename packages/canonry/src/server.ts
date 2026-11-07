@@ -3877,8 +3877,7 @@ export async function createServer(opts: {
       opts.config.telemetry = enabled;
     } : undefined,
     recordOnboardingEvent: (event) => recordDashboardEvent(event),
-    // Answers false while telemetry is off or the per-process cap is spent, so
-    // the dashboard stops sending for the session.
+    // False stops collection when opted out; 429 allows recovery after a rate limit.
     recordUiEvent: createUiTelemetryGate(),
     submitFeedback: (submission, context) => sendFeedback(submission, context),
     onCdpConfigure: async (host: string, port: number) => {
