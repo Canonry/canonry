@@ -1,4 +1,4 @@
-import { OperationAccesses, ProviderQuotaFields, providerSettingsUpdateRequestSchema } from '@canonry/canonry-contracts'
+import { OperationAccesses, ProviderNames, ProviderQuotaFields, providerSettingsUpdateRequestSchema } from '@canonry/canonry-contracts'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getString,
@@ -104,7 +104,16 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const reset = resetModel || removeKey || resetQuota || resetBaseUrl
         ? { ...(resetBaseUrl ? { baseUrl: true } : {}), ...(resetModel ? { model: true } : {}), ...(removeKey ? { apiKey: true } : {}), ...(resetQuota ? { quota: resetQuota } : {}) }
         : undefined
-      const parsed = providerSettingsUpdateRequestSchema.safeParse({ apiKey, baseUrl, model, quota, reset, expectedRevision: getString(input.values, 'if-revision') })
+      const mutation = { apiKey, baseUrl, model, quota, reset }
+      if (Object.values(mutation).every(value => value === undefined)) {
+        const required = name === ProviderNames.local ? 'base-url' : 'api-key'
+        const message = required === 'base-url' ? '--base-url is required for the local provider' : '--api-key is required'
+        throw usageError(`Error: ${message}\nUsage: ${PROVIDER_USAGE}`, {
+          message,
+          details: { command: 'settings.provider', usage: PROVIDER_USAGE, required: [required] },
+        })
+      }
+      const parsed = providerSettingsUpdateRequestSchema.safeParse({ ...mutation, expectedRevision: getString(input.values, 'if-revision') })
       if (!parsed.success) {
         const message = parsed.error.issues.map(issue => issue.message).join('; ')
         throw usageError(`Error: ${message}\nUsage: ${PROVIDER_USAGE}`, { message, details: { command: 'settings.provider', usage: PROVIDER_USAGE } })

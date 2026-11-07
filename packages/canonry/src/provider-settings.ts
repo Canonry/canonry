@@ -19,6 +19,7 @@ import {
 } from '@canonry/canonry-contracts'
 import { loadConfig, type CanonryConfig, type ProviderConfigEntry } from './config.js'
 import { buildAgentProvidersResponse, resolveApiKeySource } from './agent/providers.js'
+import { providerConfigFromEntry } from './provider-batch-config.js'
 import { assertProviderReloadKeepsPendingBatches } from './provider-reload-batch-guard.js'
 import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, resolveProviderQuotaPolicy } from './provider-runtime-config.js'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
@@ -155,14 +156,20 @@ export function createProviderSettingsController(host: ProviderSettingsHost) {
     return { adapter, saved, metadata }
   }
 
-  function commit(name: string, entry: ProviderConfigEntry | null, saved: CanonryConfig, audit?: ProviderAuditContext): void {
+  function commit(adapter: ProviderAdapter, entry: ProviderConfigEntry | null, saved: CanonryConfig, audit?: ProviderAuditContext): void {
+    const name = adapter.name
     const nextConfig = { ...host.config, providers: { ...host.config.providers } }
     if (entry === null) delete nextConfig.providers[name]
     else nextConfig.providers[name] = entry
     const next = configuredProviderEntries(nextConfig, host.apiAdapters, host.browserAdapter)
     assertProviderReloadKeepsPendingBatches(host.db, host.registry.getAll(), next, host.executingBatches())
+    const previousEntry = saved.providers?.[name]
+    const previous = host.registry.get(name) ?? (previousEntry ? {
+      adapter,
+      config: providerConfigFromEntry(name, previousEntry, resolveProviderQuotaPolicy(previousEntry.quota, adapter.defaultQuota ?? DEFAULT_PROVIDER_QUOTA)),
+    } : undefined)
     host.db.transaction(() => {
-      host.recordChange(name, host.registry.get(name), next.find(item => item.adapter.name === name), audit, JSON.stringify(saved.providers?.[name]) !== JSON.stringify(entry ?? undefined))
+      host.recordChange(name, previous, next.find(item => item.adapter.name === name), audit, JSON.stringify(previousEntry) !== JSON.stringify(entry ?? undefined))
       host.persist(name, entry)
     })
     host.config.providers = nextConfig.providers
@@ -176,7 +183,7 @@ export function createProviderSettingsController(host: ProviderSettingsHost) {
   }
 
   function update(name: string, input: ProviderSettingsUpdateRequest, audit?: ProviderAuditContext): void {
-    const { saved, metadata } = prepare(name, input.expectedRevision)
+    const { adapter, saved, metadata } = prepare(name, input.expectedRevision)
     const { capabilities } = metadata
     if ((input.apiKey !== undefined && !capabilities.apiKey) || (input.reset?.apiKey && !capabilities.clearApiKey)) throw forbidden('This connection does not allow API-key changes here.')
     if (input.baseUrl !== undefined && !capabilities.baseUrl) throw forbidden('This connection does not allow endpoint changes here.')
@@ -196,13 +203,13 @@ export function createProviderSettingsController(host: ProviderSettingsHost) {
       if (Object.keys(quota).length > 0) next.quota = quota
       else delete next.quota
     }
-    commit(name, next, saved, audit)
+    commit(adapter, next, saved, audit)
   }
 
   function disconnect(name: string, expectedRevision?: string, audit?: ProviderAuditContext): void {
-    const { metadata, saved } = prepare(name, expectedRevision)
+    const { adapter, metadata, saved } = prepare(name, expectedRevision)
     if (!metadata.capabilities.disconnect) throw forbidden('This connection has host-managed credentials. Disconnect it on the host.')
-    commit(name, null, saved, audit)
+    commit(adapter, null, saved, audit)
   }
 
   return { connections, update, disconnect }
