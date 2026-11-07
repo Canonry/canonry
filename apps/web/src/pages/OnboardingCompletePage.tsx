@@ -79,8 +79,8 @@ export function OnboardingCompletePage({
       <OnboardingProgress current="done" outcomes={outcomes} />
       <div className="mx-auto mt-8 max-w-2xl">
         <header>
-          <p className="break-words text-copy-14 text-secondary">{projectName}</p>
-          <h1 className="mt-2 text-heading-32 text-heading">Project saved</h1>
+          <h1 className="text-heading-24 text-heading">Project saved</h1>
+          <p className="mt-2 break-words text-copy-14 text-secondary">{projectName}</p>
           <p className="mt-3 text-copy-16 text-secondary" role="status">
             {sweepOutcome === undefined ? 'Latest AI Visibility check complete.'
               : sweepOutcome === 'partial' ? 'Latest AI Visibility check has partial results.'

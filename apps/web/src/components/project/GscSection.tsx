@@ -1941,14 +1941,17 @@ export function GscSection({
                   </Button>
                 </div>
                 <div className="mt-3 flex flex-col gap-2 lg:flex-row">
-                  <input
-                    className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
-                    type="text"
-                    placeholder="Filter exact URL"
-                    value={inspectionFilterUrl}
-                    onChange={(e) => setInspectionFilterUrl(e.target.value)}
-                  />
-                  <Button type="button" size="sm" variant="outline" disabled={loadingInspections} onClick={() => void loadInspectionHistory(true)}>
+                  <label className="flex flex-1 flex-col gap-1 text-label-13 text-secondary">
+                    Filter exact URL
+                    <input
+                      className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
+                      type="text"
+                      placeholder="https://example.com/page"
+                      value={inspectionFilterUrl}
+                      onChange={(e) => setInspectionFilterUrl(e.target.value)}
+                    />
+                  </label>
+                  <Button type="button" size="sm" variant="outline" className="self-end" disabled={loadingInspections} onClick={() => void loadInspectionHistory(true)}>
                     Apply filter
                   </Button>
                 </div>

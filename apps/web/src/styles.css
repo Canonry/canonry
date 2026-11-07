@@ -3168,6 +3168,26 @@
 
   /* ── Run row ── */
 
+  .run-filters {
+    @apply mb-4 flex flex-wrap items-center gap-2;
+  }
+
+  .run-filter-control {
+    @apply h-9 min-w-0 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-mono-600;
+  }
+
+  .run-filter-control[type='search'] {
+    @apply min-w-48 flex-1;
+  }
+
+  .run-filters select {
+    @apply max-w-56;
+  }
+
+  .runs-table {
+    @apply min-w-[52rem];
+  }
+
   .run-row {
     @apply material-base grid gap-4 px-4 py-4 transition hover:bg-surface-hover xl:grid-cols-[minmax(0,1.6fr)_20rem_auto] xl:items-center;
   }

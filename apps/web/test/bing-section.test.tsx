@@ -55,15 +55,19 @@ function listBody(groupBy: string, key: 'query' | 'page', rows: unknown[]) {
 
 const snapshot = (kind: string, payload: unknown, status = 'ok', error: string | null = null) => ({ kind, status, payload, error, syncedAt: SYNCED_AT })
 
-function mountBing({ synced = true, liveFails = false, embed = false, sitemapIndex = false, crawlErrors = 0, trafficSplit = false, readsFail = false, submitFails = false, runs = [] }: { synced?: boolean; liveFails?: boolean; embed?: boolean; sitemapIndex?: boolean; crawlErrors?: number; trafficSplit?: boolean; readsFail?: boolean; submitFails?: boolean; runs?: Array<Record<string, unknown>> } = {}) {
+function mountBing({ synced = true, liveFails = false, embed = false, demo = false, sitemapIndex = false, crawlErrors = 0, trafficSplit = false, readsFail = false, submitFails = false, runs = [] }: { synced?: boolean; liveFails?: boolean; embed?: boolean; demo?: boolean; sitemapIndex?: boolean; crawlErrors?: number; trafficSplit?: boolean; readsFail?: boolean; submitFails?: boolean; runs?: Array<Record<string, unknown>> } = {}) {
   // The project's bing-sync runs, newest first. Starting a sync adds a queued one.
   let syncRuns = runs
   if (embed) window.__CANONRY_CONFIG__ = { embed: { enabled: true } } as typeof window.__CANONRY_CONFIG__
+  if (demo) window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
   const requests: Array<{ method: string; path: string; search: URLSearchParams }> = []
   const restore = mockFetch((url, init) => {
     const parsed = new URL(url)
     const path = parsed.pathname
     requests.push({ method: init?.method ?? 'GET', path, search: parsed.searchParams })
+    if (demo && !/\/bing\/(?:status|coverage|inspections)$/.test(path)) {
+      return jsonResponse({ error: { code: 'DEMO_READ_ONLY', message: 'This action is unavailable in the view-only demo.' } }, 403)
+    }
     if (path.endsWith('/bing/status')) return jsonResponse({ connected: true, domain: 'example.com', siteUrl: SITE, createdAt: SYNCED_AT, updatedAt: SYNCED_AT })
     if (path.endsWith('/bing/sync')) {
       const run = { id: 'run-1', projectId: 'p1', kind: 'bing-sync', status: 'queued', trigger: 'manual', createdAt: SYNCED_AT }
@@ -86,7 +90,7 @@ function mountBing({ synced = true, liveFails = false, embed = false, sitemapInd
     if (path.endsWith('/trends')) return jsonResponse({ project: 'sample', surface: 'index-coverage', window: '30d', startDate: null, endDate: null, groups: [] })
     if (path.endsWith('/bing/keyword-demand')) return jsonResponse({ market: { country: 'us', language: 'en-US' }, rows: [{ query: 'garage heater', country: 'us', language: 'en-US', latestWeek: '2026-10-25', latestImpressions: 510, latestBroadImpressions: 900, avgWeeklyImpressions: 480.4, weeks: 26, syncedAt: SYNCED_AT }], history: [] })
     if (path.endsWith('/bing/coverage')) return jsonResponse({ summary: { total: 3, indexed: 2, notIndexed: 1, unknown: 0, percentage: 66.7 }, lastInspectedAt: SYNCED_AT, indexed: [], notIndexed: [{ id: 'n1', url: `${SITE}old/`, httpCode: 404, inIndex: false, lastCrawledDate: null, inIndexDate: null, inspectedAt: SYNCED_AT }], unknown: [] })
-    if (path.endsWith('/bing/inspections')) return jsonResponse([])
+    if (path.endsWith('/bing/inspections')) return jsonResponse([{ id: 'i1', url: `${SITE}pricing/`, httpCode: 200, inIndex: true, lastCrawledDate: SYNCED_AT, inIndexDate: SYNCED_AT, inspectedAt: SYNCED_AT }])
     if (path.endsWith('/bing/crawl-stats')) {
       return jsonResponse(crawlErrors > 0
         ? { rows: [{ date: '2026-10-31', crawledPages: 40, inIndex: 2, crawlErrors, inLinks: 9, code2xx: 35, code301: 1, code302: 0, code4xx: 2, code5xx: 0, allOtherCodes: 0, blockedByRobotsTxt: 0, connectionTimeout: 0, containsMalware: 0, dnsFailures: 0 }], window: traffic.window, latestAvailableDate: '2026-10-31' }
@@ -163,7 +167,8 @@ test('a shared basis is printed once when every figure used the same period', as
 
 test('a failed load says so instead of claiming there is no data yet', async () => {
   mountBing({ readsFail: true })
-  expect(await screen.findByText(/Could not load Bing data:/)).not.toBeNull()
+  expect(await screen.findByText('Could not load Bing data: database is locked')).not.toBeNull()
+  expect(screen.queryByText(/INTERNAL_ERROR/)).toBeNull()
   expect(screen.getByRole('button', { name: 'Retry' })).not.toBeNull()
   expect(screen.queryByRole('heading', { name: 'No Bing search data yet' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Sync Bing data now' })).toBeNull()
@@ -301,6 +306,26 @@ test('an embed shows the stored data with no live reads or writes', async () => 
   expect(screen.queryByRole('button', { name: 'Submit all to Bing' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Inspect URLs' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Disconnect' })).toBeNull()
+})
+
+test('the public demo shows saved coverage and inspections without unsupported reads or actions', async () => {
+  const { requests } = mountBing({ demo: true })
+  expect(await screen.findByTitle(`${SITE}old/`)).not.toBeNull()
+  expect(screen.getByRole('heading', { name: 'Index coverage' })).not.toBeNull()
+  expect(screen.getByRole('button', { name: 'This demo includes saved index coverage and URL inspections.' })).not.toBeNull()
+  expect(screen.queryByRole('tab', { name: 'Crawl by day' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /Submit/ })).toBeNull()
+  fireEvent.click(await screen.findByRole('tab', { name: 'Inspections (1)' }))
+  expect(await screen.findByTitle(`${SITE}pricing/`)).not.toBeNull()
+  expect(screen.queryByRole('textbox', { name: 'URL to inspect' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Disconnect', hidden: true })).toBeNull()
+  expect(screen.queryByRole('button', { name: /Retry|Sync Bing data now/ })).toBeNull()
+  expect(screen.queryByText(/Could not load Bing|DEMO_READ_ONLY/)).toBeNull()
+  expect(requests.map(({ method, path }) => `${method} ${path}`).sort()).toEqual([
+    'GET /api/v1/projects/sample/bing/coverage',
+    'GET /api/v1/projects/sample/bing/inspections',
+    'GET /api/v1/projects/sample/bing/status',
+  ])
 })
 
 test('the position change follows the API difference, and says when there is none', () => {

@@ -365,18 +365,19 @@ export function RootLayout() {
 
   // ── Router state ──
   const { runId, evidenceId, closeDrawer } = useDrawer()
-  const evidenceOpener = useRef<HTMLElement | null>(null)
-  const openEvidenceId = useRef(evidenceId)
+  const detailId = evidenceId ?? runId
+  const detailOpener = useRef<HTMLElement | null>(null)
+  const openDetailId = useRef(detailId)
   useLayoutEffect(() => {
-    // Keep the original control across the loading drawer and answer modal.
-    if (evidenceId && !openEvidenceId.current) {
+    // Keep the original control while a loading drawer becomes saved detail.
+    if (detailId && !openDetailId.current) {
       const focused = document.activeElement
-      evidenceOpener.current = focused instanceof HTMLElement && focused !== document.body ? focused : null
+      detailOpener.current = focused instanceof HTMLElement && focused !== document.body ? focused : null
     }
-    openEvidenceId.current = evidenceId
-  }, [evidenceId])
-  const restoreEvidenceFocus = () => {
-    if (!openEvidenceId.current && evidenceOpener.current?.isConnected) evidenceOpener.current.focus()
+    openDetailId.current = detailId
+  }, [detailId])
+  const restoreDetailFocus = () => {
+    if (!openDetailId.current && detailOpener.current?.isConnected) detailOpener.current.focus()
   }
 
   // ── UI state ──
@@ -995,12 +996,12 @@ export function RootLayout() {
 
       {/* ── Drawers ── */}
       {runId && !selectedRun && runDetailLoading ? (
-        <Drawer open title="Loading run details" subtitle="Fetching the durable run record" onClose={closeDrawer}>
+        <Drawer open title="Loading run details" subtitle="Saved run" onClose={closeDrawer} onClosed={restoreDetailFocus}>
           <p className="text-copy-14 text-muted" role="status">Loading run details…</p>
         </Drawer>
       ) : null}
       {runId && !selectedRun && runDetailQuery.isError ? (
-        <Drawer open title="Run unavailable" subtitle="The run could not be loaded" onClose={closeDrawer}>
+        <Drawer open title="Run unavailable" subtitle="The run could not be loaded" onClose={closeDrawer} onClosed={restoreDetailFocus}>
           <p className="text-copy-14 text-negative">{runDetailQuery.error instanceof Error ? runDetailQuery.error.message : 'Run details are unavailable.'}</p>
         </Drawer>
       ) : null}
@@ -1008,8 +1009,9 @@ export function RootLayout() {
         <Drawer
           open
           title={selectedRun.summary}
-          subtitle={`${selectedRun.projectName} \u00b7 ${selectedRun.kindLabel}`}
+          subtitle={selectedRun.projectName}
           onClose={closeDrawer}
+          onClosed={restoreDetailFocus}
         >
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-label-14">
             <StatusBadge status={selectedRun.status} />
@@ -1118,7 +1120,7 @@ export function RootLayout() {
       ) : null}
 
       {evidenceId && !selectedEvidenceContext ? (
-        <Drawer open title={evidenceLoading ? 'Loading answer' : 'Answer unavailable'} subtitle="Query evidence" onClose={closeDrawer} onClosed={restoreEvidenceFocus}>
+        <Drawer open title={evidenceLoading ? 'Loading answer' : 'Answer unavailable'} subtitle="Query evidence" onClose={closeDrawer} onClosed={restoreDetailFocus}>
           {evidenceLoading ? (
             <p role="status" className="text-copy-14 text-secondary">Loading answer…</p>
           ) : (
@@ -1130,7 +1132,7 @@ export function RootLayout() {
         </Drawer>
       ) : null}
       {selectedEvidenceContext ? (
-        <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={closeDrawer} onClosed={restoreEvidenceFocus} />
+        <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={closeDrawer} onClosed={restoreDetailFocus} />
       ) : null}
 
       <RunNotificationObserver />

@@ -351,7 +351,7 @@ export function ResearchQueriesSection({
         </Card>
       </div>
 
-      {!historyError && detailQuery.isError ? <div role="alert" className="text-label-14 text-negative"><p>Could not load saved research results.</p><Button variant="outline" onClick={() => { void detailQuery.refetch() }}>Retry results</Button></div> : !historyError ? <ResearchRunDetail detail={detail} engineLabel={detail ? providerDisplayName(detail.provider, settingsQuery.data?.providerCatalog) : undefined} isLoading={detailQuery.isFetching} onReviewForTracking={publicDemo ? undefined : onReviewForTracking} /> : null}
+      {!historyError && detailQuery.isError ? <div role="alert" className="text-label-14 text-negative"><p>Could not load saved research results.</p><Button variant="outline" onClick={() => { void detailQuery.refetch() }}>Retry results</Button></div> : !historyError && (detail || selectedRunId) ? <ResearchRunDetail detail={detail} engineLabel={detail ? providerDisplayName(detail.provider, settingsQuery.data?.providerCatalog) : undefined} isLoading={detailQuery.isFetching} onReviewForTracking={publicDemo ? undefined : onReviewForTracking} /> : null}
     </div>
   )
 }
@@ -674,7 +674,6 @@ function ResearchRunDetail({
     <Card id={detail ? `research-run-${detail.id}` : undefined} className="surface-card min-w-0" role="region" aria-label={RESEARCH_COPY.resultsTitle}>
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Results</p>
           <h3>{detail ? `Research run ${shortId(detail.id)}` : RESEARCH_COPY.resultsEmpty}</h3>
         </div>
         {detail && <ToneBadge tone={toneForResearchRun(detail.status)}>{detail.status}</ToneBadge>}

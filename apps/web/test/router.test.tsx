@@ -55,6 +55,14 @@ test('/projects renders the projects page', async () => {
   expect(container.querySelector('.page-title')?.textContent).toBe('Projects')
 })
 
+test('an unmatched address offers a working project recovery link', async () => {
+  const { router } = await renderRoute('/missing-dashboard/example')
+  expect(screen.getByRole('heading', { name: 'Page not found', exact: true })).toBeTruthy()
+  fireEvent.click(screen.getByRole('link', { name: 'View projects', exact: true }))
+  await waitFor(() => expect(router.state.location.pathname).toBe('/projects'))
+  expect(await screen.findByRole('heading', { name: 'Projects', exact: true })).toBeTruthy()
+})
+
 test('/projects/$name resolves a project by its name', async () => {
   const { container } = await renderRoute('/projects/Citypoint%20Dental%20NYC')
   expect(container.innerHTML).toMatch(/Citypoint Dental NYC/)
@@ -87,9 +95,48 @@ test('a legacy UUID project URL redirects to the clean name URL', async () => {
   expect(router.state.location.pathname).toBe('/projects/acme-co/activity')
 })
 
-test('/runs renders the runs page', async () => {
-  const { container } = await renderRoute('/runs')
-  expect(container.querySelector('.page-title')?.textContent).toBe('Runs')
+test('/runs filters status in the URL, opens a matching run, and clears combined filters', async () => {
+  const fixture = createDashboardFixture()
+  const restore = mockFetch(url => pathOf(url) === '/api/v1/projects'
+    ? jsonResponse(fixture.dashboard.projects.map(item => item.project))
+    : pathOf(url).split('?')[0] === '/api/v1/runs'
+      ? jsonResponse(fixture.dashboard.runs)
+      : jsonResponse({ error: { message: 'No detail needed for this navigation check' } }, 503))
+  onTestFinished(restore)
+  const { router } = await renderRoute('/runs')
+  const table = screen.getByRole('table', { name: 'Recent runs across projects' })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Filter runs by status' }), { target: { value: RunStatuses.queued } })
+  await waitFor(() => expect(router.state.location.search.runStatus).toBe(RunStatuses.queued))
+  expect(within(table).getAllByRole('row')).toHaveLength(2)
+  const opener = within(table).getByRole('button', { name: 'View Queued follow-up after local ranking movement for Citypoint Dental NYC' })
+  fireEvent.click(opener)
+  await waitFor(() => expect(router.state.location.search.runId).toBe('run_citypoint_queued_20260309'))
+  fireEvent.keyDown(await screen.findByRole('dialog'), { key: 'Escape' })
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  await waitFor(() => expect(document.activeElement).toBe(opener))
+  await act(async () => { await router.navigate({ to: '/runs', search: { runStatus: RunStatuses.queued, runQuery: 'no matching project' } }) })
+  expect(await screen.findByRole('heading', { name: 'No runs match these filters' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  await waitFor(() => expect(router.state.location.search.runStatus).toBeUndefined())
+  expect(router.state.location.search.runQuery).toBeUndefined()
+  expect(within(screen.getByRole('table', { name: 'Recent runs across projects' })).getAllByRole('row')).toHaveLength(fixture.dashboard.runs.length + 1)
+})
+
+test('run history errors show a readable message and retry the saved read', async () => {
+  const fixture = createDashboardFixture()
+  let unavailable = true
+  const restore = mockFetch(url => pathOf(url) === '/api/v1/projects'
+    ? jsonResponse(fixture.dashboard.projects.map(item => item.project))
+    : pathOf(url).split('?')[0] === '/api/v1/runs'
+      ? unavailable ? jsonResponse({ error: { code: 'UNAVAILABLE', message: 'Run history is temporarily unavailable.' } }, 503) : jsonResponse(fixture.dashboard.runs)
+      : jsonResponse({}))
+  onTestFinished(restore)
+  await renderRoute('/runs')
+  expect(await screen.findByText('Run history is temporarily unavailable.', { exact: true })).toBeTruthy()
+  unavailable = false
+  fireEvent.click(screen.getByRole('button', { name: 'Try again', exact: true }))
+  expect(await screen.findByRole('table', { name: 'Recent runs across projects' })).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Run history unavailable' })).toBeNull()
 })
 
 test('/settings renders the settings page', async () => {
@@ -406,7 +453,7 @@ test('back/forward navigation works via router history', async () => {
     await router.navigate({ to: '/runs' })
   })
   await waitFor(() => {
-    expect(container.innerHTML).toMatch(/All runs/)
+    expect(container.innerHTML).toMatch(/All statuses/)
   })
 
   // Navigate to /settings

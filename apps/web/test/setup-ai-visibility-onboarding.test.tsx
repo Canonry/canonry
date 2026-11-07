@@ -404,7 +404,7 @@ test('keeps provider-switch keyboard focus while resetting credentials and advan
   expect(requests.filter(request => request.method === 'PUT')).toEqual([])
 })
 
-function renderColdScopedSetup(readinessResponse: () => Response | Promise<Response>, existingRun?: Partial<RunDetailDto> & Pick<RunDetailDto, 'status'>, overviewResponse?: () => Response | Promise<Response>) {
+function renderColdScopedSetup(readinessResponse: () => Response | Promise<Response>, existingRun?: Partial<RunDetailDto> & Pick<RunDetailDto, 'status'>, overviewResponse?: () => Response | Promise<Response>, runDetailsResponse?: () => Response | Promise<Response>) {
   const project = { ...createDashboardFixture().dashboard.projects[0]!.project, name: 'scoped-project', displayName: 'City Point Dental', providers: ['gemini'] }
   const requests: string[] = []
   const telemetryEvents: Array<{ event: string }> = []
@@ -424,7 +424,7 @@ function renderColdScopedSetup(readinessResponse: () => Response | Promise<Respo
       hasRun = true
       return jsonResponse(run, 202)
     }
-    if (path === '/api/v1/runs/scoped-run') return jsonResponse(run)
+    if (path === '/api/v1/runs/scoped-run') return runDetailsResponse?.() ?? jsonResponse(run)
     if (path.endsWith('/queries')) {
       if (init?.method === 'PUT') {
         const body = JSON.parse(String(init.body)) as { queries: string[] }
@@ -455,6 +455,7 @@ function renderColdScopedSetup(readinessResponse: () => Response | Promise<Respo
 test('uses project-readable provider readiness for a cold scoped-writer setup', async () => {
   const { requests, queryClient, telemetryEvents } = renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }))
   fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Run your first AI Visibility check' }))
   await waitFor(() => expect(queryClient.getQueryState(['health'])?.status).toBe('success'))
   await waitFor(() => expect((screen.getByRole('button', { name: 'Run check' }) as HTMLButtonElement).disabled).toBe(false))
   expect(requests).toContain('/api/v1/projects/scoped-project/measurement-setup')
@@ -469,6 +470,25 @@ test('uses project-readable provider readiness for a cold scoped-writer setup', 
   expect(requests).toContain('/api/v1/projects/scoped-project/runs')
   expect(requests).not.toContain('/api/v1/settings')
   expect(telemetryEvents.some(event => event.event === 'run.requested')).toBe(false)
+})
+
+test('waits for resumed check evidence before deciding whether a completed check saved answers', async () => {
+  let resolveDetails: ((response: Response) => void) | undefined
+  renderColdScopedSetup(
+    () => jsonResponse({ answerVisibilityProviderReady: true }),
+    { status: 'completed' },
+    undefined,
+    () => new Promise(resolve => { resolveDetails = resolve }),
+  )
+  expect(await screen.findByText('Loading saved check…')).toBeTruthy()
+  expect(screen.queryByText('Failed', { exact: true })).toBeNull()
+  expect(screen.queryByText('The check finished without saving any engine results.')).toBeNull()
+  resolveDetails?.(jsonResponse(runDetailDtoSchema.parse({
+    id: 'scoped-run', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'completed',
+    createdAt: '2026-09-05T12:00:00Z', snapshots: [setupResultSnapshot({ answerText: 'A saved answer after resuming.' })],
+  })))
+  expect(await screen.findByRole('heading', { name: 'Saved answers' })).toBeTruthy()
+  expect(screen.getByText('A saved answer after resuming.')).toBeTruthy()
 })
 
 test('keeps scoped-writer launch blocked while project provider readiness loads', async () => {

@@ -752,6 +752,10 @@ describe('Property page', () => {
     })
 
     expect(await screen.findByRole('heading', { name: 'Harbor House' })).toBeTruthy()
+    for (const name of ['Measured at the market level', 'Which engines answer for this Property', 'Named instead of this Property', 'URLs that count as this Property', 'Answers the engines gave']) {
+      expect(screen.getByRole('heading', { name, exact: true })).toBeTruthy()
+      expect(screen.getByRole('region', { name, exact: true })).toBeTruthy()
+    }
     const contrast = screen.getByRole('table', {
       name: 'Mention and citation coverage for this Property, split by query class',
     })

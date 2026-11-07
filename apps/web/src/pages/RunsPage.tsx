@@ -7,11 +7,14 @@ import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@canonry/canonry-a
 import { MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
-import { RunRow } from '../components/shared/RunRow.js'
+import { RunDetailLink } from '../components/shared/RunDetailLink.js'
+import { StatusBadge } from '../components/shared/StatusBadge.js'
+import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { heyClient, isEmbed, isDashboardManagedSweeps } from '../api.js'
 import { toRunListItem } from '../build-dashboard.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { toTitleCase } from '../lib/format-helpers.js'
+import { extractErrorMessage } from '../lib/extract-error-message.js'
 import { formatTrackedRunKind } from '../lib/run-labels.js'
 import { useTriggerAllRuns } from '../queries/mutations.js'
 import { RUNS_STALE_MS } from '../queries/query-client.js'
@@ -65,7 +68,7 @@ export function RunsPage() {
     initialData: initialDashboard?.runs,
     initialDataUpdatedAt: 0,
     staleTime: RUNS_STALE_MS,
-    refetchInterval: (result) => result.state.data?.some((run) => run.status === 'queued' || run.status === 'running') ? 3000 : RUNS_STALE_MS,
+    refetchInterval: (result) => result.state.data?.some((run) => run.status === RunStatuses.queued || run.status === RunStatuses.running) ? 3000 : RUNS_STALE_MS,
   })
   const triggerAllRunsMutation = useTriggerAllRuns()
 
@@ -143,34 +146,29 @@ export function RunsPage() {
       </div>
 
       <section>
-        <div className="filter-row" role="toolbar" aria-label="Run filters">
-          {(['all', 'queued', 'running', 'completed', 'partial', 'failed', 'cancelled'] as const).map((option) => (
-            <button
-              key={option}
-              className={`filter-chip ${status === option ? 'filter-chip-active' : ''}`}
-              type="button"
-              aria-pressed={status === option}
-              onClick={() => setSearch({ runStatus: option === 'all' ? undefined : option })}
-            >
-              {option === 'all' ? 'All runs' : toTitleCase(option)}
-            </button>
-          ))}
-        </div>
-
-        <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(12rem,1fr)_minmax(10rem,0.7fr)_minmax(9rem,0.6fr)_minmax(9rem,0.6fr)_auto]">
+        <div className="run-filters" role="group" aria-label="Run filters">
           <input
             type="search"
             aria-label="Search runs"
             value={query}
             onChange={(event) => setSearch({ runQuery: event.target.value || undefined })}
             placeholder="Search runs or projects"
-            className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong placeholder-mono-400 focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+            className="run-filter-control"
           />
+          <select
+            aria-label="Filter runs by status"
+            value={status}
+            onChange={(event) => setSearch({ runStatus: event.target.value === 'all' ? undefined : event.target.value })}
+            className="run-filter-control"
+          >
+            <option value="all">All statuses</option>
+            {Object.values(RunStatuses).map((value) => <option key={value} value={value}>{toTitleCase(value)}</option>)}
+          </select>
           <select
             aria-label="Filter runs by project"
             value={projectId}
             onChange={(event) => setSearch({ runProject: event.target.value === 'all' ? undefined : event.target.value })}
-            className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+            className="run-filter-control"
           >
             <option value="all">All projects</option>
             {(projectsQuery.data ?? []).map((project) => <option key={project.id} value={project.id}>{project.displayName || project.name}</option>)}
@@ -179,7 +177,7 @@ export function RunsPage() {
             aria-label="Filter runs by type"
             value={kind}
             onChange={(event) => setSearch({ runKind: event.target.value === 'all' ? undefined : event.target.value })}
-            className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+            className="run-filter-control"
           >
             <option value="all">All run types</option>
             {Object.values(RunKinds).map((value) => <option key={value} value={value}>{formatTrackedRunKind(value)}</option>)}
@@ -188,34 +186,67 @@ export function RunsPage() {
             aria-label="Filter runs by date range"
             value={window}
             onChange={(event) => setSearch({ runWindow: event.target.value === '30d' ? undefined : event.target.value })}
-            className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+            className="run-filter-control"
           >
             {Object.entries(RUN_WINDOWS).map(([value, option]) => <option key={value} value={value}>{option.label}</option>)}
           </select>
           {hasFilters ? (
-            <Button type="button" variant="ghost" size="sm" onClick={() => setSearch({ runStatus: undefined, runKind: undefined, runProject: undefined, runWindow: undefined, runQuery: undefined })}>
-              Clear
+            <Button type="button" variant="ghost" onClick={() => setSearch({ runStatus: undefined, runKind: undefined, runProject: undefined, runWindow: undefined, runQuery: undefined })}>
+              Clear filters
             </Button>
-          ) : <span />}
+          ) : null}
         </div>
 
         {runsQuery.isError ? (
           <Card className="surface-card empty-card">
             <h2>Run history unavailable</h2>
-            <p>{runsQuery.error instanceof Error ? runsQuery.error.message : 'Could not load run history.'}</p>
+            <p>{extractErrorMessage(runsQuery.error)}</p>
+            <Button variant="outline" onClick={() => void runsQuery.refetch()}>Try again</Button>
           </Card>
         ) : null}
 
-        <div className="run-list">
           {!runsQuery.isError && filteredRuns.length > 0 ? (
-            filteredRuns.map((run) => <RunRow key={run.id} run={run} projectSlug={projectsQuery.data?.find(project => project.id === run.projectId)?.name} />)
+            <div className="data-table-wrapper">
+              <table className="data-table runs-table">
+                <caption className="sr-only">Recent runs across projects</caption>
+                <thead><tr>
+                  <th scope="col">Run</th>
+                  <th scope="col">Project</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Started</th>
+                  <th scope="col">Duration</th>
+                  <th scope="col">Trigger</th>
+                </tr></thead>
+                <tbody>{filteredRuns.map((run) => (
+                  <tr key={run.id}>
+                    <td>
+                      <RunDetailLink run={run} projectName={projectsQuery.data?.find(project => project.id === run.projectId)?.name}
+                        className="text-link text-label-14-strong text-left"
+                        label={`View ${run.summary} for ${run.projectName}`}>
+                        {run.kindLabel}
+                      </RunDetailLink>
+                    </td>
+                    <td>
+                      <span className="text-primary">{run.projectName}</span>
+                      {run.location ? <span className="block text-copy-13 text-secondary">{run.location}</span> : null}
+                    </td>
+                    <td><div className="flex items-center gap-1.5">
+                      <StatusBadge status={run.status} />
+                      <InfoTooltip text={run.statusDetail} />
+                    </div></td>
+                    <td className="whitespace-nowrap tabular-nums">{run.startedAt}</td>
+                    <td className="whitespace-nowrap tabular-nums">{run.duration}</td>
+                    <td className="whitespace-nowrap">{run.triggerLabel}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
           ) : !runsQuery.isError ? (
             <Card className="surface-card empty-card">
-              <h2>No runs match this filter</h2>
-              <p>Change the project, type, status, or date range to widen the history.</p>
+              <h2>{hasFilters ? 'No runs match these filters' : 'No recent runs'}</h2>
+              <p>{hasFilters ? 'Change or clear the filters to see more runs.' : 'Start a check from a project, or choose a wider date range.'}</p>
             </Card>
           ) : null}
-        </div>
       </section>
     </div>
   )

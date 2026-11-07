@@ -855,6 +855,9 @@ boundary. Use spacing there, and plain disclosures inside bounded cards.
 The shared topbar's `ThemeSelector` uses icon options in `SegmentedRadioGroup`
 for Light/Dark/System and saves the choice in `canonry:theme`. Preserve its
 accessible names, tooltips, roving focus, and arrow-key selection.
+Search Engine and History workspace tabs use `WorkspaceTabs`: one tab stop,
+Left/Right and Home/End activation, and a named `tabpanel` connected to the
+selected tab. Keep this shared keyboard behavior when adding workspace views.
 `ThemeProvider` wraps `AuthGate`, applies the resolved mode to the document root,
 and follows OS/storage changes; Dark remains the initial default. The inline
 bootstrap in `index.html` resolves the same preference before paint, after the
@@ -892,6 +895,7 @@ Validation owns different risks:
 - A saved provider connection is `Configured`, not verified access. Key saves and settings refreshes do not prove provider authentication or quota. Repair a failed first check inline with the shared revision-aware connection editor; preserve the run and saved queries on return.
 - Launch review uses the server's canonical saved query list, including its deduplication, and displays effective engines/models and market. Keep query research, generation, tuning, and result counts behind disclosures. Never infer a sweep ETA or completion percentage from elapsed time.
 - Correlate each run outcome once per launched run, including retries. A handled scan marker must not be reactivated by reloading its onboarding link. Keep the AI setup wizard mounted while completed-run overview summaries refresh; a handled AI run can still resume its saved result without emitting its outcome again. AI-first forward exits emit the existing finish/open_project action in the same journey, including an explicit skipped method; Back navigation is not completion.
+- A resumed run's list status does not prove that its answer details have loaded. Keep a loading/retry state until the detail read settles before treating zero saved answers as a failure. User-driven step changes focus the new step heading; failed checks retain an exit to the saved project.
 
 The schedule editor defaults a new schedule to the browser timezone, displays that zone beside its time, and requires a fresh matching server timing preview before Save. Render the returned `nextRunAt`; never compute cron or calendar recurrence in the browser.
 
@@ -907,6 +911,7 @@ The schedule editor defaults a new schedule to the browser timezone, displays th
 - **Aero bar lane.** While the floating Aero bar shows, `RootLayout` adds `main-area-agent-bar` to `.main-area` (the wrapper holding the page): bottom padding plus a matching root `scroll-padding-bottom`, so the bar never covers a control. Product links and the version live in the sidebar and mobile navigation, outside the page. Pages never pad for the bar themselves.
 - Pages use a `page-header` (title + subtitle + optional actions) followed by `page-section` sections. Use `page-section-divider` only when a rule adds separation that an adjacent card or table edge does not already provide. Project pages instead use the project context row: identity lives in the topbar breadcrumb (plus one visually hidden `h1`, visible below md), and the sweep action lives in the row's `[data-project-actions]`. Embeds keep `page-header`.
 - **After a deploy.** Pages are lazy routes whose code files are named by content hash, and a deploy removes the old ones, so a tab opened before it fails when it opens a page it has not loaded. `ErrorBoundary` recognizes that error (`lib/stale-build.ts`), shows "Canonry was updated" with a Reload button instead of the raw message, and reloads by itself at most once per 30 s. TanStack Router's own once-per-message reload is not enough on its own: it never forgets, and Safari's message names no file. The server answers a missing file under `assets/` with a 404, never the app shell.
+- Runs uses one compact filter bar and a table. Status, project, type, date and search remain URL-backed. Run links preserve the opener through loading and saved-detail drawers and restore it on dismissal. Unknown routes use the root router's `notFoundComponent`, with a working project recovery link.
 - Sidebar main nav items use Lucide icons (`LayoutDashboard`, `Globe`, `Play`, `Settings`).
 - The sidebar Projects section shows each project with a colored dot indicating visibility health tone.
 - The sidebar Resources section sits at the bottom, with the `Rocket` icon for Setup. Doc links sit in the sidebar footer.
@@ -946,6 +951,7 @@ The schedule editor defaults a new schedule to the browser timezone, displays th
 
 ### Text and tooltips
 
+- `InfoTooltip` and rich-content `Hint` share `hooks/use-tooltip-position.ts` for viewport clamping in both placements, constrained scrolling for long help, and positioning after scroll/resize. Keep portals inside the embed theme scope and preserve Escape dismissal.
 - **Heavy text belongs in tooltips, not inline.** A data surface shows values, one-line captions, and eyebrow labels — not prose. Multi-sentence explanations (methodology, "what this means", the evidence behind a finding) push the numbers down and break the analyst's scan, so they move into an `InfoTooltip` (`components/shared/InfoTooltip.tsx`) on the relevant heading, label, or row title. The trigger is a real keyboard-reachable button and the copy rides its `aria-label`, so nothing is lost for assistive tech or for tests (`getByRole('button', { name })`).
 - **What may stay inline:** the metric value itself, a single-line caption/subtitle, eyebrow section labels, and **empty / onboarding states** (which must instruct — a "connect this integration" empty state is the only content, not heavy text).
 - **The test:** if a sentence explains or justifies rather than labels or names, it goes in a tooltip. The section heading gets the info icon; the descriptive paragraph under it should not exist.

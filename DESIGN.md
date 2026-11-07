@@ -128,6 +128,14 @@ each choice.
   remain visible; otherwise keep state in the originating control.
 - Every control needs default, hover, focus, active, disabled, and loading
   behavior where applicable.
+- Filters for one dataset belong in one compact bar. A multi-option status
+  filter uses a select, not a separate row of action-sized buttons.
+- A disclosure always has a visible expansion indicator. A flex-styled native
+  summary needs an explicit chevron because flex removes its browser marker.
+- Put help buttons beside headings, outside the heading element, so the
+  heading and its section retain a short accessible name.
+- Tab groups support arrow keys, Home and End, with only the selected tab in
+  the tab sequence. Closing details restores the control that opened them.
 - Hover fills must remain distinct and keep normal-text contrast in both
   themes. Canonry deepens the dark destructive hover fill to retain readable
   white labels.
@@ -223,3 +231,18 @@ each choice.
 - Do the screenshots show the empty and zero states of every figure that moved?
 - Were focused tests, typecheck, lint, build, and representative visual states
   checked?
+
+## Rendered acceptance
+
+Before changing a surface, inventory its routes and states, including Simple
+and Advanced paths. Inspect actual desktop screenshots and operate the controls;
+source inspection, a clean detector, and passing component tests cannot approve
+visual hierarchy. Check the complete page, not only the edited fragment.
+
+For changed surfaces, inspect normal data, empty and single-record states,
+unavailable data and recovery, expanded details, long labels, and keyboard
+return focus. Check the default and light themes at desktop widths. Keep
+before/after evidence for layout changes and record any unexercised state.
+A dashboard-wide review covers every routed page family, shared overlays and
+onboarding transitions, with an explicit coverage matrix rather than a sample
+of the main overview. Review independently before sharing detector findings.

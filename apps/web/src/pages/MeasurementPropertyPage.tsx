@@ -376,11 +376,10 @@ function MarketLink({
     <section aria-labelledby="property-market" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Competitive comparison</p>
-          <h2 id="property-market" className="text-heading-16 text-heading">
-            Measured at the market level
+          <div className="flex items-center gap-1">
+            <h2 id="property-market" className="text-heading-16 text-heading">Measured at the market level</h2>
             <InfoTooltip text="Competitors are attached to groups. Share of voice and competitor pressure use the group or market that includes this Property." />
-          </h2>
+          </div>
         </div>
         <Button asChild type="button" size="sm" variant="outline">
           <Link to="/projects/$projectName" params={{ projectName: project }} search={previous => patchVisibilitySelection(carryVisibilitySearch(previous), { measurementScope: 'project' })}>Open measurement overview</Link>
@@ -499,10 +498,10 @@ function ProviderBreakdown({ row, queryClass, isError }: { row: PropertyRow | un
     <section aria-labelledby="property-providers" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <h2 id="property-providers" className="text-heading-16 text-heading">
-            Which engines answer for this Property
+          <div className="flex items-center gap-1">
+            <h2 id="property-providers" className="text-heading-16 text-heading">Which engines answer for this Property</h2>
             <InfoTooltip text="Each row is measured over the queries that engine actually answered for this Property, so the rows are a split of the same population rather than parts that add up to the Property total. An engine that answered nothing for this Property is absent instead of shown at 0%." />
-          </h2>
+          </div>
         </div>
       </div>
       {row === undefined && isError ? (
@@ -586,10 +585,10 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
     <section aria-labelledby="property-named-instead" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <h2 id="property-named-instead" className="text-heading-16 text-heading">
-            Named instead of this Property
+          <div className="flex items-center gap-1">
+            <h2 id="property-named-instead" className="text-heading-16 text-heading">Named instead of this Property</h2>
             <InfoTooltip text="Counted from the answers that did not name this Property, so a name here is one an engine recommended in its place. Occurrences count answers, not positions: an engine naming the same rival in two answers counts twice, and one naming it twice in a single answer counts once." />
-          </h2>
+          </div>
         </div>
         {competitors.length > 0 ? <p className="supporting-copy">{query.data?.total ?? competitors.length} named</p> : null}
       </div>
@@ -674,10 +673,10 @@ function PropertyUrls({ urls }: { urls: readonly string[] }) {
     <section aria-labelledby="property-urls" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <h2 id="property-urls" className="text-heading-16 text-heading">
-            URLs that count as this Property
+          <div className="flex items-center gap-1">
+            <h2 id="property-urls" className="text-heading-16 text-heading">URLs that count as this Property</h2>
             <InfoTooltip text="A cited source URL is credited to this Property when it matches one of these. The most specific matcher wins, so a URL covered by two Properties at the same specificity is flagged for review instead of being credited to either." />
-          </h2>
+          </div>
         </div>
         <p className="supporting-copy">{urls.length} configured</p>
       </div>
@@ -1220,10 +1219,10 @@ export function MeasurementPropertyPage() {
       <section aria-labelledby="property-evidence" className="page-section-divider">
         <div className="section-head section-head-inline">
           <div>
-            <h2 id="property-evidence" className="text-heading-16 text-heading">
-              Answers the engines gave
-              <InfoTooltip text="Answers for the queries assigned to this Property in the displayed measurement. Mentioned and cited are independent. Missing answer text shows Not measured. Open an answer to read its text and sources, including any other Property it named." />
-            </h2>
+            <div className="flex items-center gap-1">
+            <h2 id="property-evidence" className="text-heading-16 text-heading">Answers the engines gave</h2>
+            <InfoTooltip text="Answers for the queries assigned to this Property in the displayed measurement. Mentioned and cited are independent. Missing answer text shows Not measured. Open an answer to read its text and sources, including any other Property it named." />
+          </div>
           </div>
           {evidenceRows.length > 0 ? <p className="supporting-copy">{evidenceRows.length} of {evidenceTotal}</p> : null}
         </div>

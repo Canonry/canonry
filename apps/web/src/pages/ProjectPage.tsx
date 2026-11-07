@@ -25,6 +25,7 @@ import { useDrawer } from '../hooks/use-drawer.js'
 import * as Dialog from '@radix-ui/react-dialog'
 import { WriteButton } from '../components/shared/AccessControls.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
+import { WorkspaceTabs } from '../components/shared/WorkspaceTabs.js'
 import { MentionShare } from '../components/project/MentionShare.js'
 import {
   CompetitorLandscape,
@@ -221,6 +222,7 @@ function SearchConsoleSection({
 }: {
   projectName: string
 }) {
+  const tabsId = useId()
   const queryClient = useQueryClient()
   const [workspace, setWorkspace] = useState<SearchConsoleWorkspace>('google')
   const [loading, setLoading] = useState(true)
@@ -472,23 +474,19 @@ function SearchConsoleSection({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Search engine workspaces">
-          {([
+        <WorkspaceTabs
+          id={tabsId}
+          label="Search engine workspaces"
+          value={workspace}
+          onChange={setWorkspace}
+          className="flex flex-wrap gap-2"
+          tabClassName="project-subnav-link"
+          activeTabClassName="project-subnav-link-active"
+          options={[
             ['google', 'Google'],
             ['bing', 'Bing'],
-          ] as const).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={workspace === key}
-              className={`project-subnav-link ${workspace === key ? 'project-subnav-link-active' : ''}`}
-              onClick={() => setWorkspace(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+          ]}
+        />
         {!isEmbed() && (
           <WriteButton
             type="button"
@@ -510,6 +508,7 @@ function SearchConsoleSection({
         </div>
       )}
 
+      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${workspace}`} tabIndex={0}>
       {workspace === 'google' && (
         <GscSection projectName={projectName} refreshNonce={workspaceRefreshNonce} />
       )}
@@ -517,6 +516,7 @@ function SearchConsoleSection({
       {workspace === 'bing' && (
         <BingSection projectName={projectName} refreshNonce={workspaceRefreshNonce} />
       )}
+      </div>
     </div>
   )
 }
@@ -2396,10 +2396,13 @@ function ProjectPageContent({
             />
           </section>
 
-          {hasVisibilityBaseline && <><section className="mb-6"><details open={competitorDomains.length > 0}>
-            <summary className="av-card-head cursor-pointer">
+          {hasVisibilityBaseline && <><section className="mb-6"><details className="av-history" open={competitorDomains.length > 0}>
+            <summary className="av-card-head">
               <h2 className="av-card-title">{competitorDomains.length > 0 ? 'Where competitors are winning' : 'Compare competitors'}</h2>
-              <p className="av-card-meta">Latest check</p>
+              <span className="inline-flex items-center gap-2">
+                <span className="av-card-meta">Latest check</span>
+                <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
+              </span>
             </summary>
 
             <div className="competitive-summary">

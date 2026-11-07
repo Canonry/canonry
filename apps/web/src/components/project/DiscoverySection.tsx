@@ -43,6 +43,7 @@ import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ResearchQueriesSection, type ResearchTemplateOption } from './ResearchQueriesSection.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
 import { canUseResearchWorkspace, effectiveQueryWorkspace, unavailableTrackingScope, type QueryWorkspace } from '../../lib/project-scope.js'
@@ -132,10 +133,8 @@ export function QueriesSection({
 
   return (
     <section className="page-section-divider" aria-labelledby="queries-heading">
-      <div className="section-head">
-        <h2 id="queries-heading">Queries</h2>
-      </div>
-      <div className="mt-3 flex border-b border-default" role="tablist" aria-label="Query workspace">
+      <h2 id="queries-heading" className="sr-only">Queries</h2>
+      <div className="flex border-b border-default" role="tablist" aria-label="Query workspace">
         <WorkspaceTab active={queryWorkspace === 'tracked'} label="Tracked" onClick={() => selectWorkspace('tracked')} />
         {showResearchWorkspace ? <WorkspaceTab active={queryWorkspace === 'research'} label="Research" onClick={() => selectWorkspace('research')} /> : null}
       </div>
@@ -1663,14 +1662,10 @@ function FindQueriesSection({
   return (
     <>
       <div className="section-head section-head-inline">
-        <div>
-          <p className="eyebrow eyebrow-soft">Step 1</p>
-          <h2>Generate and check questions</h2>
-          <p className="mt-1 max-w-3xl text-copy-14 text-secondary">
-            {isEmbed()
-              ? 'Generate customer questions and check whether your site is already visible.'
-              : 'Generate customer questions, check current visibility, then choose what to track.'}
-          </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2>Describe your customer</h2>
+          <InfoTooltip text="Generate questions your customers might ask, check current visibility, then choose which queries to track." />
+          <ToneBadge tone="neutral">Runs on Gemini</ToneBadge>
         </div>
         <Button
           type="button"
@@ -1687,35 +1682,33 @@ function FindQueriesSection({
       <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
         <div className="space-y-4">
           <Card className="surface-card">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Step 1</p>
-                <h3>Describe your customer</h3>
-              </div>
-              <ToneBadge tone="neutral">Runs on Gemini</ToneBadge>
-            </div>
             <div className="space-y-3">
-              <label className="block">
-                <span className="text-label-14 text-secondary">Who is your ideal customer?</span>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <label htmlFor="discovery-customer-profile" className="text-label-14 text-secondary">Who is your ideal customer?</label>
+                  <InfoTooltip text="Leave blank to use the customer profile saved on this project." />
+                </div>
                 <textarea
+                  id="discovery-customer-profile"
                   className="mt-1 min-h-24 w-full rounded border border-strong bg-transparent px-3 py-2 text-copy-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
-                  placeholder="e.g. Small e-commerce stores that want AI-powered customer support. Leave blank to use the customer profile saved on this project."
+                  placeholder="e.g. Small e-commerce stores that want AI-powered customer support."
                   value={icpDescription}
                   onChange={(event) => setIcpDescription(event.target.value)}
                 />
-              </label>
-              <label className="block">
-                <span className="text-label-14 text-secondary">How many questions to test</span>
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <label htmlFor="discovery-probe-limit" className="text-label-14 text-secondary">Questions to test</label>
+                  <InfoTooltip text="More questions means broader coverage but a longer run. The default is 100." />
+                </div>
                 <input
+                  id="discovery-probe-limit"
                   className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                   inputMode="numeric"
                   value={maxProbes}
                   onChange={(event) => setMaxProbes(event.target.value)}
                 />
-                <span className="mt-1 block text-label-14 text-secondary">
-                  More questions means broader coverage but a longer run. 100 is a good default.
-                </span>
-              </label>
+              </div>
               {!isEmbed() && (
                 <WriteButton
                   type="button"
@@ -1730,16 +1723,15 @@ function FindQueriesSection({
             </div>
           </Card>
 
-          <Card className="surface-card">
+          {(sessions.length > 0 || sessionsQuery.isPending || sessionsQuery.isError) && <section>
             <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">History</p>
-                <h3>Recent runs</h3>
-              </div>
+              <h3>Recent runs</h3>
               {sessionsQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
             </div>
-            {sessions.length === 0 ? (
-              <p className="text-copy-14 text-secondary">No discovery runs yet. Describe your customer above to start your first one.</p>
+            {sessionsQuery.isError ? (
+              <p role="alert" className="text-copy-14 text-negative">Could not load discovery runs. Refresh to try again.</p>
+            ) : sessions.length === 0 ? (
+              <p role="status" className="text-copy-14 text-muted">Loading discovery runs…</p>
             ) : (
               <div className="space-y-2">
                 {sessions.map(session => (
@@ -1766,125 +1758,112 @@ function FindQueriesSection({
                 ))}
               </div>
             )}
-          </Card>
+          </section>}
         </div>
 
         <div className="space-y-4">
-          <Card className="surface-card">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Run detail</p>
-                <h3>{activeSession ? shortId(activeSession.id) : 'No run selected'}</h3>
-              </div>
-              {activeSession && <ToneBadge tone={toneForSession(activeSession.status)}>{activeSession.status}</ToneBadge>}
+          {!activeSession ? (
+            <div className="px-4 py-8 text-center">
+              <h3 className="text-heading-16 text-heading">Results will appear here</h3>
+              <p className="mt-2 text-copy-14 text-secondary">Find queries to review their answers and choose what to track.</p>
             </div>
-
-            {!activeSession ? (
-              <p className="text-copy-14 text-secondary">Start a run above, or pick one from Recent runs to see its progress.</p>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-4">
-                  <DiscoveryMetric label="Questions tested" value={activeSession.probeCount ?? 0} />
-                  <DiscoveryMetric label="Cited queries" value={activeSession.citedCount ?? 0} tone="positive" />
-                  <DiscoveryMetric label="Worth tracking" value={activeSession.aspirationalCount ?? 0} tone="caution" />
-                  <DiscoveryMetric label="Skip" value={activeSession.wastedCount ?? 0} tone="negative" />
+          ) : (
+            <>
+              <section>
+                <div className="section-head section-head-inline">
+                  <h3>Run {shortId(activeSession.id)}</h3>
+                  <ToneBadge tone={toneForSession(activeSession.status)}>{activeSession.status}</ToneBadge>
                 </div>
 
-                {activeSession.error && (
-                  <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-label-14 text-negative">
-                    {activeSession.error}
-                  </div>
-                )}
-
-                {activeSession.warning && (
-                  <div className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-label-14 text-caution">
-                    {activeSession.warning}
-                  </div>
-                )}
-
-                {activeSession.icpDescription && (
-                  <div className="material-base px-3 py-2">
-                    <p className="text-label-12 normal-case text-muted">Customer profile</p>
-                    <p className="mt-1 text-copy-14 text-neutral">{activeSession.icpDescription}</p>
-                  </div>
-                )}
-
-                {activeSession.competitorMap.length > 0 && (
-                  <div>
-                    <p className="mb-2 text-copy-14-strong text-secondary">Sites that keep getting cited</p>
-                    <div className="flex flex-wrap gap-2">
-                      {activeSession.competitorMap.slice(0, 8).map(entry => (
-                        <span key={entry.domain} className="rounded-md border border-default bg-bg px-2 py-1 text-label-12 text-neutral">
-                          {entry.domain} <span className="text-muted">{entry.hits}</span>
-                        </span>
-                      ))}
+                  <div className="space-y-4">
+                    <div className="grid gap-3 sm:grid-cols-4">
+                      <DiscoveryMetric label="Questions tested" value={activeSession.probeCount ?? 0} />
+                      <DiscoveryMetric label="Cited queries" value={activeSession.citedCount ?? 0} tone="positive" />
+                      <DiscoveryMetric label="Worth tracking" value={activeSession.aspirationalCount ?? 0} tone="caution" />
+                      <DiscoveryMetric label="Skip" value={activeSession.wastedCount ?? 0} tone="negative" />
                     </div>
+
+                    {activeSession.error && (
+                      <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-label-14 text-negative">
+                        {activeSession.error}
+                      </div>
+                    )}
+
+                    {activeSession.warning && (
+                      <div className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-label-14 text-caution">
+                        {activeSession.warning}
+                      </div>
+                    )}
+
+                    {activeSession.icpDescription && (
+                      <div className="material-base px-3 py-2">
+                        <p className="text-label-12 normal-case text-muted">Customer profile</p>
+                        <p className="mt-1 text-copy-14 text-neutral">{activeSession.icpDescription}</p>
+                      </div>
+                    )}
+
+                    {activeSession.competitorMap.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-copy-14-strong text-secondary">Sites that keep getting cited</p>
+                        <div className="flex flex-wrap gap-2">
+                          {activeSession.competitorMap.slice(0, 8).map(entry => (
+                            <span key={entry.domain} className="rounded-md border border-default bg-bg px-2 py-1 text-label-12 text-neutral">
+                              {entry.domain} <span className="text-muted">{entry.hits}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+              </section>
+
+              <section className="border-t border-default pt-4">
+                <div className="section-head section-head-inline">
+                  <div className="flex items-center gap-1.5">
+                    <h3>Results</h3>
+                    <InfoTooltip text="Choose a Cited query or Worth tracking result to review for tracking. The review keeps its saved discovery source and lets you choose scope before confirming. Research does not add competitors or start a check." />
+                  </div>
+                  {detailQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
+                </div>
+                {probeRows.length === 0 ? (
+                  <p className="text-copy-14 text-muted">Results show up here once the run starts testing questions.</p>
+                ) : (
+                  <div className="evidence-table-wrap">
+                    <table className="evidence-table">
+                      <thead>
+                        <tr>
+                          <th>Question</th>
+                          <th>Result</th>
+                          <th>Sites cited</th>
+                          <th><span className="sr-only">Tracking review</span></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {probeRows.map(probe => (
+                          <tr key={probe.id}>
+                            <td className="text-label-14-strong text-heading">{probe.query}</td>
+                            <td>
+                              <ToneBadge tone={toneForBucket(probe.bucket)}>{bucketLabel(probe.bucket)}</ToneBadge>
+                            </td>
+                            <td className="text-secondary">
+                              {probe.citedDomains.length > 0 ? probe.citedDomains.slice(0, 3).join(', ') : '-'}
+                            </td>
+                            <td className="whitespace-nowrap text-right">
+                              {!isEmbed() && onReviewDiscoveryProbe && (probe.bucket === 'cited' || probe.bucket === 'aspirational') && (
+                                <WriteButton type="button" variant="ghost" size="sm" onClick={() => onReviewDiscoveryProbe(probe.id)}>
+                                  Review for tracking
+                                </WriteButton>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
-              </div>
-            )}
-          </Card>
-
-          {activeSession?.status === 'completed' && (
-            <Card className="surface-card">
-              <div className="section-head">
-                <div>
-                  <p className="eyebrow eyebrow-soft">Step 2</p>
-                  <h3>Review a discovery question for tracking</h3>
-                  <p className="mt-1 max-w-3xl text-copy-14 text-secondary">
-                    Choose a Cited query or Worth tracking result below. Tracking opens with the saved discovery source, where you choose its scope and review the exact next-check change.
-                  </p>
-                </div>
-              </div>
-              <p className="mt-3 text-copy-13 text-muted">Discovery remains research. This review does not add competitors or start a check.</p>
-            </Card>
+              </section>
+            </>
           )}
-
-          <Card className="surface-card">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">All results</p>
-                <h3>Every question we tested</h3>
-              </div>
-              {detailQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
-            </div>
-            {probeRows.length === 0 ? (
-              <p className="text-copy-14 text-muted">Results show up here once the run starts testing questions.</p>
-            ) : (
-              <div className="evidence-table-wrap">
-                <table className="evidence-table">
-                  <thead>
-                    <tr>
-                      <th>Question</th>
-                      <th>Result</th>
-                      <th>Sites cited</th>
-                      <th><span className="sr-only">Tracking review</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {probeRows.map(probe => (
-                      <tr key={probe.id}>
-                        <td className="text-label-14-strong text-heading">{probe.query}</td>
-                        <td>
-                          <ToneBadge tone={toneForBucket(probe.bucket)}>{bucketLabel(probe.bucket)}</ToneBadge>
-                        </td>
-                        <td className="text-secondary">
-                          {probe.citedDomains.length > 0 ? probe.citedDomains.slice(0, 3).join(', ') : '-'}
-                        </td>
-                        <td className="whitespace-nowrap text-right">
-                          {!isEmbed() && onReviewDiscoveryProbe && (probe.bucket === 'cited' || probe.bucket === 'aspirational') && (
-                            <WriteButton type="button" variant="ghost" size="sm" onClick={() => onReviewDiscoveryProbe(probe.id)}>
-                              Review for tracking
-                            </WriteButton>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
         </div>
       </div>
     </>

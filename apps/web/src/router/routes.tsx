@@ -144,6 +144,7 @@ function RootLayoutWithErrorBoundary() {
 
 export const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: RootLayoutWithErrorBoundary,
+  notFoundComponent: NotFoundPage,
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
     manageQueries: search.manageQueries === true || search.manageQueries === 'true' ? true : undefined,
     runId: typeof search.runId === 'string' ? search.runId : undefined,
@@ -421,12 +422,6 @@ export const trafficSourceDetailRoute = createRoute({
   component: LazyTrafficSourceDetailPage,
 })
 
-export const notFoundRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '*',
-  component: NotFoundPage,
-})
-
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   projectsRoute,
@@ -457,5 +452,4 @@ export const routeTree = rootRoute.addChildren([
   backlinksRoute,
   trafficRoute,
   trafficSourceDetailRoute,
-  notFoundRoute,
 ])

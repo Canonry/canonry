@@ -257,7 +257,7 @@ test('runs route renders the operational timeline and filters', async () => {
   const html = await renderApp('/runs')
 
   expect(html).toMatch(/Runs/)
-  expect(html).toMatch(/All runs/)
+  expect(html).toMatch(/All statuses/)
   expect(html).toMatch(/Queued follow-up after local ranking movement/)
   expect(html).toMatch(/Citation losses on emergency-intent prompts/)
 })
@@ -418,6 +418,13 @@ test('project route keeps server insights out of the Simple overview', async () 
 
 test('project search console route renders the Search Engines section', async () => {
   const html = await renderApp('/projects/project_citypoint/search-console')
+  const page = document.createElement('div')
+  page.innerHTML = html
+  const google = within(page).getByRole('tab', { name: 'Google' })
+  const bing = within(page).getByRole('tab', { name: 'Bing' })
+  expect(google.tabIndex).toBe(0)
+  expect(bing.tabIndex).toBe(-1)
+  expect(within(page).getByRole('tabpanel', { name: 'Google' }).id).toBe(google.getAttribute('aria-controls'))
 
   expect(html).toMatch(/Search Engines/)
   expect(html).toMatch(/Search engine workspaces/)

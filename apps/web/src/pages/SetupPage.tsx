@@ -417,6 +417,17 @@ function ReadySetupPage({
   const [draftScope] = useState(() => `wizard:${resumeProjectName ?? 'new'}`)
   const [draft] = useState(() => readOnboardingDraft(draftScope))
   const [step, setStep] = useState<SetupStep>(initialResumeStep)
+  const stepContentRef = useRef<HTMLDivElement>(null)
+  const previousStep = useRef(step)
+  useEffect(() => {
+    if (previousStep.current === step) return
+    previousStep.current = step
+    const heading = stepContentRef.current?.querySelector('h2')
+    if (heading) {
+      heading.tabIndex = -1
+      heading.focus()
+    }
+  }, [step])
   const [resumeApplied, setResumeApplied] = useState(!resumeLoading)
   const queriesHydrating = isProjectScoped && (resumeLoading || !resumeApplied)
 
@@ -1692,6 +1703,7 @@ function ReadySetupPage({
 
       case 4: {
         const run = launchedRun.data
+        const awaitingRunDetails = runTriggered && !run && Boolean(launchedRunId)
         const runStatus = run?.status
           ?? (launchedRunId === latestPersistedRun?.id ? latestPersistedRun.status : undefined)
         const terminal = runStatus === 'completed'
@@ -1717,6 +1729,8 @@ function ReadySetupPage({
           stepBadge = <ToneBadge tone="positive">Complete</ToneBadge>
         } else if (runError && !runTriggered) {
           stepBadge = <ToneBadge tone="negative">Failed</ToneBadge>
+        } else if (awaitingRunDetails) {
+          stepBadge = <ToneBadge tone="neutral">{launchedRun.isError ? 'Unavailable' : 'Loading'}</ToneBadge>
         } else if (terminal) {
           stepBadge = <ToneBadge tone="negative">{runStatus === 'cancelled' ? 'Cancelled' : 'Failed'}</ToneBadge>
         } else if (runTriggered) {
@@ -1794,6 +1808,16 @@ function ReadySetupPage({
                   )}
                 </div>
               </div>
+            ) : awaitingRunDetails ? (
+              <div className="compact-stack">
+                <p role={launchedRun.isError ? 'alert' : 'status'} className="text-copy-14 text-secondary">
+                  {launchedRun.isError ? 'Could not load the saved check. Try again to see its result.' : 'Loading saved check…'}
+                </p>
+                <div className="setup-nav">
+                  <Button type="button" variant="ghost" onClick={() => finishSetup()}>Open project dashboard →</Button>
+                  {launchedRun.isError ? <Button type="button" variant="outline" onClick={() => { void launchedRun.refetch() }}>Retry status check</Button> : null}
+                </div>
+              </div>
             ) : !terminal ? (
               <div className="compact-stack">
                 <p className="text-neutral">
@@ -1840,15 +1864,15 @@ function ReadySetupPage({
                   ) : <span />}
                   {isDashboardManagedSweeps() || !isAdmin ? (
                     <Button type="button" onClick={() => finishSetup()}>Open project dashboard →</Button>
-                  ) : <Button type="button" disabled={runSaving || !!launchBlockedReason || runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true} onClick={asyncHandler(handleLaunchRun)}>
+                  ) : <><Button type="button" variant="ghost" onClick={() => finishSetup()}>Open project dashboard →</Button><Button type="button" disabled={runSaving || !!launchBlockedReason || runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true} onClick={asyncHandler(handleLaunchRun)}>
                     {runSaving ? 'Retrying…' : 'Retry check'}
-                  </Button>}
+                  </Button></>}
                 </div>
               </div>
             ) : (
               <div className="compact-stack">
                 <p className="text-neutral">{snapshots.length} engine {snapshots.length === 1 ? 'result' : 'results'} saved for <span className="text-heading text-label-14-strong">{displayName || createdProjectName}</span>.</p>
-                {snapshots[0]?.answerText && <section className="border-y border-default py-4" aria-label="Your first saved answer">
+                {snapshots[0]?.answerText && <section className="mt-4 border-t border-default pt-4" aria-label="Your first saved answer">
                   <div className="mb-3 flex flex-wrap items-center gap-2"><ProviderBadge provider={snapshots[0].provider} displayName={providerDisplayName(snapshots[0].provider)} /><ToneBadge tone={snapshots[0].answerMentioned ? 'positive' : 'neutral'}>{snapshots[0].answerMentioned === true ? 'Mentioned' : snapshots[0].answerMentioned === false ? 'Not mentioned' : 'Mention not measured'}</ToneBadge><ToneBadge tone={snapshots[0].citationState === CitationStates.cited ? 'positive' : 'neutral'}>{snapshots[0].citationState === CitationStates.cited ? 'Cited' : 'Not cited'}</ToneBadge></div>
                   <h3 className="text-heading-16 text-heading">{snapshots[0].query}</h3>
                   <div className="mt-3 text-copy-14 text-secondary"><AnswerMarkdown previewLength={650}>{snapshots[0].answerText}</AnswerMarkdown></div>
@@ -1934,7 +1958,7 @@ function ReadySetupPage({
       <section className="setup-wizard">
         {providerSetup}
         {step === 4 && !runTriggered && isAdmin && openRouterConnected && setupEngineProject && !inlineModelPicker && <details className="mb-4"><summary className="cursor-pointer py-2 text-label-14 text-link">Change engines</summary><ProjectEngineSettingsSection project={setupEngineProject} onSave={saveSetupEngines} /></details>}
-        {stepContent}
+        <div ref={stepContentRef}>{stepContent}</div>
       </section>
       {providerGuard.dialog}
     </div>

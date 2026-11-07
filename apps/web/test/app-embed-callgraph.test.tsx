@@ -253,6 +253,7 @@ test('a completed embed keeps competitor comparison optional and reads engine co
   const comparison = (await screen.findByRole('heading', { name: 'Compare competitors' })).closest('details')!
   expect(comparison.open).toBe(false)
   fireEvent.click(within(comparison).getByRole('heading', { name: 'Compare competitors' }).closest('summary')!)
+  expect(comparison.open).toBe(true)
   expect(within(comparison).getByText('Mention gaps')).toBeTruthy()
   const engines = await screen.findByRole('table', { name: 'By engine, non-brand queries' })
   expect(within(engines).getByText('Gemini')).toBeTruthy()
