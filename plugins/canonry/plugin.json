@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "canonry",
   "version": "7.98.0",
-  "description": "Operate Canonry AEO projects through guided skills and the typed Canonry MCP server.",
+  "description": "Agent-first Answer Engine Optimization (AEO): measure AI search and competitors, research SEO, audit sites, analyze AI traffic, create and publish content, manage ChatGPT Ads, and improve indexing with Canonry and Aero skills plus MCP tools.",
   "author": {
     "name": "Canonry",
     "url": "https://canonry.ai"
