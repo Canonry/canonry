@@ -37,9 +37,9 @@ vi.mock('recharts', () => {
     Bar: () => null,
     BarChart: passthrough,
     Cell: () => null,
-    // Its label is rendered so a test can prove a band is drawn and what it says.
-    ReferenceArea: ({ label }: { label?: { value?: string } }) =>
-      label?.value ? <div data-testid="reference-area">{label.value}</div> : null,
+    // Keep unlabeled bands observable, including their calendar boundaries.
+    ReferenceArea: ({ label, x1, x2 }: { label?: { value?: string }; x1?: string; x2?: string }) =>
+      <div data-testid="reference-area" data-from={x1} data-to={x2}>{label?.value}</div>,
     ReferenceLine: () => null,
     XAxis: () => null,
     YAxis: () => null,
@@ -811,10 +811,13 @@ test('AI traffic history bands server visits counted by the older rule', async (
     const visitorsTile = (await screen.findByText('AI visitors')).closest('div') as HTMLElement
 
     if (changedAt) {
-      // Raw totals are kept; the band and the tile say they can read high.
+      // Raw totals and their caveat remain; the historical band has no caption.
       expect(within(visitorsTile).getByText('336')).toBeTruthy()
       expect(within(visitorsTile).getByText('older days may read high')).toBeTruthy()
-      expect(screen.getAllByTestId('reference-area').map(el => el.textContent)).toEqual(['older server count, may read high'])
+      const band = screen.getByTestId('reference-area')
+      expect(band.getAttribute('data-from')).toBe('2026-10-31')
+      expect(band.getAttribute('data-to')).toBe('2026-11-02')
+      expect(band.textContent).toBe('')
       fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
       expect(screen.queryAllByTestId('reference-area')).toEqual([])
     } else {
@@ -837,6 +840,9 @@ test('AI traffic history bands server visits counted by the older rule', async (
  * all as the API reports them.
  */
 test('AI traffic history shows visits by month', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-06T12:00:00.000Z'))
+  onTestFinished(() => vi.useRealTimers())
   const months = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11']
   const restoreFetch = mockFetch((url) => {
     const [path, query = ''] = url.split('?') as [string, string?]
@@ -896,6 +902,11 @@ test('AI traffic history shows visits by month', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Months' }))
   const strip = (await screen.findByText('October 2026')).parentElement as HTMLElement
   expect(strip.textContent).toBe('October 202695visits, GA4120visits, server▲39.3%trend since Jun91from ChatGPT')
+  const current = screen.getByRole('group', { name: 'Month so far' })
+  expect(within(current).getByText('November 2026 so far')).toBeTruthy()
+  expect(within(current).getByText('Hollow dots: partial months')).toBeTruthy()
+  expect(current.textContent).toMatch(/24\s*visits, GA4/)
+  expect(current.textContent).toMatch(/31\s*visits, server/)
   // Part months are hollow and off the line: May and November for the server.
   const serverPartial = screen.getByTestId('dots-serverPartial').querySelectorAll('circle')
   expect([...serverPartial].map(c => c.getAttribute('fill'))).toEqual(['none', 'none'])
@@ -905,6 +916,13 @@ test('AI traffic history shows visits by month', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
   expect(screen.queryByTestId('dots-serverPartial')).toBeNull()
   expect(strip.textContent).toBe('October 202695visits, GA4▲39.3%trend since Jun91from ChatGPT')
+  expect(current.textContent).toMatch(/24\s*visits, GA4/)
+  expect(current.textContent).not.toContain('visits, server')
+  fireEvent.click(screen.getByRole('button', { name: 'Server' }))
+  expect(current.textContent).toMatch(/31\s*visits, server/)
+  expect(current.textContent).not.toContain('visits, GA4')
+  fireEvent.click(screen.getByRole('button', { name: 'Days' }))
+  expect(screen.queryByRole('group', { name: 'Month so far' })).toBeNull()
 })
 
 /** Real SDK reads with independently supplied source responses. */
@@ -961,6 +979,9 @@ test.each([true, false])('monthly history remains reachable with quiet daily tra
 })
 
 test('monthly history draws adjacent partial months for both sources', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-12-06T12:00:00.000Z'))
+  onTestFinished(() => vi.useRealTimers())
   renderMonthlyHistory({
     server: () => jsonResponse({ series: {
       partialBuckets: ['2026-10', '2026-11'],
@@ -979,6 +1000,8 @@ test('monthly history draws adjacent partial months for both sources', async () 
   })
   expect(screen.getByTestId('dots-aiReferralLandedHits').querySelectorAll('circle')).toHaveLength(0)
   expect(screen.getByTestId('dots-ga4Visits').querySelectorAll('circle')).toHaveLength(0)
+  // Stale incomplete months remain plotted, but are not the current month.
+  expect(screen.queryByRole('group', { name: 'Month so far' })).toBeNull()
 })
 
 test('monthly summary follows the selected source when GA4 history ends earlier', async () => {
