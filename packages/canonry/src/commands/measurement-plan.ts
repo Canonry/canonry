@@ -15,6 +15,7 @@ import {
   measurementPlanInputSchema,
   measurementPortfolioSummaryQuerySchema,
   measurementPropertyCompetitorsQuerySchema,
+  excludedNoRetrievalLabel,
   unattributedAnswersLabel,
   uncheckedSourcesLabel,
   UNATTRIBUTED_MENTION_REASON,
@@ -467,6 +468,18 @@ function uncheckedText(metric: MetricValue): string | null {
   return metric.state === 'available' ? uncheckedSourcesLabel(metric) : null
 }
 
+/** Answers a citation rate left out because the provider wrote them with no web search. */
+function excludedNoRetrievalText(metric: MetricValue): string | null {
+  return metric.state === 'available' ? excludedNoRetrievalLabel(metric) : null
+}
+
+/** Every note naming the answers a citation rate left out, in one line. */
+function citationNotes(metric: MetricValue): string | null {
+  const notes = [uncheckedText(metric), excludedNoRetrievalText(metric)]
+    .filter((note): note is string => note !== null)
+  return notes.length === 0 ? null : notes.join(' · ')
+}
+
 /** A rate followed by the note naming the answers it left out, when there is one. */
 function metricWithNote(metric: MetricValue, note: string | null): string {
   return `${metricText(metric)}${note ? ` · ${note}` : ''}`
@@ -520,7 +533,7 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
   const mention = row ? row.mentionCoverage : response.metrics.mentionCoverage
   const citation = row ? row.citationCoverage : response.metrics.citationCoverage
   lines.push(`Mentioned  ${metricWithNote(mention, unattributedText(mention))}`)
-  lines.push(`Cited      ${metricWithNote(citation, uncheckedText(citation))}`)
+  lines.push(`Cited      ${metricWithNote(citation, citationNotes(citation))}`)
   if (row && row.flags > 0) lines.push(`Flagged    ${row.flags} ${row.flags === 1 ? 'result needs' : 'results need'} review`)
 
   if (row && row.providers.length > 0) {
@@ -536,6 +549,8 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
       if (providerUnattributed) lines.push(`${''.padEnd(engineWidth)}${providerUnattributed}`)
       const providerUnchecked = uncheckedText(provider.citationCoverage)
       if (providerUnchecked) lines.push(`${''.padEnd(engineWidth + mentionWidth)}${providerUnchecked}`)
+      const providerExcluded = excludedNoRetrievalText(provider.citationCoverage)
+      if (providerExcluded) lines.push(`${''.padEnd(engineWidth + mentionWidth)}${providerExcluded}`)
     }
   }
   console.log(lines.join('\n'))

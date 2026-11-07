@@ -40,11 +40,12 @@ export type AdvancedMeasurementEvidenceKind =
 /**
  * A measured rate may carry the answers the server left out of both sides of
  * `numerator of denominator`: `unattributed` on a mention rate (not tied to one
- * property), `unchecked` on a citation rate (source capture incomplete).
+ * property), `unchecked` on a citation rate (source capture incomplete), and
+ * `excludedNoRetrieval` on a citation rate (written with no web search).
  */
 export type AdvancedMeasurementMetric =
-  | { numerator: number; denominator: number; reason?: never; unattributed?: number; unchecked?: number }
-  | { numerator: null; denominator: null; reason: string; unattributed?: never; unchecked?: never }
+  | { numerator: number; denominator: number; reason?: never; unattributed?: number; unchecked?: number; excludedNoRetrieval?: number }
+  | { numerator: null; denominator: null; reason: string; unattributed?: never; unchecked?: never; excludedNoRetrieval?: never }
 
 export interface AdvancedMeasurementPropertyProvider {
   provider: string

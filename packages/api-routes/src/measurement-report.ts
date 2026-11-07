@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { answerProseForMentions, escapeRegExp, measurementNameKey, measurementNameWords, MentionIdentities, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique, type MentionIdentity } from '@canonry/canonry-contracts'
+import { answerProseForMentions, escapeRegExp, measurementNameKey, measurementNameWords, MentionIdentities, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, RetrievalStatuses, compareText, sortedUnique, type MentionIdentity, type RetrievalStatus } from '@canonry/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'
@@ -106,6 +106,14 @@ export interface MeasurementObservationInput {
    * for one of them is not a mention of it.
    */
   wrongSubjectTargetIds?: readonly string[]
+  /**
+   * Whether the provider ran a retrieval step for this answer. An answer
+   * written with no web search (`not-used`) cites nothing by construction and
+   * leaves the cited denominator rather than counting as a searched miss.
+   * Null or absent for legacy rows that never recorded it: only an explicit
+   * `not-used` asserts the absence, so those rows stay in the denominator.
+   */
+  retrievalStatus?: RetrievalStatus | null
 }
 
 export interface MeasurementReportInput {
@@ -186,21 +194,24 @@ export interface MeasurementAnswerEvidence {
  * `unattributed` appears only on a mention rate that left answers out because
  * their identity could not be tied to one Property. `unchecked` appears only on
  * a citation rate that left saved answers out because their source capture was
- * incomplete. Those answers are in neither the numerator nor the denominator;
- * absent means none were left out. The two never share one rate.
+ * incomplete. `excludedNoRetrieval` appears only on a citation rate that left
+ * saved answers out because the provider wrote them with no web search, so
+ * they cite nothing by construction. Those answers are in neither the
+ * numerator nor the denominator; absent means none were left out. Mention and
+ * citation counts never share one rate; the two citation counts may.
  */
 export type MeasurementRate =
-  | { numerator: number; denominator: number; rate: number; reason?: never; unattributed?: number; unchecked?: number }
-  | { numerator: null; denominator: null; rate: null; reason: MeasurementMetricReason; unattributed?: never; unchecked?: never }
+  | { numerator: number; denominator: number; rate: number; reason?: never; unattributed?: number; unchecked?: number; excludedNoRetrieval?: number }
+  | { numerator: null; denominator: null; rate: null; reason: MeasurementMetricReason; unattributed?: never; unchecked?: never; excludedNoRetrieval?: never }
 
 export interface MeasurementCompleteness {
   executed: number
   expected: number
   /**
-   * Executed observations whose citation capture is complete. This is the exact
-   * denominator basis of every source-dependent rate, so a reader can always see
-   * how many of the executed observations a coverage rate was computed over.
-   * Equal to `executed` when `sourceComplete` is true.
+   * Executed observations whose citation capture is complete. A coverage
+   * rate's denominator is this count less the answers the provider wrote
+   * with no web search, which leave the cited denominator and are counted
+   * in `excludedNoRetrieval`. Equal to `executed` when `sourceComplete` is true.
    */
   sourceCompleteObservations: number
   complete: boolean
@@ -1101,12 +1112,36 @@ function completeness(
  * denominator. Every source-dependent rate is computed over exactly this basis,
  * and `MeasurementCompleteness.sourceCompleteObservations` reports its size. An
  * answer-level rate also counts the rows it left out as `unchecked`.
+ *
+ * A saved answer the provider wrote with no web search leaves the cited
+ * denominator for the same reason: it cites nothing by construction, so it is
+ * not a searched miss. It is counted beside the rate as `excludedNoRetrieval`
+ * and stays in the mention denominator, since brand recall does not need
+ * search. Only an explicit `not-used` leaves: legacy rows that never recorded
+ * a retrieval status stay in the denominator.
  */
 function sourceCompleteSlots(
   slots: readonly MeasurementExpectedSlotInput[],
   prepared: PreparedReport,
 ): MeasurementExpectedSlotInput[] {
   return slots.filter(slot => prepared.observationsBySlot.get(slot.id)?.sourceComplete === true)
+}
+
+/** Slots whose saved answer the provider wrote with no web search. */
+function noRetrievalSlots(
+  slots: readonly MeasurementExpectedSlotInput[],
+  prepared: PreparedReport,
+): MeasurementExpectedSlotInput[] {
+  return slots.filter(slot => prepared.observationsBySlot.get(slot.id)?.input.retrievalStatus === RetrievalStatuses['not-used'])
+}
+
+/** A checked citation rate with its no-retrieval count beside it, when there is one. */
+function withExcludedNoRetrieval(
+  rate: { numerator: number; denominator: number; rate: number; unchecked?: number } | null,
+  excludedNoRetrieval: number,
+): MeasurementRate {
+  if (rate === null) return unavailable('evidence-incomplete')
+  return excludedNoRetrieval === 0 ? rate : { ...rate, excludedNoRetrieval }
 }
 
 function coverageRate(
@@ -1118,16 +1153,23 @@ function coverageRate(
   if (slots.length === 0) return { numerator: null, denominator: null, rate: null, reason: 'no-population' }
   if (!status.complete) return { numerator: null, denominator: null, rate: null, reason: 'incomplete' }
 
-  const basis = sourceCompleteSlots(slots, prepared)
+  const noRetrieval = noRetrievalSlots(slots, prepared)
+  const noRetrievalIds = new Set(noRetrieval.map(slot => slot.id))
+  const eligible = slots.filter(slot => !noRetrievalIds.has(slot.id))
+  const basis = sourceCompleteSlots(eligible, prepared)
   const edgeIds = new Set(edges.map(edge => edge.id))
   const assignedSlots = new Set(prepared.evidence
     .filter(row => edgeIds.has(row.usageEdgeId) && row.classification === 'assigned')
     .map(row => row.expectedSlotId))
   const numerator = basis.filter(slot => assignedSlots.has(slot.id)).length
-  // Every slot executed (checked above), so the slots outside the basis are
-  // exactly the saved answers whose capture was incomplete.
-  return rateOverChecked(numerator, slots.length, slots.length - basis.length, 'unchecked')
-    ?? unavailable('evidence-incomplete')
+  // Every eligible slot executed (checked above), so the eligible slots outside
+  // the basis are exactly the saved answers whose capture was incomplete. A
+  // captured positive on a no-retrieval answer is not counted either: the
+  // numerator reads eligible, checked answers only.
+  return withExcludedNoRetrieval(
+    rateOverChecked(numerator, eligible.length, eligible.length - basis.length, 'unchecked'),
+    noRetrieval.length,
+  )
 }
 
 function targetCoverageRate(
@@ -1313,6 +1355,8 @@ interface MeasurementOverviewIndexes {
   observedSlotIds: ReadonlySet<string>
   answeredSlotIds: ReadonlySet<string>
   sourceCompleteSlotIds: ReadonlySet<string>
+  /** Slots whose saved answer the provider wrote with no web search. */
+  notUsedSlotIds: ReadonlySet<string>
   mentionedSlotIdsByTargetId: ReadonlyMap<string, ReadonlySet<string>>
   unknownMentionSlotIdsByTargetId: ReadonlyMap<string, ReadonlySet<string>>
   assignedSlotIdsByEdgeId: ReadonlyMap<string, ReadonlySet<string>>
@@ -1356,11 +1400,13 @@ function buildMeasurementOverviewIndexes(
   const observedSlotIds = new Set<string>()
   const answeredSlotIds = new Set<string>()
   const sourceCompleteSlotIds = new Set<string>()
+  const notUsedSlotIds = new Set<string>()
   const mentionedSlotIdsByTargetId = new Map<string, Set<string>>()
   const unknownMentionSlotIdsByTargetId = new Map<string, Set<string>>()
   for (const [slotId, observation] of prepared.observationsBySlot) {
     observedSlotIds.add(slotId)
     if (observation.sourceComplete) sourceCompleteSlotIds.add(slotId)
+    if (observation.input.retrievalStatus === RetrievalStatuses['not-used']) notUsedSlotIds.add(slotId)
     if (observation.input.answerText === null) continue
     answeredSlotIds.add(slotId)
     for (const targetId of observation.mentionedTargetIds) {
@@ -1398,6 +1444,7 @@ function buildMeasurementOverviewIndexes(
     observedSlotIds,
     answeredSlotIds,
     sourceCompleteSlotIds,
+    notUsedSlotIds,
     mentionedSlotIdsByTargetId,
     unknownMentionSlotIdsByTargetId,
     assignedSlotIdsByEdgeId,
@@ -1501,8 +1548,11 @@ function scopeMentionRate(
  * A slot with no saved observation withholds the rate: a missing answer is not
  * measured. A saved answer whose capture is incomplete leaves BOTH sides and is
  * counted in `unchecked`, even when the links it did capture name the Property,
- * so a few such answers in thousands cannot blank the number. With no checked
- * answer left the rate is unavailable as `evidence-incomplete`.
+ * so a few such answers in thousands cannot blank the number. A saved answer
+ * the provider wrote with no web search leaves BOTH sides too and is counted
+ * in `excludedNoRetrieval`: it cites nothing by construction, so it is not a
+ * searched miss. With no checked answer left the rate is unavailable as
+ * `evidence-incomplete`.
  */
 function indexedScopeCitationRate(
   slots: readonly MeasurementExpectedSlotInput[],
@@ -1511,15 +1561,21 @@ function indexedScopeCitationRate(
 ): MeasurementRate {
   if (slots.length === 0) return unavailable('no-population')
   if (slots.some(slot => !indexes.observedSlotIds.has(slot.id))) return unavailable('evidence-incomplete')
-  const basis = slots.filter(slot => indexes.sourceCompleteSlotIds.has(slot.id))
+  // A saved answer the provider wrote with no web search cites nothing by
+  // construction, so it leaves the cited denominator rather than counting as
+  // a searched miss. A captured positive on one is not counted either.
+  const eligible = slots.filter(slot => !indexes.notUsedSlotIds.has(slot.id))
+  const basis = eligible.filter(slot => indexes.sourceCompleteSlotIds.has(slot.id))
 
   const assignedSlots = new Set<string>()
   for (const edge of edges) {
     for (const slotId of indexes.assignedSlotIdsByEdgeId.get(edge.id) ?? []) assignedSlots.add(slotId)
   }
   const numerator = basis.filter(slot => assignedSlots.has(slot.id)).length
-  return rateOverChecked(numerator, slots.length, slots.length - basis.length, 'unchecked')
-    ?? unavailable('evidence-incomplete')
+  return withExcludedNoRetrieval(
+    rateOverChecked(numerator, eligible.length, eligible.length - basis.length, 'unchecked'),
+    slots.length - eligible.length,
+  )
 }
 
 function targetMentionRate(

@@ -369,6 +369,16 @@ describe('measurement metric value', () => {
     // The ranked-row variant (`options[0]`) keeps the same rule.
     expect(measurementMetricValueSchema.options[0].safeParse({ state: 'available', value: 0.5, numerator: 3, denominator: 6, unattributed: 1, unchecked: 1 }).success).toBe(false)
   })
+
+  it('carries the answers written without a web search beside a citation rate, alone or with an unchecked one', () => {
+    expect(measurementMetricValueSchema.parse({ state: 'available', value: 3 / 9, numerator: 3, denominator: 9, excludedNoRetrieval: 1 }))
+      .toEqual({ state: 'available', value: 3 / 9, numerator: 3, denominator: 9, excludedNoRetrieval: 1 })
+    expect(measurementMetricValueSchema.parse({ state: 'available', value: 3 / 9, numerator: 3, denominator: 9, unchecked: 1, excludedNoRetrieval: 1 }))
+      .toEqual({ state: 'available', value: 3 / 9, numerator: 3, denominator: 9, unchecked: 1, excludedNoRetrieval: 1 })
+    expect(measurementMetricValueSchema.safeParse({ state: 'available', value: 0.5, numerator: 3, denominator: 6, excludedNoRetrieval: 0 }).success).toBe(false)
+    expect(measurementMetricValueSchema.safeParse({ state: 'unavailable', reason: 'evidence_incomplete', excludedNoRetrieval: 1 }).success).toBe(false)
+    expect(measurementMetricValueSchema.safeParse({ state: 'available', value: 0.5, numerator: 3, denominator: 6, unattributed: 1, excludedNoRetrieval: 1 }).success).toBe(false)
+  })
 })
 
 describe('measurement overview response', () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { RetrievalStatuses } from '@canonry/canonry-contracts'
 
 import {
   buildMeasurementOverview,
@@ -670,7 +671,7 @@ describe('scoped overview', () => {
   })
 })
 
-type CitationAnswer = 'cited' | 'not-cited' | 'unchecked' | 'unchecked-cited' | 'missing'
+type CitationAnswer = 'cited' | 'not-cited' | 'unchecked' | 'unchecked-cited' | 'missing' | 'not-used' | 'not-used-cited'
 
 /** One Property over one execution per answer, each answered by one engine. */
 function citationInput(answers: readonly CitationAnswer[]): MeasurementOverviewInput {
@@ -686,8 +687,9 @@ function citationInput(answers: readonly CitationAnswer[]): MeasurementOverviewI
     observations: answers.flatMap((answer, index) => answer === 'missing' ? [] : [{
       id: `observation-${index}`, executionId: `exec-${index}`, queryText: `service ${index}`, provider: 'openai', location: null,
       answerText: 'Northstar North is an option.',
-      citedUrls: answer === 'cited' || answer === 'unchecked-cited' ? ['https://northstar.example/locations/north'] : [],
-      citedUrlsComplete: answer === 'cited' || answer === 'not-cited',
+      citedUrls: answer === 'cited' || answer === 'unchecked-cited' || answer === 'not-used-cited' ? ['https://northstar.example/locations/north'] : [],
+      citedUrlsComplete: answer === 'cited' || answer === 'not-cited' || answer === 'not-used' || answer === 'not-used-cited',
+      ...(answer === 'not-used' || answer === 'not-used-cited' ? { retrievalStatus: RetrievalStatuses['not-used'] } : {}),
     }]),
     scopeTargetIds: ['north'],
   }
@@ -726,6 +728,45 @@ describe('citation coverage over checked answers', () => {
     const unavailable = { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' }
     expect(buildMeasurementOverview(citationInput(['unchecked', 'unchecked-cited'])).citationCoverage).toEqual(unavailable)
     expect(northTarget(buildMeasurementReport(citationInput(['unchecked', 'unchecked-cited']))).citationCoverage).toEqual(unavailable)
+  })
+
+  it('leaves answers written without a web search out of every citation rate and counts them beside it (#1161)', () => {
+    // Three cited, six not cited, one saved answer the provider wrote with no
+    // retrieval step: it cites nothing by construction, so it is not a
+    // searched miss and leaves both sides of the cited rate.
+    const answers: readonly CitationAnswer[] = [
+      'cited', 'cited', 'cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-used',
+    ]
+    const expected = { numerator: 3, denominator: 9, rate: 3 / 9, excludedNoRetrieval: 1 }
+    const overview = buildMeasurementOverview(citationInput(answers))
+    expect(overview.citationCoverage).toEqual(expected)
+    expect(overview.properties[0]!.citationCoverage).toEqual(expected)
+    expect(overview.properties[0]!.providers[0]!.citationCoverage).toEqual(expected)
+    const report = buildMeasurementReport(citationInput(answers))
+    expect(northTarget(report).citationCoverage).toEqual(expected)
+    expect(report.groups[0]!.answerCoverage).toEqual(expected)
+    expect(report.groups[0]!.completeness).toMatchObject({ executed: 10, expected: 10, sourceCompleteObservations: 10 })
+    // Mention reads the answer text, which does not need search: the
+    // no-retrieval answer stays in the mention denominator.
+    expect(overview.mentionCoverage).toEqual({ numerator: 10, denominator: 10, rate: 1 })
+    expect(northTarget(report).mentionCoverage).toEqual({ numerator: 10, denominator: 10, rate: 1 })
+  })
+
+  it('does not count a captured positive on a no-retrieval answer', () => {
+    // A stored cited URL on an answer the provider wrote without searching
+    // cannot be a searched citation: the numerator reads checked answers only.
+    const answers: readonly CitationAnswer[] = [
+      'cited', 'cited', 'cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-used-cited',
+    ]
+    const expected = { numerator: 3, denominator: 9, rate: 3 / 9, excludedNoRetrieval: 1 }
+    expect(buildMeasurementOverview(citationInput(answers)).citationCoverage).toEqual(expected)
+    expect(northTarget(buildMeasurementReport(citationInput(answers))).citationCoverage).toEqual(expected)
+  })
+
+  it('is unavailable only when every answer was written without a search', () => {
+    const unavailable = { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' }
+    expect(buildMeasurementOverview(citationInput(['not-used', 'not-used'])).citationCoverage).toEqual(unavailable)
+    expect(northTarget(buildMeasurementReport(citationInput(['not-used', 'not-used']))).citationCoverage).toEqual(unavailable)
   })
 
   it('still withholds the rate for a missing answer beside an unchecked one', () => {
