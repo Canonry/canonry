@@ -400,6 +400,10 @@ export function AiTrafficHistoryPanel({
   const monthlyHasReadings = monthRows.some(row =>
     (showMonthlyServer && (row.aiReferralLandedHits !== null || row.serverPartial !== null))
     || (showMonthlyGa && (row.ga4Visits !== null || row.ga4Partial !== null)))
+  const currentMonth = monthRows.find(row => row.bucket === monthsRange.until.slice(0, 7))
+  const currentGaVisits = showMonthlyGa ? currentMonth?.ga4Partial ?? null : null
+  const currentServerVisits = showMonthlyServer ? currentMonth?.serverPartial ?? null : null
+  const showCurrentMonth = currentGaVisits !== null || currentServerVisits !== null
 
   // Read from the response rather than re-summed here. AGENTS.md UI/CLI parity:
   // a component must not aggregate. The two also disagree — `totals` covers the
@@ -663,10 +667,25 @@ export function AiTrafficHistoryPanel({
           )}
         </div>
       )}
-      {(monthly ? monthlyReady && monthlyHasReadings : !dailyNotice) && <ResponsiveContainer width="100%" height={olderCountShown ? 192 : 176}>
-        {/* Extra top margin holds the older-count label above the plot, where
-            the line can never run through it. */}
-        <ComposedChart data={visitRows} margin={{ top: olderCountShown ? 20 : 4, right: 8, left: -18, bottom: 0 }}>
+      {showCurrentMonth && currentMonth && (
+        <div role="group" aria-label="Month so far" className="flex flex-wrap items-center gap-x-5 gap-y-1 mb-3 text-label-13 text-secondary">
+          <span className="text-label-13-strong">{formatMonthLabel(currentMonth.bucket)} so far</span>
+          {currentGaVisits !== null && (
+            <span><span className="text-heading text-label-13-strong tabular-nums mr-1">
+              {formatNumber(currentGaVisits)}</span>visits, GA4</span>
+          )}
+          {currentServerVisits !== null && (
+            <span><span className="text-heading text-label-13-strong tabular-nums mr-1">
+              {formatNumber(currentServerVisits)}</span>visits, server</span>
+          )}
+          <span className="flex items-center gap-1.5">
+            Hollow dots: partial months
+            <InfoTooltip text="Hollow dots show part-month totals. The current month is still filling; earlier partial months have incomplete coverage. Partial months are kept off the connecting line and out of the trend." />
+          </span>
+        </div>
+      )}
+      {(monthly ? monthlyReady && monthlyHasReadings : !dailyNotice) && <ResponsiveContainer width="100%" height={176}>
+        <ComposedChart data={visitRows} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
           <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
           <XAxis dataKey="bucket" tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE}
                  tickFormatter={monthly ? formatMonthTick : formatChartDateTick} minTickGap={monthly ? 8 : 28} />
@@ -687,8 +706,7 @@ export function AiTrafficHistoryPanel({
               even where the shading is faint. */}
           {visitOlder && olderCountShown && (
             <ReferenceArea x1={visitOlder.from} x2={visitOlder.to} fill="var(--color-overlay-hover)"
-                           fillOpacity={0.3} stroke="none"
-                           label={{ value: 'older server count, may read high', position: 'top', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
+                           fillOpacity={0.3} stroke="none" />
           )}
           {visitOlder && olderCountShown && (
             <ReferenceLine x={visitOlder.to} stroke={COUNT_CHANGE_COLOR} strokeDasharray="4 4" strokeWidth={1.5} />
