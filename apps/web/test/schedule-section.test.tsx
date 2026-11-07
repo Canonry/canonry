@@ -7,13 +7,23 @@ import { getApiV1ProjectsByNameSchedulesQueryKey } from '@canonry/canonry-api-cl
 import { ScheduleSection, SCHEDULE_COPY } from '../src/components/project/ScheduleSection.js'
 import { heyClient, type ApiSchedule } from '../src/api.js'
 import { createQueryClient } from '../src/queries/query-client.js'
-import { jsonResponse, mockFetch } from './mock-fetch.js'
+import { jsonResponse, mockFetch as baseMockFetch } from './mock-fetch.js'
 
 afterEach(() => {
   cleanup()
   delete window.__CANONRY_CONFIG__
   focusManager.setFocused(undefined)
 })
+
+function mockFetch(handler: Parameters<typeof baseMockFetch>[0]) {
+  return baseMockFetch((url, init) => {
+    if (url.includes('/schedule/preview')) {
+      const timing = JSON.parse(String(init?.body)) as { timezone: string }
+      return jsonResponse({ cronExpr: '0 6 * * *', recurrence: null, timezone: timing.timezone, nextRunAt: '2026-08-07T06:00:00.000Z' })
+    }
+    return handler(url, init)
+  })
+}
 
 function makeSchedule(overrides: Partial<ApiSchedule> = {}): ApiSchedule {
   return {
@@ -272,7 +282,7 @@ test('blocks an open editor when focus finds a newer schedule', async () => {
   expect(screen.queryByRole('alert')).toBeNull()
   expect(frequency.value).toBe('custom')
   expect((screen.getByPlaceholderText('0 9 * * 1-5') as HTMLInputElement).value).toBe('0 11 * * 1-5')
-  expect((screen.getByRole('button', { name: 'Save schedule' }) as HTMLButtonElement).disabled).toBe(false)
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Save schedule' }) as HTMLButtonElement).disabled).toBe(false))
 })
 
 test('revalidates before saving and refuses a version that changed after editing began', async () => {
@@ -304,6 +314,7 @@ test('revalidates before saving and refuses a version that changed after editing
 
   expect(await screen.findByText('0 6 * * *')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Edit schedule' }))
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Save schedule' }) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }))
 
   expect((await screen.findByRole('alert')).textContent).toContain('This schedule changed elsewhere.')
@@ -352,6 +363,7 @@ test('does not call its own successful save an external change while the respons
 
   fireEvent.click(await screen.findByRole('button', { name: SCHEDULE_COPY.edit }))
   fireEvent.change(screen.getAllByRole('combobox')[1]!, { target: { value: '9' } })
+  await waitFor(() => expect((screen.getByRole('button', { name: SCHEDULE_COPY.save }) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button', { name: SCHEDULE_COPY.save }))
 
   await waitFor(() => expect(scheduleReads).toBe(3))
@@ -405,6 +417,7 @@ test('sends the editor version and reloads accessibly after an atomic save confl
 
   expect(await screen.findByText('0 6 * * *')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Edit schedule' }))
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Save schedule' }) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }))
 
   expect((await screen.findByRole('alert')).textContent).toContain('This schedule changed elsewhere.')
@@ -498,6 +511,7 @@ test('creates a native calendar schedule with its local-day anchor and time', as
     return new NativeDateTimeFormat(...args)
   }
   const formatSpy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(MockDateTimeFormat)
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Save schedule' }) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }))
 
   expect(await screen.findByText('Every 14 days starting Sep 23, 2026 at 12:00 AM · New York')).toBeTruthy()
@@ -545,6 +559,7 @@ test('edits a calendar schedule without converting it to cron', async () => {
   fireEvent.change(screen.getByRole('spinbutton', { name: 'Repeat every days' }), { target: { value: '21' } })
   fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-10-14' } })
   fireEvent.change(screen.getByLabelText('Recurrence time'), { target: { value: '09:30' } })
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Save schedule' }) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }))
 
   expect(await screen.findByText('Every 21 days starting Oct 14, 2026 at 9:30 AM · New York')).toBeTruthy()
@@ -578,7 +593,7 @@ test('pauses a calendar schedule while preserving its recurrence payload', async
   expect(screen.queryByText(/Cron:/)).toBeNull()
 })
 
-test.each(['pause', 'edit'] as const)('preserves the pinned engines and unrelated state during schedule %s', async action => {
+test.each(['pause', 'edit', 'resume'] as const)('preserves the pinned engines and unrelated state during schedule %s', async action => {
   const initial = makeSchedule({ providers: ['openai'], enabled: action === 'pause', cronExpr: '', preset: null, recurrence: { everyDays: 14, startDate: '2026-09-23', time: '00:00' }, timezone: 'America/New_York' })
   let payload: Record<string, unknown> | undefined
   const restore = mockFetch((_url, init) => {
@@ -590,7 +605,49 @@ test.each(['pause', 'edit'] as const)('preserves the pinned engines and unrelate
   onTestFinished(() => queryClient.clear())
   render(<QueryClientProvider client={queryClient}><ScheduleSection projectName="citypoint" /></QueryClientProvider>)
   if (action === 'pause') fireEvent.click(await screen.findByRole('button', { name: SCHEDULE_COPY.pause }))
-  else { fireEvent.click(await screen.findByRole('button', { name: SCHEDULE_COPY.edit })); fireEvent.click(screen.getByRole('button', { name: SCHEDULE_COPY.save })) }
+  else if (action === 'resume') {
+    fireEvent.click(await screen.findByRole('button', { name: SCHEDULE_COPY.resume }))
+    expect(payload).toBeUndefined()
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Enable schedule' }) as HTMLButtonElement).disabled).toBe(false))
+    expect(screen.getByText(/Next run:/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Enable schedule' }))
+  }
+  else { fireEvent.click(await screen.findByRole('button', { name: SCHEDULE_COPY.edit })); await waitFor(() => expect((screen.getByRole('button', { name: SCHEDULE_COPY.save }) as HTMLButtonElement).disabled).toBe(false)); fireEvent.click(screen.getByRole('button', { name: SCHEDULE_COPY.save })) }
   await waitFor(() => expect(payload).toBeDefined())
-  expect(payload).toMatchObject({ providers: initial.providers, enabled: false, recurrence: initial.recurrence, timezone: initial.timezone, expectedUpdatedAt: initial.updatedAt })
+  expect(payload).toMatchObject({ providers: initial.providers, enabled: action === 'resume', recurrence: initial.recurrence, timezone: initial.timezone, expectedUpdatedAt: initial.updatedAt })
+})
+
+
+test('requires a matching server preview before enabling a new local-time schedule', async () => {
+  let resolvePreview: ((response: Response) => void) | undefined
+  const writes: Array<{ path: string; body: unknown }> = []
+  onTestFinished(baseMockFetch((url, init) => {
+    if (url.endsWith('/schedules')) return jsonResponse([])
+    if (url.endsWith('/schedule/preview')) return new Promise<Response>(resolve => { resolvePreview = resolve })
+    if (init?.method === 'PUT') {
+      writes.push({ path: url, body: JSON.parse(String(init.body)) })
+      return jsonResponse(makeSchedule())
+    }
+    throw new Error(`Unexpected request ${url}`)
+  }))
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => client.clear())
+  render(<QueryClientProvider client={client}><ScheduleSection projectName="citypoint" /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: '+ Set schedule' }))
+  const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  expect((screen.getByLabelText('Timezone') as HTMLSelectElement).value === localTimezone || screen.getByLabelText('Custom timezone').getAttribute('value') === localTimezone).toBe(true)
+  expect((screen.getByRole('button', { name: SCHEDULE_COPY.save }) as HTMLButtonElement).disabled).toBe(true)
+  await waitFor(() => expect(resolvePreview).toBeDefined())
+  await act(async () => resolvePreview?.(jsonResponse({ cronExpr: '0 6 * * *', recurrence: null, timezone: 'UTC', nextRunAt: '2030-02-03T04:05:00.000Z' })))
+  expect(await screen.findByText(/Next run:/)).toBeTruthy()
+  expect(document.querySelector('time')?.getAttribute('datetime')).toBe('2030-02-03T04:05:00.000Z')
+  expect(writes).toEqual([])
+  resolvePreview = undefined
+  fireEvent.change(screen.getByLabelText('Timezone'), { target: { value: localTimezone === 'America/New_York' ? 'Europe/London' : 'America/New_York' } })
+  expect((screen.getByRole('button', { name: SCHEDULE_COPY.save }) as HTMLButtonElement).disabled).toBe(true)
+  await waitFor(() => expect(resolvePreview).toBeDefined())
+  await act(async () => resolvePreview?.(jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'Schedule timing could not be calculated' } }, 400)))
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Schedule timing could not be calculated')
+  expect((screen.getByRole('button', { name: SCHEDULE_COPY.save }) as HTMLButtonElement).disabled).toBe(true)
+  expect(writes).toEqual([])
 })

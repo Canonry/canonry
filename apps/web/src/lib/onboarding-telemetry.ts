@@ -156,7 +156,7 @@ export function markOnboardingRunLaunched(projectName: string, runId: string): v
  * anything that does not parse — a marker we cannot read is not a marker we
  * should act on.
  */
-export function readOnboardingLaunchedRun(projectName: string | undefined): OnboardingLaunchedRun | null {
+export function readOnboardingLaunchedRun(projectName: string | undefined, includeHandled = false): OnboardingLaunchedRun | null {
   if (!projectName) return null
   try {
     if (typeof window === 'undefined') return null
@@ -165,7 +165,7 @@ export function readOnboardingLaunchedRun(projectName: string | undefined): Onbo
     const parsed: unknown = JSON.parse(raw)
     if (!isLaunchedRun(parsed)) return null
     if (parsed.projectName !== projectName) return null
-    if (parsed.handled) return null
+    if (parsed.handled && !includeHandled) return null
     return parsed
   } catch {
     return null

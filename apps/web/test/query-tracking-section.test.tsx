@@ -39,7 +39,7 @@ function workspace() {
   return {
     mode: 'advanced',
     workspaceVersion,
-    active,
+    active: active as typeof active | null,
     defaultContexts: [context],
     targets: [{ stableKey: 'acme', label: 'Acme' }],
     groups: [{ stableKey: 'north-east', label: 'North East', targetKeys: ['acme'] }],
@@ -234,19 +234,19 @@ test('leaves no audience after the last property is unchecked and requires an ex
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'How does Acme compare?' } })
   chooseContext()
   const review = screen.getByRole('button', { name: 'Review changes' })
   expect(review.hasAttribute('disabled')).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Change tracking destination' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
-  expect((screen.getByRole('checkbox', { name: 'Every location (1)' }) as HTMLInputElement).checked).toBe(false)
-  expect(screen.getByText('Choose at least one location, group, or market.')).toBeTruthy()
+  expect((screen.getByRole('checkbox', { name: 'Every Property (1)' }) as HTMLInputElement).checked).toBe(false)
+  expect(screen.getByText('Choose at least one Property, group, or market.')).toBeTruthy()
   expect(review.hasAttribute('disabled')).toBe(true)
   fireEvent.click(review)
   expect(requests).toEqual([])
 
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Every location (1)' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Every Property (1)' }))
   expect(review.hasAttribute('disabled')).toBe(false)
   fireEvent.click(review)
   await screen.findByRole('heading', { name: 'Confirm tracked query changes' })
@@ -266,15 +266,15 @@ test('starts a project-scope Add with no destination chosen and Review disabled'
   renderWorkspace()
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'How does Acme compare?' } })
   chooseContext()
 
   const applyTo = screen.getByRole('group', { name: 'Apply to' })
   expect(within(applyTo).getAllByRole('checkbox')).toHaveLength(4)
-  for (const name of ['Every location (1)', 'Acme, Property', 'North East, Group', 'New York, Market']) {
+  for (const name of ['Every Property (1)', 'Acme, Property', 'North East, Group', 'New York, Market']) {
     expect(within(applyTo).getByRole('checkbox', { name })).toHaveProperty('checked', false)
   }
-  expect(within(applyTo).getByText('Choose at least one location, group, or market.')).toBeTruthy()
+  expect(within(applyTo).getByText('Choose at least one Property, group, or market.')).toBeTruthy()
   const review = screen.getByRole('button', { name: 'Review changes' })
   expect(review.hasAttribute('disabled')).toBe(true)
   fireEvent.click(review)
@@ -295,8 +295,8 @@ test('sends Every location as the explicit list of every location key', async ()
   renderWorkspace()
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Which platform fits our team?' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Every location (3)' }))
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Which platform fits our team?' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Every Property (3)' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
@@ -328,12 +328,12 @@ test.each([
   renderWorkspace({ selection: { measurementScope: scope, measurementScopeKey: key, queryClass: 'all' } })
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Which platform fits our team?' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Which platform fits our team?' } })
   const change = screen.queryByRole('button', { name: 'Change tracking destination' })
   if (change) fireEvent.click(change)
 
   const applyTo = screen.getByRole('group', { name: 'Apply to' })
-  for (const name of ['Every location (1)', 'Acme, Property', 'North East, Group', 'New York, Market']) {
+  for (const name of ['Every Property (1)', 'Acme, Property', 'North East, Group', 'New York, Market']) {
     expect(within(applyTo).getByRole('checkbox', { name })).toHaveProperty('checked', name === checkbox)
   }
   if (scope !== 'market') chooseContext()
@@ -356,14 +356,14 @@ test('starts with the question, preserves written text, and keeps required measu
   renderWorkspace()
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
-  const text = screen.getByLabelText('Question')
+  const text = screen.getByLabelText('Query')
   const source = screen.getByLabelText('Query source')
   expect(text.compareDocumentPosition(source) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(screen.getByRole('option', { name: 'Write a question' })).toBeTruthy()
+  expect(screen.getByRole('option', { name: 'Write a query' })).toBeTruthy()
   fireEvent.change(text, { target: { value: 'Which platform fits our team?' } })
   fireEvent.change(source, { target: { value: 'research' } })
   fireEvent.change(source, { target: { value: 'manual' } })
-  expect((screen.getByLabelText('Question') as HTMLTextAreaElement).value).toBe('Which platform fits our team?')
+  expect((screen.getByLabelText('Query') as HTMLTextAreaElement).value).toBe('Which platform fits our team?')
   const options = screen.getByLabelText('Classification').closest('details')!
   expect(options).not.toBeNull()
   expect(options.open).toBe(false)
@@ -450,7 +450,7 @@ test('shows only in-group properties and relationships for a shared query', asyn
   expect(within(row).queryByText(/Downtown/)).toBeNull()
 })
 
-const advancedResetNotice = 'After you publish, AI Visibility keeps showing the last check until the next check. Location pages and competitor results show no numbers until then. Past answers are kept.'
+const advancedResetNotice = 'After you publish, AI Visibility keeps showing the last check until the next check. Property pages and competitor results show no numbers until then. Past answers are kept.'
 const sweepActiveMessage = 'A check is queued or running. Publish after it finishes.'
 const removalDiff = { added: [], removed: [{ queryId: 'query-acme', queryText: 'Acme pricing', assignmentCount: 1 }], reused: [], unchanged: [], noOp: false }
 const removalWorkload = { existingNodes: 2, existingProviderCalls: 2, nextSweepNodes: 1, nextSweepProviderCalls: 1, addedNodes: 0, addedProviderCalls: 0, removedNodes: 1, removedProviderCalls: 1 }
@@ -547,6 +547,26 @@ test.each([
   expect(getToasts()[0]!.detail).toBe(detail)
 })
 
+test.each(['simple', 'advanced'])('closes and resets a successful Add query in %s mode', async mode => {
+  installWorkspaceApi(path => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ mode }))
+    if (path.endsWith('/query-tracking/commit')) return jsonResponse({ committed: true, mode, workspaceVersion, reviewedAt: '2026-09-04T12:15:00.000Z', active, diff: preview().diff, workload: preview().workload })
+    throw new Error(`Unexpected fetch: ${path}`)
+  }, [], { ...workspace(), mode, savedSources: { research: [], discovery: [] } })
+  renderWorkspace({ selection: { measurementScope: mode === 'advanced' ? 'property' : 'project', measurementScopeKey: mode === 'advanced' ? 'acme' : undefined, queryClass: 'all' } })
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  fireEvent.change(screen.getByRole('textbox', { name: /^(Query|Question)$/ }), { target: { value: 'A new query' } })
+  if (mode === 'advanced') chooseContext()
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Confirm changes' }))
+  await waitFor(() => expect(screen.queryByRole('textbox', { name: /^(Query|Question)$/ })).toBeNull())
+  const add = screen.getByRole('button', { name: 'Add query' })
+  expect(document.activeElement).toBe(add)
+  fireEvent.click(add)
+  expect(screen.getByRole('textbox', { name: /^(Query|Question)$/ })).toHaveProperty('value', '')
+})
+
 test.each([true, false])('pauses Confirm while a sweep is queued or running (sweepActive=%s)', async (sweepActive) => {
   const commits: unknown[] = []
   installWorkspaceApi((path, body) => {
@@ -588,13 +608,13 @@ test('clears the previous confirmation while a changed draft awaits a new previe
   renderWorkspace()
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'New question' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'New question' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByRole('heading', { name: 'Confirm tracked query changes' })
 
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Acme pricing' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme pricing' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await waitFor(() => expect(finishPreview).toBeTypeOf('function'))
   expect(screen.queryByRole('button', { name: 'Confirm changes' })).toBeNull()
@@ -634,7 +654,7 @@ test('filters tracked queries by the URL-owned query type and exposes each assig
 
   await screen.findByText('Acme pricing')
   expect(screen.queryByText('Best AEO platform')).toBeNull()
-  expect(screen.getByText('1 saved query record in this view. Each record can have more than one property, group, or market assignment.')).toBeTruthy()
+  expect(screen.getByText('1 query')).toBeTruthy()
 
   const queryType = screen.getByRole('combobox', { name: 'Query type' })
   expect(queryType).toHaveProperty('value', 'branded')
@@ -675,7 +695,8 @@ test('lets measurement and action columns size to their contents inside the scro
     expect(actionCell.classList.contains('measurement-table-actions')).toBe(true)
     expect(measurementCell.classList.contains('whitespace-nowrap')).toBe(true)
     expect(edit.parentElement?.classList.contains('min-w-max')).toBe(true)
-    expect(measurementCell.textContent).toBe(row.state === 'tracked' ? 'Measured' : 'Awaiting check')
+    expect(within(measurementCell as HTMLElement).getByText(row.state === 'tracked' ? 'Measured' : 'Awaiting check')).toBeTruthy()
+    if (row.state === 'tracked' && row.lastMeasuredAt) expect(measurementCell.querySelector('time')?.dateTime).toBe(row.lastMeasuredAt)
   }
 })
 
@@ -733,7 +754,7 @@ test('requires a selected context for an advanced addition, then uses the server
 
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Acme pricing' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme pricing' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   chooseContext()
@@ -779,7 +800,7 @@ test('sends one explicitly selected context for a new advanced group assignment'
 
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'New group query' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'New group query' } })
   fireEvent.click(screen.getByRole('checkbox', { name: /^North East/ }))
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   chooseContext('New York')
@@ -811,7 +832,7 @@ test('requires an explicit context when a market is combined with a group', asyn
 
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Mixed scope query' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Mixed scope query' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'New York, Market' }))
   expect(screen.queryByLabelText('Location and engines')).toBeNull()
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
@@ -967,7 +988,7 @@ test.each([
   expect(screen.queryByLabelText('Query source')).toBeNull()
   expect(screen.queryByLabelText('Location and engines')).toBeNull()
   expect(screen.queryByRole('checkbox', { name: 'Beta, Property' })).toBeNull()
-  expect(screen.getByText('Existing locations and engines are preserved. Use Add query to create assignments in another scope.')).toBeTruthy()
+  expect(screen.getByText('Locations and engines stay unchanged.')).toBeTruthy()
 })
 
 test('reviews an untouched multi-property edit as a no-op without rewriting classifications', async () => {
@@ -1203,7 +1224,7 @@ test.each([false, true])('keeps reused-query classifications collapsed until req
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Acme pricing' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme pricing' } })
   fireEvent.click(screen.getByText('Measurement options', { selector: 'summary' }))
   fireEvent.change(screen.getByLabelText('Classification'), { target: { value: 'non-brand' } })
   chooseContext()
@@ -1231,7 +1252,7 @@ test('sends an explicit class only when the operator overrides server classifica
 
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Enterprise AEO platform' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Enterprise AEO platform' } })
   fireEvent.change(screen.getByLabelText('Classification'), { target: { value: 'non-brand' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
@@ -1254,8 +1275,7 @@ test('does not offer a template source when this portfolio has no saved template
 
   const source = screen.getByLabelText('Query source') as HTMLSelectElement
   expect([...source.options].map(option => option.textContent)).not.toContain('Saved template')
-  expect(screen.getByText('No saved templates are set up for this portfolio. Write a question, or use saved research or a discovery result.')).toBeTruthy()
-  expect(source.getAttribute('aria-describedby')).toBe('tracking-query-source-no-templates')
+  expect(source.getAttribute('aria-describedby')).toBeNull()
 })
 
 test('requires a market for a saved market template before sending its identity and pattern for expansion', async () => {
@@ -1282,12 +1302,12 @@ test('requires a market for a saved market template before sending its identity 
   chooseContext()
   const review = screen.getByRole('button', { name: 'Review changes' })
   expect(review.hasAttribute('disabled')).toBe(true)
-  expect(screen.getByText('Choose a Market under Apply to for this template. A location alone does not select a market.')).toBeTruthy()
+  expect(screen.getByText('Choose a Market under Apply to for this template. A Property alone does not select a market.')).toBeTruthy()
   fireEvent.click(review)
   expect(previewBody).toBeUndefined()
 
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'manual' } })
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'How does Acme compare?' } })
   expect(review.hasAttribute('disabled')).toBe(false)
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'template' } })
   expect(review.hasAttribute('disabled')).toBe(true)
@@ -1314,6 +1334,7 @@ test('requires a market for a saved market template before sending its identity 
 test.each(['non-brand', 'branded'] as const)('keeps all Simple tracked rows visible when the shared URL carries %s', async queryClass => {
   const data = workspace()
   data.mode = 'simple'
+  data.active = null
   data.tracked = data.tracked.map(row => ({ ...row, assignments: [] }))
   installWorkspaceApi(undefined, [], data)
   renderWorkspace({ selection: { measurementScope: 'project', queryClass } })
@@ -1322,6 +1343,8 @@ test.each(['non-brand', 'branded'] as const)('keeps all Simple tracked rows visi
   expect(screen.getByText('Best AEO platform')).toBeTruthy()
   expect(screen.queryByRole('combobox', { name: 'Query type' })).toBeNull()
   expect(screen.queryByRole('columnheader', { name: 'Class' })).toBeNull()
+  expect(screen.queryByRole('columnheader', { name: 'Scope' })).toBeNull()
+  expect(screen.queryByText(/No published measurement|Publish your measurement setup/)).toBeNull()
   expect(screen.queryByText('Unknown')).toBeNull()
 })
 
@@ -1342,8 +1365,8 @@ test('keeps simple measurements classifier-only with no Apply to box and never s
   expect(screen.queryByLabelText('Location and engines')).toBeNull()
   expect(screen.queryByRole('group', { name: 'Apply to' })).toBeNull()
   expect(screen.queryByRole('checkbox')).toBeNull()
-  expect(screen.getByText('Automatic')).toBeTruthy()
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
+  expect(screen.queryByText('Measurement options')).toBeNull()
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'How does Acme compare?' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
   await screen.findByText('Confirm tracked query changes')
@@ -1367,7 +1390,7 @@ test('tells a simple project that a market template cannot be used, without nami
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'template' } })
   fireEvent.change(screen.getByLabelText('Saved template'), { target: { value: 'template-market' } })
-  expect(screen.getByText('This template needs a market, and this project has no markets. Write a question instead.')).toBeTruthy()
+  expect(screen.getByText('This template needs a market, and this project has no markets. Write a query instead.')).toBeTruthy()
   expect(screen.queryByText(/Apply to/)).toBeNull()
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
 })

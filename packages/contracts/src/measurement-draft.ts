@@ -663,6 +663,10 @@ export const measurementSetupResponseSchema = z.object({
   mode: measurementSetupModeSchema,
   /** Whether this project's selected provider roster contains an engine the host can execute now. */
   answerVisibilityProviderReady: z.boolean(),
+  /** True only for a never-published draft that blocks a normal sweep. A
+   * retained draft after deactivation still has mode draft-only, but Simple
+   * sweeps are allowed. Optional only for compatibility with older servers. */
+  requiresPublication: z.boolean().optional(),
   activeRevision: measurementDraftRevisionSchema.nullable(),
   activeSchemaVersion: z.union([z.literal(1), z.literal(2)]).nullable(),
   draft: z.object({

@@ -213,30 +213,31 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
       },
     ]
     return (
-      <section className="page-section-divider">
+      <section className="page-section">
         <Card className="surface-card">
-          <p className="eyebrow eyebrow-soft">Local presence</p>
           <h2>Connect Google Business Profile</h2>
-          <p className="mt-2 max-w-2xl text-copy-14 text-muted">
-            Track local performance, search terms, place-action CTAs, and how your public Maps listing compares to
-            the profile you control. Four steps from the CLI:
+          <p className="mt-2 max-w-2xl text-copy-14 text-secondary">
+            Track your Google Business Profile and local search performance.
           </p>
-          <ol className="mt-5 space-y-4">
-            {steps.map((step, index) => (
-              <li key={step.title} className="grid grid-cols-[1.5rem_1fr] gap-x-3">
-                <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-mono-800 text-label-12-strong tabular-nums text-neutral" aria-hidden="true">
-                  {index + 1}
-                </span>
-                <div className="min-w-0">
-                  <p className="text-copy-14-strong text-strong">{step.title}</p>
-                  <code className="mt-1.5 inline-block w-fit max-w-full overflow-x-auto rounded bg-bg-elevated/80 px-2 py-1 text-label-12-mono text-neutral">
-                    {step.command}
-                  </code>
-                  <p className="mt-1 text-copy-13 text-muted">{step.note}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
+          <details className="mt-4">
+            <summary className="cursor-pointer text-label-14 text-secondary hover:text-primary">Connect using the CLI</summary>
+            <ol className="mt-4 space-y-4">
+              {steps.map((step, index) => (
+                <li key={step.title} className="grid grid-cols-[1.5rem_1fr] gap-x-3">
+                  <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-mono-800 text-label-12-strong tabular-nums text-neutral" aria-hidden="true">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-copy-14-strong text-strong">{step.title}</p>
+                    <code className="mt-1.5 inline-block w-fit max-w-full overflow-x-auto rounded bg-bg-elevated/80 px-2 py-1 text-label-12-mono text-neutral">
+                      {step.command}
+                    </code>
+                    <p className="mt-1 text-copy-13 text-muted">{step.note}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </details>
         </Card>
       </section>
     )
@@ -275,11 +276,10 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
   )
 
   return (
-    <section className="page-section-divider">
-      <Card className="surface-card">
+    <section className="page-section">
+      <div>
         <div className="section-head section-head-inline">
           <div>
-            <p className="eyebrow eyebrow-soft">Local presence</p>
             <h2 className="flex items-center gap-2">
               Google Business Profile
               <InfoTooltip text="How AI answer engines and Maps surface this business: performance, search terms, and how your public listing compares to the profile you control." />
@@ -479,7 +479,7 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
             </div>
           )}
         </div>
-      </Card>
+      </div>
     </section>
   )
 }

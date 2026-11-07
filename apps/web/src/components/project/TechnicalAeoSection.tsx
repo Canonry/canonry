@@ -408,6 +408,8 @@ export function TechnicalAeoSection({
   // `partial` is what a run that hit any crawl budget lands as, which is the
   // normal outcome of a bounded first scan rather than an exceptional one.
   const partialScan = score.runStatus === 'partial'
+  const ChecksContainer = compactCopy ? 'details' : 'section'
+  const firstOnboardingFix = compactCopy ? score.crossCuttingIssues.find(issue => issue.topRecommendations.length > 0) : undefined
   const hasAnyRecommendations = score.crossCuttingIssues.some(
     (issue) => issue.topRecommendations.length > 0,
   )
@@ -536,9 +538,47 @@ export function TechnicalAeoSection({
       </section>
       )}
 
+      {firstOnboardingFix && <section className="border-t border-default py-5" aria-labelledby="first-site-fix-heading">
+        <p className="text-label-12 text-muted">Start here · {firstOnboardingFix.affectedPages} affected pages</p>
+        <h3 id="first-site-fix-heading" className="mt-1 text-heading-16 text-heading">{firstOnboardingFix.factorName}</h3>
+        <p className="mt-2 max-w-2xl text-copy-14 text-secondary">{firstOnboardingFix.topRecommendations[0]}</p>
+      </section>}
+
+
       {afterSummary}
 
-      {integrated ? <SiteHealthTrend trend={siteTrendQuery.data} /> : null}
+      {compactCopy && onboardingEvidencePage ? (
+        <details open={!firstOnboardingFix} className="border-t border-default pt-5"><summary className="cursor-pointer text-label-14 text-secondary">Inspect an audited page</summary><div className="mt-3">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+            <div className="min-w-0">
+              <h3 id="onboarding-page-evidence-heading" className="text-heading-16 text-heading">
+                {onboardingEvidenceNeedsFix ? 'First page to fix' : 'Example audited page'}
+              </h3>
+              <a
+                href={onboardingEvidencePage.url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 block max-w-2xl truncate text-label-14-mono text-link outline-none hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-400"
+                title={onboardingEvidencePage.url}
+              >
+                {onboardingEvidencePage.url}
+              </a>
+            </div>
+            <ToneBadge tone={scoreTone(onboardingEvidencePage.overallScore)}>
+              {Math.round(onboardingEvidencePage.overallScore)}/100
+            </ToneBadge>
+          </div>
+          <PageAuditEvidence
+            audit={onboardingPageAuditQuery.data}
+            isLoading={onboardingPageAuditQuery.isLoading}
+            error={onboardingPageAuditQuery.error}
+            onRetry={() => { void onboardingPageAuditQuery.refetch() }}
+          />
+        </div></details>
+      ) : null}
+
+
+      {integrated && !compactCopy ? <SiteHealthTrend trend={siteTrendQuery.data} /> : null}
 
       {/* Trend */}
       {!integrated && trendRows.length >= 2 ? (
@@ -594,7 +634,8 @@ export function TechnicalAeoSection({
       ) : null}
 
       {/* Factor scorecard — expandable rows reveal which pages fail + how to fix */}
-      <section className={integrated ? 'pt-5' : 'page-section-divider'}>
+      <ChecksContainer className={integrated ? 'pt-5' : 'page-section-divider'}>
+        {compactCopy && <summary className="cursor-pointer text-label-14 text-secondary">All site checks</summary>}
         {integrated ? (
           <div>
             <div className="flex items-center gap-1.5">
@@ -786,37 +827,8 @@ export function TechnicalAeoSection({
             </tbody>
           </table>
         </div>
-      </section>
+      </ChecksContainer>
 
-      {compactCopy && onboardingEvidencePage ? (
-        <section className="border-t border-default pt-5" aria-labelledby="onboarding-page-evidence-heading">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-            <div className="min-w-0">
-              <h3 id="onboarding-page-evidence-heading" className="text-heading-16 text-heading">
-                {onboardingEvidenceNeedsFix ? 'First page to fix' : 'Example audited page'}
-              </h3>
-              <a
-                href={onboardingEvidencePage.url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-1 block max-w-2xl truncate text-label-14-mono text-link outline-none hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-400"
-                title={onboardingEvidencePage.url}
-              >
-                {onboardingEvidencePage.url}
-              </a>
-            </div>
-            <ToneBadge tone={scoreTone(onboardingEvidencePage.overallScore)}>
-              {Math.round(onboardingEvidencePage.overallScore)}/100
-            </ToneBadge>
-          </div>
-          <PageAuditEvidence
-            audit={onboardingPageAuditQuery.data}
-            isLoading={onboardingPageAuditQuery.isLoading}
-            error={onboardingPageAuditQuery.error}
-            onRetry={() => { void onboardingPageAuditQuery.refetch() }}
-          />
-        </section>
-      ) : null}
 
       {/* Opportunities — one structured block per cross-cutting factor */}
       {!integrated && score.crossCuttingIssues.length > 0 ? (

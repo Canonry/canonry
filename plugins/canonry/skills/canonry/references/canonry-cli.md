@@ -222,6 +222,7 @@ cnry snapshot "Acme Corp" --domain acme.example.com --provider-mode api  # all c
 cnry snapshot "Acme Corp" --domain acme.example.com --provider-mode browser --queries "best widget suppliers"
 
 cnry run <project>                             # sweep all configured providers
+cnry run preview <project> --format json       # stored-only workload/admission for the next default full manual sweep
 cnry run <project> --provider gemini           # single provider only
 cnry run <project> --query "alpha" --query "beta"  # scope sweep to a subset of tracked queries (repeatable)
 cnry run <project> --wait                      # block until complete (a batch run: until batch-pending, then exit 0); exit 2 if the run failed
@@ -249,6 +250,8 @@ The newest limited rows retain chronological order. Traffic sync rows include
 `sourceId` when stored, and human output shows failed and partial errors.
 JSON is the API array; JSONL emits each run with its project. With no second
 positional, `run list` retains the sweep shorthand for a project named `list`.
+
+`run preview` reports query classes, engines/models, locations and Advanced published revision/assignments. `expectedRequestCount` counts planned answer slots; `requestCount` excludes unavailable engines and held provider accounts. It makes no provider calls or writes, reserves no work, and does not preview scoped, forced, or all-location overrides. A draft-only Advanced project must be published before an ordinary sweep.
 
 Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 

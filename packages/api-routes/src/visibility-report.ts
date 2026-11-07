@@ -779,6 +779,7 @@ function advancedReaderInput(
   projectId: string,
   active: NonNullable<ReturnType<typeof activeMeasurementPlan>>,
   query: VisibilityReportQuery,
+  includeHistory: boolean,
 ): VisibilityReportReaderInput {
   if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) throw new Error('Expected a v2 active plan')
   const allVersionRows = db.select().from(measurementPlanVersions)
@@ -836,12 +837,13 @@ function advancedReaderInput(
       includeEvidence,
     )
   }
-  const candidates = sourceCandidates.map(candidate => materialize(candidate, candidate.run.id === selectedSource?.run.id))
+  const materializedSources = includeHistory ? sourceCandidates : selectedSource === undefined ? [] : [selectedSource]
+  const candidates = materializedSources.map(candidate => materialize(candidate, candidate.run.id === selectedSource?.run.id))
   const selectedDefinition = candidates.find(candidate => candidate.id === selectedSource?.run.id)?.definition
   const previousInput = (): VisibilityReportPreviousRunInput | null => {
     // A missing or scoped selection is never compared (the reader checks both
     // first), so it needs no predecessor read.
-    if (selectedSource === undefined || selectedSource.run.measurementScope !== null) return null
+    if (!includeHistory || selectedSource === undefined || selectedSource.run.measurementScope !== null) return null
     return readPreviousSweep(() => {
       const predecessor = previousEligibleVisibilityRun(db, projectId, false, selectedSource.run)
       if (predecessor === undefined) return null
@@ -901,21 +903,23 @@ function simpleReaderInput(
   db: DatabaseClient,
   project: { id: string; displayName: string; canonicalDomain: string },
   query: VisibilityReportQuery,
+  includeHistory: boolean,
 ): VisibilityReportReaderInput {
   const sourceRuns = completedVisibilityRuns(db, project.id, true, query)
+  const materializedRuns = includeHistory ? sourceRuns : sourceRuns.slice(0, 1)
   // Apply the run/time predicate before touching sidecars. A long-lived
   // project may have many historical captures, but this report's bounded run
   // selection is the only history it is entitled to reconstruct.
-  const frozen = frozenSimpleDefinitions(db, project.id, sourceRuns.map(run => run.id))
+  const frozen = frozenSimpleDefinitions(db, project.id, materializedRuns.map(run => run.id))
   const selectedRun = sourceRuns.at(0)
-  const candidates = sourceRuns.map(run => simpleRunInput(db, project, run, frozen.get(run.id), run.id === selectedRun?.id))
+  const candidates = materializedRuns.map(run => simpleRunInput(db, project, run, frozen.get(run.id), run.id === selectedRun?.id))
   if (query.runId !== undefined && !candidates.some(run => run.id === query.runId)) {
     throw validationError(`Measurement run "${query.runId}" is not an eligible simple result.`)
   }
   const previousInput = (): VisibilityReportPreviousRunInput | null => {
     // A missing or scoped selection is never compared (the reader checks both
     // first), so it needs no predecessor read.
-    if (selectedRun === undefined || selectedRun.measurementScope !== null) return null
+    if (!includeHistory || selectedRun === undefined || selectedRun.measurementScope !== null) return null
     return readPreviousSweep(() => {
       const predecessor = previousEligibleVisibilityRun(db, project.id, true, selectedRun)
       if (predecessor === undefined) return null
@@ -941,22 +945,26 @@ function simpleReaderInput(
  *
  * Adds each population's change since the previous eligible sweep. An unreadable
  * predecessor leaves the change off without failing the current measurement.
+ * Composite headlines omit history: selection still considers the same run
+ * metadata, but only the selected sweep's evidence is reconstructed.
  */
 export function readVisibilityReport(
   db: DatabaseClient,
   project: { id: string; displayName: string; canonicalDomain: string },
   rawQuery: Record<string, unknown>,
+  options: { includeHistory?: boolean } = {},
 ) {
   const query = parseQuery(rawQuery)
+  const includeHistory = options.includeHistory !== false
   const active = activeMeasurementPlan(db, project.id)
   const mode = query.mode === 'auto' ? (active === null ? 'simple' : 'advanced') : query.mode
   try {
     if (mode === 'advanced') {
       if (active === null) throw validationError('This project has no advanced measurement plan.')
       if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return unsupportedAdvancedResponse(query, active)
-      return buildVisibilityReport(advancedReaderInput(db, project.id, active, query))
+      return buildVisibilityReport(advancedReaderInput(db, project.id, active, query, includeHistory))
     }
-    const simple = simpleReaderInput(db, project, query)
+    const simple = simpleReaderInput(db, project, query, includeHistory)
     // Simple mode reads planless sweeps only. On a v2 project with no planless
     // sweep at all, the default read would answer "not measured", which reads
     // as an empty project rather than as the wrong mode. Refuse only that

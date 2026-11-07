@@ -4,6 +4,7 @@ import { waitFor } from '@testing-library/react'
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
+  getApiV1ProjectsByNameRunPreviewOptions,
   getApiV1ProjectsByNameGoogleGscPerformanceOptions,
   getApiV1ProjectsByNameBingStatusOptions,
   getApiV1ProjectsByNameGaStatusOptions,
@@ -61,6 +62,7 @@ test.each(['simple', 'advanced'])('%s project writes refresh generated and compo
     }
     if (requestPath === path) return jsonResponse({ id: 'alpha-id', name, configRevision: revision, measurement: mode === 'advanced' ? { revision } : null })
     if (requestPath === `${path}/query-tracking`) return jsonResponse({ revision })
+    if (requestPath === `${path}/run-preview`) return jsonResponse({ requestCount: revision })
     if (requestPath === '/api/v1/projects/beta') {
       otherReads += 1
       return jsonResponse({ id: 'beta-id', name: 'beta', configRevision: 9 })
@@ -75,6 +77,8 @@ test.each(['simple', 'advanced'])('%s project writes refresh generated and compo
   const trackingOptions = getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name } })
   const tracking = new QueryObserver(queryClient, { ...trackingOptions, staleTime: Infinity })
   onTestFinished(tracking.subscribe(() => {}))
+  const preview = new QueryObserver(queryClient, { ...getApiV1ProjectsByNameRunPreviewOptions({ client: heyClient, path: { name } }), staleTime: Infinity })
+  onTestFinished(preview.subscribe(() => {}))
   const composite = await observe(queryClient, ['project-dashboard-full', 'alpha-id', 'none', 'overview'], async () => ({ revision }))
   const otherOptions = getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: 'beta' } })
   const other = new QueryObserver(queryClient, { ...otherOptions, staleTime: Infinity })
@@ -90,6 +94,7 @@ test.each(['simple', 'advanced'])('%s project writes refresh generated and compo
 
   await waitFor(() => expect(project.getCurrentResult().data?.configRevision).toBe(2))
   expect(tracking.getCurrentResult().data).toEqual({ revision: 2 })
+  await waitFor(() => expect(preview.getCurrentResult().data?.requestCount).toBe(2))
   expect(composite.getCurrentResult().data).toEqual({ revision: 2 })
   expect(otherReads).toBe(1)
 })
@@ -102,6 +107,7 @@ test('settings saves refresh both settings consumers', async () => {
       return jsonResponse({ configured })
     }
     if (pathOf(url) === '/api/v1/settings') return jsonResponse({ google: { configured } })
+    if (pathOf(url) === '/api/v1/projects/alpha/run-preview') return jsonResponse({ canStart: configured })
     return jsonResponse({})
   })
   onTestFinished(restore)
@@ -109,12 +115,15 @@ test('settings saves refresh both settings consumers', async () => {
   const generated = new QueryObserver(queryClient, getApiV1SettingsOptions({ client: heyClient }))
   onTestFinished(generated.subscribe(() => {}))
   const legacy = await observe(queryClient, ['settings'], fetchSettings)
+  const preview = new QueryObserver(queryClient, getApiV1ProjectsByNameRunPreviewOptions({ client: heyClient, path: { name: 'alpha' } }))
+  onTestFinished(preview.subscribe(() => {}))
   await waitFor(() => expect(generated.getCurrentResult().data?.google.configured).toBe(false))
 
   await updateGoogleAuthConfig({ clientId: 'test-client', clientSecret: 'test-secret' })
 
   await waitFor(() => expect(generated.getCurrentResult().data?.google.configured).toBe(true))
   expect(legacy.getCurrentResult().data?.google.configured).toBe(true)
+  await waitFor(() => expect(preview.getCurrentResult().data?.canStart).toBe(true))
 })
 
 test('YAML apply refreshes cached project views even when they are not mounted', async () => {

@@ -219,7 +219,7 @@ function cellText(value: unknown, column: string): string {
 
 function BingFrame({ status, right, children }: { status?: ReactNode; right?: ReactNode; children: ReactNode }) {
   return (
-    <section className="page-section-divider">
+    <section className="page-section">
       <div className="section-head section-head-inline">
         <div>
           <h2>Bing Webmaster Tools</h2>
@@ -323,7 +323,6 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
         <Card className="surface-card">
           <div className="section-head section-head-inline">
             <div>
-              <p className="eyebrow eyebrow-soft">Connection</p>
               <h3>Domain authorization</h3>
             </div>
             <ToneBadge tone="caution">Not connected</ToneBadge>
@@ -375,7 +374,6 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
         <Card className="surface-card">
           <div className="section-head section-head-inline">
             <div>
-              <p className="eyebrow eyebrow-soft">Connection</p>
               <h3>Domain authorization</h3>
             </div>
             <div className="flex items-center gap-2">
@@ -388,7 +386,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
             </div>
           </div>
           <div className="space-y-3">
-            <div className="material-base px-4 py-3">
+            <div>
               <div className="flex items-center gap-3">
                 <span className="h-2 w-2 rounded-full bg-positive-500" />
                 <span className="text-label-14 text-strong">Authorized for this project domain</span>
@@ -399,16 +397,16 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
               </p>
             </div>
             <div className="grid gap-3 lg:grid-cols-2">
-              <div className="material-base p-3">
+              <div className="min-w-0">
                 <p className="text-label-12 normal-case text-muted">Registered domain</p>
                 <p className="mt-1 text-copy-14 text-strong">{connection.domain}</p>
               </div>
-              <div className="material-base p-3">
+              <div className="min-w-0">
                 <p className="text-label-12 normal-case text-muted">Last auth update</p>
                 <p className="mt-1 text-copy-14 text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '—'}</p>
               </div>
             </div>
-            <div className="material-base p-3">
+            <div>
               <p className="text-label-12 normal-case text-muted">Select site</p>
               {siteList.length > 0 ? (
                 <div className="mt-3 flex flex-col gap-2 lg:flex-row">
@@ -1570,7 +1568,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
               </div>
             )}
             {inspectionResult && (
-              <div className="material-base space-y-1 p-3 text-label-13">
+              <div className="space-y-1 text-label-13">
                 <div className="text-label-13-strong text-strong">{inspectionResult.url}</div>
                 <div className="text-secondary">
                   In index: <span className={inspectionResult.inIndex ? 'text-positive' : 'text-negative'}>{inspectionResult.inIndex ? 'Yes' : 'No'}</span>

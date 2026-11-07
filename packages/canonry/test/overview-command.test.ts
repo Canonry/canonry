@@ -46,6 +46,19 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
       updatedAt: '2026-05-01T00:00:00.000Z',
     },
     latestRun: { run: null, totalRuns: 0 },
+    mentionCoverage: {
+      selection: {
+        mode: 'simple', queryClass: 'all', scope: { id: 'project', label: 'Project', kind: 'project', targetCount: 1 },
+        provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null }, revision: null,
+        run: { id: 'sweep', explicit: false }, provenance: { kind: 'frozen-simple', definitionRevision: null },
+        measurement: { state: 'measured', activeRevision: null, measuredRevision: null, awaitingSweep: false, pendingAssignmentCount: 0, completedAt: '2026-09-01T00:00:00Z' },
+        availability: { state: 'available' },
+      },
+      populations: [
+        { queryClass: 'non-brand', queryCount: 2, answerCount: 2, mentionCoverage: { numerator: 0, denominator: 2, rate: 0 }, citationCoverage: { numerator: 1, denominator: 2, rate: 0.5 } },
+        { queryClass: 'branded', queryCount: 1, answerCount: 1, mentionCoverage: { numerator: 1, denominator: 1, rate: 1 }, citationCoverage: { numerator: 0, denominator: 1, rate: 0 } },
+      ],
+    },
     health: null,
     topInsights: [],
     queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
@@ -191,6 +204,12 @@ describe('canonry overview — human output', () => {
     sentiment.branded.selection = { ...sentiment.branded.selection, mode, revision: mode === 'advanced' ? 4 : null }
     sentiment.nonBrand.selection = { ...sentiment.nonBrand.selection, mode, revision: mode === 'advanced' ? 4 : null }
     const overview = makeOverview({ sentiment })
+    overview.mentionCoverage!.selection = {
+      ...overview.mentionCoverage!.selection,
+      mode,
+      revision: mode === 'advanced' ? 4 : null,
+      provenance: mode === 'advanced' ? { kind: 'frozen-advanced', definitionRevision: 4 } : { kind: 'frozen-simple', definitionRevision: null },
+    }
     const requests: Request[] = []
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       requests.push(input instanceof Request ? input : new Request(input, init))
@@ -226,17 +245,18 @@ describe('canonry overview — human output', () => {
     }
   })
 
-  it('renders Mention, Citation, and Mention Share scores in the hero order', async () => {
+  it('renders non-brand mention coverage with its denominator and branded sibling, never the legacy pooled score', async () => {
     output = await captureOutput(makeOverview())
-    // The dashboard hero shows Mention → Cited → Mention share. CLI must match.
-    const mentionIdx = output.indexOf('Mention   ')
-    const visibilityIdx = output.indexOf('Visibility ')
-    const mentionShareIdx = output.indexOf('Mention share')
-    expect(mentionIdx).toBeGreaterThan(-1)
-    expect(visibilityIdx).toBeGreaterThan(mentionIdx)
-    expect(mentionShareIdx).toBeGreaterThan(visibilityIdx)
-    expect(output).toContain('6 of 8 queries mentioned')
-    expect(output).toContain('6 of 10 brand mentions')
+    expect(output).toContain('Mention · non-brand queries: 0% (0/2 answers)')
+    expect(output).toContain('Mention · branded queries: 100% (1/1 answers)')
+    expect(output).not.toContain('6 of 8 queries mentioned')
+    expect(output).not.toContain('75.0%')
+  })
+
+  it('shows unavailable coverage from an older server without borrowing its pooled score', async () => {
+    output = await captureOutput(makeOverview({ mentionCoverage: undefined }))
+    expect(output).toContain('Mention · non-brand queries: Not measured')
+    expect(output).not.toContain('75.0%')
   })
 
   it('breakdown shows project and competitor mention counts with combined-total %', async () => {
@@ -355,23 +375,27 @@ describe('canonry overview — human output', () => {
 
   it('prints each gauge value as the API sent it, with no sign of its own', async () => {
     const overview = makeOverview()
-    // 2 of 3 is 66.666667% on the wire and "66.7%" in the gauge's value.
-    overview.scores.mention = { ...overview.scores.mention, value: '66.7%', delta: '2 of 3 queries mentioned', progress: 66.666667 }
+    // Coverage formats the server's fraction; legacy pooled gauge values
+    // cannot override either class, even when they look more favorable.
+    overview.scores.mention = { ...overview.scores.mention, value: '99.9%', delta: 'pooled legacy value', progress: 99.9 }
+    overview.mentionCoverage!.populations.find(population => population.queryClass === 'non-brand')!.mentionCoverage = { numerator: 2, denominator: 3, rate: 2 / 3 }
     const lines = (await captureOutput(overview)).split('\n')
     const scoreLine = (prefix: string, tone: string, value: string, delta: string) =>
       `  ${prefix} ${`[${tone}]`.padEnd(11)} ${value.padEnd(8)} ${delta}`
-    expect(lines).toContain(scoreLine('Mention          ', 'positive', '66.7%', '2 of 3 queries mentioned'))
-    expect(lines).toContain(scoreLine('Visibility       ', 'caution', '50.0%', '4 of 8 queries cited'))
+    expect(lines).toContain('  Mention · non-brand queries: 66.7% (2/3 answers)')
+    expect(lines.join('\n')).not.toContain('99.9%')
+    expect(lines).toContain(scoreLine('Cited · all queries', 'caution', '50.0%', '4 of 8 queries cited'))
     expect(lines).toContain(scoreLine('Mention share    ', 'positive', '60.0%', '6 of 10 brand mentions'))
     // A count gauge stays a count, and nothing gains a second sign.
     expect(lines).toContain(scoreLine('Gap queries      ', 'caution', '2', '2 of 8 queries'))
     expect(lines.join('\n')).not.toContain('%%')
   })
 
-  it('shows all 8 scores (no SoV — that field is gone)', async () => {
+  it('keeps scoped mention coverage beside the other score signals', async () => {
     output = await captureOutput(makeOverview())
-    expect(output).toContain('Mention   ')
-    expect(output).toContain('Visibility')
+    expect(output).toContain('Mention · non-brand queries')
+    expect(output).toContain('Mention · branded queries')
+    expect(output).toContain('Cited · all queries')
     expect(output).toContain('Mention share')
     expect(output).toContain('Mention gaps')
     expect(output).toContain('Gap queries')

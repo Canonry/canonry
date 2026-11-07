@@ -96,7 +96,7 @@ import {
   applyReviewedGroupMembership,
   previewGroupMembershipCsv,
 } from './measurement-group-import.js'
-import { resolveRunnableProviderSelection, resolveRunProviderSelection } from './run-queue.js'
+import { requiresMeasurementPublication, resolveRunnableProviderSelection, resolveRunProviderSelection } from './run-queue.js'
 import { assertProviderRouteScope } from './provider-models.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import {
@@ -666,6 +666,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       }).runnableProviders.length > 0,
       activeRevision: active?.revision ?? null,
       activeSchemaVersion,
+      requiresPublication: requiresMeasurementPublication(app.db, project.id),
       draft: draft ? { etag: measurementDraftEtag(draft.etagVersion), updatedAt: draft.updatedAt } : null,
     }
   })

@@ -974,32 +974,20 @@ const baseDashboard: DashboardVm = {
     projects: [
       {
         project: projects[0],
-        mentionScore: 61,
-        mentionDelta: '-8 this week',
-        mentionTone: 'caution',
+        mentionPopulations: [{ queryClass: 'non-brand', queryCount: 100, answerCount: 100, mentionCoverage: { numerator: 61, denominator: 100, rate: 0.61 }, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'no-population' } }],
         lastRun: runCitypointVisibility,
-        insight: 'Lost emergency-intent citations after competitors refreshed availability pages.',
-        trend: [73, 71, 69, 66, 61],
         competitorPressureLabel: 'High',
       },
       {
         project: projects[1],
-        mentionScore: 74,
-        mentionDelta: '+2 this week',
-        mentionTone: 'positive',
+        mentionPopulations: [{ queryClass: 'non-brand', queryCount: 100, answerCount: 100, mentionCoverage: { numerator: 74, denominator: 100, rate: 0.74 }, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'no-population' } }],
         lastRun: runHarborVisibility,
-        insight: 'Practice-area consolidation is stabilizing branded and informational prompts.',
-        trend: [68, 70, 71, 73, 74],
         competitorPressureLabel: 'Moderate',
       },
       {
         project: projects[2],
-        mentionScore: 58,
-        mentionDelta: 'Run in progress',
-        mentionTone: 'caution',
+        mentionPopulations: [{ queryClass: 'non-brand', queryCount: 100, answerCount: 100, mentionCoverage: { numerator: 58, denominator: 100, rate: 0.58 }, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'no-population' } }],
         lastRun: runNorthstarVisibility,
-        insight: 'Location pages are improving, but local treatment proof still trails competitors.',
-        trend: [52, 54, 55, 57, 58],
         competitorPressureLabel: 'Moderate',
       },
     ],
@@ -1265,9 +1253,8 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     }
 
     if (portfolioProject) {
-      portfolioProject.mentionScore = 49
-      portfolioProject.mentionDelta = '-12 in 48h'
-      portfolioProject.insight = 'Sharp citation drop detected; grounding now prefers competitors on multiple high-intent prompts.'
+      const nonBrand = portfolioProject.mentionPopulations?.find(population => population.queryClass === 'non-brand')
+      if (nonBrand) nonBrand.mentionCoverage = { numerator: 49, denominator: 100, rate: 0.49 }
     }
   }
 

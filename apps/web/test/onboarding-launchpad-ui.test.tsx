@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import {
   getApiV1ProjectsQueryKey,
+  getApiV1RunsByIdQueryKey,
   getApiV1TelemetryQueryKey,
 } from '@canonry/canonry-api-client/react-query'
 
@@ -62,7 +63,7 @@ afterEach(() => {
 })
 
 async function renderSetup(
-  pathname = '/setup',
+  pathname = '/setup?siteScan=scan',
   options: {
     seedEmptyProjectsCache?: boolean
     mappedProjectName?: string
@@ -122,25 +123,32 @@ async function renderSetup(
   }
 }
 
-test('defaults a fresh install to the domain-first Site Health flow', async () => {
+test('defaults a fresh install to website and brand without scan consent', async () => {
   const restore = mockFetch((url) => pathOf(url) === '/api/v1/projects'
     ? jsonResponse([])
     : jsonResponse({}))
   onTestFinished(restore)
 
-  await renderSetup()
+  await renderSetup('/setup')
 
-  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Track your brand in AI answers' })).toBeTruthy()
+  expect(screen.getByRole('textbox', { name: 'Website URL' })).toBeTruthy()
+  expect(screen.getByRole('textbox', { name: 'Brand name' })).toBeTruthy()
+  expect(screen.queryByRole('checkbox', { name: /Allow Canonry/i })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Continue' })).toHaveProperty('disabled', true)
+  expect(screen.getByRole('link', { name: 'Scan site first' }).getAttribute('href')).toBe('/setup?experience=platform&siteScan=scan')
   expect(screen.queryByText('Step 2 of 5')).toBeNull()
   expect(screen.getByText('Use your agent instead')).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Copy new-install request' })).toBeTruthy()
+  expect(screen.getByText('Use your agent instead').closest('details')).toHaveProperty('open', false)
 })
 
 test('keeps new local installation instructions out of the launchpad when local agent setup is disabled', async () => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform', showLocalAgentSetup: false } }
   await renderSetup()
 
-  const agentOption = await screen.findByRole('region', { name: 'Use your agent instead' })
+  const agentSummary = await screen.findByText('Use your agent instead')
+  const agentOption = agentSummary.closest('details')!
+  fireEvent.click(agentSummary)
   expect(within(agentOption).getByRole('link', { name: 'Agent setup' }).getAttribute('href')).toBe('/agent-setup')
   expect(within(agentOption).getByText('Connect ChatGPT or Claude Desktop to this instance.')).toBeTruthy()
   expect(within(agentOption).queryByRole('button', { name: 'Copy new-install request' })).toBeNull()
@@ -154,7 +162,7 @@ test('the legacy rescue query wins over an enabled platform flag', async () => {
   expect(await screen.findByRole('heading', { name: 'Create project' })).toBeTruthy()
 })
 
-test('auto resumes Site Health for an existing project instead of the provider-gated wizard', async () => {
+test('auto resumes an unscanned project directly into its first AI check', async () => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
   const restore = mockFetch((url) => pathOf(url) === '/api/v1/projects'
     ? jsonResponse([{
@@ -170,16 +178,17 @@ test('auto resumes Site Health for an existing project instead of the provider-g
     : jsonResponse([]))
   onTestFinished(restore)
 
-  const { router } = await renderSetup('/setup')
+  const { router } = await renderSetup('/setup', { mappedProjectName: 'example-com', providerReady: false })
 
   await waitFor(() => {
     expect(router.state.location.search).toMatchObject({
-      onboarding: 'site-health',
+      experience: 'legacy',
+      onboarding: 'first-run',
       setupProject: 'example-com',
     })
   })
-  expect(await screen.findByRole('region', { name: 'Explicit Site Health' })).toBeTruthy()
-  expect(screen.getByText('example-com:project-example:latest:true')).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Add queries' })).toBeTruthy()
+  expect(screen.queryByRole('region', { name: 'Explicit Site Health' })).toBeNull()
   expect(screen.queryByText('Launch is blocked until at least one provider is configured.')).toBeNull()
   expect(screen.queryByRole('heading', { name: 'System check' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Scan your site' })).toBeNull()
@@ -226,7 +235,7 @@ test('auto resume pins the project\'s latest scan so the resumed session can rep
       siteHealthRunId: 'run_active',
     })
   })
-  expect(screen.getByText('example-com:project-example:run_active:true')).toBeTruthy()
+  expect(await screen.findByText('example-com:project-example:run_active:true')).toBeTruthy()
 })
 
 test('auto resume leaves a scanned install on the wizard instead of reopening first-run setup', async () => {
@@ -571,6 +580,29 @@ test('arriving at a scan without the launchpad hand-off is a resume', async () =
   expect(await siteHealthStartEvent(false)).toMatchObject({ surface: 'site_health', resumed: true })
 })
 
+test('reloading a finished onboarding scan does not report its outcome twice', async () => {
+  const events: Array<Record<string, unknown>> = []
+  const run = { id: 'finished-onboarding-scan', projectId: AUTO_RESUME_PROJECT.id, kind: 'site-audit', status: 'completed', createdAt: '2026-09-05T12:00:00Z' }
+  onTestFinished(mockFetch((url, init) => {
+    const path = pathOf(url)
+    if (path === '/api/v1/telemetry/onboarding') {
+      events.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return jsonResponse({ accepted: true }, 202)
+    }
+    if (path === '/api/v1/projects') return jsonResponse([AUTO_RESUME_PROJECT])
+    if (path === `/api/v1/runs/${run.id}`) return jsonResponse(run)
+    return jsonResponse([])
+  }))
+  const url = `/setup?onboarding=site-health&setupProject=example-com&siteHealthRunId=${run.id}`
+  await renderSetup(url)
+  await waitFor(() => expect(events.filter(event => event.surface === 'site_health' && event.event === 'onboarding.step_completed' && event.step === 'run')).toHaveLength(1))
+  cleanup()
+  const second = await renderSetup(url)
+  await waitFor(() => expect(second.queryClient.getQueryData(getApiV1RunsByIdQueryKey({ client: heyClient, path: { id: run.id } }))).toMatchObject(run))
+  expect(events.filter(event => event.surface === 'site_health' && event.event === 'onboarding.step_completed' && event.step === 'run')).toHaveLength(1)
+})
+
+
 test('resolveAutoResumeTarget agrees with the serve banner', () => {
   const projects = [
     { id: 'a', name: 'alpha', createdAt: '2026-01-01T00:00:00.000Z' },
@@ -763,11 +795,11 @@ test('keeps the fresh-install launchpad focused until a project exists', async (
 
 test('creates without a crawl and enters provider-free query setup for the exact project', async () => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  const requests: Array<{ path: string; method: string }> = []
+  const requests: Array<{ path: string; method: string; body?: string }> = []
   const restore = mockFetch((url, init) => {
     const path = pathOf(url)
     const method = init?.method ?? 'GET'
-    requests.push({ path, method })
+    requests.push({ path, method, body: typeof init?.body === 'string' ? init.body : undefined })
     if (path === '/api/v1/projects' && method === 'POST') {
       return jsonResponse({
         id: 'project-example',
@@ -789,23 +821,15 @@ test('creates without a crawl and enters provider-free query setup for the exact
     providerReady: false,
   })
 
-  const escape = await screen.findByRole('link', { name: 'Set up without a site scan' })
-  fireEvent.click(escape)
-
-  await waitFor(() => {
-    expect(router.state.location.pathname).toBe('/setup')
-    expect(router.state.location.search).toMatchObject({
-      experience: 'platform',
-      onboarding: 'first-run',
-      siteScan: 'skip',
-    })
-  })
-  expect(await screen.findByRole('heading', { name: 'Create a project' })).toBeTruthy()
-  expect(screen.getByText('No site scan will run.', { exact: false })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Track your brand in AI answers' })).toBeTruthy()
   expect(screen.queryByRole('checkbox', { name: /Allow Canonry to scan/i })).toBeNull()
 
   fireEvent.change(screen.getByLabelText('Website URL'), { target: { value: 'https://www.example.com/pricing' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
+  fireEvent.change(screen.getByLabelText('Brand name'), { target: { value: 'Example Brand' } })
+  fireEvent.click(screen.getByText('Project details'))
+  fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'GB' } })
+  fireEvent.change(screen.getByLabelText('Language'), { target: { value: 'fr' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
   expect(await screen.findByRole('heading', { name: 'Set up AI Visibility' })).toBeTruthy()
   expect(await screen.findByRole('heading', { name: 'Add queries' })).toBeTruthy()
@@ -818,6 +842,7 @@ test('creates without a crawl and enters provider-free query setup for the exact
   })
   expect(router.state.location.search).not.toHaveProperty('siteScan')
   expect(requests.filter(request => request.path === '/api/v1/projects' && request.method === 'POST')).toHaveLength(1)
+  expect(JSON.parse(requests.find(request => request.path === '/api/v1/projects' && request.method === 'POST')!.body!)).toMatchObject({ displayName: 'Example Brand', country: 'GB', language: 'fr' })
   expect(requests.some(request => request.path.endsWith('/technical-aeo/runs') && request.method === 'POST')).toBe(false)
 })
 
@@ -850,9 +875,12 @@ test('auto waits for a successful authoritative empty project list before showin
   await renderSetup()
 
   expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
-  expect(screen.getByText('Enter your public website to see its pages, structure, internal links, and Technical AEO scores.')).toBeTruthy()
+  expect(screen.getByText('Find page health issues on your public website.')).toBeTruthy()
   const setupForm = screen.getByRole('form', { name: 'Scan your site' })
-  const agentOption = screen.getByRole('region', { name: 'Use your agent instead' })
+  const agentSummary = screen.getByText('Use your agent instead')
+  const agentOption = agentSummary.closest('details')!
+  expect(agentOption.open).toBe(false)
+  fireEvent.click(agentSummary)
   expect(Boolean(setupForm.compareDocumentPosition(agentOption) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   expect(screen.getByText('Connect your agent to this instance, or copy a request for a new local installation.')).toBeTruthy()
   expect(within(agentOption).getByRole('link', { name: 'Agent setup' }).getAttribute('href')).toBe('/agent-setup')
@@ -862,8 +890,7 @@ test('auto waits for a successful authoritative empty project list before showin
   expect(agentGuide.getAttribute('rel')).toContain('noopener')
   expect(agentGuide.getAttribute('rel')).toContain('noreferrer')
   expect(screen.getByLabelText('Website URL')).toHaveProperty('required', true)
-  expect(screen.getByText('Only public pages are scanned.')).toBeTruthy()
-  expect(screen.getByText('Project name and locale')).toBeTruthy()
+  expect(screen.getByText('Project details')).toBeTruthy()
   expect(screen.getByText('United States · English')).toBeTruthy()
   const crawlApproval = screen.getByRole('checkbox', {
     name: 'Allow Canonry to scan this public site.',
@@ -893,7 +920,7 @@ test('the launchpad form stays compact beside a mouse and gives each control a 4
 
   const targets = [
     await screen.findByLabelText('Website URL'),
-    screen.getByText('Project name and locale').closest('summary')!,
+    screen.getByText('Project details').closest('summary')!,
     screen.getByRole('button', { name: 'Scan site' }),
   ]
   expect(await minHeights(targets)).toEqual([[0, 44, 44], [36, 44, 44], [0, 44, 44]])
@@ -906,7 +933,7 @@ test('offers accessible supported locale selects with exact API codes', async ()
   await renderSetup()
 
   await screen.findByLabelText('Website URL')
-  fireEvent.click(screen.getByText('Project name and locale'))
+  fireEvent.click(screen.getByText('Project details'))
   const country = screen.getByRole('combobox', { name: 'Country' }) as HTMLSelectElement
   const language = screen.getByRole('combobox', { name: 'Language' }) as HTMLSelectElement
 
@@ -1172,7 +1199,8 @@ test.each([true, false])('gives an agent a copyable setup request with resource 
   })
 
   await renderSetup()
-  fireEvent.click(await screen.findByRole('button', { name: 'Copy new-install request' }))
+  fireEvent.click(await screen.findByText('Use your agent instead'))
+  fireEvent.click(screen.getByRole('button', { name: 'Copy new-install request' }))
 
   await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
   if (showResourceLinks) {
@@ -1215,7 +1243,8 @@ test.each([true, false])('offers clipboard recovery with resource links set to %
   })
 
   await renderSetup()
-  fireEvent.click(await screen.findByRole('button', { name: 'Copy new-install request' }))
+  fireEvent.click(await screen.findByText('Use your agent instead'))
+  fireEvent.click(screen.getByRole('button', { name: 'Copy new-install request' }))
 
   await waitFor(() => {
     expect(getToasts()).toContainEqual(expect.objectContaining({
@@ -1242,10 +1271,10 @@ test('auto confirms a cached empty project list after mount before showing the l
   await renderSetup('/setup', { seedEmptyProjectsCache: true })
 
   expect((await screen.findByRole('status')).textContent).toContain('Loading projects')
-  expect(screen.queryByRole('heading', { name: 'Scan your site' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Track your brand in AI answers' })).toBeNull()
 
   resolveProjects?.(jsonResponse([]))
-  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Track your brand in AI answers' })).toBeTruthy()
 })
 
 test('keeps typed launchpad input mounted through an in-flight shared project refetch', async () => {
@@ -1304,10 +1333,11 @@ test('auto shows a retry shell when the authoritative project-list read fails', 
 
   expect(await screen.findByRole('heading', { name: /load projects/i })).toBeTruthy()
   expect(screen.queryByRole('heading', { name: 'Scan your site' })).toBeNull()
-  expect(document.querySelector('.app-shell-focus')).toBeTruthy()
-  expect(document.querySelector('#desktop-sidebar')).toBeNull()
-  expect(document.querySelector('#mobile-nav')).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Open navigation' })).toBeNull()
+  const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+  expect(within(sidebar).getByRole('link', { name: 'Setup', exact: true }).getAttribute('aria-current')).toBe('page')
+  expect(within(sidebar).queryByRole('link', { name: 'Runs', exact: true })).toBeNull()
+  expect(within(sidebar).getByRole('link', { name: 'Settings', exact: true }).getAttribute('href')).toBe('/settings')
+  expect(screen.getByRole('button', { name: 'Open navigation' })).toBeTruthy()
 
   failed = false
   fireEvent.click(screen.getByRole('button', { name: 'Retry project check' }))
@@ -1340,9 +1370,13 @@ test('creates once, queues the canonical Site Health run, and hands off with exa
   })
   onTestFinished(restore)
 
-  const { router } = await renderSetup()
+  const { router } = await renderSetup('/setup')
+  fireEvent.click(await screen.findByRole('link', { name: 'Scan site first' }))
+  await screen.findByRole('heading', { name: 'Scan your site' })
+  expect(router.state.location.search.siteScan).toBe('scan')
+  expect(requests.filter(request => request.method === 'POST' && !request.path.endsWith('/telemetry/onboarding'))).toEqual([])
   fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'https://www.example.com/pricing' } })
-  fireEvent.click(screen.getByText('Project name and locale'))
+  fireEvent.click(screen.getByText('Project details'))
   fireEvent.change(screen.getByRole('combobox', { name: 'Country' }), { target: { value: 'GB' } })
   fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), { target: { value: 'fr' } })
   fireEvent.click(screen.getByRole('checkbox', { name: /Allow Canonry/i }))
@@ -1509,13 +1543,13 @@ test('keeps auto mode on actionable conflict recovery after the project list bec
 
 test('retains public launchpad fields across reload without retaining scan consent and resets deliberately', async () => {
   onTestFinished(mockFetch(() => jsonResponse([])))
-  await renderSetup('/setup?experience=platform')
+  await renderSetup('/setup?experience=platform&siteScan=scan')
   fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'cedar.example' } })
   fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'CA' } })
   fireEvent.change(screen.getByLabelText('Language'), { target: { value: 'fr' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Allow Canonry to scan this public site.' }))
   cleanup()
-  await renderSetup('/setup?experience=platform')
+  await renderSetup('/setup?experience=platform&siteScan=scan')
   expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('cedar.example')
   expect((screen.getByLabelText('Country') as HTMLSelectElement).value).toBe('CA')
   expect((screen.getByLabelText('Language') as HTMLSelectElement).value).toBe('fr')
@@ -1523,7 +1557,7 @@ test('retains public launchpad fields across reload without retaining scan conse
   expect(screen.getByText(/First scan: up to 100 pages/)).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Reset draft' }))
   cleanup()
-  await renderSetup('/setup?experience=platform')
+  await renderSetup('/setup?experience=platform&siteScan=scan')
   expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('')
   expect((screen.getByLabelText('Country') as HTMLSelectElement).value).toBe('US')
 })

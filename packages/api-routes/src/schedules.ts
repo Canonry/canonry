@@ -17,16 +17,16 @@ import {
   scheduleEnabledAt,
   scheduleExpectedUpdatedAtSchema,
   scheduleUpsertRequestSchema,
+  schedulePreviewRequestSchema,
   scheduleVersionConflict,
   validationError,
   notFound,
-  describeError,
 } from '@canonry/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies } from './provider-models.js'
 import type { ProviderAdapterInfo } from './settings.js'
-import { resolvePreset, validateCron, isValidTimezone, nextRunFromSchedule } from './schedule-utils.js'
+import { previewScheduleTiming } from './schedule-utils.js'
 
 /**
  * Resolve the optional `?kind=` query into a SchedulableRunKind. Defaults to
@@ -65,6 +65,14 @@ export interface ScheduleRoutesOptions {
 
 export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesOptions) {
   const routeFamilies = providerRouteFamilies(opts.providerAdapters)
+  app.post<{ Params: { name: string } }>('/projects/:name/schedule/preview', { config: { readSemantic: true } }, async (request, reply) => {
+    requireScope(request, 'read')
+    resolveProject(app.db, request.params.name)
+    const parsed = schedulePreviewRequestSchema.safeParse(request.body)
+    if (!parsed.success) throw validationError('Invalid schedule timing', { issues: parsed.error.issues.map(issue => ({ path: issue.path.join('.'), message: issue.message })) })
+    return reply.send(previewScheduleTiming(parsed.data))
+  })
+
   // PUT /projects/:name/schedule — create or update schedule.
   // Optional `kind` body field (or `?kind=` query) selects which run kind
   // this schedule dispatches. Defaults to 'answer-visibility' for backward
@@ -148,32 +156,10 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     }
 
     assertProviderRouteScope(request, providers ?? [], project.providers, routeFamilies)
-    if (!isValidTimezone(timezone)) {
-      throw validationError(`Invalid timezone: ${timezone}`)
-    }
-
-    let cronExpr: string
-    if (recurrence) {
-      cronExpr = ''
-    } else if (preset) {
-      try {
-        cronExpr = resolvePreset(preset)
-      } catch (err: unknown) {
-        const msg = describeError(err)
-        throw validationError(msg)
-      }
-    } else {
-      cronExpr = cron!
-      if (!validateCron(cronExpr)) {
-        throw validationError(`Invalid cron expression: ${cronExpr}`)
-      }
-    }
-
     const enabledBool = enabled !== false
-    const nextRunAt = enabledBool ? nextRunFromSchedule({ cronExpr, timezone, recurrence }) : null
-    if (recurrence && enabledBool && !nextRunAt) {
-      throw validationError('Calendar recurrence has no valid future occurrence')
-    }
+    const timing = previewScheduleTiming({ preset, cron, recurrence, timezone }, { requireFuture: enabledBool })
+    const { cronExpr } = timing
+    const nextRunAt = enabledBool ? timing.nextRunAt : null
     const mutation = app.db.transaction((tx) => {
       const existing = tx
         .select()

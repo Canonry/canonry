@@ -1295,7 +1295,7 @@ test('buildProjectCommandCenter emits a single history-only row when no location
   expect(geminiRows).toHaveLength(2)
 })
 
-test('buildPortfolioProject carries the mention-rate trend, score, and subtitle from the overview', () => {
+test('buildPortfolioProject preserves separate server mention populations and ignores pooled scores', () => {
   const base: ProjectData = {
     project: {
       id: 'proj_portfolio',
@@ -1345,10 +1345,7 @@ test('buildPortfolioProject carries the mention-rate trend, score, and subtitle 
       providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
-        // The server populates each headline score's trend from runHistory.
-        // Mention is the headline metric the portfolio row reads; give it a
-        // distinct trend + progress from visibility to prove the builder reads
-        // mention, not cited.
+        // Legacy pooled scores deliberately disagree with the canonical class populations.
         mention: { label: 'Mention Coverage', value: '60.0%', delta: '3 of 4 queries mentioned', tone: 'positive', description: '', tooltip: '', trend: [40, 60, 80], progress: 60 },
         visibility: { label: 'Citation Coverage', value: '75.0%', delta: '3 of 4 queries', tone: 'positive', description: '', tooltip: '', trend: [25, 50, 75], progress: 75 },
         mentionShare: { label: 'Mention Share', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [], scope: 'non-brand', breakdown: { projectMentionSnapshots: 0, competitorMentionSnapshots: 0, perCompetitor: [], snapshotsWithAnswerText: 0, snapshotsTotal: 0, score: null }, branded: { projectMentionSnapshots: 0, competitorMentionSnapshots: 0, perCompetitor: [], snapshotsWithAnswerText: 0, snapshotsTotal: 0, score: null } },
@@ -1375,30 +1372,31 @@ test('buildPortfolioProject carries the mention-rate trend, score, and subtitle 
     },
   }
 
-  // The headline metric is Mention Coverage — the portfolio row reads the
-  // mention score + mention trend, NOT the cited/visibility ones. Mention's
-  // trend ([40,60,80]) and progress (60) differ from visibility's so this
-  // proves the builder switched signals.
-  expect(buildPortfolioProject(base).trend).toEqual([40, 60, 80])
-  expect(buildPortfolioProject(base).mentionScore).toBe(60)
-
-  // The headline delta + subtitle both read the MENTION count
-  // (answerMentioned), never the cited count. Seed mentioned≠cited and prove
-  // both track mentioned (1 of 4) rather than cited (3 of 4).
-  const distinctMention = buildPortfolioProject({
-    ...base,
-    overview: {
-      ...base.overview!,
-      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, mentionedQueries: 1, notMentionedQueries: 3, mentionRate: 0.25 },
+  base.overview!.mentionCoverage = {
+    selection: {
+      mode: 'simple', queryClass: 'all', scope: { kind: 'project', id: 'project', label: 'Whole site', targetCount: 1 },
+      provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null }, revision: null,
+      run: { id: 'run_coverage', explicit: false }, provenance: { kind: 'frozen-simple', definitionRevision: null },
+      measurement: { state: 'measured', activeRevision: null, measuredRevision: null, awaitingSweep: false, pendingAssignmentCount: 0 },
+      availability: { state: 'available' },
     },
-  })
-  expect(distinctMention.insight).toBe('1 of 4 queries mentioned across 1 provider.')
-  expect(distinctMention.mentionDelta).toBe('1 of 4 queries')
+    populations: [
+      { queryClass: 'non-brand', queryCount: 4, answerCount: 8, mentionCoverage: { numerator: 1, denominator: 8, rate: 0.125 }, citationCoverage: { numerator: 6, denominator: 8, rate: 0.75 } },
+      { queryClass: 'branded', queryCount: 5, answerCount: 10, mentionCoverage: { numerator: 9, denominator: 10, rate: 0.9 }, citationCoverage: { numerator: 4, denominator: 10, rate: 0.4 } },
+    ],
+  }
+  const mapped = buildPortfolioProject(base)
+  expect(mapped.mentionPopulations).toMatchObject([
+    { queryClass: 'non-brand', queryCount: 4, answerCount: 8, mentionCoverage: { numerator: 1, denominator: 8, rate: 0.125 } },
+    { queryClass: 'branded', queryCount: 5, answerCount: 10, mentionCoverage: { numerator: 9, denominator: 10, rate: 0.9 } },
+  ])
+  expect(mapped.hasMeasurement).toBe(true)
 
-  // Without an overview (no runs yet) the trend is empty and the sparkline no-ops.
-  expect(buildPortfolioProject({ ...base, overview: null }).trend).toEqual([])
+  // An older server's pooled 60% cannot substitute for missing class populations.
+  const olderServer = buildPortfolioProject({ ...base, overview: { ...base.overview!, mentionCoverage: undefined } })
+  expect(olderServer.mentionPopulations).toBeUndefined()
+  expect(olderServer.hasMeasurement).toBeUndefined()
   expect(buildPortfolioProject({ ...base, overview: null }).hasMeasurement).toBe(false)
-  expect(buildPortfolioProject(base).hasMeasurement).toBe(true)
 
   // Quiet-project fallback (#761 class): the capped, 30-day-windowed global runs
   // list yields NO runs for a project quiet for >30 days (`data.runs` empty), so
@@ -1628,4 +1626,11 @@ test.each([
 
   expect(buildProjectCommandCenter(data).project.siteAuditMaxPages).toBe(expected)
   expect(buildPortfolioProject(data).project.siteAuditMaxPages).toBe(expected)
+})
+
+
+test('a completed site scan never claims query execution', () => {
+  const run = { id: 'scan-copy', projectId: 'project', status: 'completed', trigger: 'manual', createdAt: '2026-11-06T12:00:00Z' } as const
+  expect(toRunListItem({ ...run, kind: 'site-audit' }, 'Example').statusDetail).toBe('Scan completed.')
+  expect(toRunListItem({ ...run, kind: 'answer-visibility' }, 'Example').statusDetail).toBe('All queries checked.')
 })

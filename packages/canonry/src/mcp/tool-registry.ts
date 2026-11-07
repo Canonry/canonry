@@ -1,3 +1,4 @@
+import { schedulePreviewDtoSchema, schedulePreviewRequestSchema } from '@canonry/canonry-contracts'
 import { agentJourneysQuerySchema, mcpProfileDtoSchema, journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, trafficUnrecognizedAgentsQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
@@ -1737,7 +1738,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_project_overview',
     title: 'Get project overview (composite)',
-    description: 'Sentiment headline is sentiment.branded; nonBrand is a separate exception population. pooledOverall and deprecated overall are explicitly pooled compatibility figures and must never be reported as a class-specific headline. One-call summary for "how is project X doing?". Returns independent mention and citation coverage, separate query-level movement for each signal, query-basket comparability with added/removed counts, latest run and health, insights, provider/model breakdowns, competitors, attention items, and recent history. Movement excludes queries not shared by both sweeps. Filterable by location and time window. Prefer this over fanning out to separate read tools for the same question. queryClassScope says which figures pool branded and non-brand: the coverage, scores (except scores.mentionShare) and movement count queries across both classes, so never report them as one class or as answers. latestRun.admission describes the scheduled sweep; latestRun.manualAdmission describes a default full manual sweep. Each says whether its provider scope would be refused or skip providers that keep failing on their accounts. They can differ when the schedule names fewer providers; use manualAdmission before a default manual sweep. The latest run\'s status and health are not a completeness check: for expected, executed and missing answers read canonry_measurement_data_quality or, for a plan run, canonry_run_completeness. canonry_doctor checks configuration and integrations, not sweeps. SCOPE LIMIT: this returns nothing about Advanced Measurement: no plan, Targets, Properties, groups, or segments. Its silence is not evidence that a project lacks them. When the system prompt has no Project shape line, call canonry_measurement_plan_get before stating that a project has no Properties, no Advanced plan, or cannot break out per-Property performance; use canonry_measurement_portfolio_summary to rank Properties.',
+    description: 'One-call project summary with latest run, health, insights and movement. mentionCoverage preserves independent branded, non-brand and unknown answer populations with frozen Simple or Advanced selection; default headlines use non-brand. queryClassScope names legacy pooled fields, including scores.mention: never use those as class-specific coverage or as a fallback. Sentiment headline is sentiment.branded; non-brand exceptions remain separate. Read canonry_visibility_report for Property, group and market detail, canonry_run_preview for the next full manual sweep workload and admission, and canonry_run_completeness or canonry_measurement_data_quality for saved-run completeness. Run status and health are not a completeness check; canonry_doctor checks configuration and integrations, not sweeps. When the system prompt has no Project shape line, call canonry_measurement_plan_get before inferring the absence of an Advanced plan or Properties. Filterable by location and time window.',
     access: 'read',
     tier: 'core',
     inputSchema: z.object({
@@ -1956,6 +1957,17 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/runs'],
     handler: (client, input) => client.listRuns(input.project, input.limit, input.kind, input.status, input.excludeKind, input.excludeKinds, input.since),
+  }),
+  defineTool({
+    name: 'canonry_run_preview',
+    title: 'Preview the next manual sweep',
+    description: 'Preview the default full manual sweep without spending or writing. Returns frozen Advanced revision or Simple saved defaults, separate query-class and assignment counts, engines/models, locations, planned answers, runnable requests, and provider holds. requestCount excludes unavailable and held engines; expectedRequestCount includes their planned slots. Does not preview scoped, forced, or all-location launch overrides and does not reserve work. Use before canonry_run_trigger with the default request.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/run-preview'],
+    handler: (client, input) => client.previewRun(input.project),
   }),
   defineTool({
     name: 'canonry_runs_latest',
@@ -2277,6 +2289,18 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/competitors'],
     handler: (client, input) => client.listCompetitors(input.project),
+  }),
+  defineTool({
+    name: 'canonry_schedule_preview',
+    title: 'Preview schedule timing',
+    description: 'Calculate the next occurrence for proposed timing and timezone. Does not save a schedule, enable recurrence, or call a provider.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: projectInputSchema.extend({ timing: schedulePreviewRequestSchema }),
+    outputSchema: schedulePreviewDtoSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['POST /api/v1/projects/{name}/schedule/preview'],
+    handler: (client, input) => client.previewSchedule(input.project, input.timing),
   }),
   defineTool({
     name: 'canonry_schedule_get',

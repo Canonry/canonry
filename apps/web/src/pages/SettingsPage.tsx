@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useLocation } from '@tanstack/react-router'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -36,6 +37,9 @@ export function SettingsPage() {
 }
 
 function SettingsPageBody() {
+  const location = useLocation()
+  const [connectionsOpen, setConnectionsOpen] = useState(false)
+  useEffect(() => { if (location.hash.replace(/^#/, '') === 'browser-connection') setConnectionsOpen(true) }, [location.hash])
   const contextDashboard = useInitialDashboard()
   const { dashboard } = useDashboard()
   const settings = dashboard?.settings ?? contextDashboard?.dashboard?.settings
@@ -65,22 +69,16 @@ function SettingsPageBody() {
       <section className="space-y-6">
         <ProviderConnectionsSection projects={projects.map(project => project.project)} />
 
-        <section>
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Connections</p>
-              <h2>Search and browser</h2>
-            </div>
-          </div>
-          <div className="settings-grid">
+        <details open={connectionsOpen} onToggle={event => setConnectionsOpen(event.currentTarget.open)} className="border-t border-default pt-4">
+          <summary className="cursor-pointer text-label-14 text-heading">Search and browser connections</summary>
+          <div className="settings-grid mt-4">
             <Card className="surface-card">
           <div className="section-head">
             <div>
-              <p className="eyebrow eyebrow-soft">Google</p>
               <h2>Google OAuth</h2>
             </div>
-            <ToneBadge tone={settings.google.state === 'ready' ? 'positive' : 'caution'}>
-              {settings.google.state === 'ready' ? 'Ready' : 'Not connected'}
+            <ToneBadge tone={settings.google.state === 'ready' ? 'neutral' : 'caution'}>
+              {settings.google.state === 'ready' ? 'Configured' : 'Not configured'}
             </ToneBadge>
           </div>
           <p className="mt-2 text-copy-14 text-secondary">{settings.google.detail}</p>
@@ -119,11 +117,10 @@ function SettingsPageBody() {
             <Card className="surface-card">
           <div className="section-head">
             <div>
-              <p className="eyebrow eyebrow-soft">Bing</p>
-              <h2>Webmaster Tools</h2>
+              <h2>Bing Webmaster Tools</h2>
             </div>
-            <ToneBadge tone={settings.bing.state === 'ready' ? 'positive' : 'caution'}>
-              {settings.bing.state === 'ready' ? 'Ready' : 'Not connected'}
+            <ToneBadge tone={settings.bing.state === 'ready' ? 'neutral' : 'caution'}>
+              {settings.bing.state === 'ready' ? 'Configured' : 'Not configured'}
             </ToneBadge>
           </div>
           <p className="mt-2 text-copy-14 text-secondary">{settings.bing.detail}</p>
@@ -151,7 +148,7 @@ function SettingsPageBody() {
             </Button>
           </div>
           {configuringBing && (
-            <div className="mt-3 material-base p-3 space-y-2">
+            <div className="mt-3 space-y-2">
               <div>
                 <div className="flex items-center justify-between">
                   <label className="text-label-14 text-secondary" htmlFor="bing-api-key">API key</label>
@@ -207,15 +204,11 @@ function SettingsPageBody() {
 
             <CdpConfigCard />
           </div>
-        </section>
+        </details>
 
-        <Card className="surface-card">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Service health</p>
-              <h2>API and worker</h2>
-            </div>
-          </div>
+        <details className="border-t border-default pt-4" open={healthSnapshot.apiStatus.state !== 'ok' || healthSnapshot.workerStatus.state !== 'ok' ? true : undefined}>
+          <summary className="cursor-pointer text-label-14 text-heading">Service health</summary>
+          <div className="mt-4">
           <div className="compact-stack">
             <div className="health-row">
               <div>
@@ -240,19 +233,20 @@ function SettingsPageBody() {
               </ToneBadge>
             </div>
           </div>
-        </Card>
+          </div>
+        </details>
       </section>
 
       <details className="page-section">
         <summary className="cursor-pointer text-label-14-strong text-secondary hover:text-strong">Self-hosting details</summary>
-        <Card className="surface-card mt-3">
+        <div className="mt-3">
           <ul className="detail-list">
             {settings.selfHostNotes.map((note) => (
               <li key={note}>{note}</li>
             ))}
           </ul>
           <p className="supporting-copy">{settings.bootstrapNote}</p>
-        </Card>
+        </div>
       </details>
     </div>
   )

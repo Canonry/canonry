@@ -133,8 +133,8 @@ test('a demo project page offers the Aero preview to the read-only visitor', asy
   expect(footer.querySelector('a[href="https://canonry.ai"]')?.textContent).toBe('Canonry')
   expect(footer.querySelector('a[aria-label="Docs"]')).toBeTruthy()
   const rules = parseCompiledCss(await compileAppStyles([...area.classList]))
-  expect(compiledElementProperty(rules, area, 'padding-bottom')).toBe('6rem')
-  expect(compiledDeclarations(rules, 'html:has(.main-area-agent-bar)')['scroll-padding-bottom']).toBe('6rem')
+  expect(compiledElementProperty(rules, area, 'padding-bottom')).toBe('calc(7rem + env(safe-area-inset-bottom))')
+  expect(compiledDeclarations(rules, 'html:has(.main-area-agent-bar)')['scroll-padding-bottom']).toBe('calc(7rem + env(safe-area-inset-bottom))')
 })
 
 test('the same read-only key outside the demo gets no Aero bar', async () => {

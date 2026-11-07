@@ -30,6 +30,8 @@ Retrieval status is `used` when tool-result tokens are positive or the first can
 
 - **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (`src/anchored-spans.ts`) pairs each grounding support's `segment.text` with the site of every chunk it cites: `web.title` (the source domain), since `web.uri` is a Vertex redirect that is never resolved. Segment offsets are UTF-8 bytes and `startIndex` is omitted when 0, so they are never used to slice. Stored data only.
 
+The model catalog is a recommendation list for general-purpose grounded text answers (`GEMINI_ANSWER_MODELS` in `src/list-models.ts`), shared by fallback metadata and live discovery. Do not infer workflow suitability from `generateContent` alone: specialist robotics, image, audio and computer-use models can expose it. Manual model IDs remain supported; catalog omission does not assert a model lacks grounding.
+
 ## Common Mistakes
 
 - **Not normalizing grounding sources to standard `CitedSource` format** — each provider returns different shapes. Normalization must extract domain, URL, and title consistently.

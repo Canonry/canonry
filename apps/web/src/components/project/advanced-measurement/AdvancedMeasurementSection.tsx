@@ -9,7 +9,7 @@ import type {
   MeasurementDraftWarning,
   MeasurementSetupResponse,
 } from '@canonry/canonry-contracts'
-import { isOpenRouterRoute, isSweepProvider } from '@canonry/canonry-contracts'
+import { hostOf, isOpenRouterRoute, isSweepProvider, measurementV2UsageEdgeKey } from '@canonry/canonry-contracts'
 import type { QueryDto } from '@canonry/canonry-api-client'
 import type { MeasurementPlanResponse } from '@canonry/canonry-api-client'
 
@@ -19,6 +19,7 @@ import type {
   AdvancedMeasurementImportDraft,
   AdvancedMeasurementProperty as ImportProperty,
   AdvancedMeasurementReviewState,
+  DraftPropertyInput,
 } from './SetupImportProperties.js'
 import type {
   AdvancedMeasurementFlaggedException,
@@ -29,6 +30,7 @@ import type {
   AdvancedMeasurementGroupDraft,
   AdvancedMeasurementMarketRoutingImpact,
   AdvancedMeasurementMarketRoutingOption,
+  AdvancedMeasurementMarketInput,
   AdvancedMeasurementProperty as SetupProperty,
   AdvancedMeasurementQuery,
 } from './SetupQueriesGroupsReview.js'
@@ -61,6 +63,7 @@ interface ReviewedSetup {
 
 export interface AdvancedMeasurementSectionProps {
   projectName: string
+  projectDomain?: string
   queries: readonly QueryDto[]
   isQueryLoading: boolean
   isQueryError: boolean
@@ -235,7 +238,7 @@ function propertyState(status: DraftTarget['status']): ImportProperty['state'] {
 
 function includedPropertyIdsFor(draft: Draft | null | undefined): string[] {
   return draft?.authoring.targets
-    .filter(target => target.status !== 'excluded')
+    .filter(target => target.status === 'included')
     .map(target => target.stableKey) ?? []
 }
 
@@ -812,6 +815,7 @@ function publishedAuthoring(active: NonNullable<MeasurementPlanResponse['active'
 
 export function AdvancedMeasurementSection({
   projectName,
+  projectDomain,
   queries,
   isQueryLoading,
   isQueryError,
@@ -833,7 +837,10 @@ export function AdvancedMeasurementSection({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [serverFlags, setServerFlags] = useState<AdvancedMeasurementFlaggedException[]>([])
-  const [importDraft, setImportDraft] = useState<AdvancedMeasurementImportDraft>({ ...DEFAULT_IMPORT_DRAFT })
+  const [importDraft, setImportDraft] = useState<AdvancedMeasurementImportDraft>(() => ({
+    ...DEFAULT_IMPORT_DRAFT,
+    sitemapUrl: projectDomain && hostOf(projectDomain) ? `https://${hostOf(projectDomain)}/sitemap.xml` : '',
+  }))
   const [reviewState, setReviewState] = useState<AdvancedMeasurementReviewState>('idle')
   const [propertiesSearch, setPropertiesSearch] = useState('')
   const [maxVisibleProperties, setMaxVisibleProperties] = useState(DEFAULT_VISIBLE_PROPERTIES)
@@ -1030,8 +1037,30 @@ export function AdvancedMeasurementSection({
       id: market.stableKey,
       label: market.label,
       measurementCount: market.usageEdges.length,
+      assignmentIds: market.usageEdges.map(measurementV2UsageEdgeKey),
+      groupId: market.groupKey,
     }))
   ), [viewDraft])
+
+  const marketAssignments = useMemo(() => (
+    (viewDraft?.authoring.assignments ?? []).flatMap(assignment => {
+      const target = includedTargets.find(candidate => candidate.stableKey === assignment.targetKey)
+      if (!target) return []
+      return (assignment.executionContexts ?? []).flatMap(context => {
+        if (!context.executionNodeKey) return []
+        const edge = { executionNodeKey: context.executionNodeKey, targetKey: assignment.targetKey, queryId: assignment.queryId }
+        return [{
+          id: measurementV2UsageEdgeKey(edge),
+          edge,
+          property: target.label,
+          query: queries.find(query => query.id === assignment.queryId)?.query ?? 'Unavailable query',
+          context: `${context.providers.map(provider => `${providerDisplayName(provider)}${context.models[provider] ? ` · ${context.models[provider]}` : ''}`).join(', ')} · ${context.location?.label ?? 'No location'}`,
+          queryClass: assignment.queryClass === 'branded' ? 'Branded' : assignment.queryClass === 'non-brand' ? 'Non-brand' : 'Unknown class',
+          groupIds: (viewDraft?.authoring.groups ?? []).filter(group => group.targetKeys.includes(assignment.targetKey)).map(group => group.stableKey),
+        }]
+      })
+    })
+  ), [includedTargets, queries, viewDraft])
 
   const assignmentExecutionOptions = useMemo<AdvancedMeasurementExecutionOption[]>(() => {
     const options = new Map<string, AdvancedMeasurementExecutionOption>()
@@ -1241,9 +1270,8 @@ export function AdvancedMeasurementSection({
     setReviewState('reviewing')
     const next = await mutate('import', currentEtag => service.importSitemap(projectName, currentEtag, input), 'Could not review this sitemap.')
     if (next?.draft) {
-      const proposed = next.draft.authoring.targets.filter(target => target.status === 'proposed').map(target => target.stableKey)
       const alreadyIncluded = next.draft.authoring.targets.filter(target => target.status === 'included').map(target => target.stableKey)
-      setIncludedPropertyIds([...alreadyIncluded, ...proposed])
+      setIncludedPropertyIds(alreadyIncluded)
       setPropertiesSearch('')
       setMaxVisibleProperties(DEFAULT_VISIBLE_PROPERTIES)
       setStep('properties')
@@ -1251,6 +1279,69 @@ export function AdvancedMeasurementSection({
     } else {
       setReviewState('error')
     }
+  }
+
+  async function addProperty(input: DraftPropertyInput): Promise<boolean> {
+    const pageUrl = input.urls[0]
+    if (!pageUrl) {
+      setActionError('Enter the page URL for this Property.')
+      return false
+    }
+    const targetKey = stableKey(pageUrl, 'property')
+    if (draft?.authoring.targets.some(target => target.stableKey === targetKey)) {
+      setActionError('This Property page is already in the draft. Select it in Properties.')
+      return false
+    }
+    const next = await mutate('property', currentEtag => service.upsertTarget(projectName, currentEtag, {
+      stableKey: targetKey,
+      label: input.name,
+      status: 'included',
+      source: 'manual',
+      aliases: input.aliases,
+      urlMatchers: input.urls,
+    }), 'Could not add this Property.')
+    if (!next?.draft) return false
+    setIncludedPropertyIds(includedPropertyIdsFor(next.draft))
+    return true
+  }
+
+  async function savePropertyIdentity(targetKey: string, input: DraftPropertyInput): Promise<boolean> {
+    const target = draft?.authoring.targets.find(candidate => candidate.stableKey === targetKey)
+    if (!target) return false
+    const { identityAliases: _oldQualifiedNames, ...preserved } = target
+    const next = await mutate('property-names', currentEtag => service.upsertTarget(projectName, currentEtag, {
+      ...preserved,
+      label: input.name,
+      aliases: input.aliases,
+      ...(input.identityAliases.length > 0 ? { identityAliases: input.identityAliases } : {}),
+    }), 'Could not save this Property’s names.')
+    return next !== null
+  }
+
+  async function saveMarket(input: AdvancedMeasurementMarketInput): Promise<boolean> {
+    const existing = draft?.authoring.reportingScopes?.find(market => market.stableKey === input.id)
+    if (input.id && !existing) {
+      setActionError('This market is no longer in the draft. Cancel the edit and review the latest setup.')
+      return false
+    }
+    const key = existing?.stableKey ?? stableKey(input.name, 'market')
+    if (!existing && draft?.authoring.reportingScopes?.some(market => market.stableKey === key)) {
+      setActionError('A market with this name already exists. Edit that market or choose another name.')
+      return false
+    }
+    const selected = input.assignmentIds.map(id => marketAssignments.find(assignment => assignment.id === id))
+    if (selected.some(assignment => !assignment)) {
+      setActionError('A selected assignment changed. Reopen the market and review its assignments.')
+      return false
+    }
+    const next = await mutate('market', currentEtag => service.upsertMarket(projectName, currentEtag, {
+      stableKey: key,
+      label: input.name.trim(),
+      kind: 'market',
+      ...(existing?.groupKey ? { groupKey: existing.groupKey } : {}),
+      usageEdges: selected.map(assignment => assignment!.edge),
+    }), 'Could not save this market.')
+    return next !== null
   }
 
   async function addProjectQueries(texts: readonly string[]): Promise<readonly { id: string; query: string }[]> {
@@ -1774,9 +1865,10 @@ export function AdvancedMeasurementSection({
             selectedPropertyIds: includedPropertyIds,
             onSelectedPropertyIdsChange: ids => setIncludedPropertyIds([...ids]),
             onContinue: ids => { void continueProperties(ids) },
-            isContinuing: busyAction === 'properties',
+            isContinuing: busyAction !== null,
             onRetryProperties: () => { void refreshDraft() },
             onReturnToImport: () => setStep('import'),
+            onAddProperty: addProperty,
           }}
         />
       ) : step === 'queries' ? (
@@ -1814,6 +1906,8 @@ export function AdvancedMeasurementSection({
               setAssignmentNotice(null)
             },
             markets: setupMarkets,
+            marketAssignments,
+            onSaveMarket: canEdit ? saveMarket : undefined,
             marketId,
             onMarketChange: nextMarketId => {
               setMarketId(nextMarketId)
@@ -1893,6 +1987,14 @@ export function AdvancedMeasurementSection({
           onStepChange={!canEdit ? setStep : undefined}
           onDiscard={() => { void discardDraft() }}
           review={{
+            properties: includedTargets.map(target => ({
+              id: target.stableKey,
+              name: target.label,
+              aliases: target.aliases,
+              identityAliases: target.identityAliases ?? [],
+              urls: target.urlMatchers,
+            })),
+            onSaveProperty: canEdit ? savePropertyIdentity : undefined,
             counts: {
               properties: includedTargets.length,
               queries: new Set(viewDraft.authoring.assignments.map(assignment => assignment.queryId)).size,

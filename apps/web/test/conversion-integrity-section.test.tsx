@@ -473,19 +473,13 @@ describe('ConversionIntegritySection', () => {
   })
 
 
-  test('explains what the feature is before anything is connected', () => {
-    const { rerender } = render(<ConversionIntegritySection onPrimaryAction={() => {}} />)
-    expect(screen.getByText('Check that a conversion is wired the same way in Google Ads and Tag Manager, so the numbers you optimise against are the ones your site actually sends. Canonry only reads the configuration; it never changes or publishes it.')).toBeTruthy()
-    const notConnected = { state: 'not-connected' as const, selection: null, snapshotCount: 0, evidence: 'No stored evidence yet.', lastSnapshotAt: null }
-    for (const settled of [
-      workspace(),
-      workspace({ contract: null, assessment: null }),
-      workspace({ contract: null, assessment: null, gtm: notConnected }),
-      workspace({ contract: null, assessment: null, googleAds: notConnected }),
-    ]) {
-      rerender(<ConversionIntegritySection workspace={settled} />)
-      expect(screen.queryByText('Check that a conversion is wired the same way in Google Ads and Tag Manager, so the numbers you optimise against are the ones your site actually sends. Canonry only reads the configuration; it never changes or publishes it.')).toBeNull()
-    }
+  test('keeps setup guidance in accessible help beside the connection actions', () => {
+    render(<ConversionIntegritySection onPrimaryAction={() => {}} />)
+    expect(screen.getByRole('button', {
+      name: 'Canonry reads your Google configuration and never changes or publishes it. Connect Google Ads and Tag Manager, then choose one website conversion to check across both.',
+    })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Connect Google Ads' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Connect Google Tag Manager' })).toBeTruthy()
   })
 
 

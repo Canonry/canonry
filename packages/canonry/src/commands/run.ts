@@ -13,6 +13,7 @@ import {
   type ProviderBatchSummaryDto,
   type ProviderDispatchMode,
   type RunAdmissionDto,
+  type RunPreviewDto,
   type RunCompletenessDto,
   type RunDetailDto,
   type RunDto,
@@ -24,6 +25,34 @@ import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
+}
+
+/** Preview only the default full manual sweep, without reserving work or calling an engine. */
+export async function previewRun(project: string, format?: string): Promise<void> {
+  const preview = await getClient().previewRun(project)
+  if (format === 'jsonl') {
+    emitJsonl([preview])
+    return
+  }
+  if (format === 'json') {
+    console.log(JSON.stringify(preview, null, 2))
+    return
+  }
+  const reasons: Record<NonNullable<RunPreviewDto['blockedReason']>, string> = {
+    'unpublished-plan': 'Publish the Advanced Measurement draft first.',
+    'no-queries': 'Add queries first.',
+    'no-provider': 'Connect an answer provider first.',
+    'providers-failing': 'Fix the held provider accounts first.',
+    'run-in-progress': `A sweep is already active (${preview.activeRunId}).`,
+  }
+  console.log(`Sweep preview: ${project}${preview.revision === null ? '' : ` · published revision ${preview.revision}`}`)
+  console.log(`  ${preview.queryCount} queries${preview.assignmentCount === null ? '' : ` · ${preview.assignmentCount} assignments`}`)
+  for (const population of preview.queryClasses) console.log(`  ${population.queryCount} ${population.queryClass} queries${population.assignmentCount === null ? '' : ` · ${population.assignmentCount} assignments`}`)
+  console.log(`  ${preview.requestCount} runnable requests · ${preview.expectedRequestCount} planned answers`)
+  for (const engine of preview.engines) console.log(`  ${engine.provider}${engine.models.length ? ` (${engine.models.join(', ')})` : ''}: ${engine.requestCount} requests${engine.available ? '' : ' · unavailable'}`)
+  for (const location of preview.locations) console.log(`  Location: ${location.location ?? 'No location'} · ${location.requestCount} requests`)
+  for (const [provider, held] of Object.entries(preview.admission.providers)) console.log(`  Held: ${providerAccountStreakLine(provider, held)}`)
+  console.log(preview.blockedReason === null ? '  Ready to start.' : `  ${reasons[preview.blockedReason]}`)
 }
 
 const TERMINAL_STATUSES = new Set(['completed', 'partial', 'failed', 'cancelled'])

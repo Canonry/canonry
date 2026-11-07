@@ -796,7 +796,17 @@ function breakdown(
         citationCoverage: citations,
       }
     }).sort((left, right) => compareText(left.label, right.label) || compareText(left.id, right.id))
-  return { properties, groups }
+  const providers = [...new Set(candidates.map(candidate => candidate.slot.provider))].sort(compareText).map(provider => {
+    const metrics = coverageSummary(candidates.filter(candidate => candidate.slot.provider === provider), definition, targets)
+    return {
+      provider,
+      queryCount: metrics.queryCount,
+      answerCount: metrics.answerCount,
+      mentionCoverage: metrics.mentionCoverage,
+      citationCoverage: metrics.citationCoverage,
+    }
+  })
+  return { properties, groups, providers }
 }
 
 function fingerprint(value: unknown): string {

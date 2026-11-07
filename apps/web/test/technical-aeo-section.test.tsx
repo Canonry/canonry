@@ -519,15 +519,17 @@ test('uses compact findings copy only when the onboarding parent requests it', (
     </QueryClientProvider>,
   )
 
+  expect(screen.getByText('All site checks').closest('details')?.open).toBe(false)
+  expect(screen.getByText('Allow GPTBot in robots.txt')).not.toBeNull()
+  fireEvent.click(screen.getByText('All site checks'))
   expect(screen.getByRole('heading', { name: 'Checks' })).not.toBeNull()
   expect(screen.getByText('Open a check to see affected pages and recommended fixes.')).not.toBeNull()
   expect(screen.queryByRole('heading', { name: 'Technical findings' })).toBeNull()
   const check = screen.getByRole('button', { name: 'AI Crawler Access' })
   expect(check.getAttribute('aria-expanded')).toBe('false')
-  expect(screen.queryByText('Allow GPTBot in robots.txt')).toBeNull()
   fireEvent.click(check)
   expect(check.getAttribute('aria-expanded')).toBe('true')
-  expect(screen.getByText('Allow GPTBot in robots.txt')).not.toBeNull()
+  expect(screen.getAllByText('Allow GPTBot in robots.txt')).toHaveLength(2)
 })
 
 test('shows one exact page finding in onboarding when aggregate recommendations are unavailable', async () => {
@@ -585,7 +587,7 @@ test('shows one exact page finding in onboarding when aggregate recommendations 
     </QueryClientProvider>,
   )
 
-  expect(screen.getByText('Page-level evidence for the first page to fix appears below.', { exact: false })).not.toBeNull()
+  expect(screen.getByText('All site checks').closest('details')?.open).toBe(false)
   expect(screen.getByRole('heading', { name: 'First page to fix' })).not.toBeNull()
   expect(screen.getAllByRole('link', { name: 'https://citypoint.example/services' })).toHaveLength(1)
   expect(screen.getByRole('heading', { name: 'Findings and fixes for this page' })).not.toBeNull()

@@ -1,15 +1,14 @@
-import { useState } from 'react'
-import { formatZonedTimestamp } from '@canonry/canonry-contracts'
+import { useId, useState } from 'react'
+import { describeError, formatZonedTimestamp, RunKinds, type SchedulePreviewRequest } from '@canonry/canonry-contracts'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameSchedulesOptions, getApiV1ProjectsByNameSchedulesQueryKey } from '@canonry/canonry-api-client/react-query'
 
 import { Button } from '../ui/button.js'
-import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { formatHour, buildPreset, parsePreset, scheduleLabel } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
-import { ApiError, heyClient, saveSchedule, removeSchedule, isEmbed, isPublicDemo, isDashboardManagedSweeps, type ApiSchedule } from '../../api.js'
+import { ApiError, heyClient, saveSchedule, previewSchedule, removeSchedule, isEmbed, isPublicDemo, isDashboardManagedSweeps, type ApiSchedule } from '../../api.js'
 import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 
 export const SCHEDULE_COPY = { edit: 'Edit schedule', pause: 'Pause', resume: 'Resume', save: 'Save schedule' } as const
@@ -58,10 +57,12 @@ function calendarRecurrenceLabel(recurrence: CalendarRecurrence, timezone: strin
 }
 
 export function ScheduleSection({ projectName }: { projectName: string }) {
+  const id = useId()
   const managedSweeps = isDashboardManagedSweeps()
   const canManageSchedule = !isEmbed() && !isPublicDemo() && !managedSweeps
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
+  const [enableOnSave, setEnableOnSave] = useState(false)
   const [freq, setFreq] = useState('daily')
   const [hour, setHour] = useState(6)
   const [customCron, setCustomCron] = useState('')
@@ -95,14 +96,33 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
   })
   const scheduleLoading = schedulesQuery.isPending || schedulesQuery.isFetching
   const loadFailed = schedulesQuery.isError
-  const schedule = schedulesQuery.data?.find(item => item.kind === 'answer-visibility') ?? null
+  const schedule = schedulesQuery.data?.find(item => item.kind === RunKinds['answer-visibility']) ?? null
   const scheduleChangedElsewhere = editing
     && editingVersion !== undefined
     && (schedule?.updatedAt ?? null) !== editingVersion
 
+  const effectiveTimezone = tzOther ? tzOtherValue.trim() : timezone
+  const timing: SchedulePreviewRequest = {
+    timezone: effectiveTimezone,
+    ...(freq === 'calendar'
+      ? { recurrence: { everyDays: recurrenceEveryDays, startDate: recurrenceStartDate, time: recurrenceTime } }
+      : freq === 'custom' ? { cron: customCron.trim() } : { preset: buildPreset(freq, hour) }),
+  }
+  const timingComplete = Boolean(effectiveTimezone)
+    && (freq !== 'custom' || Boolean(customCron.trim()))
+    && (freq !== 'calendar' || (Number.isInteger(recurrenceEveryDays) && recurrenceEveryDays >= 1 && recurrenceEveryDays <= 3650 && Boolean(recurrenceStartDate) && Boolean(recurrenceTime)))
+  const preview = useQuery({
+    queryKey: ['schedule-preview', projectName, timing],
+    queryFn: () => previewSchedule(projectName, timing),
+    enabled: canManageSchedule && editing && timingComplete,
+    retry: false,
+    staleTime: 0,
+  })
+  const previewReady = timingComplete && preview.isSuccess && !preview.isFetching && Boolean(preview.data.nextRunAt)
+
   const updateScheduleCache = (nextSchedule: ApiSchedule | null) => {
     queryClient.setQueryData<ApiSchedule[]>(schedulesQueryKey, currentSchedules => {
-      const otherSchedules = (currentSchedules ?? []).filter(item => item.kind !== 'answer-visibility')
+      const otherSchedules = (currentSchedules ?? []).filter(item => item.kind !== RunKinds['answer-visibility'])
       return nextSchedule ? [...otherSchedules, nextSchedule] : otherSchedules
     })
   }
@@ -131,9 +151,11 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       setRecurrenceEveryDays(14)
       setRecurrenceStartDate('')
       setRecurrenceTime('00:00')
-      setTimezone('UTC')
-      setTzOther(false)
-      setTzOtherValue('')
+      const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+      const isKnownTz = (COMMON_TIMEZONES as readonly string[]).includes(localTimezone)
+      setTimezone(isKnownTz ? localTimezone : 'Other')
+      setTzOther(!isKnownTz)
+      setTzOtherValue(isKnownTz ? '' : localTimezone)
     }
     setEditingVersion(nextSchedule?.updatedAt ?? null)
   }
@@ -141,6 +163,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
   const startEditing = () => {
     if (!canManageSchedule) return
     loadScheduleIntoEditor(schedule)
+    setEnableOnSave(false)
     setError(null)
     setEditing(true)
   }
@@ -171,7 +194,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
 
   const handleSave = async () => {
     if (!canManageSchedule) return
-    if (scheduleChangedElsewhere || editingVersion === undefined) return
+    if (scheduleChangedElsewhere || editingVersion === undefined || !previewReady) return
     setSaving(true)
     setError(null)
     try {
@@ -183,20 +206,15 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         setError('Canonry could not verify the latest schedule. Try again before saving.')
         return
       }
-      const latestSchedule = latestResult.data.find(item => item.kind === 'answer-visibility') ?? null
+      const latestSchedule = latestResult.data.find(item => item.kind === RunKinds['answer-visibility']) ?? null
       if ((latestSchedule?.updatedAt ?? null) !== editingVersion) return
 
-      const effectiveTz = tzOther ? tzOtherValue.trim() || 'UTC' : timezone
       const body: Parameters<typeof saveSchedule>[1] = {
-        timezone: effectiveTz,
-        enabled: latestSchedule?.enabled ?? true,
+        ...timing,
+        enabled: enableOnSave || (latestSchedule?.enabled ?? true),
         providers: latestSchedule?.providers ?? [],
         expectedUpdatedAt: editingVersion,
       }
-      if (freq === 'calendar') {
-        body.recurrence = { everyDays: recurrenceEveryDays, startDate: recurrenceStartDate, time: recurrenceTime }
-      } else if (freq === 'custom') body.cron = customCron.trim()
-      else body.preset = buildPreset(freq, hour)
       const result = await saveSchedule(projectName, body)
       setEditing(false)
       setEditingVersion(undefined)
@@ -217,6 +235,13 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
 
   const handleToggleEnabled = async () => {
     if (!canManageSchedule || !schedule) return
+    if (!schedule.enabled) {
+      loadScheduleIntoEditor(schedule)
+      setEnableOnSave(true)
+      setError(null)
+      setEditing(true)
+      return
+    }
     const editingScheduleVersion = schedule.updatedAt
     setSaving(true)
     setError(null)
@@ -226,7 +251,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         setError('Canonry could not verify the latest schedule. Try again before updating it.')
         return
       }
-      const latestSchedule = latestResult.data.find(item => item.kind === 'answer-visibility') ?? null
+      const latestSchedule = latestResult.data.find(item => item.kind === RunKinds['answer-visibility']) ?? null
       if (!latestSchedule || latestSchedule.updatedAt !== editingScheduleVersion) {
         setError('This schedule changed elsewhere. Review the latest version and try again.')
         return
@@ -284,7 +309,6 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
     <section className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Automation</p>
           <h2>Scheduled runs</h2>
         </div>
         {canManageSchedule && !scheduleLoading && !loadFailed && !editing && (
@@ -299,7 +323,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       {error && !editing && <p className="mt-2 text-copy-14 text-negative" role="alert">{error}</p>}
 
       {!scheduleLoading && loadFailed && (
-        <Card className="surface-card compact-card">
+        <div>
           <p className="supporting-copy">Canonry could not verify this schedule.</p>
           <Button
             type="button"
@@ -310,24 +334,25 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
           >
             Retry
           </Button>
-        </Card>
+        </div>
       )}
 
       {!scheduleLoading && !loadFailed && !editing && schedule === null && (
-        <Card className="surface-card compact-card">
+        <div>
           <p className="supporting-copy">{managedSweeps ? MANAGED_SWEEPS_COPY : 'No schedule configured. Set one to automatically trigger AI Visibility checks.'}</p>
-        </Card>
+        </div>
       )}
 
       {!scheduleLoading && !loadFailed && !editing && schedule !== null && (
-        <Card className="surface-card compact-card">
+        <div>
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
               {managedSweeps && <p className="text-copy-14 text-secondary">{MANAGED_SWEEPS_COPY}</p>}
               <p className="text-copy-14-strong text-strong">{schedule.recurrence
                 ? calendarRecurrenceLabel(schedule.recurrence, schedule.timezone)
                 : scheduleLabel(schedule.preset ?? null, schedule.cronExpr, schedule.timezone)}</p>
-              {!schedule.recurrence && <p className="text-copy-13 text-muted">Cron: <span className="font-mono">{schedule.cronExpr}</span></p>}
+
+              {!schedule.recurrence && <details className="text-copy-13 text-muted"><summary className="cursor-pointer">Schedule details</summary><p>Cron: <span className="font-mono">{schedule.cronExpr}</span></p></details>}
               {schedule.enabled && schedule.nextRunAt && (
                 <p className="text-copy-13 text-muted">Next run: {formatZonedTimestamp(schedule.nextRunAt, schedule.timezone)}</p>
               )}
@@ -351,11 +376,11 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               )}
             </div>
           </div>
-        </Card>
+        </div>
       )}
 
       {canManageSchedule && editing && (
-        <div className="material-base p-4 space-y-3">
+        <div className="space-y-3">
           {scheduleChangedElsewhere && !saving && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-caution bg-caution-soft px-3 py-2 text-label-14 text-caution" role="alert">
               <p>This schedule changed elsewhere. Load the latest version before saving.</p>
@@ -380,8 +405,9 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
             </div>
             {freq !== 'calendar' && (
               <div className="space-y-1.5">
-                <label className="text-label-12-strong text-secondary">Time</label>
+                <label className="text-label-13-strong text-secondary" htmlFor={`${id}-hour`}>Time · {effectiveTimezone || 'choose timezone'}</label>
                 <select
+                  id={`${id}-hour`}
                   className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-label-14 text-strong focus:border-mono-500 focus:outline-none disabled:opacity-40"
                   value={hour}
                   disabled={freq === 'twice-daily' || freq === 'custom'}
@@ -396,8 +422,9 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
           </div>
           {freq === 'custom' && (
             <div className="space-y-1.5">
-              <label className="text-label-12-strong text-secondary">Cron expression</label>
+              <label className="text-label-13-strong text-secondary" htmlFor={`${id}-cron`}>Cron expression</label>
               <input
+                id={`${id}-cron`}
                 className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14-mono text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                 type="text"
                 placeholder="0 9 * * 1-5"
@@ -443,22 +470,28 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               <input
                 className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                 type="text"
+                aria-label="Custom timezone"
                 placeholder="e.g. America/New_York"
                 value={tzOtherValue}
                 onChange={(e) => setTzOtherValue(e.target.value)}
               />
             )}
           </div>
+          {timingComplete && <div aria-live="polite" className="text-copy-14">
+            {preview.isFetching || preview.isPending ? <p role="status" className="text-secondary">Checking next run…</p>
+              : preview.isError ? <div><p role="alert" className="text-negative">{describeError(preview.error)}</p><Button type="button" variant="ghost" size="sm" onClick={() => { void preview.refetch() }}>Retry preview</Button></div>
+              : <p className="text-heading">Next run: {preview.data.nextRunAt ? <time dateTime={preview.data.nextRunAt}>{formatZonedTimestamp(preview.data.nextRunAt, preview.data.timezone)}</time> : 'No future occurrence'}</p>}
+          </div>}
           {error && <p className="text-negative-400 text-copy-14" role="alert">{error}</p>}
           <div className="flex gap-2 justify-end">
             <Button type="button" variant="outline" size="sm" onClick={() => { setEditing(false); setEditingVersion(undefined); setError(null) }}>Cancel</Button>
             <Button
               type="button"
               size="sm"
-              disabled={saving || schedulesQuery.isFetching || loadFailed || scheduleChangedElsewhere || (freq === 'custom' && !customCron.trim()) || (freq === 'calendar' && (!Number.isInteger(recurrenceEveryDays) || recurrenceEveryDays < 1 || recurrenceEveryDays > 3650 || !recurrenceStartDate || !recurrenceTime))}
+              disabled={saving || schedulesQuery.isFetching || loadFailed || scheduleChangedElsewhere || !previewReady}
               onClick={asyncHandler(handleSave)}
             >
-              {saving ? 'Saving...' : SCHEDULE_COPY.save}
+              {saving ? 'Saving...' : enableOnSave ? 'Enable schedule' : SCHEDULE_COPY.save}
             </Button>
           </div>
         </div>

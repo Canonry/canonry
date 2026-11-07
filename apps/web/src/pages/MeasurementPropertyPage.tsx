@@ -27,7 +27,7 @@ import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { DIFFERENT_SUBJECT_COPY } from '../lib/mention-identity-copy.js'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../components/shared/AnswerMarkdown.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { excludedAnswersFlag, splitPercentSign, type CoverageSignal } from '../lib/format-helpers.js'
+import { excludedAnswersFlag, type CoverageSignal } from '../lib/format-helpers.js'
 import { SourceLink } from '../components/shared/SourceLink.js'
 import { carryVisibilitySearch, parseVisibilitySelection, patchVisibilitySelection, visibilityReportFirstPageQuery } from '../lib/measurement-view-url.js'
 import type { VisibilitySelectionState } from '../lib/measurement-view-url.js'
@@ -56,13 +56,10 @@ type PlanV2 = Extract<ActivePlan['plan'], { schemaVersion: 2 }>
 
 const EVIDENCE_PAGE_SIZE = 50
 
-/**
- * The founder's framing of the two baskets, kept beside the technical name so a
- * reader never has to guess which one they are looking at.
- */
-const CLASS_LABELS: Record<QueryClass, { headline: string; technical: string }> = {
-  branded: { headline: 'When they know your name', technical: 'Branded queries' },
-  'non-brand': { headline: 'When they don\'t', technical: 'Non-brand queries' },
+/** Visible query types stay attached to each independent measurement. */
+const CLASS_LABELS: Record<QueryClass, { technical: string }> = {
+  branded: { technical: 'Branded queries' },
+  'non-brand': { technical: 'Non-brand queries' },
 }
 
 /**
@@ -253,11 +250,12 @@ function reasonText(metric: Extract<MetricValue, { state: 'unavailable' }>): str
  * "Not measured" and carries the server's reason, so an unmeasured Property can
  * never be read as a measured zero.
  */
-function MetricCell({ metric, signal, emphasis = false }: { metric: MetricValue; signal: CoverageSignal; emphasis?: boolean }) {
+function MetricCell({ metric, signal, queryClass, emphasis = false }: { metric: MetricValue; signal: CoverageSignal; queryClass: QueryClass; emphasis?: boolean }) {
   if (metric.state === 'unavailable') {
     return (
       <span className="inline-flex flex-col gap-0.5">
         <span className={emphasis ? 'text-label-18-strong text-secondary' : 'text-label-14-strong text-secondary'}>Not measured</span>
+        <span className="sr-only"> · {queryClass} queries</span>
         <span className="text-label-14 text-secondary">{reasonText(metric)}</span>
       </span>
     )
@@ -273,6 +271,7 @@ function MetricCell({ metric, signal, emphasis = false }: { metric: MetricValue;
   return (
     <span className="inline-flex flex-col gap-0.5 tabular-nums">
       <span className={emphasis ? 'text-label-18-strong text-heading' : 'text-label-14-strong text-primary'}>{percent}</span>
+      <span className="sr-only"> · {queryClass} queries</span>
       {counted ? <span className="text-label-12 text-muted">{counted}</span> : null}
       {excluded ? <span className="-ml-2 flex"><InfoTooltip tone="caution" placement="bottom" label={excluded.label} text={excluded.text} /></span> : null}
     </span>
@@ -301,7 +300,7 @@ function propertyRowOf(overview: MeasurementOverviewResponse | undefined): Prope
  * fourth stranded on its own row. Cutting the repetition fixes the ragged grid
  * for free and leaves the one fact nothing else on the page states: WHEN.
  *
- * The unmeasured reason rides here rather than in the hero because the hero
+ * The unmeasured reason rides here rather than in the comparison table, which
  * says "Not measured" per metric; this says it once, for the whole page.
  */
 function PropertyProvenance({
@@ -368,7 +367,7 @@ function MarketLink({
           <p className="eyebrow eyebrow-soft">Competitive comparison</p>
           <h2 id="property-market" className="text-heading-16 text-heading">
             Measured at the market level
-            <InfoTooltip text="Competitors are attached to a market rather than to a single Property, because one building has nobody to be compared against. Share of voice and competitor pressure are reported for the market this Property sits in." />
+            <InfoTooltip text="Competitors are attached to groups. Share of voice and competitor pressure use the group or market that includes this Property." />
           </h2>
         </div>
         <Button asChild type="button" size="sm" variant="outline">
@@ -385,107 +384,6 @@ function MarketLink({
           </li>
         ))}
       </ul>
-    </section>
-  )
-}
-
-/**
- * The four coverage numbers as a scannable hero, in the same visual language as
- * the project overview's AEO hero (`aeo-hero-row`), so a Property reads like a
- * smaller version of the project rather than a different kind of page.
- *
- * Non-brand leads because it is the demand a Property has to earn; branded
- * follows as the control. That ordering is the argument the page exists to make.
- *
- * Bars are deliberately `progress-fill-neutral`. `MetricValue` carries no tone,
- * and a coverage rate has no product-defined "good" threshold: 20% non-brand may
- * be strong in a dense market and weak in a thin one. Coloring the bar would be
- * a verdict the API never issued and a value derived in the UI, which the parity
- * rule forbids. The bar encodes magnitude; the reader supplies the judgment.
- *
- * An unavailable metric renders NO bar rather than a zero-width one. An empty
- * track beside "Not measured" reads as a measured zero, which is the one thing
- * this surface must never say.
- */
-function CoverageHeroRow({ label, metric, signal, failed = false }: { label: string; metric: MetricValue | undefined; signal: CoverageSignal; failed?: boolean }) {
-  if (metric === undefined) {
-    // A class whose fetch failed also has no metric, and reporting that as
-    // "Loading" is a spinner that never resolves: the retry lives in
-    // `BrandContrast` below, so the reader is waiting on something that already
-    // stopped. `failed` separates the two so the lead element of the page and
-    // the alert beneath it stop disagreeing about the same class.
-    return (
-      <div className="aeo-hero-row">
-        <p className="aeo-hero-row-label">{label}</p>
-        <p className="aeo-hero-row-value text-copy-16-strong text-secondary">{failed ? 'Unavailable' : '…'}</p>
-        {failed ? <div /> : <div className="aeo-hero-row-bar" aria-hidden="true" />}
-        <p className="aeo-hero-row-detail">{failed ? 'Could not be loaded' : 'Loading'}</p>
-      </div>
-    )
-  }
-  if (metric.state === 'unavailable') {
-    // `reasonText` falls back to "Not measured" for a reason this build does not
-    // know, which would print the same words twice across two columns and read
-    // as a rendering fault. Drop the detail when it says nothing the value did
-    // not already say.
-    const reason = reasonText(metric)
-    return (
-      <div className="aeo-hero-row">
-        <p className="aeo-hero-row-label">{label}</p>
-        <p className="aeo-hero-row-value text-copy-16-strong text-secondary">Not measured</p>
-        <div />
-        <p className="aeo-hero-row-detail">{reason === 'Not measured' ? '' : reason}</p>
-      </div>
-    )
-  }
-  // The hero sets the percent sign apart from the figure, as the Simple overview
-  // hero does; both halves are the shared format's own output.
-  const { figure, sign } = splitPercentSign(formatPercent(metric.value))
-  const counted = metric.numerator === undefined || metric.denominator === undefined
-    ? null
-    : `${metric.numerator} of ${metric.denominator}`
-  const excluded = excludedAnswersFlag(metric, signal)
-  return (
-    <div className="aeo-hero-row">
-      <p className="aeo-hero-row-label">{label}</p>
-      <p className="aeo-hero-row-value text-heading">{figure}{sign ? <span className="text-faint">{sign}</span> : null}</p>
-      <div className="aeo-hero-row-bar" aria-hidden="true">
-        <div className="metric-card-bar-fill progress-fill-neutral" style={{ width: `${metric.value * 100}%` }} />
-      </div>
-      <p className="aeo-hero-row-detail tabular-nums">
-        {counted ?? ''}
-        {excluded ? <span className="block"><InfoTooltip tone="caution" placement="bottom" label={excluded.label} text={excluded.text} /></span> : null}
-      </p>
-    </div>
-  )
-}
-
-function CoverageHero({
-  branded,
-  nonBrand,
-  brandedFailed = false,
-  nonBrandFailed = false,
-}: {
-  branded: PropertyRow | undefined
-  nonBrand: PropertyRow | undefined
-  brandedFailed?: boolean
-  nonBrandFailed?: boolean
-}) {
-  return (
-    <section aria-labelledby="property-coverage-hero">
-      <h2 id="property-coverage-hero" className="sr-only">Coverage for this Property</h2>
-      <div className="space-y-5">
-        <div className="space-y-2">
-          <p className="eyebrow eyebrow-soft">Non-brand &middot; the demand to earn</p>
-          <CoverageHeroRow label="Mentioned" metric={nonBrand?.mentionCoverage} signal="mentioned" failed={nonBrandFailed} />
-          <CoverageHeroRow label="Cited" metric={nonBrand?.citationCoverage} signal="cited" failed={nonBrandFailed} />
-        </div>
-        <div className="space-y-2">
-          <p className="eyebrow eyebrow-soft">Branded &middot; already named</p>
-          <CoverageHeroRow label="Mentioned" metric={branded?.mentionCoverage} signal="mentioned" failed={brandedFailed} />
-          <CoverageHeroRow label="Cited" metric={branded?.citationCoverage} signal="cited" failed={brandedFailed} />
-        </div>
-      </div>
     </section>
   )
 }
@@ -508,18 +406,15 @@ function BrandContrast({
   onRetry: (queryClass: QueryClass) => void
 }) {
   const rows: Array<{ queryClass: QueryClass; row: PropertyRow | undefined; isError: boolean }> = [
-    { queryClass: 'branded', row: branded, isError: brandedError },
     { queryClass: 'non-brand', row: nonBrand, isError: nonBrandError },
+    { queryClass: 'branded', row: branded, isError: brandedError },
   ]
   return (
     <section aria-labelledby="property-brand-contrast">
       <div className="section-head section-head-inline">
-        <div>
-          <p className="eyebrow eyebrow-soft">The gap</p>
-          <h2 id="property-brand-contrast" className="text-heading-16 text-heading">
-            Named versus not named
-            <InfoTooltip text="Branded queries already contain your name, so an answer engine has an easy path back to you. Non-brand queries describe the need instead, and that is the demand you have to earn. Each row is measured only over the queries assigned to this Property in that class; a class with no assigned query reads Not measured rather than 0%." />
-          </h2>
+        <div className="flex items-center gap-1">
+          <h2 id="property-brand-contrast" className="text-heading-16 text-heading">Coverage for this Property</h2>
+          <InfoTooltip text="Non-brand queries do not name this Property. Branded queries name it. Each rate uses only the measured answers for that query type. Mentioned means the Property was named in the answer; cited means its URL appeared in the sources. Unchecked sources are not counted as a citation miss." />
         </div>
       </div>
       <div className="overflow-x-auto rounded-md border border-default">
@@ -536,8 +431,7 @@ function BrandContrast({
             {rows.map(({ queryClass, row, isError }) => (
               <tr key={queryClass}>
                 <td>
-                  <span className="block text-label-14-strong text-heading">{CLASS_LABELS[queryClass].headline}</span>
-                  <span className="mt-0.5 block text-label-12 text-muted">{CLASS_LABELS[queryClass].technical}</span>
+                  <span className="block text-label-14-strong text-heading">{CLASS_LABELS[queryClass].technical}</span>
                   {row && isError ? (
                     <span className="mt-2 flex flex-wrap items-center gap-2 text-label-14 text-caution">
                       <span role="status">Refresh failed.</span>
@@ -555,8 +449,8 @@ function BrandContrast({
                 </td>
                 {row ? (
                   <>
-                    <td><MetricCell metric={row.mentionCoverage} signal="mentioned" emphasis /></td>
-                    <td><MetricCell metric={row.citationCoverage} signal="cited" emphasis /></td>
+                    <td><MetricCell metric={row.mentionCoverage} signal="mentioned" queryClass={queryClass} emphasis /></td>
+                    <td><MetricCell metric={row.citationCoverage} signal="cited" queryClass={queryClass} emphasis /></td>
                   </>
                 ) : isError ? (
                   <td colSpan={2}>
@@ -609,7 +503,7 @@ function ProviderBreakdown({ row, queryClass, isError }: { row: PropertyRow | un
           {row.mentionCoverage.state === 'unavailable' ? ` ${reasonText(row.mentionCoverage)}.` : ''}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-default">
+        <div className="overflow-x-auto">
           <table className="evidence-table min-w-[520px]">
             <caption className="sr-only">Per-engine mention and citation coverage</caption>
             <thead><tr><th>Engine</th><th>Mentioned</th><th>Cited</th></tr></thead>
@@ -617,8 +511,8 @@ function ProviderBreakdown({ row, queryClass, isError }: { row: PropertyRow | un
               {row.providers.map(provider => (
                 <tr key={provider.provider}>
                   <td className="text-label-14-strong text-heading">{provider.provider}</td>
-                  <td><MetricCell metric={provider.mentionCoverage} signal="mentioned" /></td>
-                  <td><MetricCell metric={provider.citationCoverage} signal="cited" /></td>
+                  <td><MetricCell metric={provider.mentionCoverage} signal="mentioned" queryClass={queryClass} /></td>
+                  <td><MetricCell metric={provider.citationCoverage} signal="cited" queryClass={queryClass} /></td>
                 </tr>
               ))}
             </tbody>
@@ -693,7 +587,7 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
         </p>
       ) : (
         <>
-          <div className="overflow-x-auto rounded-md border border-default">
+          <div className="overflow-x-auto">
             <table className="evidence-table min-w-[420px]">
               <caption className="sr-only">Names the engines gave instead of this Property</caption>
               <thead>
@@ -751,7 +645,7 @@ function AssignedQuestions({ questions, queryClass }: { questions: readonly stri
           No {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} are assigned. Add one in advanced measurement setup to measure this class.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-default">
+        <div className="overflow-x-auto">
           <table className="evidence-table min-w-[420px]">
             <caption className="sr-only">Queries assigned to this Property</caption>
             <thead><tr><th>Query</th></tr></thead>
@@ -778,7 +672,7 @@ function PropertyUrls({ urls }: { urls: readonly string[] }) {
       {urls.length === 0 ? (
         <p className="text-copy-14 text-secondary">No URLs are configured for this Property.</p>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-default">
+        <div className="overflow-x-auto">
           <table className="evidence-table min-w-[420px]">
             <caption className="sr-only">URL matchers configured for this Property</caption>
             <thead><tr><th>URL</th></tr></thead>
@@ -874,7 +768,7 @@ function CitedOnOtherQueries({
         <p className="text-copy-14 text-secondary">{OTHER_QUERIES_COPY.empty}</p>
       ) : (
         <>
-          <div className="overflow-x-auto rounded-md border border-default">
+          <div className="overflow-x-auto">
             <table className="evidence-table min-w-[640px]">
               <caption className="sr-only">Answers to other properties&rsquo; queries that cited this Property&rsquo;s pages</caption>
               <thead>
@@ -1248,13 +1142,6 @@ export function MeasurementPropertyPage() {
         </div>
       </div>
 
-      <CoverageHero
-        branded={brandedRow}
-        nonBrand={nonBrandRow}
-        brandedFailed={brandedUnavailable}
-        nonBrandFailed={nonBrandUnavailable}
-      />
-
       <BrandContrast
         branded={brandedRow}
         nonBrand={nonBrandRow}
@@ -1266,7 +1153,7 @@ export function MeasurementPropertyPage() {
       />
 
       {needsMeasurement ? (
-        <section className="flex flex-wrap items-center justify-between gap-3 border-y border-default py-4" aria-label="Measurement next step">
+        <section className="flex flex-wrap items-center justify-between gap-3 py-4" aria-label="Measurement next step">
           <p className="text-copy-14 text-secondary">
             {isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : canWrite
               ? `Run a measurement from the project overview to collect this Property’s coverage and source evidence.${hasLastResults ? ' AI Visibility still shows the last results.' : ''}`
@@ -1280,7 +1167,7 @@ export function MeasurementPropertyPage() {
         </section>
       ) : null}
 
-      <div className="flex flex-wrap items-end gap-4 border-y border-default py-4">
+      <div className="flex flex-wrap items-end gap-4 py-4">
         <div className="space-y-1">
           <label htmlFor="property-query-class" className="block text-label-14-strong text-heading">Query type</label>
           <select
@@ -1323,7 +1210,7 @@ export function MeasurementPropertyPage() {
           <div>
             <h2 id="property-evidence" className="text-heading-16 text-heading">
               Answers the engines gave
-              <InfoTooltip text="One row per answer an engine gave for the queries assigned to this Property in the displayed measurement. Mentioned and cited are independent: an answer can name this Property without linking it, or link it without naming it. Answers that did neither are listed first, because those are what a gap is made of. Where the answer text was not stored the mention reads Not measured, never a zero. Open a row to read what the engine actually said, followed by the source URLs it returned, this Property's own first. The answer is where a miss becomes actionable: a query this Property was not named in may still have named a sibling building." />
+              <InfoTooltip text="Answers for the queries assigned to this Property in the displayed measurement. Mentioned and cited are independent. Missing answer text shows Not measured. Open an answer to read its text and sources, including any other Property it named." />
             </h2>
           </div>
           {evidenceRows.length > 0 ? <p className="supporting-copy">{evidenceRows.length} of {evidenceTotal}</p> : null}
@@ -1350,7 +1237,7 @@ export function MeasurementPropertyPage() {
           <p className="text-copy-14 text-secondary">No answers matched this Property in the displayed measurement.</p>
         ) : (
           <>
-            <div className="property-answer-table-container overflow-x-auto rounded-md border border-default">
+            <div className="property-answer-table-container overflow-x-auto">
               <table className="evidence-table property-evidence-table">
                 <caption className="sr-only">Answers measured for this Property</caption>
                 <thead>

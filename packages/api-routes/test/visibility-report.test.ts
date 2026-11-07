@@ -16,6 +16,7 @@ import {
   type MeasurementOverviewResponse,
   type MeasurementPlanV2,
   type MeasurementPortfolioSummaryResponse,
+  type ProjectOverviewDto,
   type VisibilityReportRate,
   type VisibilityReportResponse,
 } from '@canonry/canonry-contracts'
@@ -251,6 +252,110 @@ afterEach(async () => {
 })
 
 describe('visibility report route', () => {
+  it('keeps overview non-brand coverage separate from branded recall and ignores newer unfinished and probe sweeps', async () => {
+    const tracked = [
+      { queryId: 'category-a', queryText: 'Best category service' },
+      { queryId: 'category-b', queryText: 'Find a nearby service' },
+      { queryId: 'brand', queryText: 'Is Northstar reliable?' },
+    ]
+    const definition = buildSimpleMeasurementDefinition({
+      capturedAt: FIRST,
+      identity: { displayName: 'Northstar', aliases: [], canonicalDomain: 'northstar.example', ownedDomains: [] },
+      country: 'US', language: 'en', location: null,
+      engines: [{ provider: 'openai', requestedModel: 'test-model' }], competitors: [],
+      queries: tracked.map(query => ({ ...query, provenance: 'manual' })),
+    })
+    db.insert(queries).values(tracked.map(query => ({ id: query.queryId, projectId, query: query.queryText, createdAt: FIRST }))).run()
+    for (const [id, status, trigger, capturedAt] of [
+      ['complete', RunStatuses.completed, RunTriggers.manual, FIRST],
+      ['unfinished', RunStatuses.running, RunTriggers.manual, SECOND],
+      ['probe', RunStatuses.completed, RunTriggers.probe, THIRD],
+    ] as const) {
+      db.insert(runs).values({ id, projectId, kind: RunKinds['answer-visibility'], status, trigger, createdAt: capturedAt, finishedAt: status === RunStatuses.running ? null : capturedAt }).run()
+      db.insert(simpleMeasurementDefinitions).values({ runId: id, projectId, definition, checksum: crypto.createHash('sha256').update(canonicalSimpleMeasurementDefinitionJson(definition)).digest('hex'), capturedAt }).run()
+      db.insert(querySnapshots).values(tracked.map(query => ({
+        id: crypto.randomUUID(), runId: id, queryId: query.queryId, queryText: query.queryText, provider: 'openai', model: 'test-model',
+        citationState: 'not-cited', answerMentioned: id !== 'complete' || query.queryId === 'brand',
+        answerText: id !== 'complete' || query.queryId === 'brand' ? 'Northstar is recommended.' : 'An alternative is recommended.',
+        citedDomains: [], createdAt: capturedAt,
+      }))).run()
+    }
+    const overview = await read<ProjectOverviewDto>('overview', '')
+    expect(overview.mentionCoverage?.selection).toMatchObject({ mode: 'simple', queryClass: 'all', run: { id: 'complete' }, measurement: { state: 'measured' } })
+    expect(overview.mentionCoverage?.populations).toEqual([
+      { queryClass: 'branded', queryCount: 1, answerCount: 1, mentionCoverage: { numerator: 1, denominator: 1, rate: 1 }, citationCoverage: { numerator: 0, denominator: 1, rate: 0 } },
+      { queryClass: 'non-brand', queryCount: 2, answerCount: 2, mentionCoverage: { numerator: 0, denominator: 2, rate: 0 }, citationCoverage: { numerator: 0, denominator: 2, rate: 0 } },
+      { queryClass: 'unknown', queryCount: 0, answerCount: 0, mentionCoverage: { numerator: null, denominator: null, rate: null, reason: 'no-population' }, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'no-population' } },
+    ])
+    // The old field remains byte-compatible for callers that still ask for it.
+    expect(overview.scores.mention.value).toBe('33.3%')
+    expect(overview.queryCounts).toMatchObject({ totalQueries: 3, mentionedQueries: 1 })
+  })
+
+  it('reports zero measured answers for saved Advanced assignments until their first sweep', async () => {
+    activate(seedVersion(1, capturePlan()))
+    const overview = await read<ProjectOverviewDto>('overview', '')
+    expect(overview.mentionCoverage?.selection).toMatchObject({ mode: 'advanced', measurement: { state: 'not-measured', activeRevision: 1 } })
+    expect(overview.mentionCoverage?.populations.map(population => [population.queryClass, population.queryCount, population.answerCount, population.mentionCoverage])).toEqual([
+      ['branded', 0, 0, { numerator: null, denominator: null, rate: null, reason: 'no-population' }],
+      ['non-brand', 0, 0, { numerator: null, denominator: null, rate: null, reason: 'no-population' }],
+      ['unknown', 0, 0, { numerator: null, denominator: null, rate: null, reason: 'no-population' }],
+    ])
+  })
+
+  it('uses Advanced frozen Property identities and class scope for overview coverage', async () => {
+    const { currentId } = seedCaptureSeries()
+    // Current project identity cannot reinterpret an Advanced Property's answer.
+    db.update(projects).set({ displayName: 'Different project', canonicalDomain: 'different.example' }).where(eq(projects.id, projectId)).run()
+    const overview = await read<ProjectOverviewDto>('overview', '')
+    expect(overview.mentionCoverage?.selection).toMatchObject({ mode: 'advanced', run: { id: currentId }, revision: 1, scope: { kind: 'project' } })
+    expect(overview.mentionCoverage?.populations.find(population => population.queryClass === 'non-brand')).toMatchObject({
+      queryCount: 1, answerCount: 3,
+      mentionCoverage: { numerator: 3, denominator: 3, rate: 1 },
+      citationCoverage: { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 },
+    })
+    expect(overview.mentionCoverage?.populations.find(population => population.queryClass === 'branded')?.mentionCoverage).toEqual({ numerator: 0, denominator: 3, rate: 0 })
+  })
+
+  it.each(['simple', 'advanced'] as const)('keeps %s overview coverage on the canonical sweep without reconstructing unselected history', async mode => {
+    let selectedId: string
+    let unselectedId: string
+    if (mode === 'simple') {
+      seedSimpleRun('historical', FIRST, true)
+      seedSimpleRun('selected', SECOND, true)
+      selectedId = 'selected'
+      unselectedId = 'historical'
+    } else {
+      const selectedPlan = plan()
+      const selectedVersion = seedVersion(1, selectedPlan)
+      activate(selectedVersion)
+      selectedId = seedAdvancedRun({ versionId: selectedVersion, frozenPlan: selectedPlan, createdAt: FIRST })
+      // The active revision's compatible result wins over a newer result
+      // from a different revision, even when no history is materialized.
+      const otherPlan = plan({ queryText: 'Different execution query' })
+      const otherVersion = seedVersion(2, otherPlan)
+      unselectedId = seedAdvancedRun({ versionId: otherVersion, frozenPlan: otherPlan, createdAt: SECOND })
+    }
+    const canonical = await read<VisibilityReportResponse>('visibility-report', 'queryClass=all&limit=1')
+    expect(canonical.selection.run.id).toBe(selectedId)
+    const overview = await read<ProjectOverviewDto>('overview', '')
+    expect(overview.mentionCoverage?.selection).toEqual(canonical.selection)
+    expect(overview.mentionCoverage?.populations.find(population => population.queryClass === 'non-brand')).toMatchObject({
+      queryCount: 1, answerCount: mode === 'simple' ? 1 : 2,
+      mentionCoverage: { numerator: mode === 'simple' ? 1 : 2, denominator: mode === 'simple' ? 1 : 2, rate: 1 },
+    })
+    expect(overview.mentionCoverage?.populations).toEqual(canonical.populations.map(({ queryClass, summary }) => ({
+      queryClass, queryCount: summary.queryCount, answerCount: summary.answerCount,
+      mentionCoverage: summary.mentionCoverage, citationCoverage: summary.citationCoverage,
+    })))
+    // Invalid frozen evidence proves the summary path never reconstructs an
+    // unrelated sweep merely to discard its trend and detail collections.
+    db.update(querySnapshots).set({ queryText: 'Does not match its frozen query' }).where(eq(querySnapshots.runId, unselectedId)).run()
+    expect((await report(`runId=${unselectedId}&queryClass=all`)).status).toBe(500)
+    const unchanged = await read<ProjectOverviewDto>('overview', '')
+    expect(unchanged.mentionCoverage).toEqual(overview.mentionCoverage)
+  })
+
   it('rejects a market refinement against a legacy/simple definition without market edges', async () => {
     const result = await report('scope=project&marketKey=harbor-market&queryClass=non-brand')
     expect(result.status).toBe(400)

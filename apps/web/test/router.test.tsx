@@ -22,8 +22,9 @@ beforeAll(async () => {
 
 const projectsCacheKey = getApiV1ProjectsQueryKey({ client: heyClient })
 
-async function renderRoute(pathname: string, options: Parameters<typeof createDashboardFixture>[0] = {}) {
+async function renderRoute(pathname: string, options: Parameters<typeof createDashboardFixture>[0] = {}, configure?: (fixture: ReturnType<typeof createDashboardFixture>) => void) {
   const fixture = createDashboardFixture(options)
+  configure?.(fixture)
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -335,6 +336,38 @@ test('?runId= opens the run drawer', async () => {
       expect(container.innerHTML).toMatch(firstRun.summary)
     })
   }
+})
+
+test('run detail replaces stale queued status and shows independent answer signals', async () => {
+  let finishDetail: (response: Response) => void = () => {}
+  const pendingDetail = new Promise<Response>(resolve => { finishDetail = resolve })
+  const run = runDetailDtoSchema.parse({
+    id: 'run_citypoint_001', projectId: 'project_citypoint', kind: RunKinds['answer-visibility'], status: RunStatuses.completed,
+    trigger: 'manual', createdAt: '2026-11-06T12:00:00Z', startedAt: '2026-11-06T12:00:00Z', finishedAt: '2026-11-06T12:01:00Z',
+    snapshots: [
+      { id: 'cited-only', query: 'Cited-only result', citationState: 'cited', answerMentioned: false },
+      { id: 'mentioned-only', query: 'Mentioned-only result', citationState: 'not-cited', answerMentioned: true },
+      { id: 'unknown-mention', query: 'Older result', citationState: 'cited' },
+    ].map(snapshot => ({ ...snapshot, runId: 'run_citypoint_001', queryId: snapshot.id, provider: 'gemini', createdAt: '2026-11-06T12:01:00Z' })),
+  })
+  const restore = mockFetch(url => pathOf(url) === '/api/v1/runs/run_citypoint_001' ? pendingDetail.then(response => response.clone()) : jsonResponse({ error: { message: 'Not needed for drawer' } }, 503))
+  onTestFinished(restore)
+  const { unmount } = await renderRoute('/?runId=run_citypoint_001', {}, fixture => {
+    fixture.dashboard.runs = [{ ...fixture.dashboard.runs[0]!, id: 'run_citypoint_001', status: RunStatuses.queued, summary: 'Queued synthetic check' }]
+  })
+  onTestFinished(unmount)
+  const dialog = within(await screen.findByRole('dialog'))
+  expect(dialog.getByText('Queued', { exact: true })).toBeTruthy()
+  await act(async () => { finishDetail(jsonResponse(run)); await pendingDetail })
+  await waitFor(() => expect(dialog.getByText('Completed', { exact: true })).toBeTruthy())
+  expect(dialog.queryByText('Queued', { exact: true })).toBeNull()
+  const cited = within(dialog.getByText('Cited-only result').closest<HTMLElement>('.material-base')!)
+  expect(cited.getByText('Cited', { exact: true })).toBeTruthy()
+  expect(cited.getByText('Not mentioned', { exact: true })).toBeTruthy()
+  const mentioned = within(dialog.getByText('Mentioned-only result').closest<HTMLElement>('.material-base')!)
+  expect(mentioned.getByText('Not cited', { exact: true })).toBeTruthy()
+  expect(mentioned.getByText('Mentioned', { exact: true })).toBeTruthy()
+  expect(within(dialog.getByText('Older result').closest<HTMLElement>('.material-base')!).getByText('Mention not measured')).toBeTruthy()
 })
 
 test.each([

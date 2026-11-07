@@ -739,19 +739,19 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
           <Radio className="h-4 w-4 text-muted" aria-hidden="true" />
           {/* A bare product name told a first-run operator nothing, but this bar
               is persistent, so the explanation belongs behind the affordance. */}
-          <span className="flex items-center gap-1.5 text-label-14-strong text-strong">
+          <span className="pointer-events-auto flex items-center gap-1.5 text-label-14-strong text-strong">
             {unkeyedDefault
               ? `Aero is set to ${unkeyedDefault.label.replace(/\s+\(.+\)$/, '')}, which has no API key.`
-              : 'Aero needs an answer-engine provider.'}
+              : 'Aero'}
             <InfoTooltip
               text={unkeyedDefault
                 ? `Set ${envVarHint(unkeyedDefault.id)} on the server, or providers.${unkeyedDefault.id}.apiKey in its config.yaml.`
-                : 'Aero is the built-in AEO analyst. It reads your Canonry data with you once a provider is connected.'}
+                : 'Aero is the built-in AEO analyst. Connect a supported answer engine to ask about these results.'}
             />
           </span>
           {unkeyedDefault ? null : canWrite ? (
             <Button asChild variant="outline" size="sm" className="pointer-events-auto ml-auto">
-              <Link to="/settings">Open Settings</Link>
+              <Link to="/settings">Set up Aero</Link>
             </Button>
           ) : (
             <span className="ml-auto text-secondary">Ask an administrator to configure one.</span>

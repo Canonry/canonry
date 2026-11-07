@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type ComponentProps } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import * as Dialog from '@radix-ui/react-dialog'
@@ -14,7 +14,43 @@ import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.j
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 
-export function ProviderConfigForm({ providerName, keyUrl, modelHint, kind, compact = false, offerFreeTier = true, leadingField, secondaryActions, onSaved, onDirtyChange, onBusyChange }: {
+/** Existing connections use the same revision, reset, and limit controls in setup and Settings. */
+export function ProviderConfigForm(props: ComponentProps<typeof NewProviderConfigForm> & { configured?: boolean; onCancel?: () => void }) {
+  const queryClient = useQueryClient()
+  const providerName = props.providerName.toLowerCase()
+  const connection = useQuery({
+    queryKey: ['settings', 'provider-connection', providerName],
+    queryFn: () => fetchProviderConnection(providerName),
+    enabled: props.configured === true,
+    staleTime: 0,
+    retry: false,
+  })
+  if (!props.configured) return <NewProviderConfigForm {...props} />
+  if (connection.isPending) return <p role="status" className="text-copy-14 text-secondary">Loading connection…</p>
+  if (connection.isError) return <div className="space-y-3"><p role="alert" className="text-copy-14 text-negative">{describeError(connection.error)}</p><Button type="button" variant="outline" onClick={() => { void connection.refetch() }}>Retry loading connection</Button></div>
+  return <div className="space-y-3">
+    {props.leadingField}
+    <ProviderConnectionEditor
+      key={`${connection.data.name}:${connection.data.revision}`}
+      compact={props.compact}
+      connection={connection.data}
+      onDirtyChange={props.onDirtyChange ?? (() => {})}
+      onBusyChange={props.onBusyChange ?? (() => {})}
+      onCancel={props.onCancel ?? props.onSaved}
+      onSaved={async () => {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['settings'] }),
+          invalidateProjectQueryDomain(queryClient, 'runAdmission'),
+        ])
+        addToast({ title: 'Connection saved', detail: 'Your next check will verify access.', tone: 'positive' })
+        props.onSaved()
+      }}
+    />
+    {props.secondaryActions}
+  </div>
+}
+
+function NewProviderConfigForm({ providerName, keyUrl, modelHint, kind, compact = false, offerFreeTier = true, leadingField, secondaryActions, onSaved, onDirtyChange, onBusyChange }: {
   providerName: string
   keyUrl?: string
   modelHint?: string
@@ -218,13 +254,13 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, kind, comp
   )
 
   return (
-    <div className={compact ? 'space-y-3' : 'mt-3 material-base p-3 space-y-2'}>
+    <div className={compact ? 'space-y-3' : 'mt-3 space-y-2'}>
       {showGeminiFreeTier && (
         <div className="flex flex-wrap items-start gap-x-6 gap-y-3 pb-2">
           <div className="min-w-0 flex-1 basis-72 space-y-1">
-            <h3 className="text-heading-16 text-heading">Start with Gemini’s free tier</h3>
+            <h3 className="text-heading-16 text-heading">Connect Gemini</h3>
             <p className="max-w-prose text-copy-14 text-secondary">
-              Get a key in Google AI Studio, then paste it below. Free usage has model and rate limits; paid usage is billed by Google.{' '}
+              Get a key in Google AI Studio. Free usage depends on the model and your account.{' '}
               <a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noopener noreferrer" className="text-link underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2">
                 Pricing and limits
               </a>
@@ -232,7 +268,7 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, kind, comp
           </div>
           <Button variant="outline" className="pointer-coarse:min-h-11" asChild>
             <a href={keyUrl} target="_blank" rel="noopener noreferrer">
-              Get a free Gemini API key {'\u2197'}
+              Get Gemini API key {'\u2197'}
             </a>
           </Button>
         </div>
@@ -265,8 +301,9 @@ const quotaFields: { key: ProviderQuotaField; label: string }[] = [
   { key: ProviderQuotaFields.maxRequestsPerDay, label: 'Requests per day' },
 ]
 
-function ProviderConnectionEditor({ connection, catalog, onDirtyChange, onBusyChange, onSaved, onCancel }: {
+function ProviderConnectionEditor({ connection, catalog, compact = false, onDirtyChange, onBusyChange, onSaved, onCancel }: {
   connection: ProviderConnectionSettingsDto
+  compact?: boolean
   catalog?: ProviderCatalogEntryDto
   onDirtyChange: (dirty: boolean) => void
   onBusyChange: (busy: boolean) => void
@@ -333,13 +370,13 @@ function ProviderConnectionEditor({ connection, catalog, onDirtyChange, onBusyCh
     }
   }
 
-  return <form className="mt-4 space-y-5 border-t border-default pt-4" aria-label={`${connection.displayName} connection settings`} aria-busy={saving} onSubmit={event => { event.preventDefault(); void save() }}>
+  return <form className={compact ? "space-y-4" : "mt-4 space-y-5 border-t border-default pt-4"} aria-label={`${connection.displayName} connection settings`} aria-busy={saving} onSubmit={event => { event.preventDefault(); void save() }}>
     {connection.blockers.map(blocker => <p key={blocker.code} role="status" className="text-copy-14 text-caution-400">{blocker.message}</p>)}
     <fieldset disabled={saving} className="space-y-5">
       {(capabilities.apiKey || connection.apiKeyConfigured) && <div className="max-w-xl space-y-2">
         <label htmlFor={`${id}-key`} className="block text-label-14 text-heading">{connection.apiKeyConfigured ? 'Replace API key' : 'API key'}</label>
         {capabilities.apiKey ? <input id={`${id}-key`} className="setup-input w-full" type="password" autoComplete="new-password" value={apiKey} disabled={clearKey || batchPending} onChange={event => setApiKey(event.target.value)} placeholder={connection.apiKeyConfigured ? 'Leave blank to keep the saved key' : 'Enter API key'} /> : <p className="text-copy-14 text-secondary">Managed on the host.</p>}
-        <p className="text-copy-14 text-secondary">{connection.apiKeyConfigured ? 'A key is saved. Its value is never returned to the browser.' : 'No API key is saved.'}{catalog?.keyUrl && <> <a className="text-link" href={catalog.keyUrl} target="_blank" rel="noreferrer">Get an API key</a></>}</p>
+        <p className="text-copy-14 text-secondary">{connection.apiKeyConfigured ? 'Saved key. Access is verified when you run a check.' : 'No API key is saved.'}{catalog?.keyUrl && <> <a className="text-link" href={catalog.keyUrl} target="_blank" rel="noreferrer">Get an API key</a></>}</p>
         {capabilities.clearApiKey && connection.apiKeyConfigured && <label className="flex items-center gap-2 text-label-14 text-secondary"><input type="checkbox" checked={clearKey} disabled={batchPending} onChange={event => { setClearKey(event.target.checked); setApiKey('') }} />Remove the saved API key</label>}
       </div>}
       {(capabilities.baseUrl || connection.baseUrl) && <details open={connection.name === ProviderNames.local || connection.baseUrl !== null} className="max-w-xl">
@@ -350,12 +387,12 @@ function ProviderConnectionEditor({ connection, catalog, onDirtyChange, onBusyCh
           <p className="text-copy-14 text-secondary">{connection.name === ProviderNames.local ? 'Use the OpenAI-compatible base URL, including its API path. A key is optional for a local endpoint.' : 'Override only when your provider uses a custom API endpoint.'}</p>
         </div>
       </details>}
-      {capabilities.model && <div className="max-w-xl space-y-2">
-        <p className="text-label-14 text-heading">{connection.kind === ProviderKinds['model-gateway'] ? 'Text generation model' : 'Instance model'}</p>
+      {capabilities.model && <details open={!compact || undefined} className="max-w-xl space-y-2">
+        <summary className="cursor-pointer text-label-14 text-heading">{connection.kind === ProviderKinds['model-gateway'] ? 'Text generation model' : 'Instance model'}{compact ? `: ${connection.model ?? connection.defaultModel ?? 'Provider default'}` : ''}</summary>
         <label className="flex items-center gap-2 text-label-14 text-secondary"><input type="checkbox" checked={inheritModel} disabled={batchPending} onChange={event => setInheritModel(event.target.checked)} />Use provider default{connection.defaultModel ? `: ${connection.defaultModel}` : ''}</label>
         {!inheritModel && <><label htmlFor={`${id}-model`} className="sr-only">Model ID</label><input id={`${id}-model`} className="setup-input w-full" list={`${id}-models`} value={model} required disabled={batchPending} onChange={event => setModel(event.target.value)} placeholder={connection.defaultModel ?? 'Model ID'} /><datalist id={`${id}-models`}>{catalog?.knownModels.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</datalist></>}
         <p className="text-copy-14 text-secondary">{connection.kind === ProviderKinds['model-gateway'] ? 'Used by text generation features that inherit the connection model. Project routes keep their selected model.' : 'Projects inherit this model unless they choose an override.'}{catalog?.modelValidationHint ? ` ${catalog.modelValidationHint}` : ''}</p>
-      </div>}
+      </details>}
       {capabilities.quota && <details>
         <summary className="cursor-pointer text-label-14 text-heading">Request limits</summary>
         <p className="mt-2 text-copy-14 text-secondary">Shared by projects using this connection. Provider defaults stay inherited when they change.</p>
@@ -389,6 +426,9 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
   const [fallbackEditing, setFallbackEditing] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState<ProviderConnectionSettingsDto | null>(null)
+  const connectionActions = useRef(new Map<string, HTMLButtonElement>())
+  const addProviderAction = useRef<HTMLButtonElement | null>(null)
+  const returnFocusToConnection = useRef<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -398,6 +438,19 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
   const guard = useUnsavedChanges(dirty, busy)
   const connections = settings.data?.providerConnections
   const selectedProject = projectName || projects[0]?.name
+
+  useEffect(() => {
+    if (editing || busy || returnFocusToConnection.current === null) return
+    const action = connectionActions.current.get(returnFocusToConnection.current) ?? addProviderAction.current
+    returnFocusToConnection.current = null
+    action?.focus()
+  }, [editing, busy])
+
+  function closeEditor() {
+    returnFocusToConnection.current = editing?.name ?? null
+    setEditing(null)
+    setDirty(false)
+  }
 
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ['settings'] })
@@ -410,6 +463,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
     try {
       const connection = await fetchProviderConnection(name)
       setEditing(connection)
+      setAdding(false)
       setDirty(false)
     } catch (cause) { setError(describeError(cause)) }
     finally { setBusy(false) }
@@ -467,12 +521,11 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
         <div className="flex flex-wrap items-center gap-2">
           <ToneBadge tone={connection.configured ? 'neutral' : 'caution'}>{connection.configured ? 'Configured' : 'Not configured'}</ToneBadge>
           {managed && connection.mode !== 'browser' && <span className="text-label-12 text-secondary">Host managed</span>}
-          {connection.mode === 'browser' ? <Button type="button" variant="outline" size="sm" asChild><Link to="/settings" hash="browser-connection">Browser settings</Link></Button> : <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => guard.request(() => { if (active) { setEditing(null); setDirty(false) } else void openEditor(connection.name) })}>{active ? 'Close' : connection.configured ? 'Manage' : 'Configure'}</Button>}
+          {connection.mode === 'browser' ? <Button type="button" variant="outline" size="sm" asChild><Link to="/settings" hash="browser-connection">Browser settings</Link></Button> : <Button ref={node => { if (node) connectionActions.current.set(connection.name, node); else connectionActions.current.delete(connection.name) }} type="button" variant="outline" size="sm" disabled={busy} onClick={() => guard.request(() => { if (active) closeEditor(); else void openEditor(connection.name) })}>{active ? 'Close' : connection.configured ? 'Manage' : 'Configure'}</Button>}
         </div>
       </div>
-      {active && editing && <ProviderConnectionEditor key={`${editing.name}:${editing.revision}`} connection={editing} {...(catalog ? { catalog } : {})} onDirtyChange={setDirty} onBusyChange={setBusy} onCancel={() => guard.request(() => { setEditing(null); setDirty(false) })} onSaved={async () => {
-        setEditing(null)
-        setDirty(false)
+      {active && editing && <ProviderConnectionEditor key={`${editing.name}:${editing.revision}`} connection={editing} {...(catalog ? { catalog } : {})} onDirtyChange={setDirty} onBusyChange={setBusy} onCancel={() => guard.request(closeEditor)} onSaved={async () => {
+        closeEditor()
         await refresh()
         addToast('Connection saved', 'positive')
       }} />}
@@ -487,7 +540,8 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
     </div>
   }
 
-  const available = connections?.filter(connection => !connection.configured && connection.name !== editing?.name && `${connection.displayName} ${connection.name} ${connection.kind}`.toLowerCase().includes(search.toLowerCase())) ?? []
+  const available = connections?.filter(connection => !connection.configured && connection.name !== editing?.name && `${connection.displayName} ${connection.name} ${connection.kind}`.toLowerCase().includes(search.trim().toLowerCase())) ?? []
+  const existingMatches = search.trim() ? connections?.filter(connection => connection.configured && `${connection.displayName} ${connection.name} ${connection.kind}`.toLowerCase().includes(search.trim().toLowerCase())) ?? [] : []
   const catalogGroups = [
     { label: 'Direct providers', entries: available.filter(connection => connection.mode !== 'browser' && connection.kind === ProviderKinds['answer-engine']) },
     { label: 'Model gateways', entries: available.filter(connection => connection.kind === ProviderKinds['model-gateway']) },
@@ -497,22 +551,23 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
 
   return <section aria-labelledby="provider-connections-title" aria-busy={busy || settings.isLoading}>
     <div className="section-head">
-      <div><p className="eyebrow eyebrow-soft">Instance settings</p><h2 id="provider-connections-title">Provider connections</h2></div>
-      {connections && <div className="flex flex-wrap gap-2">{connections.some(connection => connection.capabilities.reload) && <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => guard.request(() => void reload())}>Reload from host</Button>}<Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setAdding(current => !current)}>{adding ? 'Close catalog' : 'Add provider'}</Button></div>}
+      <h2 id="provider-connections-title">Provider connections</h2>
+      {connections && <div className="flex flex-wrap gap-2">{connections.some(connection => connection.capabilities.reload) && <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => guard.request(() => void reload())}>Reload from host</Button>}<Button ref={addProviderAction} type="button" variant="outline" size="sm" disabled={busy} onClick={() => setAdding(current => !current)}>{adding ? 'Close catalog' : 'Add provider'}</Button></div>}
     </div>
     <p className="mb-4 text-copy-14 text-secondary">Save credentials and defaults here. Each project chooses the answer engines it runs.</p>
     {settings.isLoading && <p role="status" className="text-copy-14 text-secondary">Loading connections…</p>}
     {(settings.isError || error) && <div className="mb-4 space-y-2"><p role="alert" className="text-copy-14 text-negative-400">{error ?? 'Could not load provider connections.'}</p><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { setError(null); void settings.refetch() }}>Retry</Button></div>}
     {connections ? <>
-      <div className="divide-y divide-default border-y border-default">{connections.filter(connection => connection.configured || connection.name === editing?.name).map(connectionRow)}</div>
+      <div className="divide-y divide-default">{connections.filter(connection => connection.configured || connection.name === editing?.name).map(connectionRow)}</div>
       {!connections.some(connection => connection.configured) && !editing && <p className="py-4 text-copy-14 text-secondary">No provider connections configured. Add a provider to start choosing answer engines.</p>}
-      {adding && <div className="mt-5 rounded-lg border border-default p-4">
+      {adding && <div className="mt-5 border-t border-default pt-4">
         <label htmlFor="provider-catalog-search" className="text-label-14 text-heading">Add provider</label>
         <input id="provider-catalog-search" type="search" className="setup-input mt-2 w-full" placeholder="Search providers" value={search} onChange={event => setSearch(event.target.value)} />
+        {existingMatches.length > 0 && <div className="mt-4"><h3 className="text-label-12 text-secondary">Already connected</h3><div className="mt-1 space-y-2">{existingMatches.map(connection => <div key={connection.name} className="flex items-center justify-between gap-3"><span className="text-copy-14 text-heading">{connection.displayName}</span><Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => guard.request(() => { setAdding(false); void openEditor(connection.name) })}>Manage {connection.displayName}</Button></div>)}</div></div>}
         {catalogGroups.filter(group => group.entries.length > 0).map(group => <div key={group.label} className="mt-4"><h3 className="text-label-12 text-secondary">{group.label}</h3><div className="mt-1 divide-y divide-default">{group.entries.map(connectionRow)}</div></div>)}
-        {available.length === 0 && <p className="py-4 text-copy-14 text-secondary">{search ? 'No matching providers.' : 'All available providers are configured.'}</p>}
+        {available.length === 0 && existingMatches.length === 0 && <p className="py-4 text-copy-14 text-secondary">{search ? 'No matching providers.' : 'All available providers are configured.'}</p>}
       </div>}
-    </> : settings.data && <div className="divide-y divide-default border-y border-default">
+    </> : settings.data && <div className="divide-y divide-default">
       <p className="py-4 text-copy-14 text-secondary">This host supports connection setup. Saved credential details, resets and disconnect are unavailable here.</p>
       {settings.data.providers.map(provider => <div key={provider.name} id={`provider-${provider.name}`} className="scroll-mt-24 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-copy-14-strong text-heading">{provider.displayName ?? provider.name}</p><p className="text-copy-14 text-secondary">{provider.model ?? provider.defaultModel}</p></div><div className="flex items-center gap-2"><ToneBadge tone={provider.configured ? 'neutral' : 'caution'}>{provider.configured ? 'Configured' : 'Not configured'}</ToneBadge><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => guard.request(() => { setFallbackEditing(current => current === provider.name ? null : provider.name); setDirty(false) })}>{fallbackEditing === provider.name ? 'Cancel' : provider.configured ? 'Update' : 'Configure'}</Button></div></div>

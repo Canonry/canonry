@@ -45,8 +45,10 @@ export function invalidateQueriesForRunKind(
       // trigger its single active read. Poll-driven completions and embeds use
       // that same revision path without requiring a notification observer.
       void invalidateCompetitorLandscapes(queryClient, projectName, 'none')
-      void invalidateProjectQueryDomain(queryClient, 'visibilityReport')
-      void invalidateProjectQueryDomain(queryClient, 'queryTracking')
+      // The headline, query evidence and By engine card share this report.
+      void invalidateProjectQueryDomain(queryClient, 'visibilityReport', { projectName })
+      void invalidateProjectQueryDomain(queryClient, 'queryTracking', { projectName })
+      void invalidateProjectQueryDomain(queryClient, 'runPreview', { projectName })
       // No explicit `['analytics-metrics', project]` invalidation here. That
       // key's last segment is `analyticsRevision` (`VisibilityTrendSection`,
       // fed by `latestVisibilityRevision` in `use-project-dashboard.ts`).

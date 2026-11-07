@@ -2385,6 +2385,27 @@ export type VisibilityReportResponse = {
                     unchecked?: number;
                 };
             }>;
+            providers?: Array<{
+                provider: string;
+                queryCount: number;
+                answerCount: number;
+                mentionCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    unattributed?: number;
+                    unchecked?: number;
+                };
+                citationCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    unattributed?: number;
+                    unchecked?: number;
+                };
+            }>;
         };
     }>;
 };
@@ -9827,6 +9848,47 @@ export type RunAdmissionDto = {
     };
 };
 
+export type RunPreviewDto = {
+    mode: 'simple' | 'advanced';
+    revision: number | null;
+    queryCount: number;
+    assignmentCount: number | null;
+    queryClasses: Array<{
+        queryClass: 'branded' | 'non-brand' | 'unknown';
+        queryCount: number;
+        assignmentCount: number | null;
+    }>;
+    requestCount: number;
+    expectedRequestCount: number;
+    engines: Array<{
+        provider: string;
+        models: Array<string>;
+        requestCount: number;
+        expectedRequestCount: number;
+        available: boolean;
+    }>;
+    locations: Array<{
+        location: string | null;
+        requestCount: number;
+    }>;
+    admission: {
+        refused: boolean;
+        retryAfter: string | null;
+        providers: {
+            [key: string]: {
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                consecutiveRuns: number;
+                since: string;
+                latestRunId: string;
+                retryAfter: string;
+            };
+        };
+    };
+    activeRunId: string | null;
+    canStart: boolean;
+    blockedReason: 'unpublished-plan' | 'no-queries' | 'no-provider' | 'providers-failing' | 'run-in-progress' | null;
+};
+
 export type LocationContext = {
     label: string;
     city: string;
@@ -13467,6 +13529,7 @@ export type MeasurementSetupResponse = {
     nextAction: 'republish_setup' | 'continue_setup' | 'run_measurement' | 'view_measurement' | 'start_setup';
     mode: 'simple' | 'draft-only' | 'active-v1' | 'active-v2';
     answerVisibilityProviderReady: boolean;
+    requiresPublication?: boolean;
     activeRevision: number | null;
     activeSchemaVersion: 1 | 2 | null;
     draft: {
@@ -14544,6 +14607,95 @@ export type ProjectOverviewDto = {
             pooled?: true;
             runIds: Array<string>;
         };
+    };
+    mentionCoverage?: {
+        selection: {
+            mode: 'simple' | 'advanced';
+            queryClass: 'branded' | 'non-brand' | 'unknown' | 'all';
+            scope: {
+                id: string;
+                label: string;
+                kind: 'project' | 'group' | 'market' | 'property';
+                targetCount: number;
+                parentGroupIds?: Array<string>;
+                marketKeys?: Array<string>;
+            };
+            market?: {
+                id: string;
+                label: string;
+                kind: 'project' | 'group' | 'market' | 'property';
+                targetCount: number;
+                parentGroupIds?: Array<string>;
+                marketKeys?: Array<string>;
+            };
+            provider: string | null;
+            model: string | null;
+            location: {
+                kind: 'all';
+            } | {
+                kind: 'none';
+            } | {
+                kind: 'exact';
+                value: string;
+            };
+            time: {
+                from: string | null;
+                to: string | null;
+            };
+            revision: number | null;
+            run: {
+                id: string | null;
+                explicit: boolean;
+            };
+            provenance: {
+                kind: 'frozen-simple';
+                definitionRevision: null;
+            } | {
+                kind: 'legacy-simple';
+                definitionRevision: null;
+            } | {
+                kind: 'frozen-advanced';
+                definitionRevision: number;
+            } | {
+                kind: 'unsupported-advanced-v1';
+                definitionRevision: number;
+            };
+            measurement: {
+                state: 'measured' | 'not-measured' | 'partial';
+                activeRevision: number | null;
+                measuredRevision: number | null;
+                awaitingSweep: boolean;
+                pendingAssignmentCount: number;
+                completedAt: string | null;
+            };
+            availability: {
+                state: 'available';
+            } | {
+                state: 'unsupported';
+                reason: 'advanced-v1';
+            };
+        };
+        populations: Array<{
+            queryClass: 'branded' | 'non-brand' | 'unknown';
+            queryCount: number;
+            answerCount: number;
+            mentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            citationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+        }>;
     };
     project: {
         id: string;
@@ -16146,6 +16298,28 @@ export type ScheduleDto = {
     nextRunAt?: string | null;
     createdAt: string;
     updatedAt: string;
+};
+
+export type SchedulePreviewRequest = {
+    preset?: string;
+    cron?: string;
+    recurrence?: {
+        everyDays: number;
+        startDate: string;
+        time: string;
+    };
+    timezone: string;
+};
+
+export type SchedulePreviewDto = {
+    cronExpr: string;
+    recurrence: {
+        everyDays: number;
+        startDate: string;
+        time: string;
+    } | null;
+    timezone: string;
+    nextRunAt: string | null;
 };
 
 export type SettingsDto = {
@@ -25931,6 +26105,40 @@ export type GetApiV1ProjectsByNameRunsLatestResponses = {
 
 export type GetApiV1ProjectsByNameRunsLatestResponse = GetApiV1ProjectsByNameRunsLatestResponses[keyof GetApiV1ProjectsByNameRunsLatestResponses];
 
+export type GetApiV1ProjectsByNameRunPreviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/run-preview';
+};
+
+export type GetApiV1ProjectsByNameRunPreviewErrors = {
+    /**
+     * Published plan or saved location is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameRunPreviewError = GetApiV1ProjectsByNameRunPreviewErrors[keyof GetApiV1ProjectsByNameRunPreviewErrors];
+
+export type GetApiV1ProjectsByNameRunPreviewResponses = {
+    /**
+     * Full manual sweep workload and admission returned.
+     */
+    200: RunPreviewDto;
+};
+
+export type GetApiV1ProjectsByNameRunPreviewResponse = GetApiV1ProjectsByNameRunPreviewResponses[keyof GetApiV1ProjectsByNameRunPreviewResponses];
+
 export type GetApiV1ProjectsByNameRunAdmissionData = {
     body?: never;
     path: {
@@ -27368,6 +27576,40 @@ export type PutApiV1SettingsCdpResponses = {
 };
 
 export type PutApiV1SettingsCdpResponse = PutApiV1SettingsCdpResponses[keyof PutApiV1SettingsCdpResponses];
+
+export type PostApiV1ProjectsByNameSchedulePreviewData = {
+    body: SchedulePreviewRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/schedule/preview';
+};
+
+export type PostApiV1ProjectsByNameSchedulePreviewErrors = {
+    /**
+     * Invalid schedule timing.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameSchedulePreviewError = PostApiV1ProjectsByNameSchedulePreviewErrors[keyof PostApiV1ProjectsByNameSchedulePreviewErrors];
+
+export type PostApiV1ProjectsByNameSchedulePreviewResponses = {
+    /**
+     * Next occurrence returned.
+     */
+    200: SchedulePreviewDto;
+};
+
+export type PostApiV1ProjectsByNameSchedulePreviewResponse = PostApiV1ProjectsByNameSchedulePreviewResponses[keyof PostApiV1ProjectsByNameSchedulePreviewResponses];
 
 export type DeleteApiV1ProjectsByNameScheduleData = {
     body?: never;

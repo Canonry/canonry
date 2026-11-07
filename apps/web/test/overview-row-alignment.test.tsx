@@ -110,10 +110,10 @@ test('a partial sweep keeps its data-validity caveat in the caution tone rather 
   const partialCaption = partialMention!.querySelector('.metric-inline-caption')!
   // Caution tone is the whole point: it is why the score above reads amber.
   expect(partialCaption.getAttribute('class')).toContain('text-caution')
-  expect(partialCaption.textContent).toBe('Partial check: 2 of 4 engines')
+  expect(partialCaption.textContent).toBe('Partial check: 61 of 100 answers · 2 of 4 engines')
   // Truncation is expected in a 9rem column, so the full text must survive on
   // the title attribute where a hover can still reach it.
-  expect(partialCaption.getAttribute('title')).toBe('2 of 4 engines')
+  expect(partialCaption.getAttribute('title')).toBe('61 of 100 answers · 2 of 4 engines')
 
   // A complete sweep carries no caveat and must NOT borrow the caution tone.
   const fullCaption = fullMention!.querySelector('.metric-inline-caption')!
@@ -147,22 +147,39 @@ test('does not report unconfigured providers to a viewer whose settings are unav
   expect(doc.body.textContent).toContain('Infrastructure')
 })
 
-test('shows each project mention rate through formatPercent, not as a bare number', async () => {
+test('shows non-brand server rates, names, and counts without mixing branded or unclassified answers', async () => {
   const doc = await renderOverview(fixture => {
-    // 2 of 3 queries mentioned is 66.666667 on the wire; the others are whole.
-    fixture.dashboard.portfolioOverview.projects[0]!.mentionScore = 66.666667
+    const [first, second, third] = fixture.dashboard.portfolioOverview.projects
+    first!.project.displayName = 'Human project name'
+    first!.mentionPopulations = [
+      { queryClass: 'non-brand', queryCount: 2, answerCount: 3, mentionCoverage: { numerator: 2, denominator: 3, rate: 0.66666667 }, citationCoverage: { numerator: 1, denominator: 3, rate: 0.33333333 } },
+      { queryClass: 'branded', queryCount: 5, answerCount: 10, mentionCoverage: { numerator: 9, denominator: 10, rate: 0.9 }, citationCoverage: { numerator: 4, denominator: 10, rate: 0.4 } },
+    ]
+    second!.mentionPopulations = [{ queryClass: 'non-brand', queryCount: 2, answerCount: 2, mentionCoverage: { numerator: 0, denominator: 2, rate: 0 }, citationCoverage: { numerator: 1, denominator: 2, rate: 0.5 } }]
+    third!.mentionPopulations = [{ queryClass: 'unknown', queryCount: 1, answerCount: 1, mentionCoverage: { numerator: 1, denominator: 1, rate: 1 }, citationCoverage: { numerator: 0, denominator: 1, rate: 0 } }]
   })
-  const mentioned = [...doc.querySelectorAll('.project-row')]
-    .map(row => statBlocks(row)[0]!.querySelector('.metric-inline-value')?.textContent)
-  expect(mentioned).toEqual(['66.7%', '74.0%', '58.0%'])
+  const rows = [...doc.querySelectorAll('.project-row')]
+  expect(rows.map(row => statBlocks(row)[0]!.querySelector('.metric-inline-value')?.textContent)).toEqual([
+    '66.7% · non-brand queries', '0% · non-brand queries', 'Not measured · non-brand queries',
+  ])
+  expect(rows.map(row => statBlocks(row)[0]!.querySelector('.metric-inline-caption')?.textContent)).toEqual(['2 of 3 answers', '0 of 2 answers', 'Not measured'])
+  expect(rows[0]!.querySelector('.project-name')!.textContent).toBe('Human project name')
+  expect(rows[0]!.querySelector('a')!.getAttribute('href')).not.toContain('Human')
+  const branded = rows[0]!.querySelector('details')!
+  expect(branded.hasAttribute('open')).toBe(false)
+  expect(branded.querySelector('summary')!.textContent).toBe('Branded queries')
+  expect(branded.textContent).toContain('90.0% · branded queries · 9 of 10 answers')
+  expect(rows[2]!.querySelector('summary')!.textContent).toBe('Unclassified queries')
+  // The API exposes no class-specific trend to place beside these figures.
+  expect(doc.querySelector('.project-row .sparkline')).toBeNull()
 })
 
 test('shows an awaiting-baseline state rather than zero performance or stable results', async () => {
   const doc = await renderOverview(fixture => {
-    fixture.dashboard.portfolioOverview.projects.forEach(project => { project.hasMeasurement = false; project.mentionScore = 0 })
+    fixture.dashboard.portfolioOverview.projects.forEach(project => { project.hasMeasurement = false; project.mentionPopulations = undefined })
     fixture.dashboard.portfolioOverview.attentionItems = [{ id: 'attention_stable', tone: 'positive', title: 'All projects stable', detail: 'No changes' }]
   }, true)
-  expect([...doc.querySelectorAll('.metric-inline-value')].map(node => node.textContent)).toEqual(Array(6).fill('Not measured'))
+  expect([...doc.querySelectorAll('.metric-inline-value')].map(node => node.textContent)).toEqual(Array.from({ length: 3 }, () => ['Not measured · non-brand queries', 'Not measured']).flat())
   expect(doc.body.textContent).toContain('Awaiting first measurement')
   expect(doc.body.textContent).not.toContain('All projects stable')
 })
@@ -241,7 +258,7 @@ test('when any project shows sentiment, every row keeps the same columns so Ment
     // Same grid template and the same number of stat cells in every row.
     expect(row.classList.contains('project-row-with-sentiment')).toBe(true)
     expect(row.querySelectorAll(':scope > .project-row-stat')).toHaveLength(3)
-    expect(row.querySelector(':scope > .project-row-stat .metric-inline-label')!.textContent).toBe('Mentioned')
+    expect(row.querySelector(':scope > .project-row-stat .metric-inline-label')!.textContent).toBe('Mentioned · non-brand')
   }
   const placeholders = doc.querySelectorAll('[data-sentiment-placeholder]')
   expect(placeholders).toHaveLength(rows.length - 1)

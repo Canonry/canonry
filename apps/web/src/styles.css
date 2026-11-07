@@ -630,14 +630,6 @@
     @apply lg:pl-0;
   }
 
-  /* First-run focus mode (sidebar hidden) — drop the 224px sidebar gutter
-     so the wizard centers across the full viewport instead of being
-     offset right. Applied via the `app-shell-focus` modifier set by
-     App.tsx when the user is on /setup with zero projects. */
-  .app-shell-focus .main-area {
-    @apply lg:pl-0;
-  }
-
   .topbar {
     @apply sticky top-0 z-20 flex flex-wrap items-center justify-between gap-4 border-b border-default bg-bg/95 px-4 py-2.5 backdrop-blur-sm md:flex-nowrap md:px-6;
   }
@@ -811,11 +803,11 @@
      RootLayout sets the class on .main-area; pages never pad for the bar.
      Product links and the version live in navigation, outside this lane. */
   .main-area-agent-bar {
-    padding-bottom: 6rem;
+    padding-bottom: calc(7rem + env(safe-area-inset-bottom));
   }
 
   html:has(.main-area-agent-bar) {
-    scroll-padding-bottom: 6rem;
+    scroll-padding-bottom: calc(7rem + env(safe-area-inset-bottom));
   }
 
   .page-container {
@@ -1170,7 +1162,7 @@
      controls change future sweeps, so their inherited/override state needs a
      calm, scannable row layout rather than a modal. */
   .project-engine-settings {
-    @apply material-base mt-5 px-5 py-5;
+    @apply mt-8 border-t border-subtle pt-6;
   }
 
   .project-engine-fieldset {
@@ -1190,7 +1182,7 @@
   }
 
   .project-engine-list {
-    @apply material-base mt-3 divide-y divide-mono-800/40;
+    @apply mt-3 divide-y divide-mono-800/40;
   }
 
   .project-engine-row {
@@ -1474,15 +1466,6 @@
   /* A row's time that opens its run: reads as text, underlines on hover. */
   .av-link {
     @apply rounded-sm text-left underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
-  }
-
-  /* One labelled figure under a card's grid ("Competitor cited instead of you"). */
-  .av-card-line {
-    @apply mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 border-t border-subtle pt-3;
-  }
-
-  .av-card-line-label {
-    @apply text-strong text-label-14-strong;
   }
 
   /* A list inside a Details bullet ("Company names in answers ▸"). Starts
@@ -2072,35 +2055,32 @@
   }
 
   .hero-stack,
-  .compact-stack,
-  .run-list,
-  .project-list {
+  .run-list {
     @apply grid gap-3;
   }
 
-  /* Scrollable list containers — cap height, fade bottom edge */
+  .project-list,
+  .compact-stack {
+    @apply grid;
+  }
+
+  /* Scrollable list containers keep every visible row fully readable. */
 
   .project-list-scrollable {
     max-height: 32rem;
     overflow-y: auto;
-    mask-image: linear-gradient(to bottom, black calc(100% - 2rem), transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 2rem), transparent 100%);
     padding-bottom: 0.5rem;
   }
 
   .attention-list-scrollable {
     max-height: 18rem;
     overflow-y: auto;
-    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
     padding-bottom: 0.25rem;
   }
 
   .compact-stack-scrollable {
     max-height: 18rem;
     overflow-y: auto;
-    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
     padding-bottom: 0.25rem;
   }
 
@@ -2186,7 +2166,7 @@
   /* ── Compact run ── */
 
   .compact-run {
-    @apply material-base flex items-center justify-between gap-4 px-3.5 py-2.5 text-left transition hover:bg-surface-hover;
+    @apply flex items-center justify-between gap-4 border-b border-subtle px-3.5 py-2.5 text-left transition last:border-b-0 hover:bg-surface-hover;
   }
 
   .compact-run-detail {
@@ -3098,11 +3078,11 @@
   /* ── Project row (overview) ── */
 
   .project-row {
-    @apply material-base grid gap-3 px-4 py-3.5 transition hover:bg-surface-hover lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_auto] lg:items-center no-underline text-inherit;
+    @apply grid gap-3 border-b border-subtle px-4 py-3.5 transition last:border-b-0 hover:bg-surface-hover lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
   .project-row-with-sentiment {
-    @apply lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto];
+    @apply lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_9rem_auto];
   }
 
   .project-row-primary {
@@ -3113,16 +3093,8 @@
     @apply min-w-0;
   }
 
-  .project-row-chart {
-    @apply hidden lg:block;
-  }
-
   .project-row-link {
     @apply justify-self-end;
-  }
-
-  .project-insight {
-    @apply mt-1.5 text-muted text-label-12;
   }
 
   /* Fixed 3-row template (label / value / caption) — every stat cell that

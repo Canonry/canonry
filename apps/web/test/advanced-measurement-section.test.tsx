@@ -412,6 +412,12 @@ function createFakeService(options: FakeServiceOptions = {}) {
       else draft.authoring.targets[index] = clone(target)
       return mutation()
     }),
+    upsertMarket: vi.fn(async (_projectName, etag, market) => {
+      const draft = requireDraft(etag)
+      const existing = draft.authoring.reportingScopes ?? []
+      draft.authoring.reportingScopes = [...existing.filter(scope => scope.stableKey !== market.stableKey), clone(market)]
+      return mutation()
+    }),
     upsertGroup: vi.fn(async (_projectName, etag, group) => {
       const draft = requireDraft(etag)
       const index = draft.authoring.groups.findIndex(candidate => candidate.stableKey === group.stableKey)
@@ -583,7 +589,7 @@ function renderSection(
 }
 
 async function reviewSyntheticSitemap() {
-  await screen.findByRole('heading', { name: 'Import Properties' })
+  await screen.findByRole('heading', { name: 'Add Properties' })
   fireEvent.change(screen.getByLabelText('Sitemap URL'), {
     target: { value: 'https://portfolio.example/sitemap.xml' },
   })
@@ -595,11 +601,11 @@ async function reviewSyntheticSitemap() {
 
 async function advanceExistingDraftToReview() {
   await screen.findByRole('heading', { name: 'Properties' })
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
   await screen.findByRole('heading', { name: 'Groups' })
   fireEvent.click(screen.getByRole('button', { name: /^Continue(?: without groups)?$/ }))
   await screen.findByRole('heading', { name: 'Queries' })
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
   await screen.findByRole('heading', { name: 'Review & publish' })
 }
 
@@ -611,7 +617,7 @@ async function advanceGroupsToQuestions() {
 
 async function advancePropertiesToQuestions() {
   await screen.findByRole('heading', { name: 'Properties' })
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
   await advanceGroupsToQuestions()
 }
 
@@ -679,11 +685,38 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     const fake = createFakeService()
     renderSection(fake)
 
-    await screen.findByRole('heading', { name: 'Import Properties' })
+    await screen.findByRole('heading', { name: 'Add Properties' })
     expect(fake.service.createDraft).toHaveBeenCalledTimes(1)
     expect(fake.service.createDraft).toHaveBeenCalledWith(PROJECT, null)
     expect(fake.service.loadSetup).toHaveBeenCalledTimes(2)
     expect(fake.service.loadDraft).toHaveBeenCalledTimes(2)
+  })
+
+  test('adds a small portfolio manually with explicit mention and citation identity', async () => {
+    const fake = createFakeService()
+    renderSection(fake, { projectDomain: 'https://portfolio.example/products' })
+    await screen.findByRole('heading', { name: 'Add Properties' })
+    expect(screen.getByLabelText('Sitemap URL')).toHaveProperty('value', 'https://portfolio.example/sitemap.xml')
+    fireEvent.click(screen.getByRole('button', { name: 'Add manually' }))
+    for (const [name, url] of [['Starter', 'https://portfolio.example/products/starter'], ['Team', 'https://portfolio.example/products/team']]) {
+      fireEvent.change(screen.getByLabelText('Property name'), { target: { value: name } })
+      fireEvent.change(screen.getByLabelText('Property page URL'), { target: { value: url } })
+      const submit = screen.getByRole('button', { name: 'Add Property' })
+      act(() => { submit.focus() })
+      fireEvent.click(submit)
+      await waitFor(() => {
+        expect(screen.getByLabelText('Property name')).toHaveProperty('value', '')
+        expect(screen.getByLabelText('Property name')).toHaveProperty('disabled', false)
+        expect(document.activeElement).toBe(screen.getByLabelText('Property name'))
+      })
+    }
+    expect(fake.service.importSitemap).not.toHaveBeenCalled()
+    expect(vi.mocked(fake.service.upsertTarget).mock.calls.map(call => call[2])).toEqual([
+      expect.objectContaining({ label: 'Starter', aliases: ['Starter'], urlMatchers: ['https://portfolio.example/products/starter'], source: 'manual', status: 'included' }),
+      expect.objectContaining({ label: 'Team', aliases: ['Team'], urlMatchers: ['https://portfolio.example/products/team'], source: 'manual', status: 'included' }),
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with 2 Properties' }))
+    await screen.findByRole('heading', { name: 'Groups' })
   })
 
   test('shows the server sitemap error instead of replacing it with a generic failure', async () => {
@@ -696,7 +729,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     expect(await screen.findByText('The sitemap contains no Property URLs matching this rule.')).toBeTruthy()
     expect(screen.queryByText('We could not review this sitemap. Check the URL and try again.')).toBeNull()
-    expect(screen.getByRole('heading', { name: 'Import Properties' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Add Properties' })).toBeTruthy()
   })
 
   test('requires an explicit restart when a draft is based on an older published setup', async () => {
@@ -714,10 +747,10 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     await waitFor(() => expect(fake.service.discard).toHaveBeenCalledWith(PROJECT, '"mpd_7"'))
     await waitFor(() => expect(fake.service.createDraft).toHaveBeenCalledWith(PROJECT, 5))
-    expect(await screen.findByRole('heading', { name: 'Import Properties' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Add Properties' })).toBeTruthy()
   })
 
-  test('confirms 213 synthetic sitemap proposals with one server selection action', async () => {
+  test('requires an explicit selection from 213 sitemap proposals and saves only the chosen Properties', async () => {
     const proposals = Array.from({ length: 213 }, (_, index) => property(index + 1, 'proposed'))
     const fake = createFakeService({ importedTargets: proposals })
     renderSection(fake)
@@ -725,7 +758,11 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     await reviewSyntheticSitemap()
     await screen.findByRole('heading', { name: 'Properties' })
     expect(screen.getByText('Showing 50 of 213 Properties')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByText('0 of 213 selected')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Continue with 0 Properties' })).toHaveProperty('disabled', true)
+    fireEvent.click(screen.getByLabelText('Select Property 001'))
+    fireEvent.click(screen.getByLabelText('Select Property 002'))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
     await screen.findByRole('heading', { name: 'Groups' })
 
     expect(fake.service.applySitemapSelection).toHaveBeenCalledTimes(1)
@@ -734,10 +771,9 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     expect(selections.map(selection => selection.discoveryIdentity)).toEqual(
       proposals.map(proposal => proposal.discoveryIdentity),
     )
-    expect(new Set(selections.map(selection => selection.action))).toEqual(new Set(['create']))
-    expect(vi.mocked(fake.service.applySitemapSelection).mock.calls[0]![3]).toEqual(
-      proposals.map(proposal => proposal.stableKey),
-    )
+    expect(selections.filter(selection => selection.action === 'create').map(selection => selection.discoveryIdentity)).toEqual(proposals.slice(0, 2).map(proposal => proposal.discoveryIdentity))
+    expect(selections.filter(selection => selection.action === 'ignore')).toHaveLength(211)
+    expect(vi.mocked(fake.service.applySitemapSelection).mock.calls[0]![3]).toEqual(['property-001', 'property-002'])
   })
 
   test('renders real sitemap warning codes from paths without leaking warning prose or stable keys', async () => {
@@ -792,13 +828,14 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     await reviewSyntheticSitemap()
     await screen.findByRole('heading', { name: 'Properties' })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select all shown' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
     await advanceGroupsToQuestions()
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
-    await clickReadyAssignment(/Assign 1 query to every location \(4\)/)
+    await clickReadyAssignment(/Assign 1 query to every Property \(4\)/)
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
     await screen.findByRole('heading', { name: 'Review & publish' })
 
     expect(screen.getByText('Review a new Property')).toBeTruthy()
@@ -825,7 +862,8 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     await reviewSyntheticSitemap()
     await screen.findByRole('heading', { name: 'Properties' })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select all shown' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
 
     const saving = await screen.findByRole('button', { name: 'Saving Properties…' })
     expect(saving).toHaveProperty('disabled', true)
@@ -846,9 +884,9 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     const applyTo = screen.getByLabelText('Apply to') as HTMLSelectElement
     expect(applyTo.value).toBe('')
     expect((screen.getByRole('option', { name: 'Choose where to apply' }) as HTMLOptionElement).selected).toBe(true)
-    expect(screen.getByRole('option', { name: 'Every location (3)' })).toBeTruthy()
-    expect(screen.getByRole('option', { name: 'Specific locations…' })).toBeTruthy()
-    expect(screen.queryByText('Specific locations')).toBeNull()
+    expect(screen.getByRole('option', { name: 'Every Property (3)' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Specific Properties…' })).toBeTruthy()
+    expect(screen.queryByText('Specific Properties')).toBeNull()
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
     expect(fake.service.previewAssignments).not.toHaveBeenCalled()
@@ -856,7 +894,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     expect(screen.getByText('Choose where to apply first.')).toBeTruthy()
 
     fireEvent.change(applyTo, { target: { value: 'all' } })
-    await clickReadyAssignment(/Assign 1 query to every location \(3\)/)
+    await clickReadyAssignment(/Assign 1 query to every Property \(3\)/)
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
     expect(fake.service.previewAssignments).toHaveBeenCalledWith(PROJECT, {
       targetKeys: targets.map(target => target.stableKey),
@@ -872,7 +910,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     await advanceGroupsToQuestions()
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
     for (const query of QUERIES) fireEvent.click(screen.getByLabelText(`Select query ${query.query}`))
-    await clickReadyAssignment(/Assign 2 queries to every location \(3\)/)
+    await clickReadyAssignment(/Assign 2 queries to every Property \(3\)/)
 
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
     expect(fake.service.previewAssignments).toHaveBeenCalledTimes(1)
@@ -1005,6 +1043,43 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     expect(fake.service.applyAssignments).toHaveBeenCalledWith(PROJECT, '"mpd_7"', expected)
   })
 
+  test('creates and edits a market without widening a Property to its other location assignments', async () => {
+    const target = property(1)
+    const initialDraft = draftFixture({ targets: [target] })
+    initialDraft.authoring.assignments = [{
+      targetKey: target.stableKey, queryId: QUERIES[0]!.id, queryClass: 'non-brand', classificationSource: 'rule',
+      executionContexts: ['Dallas', 'Austin'].map(city => ({
+        providers: ['openai' as const], models: { openai: 'gpt-test' },
+        location: { label: city, city, region: 'TX', country: 'US' }, executionNodeKey: `execution-${city.toLowerCase()}`,
+      })),
+    }]
+    initialDraft.authoring.groups = [{ stableKey: 'group-texas', label: 'Texas', targetKeys: [target.stableKey], competitors: [] }]
+    const dallas = { executionNodeKey: 'execution-dallas', targetKey: target.stableKey, queryId: QUERIES[0]!.id }
+    const austin = { ...dallas, executionNodeKey: 'execution-austin' }
+    initialDraft.authoring.reportingScopes = [{ stableKey: 'market-dallas', label: 'Dallas', kind: 'market', groupKey: 'group-texas', usageEdges: [dallas] }]
+    const fake = createFakeService({ initialDraft })
+    renderSection(fake)
+    await screen.findByRole('heading', { name: 'Review & publish' })
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByRole('heading', { name: 'Queries' })
+    fireEvent.click(screen.getByText('Markets (1)'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add market' }))
+    fireEvent.change(screen.getByLabelText('Market name'), { target: { value: 'Austin' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Property 001.*Austin.*Non-brand/ }))
+    expect(screen.getByRole('checkbox', { name: /Property 001.*Dallas.*Non-brand/ })).toHaveProperty('checked', false)
+    expect(screen.getByRole('button', { name: 'Continue' })).toHaveProperty('disabled', true)
+    fireEvent.click(screen.getByRole('button', { name: 'Save market' }))
+    await waitFor(() => expect(fake.service.upsertMarket).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(fake.service.upsertMarket).mock.calls[0]![2]).toEqual({ stableKey: 'market-austin', label: 'Austin', kind: 'market', usageEdges: [austin] })
+    await waitFor(() => expect(screen.queryByLabelText('Market name')).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Dallas market' }))
+    fireEvent.change(screen.getByLabelText('Market name'), { target: { value: 'Dallas customers' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save market' }))
+    await waitFor(() => expect(fake.service.upsertMarket).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(fake.service.upsertMarket).mock.calls[1]![2]).toEqual({ stableKey: 'market-dallas', label: 'Dallas customers', kind: 'market', groupKey: 'group-texas', usageEdges: [dallas] })
+    expect(fake.service.publish).not.toHaveBeenCalled()
+  })
+
   test('routes one seeded market by its exact reporting scope when markets share frozen measurements', async () => {
     const route = 'openrouter:google/gemini-2.5-pro'
     const targets = [property(1), property(2)]
@@ -1059,6 +1134,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     await screen.findByRole('heading', { name: 'Queries' })
 
+    fireEvent.click(screen.getByText('Markets (2)'))
     fireEvent.change(screen.getByLabelText('Market to route'), { target: { value: 'market-dallas' } })
     fireEvent.change(screen.getByLabelText('Answer engine for this market'), { target: { value: route } })
     const save = screen.getByRole('button', { name: 'Save market routing' }) as HTMLButtonElement
@@ -1077,7 +1153,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     expect(screen.getByText('Dallas market routing saved. Existing locations were preserved.')).toBeTruthy()
   })
 
-  test('applies Specific locations in canonical order regardless of checkbox order', async () => {
+  test('applies Specific Properties in canonical order regardless of checkbox order', async () => {
     const targets = [property(1), property(2), property(3)]
     const fake = createFakeService({ initialDraft: draftFixture({ targets }) })
     renderSection(fake)
@@ -1087,7 +1163,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByLabelText('Select Property 003'))
     fireEvent.click(screen.getByLabelText('Select Property 001'))
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
-    await clickReadyAssignment(/Assign 1 query to 2 locations/)
+    await clickReadyAssignment(/Assign 1 query to 2 Properties/)
 
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
     expect(fake.service.applyAssignments).toHaveBeenCalledWith(PROJECT, '"mpd_7"', {
@@ -1136,6 +1212,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'specific' } })
     fireEvent.click(screen.getByLabelText('Select Property 001'))
     fireEvent.change(screen.getByLabelText('Answer engine for these assignments'), { target: { value: route } })
+    fireEvent.click(screen.getByText('Write one query for every Property'))
     fireEvent.change(screen.getByLabelText('Query pattern'), { target: { value: 'events at {property}' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 query' }))
 
@@ -1187,6 +1264,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     await advanceGroupsToQuestions()
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
+    fireEvent.click(screen.getByText('Write one query for every Property'))
     const pattern = await screen.findByLabelText('Query pattern')
     fireEvent.change(pattern, { target: { value: 'events at {property}' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 queries' }))
@@ -1214,6 +1292,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     await advanceGroupsToQuestions()
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
+    fireEvent.click(screen.getByText('Write one query for every Property'))
     const pattern = await screen.findByLabelText('Query pattern')
     fireEvent.change(pattern, { target: { value: 'events at {property}' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 queries' }))
@@ -1269,7 +1348,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     const firstProperty = await screen.findByLabelText('Select Property 001')
     fireEvent.click(firstProperty)
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
     await screen.findByRole('heading', { name: 'Groups' })
 
     expect(fake.service.applySitemapSelection).toHaveBeenCalledTimes(1)
@@ -1293,7 +1372,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     await advancePropertiesToQuestions()
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'specific' } })
-    expect(screen.getByText('Specific locations')).toBeTruthy()
+    expect(screen.getByText('Specific Properties')).toBeTruthy()
 
     fireEvent.click(screen.getByLabelText('Select Property 001'))
     fireEvent.click(screen.getByLabelText('Select Property 002'))
@@ -1303,10 +1382,10 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     await screen.findByRole('heading', { name: 'Properties' })
     expect(screen.getByText('194 of 194 selected')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
     await advanceGroupsToQuestions()
     expect((screen.getByLabelText('Apply to') as HTMLSelectElement).value).toBe('')
-    expect(screen.queryByText('Specific locations')).toBeNull()
+    expect(screen.queryByText('Specific Properties')).toBeNull()
 
     expect(fake.service.applySitemapSelection).not.toHaveBeenCalled()
     expect(fake.getDraft()?.authoring.targets.filter(target => target.status === 'included')).toHaveLength(194)
@@ -1366,9 +1445,9 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByLabelText('Select Property 001'))
     fireEvent.click(screen.getByRole('button', { name: 'Save group' }))
     await waitFor(() => expect(fake.service.upsertGroup).toHaveBeenCalledTimes(1))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
     await screen.findByRole('heading', { name: 'Queries' })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
     await screen.findByRole('heading', { name: 'Review & publish' })
 
     expect(screen.getByText('Fix group Properties')).toBeTruthy()
@@ -1440,7 +1519,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
         await refreshedPreviewGate
         return preview
       })
-    const assignButtonName = /Assign 1 query to every location \(1\)/
+    const assignButtonName = /Assign 1 query to every Property \(1\)/
     renderSection(fake)
     await advanceGroupsToQuestions()
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
@@ -1477,6 +1556,32 @@ describe('AdvancedMeasurementSection server draft controller', () => {
       expectedCompiledChecksum: COMPILED_CHECKSUM,
     })
     expect(onPublished).toHaveBeenCalledTimes(1)
+  })
+
+  test('reviews saved matching names before publishing and preserves imported identity when editing', async () => {
+    const target = { ...property(1), label: 'Friendly product label', aliases: ['Imported slug name'], identityAliases: ['Imported slug name Pro'] }
+    const fake = createFakeService({ initialDraft: draftFixture({ targets: [target], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 }) })
+    renderSection(fake)
+    await advanceExistingDraftToReview()
+    const help = 'Check the names and URLs used to measure each Property. Display names alone do not change matching.'
+    expect(screen.queryByText(help)).toBeNull()
+    const matchingHelp = screen.getByRole('button', { name: help })
+    fireEvent.focus(matchingHelp)
+    expect(screen.getByText(help)).toBeTruthy()
+    fireEvent.blur(matchingHelp)
+    expect(screen.getByText('Imported slug name')).toBeTruthy()
+    expect(screen.getByText('Imported slug name Pro')).toBeTruthy()
+    expect(screen.getByText(target.urlMatchers[0]!)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+    await screen.findByRole('button', { name: 'Publish setup' })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit matching for Friendly product label' }))
+    expect(screen.getByRole('button', { name: 'Publish setup' })).toHaveProperty('disabled', true)
+    fireEvent.change(screen.getByLabelText('Names that count as a mention'), { target: { value: 'Imported slug name\nSpecific product name' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Property' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Review changes' })).toHaveProperty('disabled', false))
+    expect(fake.service.upsertTarget).toHaveBeenCalledWith(PROJECT, '"mpd_7"', { ...target, aliases: ['Imported slug name', 'Specific product name'] })
+    expect(fake.getDraft()?.authoring.assignments).toHaveLength(1)
+    expect(fake.service.publish).not.toHaveBeenCalled()
   })
 
   test.each([true, false])('pauses Publish setup while a sweep is queued or running (sweepActive=%s)', async (sweepActive) => {
@@ -1583,11 +1688,11 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     })
     renderSection(fake)
     await screen.findByRole('heading', { name: 'Properties' })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
     await screen.findByRole('heading', { name: 'Groups' })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
     await screen.findByRole('heading', { name: 'Queries' })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
     await screen.findByRole('heading', { name: 'Review & publish' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -1761,7 +1866,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
   test('discards the server draft only after explicit confirmation', async () => {
     const fake = createFakeService({ initialDraft: draftFixture() })
     renderSection(fake)
-    await screen.findByRole('heading', { name: 'Import Properties' })
+    await screen.findByRole('heading', { name: 'Add Properties' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
     expect(fake.service.discard).not.toHaveBeenCalled()
@@ -1775,7 +1880,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
   test('recovers when another session already discarded the draft', async () => {
     const fake = createFakeService({ initialDraft: draftFixture(), discardConflictStatus: 404 })
     renderSection(fake)
-    await screen.findByRole('heading', { name: 'Import Properties' })
+    await screen.findByRole('heading', { name: 'Add Properties' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
     fireEvent.click(screen.getByRole('button', { name: 'Discard unpublished changes' }))

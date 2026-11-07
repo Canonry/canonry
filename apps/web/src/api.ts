@@ -1,3 +1,5 @@
+import { postApiV1ProjectsByNameSchedulePreview } from '@canonry/canonry-api-client'
+import type { SchedulePreviewRequest, SchedulePreviewDto } from '@canonry/canonry-contracts'
 import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto, ProviderConnectionSettingsDto, ProviderSettingsUpdateRequest, ProviderReloadResponseDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@canonry/canonry-contracts'
@@ -1203,6 +1205,10 @@ export async function fetchSchedule(project: string): Promise<ApiSchedule | null
     if (e instanceof ApiError && e.statusCode === 404) return null
     throw e
   }
+}
+
+export function previewSchedule(project: string, body: SchedulePreviewRequest): Promise<SchedulePreviewDto> {
+  return invokeWeb<SchedulePreviewDto>(() => postApiV1ProjectsByNameSchedulePreview({ client: heyClient, path: { name: project }, body }))
 }
 
 export function saveSchedule(project: string, body: {

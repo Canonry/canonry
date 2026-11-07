@@ -157,10 +157,10 @@ test('navigation contains keyboard focus and restores the trigger after Escape, 
   await waitFor(() => expect(document.activeElement).toBe(trigger))
 })
 
-test('hidden sidebar preference survives a reload', async () => {
+test.each(['/projects/project_citypoint/report', '/setup'])('hidden sidebar preference survives a reload at %s', async pathname => {
   window.localStorage.setItem('canonry:sidebarHidden', 'true')
 
-  const { container, getByRole } = await renderRoute('/projects/project_citypoint/report')
+  const { container, getByRole } = await renderRoute(pathname, pathname === '/setup' ? { emptyPortfolio: true } : {})
 
   expect(container.querySelector('#desktop-sidebar')).toBeNull()
   expect(container.querySelector('.app-shell-sidebar-hidden')).not.toBeNull()
@@ -217,108 +217,80 @@ test('still hides the sidebar when the preference cannot be written', async () =
   expect(getByRole('button', { name: 'Show sidebar' }).getAttribute('aria-controls')).toBeNull()
 })
 
-test('does not render the sidebar toggle during first-run setup', async () => {
-  const { container, queryByRole } = await renderRoute('/setup', { emptyPortfolio: true })
+function expectSetupNavigation(navigation: HTMLElement) {
+  const nav = within(navigation)
+  expect(nav.getByRole('link', { name: 'Setup', exact: true }).getAttribute('aria-current')).toBe('page')
+  for (const name of ['All projects', 'Projects', 'Agent setup', 'Settings']) {
+    expect(nav.getByRole('link', { name, exact: true })).toBeDefined()
+  }
+  for (const name of ['Runs', 'History', 'Traffic sources', 'Backlink data']) {
+    expect(nav.queryByRole('link', { name, exact: true })).toBeNull()
+  }
+}
 
-  expect(container.querySelector('#desktop-sidebar')).toBeNull()
-  expect(queryByRole('button', { name: /sidebar/i })).toBeNull()
-  expect(queryByRole('button', { name: 'Open navigation' })).toBeNull()
-  expect(container.querySelector('#mobile-nav')).toBeNull()
+function expectOperatorNavigation(navigation: HTMLElement) {
+  const nav = within(navigation)
+  for (const name of ['Runs', 'History', 'Traffic sources', 'Backlink data']) {
+    expect(nav.getByRole('link', { name, exact: true })).toBeDefined()
+  }
+}
+
+test('first-run setup retains useful desktop and mobile navigation without advanced destinations', async () => {
+  const { getByRole, findByRole } = await renderRoute('/setup', { emptyPortfolio: true })
+
+  expectSetupNavigation(getByRole('complementary', { name: 'Primary navigation' }))
+  expect(getByRole('button', { name: 'Hide sidebar' }).getAttribute('aria-controls')).toBe('desktop-sidebar')
+  fireEvent.click(getByRole('button', { name: 'Open navigation' }))
+  expectSetupNavigation(await findByRole('dialog', { name: 'Navigation' }))
 })
 
-test('does not flash operator navigation while a cold setup load resolves readiness', async () => {
-  const { container, queryByRole } = await renderColdSetupRoute()
+test('keeps useful navigation while a cold setup load resolves readiness without flashing advanced destinations', async () => {
+  const { getByRole } = await renderColdSetupRoute()
 
-  expect(container.querySelector('.app-shell-focus')).not.toBeNull()
-  expect(container.querySelector('#desktop-sidebar')).toBeNull()
-  expect(container.querySelector('#mobile-nav')).toBeNull()
-  expect(queryByRole('button', { name: 'Open navigation' })).toBeNull()
+  expectSetupNavigation(getByRole('complementary', { name: 'Primary navigation' }))
+  expect(getByRole('button', { name: 'Open navigation' }).getAttribute('aria-expanded')).toBe('false')
 })
 
-test('keeps the first-run shell focused after onboarding creates a project', async () => {
-  const { container, queryByRole, rerenderDashboard } = await renderRoute('/setup', { emptyPortfolio: true })
+test('keeps setup navigation and reveals the tracked project after onboarding creates it', async () => {
+  const { getByRole, rerenderDashboard } = await renderRoute('/setup', { emptyPortfolio: true })
 
   rerenderDashboard()
 
-  expect(container.querySelector('#desktop-sidebar')).toBeNull()
-  expect(queryByRole('button', { name: /sidebar/i })).toBeNull()
-  expect(container.querySelector('.app-shell-focus')).not.toBeNull()
+  const sidebar = getByRole('complementary', { name: 'Primary navigation' })
+  expectSetupNavigation(sidebar)
+  expect(within(sidebar).getByRole('link', { name: 'Citypoint Dental NYC', exact: true })).toBeDefined()
 })
 
-test('keeps a reloaded Site Health results handoff focused after project creation', async () => {
-  const { container, queryByRole } = await renderRoute(
-    '/setup?onboarding=site-health&setupProject=project_citypoint&siteHealthRunId=run_site_health',
-  )
+test.each([
+  '/setup?onboarding=site-health&setupProject=project_citypoint&siteHealthRunId=run_site_health',
+  '/setup?experience=legacy&onboarding=site-health&setupProject=project_citypoint',
+  '/setup?experience=legacy&onboarding=first-run&setupProject=project_citypoint',
+  '/setup?onboarding=complete&setupProject=project_citypoint',
+])('preserves setup navigation after reloading %s with an existing project', async pathname => {
+  const { getByRole } = await renderRoute(pathname)
+  const sidebar = getByRole('complementary', { name: 'Primary navigation' })
 
-  expect(container.querySelector('.app-shell-focus')).not.toBeNull()
-  expect(container.querySelector('#desktop-sidebar')).toBeNull()
-  expect(container.querySelector('#mobile-nav')).toBeNull()
-  expect(queryByRole('button', { name: 'Open navigation' })).toBeNull()
-})
-
-test('keeps the focused AI Visibility handoff focused after project creation', async () => {
-  const { container, queryByRole } = await renderRoute(
-    '/setup?experience=legacy&onboarding=site-health&setupProject=project_citypoint',
-  )
-
-  expect(container.querySelector('.app-shell-focus')).not.toBeNull()
-  expect(container.querySelector('#desktop-sidebar')).toBeNull()
-  expect(container.querySelector('#mobile-nav')).toBeNull()
-  expect(queryByRole('button', { name: 'Open navigation' })).toBeNull()
-})
-
-test('keeps a reloaded no-scan first-run handoff focused after project creation', async () => {
-  const { container, queryByRole } = await renderRoute(
-    '/setup?experience=legacy&onboarding=first-run&setupProject=project_citypoint',
-  )
-
-  expect(container.querySelector('.app-shell-focus')).not.toBeNull()
-  expect(container.querySelector('#desktop-sidebar')).toBeNull()
-  expect(container.querySelector('#mobile-nav')).toBeNull()
-  expect(queryByRole('button', { name: 'Open navigation' })).toBeNull()
-})
-
-test('keeps navigation available when an existing operator opens setup', async () => {
-  const { container, getByRole } = await renderRoute('/setup')
-
-  expect(container.querySelector('#desktop-sidebar')).not.toBeNull()
-  expect(getByRole('button', { name: 'Hide sidebar' })).toBeDefined()
-  expect(getByRole('button', { name: 'Open navigation' })).toBeDefined()
+  expectSetupNavigation(sidebar)
+  expect(within(sidebar).getByRole('link', { name: 'Citypoint Dental NYC', exact: true })).toBeDefined()
   expect(getByRole('button', { name: 'Open navigation' }).getAttribute('aria-expanded')).toBe('false')
-  expect(container.querySelector('.app-shell-focus')).toBeNull()
 })
 
-test('keeps navigation available for ordinary project-scoped setup', async () => {
-  const { container, getByRole } = await renderRoute(
-    '/setup?experience=legacy&setupProject=project_citypoint',
-  )
+test.each(['/setup', '/setup?experience=legacy&setupProject=project_citypoint'])('preserves full navigation for ordinary existing-operator setup at %s', async pathname => {
+  const { getByRole } = await renderRoute(pathname)
 
-  expect(container.querySelector('#desktop-sidebar')).not.toBeNull()
+  expectOperatorNavigation(getByRole('complementary', { name: 'Primary navigation' }))
   expect(getByRole('button', { name: 'Hide sidebar' })).toBeDefined()
-  expect(getByRole('button', { name: 'Open navigation' })).toBeDefined()
   expect(getByRole('button', { name: 'Open navigation' }).getAttribute('aria-expanded')).toBe('false')
-  expect(container.querySelector('.app-shell-focus')).toBeNull()
 })
 
-test('resets first-run focus after leaving setup', async () => {
-  const { container, getByRole, router, rerenderDashboard } = await renderRoute('/setup', { emptyPortfolio: true })
+test('restores full navigation after leaving first-run setup and keeps it on an ordinary return', async () => {
+  const { getByRole, router, rerenderDashboard } = await renderRoute('/setup', { emptyPortfolio: true })
   rerenderDashboard()
+  expectSetupNavigation(getByRole('complementary', { name: 'Primary navigation' }))
 
   await router.navigate({ to: '/projects' })
-  await waitFor(() => expect(container.querySelector('#desktop-sidebar')).not.toBeNull())
+  await waitFor(() => expectOperatorNavigation(getByRole('complementary', { name: 'Primary navigation' })))
 
   await router.navigate({ to: '/setup' })
-  await waitFor(() => expect(getByRole('button', { name: 'Hide sidebar' })).toBeDefined())
-  expect(container.querySelector('.app-shell-focus')).toBeNull()
-})
-
-test('keeps the onboarding finish step focused, including on a reload', async () => {
-  const { container, queryByRole } = await renderRoute(
-    '/setup?onboarding=complete&setupProject=project_citypoint',
-  )
-
-  expect(container.querySelector('.app-shell-focus')).not.toBeNull()
-  expect(container.querySelector('#desktop-sidebar')).toBeNull()
-  expect(container.querySelector('#mobile-nav')).toBeNull()
-  expect(queryByRole('button', { name: 'Open navigation' })).toBeNull()
+  await waitFor(() => expectOperatorNavigation(getByRole('complementary', { name: 'Primary navigation' })))
 })

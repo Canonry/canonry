@@ -113,6 +113,25 @@ export function nextScheduleUpdatedAt(previous: string | undefined, nowMs = Date
     : nowMs).toISOString()
 }
 
+/** Timing-only preview. It does not validate credentials, enable recurrence, or start work. */
+export const schedulePreviewRequestSchema = z.object({
+  preset: z.string().min(1).optional(),
+  cron: z.string().min(1).optional(),
+  recurrence: calendarRecurrenceSchema.optional(),
+  timezone: z.string().optional().default('UTC'),
+}).refine(
+  data => [data.preset, data.cron, data.recurrence].filter(value => value !== undefined).length === 1,
+  { message: 'Exactly one of "preset", "cron", or "recurrence" must be provided' },
+)
+export type SchedulePreviewRequest = z.infer<typeof schedulePreviewRequestSchema>
+export const schedulePreviewDtoSchema = z.object({
+  cronExpr: z.string(),
+  recurrence: calendarRecurrenceSchema.nullable(),
+  timezone: z.string(),
+  nextRunAt: z.string().datetime().nullable(),
+})
+export type SchedulePreviewDto = z.infer<typeof schedulePreviewDtoSchema>
+
 export const scheduleUpsertRequestSchema = z.object({
   /** Run kind. Defaults to 'answer-visibility' so existing callers don't have to change. */
   kind: schedulableRunKindSchema.optional(),

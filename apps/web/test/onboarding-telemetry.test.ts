@@ -126,6 +126,7 @@ describe('onboarding launched-run marker', () => {
     markOnboardingRunHandled('run-42')
 
     expect(readOnboardingLaunchedRun('acme')).toBeNull()
+    expect(readOnboardingLaunchedRun('acme', true)).toEqual({ projectName: 'acme', runId: 'run-42', handled: true })
   })
 
   it('ignores a handled mark for a different run', () => {

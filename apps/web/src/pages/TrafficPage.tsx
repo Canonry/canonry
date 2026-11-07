@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ArrowRight, Plus } from 'lucide-react'
@@ -41,6 +41,8 @@ function formatCompact(n: number): string {
 export function TrafficPage() {
   const [selectedProject, setSelectedProject] = useState<string>('')
   const [connectOpen, setConnectOpen] = useState(false)
+  const connectOpener = useRef<HTMLButtonElement | null>(null)
+  const openConnection = (button: HTMLButtonElement) => { connectOpener.current = button; setConnectOpen(true) }
 
   const projectsQuery = useQuery(getApiV1ProjectsOptions({ client: heyClient }))
   const projects: ApiProject[] = projectsQuery.data ?? []
@@ -68,7 +70,7 @@ export function TrafficPage() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setConnectOpen(true)}
+              onClick={event => openConnection(event.currentTarget)}
               disabled={!activeProject}
             >
               <Plus className="size-3.5" />
@@ -108,7 +110,7 @@ export function TrafficPage() {
               <>
                 <p className="mt-1 text-copy-14 text-secondary">Connect a source to start collecting traffic.</p>
                 <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={() => setConnectOpen(true)}>
+                  <Button type="button" variant="outline" size="sm" onClick={event => openConnection(event.currentTarget)}>
                     <Plus className="size-3.5" />
                     Connect a source
                   </Button>
@@ -125,6 +127,7 @@ export function TrafficPage() {
         <ConnectSourceDrawer
           open={connectOpen}
           onOpenChange={setConnectOpen}
+          onClosed={() => { if (connectOpener.current?.isConnected) connectOpener.current.focus() }}
           projectName={activeProject}
         />
       )}

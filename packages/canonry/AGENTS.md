@@ -67,6 +67,8 @@ Canonry then reuses the checked web output. Keep this dependency when changing b
 3. For a new root, add its section and summary to `CLI_ROOT_SUMMARIES` in `src/cli-catalog.ts`. The catalog drift guard rejects missing and phantom roots.
 4. The CLI dispatches based on `path` matching argv. `help`, top-level help and group help expose the registry as JSON or JSONL; help requests skip API calls, telemetry, skill sync and update checks.
 
+`schedule preview <project>` and `canonry_schedule_preview` calculate the next occurrence through the public timing-preview API. They work with read credentials, preserve timezone, and never enable recurrence or call providers. The schedule editor uses the same response before saving.
+
 ### ApiClient usage (Critical)
 
 `settings reload-providers` calls `ApiClient.reloadProviders` (`POST /settings/providers/reload`)
@@ -130,6 +132,8 @@ Their MCP equivalents live in monitoring: `canonry_content_dismissals` (read),
 `canonry_content_dismiss` and `canonry_content_restore` (write).
 
 ### Stored run history
+
+`run preview <project>` and MCP `canonry_run_preview` read the stored-only `/projects/:name/run-preview`. They describe the default full manual sweep, not scoped, forced, or all-location overrides. Preserve both planned answer slots and currently runnable requests, each class's own assignment count, published revision, and account holds. The read never reserves work or grants launch authority.
 
 `run list <project>` aliases `runs <project>` with one handler and option table.
 The optional `--since` forwards an inclusive timestamp without imposing a default

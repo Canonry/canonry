@@ -42,7 +42,7 @@ import { z } from 'zod'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { assertProjectScope, requireScope, requireAdminSession } from './auth.js'
 import { gte } from 'drizzle-orm'
-import { activeRevisionProviders, assertMeasurementRunStampable, hasActiveMeasurementPlan, providerAccountAdmission, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection, runAdmissionState } from './run-queue.js'
+import { activeRevisionProviders, assertMeasurementRunStampable, assertPublishedMeasurementPlanForSweep, hasActiveMeasurementPlan, providerAccountAdmission, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunLocation, resolveRunnableProviderSelection, runAdmissionState, previewManualRun } from './run-queue.js'
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
 import { cancelSeoRefresh } from './seo.js'
@@ -90,6 +90,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const now = new Date().toISOString()
     const kind = body.kind ?? RunKinds['answer-visibility']
     const trigger = body.trigger ?? RunTriggers.manual
+    assertPublishedMeasurementPlanForSweep(app.db, { projectId: project.id, kind, trigger })
     const rawProviders = body.providers
     if (rawProviders?.length) {
       const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
@@ -190,28 +191,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       if (preflightError) throw preflightError
     }
 
-    // Resolve location for this run
-    let resolvedLocation: LocationContext | null | undefined
     const projectLocations = project.locations
-
-    if (body.noLocation) {
-      resolvedLocation = null // explicitly no location
-    } else if (body.allLocations) {
-      // allLocations triggers one run per location — handled below
-    } else if (body.location) {
-      const loc = projectLocations.find(l => l.label === body.location)
-      if (!loc) {
-        throw validationError(`Location "${body.location}" not found. Configure it first.`)
-      }
-      resolvedLocation = loc
-    } else if (project.defaultLocation) {
-      // Auto-apply project's configured default location
-      const loc = projectLocations.find(l => l.label === project.defaultLocation)
-      if (!loc) {
-        throw validationError(`Default location "${project.defaultLocation}" not found. Update the project configuration.`)
-      }
-      resolvedLocation = loc
-    }
+    const resolvedLocation = resolveRunLocation(project, body)
 
     // Handle --all-locations: create one run per configured location.
     //
@@ -473,6 +454,17 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       runnableProviders: opts.getRunnableProviderNames?.(),
       routeFamilies,
       selection,
+    }))
+  })
+
+  // Stored-only preview of exactly POST /projects/:name/runs with its default body.
+  app.get<{ Params: { name: string } }>('/projects/:name/run-preview', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    return reply.send(previewManualRun(app.db, {
+      projectId: project.id,
+      runnableProviders: opts.getRunnableProviderNames?.(),
+      routeFamilies,
+      providerModels: opts.getEffectiveProviderModels?.(),
     }))
   })
 

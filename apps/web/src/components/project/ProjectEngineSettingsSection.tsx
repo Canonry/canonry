@@ -339,6 +339,7 @@ export function ProjectEngineSettingsSection({
           <legend className="sr-only">Engines to run</legend>
           <label><input type="radio" checked={automatic} onChange={() => { setEditing(true); setAutomatic(true) }} /> All connected engines</label>
           <label><input type="radio" checked={!automatic} onChange={chooseEngines} /> Choose engines</label>
+          {automatic && <div className="py-2 text-copy-14 text-secondary"><p>{automaticEngines.map(name => settings.data?.providers.find(provider => provider.name === name)?.displayName ?? name).join(' · ')}</p><p className="mt-1 text-label-12 text-muted">Future direct engine connections are included automatically.</p></div>}
           {!automatic && engineList}
           <div className="space-y-2 pb-2">
             {openRouterAvailable && openRouterCatalog ? <OpenRouterModelPicker trigger="link" triggerLabel="Add OpenRouter models" catalog={openRouterCatalog} selected={selected} disabled={saving} onAdd={addRoutes} /> : null}

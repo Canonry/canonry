@@ -1,3 +1,7 @@
+import { CitationStates } from '@canonry/canonry-contracts'
+import { AnswerMarkdown } from '../components/shared/AnswerMarkdown.js'
+import { ProviderBadge } from '../components/shared/ProviderBadge.js'
+import { RunPreviewSummary, useRunPreview } from '../components/project/RunAdmissionNotice.js'
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
@@ -7,7 +11,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ONBOARDING_FLOW_VERSION,
   RunKinds,
+  RunStatuses,
   bucketOnboardingCount,
+  formatZonedTimestamp,
   isOpenRouterRoute,
   openRouterRouteModel,
   type OnboardingTelemetryEvent,
@@ -51,6 +57,7 @@ import { useAccount } from '../contexts/account-context.js'
 import { buildSetupModel, serviceStatusTooltip } from '../lib/health-helpers.js'
 import { useOnboardingRunOutcome } from './OnboardingCompletePage.js'
 import { clearOnboardingDraft, readOnboardingDraft, wasOnboardingScanSkipped, writeOnboardingDraft } from '../lib/onboarding-draft.js'
+import { useUnsavedChanges } from '../hooks/use-unsaved-changes.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { summarizeRunError } from '../lib/format-helpers.js'
 import {
@@ -199,11 +206,17 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboarding
   const { isAdmin } = useAccount()
   // RootLayout and this page are separate observers of the same project query.
   // Both must pause the zero-project interval while setup owns project creation.
-  const { dashboard, isLoading, refetch } = useDashboard(undefined, {
+  const { dashboard, refetch } = useDashboard(undefined, {
     pauseProjectPolling: true,
     includeSettings: isAdmin,
   })
-  const safeDashboard = dashboard ?? contextDashboard?.dashboard
+  const lastDashboard = useRef<DashboardVm | null>(null)
+  useEffect(() => {
+    if (dashboard) lastDashboard.current = dashboard
+  }, [dashboard])
+  // A completed run changes the overview cache key. Keep the wizard mounted
+  // while that background summary loads so its exact launched run survives.
+  const safeDashboard = dashboard ?? contextDashboard?.dashboard ?? lastDashboard.current
   const navigate = useNavigate()
   const visibilityHeadingRef = useCallback<RefCallback<HTMLHeadingElement>>((node) => {
     if (node && visibilityProjectName) node.focus()
@@ -228,7 +241,7 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboarding
     })
   }
 
-  if (!safeDashboard || isLoading) {
+  if (!safeDashboard) {
     return (
       <div className="page-skeleton">
         <div className="page-skeleton-header">
@@ -324,7 +337,7 @@ function ReadySetupPage({
   const healthQuery = useHealth(enableLiveStatus, initialHealth)
   const healthSnapshot = healthQuery.data ?? initialHealth ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }
   const model = buildSetupModel(safeDashboard.setup, healthSnapshot, settings)
-  const openRouterConnected = settings.providerStatuses.some(provider => provider.name === 'openrouter' && provider.state === 'ready')
+  const openRouterConnected = settings.providerStatuses.some(provider => provider.name === 'openrouter' && (provider.state === 'ready' || provider.state === 'configured'))
   const connectionSetupReady = model.launchState.enabled || (openRouterConnected && model.healthChecks.every(check => check.state === 'ready' || check.id === 'provider'))
   const isProjectScoped = Boolean(visibilityProjectName)
 
@@ -375,10 +388,17 @@ function ReadySetupPage({
   const hasExistingSuccessfulBaseline = !!resumeProject
     && projectHasSuccessfulBaseline(resumeProject)
   const resumeLoading = !!resumeProject && resumeQueriesQuery.isPending
+  const sessionLaunchedRun = useRef(readOnboardingLaunchedRun(resumeProjectName, true)).current
+  // Handled means the outcome was reported, not that its result was dismissed.
+  // A handled Site Health marker must not resume as an AI Visibility run.
+  const resumableLaunchedRunId = sessionLaunchedRun
+    && (!sessionLaunchedRun.handled || resumeProjectRuns.some(run => run.id === sessionLaunchedRun.runId))
+    ? sessionLaunchedRun.runId
+    : null
   // Project-scoped AI Visibility setup starts with the measurement input, not
   // instance or project ceremony. Provider readiness gates only the paid run.
   const initialResumeStep: SetupStep = isProjectScoped
-    ? 2
+    ? (resumableLaunchedRunId || (resumeProjectRuns.length > 0 && !hasExistingSuccessfulBaseline) ? 4 : 2)
     : deriveSetupStep({
         launchReady: connectionSetupReady,
         hasProject: !!resumeProject,
@@ -426,10 +446,20 @@ function ReadySetupPage({
       replace: Boolean(visibilityProjectName),
     })
   }
-  // Leaving setup forward, as opposed to backing out of it: onboarding ends on
-  // its own "You're set" step instead of dropping into the project cold.
+  // Forward exits record the selected next action even when AI-first setup
+  // opens the project directly instead of showing the optional finish page.
   const finishSetup = (skippedVisibility = false) => {
-    if (!onboardingFinish || !createdProjectName) {
+    if (!onboardingFinish || !createdProjectName || !siteHealthOnboarding) {
+      if (onboardingFinish && createdProjectName) {
+        emitOnboardingEvent({
+          flowVersion: ONBOARDING_FLOW_VERSION,
+          onboardingSessionId,
+          event: 'onboarding.step_completed',
+          step: 'finish',
+          method: skippedVisibility ? 'skipped' : 'manual',
+          nextAction: 'open_project',
+        }, 'onboarding.step_completed:finish:open_project')
+      }
       openProjectDashboard()
       return
     }
@@ -468,7 +498,7 @@ function ReadySetupPage({
   }
   const readyProviders = [
     // A search answer service runs only where a project picks its profiles, so it never makes setup ready.
-    ...settings.providerStatuses.filter(provider => provider.state === 'ready' && provider.name !== 'openrouter' && provider.kind !== 'answer-service'),
+    ...settings.providerStatuses.filter(provider => (provider.state === 'ready' || provider.state === 'configured') && provider.name !== 'openrouter' && provider.kind !== 'answer-service'),
     ...(openRouterConnected ? projectProviders.filter(isOpenRouterRoute).map(name => ({ name, displayName: openRouterRouteLabel(name), model: openRouterRouteModel(name), state: 'ready' as const, detail: 'OpenRouter model configured.' })) : []),
   ]
   const runnableApiProviders = readyProviders.filter(provider => (
@@ -540,14 +570,19 @@ function ReadySetupPage({
   const [generateError, setGenerateError] = useState<string | null>(null)
   const [configuringProvider, setConfiguringProvider] = useState('')
   const restoreProviderFocus = useRef(false)
+  const scrollProviderFocus = useRef(false)
   const providerSelectorRef = useCallback<RefCallback<HTMLSelectElement>>((node) => {
     if (!node || !restoreProviderFocus.current) return
     // The keyed form must reset credentials and advanced fields on switch.
     // Restore only focus the user already had, not focus after background reads.
     restoreProviderFocus.current = false
-    node.focus({ preventScroll: true })
+    node.focus({ preventScroll: !scrollProviderFocus.current })
+    scrollProviderFocus.current = false
   }, [])
   const [showProviderConfig, setShowProviderConfig] = useState(false)
+  const [providerDirty, setProviderDirty] = useState(false)
+  const [providerBusy, setProviderBusy] = useState(false)
+  const providerGuard = useUnsavedChanges(providerDirty, providerBusy)
   const [researchPromptCopied, setResearchPromptCopied] = useState(false)
   const [researchCopyError, setResearchCopyError] = useState(false)
   const configurableProviders = settings.providerStatuses.filter(provider => (
@@ -556,7 +591,7 @@ function ReadySetupPage({
     && (projectProviders.length === 0 || projectProviders.includes(normalizeProviderName(provider.name)) || (provider.name === 'openrouter' && projectProviders.some(isOpenRouterRoute)))
   ))
   const providerToConfigure = configurableProviders.find(provider => provider.name === configuringProvider)
-    ?? configurableProviders.find(provider => provider.state !== 'ready')
+    ?? configurableProviders.find(provider => provider.state !== 'ready' && provider.state !== 'configured')
     ?? configurableProviders.at(0)
   const researchPrompt = `Help me choose AI Visibility queries for Canonry project ${JSON.stringify(createdProjectName ?? projectName)} (${domain}).
 1. Read the project, its existing tracked queries, and Site Health findings. Ask about my customers, services, and locations if needed, then propose relevant customer queries.
@@ -620,15 +655,16 @@ function ReadySetupPage({
   // the same failure on every single remount.
   const launchedThisSessionRunId = useRef<string | null>(pendingLaunchedRunId)
   const [runTriggered, setRunTriggered] = useState(
-    !!pendingLaunchedRunId || (!!latestPersistedRun && !hasExistingSuccessfulBaseline),
+    !!resumableLaunchedRunId || (!!latestPersistedRun && !hasExistingSuccessfulBaseline),
   )
   const [runSaving, setRunSaving] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
   const [launchedRunId, setLaunchedRunId] = useState<string | null>(
-    pendingLaunchedRunId
+    resumableLaunchedRunId
       ?? (hasExistingSuccessfulBaseline ? null : latestPersistedRun?.id ?? null),
   )
   const triggerRunMutation = useTriggerRun()
+  const runPreview = useRunPreview(createdProjectName, step === 4 && !isDashboardManagedSweeps())
 
   // Poll the newly-triggered run so Step 5 can show results inline instead
   // of the previous "queued — open project page" handoff. Refetches every
@@ -665,7 +701,7 @@ function ReadySetupPage({
   const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
   const parsedQueries = queriesText.split('\n').map(k => k.trim()).filter(Boolean)
   const parsedCompetitors = competitorsText.split('\n').map(c => c.trim()).filter(Boolean)
-  const effectiveQueryCount = Math.max(durableQueryCount, queriesSaved ? parsedQueries.length : 0)
+  const effectiveQueryCount = durableQueryCount
   const systemBlockReason = onboardingSystemBlockReason({
     apiReady: healthSnapshot.apiStatus.state === 'ok',
     databaseConfigured: healthSnapshot.apiStatus.databaseConfigured,
@@ -692,8 +728,7 @@ function ReadySetupPage({
 
   useEffect(() => {
     if (resumeApplied || resumeLoading) return
-    // Project-scoped setup always starts on queries. Do not reset a fast user
-    // who advances during the render/effect boundary after those queries load.
+    // Query hydration must not reset a user who has already advanced or resumed a run.
     if (!isProjectScoped) setStep(initialResumeStep)
     if (durableQueries.length > 0 && draft.queriesText === undefined) {
       setQueriesText(durableQueries.map(query => query.query).join('\n'))
@@ -754,6 +789,7 @@ function ReadySetupPage({
 
   const polledRunStatus = launchedRun.data?.status
   const polledSnapshotCount = launchedRun.data?.snapshots?.length ?? 0
+  const showingSuccessfulRun = step === 4 && runTriggered && Boolean(polledRunStatus && isSuccessfulSetupRun(polledRunStatus, polledSnapshotCount))
   useEffect(() => {
     if (!runTriggered || !polledRunStatus) return
     // Only a run this onboarding session actually launched.
@@ -767,7 +803,7 @@ function ReadySetupPage({
         step: 'run',
         method: 'automatic',
         countBucket: bucketOnboardingCount(polledSnapshotCount),
-      }, 'onboarding.step_completed:run')
+      }, `onboarding.step_completed:run:${reportableRunId}`)
       markOnboardingRunHandled(reportableRunId)
       return
     }
@@ -786,7 +822,7 @@ function ReadySetupPage({
       step: 'run',
       action: 'retry_run',
       reasonCode,
-    }, `onboarding.blocked:run:${reasonCode}`)
+    }, `onboarding.blocked:run:${reportableRunId}:${reasonCode}`)
     // Terminal either way: the run has been accounted for, so a later mount
     // must not re-open the poll and emit the same outcome twice.
     markOnboardingRunHandled(reportableRunId)
@@ -858,6 +894,7 @@ function ReadySetupPage({
     try {
       const savedQueries = await setQueries(createdProjectName, queries)
       queryClient.setQueryData(['setup', 'resume-queries', createdProjectName], savedQueries)
+      setQueriesText(savedQueries.map(query => query.query).join('\n'))
       setQueriesSaved(true)
       if (isProjectScoped) {
         await Promise.all([
@@ -881,7 +918,7 @@ function ReadySetupPage({
         event: 'onboarding.step_completed',
         step: 'queries',
         method: queriesGenerated ? 'generated' : 'manual',
-        countBucket: bucketOnboardingCount(queries.length),
+        countBucket: bucketOnboardingCount(savedQueries.length),
       }, 'onboarding.step_completed:queries')
       setStep(isProjectScoped ? 4 : 3)
     } catch (err) {
@@ -970,7 +1007,7 @@ function ReadySetupPage({
       await updateProviderConfig('gemini', { apiKey: key })
       addToast({
         title: 'Gemini configured',
-        detail: 'Provider is ready — continuing setup.',
+        detail: 'Connection saved. Your first check will verify it.',
         tone: 'positive',
         dedupeKey: 'setup:gemini:configured',
         dedupeMode: 'drop',
@@ -1018,6 +1055,7 @@ function ReadySetupPage({
 
   const handleLaunchRun = async () => {
     if (isDashboardManagedSweeps()) return
+    if (runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true) return
     if (!createdProjectName || launchBlockedReason) {
       setRunError(launchBlockedReason ?? 'Complete setup before launching the first check.')
       const reasonCode = systemBlockReason
@@ -1135,22 +1173,22 @@ function ReadySetupPage({
       if (selectionCanUseCdp) void cdpStatusQuery.refetch()
       if (inlineModelPicker) void openRouterSettingsQuery.refetch()
     }}>
-      Check again
+      Refresh connections
     </Button>
   ) : null
   const providerFormVisible = (providerNeedsConnection || showProviderConfig) && !!providerToConfigure
-  const providerSetup = isProjectScoped && (step === 2 || step === 4) ? (
+  const providerSetup = (isProjectScoped && step === 2) || (step === 4 && (showProviderConfig || providerReadiness !== true)) ? (
     !isAdmin ? (
       <section aria-labelledby="setup-provider-heading" className="space-y-2 border-b border-default pb-6 mb-6">
         <div className="flex flex-wrap items-center gap-3">
           <h2 id="setup-provider-heading" className="text-heading-20 text-heading">AI engines</h2>
           {providerReadinessFailed ? null : (
             <span role="status" className="flex items-center gap-2">
-              <ToneBadge tone={providerReadiness === true ? 'positive' : 'neutral'}>
-                {providerReadiness === true ? 'Ready' : providerReadiness === false ? 'Not connected' : 'Checking'}
+              <ToneBadge tone="neutral">
+                {providerReadiness === true ? 'Configured' : providerReadiness === false ? 'Not connected' : 'Checking'}
               </ToneBadge>
               <InfoTooltip text={providerReadiness === true
-                ? 'An AI engine is available for this project. An administrator manages provider settings.'
+                ? 'Connection settings are saved. A successful check confirms access. An administrator manages provider settings.'
                 : providerReadiness === false
                   ? 'Ask an administrator to connect an AI engine for this project. You can save queries now.'
                   : 'Checking for a connected AI engine. An administrator manages provider settings. You can save queries now.'} />
@@ -1168,19 +1206,19 @@ function ReadySetupPage({
           disabled={projectProviderQuery.isFetching}
           onClick={() => { void projectProviderQuery.refetch() }}
         >
-          {providerReadinessFailed ? 'Retry provider check' : 'Check again'}
+          {providerReadinessFailed ? 'Retry provider check' : 'Refresh connections'}
         </Button>
       </section>
     ) : (
     <section aria-labelledby="setup-provider-heading" className="space-y-3 border-b border-default pb-6 mb-6">
       <div className="flex flex-wrap items-center gap-3">
         <h2 id="setup-provider-heading" className="text-heading-20 text-heading">AI engines</h2>
-        <ToneBadge tone={providerReadiness === true ? 'positive' : openRouterModelsNeeded ? 'caution' : 'neutral'}>
-          {providerReadiness === true ? 'Ready' : openRouterModelsNeeded ? 'Choose models' : providerNeedsConnection ? 'Not connected' : 'Checking'}
+        <ToneBadge tone={openRouterModelsNeeded ? 'caution' : 'neutral'}>
+          {providerReadiness === true ? 'Configured' : openRouterModelsNeeded ? 'Choose models' : providerNeedsConnection ? 'Not connected' : 'Checking'}
         </ToneBadge>
         <InfoTooltip text={providerReadiness === true
           ? runnableApiProviders.length > 0
-            ? 'AI Visibility checks and Research use your provider account.'
+            ? 'Connection settings are saved, but access and quota are not verified. Checks and Research use your provider account.'
             : 'ChatGPT in Chrome runs AI Visibility checks. Query Research needs an API provider.'
           : openRouterModelsNeeded
             ? 'OpenRouter is connected. Choose the models your AI Visibility checks ask. You can save queries now.'
@@ -1189,14 +1227,15 @@ function ReadySetupPage({
             : 'Checking connected AI engines. You can choose queries meanwhile.'} />
       </div>
       {providerReadiness === true && (runnableApiProviders.length > 0 || cdpConfigured === true) ? (
-        <ul aria-label="Connected AI engines" className="divide-y divide-default material-base">
+        <ul aria-label="Connected AI engines" className="divide-y divide-default">
           {runnableApiProviders.map(provider => {
             const routed = isOpenRouterRoute(provider.name)
             const label = provider.displayName ?? provider.name
+            const effectiveModel = setupEngineProject?.providerModels?.[provider.name] ?? resumeProject?.project.providerModels?.[provider.name] ?? provider.model
             return (
               <li key={provider.name} className="flex min-h-11 items-center justify-between gap-3 px-3.5 py-2 text-label-14" title={routed ? openRouterRouteModel(provider.name) : undefined}>
                 <span className="min-w-0 truncate text-heading">{routed ? label.replace(/ via OpenRouter$/, '') : label}</span>
-                <span className="shrink-0 text-secondary">{routed ? 'OpenRouter' : provider.model ?? ''}</span>
+                <span className="shrink-0 text-secondary">{routed ? 'OpenRouter' : effectiveModel ?? ''}</span>
               </li>
             )
           })}
@@ -1228,6 +1267,10 @@ function ReadySetupPage({
             <ProviderConfigForm
               key={providerToConfigure.name}
               compact
+              configured={providerToConfigure.state === 'configured' || providerToConfigure.state === 'ready'}
+              onDirtyChange={setProviderDirty}
+              onBusyChange={setProviderBusy}
+              onCancel={() => providerGuard.request(() => { setProviderDirty(false); setShowProviderConfig(false) })}
               leadingField={(
                 <div className="min-w-0 space-y-1.5">
                   <label className="block text-label-14-strong text-secondary" htmlFor="setup-provider">Provider to connect</label>
@@ -1238,8 +1281,12 @@ function ReadySetupPage({
                     value={providerToConfigure.name}
                     onChange={event => {
                       if (event.target.value === providerToConfigure.name) return
-                      restoreProviderFocus.current = document.activeElement === event.currentTarget
-                      setConfiguringProvider(event.target.value)
+                      const nextProvider = event.target.value
+                      providerGuard.request(() => {
+                        restoreProviderFocus.current = true
+                        setProviderDirty(false)
+                        setConfiguringProvider(nextProvider)
+                      })
                     }}
                   >
                     {configurableProviders.map(provider => (
@@ -1254,6 +1301,7 @@ function ReadySetupPage({
               keyUrl={providerToConfigure.keyUrl}
               modelHint={providerToConfigure.modelHint}
               onSaved={() => {
+                setProviderDirty(false)
                 setShowProviderConfig(false)
                 void refetch()
               }}
@@ -1302,9 +1350,9 @@ function ReadySetupPage({
                     <p className="run-row-title">{check.label}</p>
                     <p className="supporting-copy">{check.id === 'provider' && openRouterConnected ? 'OpenRouter connected. Choose models before your first check.' : check.detail}</p>
                     {check.id === 'provider' && check.state !== 'ready' && (
-                      <div className="mt-3 material-base p-3 space-y-2">
+                      <div className="mt-3 space-y-2">
                         <p className="text-copy-13 text-secondary">
-                          Paste a Gemini key to enable visibility checks (free at{' '}
+                          Connect Gemini with a key from{' '}
                           <a
                             href="https://aistudio.google.com/apikey"
                             target="_blank"
@@ -1313,11 +1361,13 @@ function ReadySetupPage({
                           >
                             aistudio.google.com
                           </a>
-                          ).
+                          .
                         </p>
                         <div className="flex items-center gap-2">
                           <input
                             type="password"
+                            aria-label="Gemini API key"
+                            autoComplete="new-password"
                             value={geminiKey}
                             onChange={(e) => setGeminiKey(e.target.value)}
                             placeholder="AI... (paste here)"
@@ -1351,7 +1401,7 @@ function ReadySetupPage({
                     )}
                   </div>
                   <ToneBadge
-                    tone={check.state === 'ready' ? 'positive' : 'caution'}
+                    tone={check.state === 'ready' ? check.id === 'provider' ? 'neutral' : 'positive' : 'caution'}
                     title={
                       check.id === 'api'
                         ? serviceStatusTooltip(healthSnapshot.apiStatus)
@@ -1360,7 +1410,7 @@ function ReadySetupPage({
                           : check.detail
                     }
                   >
-                    {check.state === 'ready' ? 'Ready' : 'Attention'}
+                    {check.state === 'ready' ? check.id === 'provider' ? 'Configured' : 'Ready' : 'Attention'}
                   </ToneBadge>
                 </div>
               ))}
@@ -1434,7 +1484,7 @@ function ReadySetupPage({
                     <input id="language" className="setup-input" type="text" placeholder="en" maxLength={5} value={language} onChange={(e) => setLanguage(e.target.value.toLowerCase())} />
                   </div>
                 </div>
-                <label className="flex items-start gap-3 rounded-md border border-default bg-surface p-3 cursor-pointer hover:border-strong">
+                <details><summary className="cursor-pointer py-2 text-label-14 text-link">Backlink tracking</summary><label className="flex items-start gap-3 py-3 cursor-pointer">
                   <input
                     type="checkbox"
                     className="mt-0.5 h-4 w-4 rounded border-strong bg-bg"
@@ -1450,7 +1500,7 @@ function ReadySetupPage({
                       </Link>
                     </span>
                   </span>
-                </label>
+                </label></details>
                 {projectError ? <p className="text-negative-400 text-copy-14">{projectError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
@@ -1479,21 +1529,6 @@ function ReadySetupPage({
               ) : (
                 <ToneBadge tone="neutral">{parsedQueries.length} quer{parsedQueries.length !== 1 ? 'ies' : 'y'}</ToneBadge>
               )}
-            </div>
-            <div className="space-y-2 border-b border-default pb-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0 space-y-1">
-                  <div className="flex items-center gap-2"><h3 className="text-heading-14 text-heading">Research queries with your agent</h3><InfoTooltip text="Ask your agent to compare answers and available sources with Canonry Research, then recommend queries. Research does not change your tracked queries." /></div>
-                </div>
-                <Button type="button" variant="outline" size="sm" className={`shrink-0 self-start ${TOUCH_TARGET}`} onClick={asyncHandler(copyResearchPrompt)}>
-                  {researchPromptCopied ? 'Research prompt copied' : 'Copy research prompt'}
-                </Button>
-              </div>
-              <details open={researchCopyError || undefined} className="text-label-14 text-secondary">
-                <summary className={`min-h-9 cursor-pointer py-2 text-link pointer-coarse:py-3 max-md:py-3 ${TOUCH_TARGET}`}>View agent prompt</summary>
-                <textarea aria-label="Agent query research prompt" readOnly className="setup-textarea mt-2 w-full" rows={8} value={researchPrompt} />
-              </details>
-              {researchCopyError ? <p role="alert" className="text-copy-14 text-negative">Could not copy. Select and copy the prompt above.</p> : null}
             </div>
             {queriesHydrating ? (
               <div className="material-base p-4 text-label-14 text-secondary" role="status">
@@ -1524,13 +1559,19 @@ function ReadySetupPage({
               </div>
             ) : (
               <div className="compact-stack">
+                <div className="setup-field">
+                  <label className="setup-label" htmlFor="queries">Queries (one per line)</label>
+                  <textarea
+                    id="queries"
+                    className="setup-textarea"
+                    rows={6}
+                    placeholder={'emergency dentist brooklyn\nbest invisalign downtown brooklyn\npediatric dentist brooklyn heights'}
+                    value={queriesText}
+                    onChange={(e) => setQueriesText(e.target.value)}
+                  />
+                </div>
                 {runnableApiProviders.length > 0 ? (
-                  <div className="compact-stack">
-                    <div className="flex items-center gap-2 text-muted text-label-12 normal-case">
-                      <span className="flex-1 border-t border-base" />
-                      auto-generate
-                      <span className="flex-1 border-t border-base" />
-                    </div>
+                  <details className="compact-stack"><summary className="cursor-pointer py-2 text-label-14 text-link">Generate query suggestions</summary>
                     <div className="flex items-end gap-2">
                       <div className="setup-field flex-1">
                         <label className="setup-label" htmlFor="gen-provider">Provider</label>
@@ -1568,24 +1609,16 @@ function ReadySetupPage({
                       </Button>
                     </div>
                     {generateError ? <p className="text-negative-400 text-copy-14">{generateError}</p> : null}
-                  </div>
+                  </details>
                 ) : null}
-                {!isProjectScoped ? <div className="flex items-center gap-2 text-muted text-label-12 normal-case">
-                  <span className="flex-1 border-t border-base" />
-                  or type manually
-                  <span className="flex-1 border-t border-base" />
-                </div> : null}
-                <div className="setup-field">
-                  <label className="setup-label" htmlFor="queries">Queries (one per line)</label>
-                  <textarea
-                    id="queries"
-                    className="setup-textarea"
-                    rows={6}
-                    placeholder={'emergency dentist brooklyn\nbest invisalign downtown brooklyn\npediatric dentist brooklyn heights'}
-                    value={queriesText}
-                    onChange={(e) => setQueriesText(e.target.value)}
-                  />
-                </div>
+                <details open={researchCopyError || undefined} className="space-y-2">
+                  <summary className="cursor-pointer py-2 text-label-14 text-link">Research queries with your agent</summary>
+                  <textarea aria-label="Agent query research prompt" readOnly className="setup-textarea w-full" rows={8} value={researchPrompt} />
+                  <Button type="button" variant="outline" size="sm" className={`shrink-0 self-start ${TOUCH_TARGET}`} onClick={asyncHandler(copyResearchPrompt)}>
+                    {researchPromptCopied ? 'Research prompt copied' : 'Copy research prompt'}
+                  </Button>
+                  {researchCopyError ? <p role="alert" className="text-copy-14 text-negative">Could not copy. Select and copy the prompt above.</p> : null}
+                </details>
                 {queriesError ? <p className="text-negative-400 text-copy-14">{queriesError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={isProjectScoped ? openProjectDashboard : goBack}>Back</Button>
@@ -1680,7 +1713,7 @@ function ReadySetupPage({
             : runStatus === 'cancelled'
               ? 'The check was cancelled before it produced a baseline.'
               : (runStatus === 'completed' || runStatus === 'partial') && snapshots.length === 0
-                ? 'The check finished without producing any snapshots.'
+                ? 'The check finished without saving any engine results.'
                 : latestPersistedRun?.statusDetail
                   || 'The check did not produce a baseline.')
 
@@ -1692,21 +1725,21 @@ function ReadySetupPage({
         } else if (terminal) {
           stepBadge = <ToneBadge tone="negative">{runStatus === 'cancelled' ? 'Cancelled' : 'Failed'}</ToneBadge>
         } else if (runTriggered) {
-          stepBadge = <ToneBadge tone="caution">Running</ToneBadge>
+          stepBadge = <ToneBadge tone="caution">{runStatus === RunStatuses.queued ? 'Queued' : 'Running'}</ToneBadge>
         }
 
         return (
           <Card className="surface-card step-card">
             <div className="section-head">
               <div>
-                <div className="flex items-center gap-2"><h2>{isDashboardManagedSweeps() ? 'AI Visibility' : 'Run your first AI Visibility check'}</h2>{isDashboardManagedSweeps() ? null : <InfoTooltip text={`Asks each AI engine your queries and records whether ${createdProjectName ?? 'your site'} is mentioned and cited. It uses your provider account. You can also finish now and run it later from the project.`} />}</div>
+                <div className="flex items-center gap-2"><h2>{successfulRun ? 'Saved answers' : isDashboardManagedSweeps() ? 'AI Visibility' : 'Run your first AI Visibility check'}</h2>{successfulRun || isDashboardManagedSweeps() ? null : <InfoTooltip text={`Asks each AI engine your queries and records whether ${createdProjectName ?? 'your site'} is mentioned and cited. It uses your provider account. You can also finish now and run it later from the project.`} />}</div>
               </div>
               {stepBadge}
             </div>
             {persistedSetupComplete ? (
               <div className="compact-stack">
                 <p className="text-secondary">
-                  Setup is complete. <span className="text-strong text-label-14-strong">{createdProjectName}</span> already has a successful answer-visibility baseline.
+                  <span className="text-strong text-label-14-strong">{createdProjectName}</span> has saved AI Visibility results.
                 </p>
                 <div className="setup-nav">
                   <span />
@@ -1721,15 +1754,23 @@ function ReadySetupPage({
                 {runError && <p role="alert" className="text-copy-14 text-negative">{runError}</p>}
                 <div className="setup-nav">
                   <span />
-                  <Button type="button" onClick={openProjectDashboard}>Open project dashboard →</Button>
+                  <Button type="button" onClick={() => finishSetup()}>Open project dashboard →</Button>
                 </div>
               </div>
             ) : !runTriggered ? (
               <div className="compact-stack">
-                <p className="text-copy-14 text-secondary">
-                  <span className="font-mono tabular-nums text-heading">{parsedQueries.length}</span> {parsedQueries.length === 1 ? 'query' : 'queries'}
-                  {runnableProviderCount > 0 ? <> · <span className="font-mono tabular-nums text-heading">{runnableProviderCount}</span> {runnableProviderCount === 1 ? 'engine' : 'engines'}</> : null}
-                </p>
+                <RunPreviewSummary preview={runPreview.data} pending={runPreview.isFetching} failed={runPreview.isError} onRetry={() => { void runPreview.refetch() }} />
+                <dl className="definition-list text-copy-14">
+                  <div><dt>Website</dt><dd>{domain}</dd></div>
+                  <div><dt>Market</dt><dd>{country} · {language}</dd></div>
+                </dl>
+                <details>
+                  <summary className="cursor-pointer py-2 text-label-14 text-link">Review saved queries</summary>
+                  <ul className="detail-list mt-2" aria-label="Queries in this check">
+                    {durableQueries.map(query => <li key={query.id}>{query.query}</li>)}
+                  </ul>
+                </details>
+                <p className="text-copy-13 text-secondary">Runs once using your provider account. No schedule is created.</p>
                 {(launchBlockedReason || runError) && (
                   <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
                     <p>{runError ?? launchBlockedReason}</p>
@@ -1745,13 +1786,11 @@ function ReadySetupPage({
                     Finish without running
                   </Button>
                   {systemBlockReason === 'no_provider' && !isProjectScoped ? (
-                    <Button type="button" asChild>
-                      <Link to="/settings">Configure a provider</Link>
-                    </Button>
+                    <Button type="button" onClick={() => setShowProviderConfig(true)}>Connect an AI engine</Button>
                   ) : (
                     <Button
                       type="button"
-                      disabled={runSaving || !!launchBlockedReason}
+                      disabled={runSaving || !!launchBlockedReason || runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true}
                       title={launchBlockedReason}
                       onClick={asyncHandler(handleLaunchRun)}
                     >
@@ -1763,11 +1802,12 @@ function ReadySetupPage({
             ) : !terminal ? (
               <div className="compact-stack">
                 <p className="text-neutral">
-                  Check running. This usually takes 30 to 60 seconds.
+                  Your check is running. You can leave this page and return to its progress.
                 </p>
-                <div className="material-base p-3 text-label-12 text-muted">
-                  <p>Status: <span className="text-neutral">{runStatus ?? 'queued'}</span></p>
-                </div>
+                {run ? <p className="text-copy-13 text-secondary" role="status">
+                  {snapshots.length} engine {snapshots.length === 1 ? 'result' : 'results'} saved · {run.startedAt ? 'Started' : 'Queued'}{' '}
+                  <time dateTime={run.startedAt ?? run.createdAt}>{formatZonedTimestamp(run.startedAt ?? run.createdAt)}</time>
+                </p> : null}
                 {launchedRun.isError && (
                   <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
                     <p>{launchedRun.error instanceof Error ? launchedRun.error.message : 'Could not refresh the check status.'}</p>
@@ -1778,7 +1818,7 @@ function ReadySetupPage({
                 )}
                 <div className="setup-nav">
                   <span />
-                  <Button type="button" variant="outline" onClick={siteHealthOnboarding ? () => finishSetup() : openProjectDashboard}>
+                  <Button type="button" variant="outline" onClick={() => finishSetup()}>
                     {siteHealthOnboarding ? 'Finish setup' : 'Watch on project page'}
                   </Button>
                 </div>
@@ -1790,40 +1830,47 @@ function ReadySetupPage({
                   <p className="mt-1 text-copy-13 text-secondary">{isDashboardManagedSweeps()
                     ? MANAGED_SWEEPS_COPY
                     : isAdmin
-                      ? 'Fix provider or query configuration if needed, then retry without leaving setup.'
+                      ? 'Review the connection, then retry.'
                       : 'Ask an administrator to review the provider and query configuration.'}</p>
                 </div>
+                {runPreview.isError && !isDashboardManagedSweeps() ? <RunPreviewSummary preview={runPreview.data} pending={runPreview.isFetching} failed onRetry={() => { void runPreview.refetch() }} /> : null}
                 <div className="setup-nav">
                   {isAdmin && !isDashboardManagedSweeps() ? (
-                    <Button type="button" variant="outline" asChild>
-                      <Link to="/settings">Configure providers</Link>
-                    </Button>
+                    <Button type="button" variant="outline" onClick={() => {
+                      restoreProviderFocus.current = true
+                      scrollProviderFocus.current = true
+                      setConfiguringProvider(runnableApiProviders[0]?.name ?? providerToConfigure?.name ?? '')
+                      setShowProviderConfig(true)
+                    }}>Repair connection</Button>
                   ) : <span />}
                   {isDashboardManagedSweeps() || !isAdmin ? (
-                    <Button type="button" onClick={openProjectDashboard}>Open project dashboard →</Button>
-                  ) : <Button type="button" disabled={runSaving || !!launchBlockedReason} onClick={asyncHandler(handleLaunchRun)}>
+                    <Button type="button" onClick={() => finishSetup()}>Open project dashboard →</Button>
+                  ) : <Button type="button" disabled={runSaving || !!launchBlockedReason || runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true} onClick={asyncHandler(handleLaunchRun)}>
                     {runSaving ? 'Retrying…' : 'Retry check'}
                   </Button>}
                 </div>
               </div>
             ) : (
               <div className="compact-stack">
-                <p className="text-neutral">
-                  Check complete. Your first AI Visibility snapshot for{' '}
-                  <span className="text-heading text-label-14-strong">{createdProjectName}</span>:
-                </p>
-                <div className="grid grid-cols-3 gap-2 mt-1">
+                <p className="text-neutral">{snapshots.length} engine {snapshots.length === 1 ? 'result' : 'results'} saved for <span className="text-heading text-label-14-strong">{displayName || createdProjectName}</span>.</p>
+                {snapshots[0]?.answerText && <section className="border-y border-default py-4" aria-label="Your first saved answer">
+                  <div className="mb-3 flex flex-wrap items-center gap-2"><ProviderBadge provider={snapshots[0].provider} displayName={providerDisplayName(snapshots[0].provider)} /><ToneBadge tone={snapshots[0].answerMentioned ? 'positive' : 'neutral'}>{snapshots[0].answerMentioned === true ? 'Mentioned' : snapshots[0].answerMentioned === false ? 'Not mentioned' : 'Mention not measured'}</ToneBadge><ToneBadge tone={snapshots[0].citationState === CitationStates.cited ? 'positive' : 'neutral'}>{snapshots[0].citationState === CitationStates.cited ? 'Cited' : 'Not cited'}</ToneBadge></div>
+                  <h3 className="text-heading-16 text-heading">{snapshots[0].query}</h3>
+                  <div className="mt-3 text-copy-14 text-secondary"><AnswerMarkdown previewLength={650}>{snapshots[0].answerText}</AnswerMarkdown></div>
+                  <details className="mt-3"><summary className="cursor-pointer text-label-14 text-link">Read full answer</summary><div className="mt-3 text-copy-14 text-secondary"><AnswerMarkdown copyable>{snapshots[0].answerText}</AnswerMarkdown></div></details>
+                </section>}
+                <details><summary className="cursor-pointer py-2 text-label-14 text-link">Result counts · all queries</summary><div className="grid grid-cols-3 gap-2 mt-1">
                   <div className="material-base p-3">
-                    <p className="text-copy-13-strong text-secondary">Mentioned</p>
+                    <p className="text-copy-13-strong text-secondary">Mentioned<span className="sr-only"> · all queries, counts only</span></p>
                     <p className="text-copy-24-strong tabular-nums text-primary mt-1">
-                      {queryCounts ? <>{queryCounts.mentionedQueries}<span className="text-faint text-label-18"> / {queryCounts.totalQueries}</span></> : 'Unavailable'}
+                      {queryCounts?.mentionedQueries ?? 'Unavailable'}
                     </p>
                     <p className="mt-0.5 text-copy-14 text-secondary">queries naming your brand</p>
                   </div>
                   <div className="material-base p-3">
-                    <p className="text-copy-13-strong text-secondary">Cited</p>
+                    <p className="text-copy-13-strong text-secondary">Cited<span className="sr-only"> · all queries, counts only</span></p>
                     <p className="text-copy-24-strong tabular-nums text-primary mt-1">
-                      {queryCounts ? <>{queryCounts.citedQueries}<span className="text-faint text-label-18"> / {queryCounts.totalQueries}</span></> : 'Unavailable'}
+                      {queryCounts?.citedQueries ?? 'Unavailable'}
                     </p>
                     <p className="mt-0.5 text-copy-14 text-secondary">queries citing your site</p>
                   </div>
@@ -1833,7 +1880,8 @@ function ReadySetupPage({
                     <p className="mt-0.5 text-copy-14 text-secondary">completed engine checks</p>
                   </div>
                 </div>
-                {!onboardingFinish && createdProjectName ? <NextSteps projectName={createdProjectName} /> : null}
+                </details>
+                {!onboardingFinish && createdProjectName ? <details><summary className="cursor-pointer py-2 text-label-14 text-link">More setup options</summary><NextSteps projectName={createdProjectName} /></details> : null}
                 <div className="setup-nav">
                   <span />
                   <Button type="button" onClick={() => finishSetup()}>
@@ -1861,19 +1909,24 @@ function ReadySetupPage({
             tabIndex={visibilityProjectName ? -1 : undefined}
             className="page-title outline-none"
           >
-            {visibilityProjectName ? 'Set up AI Visibility' : 'Setup'}
+            {showingSuccessfulRun ? 'Your first AI Visibility result' : visibilityProjectName ? 'Set up AI Visibility' : 'Setup'}
           </h1>
-          <p className="page-subtitle">
+          {!showingSuccessfulRun && !(step === 4 && runTriggered) ? <p className="page-subtitle">
             {visibilityProjectName
-              ? 'Connect an AI engine, then choose queries for your first check.'
-              : 'Create a project and run its first visibility check.'}
-          </p>
+              ? step === 4
+                ? 'Review the queries and engines for your first check.'
+                : providerReadiness === true
+                  ? 'Choose the queries you want to track.'
+                  : 'Connect an AI engine and add the queries you want to track.'
+              : 'Create a project and run its first AI Visibility check.'}
+          </p> : null}
         </div>
-        {siteHealthOnboarding ? (
+        {!showingSuccessfulRun && (siteHealthOnboarding || step !== 4) ? (
           <div className="page-header-right">
-            <Button type="button" variant="outline" className={TOUCH_TARGET} onClick={skipToFinish}>
+            {step !== 4 ? <Button type="button" variant="ghost" size="sm" disabled={(Boolean(resumeProjectName) && !resumeQueriesQuery.isSuccess) || projectSaving || queriesSaving || competitorsSaving || runSaving} onClick={resetDraft}>Reset unsaved fields</Button> : null}
+            {siteHealthOnboarding ? <Button type="button" variant="outline" className={TOUCH_TARGET} onClick={skipToFinish}>
               Skip AI Visibility
-            </Button>
+            </Button> : null}
           </div>
         ) : null}
       </div>
@@ -1883,15 +1936,12 @@ function ReadySetupPage({
         labels={isProjectScoped ? PROJECT_VISIBILITY_STEPS : SETUP_STEPS}
       /> : null}
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-label-13 text-secondary">
-        <p>Draft fields use tab storage when available. Credentials are excluded from drafts.</p>
-        <Button type="button" variant="ghost" size="sm" disabled={(Boolean(resumeProjectName) && !resumeQueriesQuery.isSuccess) || projectSaving || queriesSaving || competitorsSaving || runSaving} onClick={resetDraft}>Reset unsaved fields</Button>
-      </div>
       <section className="setup-wizard">
         {providerSetup}
-        {step === 4 && !runTriggered && isAdmin && openRouterConnected && setupEngineProject && !inlineModelPicker && <ProjectEngineSettingsSection project={setupEngineProject} onSave={saveSetupEngines} />}
+        {step === 4 && !runTriggered && isAdmin && openRouterConnected && setupEngineProject && !inlineModelPicker && <details className="mb-4"><summary className="cursor-pointer py-2 text-label-14 text-link">Change engines</summary><ProjectEngineSettingsSection project={setupEngineProject} onSave={saveSetupEngines} /></details>}
         {stepContent}
       </section>
+      {providerGuard.dialog}
     </div>
   )
 }

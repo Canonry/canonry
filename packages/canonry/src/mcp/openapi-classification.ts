@@ -176,6 +176,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   // `manualAdmission` from canonry_runs_latest and canonry_project_overview,
   // so a third tool would only repeat those decisions.
   'GET /api/v1/projects/{name}/run-admission': 'deferred',
+  'GET /api/v1/projects/{name}/run-preview': 'included',
   'GET /api/v1/runs': 'deferred',
   'POST /api/v1/runs': 'deferred',
   'GET /api/v1/runs/{id}': 'included',
@@ -228,6 +229,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/users': 'deferred',
   'POST /api/v1/users': 'deferred',
   'DELETE /api/v1/users/{name}': 'deferred',
+  'POST /api/v1/projects/{name}/schedule/preview': 'included',
   'PUT /api/v1/projects/{name}/schedule': 'included',
   'GET /api/v1/projects/{name}/schedules': 'included',
   'GET /api/v1/projects/{name}/schedule': 'included',

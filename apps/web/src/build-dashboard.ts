@@ -18,7 +18,6 @@ import type {
   ModelTransitionVm,
   CompetitorVm,
   DashboardVm,
-  MetricTone,
   PortfolioProjectVm,
   ProjectCommandCenterVm,
   RunHistoryPoint,
@@ -146,9 +145,9 @@ function statusDetailFromRun(run: ApiRun): string {
   if (run.kind === RunKinds['seo-sync']) return 'View the saved scope and task results in SEO.'
   switch (run.status) {
     case RunStatuses.queued: return 'Waiting for execution slot.'
-    case RunStatuses.running: return 'Provider queries in progress.'
-    case RunStatuses.completed: return 'All queries checked.'
-    case RunStatuses.partial: return 'Run completed with some queries skipped.'
+    case RunStatuses.running: return run.kind === RunKinds['answer-visibility'] ? 'Provider queries in progress.' : 'Scan in progress.'
+    case RunStatuses.completed: return run.kind === RunKinds['answer-visibility'] ? 'All queries checked.' : 'Scan completed.'
+    case RunStatuses.partial: return run.kind === RunKinds['answer-visibility'] ? 'Run completed with some queries skipped.' : 'Scan completed with partial results.'
     case RunStatuses.failed: return run.error ? formatRunError(run.error) : 'Run failed.'
     case RunStatuses.cancelled: return 'Run was cancelled.'
     default: return ''
@@ -626,6 +625,7 @@ function adaptOverviewToCommandCenter(
     project,
     contextLabel: overview.contextLabel,
     mentionSummary: overview.scores.mention as ScoreSummaryVm,
+    mentionCoverage: overview.mentionCoverage,
     visibilitySummary: overview.scores.visibility as ScoreSummaryVm,
     mentionShareSummary: overview.scores.mentionShare,
     queryCounts: { cited: overview.queryCounts.citedQueries, total: overview.queryCounts.totalQueries },
@@ -755,44 +755,17 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
     return {
       project: dto,
       hasMeasurement: false,
-      mentionScore: 0,
-      mentionDelta: 'No data',
-      mentionTone: 'neutral',
       lastRun: runItem,
-      insight: 'No runs completed yet.',
-      trend: [],
       competitorPressureLabel: 'None',
     }
   }
 
-  // Mention Coverage is the headline portfolio metric (did the AI actually say
-  // the brand?), not the cited/source signal. Both ride on the overview; we
-  // read `mention`. The gauge's `value` is presentational ("66.7%"/"No data");
-  // `progress` is the same share as 0–100 (at wire precision), so we read that for
-  // the score and the view formats it.
-  const mention = overview.scores.mention
-  const mentionScore = mention.progress ?? 0
-  const mentioned = overview.queryCounts.mentionedQueries
-  const total = overview.queryCounts.totalQueries
-  const providerCount = overview.providers.length
-
   return {
     project: dto,
-    hasMeasurement: total > 0 && mention.progress != null,
-    mentionScore,
-    mentionDelta: total > 0 ? `${mentioned} of ${total} queries` : 'No data',
-    mentionTone: mention.tone as MetricTone,
-    providerCoverage: mention.providerCoverage,
+    hasMeasurement: overview.mentionCoverage?.populations.some(population => population.answerCount > 0),
+    mentionPopulations: overview.mentionCoverage?.populations,
+    providerCoverage: overview.scores.mention.providerCoverage,
     lastRun: runItem,
-    // Subtitle reads the mention signal (answerMentioned) — the word
-    // "mentioned" must be backed by mention data, not the cited count.
-    insight: total > 0
-      ? `${mentioned} of ${total} queries mentioned across ${providerCount} provider${providerCount === 1 ? '' : 's'}.`
-      : 'No runs completed yet.',
-    // Mention-rate-over-time series (0–100, oldest→newest), computed
-    // server-side from runHistory — drives the per-project sparkline so the
-    // trend tracks the same signal as the headline number.
-    trend: mention.trend ?? [],
     competitorPressureLabel: overview.scores.competitorPressure.value,
     sentiment: overview.sentiment,
   }
@@ -888,9 +861,9 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
         modelHint: p.modelHint,
         model: p.model,
         defaultModel: p.defaultModel,
-        state: (p.configured ? 'ready' : 'needs-config') as 'ready' | 'needs-config',
+        state: (p.configured ? 'configured' : 'needs-config') as 'configured' | 'needs-config',
         detail: p.configured
-          ? 'Provider is configured.'
+          ? 'Configuration saved.'
           : p.name.toLowerCase() === 'local'
             ? 'Base URL is missing.'
             : 'API key is missing.',

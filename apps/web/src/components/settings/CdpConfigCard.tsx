@@ -28,15 +28,19 @@ export function CdpConfigCard() {
   const guard = useUnsavedChanges(cdpDirty, cdpSaving)
 
   useEffect(() => {
+    let active = true
     fetchCdpStatus()
       .then((status) => {
+        if (!active) return
         setCdpStatus(status)
         setCdpStatusError(null)
       })
       .catch((err: unknown) => {
+        if (!active) return
         const msg = describeError(err)
         if (!msg.includes('501')) setCdpStatusError(msg)
       })
+    return () => { active = false }
   }, [])
 
   return (
@@ -60,8 +64,17 @@ export function CdpConfigCard() {
           </>
         ) : cdpStatus?.connected ? 'Chrome is available for this provider.' : 'Connect Chrome to enable this provider.'}
       </p>
-      <details className="mt-3">
-        <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">Advanced</summary>
+      {!cdpStatus?.connected && <details className="mt-3">
+        <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">How to connect Chrome</summary>
+        <ol className="mt-2 ml-5 list-decimal space-y-2 text-copy-14 text-secondary">
+          <li>On the machine running Canonry, launch Chrome with remote debugging on port 9222 and a separate browser profile.</li>
+          <li>In that browser, open ChatGPT and sign in.</li>
+          <li>Choose Configure below and save the host and port.</li>
+        </ol>
+        <p className="mt-2 text-copy-14 text-secondary">Chrome requires <code>--remote-debugging-port=9222</code> and <code>--user-data-dir</code> pointing to a separate profile. <a className="text-link underline" href="https://developer.chrome.com/docs/devtools/agents/get-started/configuration" target="_blank" rel="noopener noreferrer">Launch commands for your operating system</a></p>
+      </details>}
+      {(cdpStatus?.endpoint || cdpStatus?.browserVersion || Boolean(cdpStatus?.targets?.length)) && <details className="mt-3">
+        <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">Connection details</summary>
         <dl className="definition-list mt-2">
           {cdpStatus?.endpoint && (
             <div>
@@ -88,7 +101,7 @@ export function CdpConfigCard() {
             </div>
           )}
         </dl>
-      </details>
+      </details>}
       <div className="mt-2">
         <Button
           type="button"
