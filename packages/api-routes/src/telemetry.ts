@@ -23,8 +23,8 @@ export interface TelemetryRoutesOptions {
   recordOnboardingEvent?: (event: OnboardingTelemetryEvent) => void
   /**
    * Dashboard usage: page views, feature actions, UI errors, web vitals.
-   * Returns whether the event was accepted: `false` while telemetry is off or
-   * the host's rate limit is spent, which tells the dashboard to stop sending.
+   * Returns false while telemetry is off, which stops dashboard collection.
+   * Temporary rate limits throw QUOTA_EXCEEDED (429), so collection can resume.
    */
   recordUiEvent?: (event: UiTelemetryEvent) => boolean
 }
@@ -114,8 +114,8 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
     }
 
     // A host that does not collect telemetry (apps/api), an opted-out local
-    // instance, or one past its rate limit answers accepted:false, and the
-    // dashboard stops sending for the session.
+    // instance answers accepted:false and stops collection for the session.
+    // Rate limits instead propagate as 429 and leave the dashboard timer alive.
     const accepted = opts.recordUiEvent ? opts.recordUiEvent(parsed.data) : false
     return reply.status(202).send({ accepted })
   })

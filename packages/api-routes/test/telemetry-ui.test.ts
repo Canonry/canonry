@@ -16,6 +16,29 @@ const base = {
 }
 
 describe('UI telemetry route', () => {
+  it('forwards bounded cumulative screen time and refuses malformed or identifying payloads', async () => {
+    const events: UiTelemetryEvent[] = []
+    const app = await buildApp(event => { events.push(event); return true })
+    const payload = { ...base, event: 'ui.page_time', page: '/projects/:projectName/portfolio',
+      tab: 'portfolio', visitId: base.eventId, foregroundMs: 120_000, activeMs: 60_000, completed: true }
+    try {
+      const response = await app.inject({ method: 'POST', url: '/telemetry/ui', payload })
+      expect(response.statusCode).toBe(202)
+      expect(events).toEqual([payload])
+      for (const bad of [
+        { foregroundMs: -1 }, { foregroundMs: 0 }, { foregroundMs: 86_400_001 },
+        { foregroundMs: 1.5 }, { activeMs: 120_001 }, { activeMs: -1 },
+        { visitId: 'client-name' }, { page: '/projects/private-client/portfolio' },
+        { completed: 'true' }, { title: 'Private project' },
+      ]) {
+        const rejected = await app.inject({ method: 'POST', url: '/telemetry/ui', payload: { ...payload, ...bad } })
+        expect(rejected.statusCode).toBe(400)
+      }
+      expect(events).toHaveLength(1)
+    } finally {
+      await app.close()
+    }
+  })
   it('accepts and forwards an allowlisted event', async () => {
     const events: UiTelemetryEvent[] = []
     const app = await buildApp(event => { events.push(event); return true })
@@ -49,7 +72,7 @@ describe('UI telemetry route', () => {
     expect(response.json()).toEqual({ accepted: false })
   })
 
-  it('answers accepted:false when the host declines (telemetry off or rate limited)', async () => {
+  it('answers accepted:false when the host declines because telemetry is off', async () => {
     const app = await buildApp(() => false)
     const response = await app.inject({
       method: 'POST',

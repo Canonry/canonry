@@ -985,6 +985,14 @@ cannot silently send into a different conversation.
 
 ## Usage telemetry (`ui.*` events)
 
+`ui-page-time.ts` measures each resolved screen visit with cumulative `ui.page_time`
+checkpoints (once a minute, navigation, blur/hide, and pagehide). Foreground means
+visible and focused; active means input/scroll/pointer activity within 60 seconds.
+Suspension gaps over 30 seconds are omitted. Route patterns alone leave the browser;
+concrete paths distinguish visits locally. Auth/router teardown discards the current
+visit, and a consent refusal stops the timer without flushing. Temporary server throttling returns 429 and leaves the timer running. Checkpoints share
+the existing UI event limits and consent path; a lost final checkpoint undercounts.
+
 `src/lib/ui-telemetry.ts` records page views, feature actions, UI errors and web vitals; `src/lib/ui-telemetry-install.ts` wires it once from `main.tsx` (tests never import it, so they stay silent). Rules:
 
 - **A new feature adds a `ui.action`.** Add the action to `UI_ACTIONS` in `packages/contracts/src/ui-telemetry.ts`. If the feature is a dashboard API write, add its method and route template to `ACTION_BY_ROUTE`; otherwise call `trackUiAction` at the one place the action completes. Never send a free-form name.
@@ -994,3 +1002,7 @@ cannot silently send into a different conversation.
 - **A read or write whose failure status is a normal outcome** (the code handles it as "none yet" or a conflict) adds its method, template and statuses to `EXPECTED_STATUSES`, so it is not reported as a UI error.
 - **A new shared filter** either writes a URL search param listed in `FILTER_BY_SEARCH_KEY` (picked up at the router) or calls `trackUiFilterChange(dimension)` when its value changes; a new table search uses `DataTableSearch`, which already reports `search.submit`. Never pass the value or the text.
 - **An OAuth start is `integration.connect_started`**; record `integration.connect` only where the connection is confirmed.
+
+### Product feedback
+
+`components/shared/FeedbackPanel.tsx` is the shared topbar feedback entry point. It uses the existing generated feedback mutation, a non-modal anchored panel, and an in-memory draft that survives dismissal and route changes. It is hidden for embeds, public demos, and credentials without general write authority. Only confirmed delivery clears the draft and records `feedback.submit`; message text never enters usage telemetry. Feedback includes a route pattern, never a concrete path or project name. No automatic retries or browser-storage drafts.

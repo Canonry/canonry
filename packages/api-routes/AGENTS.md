@@ -1108,3 +1108,7 @@ Omitted sort preserves stored order, and missing metrics stay last both ways. Mi
 absence; saved row totals never stand for provider-wide totals. Legacy task blobs
 without the new result arrays read as empty. Market-ranking comparisons use the
 shared `marketRankingRow` projection, including nullable best rival and rank gap.
+
+### UI telemetry delivery
+
+`POST /telemetry/ui` reserves `accepted:false` for disabled or unsupported collection. Host throttling propagates `QUOTA_EXCEEDED` (429), allowing the browser to recover on a later checkpoint without discarding the visit.
