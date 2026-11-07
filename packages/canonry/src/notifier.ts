@@ -11,7 +11,7 @@ import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 import { isWithinAlertWindow } from './gbp-reviews.js'
 import { projectsWithRecentUnrecognizedAgents, recordUnrecognizedAgentDecisions, undecidedUnrecognizedAgents, UnrecognizedAgentNotifyStates } from './unrecognized-agent-alerts.js'
-import { CHECK_RUNTIME_ERROR_SUFFIX, CheckNotificationPolicies, CheckStatuses, compareText, describeError, notificationEventSchema, statusClassOf, type CheckNotificationPolicy, type OutcomeReasonCode, type StatusClass } from '@canonry/canonry-contracts'
+import { CHECK_RUNTIME_ERROR_SUFFIX, CheckNotificationPolicies, CheckStatuses, compareText, describeError, notificationEventSchema, RetrievalStatuses, statusClassOf, type CheckNotificationPolicy, type OutcomeReasonCode, type StatusClass } from '@canonry/canonry-contracts'
 import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 const log = createLogger('Notifier')
@@ -1409,6 +1409,7 @@ export class Notifier {
         provider: querySnapshots.provider,
         location: querySnapshots.location,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
       })
       .from(querySnapshots)
       .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
@@ -1421,6 +1422,7 @@ export class Notifier {
         provider: querySnapshots.provider,
         location: querySnapshots.location,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
       })
       .from(querySnapshots)
       .where(inArray(querySnapshots.runId, previousRunIds))
@@ -1433,26 +1435,30 @@ export class Notifier {
     // Orphan snapshots (queryId NULL, post-v58: tracked query was deleted)
     // are skipped — they all collide under a null key and a transition on
     // a no-longer-tracked query isn't useful to notify on.
-    const prevMap = new Map<string, string>()
+    const prevMap = new Map<string, { citationState: string; retrievalStatus: string | null }>()
     for (const s of previousSnapshots) {
       if (s.queryId == null) continue
-      prevMap.set(`${s.queryId}:${s.provider}:${s.location ?? ''}`, s.citationState)
+      prevMap.set(`${s.queryId}:${s.provider}:${s.location ?? ''}`, { citationState: s.citationState, retrievalStatus: s.retrievalStatus })
     }
 
     const transitions: Array<{ query: string; from: string; to: string; provider: string; location: string | null }> = []
     for (const s of currentSnapshots) {
       if (s.queryId == null) continue
       const key = `${s.queryId}:${s.provider}:${s.location ?? ''}`
-      const prevState = prevMap.get(key)
-      if (prevState && prevState !== s.citationState) {
-        transitions.push({
-          query: s.query ?? s.queryId,
-          from: prevState,
-          to: s.citationState,
-          provider: s.provider,
-          location: s.location,
-        })
-      }
+      const prev = prevMap.get(key)
+      if (!prev || prev.citationState === s.citationState) continue
+      // A snapshot written without a search never had a citation to lose or
+      // gain (#1161): no citation.lost / citation.gained from either side
+      // of it. The answer still counts toward mention-driven events through
+      // its own state; only the citation transition is withheld.
+      if (s.retrievalStatus === RetrievalStatuses['not-used'] || prev.retrievalStatus === RetrievalStatuses['not-used']) continue
+      transitions.push({
+        query: s.query ?? s.queryId,
+        from: prev.citationState,
+        to: s.citationState,
+        provider: s.provider,
+        location: s.location,
+      })
     }
 
     return transitions

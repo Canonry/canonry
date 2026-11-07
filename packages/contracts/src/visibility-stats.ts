@@ -27,7 +27,15 @@ import { competitorIdentityChangedAtSchema, competitorSetChangedAtSchema } from 
  * CLI / dashboard render directly (no client-side recomputation).
  */
 export const visibilityStatsCountsSchema = z.object({
-  /** Total (query × provider) snapshots observed in the window. Denominator for `citedRate`. */
+  /**
+   * Snapshots in the cited denominator: every attributed snapshot EXCEPT
+   * answers the provider wrote with no retrieval step at all
+   * (`retrievalStatus = 'not-used'`, counted in `excludedNoRetrieval`).
+   * Those cite nothing by construction, so they leave the cited rate rather
+   * than counting as searched misses. `total` is the denominator for
+   * `citedRate`; the mention rate still uses `checked`, which keeps
+   * unsearched answers, since brand recall does not need search.
+   */
   total: z.number().int(),
   /**
    * Snapshots where `answerMentioned !== null` — the sample size (`n`) for the
@@ -42,6 +50,13 @@ export const visibilityStatsCountsSchema = z.object({
   mentionRate: fraction().nullable(),
   /** `cited / total`, rounded to 4 dp; `null` when `total === 0`. */
   citedRate: fraction().nullable(),
+  /**
+   * Cited-rate rows the provider answered with no retrieval step at all
+   * (`retrievalStatus = 'not-used'`), excluded from `total` and `cited`.
+   * Present only when nonzero, so a smaller denominator is always visible
+   * next to the rate it shrank.
+   */
+  excludedNoRetrieval: z.number().int().nonnegative().optional(),
 })
 export type VisibilityStatsCounts = z.infer<typeof visibilityStatsCountsSchema>
 
