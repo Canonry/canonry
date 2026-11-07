@@ -126,6 +126,20 @@ describe('visibility report contract', () => {
     // One rate reads one signal: a mention count and a citation count never share it.
     expect(visibilityReportRateSchema.safeParse({ numerator: 3, denominator: 9, rate: 3 / 9, unattributed: 1, unchecked: 1 }).success).toBe(false)
   })
+
+  it('carries the answers written without a web search beside a citation rate, never beside unattributed', () => {
+    expect(visibilityReportRateSchema.parse({ numerator: 3, denominator: 9, rate: 3 / 9, excludedNoRetrieval: 1 }))
+      .toEqual({ numerator: 3, denominator: 9, rate: 3 / 9, excludedNoRetrieval: 1 })
+    // Both citation-side counts may share one rate.
+    expect(visibilityReportRateSchema.parse({ numerator: 3, denominator: 8, rate: 3 / 8, unchecked: 1, excludedNoRetrieval: 1 }))
+      .toEqual({ numerator: 3, denominator: 8, rate: 3 / 8, unchecked: 1, excludedNoRetrieval: 1 })
+    expect(visibilityReportRateSchema.safeParse({ numerator: 3, denominator: 9, rate: 3 / 9, excludedNoRetrieval: 0 }).success).toBe(false)
+    expect(visibilityReportRateSchema.safeParse({ numerator: 3, denominator: 9, rate: 3 / 9, excludedNoRetrieval: 1.5 }).success).toBe(false)
+    // An all-not-used population is unavailable with its reason, not a rate with a count.
+    expect(visibilityReportRateSchema.safeParse({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete', excludedNoRetrieval: 2 }).success).toBe(false)
+    // One rate reads one signal: a mention count and a citation count never share it.
+    expect(visibilityReportRateSchema.safeParse({ numerator: 3, denominator: 9, rate: 3 / 9, unattributed: 1, excludedNoRetrieval: 1 }).success).toBe(false)
+  })
 })
 
 describe('unchecked sources line', () => {

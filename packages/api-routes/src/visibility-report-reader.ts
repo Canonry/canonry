@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto'
 import {
   rateOverChecked,
+  RetrievalStatuses,
   visibilityReportResponseSchema,
   VisibilityReportScopeErrorReasons,
   type RetrievalStatus,
@@ -433,14 +434,23 @@ function citationForCoverage(candidate: Candidate, targets: ReadonlyMap<string, 
  * at all stays unavailable as `evidence-incomplete`. `isCited` reads one
  * checked answer; a null from it withholds the rate.
  *
+ * A saved answer the provider wrote with no web search leaves the cited
+ * denominator for the same reason: it cites nothing by construction, so it is
+ * not a searched miss. It is counted beside the rate as `excludedNoRetrieval`
+ * and stays in the mention denominator, since brand recall does not need
+ * search. Only an explicit `not-used` leaves: legacy rows that never recorded
+ * a retrieval status stay in the denominator.
+ *
  * Simple runs mark every saved answer complete: their citation state comes
  * from stored cited domains, not URL capture, so this never excludes one.
  */
 function citationRate(candidates: readonly Candidate[], isCited: (candidate: Candidate) => boolean | null): VisibilityReportRate {
   if (candidates.length === 0) return unavailable('no-population')
+  const eligible = candidates.filter(candidate => candidate.observation?.retrievalStatus !== RetrievalStatuses['not-used'])
+  const excludedNoRetrieval = candidates.length - eligible.length
   let numerator = 0
   let unchecked = 0
-  for (const candidate of candidates) {
+  for (const candidate of eligible) {
     if (candidate.observation === null) return unavailable('evidence-incomplete')
     if (!candidate.observation.citationComplete) {
       unchecked++
@@ -450,7 +460,19 @@ function citationRate(candidates: readonly Candidate[], isCited: (candidate: Can
     if (cited === null) return unavailable('evidence-incomplete')
     if (cited) numerator++
   }
-  return rateOverChecked(numerator, candidates.length, unchecked, 'unchecked') ?? unavailable('evidence-incomplete')
+  return withExcludedNoRetrieval(
+    rateOverChecked(numerator, eligible.length, unchecked, 'unchecked'),
+    excludedNoRetrieval,
+  )
+}
+
+/** A checked citation rate with its no-retrieval count beside it, when there is one. */
+function withExcludedNoRetrieval(
+  rate: { numerator: number; denominator: number; rate: number; unchecked?: number } | null,
+  excludedNoRetrieval: number,
+): VisibilityReportRate {
+  if (rate === null) return unavailable('evidence-incomplete')
+  return excludedNoRetrieval === 0 ? rate : { ...rate, excludedNoRetrieval }
 }
 
 function targetCitationRate(

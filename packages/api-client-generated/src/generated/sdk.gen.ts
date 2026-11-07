@@ -1049,7 +1049,7 @@ export const getApiV1ProjectsByNameSentimentJobsByJobId = <ThrowOnError extends 
 /**
  * Read a consistently scoped AI visibility report
  *
- * Stored official evidence only. Summary, trend, queries and competitor metrics use one selection and server-owned denominators. All classes returns separate populations, never a pooled rate. Market scopes select frozen execution edges; groups remain property collections. Research and probe answers are excluded. Material plan changes retain the prior measured definition until a new sweep.
+ * Stored official evidence only. Summary, trend, queries and competitor metrics use one selection and server-owned denominators. All classes returns separate populations, never a pooled rate. Market scopes select frozen execution edges; groups remain property collections. Research and probe answers are excluded. Cited rates exclude answers written without a web search, reported beside the rate as `excludedNoRetrieval`. Material plan changes retain the prior measured definition until a new sweep.
  */
 export const getApiV1ProjectsByNameVisibilityReport = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameVisibilityReportData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameVisibilityReportResponses, GetApiV1ProjectsByNameVisibilityReportErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameVisibilityReportResponses, GetApiV1ProjectsByNameVisibilityReportErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

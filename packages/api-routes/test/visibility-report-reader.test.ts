@@ -239,13 +239,16 @@ describe('mention coverage over attributable answers', () => {
   })
 })
 
-type CitationAnswer = 'cited' | 'not-cited' | 'unchecked' | 'unchecked-cited' | 'missing'
+type CitationAnswer = 'cited' | 'not-cited' | 'unchecked' | 'unchecked-cited' | 'not-used' | 'not-used-cited' | 'missing'
 
 /**
  * One non-brand population for North, one answer per slot, stored the way
  * `v2Observations` maps a snapshot: `citationComplete` is false for an answer
  * that was saved with incomplete source-link capture. A captured positive may
- * still be on such an answer (`unchecked-cited`). `missing` has no saved answer.
+ * still be on such an answer (`unchecked-cited`). A `not-used` answer was
+ * saved complete — the provider ran no search, so there was nothing to
+ * capture — and carries `retrievalStatus: 'not-used'`; a captured positive
+ * may still be on such an answer (`not-used-cited`). `missing` has no saved answer.
  * The tracked competitor is cited exactly where North is.
  */
 function citationRun(answers: readonly CitationAnswer[], id = 'run-2', createdAt = AT) {
@@ -260,11 +263,13 @@ function citationRun(answers: readonly CitationAnswer[], id = 'run-2', createdAt
   }))
   const observations = answers.flatMap((answer, index) => {
     if (answer === 'missing') return []
-    const cited = answer === 'cited' || answer === 'unchecked-cited'
+    const cited = answer === 'cited' || answer === 'unchecked-cited' || answer === 'not-used-cited'
+    const notUsed = answer === 'not-used' || answer === 'not-used-cited'
     return [{
       slotId: slots[index]!.id, answerId: `cite-answer-${index}`, model: 'gpt-5', answerText: 'North and Rival are options.',
       mentionedTargetKeys: ['north'], citedTargetKeys: cited ? ['north'] : [],
-      citationComplete: answer === 'cited' || answer === 'not-cited',
+      citationComplete: answer === 'cited' || answer === 'not-cited' || notUsed,
+      ...(notUsed ? { retrievalStatus: 'not-used' as const } : {}),
       competitorMentionDomains: ['rival.example'], competitorCitationDomains: cited ? ['rival.example'] : [], observedCompetitorNames: [],
       sources: cited ? ['https://north.example/alpha', 'https://rival.example/alpha'] : [], createdAt,
     }]
@@ -325,6 +330,48 @@ describe('citation coverage over checked answers', () => {
     expect(population.competitors[0]!.citationCoverage).toEqual({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 })
     // The answer evidence still shows the link that was seen.
     expect(population.evidence.items.find(row => row.answerId === 'cite-answer-9')).toMatchObject({ cited: true })
+  })
+
+  it('leaves answers written without a web search out of the cited denominator, and counts them beside it', () => {
+    const population = citationReport(['cited', 'cited', 'cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-used'])
+    const expected = { numerator: 3, denominator: 9, rate: 3 / 9, excludedNoRetrieval: 1 }
+    expect(population.summary.answerCount).toBe(10)
+    expect(population.summary.citationCoverage).toEqual(expected)
+    // Every other surface of the same rate agrees with the summary.
+    expect(population.trend.at(-1)!.citationCoverage).toEqual(expected)
+    expect(population.breakdown.properties.find(row => row.id === 'north')!.citationCoverage).toEqual(expected)
+    expect(population.breakdown.groups.find(row => row.id === 'collection')!.citationCoverage).toEqual(expected)
+    expect(population.competitors[0]!.citationCoverage).toEqual(expected)
+    // Mention and citation are independent: the not-used answer still counts for mention.
+    expect(population.summary.mentionCoverage).toEqual({ numerator: 10, denominator: 10, rate: 1 })
+  })
+
+  it('carries the excluded count onto the query row that holds the not-used answer only', () => {
+    const rows = citationReport(['cited', 'cited', 'cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-used']).queries.items
+    // Answer 9 is nearby:0 on gemini (9 % 3 = 0, odd index); answer 3 shares the row and was checked.
+    expect(rows.filter(row => row.citationCoverage.excludedNoRetrieval !== undefined)
+      .map(row => [row.queryKey, row.provider, row.citationCoverage]))
+      .toEqual([['nearby:0', 'gemini', { numerator: 0, denominator: 1, rate: 0, excludedNoRetrieval: 1 }]])
+    expect(rows.reduce((total, row) => total + (row.citationCoverage.denominator ?? 0) + (row.citationCoverage.excludedNoRetrieval ?? 0), 0)).toBe(10)
+  })
+
+  it('excludes a not-used answer even when it carries a captured positive', () => {
+    const population = citationReport(['cited', 'cited', 'cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-used-cited'], { queryKey: 'nearby:0' })
+    expect(population.summary.citationCoverage).toEqual({ numerator: 3, denominator: 9, rate: 3 / 9, excludedNoRetrieval: 1 })
+    expect(population.competitors[0]!.citationCoverage).toEqual({ numerator: 3, denominator: 9, rate: 3 / 9, excludedNoRetrieval: 1 })
+    // The answer evidence still shows the link that was seen.
+    expect(population.evidence.items.find(row => row.answerId === 'cite-answer-9')).toMatchObject({ cited: true })
+  })
+
+  it('is unavailable as evidence-incomplete only when every answer was written without a search', () => {
+    const population = citationReport(['not-used', 'not-used-cited'])
+    expect(population.summary.citationCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+    expect(population.competitors[0]!.citationCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+  })
+
+  it('keeps a legacy answer that never recorded a retrieval status in the denominator', () => {
+    const population = citationReport(['cited', 'cited', 'cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited'])
+    expect(population.summary.citationCoverage).toEqual({ numerator: 3, denominator: 10, rate: 3 / 10 })
   })
 
   it('is unavailable as evidence-incomplete only when every answer is unchecked', () => {
