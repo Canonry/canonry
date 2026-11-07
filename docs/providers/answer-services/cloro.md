@@ -64,4 +64,4 @@ The `cloro` connection allows 1 request at a time, the Free plan's concurrency l
 
 ## Not used
 
-The async task API, `include` add-ons (HTML, Markdown, raw response, shopping, ads, ChatGPT search queries), `state` targeting, AI Mode's `location`, `uule`, `gl`, `hl` and `device`, multi-turn ChatGPT prompts, Google Search, Google News and Grok (retired by cloro) are outside this adapter. Fixtures in `packages/provider-answer-services/test/services/cloro/` follow cloro's documented response shapes; their field shapes were checked against live responses, but their content is invented.
+The async task API, `include` add-ons (HTML, Markdown, raw response, shopping, ads, ChatGPT search queries), `state` targeting, AI Mode's `location`, `uule`, `gl`, `hl` and `device`, multi-turn ChatGPT prompts, Google Search and Google News are outside this adapter. Fixtures in `packages/provider-answer-services/test/services/cloro/` follow cloro's documented response shapes; their field shapes were checked against live responses, but their content is invented.
