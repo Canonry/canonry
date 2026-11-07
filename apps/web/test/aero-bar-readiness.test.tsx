@@ -83,10 +83,15 @@ test('does not advertise a working Aero prompt when no agent provider is configu
     defaultProvider: null,
   })
 
-  expect(screen.getByRole('status').textContent).toBe('Aero needs an answer-engine provider.Open Settings')
+  const status = screen.getByRole('status')
+  expect(within(status).getByText('Aero')).toBeTruthy()
+  const help = 'Aero is the built-in AEO analyst. Connect a supported answer engine to ask about these results.'
+  expect(screen.queryByText(help)).toBeNull()
+  fireEvent.focus(within(status).getByRole('button', { name: help }))
+  expect(screen.getByText(help)).toBeTruthy()
   expect(screen.queryByRole('button', { name: /Ask Aero/i })).toBeNull()
 
-  fireEvent.click(screen.getByRole('link', { name: 'Open Settings' }))
+  fireEvent.click(screen.getByRole('link', { name: 'Set up Aero' }))
   await waitFor(() => expect(router.state.location.pathname).toBe('/settings'))
 })
 
@@ -115,7 +120,7 @@ test('names the missing key when the default provider is a pin with no key', asy
   expect(screen.getByRole('status').textContent).toContain('Aero is set to OpenAI, which has no API key.')
   expect(screen.queryByRole('button', { name: /Ask Aero/i })).toBeNull()
   // Settings cannot add every agent provider's key, so it is not offered.
-  expect(screen.queryByRole('link', { name: 'Open Settings' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Set up Aero' })).toBeNull()
 })
 
 test('does not show a view-only user provider state or administrator settings', async () => {
@@ -133,7 +138,7 @@ test('does not show a view-only user provider state or administrator settings', 
   // Which providers exist is operator knowledge, so a viewer's bar never asks
   // and never shows provider state; the server answers each turn or says why not.
   expect(screen.queryByRole('status')).toBeNull()
-  expect(screen.queryByRole('link', { name: 'Open Settings' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Set up Aero' })).toBeNull()
   expect(screen.getByRole('button', { name: /Ask Aero about citypoint/i })).toBeTruthy()
 })
 

@@ -8,16 +8,18 @@ export function Drawer({
   children,
   open,
   onClose,
+  onClosed,
 }: {
   title: string
   subtitle: string
   children: ReactNode
   open: boolean
   onClose: () => void
+  onClosed?: () => void
 }) {
   return (
     <Sheet open={open} onOpenChange={(nextOpen) => (nextOpen ? undefined : onClose())}>
-      <SheetContent>
+      <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
         <SheetHeader className="drawer-head">
           <p className="eyebrow eyebrow-soft">{subtitle}</p>
           <SheetTitle id="drawer-title">{title}</SheetTitle>

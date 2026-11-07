@@ -72,3 +72,19 @@ test.each(['auto-fetched', 'historical'])('%s snapshots preserve captured source
   expect(screen.getByText(unsafeUrl)).toBeTruthy()
   expect(screen.queryByRole('link', { name: unsafeUrl })).toBeNull()
 })
+
+
+test('the full Simple answer preserves headings, lists, and safe links', () => {
+  const project = createDashboardFixture({}).dashboard.projects[0]!
+  render(<EvidenceDetailModal project={project} onClose={() => {}} evidence={{
+    ...project.visibilityEvidence[0]!, runHistory: [],
+    answerSnippet: '#### Practical steps\n\n1. Review **sources**\n2. Compare results\n\n- Keep context\n- [Read the source](https://example.com/report)\n\n[Unsafe](javascript:alert)',
+  }} />)
+  const dialog = within(screen.getByRole('dialog'))
+  expect(dialog.getByRole('heading', { name: 'Practical steps' })).toBeTruthy()
+  expect(dialog.getAllByRole('listitem')).toHaveLength(4)
+  expect(dialog.getAllByRole('list')).toHaveLength(2)
+  expect(dialog.getByRole('link', { name: 'Read the source' }).getAttribute('href')).toBe('https://example.com/report')
+  expect(dialog.queryByRole('link', { name: 'Unsafe' })).toBeNull()
+  expect(dialog.getByRole('button', { name: 'Copy answer' })).toBeTruthy()
+})

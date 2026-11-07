@@ -407,7 +407,7 @@ function SiteHealthOnboardingPage({
   initialRunId?: string
 }) {
   return (
-    <AdminOnly title="Site Health setup">
+    <AdminOnly title="Project setup">
       <SiteHealthOnboardingPageBody projectName={projectName} initialRunId={initialRunId} />
     </AdminOnly>
   )
@@ -456,7 +456,7 @@ function SiteHealthOnboardingPageBody({
   // terminal.
   useEffect(() => {
     if (!projectName || !initialRunId) return
-    if (readOnboardingLaunchedRun(projectName)?.runId === initialRunId) return
+    if (readOnboardingLaunchedRun(projectName, true)?.runId === initialRunId) return
     markOnboardingRunLaunched(projectName, initialRunId)
   }, [initialRunId, projectName])
 
@@ -480,6 +480,7 @@ function SiteHealthOnboardingPageBody({
   const scanStatus = scanRun.data?.status
   useEffect(() => {
     if (!projectName || !initialRunId || !scanStatus) return
+    if (readOnboardingLaunchedRun(projectName)?.runId !== initialRunId) return
     // A crawl has no snapshots, so status alone is the terminal signal.
     if (scanStatus === 'completed' || scanStatus === 'partial') {
       emit({
@@ -488,7 +489,7 @@ function SiteHealthOnboardingPageBody({
         event: 'onboarding.step_completed',
         step: 'run',
         method: 'automatic',
-      }, 'onboarding.step_completed:run')
+      }, `onboarding.step_completed:run:${initialRunId}`)
       markOnboardingRunHandled(initialRunId)
       return
     }
@@ -501,7 +502,7 @@ function SiteHealthOnboardingPageBody({
       step: 'run',
       action: 'retry_run',
       reasonCode,
-    }, `onboarding.blocked:run:${reasonCode}`)
+    }, `onboarding.blocked:run:${initialRunId}:${reasonCode}`)
     markOnboardingRunHandled(initialRunId)
   }, [emit, initialRunId, onboardingSessionId, projectName, scanStatus])
 
@@ -722,7 +723,7 @@ export function OnboardingSetupPage() {
   }
   const autoResume = autoResumeEligible ? autoResumeDecision : null
   if (autoResume) {
-    return <AutoResumeSiteHealthRedirect projectName={autoResume.projectName} runId={autoResume.runId} />
+    return <AutoResumeSetupRedirect projectName={autoResume.projectName} runId={autoResume.runId} />
   }
   if (surface === 'legacy') {
     return (
@@ -738,22 +739,25 @@ export function OnboardingSetupPage() {
   return (
     <PlatformSetupPage
       onActivationStarted={() => setPlatformLatched(true)}
-      skipSiteScan={search.siteScan === 'skip'}
+      skipSiteScan={search.siteScan !== 'scan'}
     />
   )
 }
 
-/** Write the same URL `cnry serve` prints so the focused first-run shell applies. */
-function AutoResumeSiteHealthRedirect({ projectName, runId }: { projectName: string; runId?: string }) {
+/** Resume an existing scan; otherwise continue the project’s first AI check. */
+function AutoResumeSetupRedirect({ projectName, runId }: { projectName: string; runId?: string }) {
   const navigate = useNavigate()
   useEffect(() => {
     void navigate({
       to: '/setup',
-      search: {
+      search: runId ? {
         onboarding: 'site-health',
         setupProject: projectName,
-        // Pinning the scan is what lets the resumed session report an outcome.
-        ...(runId ? { siteHealthRunId: runId } : {}),
+        siteHealthRunId: runId,
+      } : {
+        experience: 'legacy',
+        onboarding: 'first-run',
+        setupProject: projectName,
       },
       replace: true,
     })
@@ -769,7 +773,7 @@ function PlatformSetupPage({
   skipSiteScan: boolean
 }) {
   return (
-    <AdminOnly title="Site Health setup">
+    <AdminOnly title="Project setup">
       <PlatformSetupPageBody
         onActivationStarted={onActivationStarted}
         skipSiteScan={skipSiteScan}
@@ -800,6 +804,7 @@ function PlatformSetupPageBody({
   const [country, setCountry] = useState(draft.country ?? 'US')
   const [language, setLanguage] = useState(draft.language ?? 'en')
   const [crawlApproved, setCrawlApproved] = useState(false)
+  useEffect(() => { setCrawlApproved(false) }, [domain, skipSiteScan])
   const [phase, setPhase] = useState<'idle' | 'creating' | 'dispatching' | 'recovery'>('idle')
   const [createdProject, setCreatedProject] = useState<ApiProject | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -1097,23 +1102,19 @@ function PlatformSetupPageBody({
   }
 
   return (
-    <div className="page-container max-w-xl py-8 md:py-12">
+    <div className="page-container max-w-xl py-5 md:py-8">
       {!skipSiteScan ? <OnboardingProgress current="site" /> : null}
       <header className={`mb-8 ${skipSiteScan ? '' : 'mt-8'}`}>
         <h1 id="site-map-setup-title" className="text-heading-24 text-heading">
-          {skipSiteScan ? 'Create a project' : 'Scan your site'}
+          {skipSiteScan ? 'Track your brand in AI answers' : 'Scan your site'}
         </h1>
         <p className="mt-2 max-w-lg text-copy-14 text-secondary">
           {skipSiteScan
-            ? 'Add a public domain, then choose the queries you want to track. No site scan will run.'
-            : 'Enter your public website to see its pages, structure, internal links, and Technical AEO scores.'}
+            ? 'See how AI assistants mention your brand and cite your website.'
+            : 'Find page health issues on your public website.'}
         </p>
       </header>
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-label-13 text-secondary">
-        <p>Draft fields use tab storage when available. Scan permission resets on reload.</p>
-        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={resetDraft}>Reset draft</Button>
-      </div>
       <form aria-labelledby="site-map-setup-title" className="space-y-6" onSubmit={asyncHandler(submit)} noValidate>
         <div className="grid gap-2">
           <label className="text-label-14-strong text-heading" htmlFor="launchpad-domain">Website URL</label>
@@ -1127,7 +1128,7 @@ function PlatformSetupPageBody({
             spellCheck={false}
             required
             aria-invalid={Boolean(domain && !identity)}
-            aria-describedby={domain && !identity ? 'launchpad-domain-hint launchpad-domain-error' : 'launchpad-domain-hint'}
+            aria-describedby={domain && !identity ? 'launchpad-domain-error' : undefined}
             placeholder="https://example.com"
             value={domain}
             onChange={(event) => {
@@ -1136,46 +1137,23 @@ function PlatformSetupPageBody({
               setCreateConflict(false)
             }}
           />
-          <p id="launchpad-domain-hint" className="text-copy-14 text-secondary">
-            {skipSiteScan ? (
-              <>
-                A public domain is still required.{' '}
-                <Link
-                  to="/setup"
-                  search={{ experience: 'platform' }}
-                  className="text-copy-14-strong text-link underline-offset-4 hover:underline"
-                >
-                  Map with Site Health instead
-                </Link>
-              </>
-            ) : (
-              <>
-                Only public pages are scanned.{' '}
-                <Link
-                  to="/setup"
-                  search={{ experience: 'platform', onboarding: 'first-run', siteScan: 'skip' }}
-                  className="text-copy-14-strong text-link underline-offset-4 hover:underline"
-                >
-                  Set up without a site scan
-                </Link>
-              </>
-            )}
-          </p>
           {domain && !identity ? <p id="launchpad-domain-error" className="text-copy-14 text-negative" role="alert">Enter a public domain, such as example.com.</p> : null}
         </div>
 
-        <details className="group border-y border-default">
+        <div className="grid gap-2">
+          <label className="text-label-14-strong text-heading" htmlFor="launchpad-display-name">Brand name</label>
+          <input id="launchpad-display-name" className={`setup-input w-full ${TOUCH_TARGET}`} type="text" autoComplete="organization" placeholder="Your brand" value={resolvedDisplayName} onChange={event => setDisplayName(event.target.value)} />
+        </div>
+
+        <details className="group border-t border-default">
           <summary className={`flex min-h-9 cursor-pointer list-none items-center justify-between gap-4 py-2 text-label-14 [&::-webkit-details-marker]:hidden ${TOUCH_TARGET}`}>
-            {/* Nothing behind this is advanced: it is the project name Canonry
-                is about to create and the locale it will measure in. Both are
-                worth seeing before the scan starts. */}
-            <span className="text-label-14-strong text-heading">Project name and locale</span>
+            <span className="text-label-14-strong text-heading">Project details</span>
             <span className="flex items-center gap-2 text-secondary">
               {localeLabel}
               <ChevronDown className="size-4 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
             </span>
           </summary>
-          <div className="space-y-5 border-t border-default py-4">
+          <div className="space-y-5 pb-4 pt-2">
             {identity ? (
               <div>
                 <p className="mb-3 text-copy-14-strong text-heading">Project</p>
@@ -1188,16 +1166,6 @@ function PlatformSetupPageBody({
                       type="text"
                       value={resolvedProjectName}
                       onChange={(event) => setProjectName(event.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <label className="text-label-14 text-secondary" htmlFor="launchpad-display-name">Display name</label>
-                    <input
-                      id="launchpad-display-name"
-                      className="setup-input h-10"
-                      type="text"
-                      value={resolvedDisplayName}
-                      onChange={(event) => setDisplayName(event.target.value)}
                     />
                   </div>
                 </div>
@@ -1238,7 +1206,7 @@ function PlatformSetupPageBody({
           </div>
         </details>
 
-        {!skipSiteScan ? <p className="text-copy-14 text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages. A limited scan describes the pages reached, not the whole site.</p> : null}
+        {!skipSiteScan ? <p className="text-copy-14 text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages.</p> : null}
         {!skipSiteScan ? (
           <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2">
             <input
@@ -1272,14 +1240,20 @@ function PlatformSetupPageBody({
           >
             {phase === 'creating' || phase === 'dispatching'
               ? <><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> {skipSiteScan ? 'Creating project…' : 'Mapping site…'}</>
-              : skipSiteScan ? 'Create project' : 'Scan site'}
+              : skipSiteScan ? 'Continue' : 'Scan site'}
           </Button>
           {phase === 'dispatching' ? <span className="text-center text-label-14 text-secondary" role="status">Opening Site Health when the scan is ready.</span> : null}
+          <Button asChild type="button" variant="ghost" className={TOUCH_TARGET}>
+            <Link to="/setup" search={{ experience: 'platform', siteScan: skipSiteScan ? 'scan' : 'skip' }}>
+              {skipSiteScan ? 'Scan site first' : 'Set up AI Visibility instead'}
+            </Link>
+          </Button>
         </div>
       </form>
+      {(domain || projectName || displayName || country !== 'US' || language !== 'en') && <div className="mt-2 text-right"><Button type="button" variant="ghost" size="sm" disabled={busy} onClick={resetDraft}>Reset draft</Button></div>}
 
-      <section className="mt-8 border-t border-default pt-6" aria-labelledby="agent-setup-title">
-        <p id="agent-setup-title" className="text-copy-14-strong text-heading">Use your agent instead</p>
+      <details className="mt-6 border-t border-default pt-4">
+        <summary className="cursor-pointer text-label-14 text-secondary">Use your agent instead</summary>
         <p className="mt-1 text-copy-14 text-secondary">{showLocalAgentSetup ? 'Connect your agent to this instance, or copy a request for a new local installation.' : 'Connect ChatGPT or Claude Desktop to this instance.'}</p>
         <div className="mt-3 flex flex-wrap items-center gap-1">
           <Button asChild variant="secondary" size="sm">
@@ -1301,7 +1275,7 @@ function PlatformSetupPageBody({
             </a>
           </Button> : null}
         </div>
-      </section>
+      </details>
 
       {telemetryEnabled !== null ? (
         <section className="mt-6 border-t border-default pt-5" aria-labelledby="telemetry-title">

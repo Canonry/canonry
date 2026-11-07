@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
 
 import { RunKinds } from '@canonry/canonry-contracts'
-import { getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey, getApiV1ProjectsByNameSitemapsQueryKey, getApiV1ProjectsByNameTrendsQueryKey } from '@canonry/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey, getApiV1ProjectsByNameRunPreviewQueryKey, getApiV1ProjectsByNameSitemapsQueryKey, getApiV1ProjectsByNameTrendsQueryKey, getApiV1ProjectsByNameVisibilityReportQueryKey } from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 
 import { invalidateQueriesForRunKind } from '../src/queries/run-invalidations.js'
@@ -29,7 +29,7 @@ afterEach(() => {
  * legacy hierarchical `queryKeys.X.project(name)` registry.
  */
 function predicateMatches(opId: string): boolean {
-  const synthetic = { queryKey: [{ _id: opId }] } as unknown as Parameters<
+  const synthetic = { queryKey: [{ _id: opId, path: { name: 'demo' } }] } as unknown as Parameters<
     NonNullable<Parameters<typeof queryClient.invalidateQueries>[0]>['predicate'] extends infer P
       ? P extends (...args: infer A) => unknown
         ? A[0]
@@ -75,8 +75,13 @@ test('marks every competitor history scope stale only for the completed sweep pr
 })
 
 test('a completed sweep refreshes frozen visibility and assignment readiness without changing filters', () => {
+  const keys = ['demo', 'other'].flatMap(name => [
+    [{ ...getApiV1ProjectsByNameVisibilityReportQueryKey({ client: heyClient, path: { name }, query: { queryClass: 'all', limit: 1 } })[0], tags: ['run-revision'] }],
+    getApiV1ProjectsByNameRunPreviewQueryKey({ client: heyClient, path: { name } }),
+  ])
+  for (const key of keys) queryClient.setQueryData(key, { saved: true })
   invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
-  expect(predicateMatches('getApiV1ProjectsByNameVisibilityReport')).toBe(true)
+  expect(keys.map(key => queryClient.getQueryState(key)?.isInvalidated)).toEqual([true, true, false, false])
   expect(predicateMatches('getApiV1ProjectsByNameQueryTracking')).toBe(true)
   expect(predicateMatches('getApiV1ProjectsByNameResearchRuns')).toBe(false)
 })

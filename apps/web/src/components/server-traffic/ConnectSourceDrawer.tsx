@@ -27,10 +27,12 @@ type Step = 'pick' | SourceType
 export function ConnectSourceDrawer({
   open,
   onOpenChange,
+  onClosed,
   projectName,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onClosed?: () => void
   projectName: string
 }) {
   const [step, setStep] = useState<Step>('pick')
@@ -55,7 +57,7 @@ export function ConnectSourceDrawer({
         else handleClose()
       }}
     >
-      <SheetContent>
+      <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
         {step === 'pick' ? (
           <SourceTypePicker onPick={setStep} />
         ) : step === 'cloudflare' ? (

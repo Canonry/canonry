@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
+import { and, eq } from 'drizzle-orm'
 
 import { measurementOutcomeCounts } from '../src/measurement-overview.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -313,6 +314,7 @@ describe('measurement overview', () => {
     const runId = seedRun(versionId)
     seedSnapshot(runId, 'exec-nearby', 'openai', {
       citedUrls: null,
+      captureStatus: null,
       rawResponse: JSON.stringify({ groundingSources: [] }),
     })
     seedSnapshot(runId, 'exec-nearby', 'gemini')
@@ -322,6 +324,40 @@ describe('measurement overview', () => {
     const { body } = await overview('scope=all')
 
     expect(body.measurement.includesHistoricalData).toBe(true)
+    expect(body.metrics.citationCoverage).toEqual({ state: 'available', value: 0.5, numerator: 1, denominator: 2 })
+  })
+
+  it.each(['non-brand', 'branded'] as const)('keeps unsupported %s Property citations unavailable while preserving measured mentions and checked denominators', async queryClass => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedRun(versionId)
+    for (const execution of ['exec-nearby', 'exec-brand']) {
+      for (const provider of ['openai', 'gemini']) seedSnapshot(runId, execution, provider, {
+        citedUrls: null, captureStatus: 'unsupported', rawResponse: JSON.stringify({ groundingSources: [] }),
+      })
+    }
+    const selection = `scope=property&targetKey=harbor&queryClass=${queryClass}`
+    const unmeasured = await overview(selection)
+    const unavailable = { state: 'unavailable', reason: 'evidence_incomplete' }
+    expect(unmeasured.body.metrics.citationCoverage).toEqual(unavailable)
+    expect(unmeasured.body.properties.items[0]?.citationCoverage).toEqual(unavailable)
+    expect(unmeasured.body.properties.items[0]?.mentionCoverage).toEqual({ state: 'available', value: 1, numerator: 2, denominator: 2 })
+    expect(unmeasured.body.properties.items[0]?.providers.map(provider => provider.citationCoverage)).toEqual([unavailable, unavailable])
+    expect(unmeasured.body.measurement.includesHistoricalData).toBe(false)
+
+    // A real checked negative contributes one answer; the unsupported answer
+    // remains excluded from both numerator and denominator, with its count.
+    const execution = queryClass === 'non-brand' ? 'exec-nearby' : 'exec-brand'
+    db.update(querySnapshots).set({ citedUrls: [], captureStatus: 'complete' }).where(and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, execution), eq(querySnapshots.provider, 'openai'),
+    )).run()
+    const partlyChecked = await overview(selection)
+    const checkedZero = { state: 'available', value: 0, numerator: 0, denominator: 1, unchecked: 1 }
+    expect(partlyChecked.body.metrics.citationCoverage).toEqual(checkedZero)
+    expect(partlyChecked.body.properties.items[0]?.citationCoverage).toEqual(checkedZero)
+    expect(partlyChecked.body.properties.items[0]?.providers.find(provider => provider.provider === 'openai')?.citationCoverage)
+      .toEqual({ state: 'available', value: 0, numerator: 0, denominator: 1 })
+    expect(partlyChecked.body.properties.items[0]?.providers.find(provider => provider.provider === 'gemini')?.citationCoverage).toEqual(unavailable)
   })
 
   it('counts a question shared by two Properties once in the denominator', async () => {

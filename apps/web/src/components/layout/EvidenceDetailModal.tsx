@@ -1,13 +1,14 @@
+import { formatModelName, openRouterRouteModel } from '@canonry/canonry-contracts'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Search, X } from 'lucide-react'
-import { brandKeyFromText, CitationStates, effectiveDomains, normalizeProjectDomain, type MentionIdentity } from '@canonry/canonry-contracts'
+import { brandKeyFromText, effectiveDomains, MentionStates, MentionTransitions, normalizeProjectDomain, VisibilityStates, type MentionIdentity, type MentionState } from '@canonry/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { DIFFERENT_SUBJECT_COPY } from '../../lib/mention-identity-copy.js'
+import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
 import { SourceLink } from '../shared/SourceLink.js'
-import { competitorHighlightTerms, highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
+import { competitorHighlightTerms, type HighlightTermGroup } from '../../lib/highlight.js'
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
 import type { CitationInsightVm, ProjectCommandCenterVm } from '../../view-models.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
@@ -16,6 +17,7 @@ import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 export interface EvidenceDisplayData {
   citationState: string
   answerMentioned?: boolean
+  mentionState?: MentionState | 'pending'
   visibilityState?: string
   visibilityTransition?: string
   provider: string
@@ -62,18 +64,39 @@ export function evidenceCompetitorSignals(
   }
 }
 
+type MentionDisplayStatus = MentionState | 'pending' | 'unmeasured'
+
+/** Presentation of the recorded mention signal; source-link evidence is independent. */
+function mentionDisplayStatus(value: Pick<EvidenceDisplayData, 'answerMentioned' | 'mentionState' | 'visibilityState'>): MentionDisplayStatus {
+  if (value.answerMentioned != null) return value.answerMentioned ? MentionStates.mentioned : MentionStates['not-mentioned']
+  if (value.mentionState) return value.mentionState
+  if (value.visibilityState === VisibilityStates.visible) return MentionStates.mentioned
+  if (value.visibilityState === VisibilityStates['not-visible']) return MentionStates['not-mentioned']
+  return value.visibilityState === 'pending' ? 'pending' : 'unmeasured'
+}
+
+function mentionStatusLabel(status: MentionDisplayStatus): string {
+  switch (status) {
+    case MentionStates.mentioned: return 'Mentioned'
+    case MentionStates['not-mentioned']: return 'Not mentioned'
+    case 'pending': return 'Pending'
+    case 'unmeasured': return 'Mention not measured'
+  }
+}
+
 function describeMentionChange(transition?: string, mentionState?: string): string {
   switch (transition) {
-    case 'new': return 'First observation'
-    case 'emerging': return 'First mention'
-    case 'lost': return 'Lost since last run'
+    case MentionTransitions.new: return 'First observation'
+    case MentionTransitions.emerging: return 'First mention'
+    case MentionTransitions.lost: return 'Lost since last run'
     default:
       // Accept both the canonical 'mentioned' / 'not-mentioned' values and
       // the legacy 'visible' / 'not-visible' aliases so consumers can pass
       // either while the API and DTO migration rolls out.
-      if (mentionState === 'mentioned' || mentionState === 'visible') return 'Mentioned in latest run'
+      if (mentionState === MentionStates.mentioned || mentionState === VisibilityStates.visible) return 'Mentioned in latest run'
       if (mentionState === 'pending') return 'Awaiting first run'
-      return 'Not mentioned in latest run'
+      if (mentionState === MentionStates['not-mentioned'] || mentionState === VisibilityStates['not-visible']) return 'Not mentioned in latest run'
+      return 'Mention not measured'
   }
 }
 
@@ -81,10 +104,12 @@ export function EvidenceDetailModal({
   evidence,
   project,
   onClose,
+  onClosed,
 }: {
   evidence: CitationInsightVm
   project: ProjectCommandCenterVm
   onClose: () => void
+  onClosed?: () => void
 }) {
   const [showFullAnswer, setShowFullAnswer] = useState(false)
   const [sidebarTab, setSidebarTab] = useState<'mentions' | 'sources'>('mentions')
@@ -118,6 +143,7 @@ export function EvidenceDetailModal({
         setAutoFetchedDisplay({
           citationState: snap.citationState,
           answerMentioned: snap.answerMentioned,
+          mentionState: snap.mentionState,
           visibilityState: snap.visibilityState,
           visibilityTransition: latestHistoryRun.visibilityTransition,
           provider: snap.provider,
@@ -162,16 +188,12 @@ export function EvidenceDetailModal({
       summary: evidence.summary,
     }
 
-  const isPending = display.visibilityState === 'pending' || display.citationState === 'pending'
-  const isVisible = isPending
-    ? false
-    : display.visibilityState != null
-      ? display.visibilityState === 'visible'
-      : display.answerMentioned != null
-        ? display.answerMentioned
-        : (display.citationState === CitationStates.cited || display.citationState === 'emerging')
-  const hasMentionData = display.answerMentioned != null
-    || display.visibilityState != null
+  const mentionStatus = mentionDisplayStatus(display)
+  const isPending = mentionStatus === 'pending'
+  const isMentioned = mentionStatus === MentionStates.mentioned
+  const isNotMentioned = mentionStatus === MentionStates['not-mentioned']
+  const isUnmeasured = mentionStatus === 'unmeasured'
+  const hasMentionData = !isUnmeasured
     || display.mentionedCompetitorDomains.length > 0
     || display.recommendedCompetitors.length > 0
   const hasSourceData = display.citedDomains.length > 0
@@ -204,9 +226,9 @@ export function EvidenceDetailModal({
   // because the hero card represents the mention signal (brand in the answer
   // text), not the citation signal. Renamed to match the data source.
   const stateKey: 'mentioned' | 'not-mentioned' | 'lost' | 'pending' =
-    isPending ? 'pending' :
-    display.visibilityTransition === 'lost' ? 'lost' :
-    isVisible ? 'mentioned' : 'not-mentioned'
+    isPending || isUnmeasured ? 'pending' :
+    isNotMentioned && display.visibilityTransition === MentionTransitions.lost ? 'lost' :
+    isMentioned ? 'mentioned' : 'not-mentioned'
 
   // Guard against out-of-order async completions when clicking dots quickly
   const activeRequestRef = useRef(0)
@@ -248,6 +270,7 @@ export function EvidenceDetailModal({
       const data: EvidenceDisplayData = snap ? {
         citationState: snap.citationState,
         answerMentioned: snap.answerMentioned,
+        mentionState: snap.mentionState,
         visibilityState: snap.visibilityState,
         visibilityTransition: run.visibilityTransition,
         provider: snap.provider,
@@ -261,11 +284,12 @@ export function EvidenceDetailModal({
         groundingSources: snap.groundingSources,
         searchQueries: snap.searchQueries,
         evidenceUrls: snap.citedUrls ?? [],
-        changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, run.mentionState ?? run.visibilityState),
+        changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, mentionDisplayStatus(snap)),
         summary: '',
       } : {
         citationState: run.citationState,
         answerMentioned: run.answerMentioned,
+        mentionState: run.mentionState,
         visibilityState: run.visibilityState,
         visibilityTransition: run.visibilityTransition,
         provider: evidence.provider,
@@ -279,7 +303,7 @@ export function EvidenceDetailModal({
         groundingSources: [],
         searchQueries: [],
         evidenceUrls: [],
-        changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, run.mentionState ?? run.visibilityState),
+        changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, mentionDisplayStatus(run)),
         summary: 'Snapshot data not available for this run.',
       }
 
@@ -290,6 +314,7 @@ export function EvidenceDetailModal({
       setHistoricalSnapshot({
         citationState: run.citationState,
         answerMentioned: run.answerMentioned,
+        mentionState: run.mentionState,
         visibilityState: run.visibilityState,
         visibilityTransition: run.visibilityTransition,
         provider: evidence.provider,
@@ -303,7 +328,7 @@ export function EvidenceDetailModal({
         groundingSources: [],
         searchQueries: [],
         evidenceUrls: [],
-        changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, run.mentionState ?? run.visibilityState),
+        changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, mentionDisplayStatus(run)),
         summary: 'Failed to load historical run data.',
       })
     } finally {
@@ -315,31 +340,32 @@ export function EvidenceDetailModal({
 
   // Hero copy
   const showModelInHeadline = isViewingHistory || evidence.historyScope !== 'provider'
-  const providerMeta = showModelInHeadline && display.model
-    ? `${providerDisplayName(display.provider)} (${display.model}) \u00b7 ${display.changeLabel.toLowerCase()}`
-    : `${providerDisplayName(display.provider)} \u00b7 ${display.changeLabel.toLowerCase()}`
+  const providerIdentity = showModelInHeadline && display.model && display.model !== openRouterRouteModel(display.provider)
+    ? `${providerDisplayName(display.provider)} (${openRouterRouteModel(display.provider) ? formatModelName(display.model) : display.model})`
+    : providerDisplayName(display.provider)
+  const providerMeta = isUnmeasured ? providerIdentity : `${providerIdentity} \u00b7 ${display.changeLabel.toLowerCase()}`
   const providerMetaNote = !isViewingHistory && evidence.historyScope === 'provider'
     ? [
-        evidence.model ? `Current model: ${evidence.model}` : null,
+        evidence.model && evidence.model !== openRouterRouteModel(evidence.provider) ? `Current model: ${openRouterRouteModel(evidence.provider) ? formatModelName(evidence.model) : evidence.model}` : null,
         evidence.modelsSeen && evidence.modelsSeen.length > 1 ? `History spans ${evidence.modelsSeen.length} models` : null,
       ].filter(Boolean).join(' \u00b7 ')
     : ''
   const heroCopy = (() => {
-    if (isVisible) {
+    if (isMentioned) {
       return {
         label: 'Mentioned in answer',
         title: 'Your brand or domain is mentioned in this answer',
         meta: providerMeta,
       }
     }
-    if (!isPending && display.mentionIdentity === 'wrong-subject') {
+    if (isNotMentioned && display.mentionIdentity === 'wrong-subject') {
       return {
         label: DIFFERENT_SUBJECT_COPY.label,
         title: DIFFERENT_SUBJECT_COPY.project,
         meta: providerMeta,
       }
     }
-    if (display.visibilityTransition === 'lost') {
+    if (isNotMentioned && display.visibilityTransition === MentionTransitions.lost) {
       return {
         label: 'Mention lost',
         title: 'Your brand no longer appears in this answer',
@@ -353,6 +379,11 @@ export function EvidenceDetailModal({
         meta: 'No provider data yet',
       }
     }
+    if (isUnmeasured) return {
+      label: 'Mention not measured',
+      title: 'This answer has no recorded mention assessment',
+      meta: providerMeta,
+    }
     return {
       label: 'Not mentioned in answer',
       title: 'Your brand or domain was not mentioned in this answer',
@@ -360,61 +391,6 @@ export function EvidenceDetailModal({
     }
   })()
 
-  // Review the snapshot payload for any XSS vectors from the model.
-  // Note: highlightTermsInText returns ReactNode[], which is safe as it uses React.createElement.
-  const renderHighlightedAnswer = () => {
-    if (!display.answerSnippet) return null
-    const lines = display.answerSnippet.split('\n')
-    const elements: ReactNode[] = []
-    let paraLines: string[] = []
-    let key = 0
-
-    const flushPara = () => {
-      if (paraLines.length === 0) return
-      const text = paraLines.join(' ').trim()
-      if (text) {
-        elements.push(
-          <p key={key++} className={elements.length > 0 ? 'mt-2.5' : ''}>
-            {highlightTermsInText(text, highlightTermGroups)}
-          </p>,
-        )
-      }
-      paraLines = []
-    }
-
-    for (const raw of lines) {
-      const line = raw.trim()
-      if (/^[-\u2013\u2014]{3,}$/.test(line)) {
-        flushPara()
-        elements.push(<hr key={key++} className="border-default my-3" />)
-        continue
-      }
-      const headingMatch = line.match(/^(#{1,3})\s+(\S.*)$/)
-      if (headingMatch) {
-        flushPara()
-        const level = headingMatch[1].length
-        const text = headingMatch[2].replace(/^[\p{Emoji}\p{Emoji_Component}\s]+/u, '').trim() || headingMatch[2]
-        const cls = level === 1
-          ? 'text-label-13-strong text-heading mt-4 mb-1'
-          : level === 2
-            ? 'text-label-12-strong text-strong mt-3 mb-0.5'
-            : 'text-label-12-strong text-neutral mt-2'
-        elements.push(
-          <p key={key++} className={cls}>
-            {highlightTermsInText(text, highlightTermGroups)}
-          </p>,
-        )
-        continue
-      }
-      if (line === '') {
-        flushPara()
-        continue
-      }
-      paraLines.push(line)
-    }
-    flushPara()
-    return elements
-  }
 
   return (
     <Dialog.Root open onOpenChange={(open) => { if (!open) onClose() }}>
@@ -423,11 +399,11 @@ export function EvidenceDetailModal({
         <Dialog.Content
           className="evidence-modal"
           aria-describedby={undefined}
+          onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}
         >
           {/* ── Header ── */}
           <div className="evidence-modal-header">
             <div className="min-w-0 flex-1">
-              <p className="eyebrow eyebrow-soft">{project.project.name} {'\u00b7'} {display.provider || 'All providers'}</p>
               <Dialog.Title className="text-heading-20 text-primary truncate">{evidence.query}</Dialog.Title>
             </div>
             <Dialog.Close className="inline-flex size-8 items-center justify-center rounded-md text-muted transition hover:bg-mono-800 hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 shrink-0">
@@ -443,12 +419,11 @@ export function EvidenceDetailModal({
               <div className="flex items-center gap-1 overflow-x-auto pb-1">
                 {history.map((run, i) => {
                   const isSelected = (selectedRunIdx === -1 && i === history.length - 1) || selectedRunIdx === i
-                  const visibilityState = run.visibilityState ?? (run.answerMentioned ? 'visible' : 'not-visible')
-                  const visibilityTransition = run.visibilityTransition ?? visibilityState
-                  const dotColor = visibilityState === 'visible'
-                    ? 'bg-positive-400' : visibilityTransition === 'emerging'
-                      ? 'bg-caution-400' : visibilityTransition === 'lost'
-                        ? 'bg-negative-400' : 'bg-mono-600'
+                  const status = mentionDisplayStatus(run)
+                  const transition = run.mentionTransition ?? run.visibilityTransition
+                  const dotColor = status === MentionStates.mentioned
+                    ? 'bg-positive-400' : status === MentionStates['not-mentioned'] && transition === MentionTransitions.lost
+                      ? 'bg-negative-400' : 'bg-mono-600'
                   const date = new Date(run.createdAt)
                   const label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
                   const modelChanged = Boolean(run.model && i > 0 && history[i - 1]?.model && history[i - 1]!.model !== run.model)
@@ -459,8 +434,8 @@ export function EvidenceDetailModal({
                       className={`evidence-run-dot ${isSelected ? 'evidence-run-dot--selected' : ''}`}
                       onClick={() => { void selectHistoricalRun(i === history.length - 1 ? -1 : i) }}
                       aria-label={[
-                        `Run ${label}: ${visibilityState}`,
-                        run.model ? `model ${run.model}` : null,
+                        `Run ${label}: ${mentionStatusLabel(status)}`,
+                        run.model ? `model ${run.model.includes('/') ? formatModelName(run.model) : run.model}` : null,
                         modelChanged ? 'model changed' : null,
                       ].filter(Boolean).join(' \u2014 ')}
                       aria-pressed={isSelected}
@@ -476,7 +451,7 @@ export function EvidenceDetailModal({
               </div>
               {selectedRunIdx >= 0 && selectedRunIdx < history.length && (
                 <p className="text-copy-13 text-muted mt-1">
-                  Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} {'\u2014'} <span className="capitalize">{history[selectedRunIdx].visibilityState ?? (history[selectedRunIdx].answerMentioned ? 'visible' : 'not-visible')}</span>
+                  Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} {'\u2014'} <span className="capitalize">{mentionStatusLabel(mentionDisplayStatus(history[selectedRunIdx]))}</span>
                   <button type="button" className="text-secondary hover:text-strong ml-2" onClick={() => { void selectHistoricalRun(-1) }}>{'\u2190'} Back to latest</button>
                 </p>
               )}
@@ -526,7 +501,7 @@ export function EvidenceDetailModal({
                     <div>
                       <p className="drawer-section-label">What the AI said</p>
                       <div className={`answer-snippet-block ${showFullAnswer ? 'evidence-answer-expanded' : 'evidence-answer-collapsed'}`}>
-                        {renderHighlightedAnswer()}
+                        <AnswerMarkdown highlightGroups={highlightTermGroups} copyable>{display.answerSnippet}</AnswerMarkdown>
                       </div>
                       {display.answerSnippet.length > 280 && (
                         <button
@@ -565,19 +540,19 @@ export function EvidenceDetailModal({
                   )}
 
                   {/* Action items — only for latest run */}
-                  {!isViewingHistory && evidence.relatedTechnicalSignals.length > 0 && (
+                  {!isViewingHistory && !isUnmeasured && evidence.relatedTechnicalSignals.length > 0 && (
                     <div>
                       <p className="drawer-section-label">
-                        {isVisible ? 'Why you\'re visible' : 'What to fix'}
+                        {isMentioned ? 'Why you\'re visible' : 'What to fix'}
                       </p>
                       <div className="action-items-list">
                         {evidence.relatedTechnicalSignals.map((signal, i) => (
                           <div key={i} className="action-item">
                             <svg
-                              className={`action-item-icon ${isVisible ? 'text-positive-400' : 'text-caution-400'}`}
+                              className={`action-item-icon ${isMentioned ? 'text-positive-400' : 'text-caution-400'}`}
                               viewBox="0 0 16 16" fill="none" aria-hidden="true"
                             >
-                              {isVisible
+                              {isMentioned
                                 ? <path d="M3 8l3.5 3.5L13 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                                 : (
                                   <>
@@ -631,13 +606,13 @@ export function EvidenceDetailModal({
                           <span>Mention in answer</span>
                           <InfoTooltip text="Canonry scans the AI answer for your owned domains and project name. This is independent from grounding or citation sources." />
                         </div>
-                        <div className={`mention-status mention-status--${isVisible ? 'mentioned' : 'not-mentioned'}`}>
-                          <span className="mention-status-icon">{isPending ? '…' : isVisible ? '✓' : '—'}</span>
+                        <div className={`mention-status mention-status--${isMentioned ? 'mentioned' : 'not-mentioned'}`}>
+                          <span className="mention-status-icon">{isPending ? '…' : isMentioned ? '✓' : '—'}</span>
                           <span className="mention-status-label">
-                            {isPending ? 'Pending' : isVisible ? 'Mentioned' : 'Not mentioned'}
+                            {mentionStatusLabel(mentionStatus)}
                           </span>
                         </div>
-                        {!isPending && !isVisible && display.mentionIdentity === 'wrong-subject' && (
+                        {isNotMentioned && display.mentionIdentity === 'wrong-subject' && (
                           <div className="mt-1.5 flex items-center gap-1 text-label-12 text-muted">
                             <span>{DIFFERENT_SUBJECT_COPY.label}</span>
                             <InfoTooltip text={DIFFERENT_SUBJECT_COPY.project} />
@@ -657,7 +632,7 @@ export function EvidenceDetailModal({
                         )}
 
                         {/* When not visible, show what was searched for */}
-                        {!isPending && !isVisible && display.matchedTerms.length === 0 && (
+                        {isNotMentioned && display.matchedTerms.length === 0 && (
                           <div className="mt-2">
                             <p className="text-label-12 normal-case text-muted mb-1.5">Searched for</p>
                             <div className="flex flex-wrap gap-1.5">

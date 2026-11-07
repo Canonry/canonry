@@ -77,6 +77,7 @@ const expectedToolNames = [
   'canonry_project_history',
   'canonry_history_global',
   'canonry_runs_list',
+  'canonry_run_preview',
   'canonry_runs_latest',
   'canonry_run_get',
   'canonry_run_completeness',
@@ -102,6 +103,7 @@ const expectedToolNames = [
   'canonry_queries_list',
   'canonry_keywords_list',
   'canonry_competitors_list',
+  'canonry_schedule_preview',
   'canonry_schedule_get',
   'canonry_schedules_list',
   'canonry_notification_events',
@@ -113,6 +115,8 @@ const expectedToolNames = [
   'canonry_logs_list',
   'canonry_telemetry_update',
   'canonry_provider_settings_update',
+  'canonry_provider_settings_get',
+  'canonry_provider_disconnect',
   'canonry_providers_reload',
   'canonry_telemetry_get',
   'canonry_google_connections_list',
@@ -834,7 +838,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(214)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(217)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator && !tool.requiresConnectionProfile).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -874,8 +878,8 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(65)
-    expect(counts.get('setup')).toBe(69)
+    expect(counts.get('monitoring')).toBe(66)
+    expect(counts.get('setup')).toBe(72)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(14)
     expect(counts.get('gbp')).toBe(18)

@@ -44,7 +44,7 @@ describe('getLaunchBlockedReason', () => {
 
   it('blocks when no providers are configured', () => {
     const settings = makeSettings({
-      providerStatuses: [{ name: 'gemini', state: 'not-configured', detail: '' }],
+      providerStatuses: [{ name: 'gemini', state: 'needs-config', detail: '' }],
     })
     expect(getLaunchBlockedReason(makeHealth(), settings)).toContain('provider')
   })
@@ -98,7 +98,7 @@ describe('buildSetupModel', () => {
 
   it('marks provider check as attention when none configured', () => {
     const settings = makeSettings({
-      providerStatuses: [{ name: 'gemini', state: 'not-configured', detail: '' }],
+      providerStatuses: [{ name: 'gemini', state: 'needs-config', detail: '' }],
     })
     const result = buildSetupModel(baseModel, makeHealth(), settings)
     const provCheck = result.healthChecks.find(c => c.id !== 'api' && c.id !== 'worker')

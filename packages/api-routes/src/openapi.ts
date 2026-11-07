@@ -2879,6 +2879,23 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/run-preview',
+    summary: 'Preview the next full manual sweep without spending',
+    description: 'Projects the default POST /projects/{name}/runs request from the same queue preparation and admission. '
+      + 'Simple uses the saved default location and configured engines; Advanced uses its published revision and deduplicated execution slots. '
+      + 'expectedRequestCount includes every planned answer slot; requestCount excludes unavailable engines and held provider accounts. '
+      + 'Query-class counts remain independent: one Advanced query can have assignments in more than one class. '
+      + 'No writes, reservations or provider calls. The launch rechecks current configuration and admission; this preview is not a price quote or a reservation.',
+    tags: ['runs'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Full manual sweep workload and admission returned.', 'RunPreviewDto'),
+      400: errorResponse('Published plan or saved location is invalid.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/run-admission',
     summary: 'Get whether the next sweep would be admitted',
     description: 'The `admission` or `manualAdmission` of `/projects/{name}/runs/latest` without the latest run: whether the next full sweep would '
@@ -3257,25 +3274,48 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/settings/providers/{name}',
+    summary: 'Inspect saved provider connection settings and usage',
+    description: 'Requires install administrator authority. Returns credential-free current settings, inherited defaults, host-managed options, mutation capabilities and saved Simple/Advanced project references. A stored-only read: no model discovery, provider check or spend. impactRevision guards a subsequent disconnect against changed configuration or references.',
+    tags: ['settings'],
+    parameters: [providerNameParameter],
+    responses: {
+      200: jsonResponse('Provider connection settings and usage returned.', 'ProviderConnectionSettingsDto'),
+      403: errorResponse('Install administrator authority is required.'),
+      404: errorResponse('Unknown provider connection.'),
+      501: errorResponse('Provider connection details are not supported.'),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/settings/providers/{name}',
+    summary: 'Disconnect a provider while retaining project references and history',
+    description: 'Requires settings.write and install administrator authority. Removes the saved connection without deleting project selections, schedules, Advanced plans/drafts, or historical answers. Optional expectedImpactRevision is a concurrency precondition from the connection read (not execution tuning): a changed connection or saved dependency is refused. Outstanding provider batches and host-managed configuration can block removal.',
+    tags: ['settings'],
+    parameters: [providerNameParameter],
+    requestBody: { required: false, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProviderDisconnectRequest' } } } },
+    responses: {
+      200: jsonResponse('Provider disconnected; saved references and history retained.', 'ProviderConnectionSettingsDto'),
+      400: errorResponse('Invalid disconnect request.'),
+      403: errorResponse('Install administrator authority and settings.write are required.'),
+      404: errorResponse('Unknown provider connection.'),
+      409: errorResponse('Provider configuration, usage, or outstanding work prevents disconnection.'),
+      501: errorResponse('Provider disconnection is not supported.'),
+    },
+  },
+  {
     method: 'put',
     path: '/api/v1/settings/providers/{name}',
     summary: 'Update provider settings',
-    description: 'Requires settings.write. Already configured providers accept model or quota changes without resubmitting credentials. An unconfigured provider still requires its connection credentials.',
+    description: 'Requires settings.write. Already configured providers accept model or quota changes without resubmitting credentials. Omitted values preserve saved settings. reset removes a model, defaultable endpoint or quota override, or the optional local API key, and additionally requires install administrator authority. A field cannot be set and reset together. Browser endpoints keep using PUT /settings/cdp; browser quotas can be updated here when the host supports it. expectedRevision is an optional concurrency precondition from the connection read, not execution tuning. An unconfigured API provider still requires its connection credentials.',
     tags: ['settings'],
     parameters: [providerNameParameter],
     requestBody: {
       required: true,
       content: {
         'application/json': {
-          schema: {
-            type: 'object',
-            properties: {
-              apiKey: stringSchema,
-              baseUrl: stringSchema,
-              model: stringSchema,
-              quota: objectSchema,
-            },
-          },
+          schema: { $ref: '#/components/schemas/ProviderSettingsUpdateRequest' },
         },
       },
     },
@@ -3283,6 +3323,7 @@ const routeCatalog: OpenApiOperation[] = [
       200: jsonResponse('Provider updated.', 'ProviderSummaryEntryDto'),
       400: errorResponse('Invalid provider settings.'),
       403: errorResponse('The credential lacks settings.write.'),
+      409: errorResponse('Provider configuration changed or outstanding work prevents this update.'),
       501: errorResponse('Provider updates are not supported.'),
     },
   },
@@ -3580,6 +3621,20 @@ const routeCatalog: OpenApiOperation[] = [
       200: rawJsonResponse('CDP endpoint updated.', looseObjectSchema),
       400: errorResponse('Invalid CDP settings.'),
       501: errorResponse('CDP updates are not supported.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/schedule/preview',
+    summary: 'Preview schedule timing without enabling recurrence',
+    description: 'Computes the next run from the same timing validation as a saved schedule. Changes no configuration and performs no provider work. Timing and timezone are identity inputs; no work is reused.',
+    tags: ['schedules'],
+    parameters: [nameParameter],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SchedulePreviewRequest' } } } },
+    responses: {
+      200: jsonResponse('Next occurrence returned.', 'SchedulePreviewDto'),
+      400: errorResponse('Invalid schedule timing.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {

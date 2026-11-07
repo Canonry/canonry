@@ -55,6 +55,7 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
 
 /** POST previews that calculate from supplied or draft data without persistence. */
 export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
+  'POST /api/v1/projects/{name}/schedule/preview',
   'POST /api/v1/projects/{name}/seo/refresh-intents',
   'POST /api/v1/projects/{name}/measurement-plan/compile-preview',
   'POST /api/v1/projects/{name}/measurement-plan/diff-preview',
@@ -156,6 +157,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/runs',
   'GET /api/v1/projects/{name}/runs/latest',
   'GET /api/v1/projects/{name}/run-admission',
+  'GET /api/v1/projects/{name}/run-preview',
   'GET /api/v1/runs',
   'GET /api/v1/runs/{id}',
   'GET /api/v1/runs/{id}/completeness',
@@ -170,6 +172,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/visibility-compare',
   'GET /api/v1/projects/{name}/snapshots/diff',
   'GET /api/v1/settings',
+  'GET /api/v1/settings/providers/{name}',
   'GET /api/v1/keys',
   'GET /api/v1/keys/self',
   'GET /api/v1/users',

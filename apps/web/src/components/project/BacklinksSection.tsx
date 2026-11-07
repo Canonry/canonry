@@ -190,7 +190,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
   }, [offset, visibleTotal])
 
   return (
-    <section className="page-section-divider">
+    <section className="page-section">
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Backlinks</p>

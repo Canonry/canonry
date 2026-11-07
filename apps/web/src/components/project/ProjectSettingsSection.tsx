@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ResultsExportFormat } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { addLocation, downloadResultsExport, removeLocation, setDefaultLocation, isEmbed, isPublicDemo, type ApiLocation } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -222,10 +223,9 @@ export function ProjectSettingsSection({
 
   return (
     <>
-      <section className="page-section-divider">
+      <section className="page-section">
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Configuration</p>
           <h2>Project settings</h2>
         </div>
         {canChange && !editing && (
@@ -452,7 +452,7 @@ export function ProjectSettingsSection({
                     <p className="text-muted text-copy-13 mb-2">No search locations configured</p>
                   )}
                   {!canChange ? null : showAddLocation ? (
-                    <div className="mt-2 material-base p-3 space-y-2">
+                    <div className="mt-3 space-y-2">
                       <p className="text-copy-14-strong text-secondary">Add search location</p>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
@@ -498,20 +498,16 @@ export function ProjectSettingsSection({
       )}
       </section>
 
-      <section className="page-section-divider">
+      <section className="page-section">
         <div className="section-head">
-          <p className="eyebrow eyebrow-soft">Data export</p>
-          <h2>Tracking results</h2>
-          <p className="mt-1 max-w-2xl text-copy-14 text-muted">
-            Download historical citation and mention observations for this project. Each row is one query and provider result, including stored answer text and source URLs.
-          </p>
+          <div className="inline-flex items-center">
+            <h2>Tracking results</h2>
+            <InfoTooltip text="Each exported row is one query and engine result, including the saved answer and source URLs. Includes completed, partial, and failed checks with saved results. Test runs, provider credentials, and raw provider payloads are excluded." />
+          </div>
         </div>
 
-        <div className="material-base px-4 py-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="max-w-xl text-copy-13 text-muted">
-              Includes completed, partial, and failed answer-visibility runs with stored results. Test runs are excluded. Provider credentials and raw provider payloads are never included.
-            </p>
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex shrink-0 flex-wrap gap-2">
               <Button
                 type="button"

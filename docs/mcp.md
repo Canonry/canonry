@@ -140,8 +140,20 @@ canonry mcp config  --client codex            # print snippet for clients withou
 
 Operational settings support uses the same API permissions: `canonry_telemetry_update`
 and `canonry_provider_settings_update` require `settings.write`. The provider tool
-accepts only model/quota changes for an existing configuration; credentials,
-base URLs, and token creation/rotation remain in the operator setup flow.
+accepts model/quota changes and explicit resets for an existing configuration,
+including restoring a built-in endpoint or removing an optional Local key. Setting credentials, base URLs and
+credential rotation remain in the operator setup flow. Resets require install
+administrator authority. `canonry_provider_settings_get` is a stored, credential-free
+administrator read of defaults, overrides, capabilities, host-managed settings,
+blockers and project usage (including Advanced plans/drafts). Pass its `revision`
+as `expectedRevision` when updating to reject stale edits.
+
+`canonry_provider_disconnect` requires explicit operator approval, install
+administrator authority and `settings.write`. Inspect the connection first and
+show its impact; its `impactRevision` is required as `expectedImpactRevision`.
+Stale previews and outstanding work block removal. Disconnect preserves project
+selections and historical results and does not revoke the vendor key. Provider
+updates, disconnect and reload are excluded from native Aero.
 `canonry_providers_reload` mirrors `canonry settings reload-providers`: after
 explicit operator approval it reloads the connected host's saved provider
 credentials, models, quotas and batch settings without restarting the server.
@@ -499,6 +511,8 @@ Some write tools compose existing API calls rather than using a native atomic en
 
 `canonry_technical_aeo_run` without `maxPages` uses the project's saved `siteAuditMaxPages`, else the full site (up to 50,000 pages), the same budget scheduled audits use.
 
+`canonry_run_preview` reads the next default full manual sweep without writes or provider calls: query classes, Advanced assignments and published revision, engines/models, locations, planned answer slots, runnable requests, and provider holds. It does not preview scoped, forced, or all-location overrides and reserves no work. A read-only project key can preview only its own project.
+
 `canonry_run_trigger` takes the same optional `request.dispatchMode` as the API. `batch` sends every provider that can to its batch API and is refused, with each provider's reason, when none can; see [batch-mode.md](batch-mode.md). `canonry_run_get` returns the run's `dispatchModes`, `providerBatches` (a batch-pending run stays `running`) and per-provider `usage` with estimated cost.
 
 The built-in Aero agent consumes the same MCP-derived local tool registry, then may apply an agent profile. The `ads-operator` profile is intentionally narrower than the full MCP catalog and adds one Aero-only context-packing helper, `canonry_ads_operator_context`, that bundles existing public reads for long-session efficiency. It is not an MCP tool because it introduces no new public capability; agents that need the same data outside Aero should call the existing project overview, ads, doctor, and memory tools directly.
@@ -846,3 +860,8 @@ domains in 24 hours require `acknowledgeBulkAdd: true`; apply and discovery
 promote are outside this guard. Aero cannot supply this acknowledgement.
 
 Site Health scans (`canonry_technical_aeo_run`) accept `includeGeo` and `includeAgentSkills`. Agent integration checks default on; set `includeAgentSkills: false` to disable them. Geographic checks default off. Both participate in scan identity; differing selections cannot reuse an active scan. Geographic checks suit businesses serving specific places. These checks run inside the instance without a browser.
+
+
+### Preview schedule timing
+
+`canonry_schedule_preview` accepts `{ project, timing: { preset, timezone } }` (or `cron` / `recurrence` instead of `preset`). It returns the next occurrence without saving or enabling a schedule and without provider usage. Read credentials may preview their authorized projects. The equivalent CLI is `canonry schedule preview <project> --preset daily@9 --timezone America/New_York --format json`; saving remains a separate write.

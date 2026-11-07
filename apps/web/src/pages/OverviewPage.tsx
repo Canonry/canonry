@@ -5,10 +5,8 @@ import { formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { SentimentOverviewMetric, showsSentimentOverview } from '../components/project/SentimentSection.js'
-import { Sparkline } from '../components/shared/Sparkline.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { toneFromRunStatus } from '../lib/tone-helpers.js'
 import { buildSystemHealthCards, serviceStatusTooltip } from '../lib/health-helpers.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
@@ -25,40 +23,35 @@ function OverviewProjectCard({
   /** The list reserves the Sentiment column for every row when any row shows it, so Mentioned and Pressure line up across rows. */
   sentimentColumn: boolean
 }) {
+  const coverage = project.mentionPopulations?.find(population => population.queryClass === 'non-brand')?.mentionCoverage
+  const otherPopulations = project.mentionPopulations?.filter(population => population.queryClass !== 'non-brand' && population.answerCount > 0) ?? []
+  const counts = coverage?.numerator != null && coverage.denominator != null ? `${coverage.numerator} of ${coverage.denominator} answers` : 'Not measured'
+  const caption = project.providerCoverage ? `${counts} · ${project.providerCoverage}` : counts
   return (
     <div className={`project-row relative${sentimentColumn ? ' project-row-with-sentiment' : ''}`}>
-      <div className="project-row-chart">
-        <Sparkline points={project.trend} tone={toneFromRunStatus(project.lastRun.status)} />
-      </div>
       <div className="project-row-primary">
         <Link
           to="/projects/$projectName"
           params={{ projectName: project.project.name }}
           className="after:absolute after:inset-0 after:rounded-md focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-mono-400"
         >
-          <p className="project-name">{project.project.name}</p>
+          <p className="project-name">{project.project.displayName || project.project.name}</p>
           <p className="project-domain">{project.project.canonicalDomain}</p>
         </Link>
-        <p className="project-insight">{project.insight}</p>
+        {otherPopulations.map(population => <details key={population.queryClass} className="relative z-10 mt-2 w-fit text-copy-13 text-secondary">
+          <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{population.queryClass === 'branded' ? 'Branded queries' : 'Unclassified queries'}</summary>
+          <p className="mt-1">{population.mentionCoverage.rate === null ? 'Not measured' : formatPercent(population.mentionCoverage.rate, RatioUnits.fraction)}<span className="sr-only"> · {population.queryClass} queries</span>{population.mentionCoverage.numerator !== null && population.mentionCoverage.denominator !== null ? ` · ${population.mentionCoverage.numerator} of ${population.mentionCoverage.denominator} answers` : ''}</p>
+        </details>)}
       </div>
       <div className="project-row-stat">
         <div className="metric-inline-block">
-          <p className="metric-inline-label">Mentioned</p>
-          <p className={`metric-inline-value ${project.mentionTone === 'caution' ? 'text-caution-400' : ''}`}>{project.hasMeasurement === false ? 'Not measured' : formatPercent(project.mentionScore, RatioUnits.percent)}</p>
-          {/* `providerCoverage` is only set when the sweep covered a SUBSET of
-              configured providers, and it is why the tone shifted to caution:
-              the score above is built on incomplete data and is not comparable
-              to a full sweep. It therefore keeps the caution tone and takes the
-              caption slot outright — folding it into the faint delta text would
-              bury a data-validity caveat, and appending it would just truncate.
-              The query counts it displaces are still on `project.insight`. */}
+          <p className="metric-inline-label">Mentioned · non-brand</p>
+          <p className={`metric-inline-value${project.providerCoverage ? ' text-caution-400' : ''}`}>{coverage?.rate == null ? 'Not measured' : formatPercent(coverage.rate, RatioUnits.fraction)}<span className="sr-only"> · non-brand queries</span></p>
           <p
             className={`metric-inline-caption${project.providerCoverage ? ' text-caution' : ''}`}
-            title={project.providerCoverage}
+            title={caption}
           >
-            {project.providerCoverage
-              ? <><span className="sr-only">Partial check: </span>{project.providerCoverage}</>
-              : project.mentionDelta}
+            {project.providerCoverage && <span className="sr-only">Partial check: </span>}{caption}
           </p>
         </div>
       </div>
@@ -195,7 +188,6 @@ export function OverviewPage() {
           <section className="overview-secondary-section">
             <div className="section-head section-head-inline">
               <div>
-                <p className="eyebrow eyebrow-soft">Needs attention</p>
                 <h2 className="section-title-sm">What changed</h2>
               </div>
             </div>
@@ -233,7 +225,6 @@ export function OverviewPage() {
         <section className="overview-secondary-section">
           <div className="section-head section-head-inline">
             <div>
-              <p className="eyebrow eyebrow-soft">Recent runs</p>
               <h2 className="section-title-sm">Activity</h2>
             </div>
           </div>
@@ -265,7 +256,6 @@ export function OverviewPage() {
       <section className="page-section">
         <div className="section-head section-head-inline">
           <div>
-            <p className="eyebrow eyebrow-soft">System health</p>
             <h2 className="section-title-sm">Infrastructure</h2>
           </div>
         </div>

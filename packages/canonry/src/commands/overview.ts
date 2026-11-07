@@ -1,4 +1,4 @@
-import { formatPercent, type MentionShareDto, type ProjectOverviewDto, type ScoreSummaryDto } from '@canonry/canonry-contracts'
+import { formatPercent, RatioUnits, type MentionShareDto, type ProjectOverviewDto, type ScoreSummaryDto, type VisibilityReportRate } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { runAdmissionLines } from './run.js'
@@ -64,15 +64,16 @@ export async function showAllOverviews(opts: ShowOverviewOpts): Promise<void> {
   // truncated to its column width so multi-word score values like
   // "Add competitors" or "No data" don't bleed into adjacent columns.
   console.log(`\nOverviews (${overviews.length} project${overviews.length === 1 ? '' : 's'}):\n`)
-  const cols = { project: 20, mention: 10, cited: 10, share: 42, queries: 10 }
-  console.log(`  ${cell('Project', cols.project)}${cell('Mention', cols.mention)}${cell('Cited', cols.cited)}${cell('Mention share · scope', cols.share)}${cell('Queries', cols.queries)}Latest run`)
+  const cols = { project: 20, mention: 30, branded: 30, cited: 22, share: 42, queries: 22 }
+  console.log(`  ${cell('Project', cols.project)}${cell('Mention · non-brand', cols.mention)}${cell('Mention · branded', cols.branded)}${cell('Cited · all queries', cols.cited)}${cell('Mention share · scope', cols.share)}${cell('Queries cited · all', cols.queries)}Latest run`)
   for (const ov of overviews) {
     const project = ov.project.displayName || ov.project.name
     const queries = `${ov.queryCounts.citedQueries}/${ov.queryCounts.totalQueries}`
     const latest = ov.latestRun.run?.finishedAt ?? ov.latestRun.run?.createdAt ?? '—'
     console.log(
       `  ${cell(project, cols.project)}`
-      + `${cell(ov.scores.mention.value, cols.mention)}`
+      + `${cell(mentionCoverageText(ov.mentionCoverage?.populations.find(population => population.queryClass === 'non-brand')?.mentionCoverage), cols.mention)}`
+      + `${cell(mentionCoverageText(ov.mentionCoverage?.populations.find(population => population.queryClass === 'branded')?.mentionCoverage), cols.branded)}`
       + `${cell(ov.scores.visibility.value, cols.cited)}`
       + `${cell(`${ov.scores.mentionShare.value} · ${ov.scores.mentionShare.scope} queries`, cols.share)}`
       + `${cell(queries, cols.queries)}`
@@ -89,6 +90,11 @@ export async function showAllOverviews(opts: ShowOverviewOpts): Promise<void> {
 function cell(value: string, width: number): string {
   if (value.length >= width) return `${value.slice(0, width - 1)} `
   return value.padEnd(width)
+}
+
+function mentionCoverageText(value: VisibilityReportRate | undefined): string {
+  if (value?.rate === undefined || value.rate === null) return 'Not measured'
+  return `${formatPercent(value.rate, RatioUnits.fraction)} (${value.numerator}/${value.denominator} answers)`
 }
 
 function renderHuman(overview: ProjectOverviewDto): void {
@@ -128,10 +134,15 @@ function renderHuman(overview: ProjectOverviewDto): void {
   if (admission.length > 0) console.log(`\n${admission.map(line => `  ${line}`).join('\n')}`)
 
   console.log('\nScores:')
-  // Order matches the dashboard hero (Mention → Cited → Mention share)
-  // so an operator alt-tabbing between SPA and CLI sees the same lineup.
-  printScore('Mention          ', scores.mention)
-  printScore('Visibility       ', scores.visibility)
+  const coverage = overview.mentionCoverage
+  const nonBrand = coverage?.populations.find(population => population.queryClass === 'non-brand')
+  console.log(`  Mention · non-brand queries: ${mentionCoverageText(nonBrand?.mentionCoverage)}`)
+  for (const population of coverage?.populations ?? []) {
+    if (population.queryClass === 'non-brand' || population.queryCount === 0) continue
+    console.log(`  Mention · ${population.queryClass === 'unknown' ? 'unclassified' : population.queryClass} queries: ${mentionCoverageText(population.mentionCoverage)}`)
+  }
+  if (coverage?.selection.measurement.state === 'partial') console.log('    Incomplete sweep; missing answers are not negative results.')
+  printScore('Cited · all queries', scores.visibility)
   printScore('Mention share    ', scores.mentionShare)
   printMentionShareBreakdown(scores.mentionShare)
   printScore('Mention gaps     ', scores.mentionGaps)

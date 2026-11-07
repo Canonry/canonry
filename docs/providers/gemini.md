@@ -36,6 +36,8 @@ Extracts analyst-relevant fields from the raw response:
 
 Default: `gemini-flash-latest`, Google's alias for the newest Flash model (2 weeks' email notice before a breaking change behind it). The served model is recorded per snapshot as `servedModel`, so trends show when it moved. Pin an exact ID such as `gemini-3.8-flash` for a fixed model. Google limits the 2.5 models to projects that already used them. Configurable via `GeminiConfig.model`.
 
+Model dropdowns recommend general-purpose Flash and Pro models from the shared curated catalog, intersected with the provider's live list when available. Specialist models do not become default suggestions simply because they support `generateContent`. You can still enter a custom model ID. The recommendations follow Google's [model descriptions](https://ai.google.dev/gemini-api/docs/models) and [search-grounding guidance](https://ai.google.dev/gemini-api/docs/google-search); they are not an exhaustive capability list.
+
 ## Custom Endpoint
 
 Optional. Set `GeminiConfig.baseUrl` — via the `GEMINI_BASE_URL` env var or `providers.gemini.baseUrl` in `~/.canonry/config.yaml` — to route requests through a proxy or gateway in front of the Gemini API. It maps to the SDK's `httpOptions.baseUrl` and applies to both AI Studio (API key) and Vertex AI auth. When unset, the SDK uses its default endpoint. The same `baseUrl` is threaded into discovery's embeddings client (`embedQueries` → the native SDK), so a proxy captures both tracked-query sweeps and discovery embeddings. A path-prefix base URL (e.g. `https://proxy/gemini`) is preserved — the SDK appends the API path to it rather than swapping only the host.

@@ -103,8 +103,8 @@ type SearchParams = {
   skipped?: 'visibility'
   /** Explicit setup surface, independent of the instance rollout default. */
   experience?: 'legacy' | 'platform'
-  /** Create the project without consenting to or starting a Site Health scan. */
-  siteScan?: 'skip'
+  /** Optional first-run choice. Omission starts AI Visibility; scan explicitly opts into Site Health. */
+  siteScan?: 'skip' | 'scan'
   /** Exact project handed from Site Health into the original visibility wizard. */
   setupProject?: string
   /**
@@ -167,7 +167,7 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     experience: search.experience === 'legacy' || search.experience === 'platform'
       ? search.experience
       : undefined,
-    siteScan: search.siteScan === 'skip' ? 'skip' : undefined,
+    siteScan: search.siteScan === 'skip' || search.siteScan === 'scan' ? search.siteScan : undefined,
     skipped: search.skipped === 'visibility' ? 'visibility' : undefined,
     setupProject: typeof search.setupProject === 'string' ? search.setupProject : undefined,
     scope: typeof search.scope === 'string' ? search.scope : undefined,

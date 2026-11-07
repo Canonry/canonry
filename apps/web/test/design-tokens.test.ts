@@ -178,6 +178,16 @@ test('shared stylesheet primitives consume semantic tokens', async () => {
     expect(ruleFor(css, selector)).toContain('background-color: var(--color-bg)')
   }
   expect(ruleFor(css, '.page-section-divider')).toContain('border-color: var(--color-border-subtle)')
+  // The project editor and its engine rows share the page, without two nested card edges.
+  const engines = ruleFor(css, '.project-engine-settings')
+  expect(engines).toContain('border-top-width: 1px')
+  expect(engines).not.toMatch(/box-shadow|background-color|border-radius/)
+  expect(ruleFor(css, '.project-engine-list')).not.toMatch(/box-shadow|background-color|border-radius/)
+  // Adjacent project rows use one separator, never two card perimeters.
+  const projectRow = ruleFor(css, '.project-row')
+  expect(projectRow).toContain('border-bottom-width: 1px')
+  expect(projectRow).not.toMatch(/(?:box-shadow|border-radius|border-top-width):/)
+  expect(ruleFor(css, '.project-list-scrollable')).not.toContain('mask-image')
   // A tab's first section sits under the tab bar's own line: no second rule and no empty band.
   const firstSection = ruleFor(css, '.project-subnav + .page-section-divider')
   expect(firstSection).toContain('border-top-width: 0px')

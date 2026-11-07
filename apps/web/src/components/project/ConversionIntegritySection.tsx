@@ -530,16 +530,6 @@ const CONVERSION_TO_CHECK_HELP = 'A conversion names the website event, the Goog
 
 const CONVERSION_TO_CHECK_BLOCKED = 'Available once Google Ads and Tag Manager are connected.'
 
-/**
- * Shown ONLY before anything is connected.
- *
- * Every other state keeps explanation in an InfoTooltip, because a data surface
- * shows values rather than prose. An onboarding state is the documented
- * exception: there is no data to push down, and a reader who does not know what
- * the feature is cannot decide whether to connect two Google accounts to it.
- */
-const CONVERSION_INTEGRITY_PURPOSE = 'Check that a conversion is wired the same way in Google Ads and Tag Manager, so the numbers you optimise against are the ones your site actually sends. Canonry only reads the configuration; it never changes or publishes it.'
-
 function ConversionIntegritySetup({
   workspace,
   onPrimaryAction,
@@ -576,9 +566,6 @@ function ConversionIntegritySetup({
   // compact status line instead of two full-width rows that outweigh the action
   // below them. There is no 1/2/3 numbering: the providers are independent, and
   // a sequence that is permanently two-thirds complete describes nothing.
-  // Neither provider settled: the one state where the reader may not know what
-  // this feature is, so the purpose is stated on the page instead of in a tooltip.
-  const nothingConnected = !googleAdsReady && !gtmReady
 
   const connections = [
     {
@@ -610,16 +597,12 @@ function ConversionIntegritySetup({
     <section className="page-section" aria-labelledby="conversion-integrity-title">
       <div className="section-head mb-4">
         <div>
-          <p className="eyebrow">Google marketing</p>
           <div className="mt-1 flex items-center gap-1.5">
             <h2 id="conversion-integrity-title" className="text-heading-20 text-heading">
               Conversion Integrity
             </h2>
             <InfoTooltip text="Canonry reads your Google configuration and never changes or publishes it. Connect Google Ads and Tag Manager, then choose one website conversion to check across both." />
           </div>
-          {nothingConnected ? (
-            <p className="mt-2 max-w-2xl text-copy-14 text-secondary">{CONVERSION_INTEGRITY_PURPOSE}</p>
-          ) : null}
         </div>
       </div>
 
@@ -753,7 +736,6 @@ export function ConversionIntegritySection({
     <section className="page-section" aria-labelledby="conversion-integrity-title">
       <div className="section-head mb-5">
         <div>
-          <p className="eyebrow">Google marketing</p>
           <h2 id="conversion-integrity-title" className="mt-1 text-heading-20 text-heading">
             Conversion Integrity
           </h2>
@@ -909,7 +891,7 @@ export function ConversionIntegritySection({
             </div>
             <ToneBadge tone={findingsTone}>{nonPassingFindings.length} {nonPassingFindings.length === 1 ? 'check' : 'checks'}</ToneBadge>
           </div>
-          <ul className="divide-y divide-default border-y border-default">
+          <ul className="divide-y divide-default">
             {nonPassingFindings.map((finding) => {
               const item = findingPresentation(finding)
               return (
@@ -937,7 +919,7 @@ export function ConversionIntegritySection({
             <InfoTooltip text="Configured means a contract exists. Static configuration is checked only against saved Google Ads and Tag Manager evidence. Observed requires separate runtime evidence." />
           </div>
         </div>
-        <ol className="divide-y divide-default border-y border-default">
+        <ol className="divide-y divide-default">
           {[
             { key: 'configured' as const, title: 'Declared', detail: 'The event and provider identifiers are recorded in one project contract.' },
             { key: 'static' as const, title: 'Static configuration', detail: 'Sanitized Google Ads and Tag Manager snapshots are compared with that contract.' },

@@ -110,7 +110,6 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
     <section className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Automation</p>
           <h2>Notifications</h2>
         </div>
         {canManage && notifs !== 'loading' && (

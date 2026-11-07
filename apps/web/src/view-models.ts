@@ -1,4 +1,4 @@
-import type { InsightActionGroup, McpHealth, MentionIdentity, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@canonry/canonry-contracts'
+import type { InsightActionGroup, McpHealth, MentionIdentity, ProjectDto, ProjectOverviewDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@canonry/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 /** `disabled` is a service switched off on purpose, such as the public demo's worker. */
@@ -81,15 +81,10 @@ export interface PortfolioProjectVm {
   project: ProjectDto
   /** False when saved mention evidence is unavailable; zero is a measured result. */
   hasMeasurement?: boolean
-  /** Headline metric — Mention Coverage (% of tracked queries whose AI answer
-   *  text mentioned the brand). This is the key portfolio metric, not cited. */
-  mentionScore: number
-  mentionDelta: string
-  mentionTone: MetricTone
+  /** Server-owned class populations; never substitute the legacy pooled gauge. */
+  mentionPopulations?: NonNullable<ProjectOverviewDto['mentionCoverage']>['populations']
   providerCoverage?: string
   lastRun: RunListItemVm
-  insight: string
-  trend: number[]
   competitorPressureLabel: string
 }
 
@@ -228,6 +223,7 @@ export interface ProjectCommandCenterVm {
   contextLabel: string
   /** Primary headline gauge — Mention Coverage. The dashboard renders this as the big radial gauge. */
   mentionSummary: ScoreSummaryVm
+  mentionCoverage?: ProjectOverviewDto['mentionCoverage']
   /** Secondary tile — Citation Coverage (legacy "Answer Visibility"). */
   visibilitySummary: ScoreSummaryVm
   /** Mention Share — head-to-head competitive metric. Carries breakdown so
@@ -306,7 +302,7 @@ export interface ProviderStatusVm {
   modelHint?: string
   model?: string
   defaultModel?: string
-  state: 'ready' | 'needs-config'
+  state: 'configured' | 'ready' | 'needs-config'
   detail: string
   quota?: {
     maxConcurrency: number

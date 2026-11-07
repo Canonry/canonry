@@ -431,7 +431,7 @@ function CappedEvidenceList({
                     <span className="block">{item.query}</span>
                     {item.provider || item.location ? (
                       <span className="mt-1 block text-label-12 text-muted">
-                        {[item.provider, item.location].filter(Boolean).join(' · ')}
+                        {[item.provider ? providerDisplayName(item.provider) : null, item.location].filter(Boolean).join(' · ')}
                       </span>
                     ) : null}
                   </td>

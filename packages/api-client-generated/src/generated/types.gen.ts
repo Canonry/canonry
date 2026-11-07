@@ -2385,6 +2385,27 @@ export type VisibilityReportResponse = {
                     unchecked?: number;
                 };
             }>;
+            providers?: Array<{
+                provider: string;
+                queryCount: number;
+                answerCount: number;
+                mentionCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    unattributed?: number;
+                    unchecked?: number;
+                };
+                citationCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    unattributed?: number;
+                    unchecked?: number;
+                };
+            }>;
         };
     }>;
 };
@@ -9827,6 +9848,47 @@ export type RunAdmissionDto = {
     };
 };
 
+export type RunPreviewDto = {
+    mode: 'simple' | 'advanced';
+    revision: number | null;
+    queryCount: number;
+    assignmentCount: number | null;
+    queryClasses: Array<{
+        queryClass: 'branded' | 'non-brand' | 'unknown';
+        queryCount: number;
+        assignmentCount: number | null;
+    }>;
+    requestCount: number;
+    expectedRequestCount: number;
+    engines: Array<{
+        provider: string;
+        models: Array<string>;
+        requestCount: number;
+        expectedRequestCount: number;
+        available: boolean;
+    }>;
+    locations: Array<{
+        location: string | null;
+        requestCount: number;
+    }>;
+    admission: {
+        refused: boolean;
+        retryAfter: string | null;
+        providers: {
+            [key: string]: {
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                consecutiveRuns: number;
+                since: string;
+                latestRunId: string;
+                retryAfter: string;
+            };
+        };
+    };
+    activeRunId: string | null;
+    canStart: boolean;
+    blockedReason: 'unpublished-plan' | 'no-queries' | 'no-provider' | 'providers-failing' | 'run-in-progress' | null;
+};
+
 export type LocationContext = {
     label: string;
     city: string;
@@ -13467,6 +13529,7 @@ export type MeasurementSetupResponse = {
     nextAction: 'republish_setup' | 'continue_setup' | 'run_measurement' | 'view_measurement' | 'start_setup';
     mode: 'simple' | 'draft-only' | 'active-v1' | 'active-v2';
     answerVisibilityProviderReady: boolean;
+    requiresPublication?: boolean;
     activeRevision: number | null;
     activeSchemaVersion: 1 | 2 | null;
     draft: {
@@ -14545,6 +14608,95 @@ export type ProjectOverviewDto = {
             runIds: Array<string>;
         };
     };
+    mentionCoverage?: {
+        selection: {
+            mode: 'simple' | 'advanced';
+            queryClass: 'branded' | 'non-brand' | 'unknown' | 'all';
+            scope: {
+                id: string;
+                label: string;
+                kind: 'project' | 'group' | 'market' | 'property';
+                targetCount: number;
+                parentGroupIds?: Array<string>;
+                marketKeys?: Array<string>;
+            };
+            market?: {
+                id: string;
+                label: string;
+                kind: 'project' | 'group' | 'market' | 'property';
+                targetCount: number;
+                parentGroupIds?: Array<string>;
+                marketKeys?: Array<string>;
+            };
+            provider: string | null;
+            model: string | null;
+            location: {
+                kind: 'all';
+            } | {
+                kind: 'none';
+            } | {
+                kind: 'exact';
+                value: string;
+            };
+            time: {
+                from: string | null;
+                to: string | null;
+            };
+            revision: number | null;
+            run: {
+                id: string | null;
+                explicit: boolean;
+            };
+            provenance: {
+                kind: 'frozen-simple';
+                definitionRevision: null;
+            } | {
+                kind: 'legacy-simple';
+                definitionRevision: null;
+            } | {
+                kind: 'frozen-advanced';
+                definitionRevision: number;
+            } | {
+                kind: 'unsupported-advanced-v1';
+                definitionRevision: number;
+            };
+            measurement: {
+                state: 'measured' | 'not-measured' | 'partial';
+                activeRevision: number | null;
+                measuredRevision: number | null;
+                awaitingSweep: boolean;
+                pendingAssignmentCount: number;
+                completedAt: string | null;
+            };
+            availability: {
+                state: 'available';
+            } | {
+                state: 'unsupported';
+                reason: 'advanced-v1';
+            };
+        };
+        populations: Array<{
+            queryClass: 'branded' | 'non-brand' | 'unknown';
+            queryCount: number;
+            answerCount: number;
+            mentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            citationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+        }>;
+    };
     project: {
         id: string;
         name: string;
@@ -15291,6 +15443,114 @@ export type ProjectSearchResponseDto = {
         dismissed: boolean;
         createdAt: string;
     }>;
+};
+
+export type ProviderConnectionSettingsDto = {
+    name: string;
+    displayName: string;
+    kind: 'answer-engine' | 'model-gateway' | 'answer-service';
+    mode: 'api' | 'browser';
+    configured: boolean;
+    revision: string;
+    apiKeyConfigured: boolean;
+    /**
+     * Saved endpoint override, or null when the adapter default is selected or a private endpoint is withheld. Consult capabilities and blockers before editing.
+     */
+    baseUrl: string | null;
+    model: string | null;
+    defaultModel: string | null;
+    effectiveModel: string | null;
+    quota: {
+        defaults: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+        overrides: {
+            maxConcurrency?: number;
+            maxRequestsPerMinute?: number;
+            maxRequestsPerDay?: number;
+        };
+        effective: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+    };
+    capabilities: {
+        apiKey: boolean;
+        clearApiKey: boolean;
+        baseUrl: boolean;
+        resetBaseUrl: boolean;
+        model: boolean;
+        quota: boolean;
+        disconnect: boolean;
+        reload: boolean;
+    };
+    hostManaged: {
+        vertex: {
+            project: string;
+            region: string | null;
+            credentialsConfigured: boolean;
+        } | null;
+        batch: {
+            enabled: boolean;
+            maxRequestsPerBatch?: number;
+            deadlineHours?: number;
+        } | null;
+        pricing: {
+            models: {
+                [key: string]: {
+                    inputPerMTok: number;
+                    cachedInputPerMTok?: number;
+                    cacheWritePerMTok?: number;
+                    outputPerMTok: number;
+                    searchPer1k?: number;
+                    searchUnit?: 'query' | 'prompt';
+                    batchTokenDiscount?: number;
+                };
+            };
+        } | null;
+    };
+    hostUses: Array<string>;
+    blockers: Array<{
+        code: string;
+        message: string;
+        runIds: Array<string>;
+        batchIds: Array<string>;
+    }>;
+    usage: {
+        projectCount: number;
+        projects: Array<{
+            name: string;
+            displayName: string;
+            providers: Array<string>;
+            sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+        }>;
+    };
+    impactRevision: string;
+};
+
+export type ProviderDisconnectRequest = {
+    expectedImpactRevision?: string;
+};
+
+export type ProviderSettingsUpdateRequest = {
+    apiKey?: string;
+    baseUrl?: string;
+    model?: string;
+    quota?: {
+        maxConcurrency?: number;
+        maxRequestsPerMinute?: number;
+        maxRequestsPerDay?: number;
+    };
+    reset?: {
+        model?: true;
+        baseUrl?: true;
+        apiKey?: true;
+        quota?: Array<'maxConcurrency' | 'maxRequestsPerMinute' | 'maxRequestsPerDay'>;
+    };
+    expectedRevision?: string;
 };
 
 export type ProviderReloadRequest = {
@@ -16040,6 +16300,28 @@ export type ScheduleDto = {
     updatedAt: string;
 };
 
+export type SchedulePreviewRequest = {
+    preset?: string;
+    cron?: string;
+    recurrence?: {
+        everyDays: number;
+        startDate: string;
+        time: string;
+    };
+    timezone: string;
+};
+
+export type SchedulePreviewDto = {
+    cronExpr: string;
+    recurrence: {
+        everyDays: number;
+        startDate: string;
+        time: string;
+    } | null;
+    timezone: string;
+    nextRunAt: string | null;
+};
+
 export type SettingsDto = {
     providers: Array<{
         name: string;
@@ -16108,6 +16390,91 @@ export type SettingsDto = {
         keyCheck?: 'verified-without-spending' | 'saved-not-verified';
         keyUrl?: string;
         vendorDocsUrl?: string;
+    }>;
+    providerConnections?: Array<{
+        name: string;
+        displayName: string;
+        kind: 'answer-engine' | 'model-gateway' | 'answer-service';
+        mode: 'api' | 'browser';
+        configured: boolean;
+        revision: string;
+        apiKeyConfigured: boolean;
+        /**
+         * Saved endpoint override, or null when the adapter default is selected or a private endpoint is withheld. Consult capabilities and blockers before editing.
+         */
+        baseUrl: string | null;
+        model: string | null;
+        defaultModel: string | null;
+        effectiveModel: string | null;
+        quota: {
+            defaults: {
+                maxConcurrency: number;
+                maxRequestsPerMinute: number;
+                maxRequestsPerDay: number;
+            };
+            overrides: {
+                maxConcurrency?: number;
+                maxRequestsPerMinute?: number;
+                maxRequestsPerDay?: number;
+            };
+            effective: {
+                maxConcurrency: number;
+                maxRequestsPerMinute: number;
+                maxRequestsPerDay: number;
+            };
+        };
+        capabilities: {
+            apiKey: boolean;
+            clearApiKey: boolean;
+            baseUrl: boolean;
+            resetBaseUrl: boolean;
+            model: boolean;
+            quota: boolean;
+            disconnect: boolean;
+            reload: boolean;
+        };
+        hostManaged: {
+            vertex: {
+                project: string;
+                region: string | null;
+                credentialsConfigured: boolean;
+            } | null;
+            batch: {
+                enabled: boolean;
+                maxRequestsPerBatch?: number;
+                deadlineHours?: number;
+            } | null;
+            pricing: {
+                models: {
+                    [key: string]: {
+                        inputPerMTok: number;
+                        cachedInputPerMTok?: number;
+                        cacheWritePerMTok?: number;
+                        outputPerMTok: number;
+                        searchPer1k?: number;
+                        searchUnit?: 'query' | 'prompt';
+                        batchTokenDiscount?: number;
+                    };
+                };
+            } | null;
+        };
+        hostUses: Array<string>;
+        blockers: Array<{
+            code: string;
+            message: string;
+            runIds: Array<string>;
+            batchIds: Array<string>;
+        }>;
+        usage: {
+            projectCount: number;
+            projects: Array<{
+                name: string;
+                displayName: string;
+                providers: Array<string>;
+                sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+            }>;
+        };
+        impactRevision: string;
     }>;
     google: {
         configured: boolean;
@@ -25738,6 +26105,40 @@ export type GetApiV1ProjectsByNameRunsLatestResponses = {
 
 export type GetApiV1ProjectsByNameRunsLatestResponse = GetApiV1ProjectsByNameRunsLatestResponses[keyof GetApiV1ProjectsByNameRunsLatestResponses];
 
+export type GetApiV1ProjectsByNameRunPreviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/run-preview';
+};
+
+export type GetApiV1ProjectsByNameRunPreviewErrors = {
+    /**
+     * Published plan or saved location is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameRunPreviewError = GetApiV1ProjectsByNameRunPreviewErrors[keyof GetApiV1ProjectsByNameRunPreviewErrors];
+
+export type GetApiV1ProjectsByNameRunPreviewResponses = {
+    /**
+     * Full manual sweep workload and admission returned.
+     */
+    200: RunPreviewDto;
+};
+
+export type GetApiV1ProjectsByNameRunPreviewResponse = GetApiV1ProjectsByNameRunPreviewResponses[keyof GetApiV1ProjectsByNameRunPreviewResponses];
+
 export type GetApiV1ProjectsByNameRunAdmissionData = {
     body?: never;
     path: {
@@ -26558,15 +26959,92 @@ export type GetApiV1SettingsResponses = {
 
 export type GetApiV1SettingsResponse = GetApiV1SettingsResponses[keyof GetApiV1SettingsResponses];
 
-export type PutApiV1SettingsProvidersByNameData = {
-    body: {
-        apiKey?: string;
-        baseUrl?: string;
-        model?: string;
-        quota?: {
-            [key: string]: unknown;
-        };
+export type DeleteApiV1SettingsProvidersByNameData = {
+    body?: ProviderDisconnectRequest;
+    path: {
+        /**
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
+         */
+        name: string;
     };
+    query?: never;
+    url: '/api/v1/settings/providers/{name}';
+};
+
+export type DeleteApiV1SettingsProvidersByNameErrors = {
+    /**
+     * Invalid disconnect request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator authority and settings.write are required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Unknown provider connection.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Provider configuration, usage, or outstanding work prevents disconnection.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Provider disconnection is not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type DeleteApiV1SettingsProvidersByNameError = DeleteApiV1SettingsProvidersByNameErrors[keyof DeleteApiV1SettingsProvidersByNameErrors];
+
+export type DeleteApiV1SettingsProvidersByNameResponses = {
+    /**
+     * Provider disconnected; saved references and history retained.
+     */
+    200: ProviderConnectionSettingsDto;
+};
+
+export type DeleteApiV1SettingsProvidersByNameResponse = DeleteApiV1SettingsProvidersByNameResponses[keyof DeleteApiV1SettingsProvidersByNameResponses];
+
+export type GetApiV1SettingsProvidersByNameData = {
+    body?: never;
+    path: {
+        /**
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/providers/{name}';
+};
+
+export type GetApiV1SettingsProvidersByNameErrors = {
+    /**
+     * Install administrator authority is required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Unknown provider connection.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Provider connection details are not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type GetApiV1SettingsProvidersByNameError = GetApiV1SettingsProvidersByNameErrors[keyof GetApiV1SettingsProvidersByNameErrors];
+
+export type GetApiV1SettingsProvidersByNameResponses = {
+    /**
+     * Provider connection settings and usage returned.
+     */
+    200: ProviderConnectionSettingsDto;
+};
+
+export type GetApiV1SettingsProvidersByNameResponse = GetApiV1SettingsProvidersByNameResponses[keyof GetApiV1SettingsProvidersByNameResponses];
+
+export type PutApiV1SettingsProvidersByNameData = {
+    body: ProviderSettingsUpdateRequest;
     path: {
         /**
          * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
@@ -26586,6 +27064,10 @@ export type PutApiV1SettingsProvidersByNameErrors = {
      * The credential lacks settings.write.
      */
     403: ErrorEnvelope;
+    /**
+     * Provider configuration changed or outstanding work prevents this update.
+     */
+    409: ErrorEnvelope;
     /**
      * Provider updates are not supported.
      */
@@ -27094,6 +27576,40 @@ export type PutApiV1SettingsCdpResponses = {
 };
 
 export type PutApiV1SettingsCdpResponse = PutApiV1SettingsCdpResponses[keyof PutApiV1SettingsCdpResponses];
+
+export type PostApiV1ProjectsByNameSchedulePreviewData = {
+    body: SchedulePreviewRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/schedule/preview';
+};
+
+export type PostApiV1ProjectsByNameSchedulePreviewErrors = {
+    /**
+     * Invalid schedule timing.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameSchedulePreviewError = PostApiV1ProjectsByNameSchedulePreviewErrors[keyof PostApiV1ProjectsByNameSchedulePreviewErrors];
+
+export type PostApiV1ProjectsByNameSchedulePreviewResponses = {
+    /**
+     * Next occurrence returned.
+     */
+    200: SchedulePreviewDto;
+};
+
+export type PostApiV1ProjectsByNameSchedulePreviewResponse = PostApiV1ProjectsByNameSchedulePreviewResponses[keyof PostApiV1ProjectsByNameSchedulePreviewResponses];
 
 export type DeleteApiV1ProjectsByNameScheduleData = {
     body?: never;

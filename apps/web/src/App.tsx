@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
 
@@ -23,7 +23,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import { CitationStates, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@canonry/canonry-contracts'
+import { CitationStates, formatModelName, openRouterRouteModel, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 
 import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
@@ -72,6 +72,7 @@ import { FeedbackPanel } from './components/shared/FeedbackPanel.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
 import { EvidenceDetailModal } from './components/layout/EvidenceDetailModal.js'
+import { AnswerMarkdown } from './components/shared/AnswerMarkdown.js'
 import { SourceLink } from './components/shared/SourceLink.js'
 import { resolveProjectNameFromPathname } from './lib/project-route.js'
 import { findEvidenceForModal, findRunById } from './mock-data.js'
@@ -364,6 +365,19 @@ export function RootLayout() {
 
   // ── Router state ──
   const { runId, evidenceId, closeDrawer } = useDrawer()
+  const evidenceOpener = useRef<HTMLElement | null>(null)
+  const openEvidenceId = useRef(evidenceId)
+  useLayoutEffect(() => {
+    // Keep the original control across the loading drawer and answer modal.
+    if (evidenceId && !openEvidenceId.current) {
+      const focused = document.activeElement
+      evidenceOpener.current = focused instanceof HTMLElement && focused !== document.body ? focused : null
+    }
+    openEvidenceId.current = evidenceId
+  }, [evidenceId])
+  const restoreEvidenceFocus = () => {
+    if (!openEvidenceId.current && evidenceOpener.current?.isConnected) evidenceOpener.current.focus()
+  }
 
   // ── UI state ──
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -495,22 +509,17 @@ export function RootLayout() {
   const isSetupReadinessUnknown = isSetupRoute && safeDashboard === null
   const isFocusedSetup = isSetupRoute
     && (isExplicitFirstRunSetup || isEmptySetup || firstRunSetupLatched || isSetupReadinessUnknown)
-  const shellModifier = isFocusedSetup
-    ? 'app-shell-focus'
-    : sidebarHidden
-      ? 'app-shell-sidebar-hidden'
-      : ''
+  const shellModifier = sidebarHidden ? 'app-shell-sidebar-hidden' : ''
 
   const selectedRun = runId
-    ? (safeDashboard ? findRunById(safeDashboard, runId) : undefined)
-      ?? (runDetail
+    ? (runDetail?.id === runId
         ? toRunListItem(
             runDetail,
             safeDashboard?.projects.find((project) => project.project.id === runDetail.projectId)?.project.displayName
               ?? safeDashboard?.projects.find((project) => project.project.id === runDetail.projectId)?.project.name
               ?? 'Unknown project',
           )
-        : undefined)
+        : undefined) ?? (safeDashboard ? findRunById(safeDashboard, runId) : undefined)
     : undefined
 
   // The slim portfolio model has no answer evidence. Load it only while a
@@ -620,7 +629,7 @@ export function RootLayout() {
     <div className={`app-shell ${shellModifier}${isPublicDemo() ? ' app-shell-demo' : ''}`}>
 
       {/* ── Sidebar (desktop) ── */}
-      {!isFocusedSetup && !sidebarHidden && (
+      {!sidebarHidden && (
       <aside id="desktop-sidebar" className="sidebar" aria-label="Primary navigation">
         <div className="sidebar-brand">
           <BrandLockup
@@ -631,6 +640,7 @@ export function RootLayout() {
         </div>
 
         <nav className="sidebar-nav">
+          {isFocusedSetup && <Link to="/setup" search={location.search} className="sidebar-link sidebar-link-active" aria-current="page"><Rocket className="sidebar-icon" /><span>Setup</span></Link>}
           <Link
             to="/"
             className="sidebar-link"
@@ -649,6 +659,7 @@ export function RootLayout() {
             <Globe className="sidebar-icon" />
             <span>Projects</span>
           </Link>
+          {!isFocusedSetup && <>
           <Link
             to="/runs"
             className="sidebar-link"
@@ -685,6 +696,7 @@ export function RootLayout() {
             <Link2 className="sidebar-icon" />
             <span>Backlink data</span>
           </Link>}
+          </>}
           {!isPublicDemo() && <Link
             to="/agent-setup"
             className="sidebar-link"
@@ -735,7 +747,7 @@ export function RootLayout() {
                 )
               })}
             </>
-          ) : !isLoading ? (
+          ) : !isLoading && !isFocusedSetup ? (
             <>
               <p className="sidebar-section-title">Resources</p>
               {isAdmin && (
@@ -784,9 +796,8 @@ export function RootLayout() {
         {/* Topbar */}
         <header className="topbar">
           <div className="topbar-left">
-            {!isFocusedSetup && (
-              <Button
-                className="sidebar-privacy-toggle"
+            {(<Button
+                className="sidebar-privacy-toggle hidden lg:inline-flex"
                 variant="ghost"
                 size="icon"
                 type="button"
@@ -819,7 +830,7 @@ export function RootLayout() {
             <FeedbackPanel />
             <ThemeSelector />
             <TaskCenter />
-            <div className="health-pill-row">
+            {(!isFocusedSetup || healthSnapshot.apiStatus.state !== 'ok' || healthSnapshot.workerStatus.state !== 'ok') && <div className="health-pill-row">
               <span
                 className={`health-pill health-pill-${healthSnapshot.apiStatus.state}`}
                 title={serviceStatusTooltip(healthSnapshot.apiStatus)}
@@ -832,11 +843,10 @@ export function RootLayout() {
               >
                 {`Worker ${healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}`}
               </span>
-            </div>
-            {!isFocusedSetup ? (
-              <Dialog.Trigger asChild>
+            </div>}
+            {(<Dialog.Trigger asChild>
               <Button
-                className="nav-toggle"
+                className="nav-toggle lg:hidden"
                 variant="secondary"
                 size="icon"
                 type="button"
@@ -845,13 +855,12 @@ export function RootLayout() {
                 <span className="sr-only">Open navigation</span>
               </Button>
               </Dialog.Trigger>
-            ) : null}
+            )}
           </div>
         </header>
 
         {/* Mobile nav overlay */}
-        {!isFocusedSetup ? (
-          <Dialog.Portal>
+        {(<Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-40" />
           <Dialog.Content className="mobile-nav mobile-nav-open" aria-describedby={undefined}>
           <Dialog.Title className="sr-only">Navigation</Dialog.Title>
@@ -866,12 +875,14 @@ export function RootLayout() {
             <span className="sr-only">Close navigation</span>
           </Button>
           </Dialog.Close>
+          {isFocusedSetup && <Link to="/setup" search={location.search} className="mobile-nav-link mobile-nav-link-active" aria-current="page">Setup</Link>}
           <Link to="/" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             All projects
           </Link>
           <Link to="/projects" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: false }}>
             Projects
           </Link>
+          {!isFocusedSetup && <>
           <Link to="/runs" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Runs
           </Link>
@@ -884,6 +895,7 @@ export function RootLayout() {
           {!isPublicDemo() && <Link to="/backlinks" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Backlink data
           </Link>}
+          </>}
           {!isPublicDemo() && <Link to="/agent-setup" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Agent setup
           </Link>}
@@ -940,7 +952,7 @@ export function RootLayout() {
           {footer}
           </Dialog.Content>
           </Dialog.Portal>
-        ) : null}
+        )}
 
         {/* Page content */}
         <main
@@ -1018,17 +1030,20 @@ export function RootLayout() {
               <div className="space-y-2">
                 {runDetail.snapshots.map((snap) => (
                   <div key={snap.id} className="material-base p-3">
-                    <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
                       <p className="text-copy-14-strong text-strong truncate">{snap.query ?? 'Unknown query'}</p>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <ProviderBadge provider={snap.provider} />
                         <Badge variant={snap.citationState === CitationStates.cited ? 'success' : 'neutral'}>
-                          {snap.citationState}
+                          {snap.citationState === CitationStates.cited ? 'Cited' : 'Not cited'}
+                        </Badge>
+                        <Badge variant={snap.answerMentioned === true ? 'success' : 'neutral'}>
+                          {snap.answerMentioned === true ? 'Mentioned' : snap.answerMentioned === false ? 'Not mentioned' : 'Mention not measured'}
                         </Badge>
                       </div>
                     </div>
-                    {snap.model && (
-                      <p className="text-copy-13-mono text-muted">{snap.model}</p>
+                    {snap.model && snap.model !== openRouterRouteModel(snap.provider) && (
+                      <p className="text-copy-13 text-secondary" title={snap.model}>{openRouterRouteModel(snap.provider) ? formatModelName(snap.model) : snap.model}</p>
                     )}
                     {snap.citedDomains.length > 0 && (
                       <p className="text-copy-13 text-muted mt-1">
@@ -1060,12 +1075,12 @@ export function RootLayout() {
                     {snap.answerText && (
                       <details className="mt-1">
                         <summary className="text-label-12 text-muted cursor-pointer hover:text-secondary">Answer preview</summary>
-                        <p className="mt-1 text-copy-13 text-secondary whitespace-pre-wrap">{snap.answerText}</p>
+                        <div className="mt-2 text-copy-14 text-secondary"><AnswerMarkdown>{snap.answerText}</AnswerMarkdown></div>
                       </details>
                     )}
                   </div>
                 ))}
-                {runDetail.status === 'running' && (
+                {runDetail.status === RunStatuses.running && (
                   <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                     <span className="inline-block h-2 w-2 rounded-full bg-caution-500 animate-pulse" />
                     Running remaining queries...
@@ -1103,7 +1118,7 @@ export function RootLayout() {
       ) : null}
 
       {evidenceId && !selectedEvidenceContext ? (
-        <Drawer open title={evidenceLoading ? 'Loading answer' : 'Answer unavailable'} subtitle="Query evidence" onClose={closeDrawer}>
+        <Drawer open title={evidenceLoading ? 'Loading answer' : 'Answer unavailable'} subtitle="Query evidence" onClose={closeDrawer} onClosed={restoreEvidenceFocus}>
           {evidenceLoading ? (
             <p role="status" className="text-copy-14 text-secondary">Loading answer…</p>
           ) : (
@@ -1115,7 +1130,7 @@ export function RootLayout() {
         </Drawer>
       ) : null}
       {selectedEvidenceContext ? (
-        <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={closeDrawer} />
+        <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={closeDrawer} onClosed={restoreEvidenceFocus} />
       ) : null}
 
       <RunNotificationObserver />

@@ -1,3 +1,5 @@
+import { formatModelName, openRouterRouteModel } from '@canonry/canonry-contracts'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -34,6 +36,8 @@ import {
   postApiV1ProjectsByNameQueryTrackingPreviewMutation,
 } from '@canonry/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
+import { asyncHandler } from '../../lib/async-handler.js'
+import { formatSweepDay, formatTimestamp } from '../../lib/format-helpers.js'
 import { invalidateProjectQueryDomain, invalidateQueryTrackingPublication } from '../../queries/query-invalidation.js'
 import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
@@ -314,19 +318,21 @@ function TrackedQueriesWorkspace({
   isPreviewing: boolean
   isCommitting: boolean
   onPreview: (mutation: QueryTrackingMutation) => void
-  onCommit: (request: QueryTrackingCommitRequest) => void
+  onCommit: (request: QueryTrackingCommitRequest) => Promise<boolean>
   publishGuard?: TrackingPublishGuard
 }) {
   const [action, setAction] = useState<TrackingAction | null>(null)
   const [draft, setDraft] = useState<TrackingDraft>(() => defaultTrackingDraft(selection))
   const [reviewedMutation, setReviewedMutation] = useState<QueryTrackingMutation | null>(null)
   const editorHeadingRef = useRef<HTMLHeadingElement>(null)
+  const addQueryRef = useRef<HTMLDivElement>(null)
+  const returnFocusRef = useRef(false)
   const handledRouteAction = useRef<string | null>(null)
   const unavailableScope = unavailableTrackingScope(workspace, selection)
   const rowsInScope = useMemo(() => filterTrackedRows(workspace.tracked, selection, workspace.mode), [selection, workspace.mode, workspace.tracked])
   const table = useClientTable({
     rows: rowsInScope,
-    getSearchText: (row) => `${row.queryText} ${row.provenance?.source ?? 'legacy'} ${row.assignments.map(assignment => assignment.queryClass ?? 'unknown').join(' ')}`,
+    getSearchText: (row) => `${row.queryText} ${row.provenance?.source ?? ''} ${row.assignments.map(assignment => assignment.queryClass ?? 'unknown').join(' ')}`,
   })
 
   useEffect(() => {
@@ -372,6 +378,12 @@ function TrackedQueriesWorkspace({
     heading.focus({ preventScroll: true })
   }, [action])
 
+  useEffect(() => {
+    if (!returnFocusRef.current || action !== null || isCommitting) return
+    addQueryRef.current?.querySelector('button')?.focus()
+    returnFocusRef.current = false
+  }, [action, isCommitting])
+
   function openAdd(source: TrackingDraft['source'] = 'manual') {
     setAction({ kind: 'add' })
     setDraft({ ...defaultTrackingDraft(selection), source })
@@ -395,7 +407,9 @@ function TrackedQueriesWorkspace({
   }
 
   function closeAction() {
+    returnFocusRef.current = true
     setAction(null)
+    setDraft(defaultTrackingDraft(selection))
     setReviewedMutation(null)
     onTrackingQueryIdChange?.(undefined)
   }
@@ -405,7 +419,7 @@ function TrackedQueriesWorkspace({
     && action.kind === 'add'
     && workspace.mode === 'advanced'
     && !hasMarketOnlyAudience(draft)
-  const canReview = mutation !== null && (!needsExplicitContext || draft.contexts.length > 0) && !isPreviewing
+  const canReview = mutation !== null && (!needsExplicitContext || draft.contexts.length > 0) && !isPreviewing && !isCommitting
 
   if (unavailableScope) {
     return <div className="query-tracking-workspace space-y-4"><section aria-label="Tracked queries" className="py-4 text-label-14 text-secondary">
@@ -427,43 +441,43 @@ function TrackedQueriesWorkspace({
             className="min-w-64 flex-[2]"
           />
           {!isEmbed() && (
-            <WriteButton type="button" size="sm" onClick={() => openAdd()}>
+            <div ref={addQueryRef}><WriteButton type="button" size="sm" disabled={isCommitting} onClick={() => openAdd()}>
               <Plus aria-hidden="true" size={14} />
               Add query
-            </WriteButton>
+            </WriteButton></div>
           )}
         </div>
         <p className="mt-2 text-copy-13 text-secondary">
-          {table.totalRows.toLocaleString('en-US')} saved query {table.totalRows === 1 ? 'record' : 'records'} in this view. Each record can have more than one property, group, or market assignment.
+          {table.totalRows.toLocaleString('en-US')} {table.totalRows === 1 ? 'query' : 'queries'}
         </p>
         {selection.measurementScope === 'group' ? <p className="mt-1 text-copy-13 text-secondary">Queries belong to properties, so a shared query can also cover other groups.</p> : null}
 
-        {!workspace.active ? <p className="mt-3 text-copy-14 text-caution">No published measurement yet.</p> : null}
+        {workspace.mode === 'advanced' && !workspace.active ? <p className="mt-3 text-copy-14 text-caution">Publish your measurement setup before running a sweep.</p> : null}
 
         {table.rows.length === 0 ? (
-          <p className="mt-5 text-copy-14 text-muted">
+          <p className="mt-5 text-copy-14 text-secondary">
             {table.hasQuery ? 'No tracked queries match that search.' : 'No tracked queries in this scope yet.'}
           </p>
         ) : (
           <div className="mt-5 overflow-x-auto">
-            <table className="evidence-table measurement-responsive-table min-w-[760px] table-auto">
+            <table className={`evidence-table measurement-responsive-table table-auto ${workspace.mode === 'advanced' ? 'min-w-[760px]' : 'min-w-[520px]'}`}>
               <thead>
-                <tr><th>Query</th><th>Scope</th>{workspace.mode === 'advanced' ? <th>Class</th> : null}<th>Source</th><th>Measurement</th><th className="measurement-table-actions"><span className="sr-only">Actions</span></th></tr>
+                <tr><th>Query</th>{workspace.mode === 'advanced' ? <><th>Scope</th><th>Class</th></> : null}<th>Source</th><th>Measurement</th><th className="measurement-table-actions"><span className="sr-only">Actions</span></th></tr>
               </thead>
               <tbody>
                 {table.rows.map(row => (
                   <tr key={row.queryId}>
                     <td className="tracking-query-cell break-words text-label-14-strong text-heading">{row.queryText}</td>
-                    <td className="tracking-scope-cell text-secondary"><AssignmentScopeDisclosure row={row} workspace={workspace} selection={selection} /></td>
+                    {workspace.mode === 'advanced' ? <td className="tracking-scope-cell text-secondary"><AssignmentScopeDisclosure row={row} workspace={workspace} selection={selection} /></td> : null}
                     {workspace.mode === 'advanced' ? <td className="whitespace-nowrap"><AssignmentClassBadge row={row} /></td> : null}
                     <td className="whitespace-nowrap text-secondary">{provenanceLabel(row)}</td>
                     <td className="whitespace-nowrap"><MeasurementStateBadge row={row} outsidePlan={workspace.mode === 'advanced' && row.assignments.length === 0} /></td>
                     <td className="measurement-table-actions whitespace-nowrap text-right">
                       {!isEmbed() && <div className="tracking-row-actions flex min-w-max justify-end gap-2">
-                        <WriteButton type="button" variant="ghost" size="sm" aria-label={`Edit ${row.queryText}`} onClick={() => openEdit(row)}>
+                        <WriteButton type="button" variant="ghost" size="sm" disabled={isCommitting} aria-label={`Edit ${row.queryText}`} onClick={() => openEdit(row)}>
                           <Pencil aria-hidden="true" size={13} /> Edit
                         </WriteButton>
-                        <WriteButton type="button" variant="ghost" size="sm" aria-label={`Remove ${row.queryText}`} onClick={() => openRemoval(row)}>
+                        <WriteButton type="button" variant="ghost" size="sm" disabled={isCommitting} aria-label={`Remove ${row.queryText}`} onClick={() => openRemoval(row)}>
                           <Trash2 aria-hidden="true" size={13} /> Remove
                         </WriteButton>
                       </div>}
@@ -485,6 +499,7 @@ function TrackedQueriesWorkspace({
       </section>
 
       {action && !isEmbed() && (
+        <fieldset disabled={isCommitting} aria-busy={isCommitting} className="m-0 min-w-0 border-0 p-0">
         <TrackingComposer
           workspace={workspace}
           templates={templates}
@@ -501,6 +516,7 @@ function TrackedQueriesWorkspace({
             onPreview(mutation)
           }}
         />
+        </fieldset>
       )}
 
       {preview && reviewedMutation && action && (
@@ -509,14 +525,15 @@ function TrackedQueriesWorkspace({
           workspace={workspace}
           isCommitting={isCommitting}
           sweepActive={publishGuard?.sweepActive ?? false}
-          onConfirm={() => {
-            onCommit({
+          onConfirm={asyncHandler(async () => {
+            const saved = await onCommit({
               ...reviewedMutation,
               expectedWorkspaceVersion: preview.workspaceVersion,
               previewToken: preview.previewToken,
               reviewedAt: preview.reviewedAt,
             })
-          }}
+            if (saved) closeAction()
+          })}
         />
       )}
     </div>
@@ -711,7 +728,7 @@ function provenanceLabel(row: QueryTrackingTrackedRow): string {
     case 'template': return 'Template'
     case 'research': return 'Saved research'
     case 'discovery': return 'Discovery'
-    default: return 'Legacy'
+    default: return 'Not recorded'
   }
 }
 
@@ -821,7 +838,7 @@ function AssignmentClassBadge({ row }: { row: QueryTrackingTrackedRow }) {
 function MeasurementStateBadge({ row, outsidePlan = false }: { row: QueryTrackingTrackedRow; outsidePlan?: boolean }) {
   if (outsidePlan) return <ToneBadge tone="neutral">Not in current plan</ToneBadge>
   return row.state === 'tracked'
-    ? <ToneBadge tone="positive">Measured</ToneBadge>
+    ? <div className="space-y-1"><ToneBadge tone="positive">Measured</ToneBadge>{row.lastMeasuredAt ? <time className="block text-copy-13 text-secondary" dateTime={row.lastMeasuredAt} title={formatTimestamp(row.lastMeasuredAt)}>{formatSweepDay(row.lastMeasuredAt)}</time> : null}</div>
     : <ToneBadge tone="caution">Awaiting check</ToneBadge>
 }
 
@@ -849,6 +866,7 @@ function TrackingComposer({
   onReview: () => void
 }) {
   const hasSavedTemplates = templates.length > 0
+  const hasSavedSources = hasSavedTemplates || workspace.savedSources.research.length > 0 || workspace.savedSources.discovery.length > 0
   if (action.kind === 'remove') {
     return (
       <Card className="surface-card">
@@ -856,7 +874,7 @@ function TrackingComposer({
           <div>
             <h3>Remove query</h3>
             <p className="mt-1 text-copy-14 text-secondary">Remove “{action.row.queryText}” from future tracking?</p>
-            <p className="mt-1 text-copy-14 text-secondary">{action.audience ? `Only assignments in ${action.scopeLabel} will be removed.` : 'All assignments will be removed.'} Earlier results stay unchanged.</p>
+            <p className="mt-1 text-copy-14 text-secondary">{workspace.mode === 'advanced' ? `${action.audience ? `Only assignments in ${action.scopeLabel} will be removed.` : 'All assignments will be removed.'} ` : ''}Earlier results stay unchanged.</p>
           </div>
         </div>
         <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={onClose} onReview={onReview} />
@@ -872,7 +890,7 @@ function TrackingComposer({
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
         </div>
         <p className="mt-3 text-copy-14 text-secondary">
-          {action.audience ? `Changes apply only to assignments in ${action.scopeLabel}.` : 'Changes apply to every assignment of this query.'} Earlier results stay unchanged.
+          {workspace.mode === 'advanced' ? `${action.audience ? `Changes apply only to assignments in ${action.scopeLabel}.` : 'Changes apply to every assignment of this query.'} ` : ''}Earlier results stay unchanged.
         </p>
         <div className="mt-4 max-w-2xl space-y-4">
           <label className="block" htmlFor="tracking-query-text">
@@ -900,7 +918,7 @@ function TrackingComposer({
               </select>
             </label>
           )}
-          <p className="text-copy-14 text-secondary">Existing locations and engines are preserved. Use Add query to create assignments in another scope.</p>
+          {workspace.mode === 'advanced' ? <p className="text-copy-14 text-secondary">Locations and engines stay unchanged.</p> : null}
         </div>
         <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={onClose} onReview={onReview} />
       </Card>
@@ -918,7 +936,7 @@ function TrackingComposer({
         <div className="space-y-4">
           {draft.source === 'manual' ? (
             <label className="block" htmlFor="tracking-query-text">
-              <span className="text-label-14-strong text-secondary">Question</span>
+              <span className="text-label-14-strong text-secondary">Query</span>
               <textarea
                 id="tracking-query-text"
                 className="mt-1 min-h-28 w-full rounded-md border border-default bg-surface px-3 py-2 text-copy-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
@@ -953,22 +971,20 @@ function TrackingComposer({
             />
           ) : null}
 
-          <label className="block" htmlFor="tracking-query-source">
+          {hasSavedSources ? <label className="block" htmlFor="tracking-query-source">
             <span className="text-label-14-strong text-secondary">Query source</span>
             <select
               id="tracking-query-source"
-              aria-describedby={hasSavedTemplates ? undefined : 'tracking-query-source-no-templates'}
               className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-label-14 text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
               value={draft.source}
               onChange={(event) => onDraftChange({ ...draft, source: event.target.value as TrackingDraft['source'] })}
             >
-              <option value="manual">Write a question</option>
+              <option value="manual">Write a query</option>
               {hasSavedTemplates ? <option value="template">Saved template</option> : null}
-              <option value="research" disabled={workspace.savedSources.research.length === 0}>Saved research{workspace.savedSources.research.length === 0 ? ' (none available)' : ''}</option>
-              <option value="discovery" disabled={workspace.savedSources.discovery.length === 0}>Discovery result{workspace.savedSources.discovery.length === 0 ? ' (none available)' : ''}</option>
+              {workspace.savedSources.research.length > 0 ? <option value="research">Saved research</option> : null}
+              {workspace.savedSources.discovery.length > 0 ? <option value="discovery">Discovery result</option> : null}
             </select>
-          </label>
-          {!hasSavedTemplates ? <p id="tracking-query-source-no-templates" className="text-copy-14 text-secondary">No saved templates are set up for this portfolio. Write a question, or use saved research or a discovery result.</p> : null}
+          </label> : null}
         </div>
 
         {workspace.mode === 'advanced' ? <AssignmentSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} /> : null}
@@ -979,10 +995,9 @@ function TrackingComposer({
           <TrackingContextSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} />
         </div>
       ) : null}
-      <details className="mt-4 border-t border-default text-label-14 text-secondary">
+      {workspace.mode === 'advanced' ? <details className="mt-4 border-t border-default text-label-14 text-secondary">
         <summary className="min-h-11 cursor-pointer py-3">Measurement options</summary>
         <div className="grid gap-4 pb-3 sm:grid-cols-2">
-          {workspace.mode === 'advanced' ? (
             <div className="block">
               <label className="text-label-12-strong text-secondary" htmlFor="tracking-query-class">Classification</label>
               <select
@@ -996,14 +1011,8 @@ function TrackingComposer({
                 <option value="non-brand">Non-brand</option>
               </select>
             </div>
-          ) : (
-            <div className="material-base px-3 py-2">
-              <p className="text-copy-13-strong text-secondary">Classification</p>
-              <p className="mt-1 text-copy-14 text-strong">Automatic</p>
-            </div>
-          )}
         </div>
-      </details>
+      </details> : null}
 
       {draft.source === 'research' && (
         <p className="mt-4 material-base px-3 py-2 text-copy-14 text-secondary">
@@ -1053,8 +1062,8 @@ function TemplateSourceField({
       {needsTemplateMarket(draft) ? (
         <p id="tracking-template-market-required" role="status" className="mt-2 text-copy-14 text-caution">
           {advanced
-            ? 'Choose a Market under Apply to for this template. A location alone does not select a market.'
-            : 'This template needs a market, and this project has no markets. Write a question instead.'}
+            ? 'Choose a Market under Apply to for this template. A Property alone does not select a market.'
+            : 'This template needs a market, and this project has no markets. Write a query instead.'}
         </p>
       ) : null}
     </div>
@@ -1113,7 +1122,7 @@ function uniqueContextInputs(contexts: readonly QueryTrackingContextInput[]): Qu
 function contextLabel(context: QueryTrackingContextInput): string {
   const engines = context.providers.map(provider => {
     const model = context.models[provider]
-    return model ? `${provider} (${model})` : provider
+    return model && model !== openRouterRouteModel(provider) ? `${providerDisplayName(provider)} (${openRouterRouteModel(provider) ? formatModelName(model) : model})` : providerDisplayName(provider)
   }).join(', ')
   return `${context.location ?? 'No location'} · ${engines}`
 }
@@ -1207,7 +1216,7 @@ function AssignmentSelector({
   return (
     <fieldset className="material-base p-3">
       <legend className="px-1 text-label-12-strong text-secondary">Apply to</legend>
-      <p className="text-copy-14 text-secondary">Choose where this question should be tracked.</p>
+      <p className="text-copy-14 text-secondary">Choose where this query should be tracked.</p>
       {canWrite ? (
         <label className="mt-3 flex min-h-9 items-center gap-2 rounded px-1 text-label-14 text-strong">
           <input
@@ -1217,10 +1226,10 @@ function AssignmentSelector({
               onDraftChange({ ...draft, wholeSite: event.target.checked, targetKeys: [], groupKeys: [], marketKeys: [] })
             }}
           />
-          Every location ({workspace.targets.length})
+          Every Property ({workspace.targets.length})
         </label>
       ) : null}
-      {!draft.wholeSite && !hasAudience ? <p role="status" className="mt-2 text-copy-14 text-caution">Choose at least one location, group, or market.</p> : null}
+      {!draft.wholeSite && !hasAudience ? <p role="status" className="mt-2 text-copy-14 text-caution">Choose at least one Property, group, or market.</p> : null}
       <p className="mt-2 text-copy-14 text-secondary">Group: properties grouped together. Market: search context.</p>
       <DataTableSearch value={filter} onChange={setFilter} label="Filter assignments" placeholder="Search Properties, Groups, Markets" className="mt-3" />
       <div className="mt-3 max-h-64 space-y-1 overflow-y-auto pr-1">
@@ -1289,7 +1298,7 @@ function TrackingPreview({
   const subcopy = !hasChanges
     ? 'This request leaves tracking unchanged.'
     : preview.mode === 'advanced'
-      ? 'After you publish, AI Visibility keeps showing the last check until the next check. Location pages and competitor results show no numbers until then. Past answers are kept.'
+      ? 'After you publish, AI Visibility keeps showing the last check until the next check. Property pages and competitor results show no numbers until then. Past answers are kept.'
       : 'Changes apply to future checks. Earlier results stay unchanged.'
   const changed = [
     { label: 'Added', rows: preview.diff.added },
@@ -1500,11 +1509,14 @@ function TrackedQueriesSection({
           body: { ...mutation, expectedWorkspaceVersion: workspaceQuery.data.workspaceVersion },
         })
       }}
-      onCommit={(request) => commitMutation.mutate({
-        client: heyClient,
-        path: { name: projectName },
-        body: request,
-      })}
+      onCommit={async (request) => {
+        try {
+          await commitMutation.mutateAsync({ client: heyClient, path: { name: projectName }, body: request })
+          return true
+        } catch {
+          return false
+        }
+      }}
     />
   )
 }

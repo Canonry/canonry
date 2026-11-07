@@ -7,6 +7,7 @@ import { projectDtoSchema } from './project.js'
 import type { ProjectDto } from './project.js'
 import { insightSeveritySchema } from './intelligence.js'
 import type { HealthSnapshotDto, InsightDto } from './intelligence.js'
+import { visibilityReportPopulationClassSchema, visibilityReportRateSchema, visibilityReportSelectionSchema } from './visibility-report.js'
 
 // One-call summary for "how is project X doing?". The shape stays stable so
 // agents can build prompts on it without falling back to four list endpoints.
@@ -74,7 +75,7 @@ export interface ScoreSummaryDto {
 // citation-source metric, kept as a secondary tile for analysts who track
 // source-list presence.
 export interface ProjectOverviewScoresDto {
-  /** Primary headline gauge — % of tracked queries whose AI answer text mentioned the brand. */
+  /** Legacy pooled gauge. New headlines use ProjectOverviewDto.mentionCoverage. */
   mention: ScoreSummaryDto
   /** Secondary tile — % of tracked queries whose answer cited the domain in its source list. */
   visibility: ScoreSummaryDto
@@ -286,12 +287,28 @@ export const PROJECT_OVERVIEW_QUERY_CLASS_SCOPE: ProjectOverviewQueryClassScopeD
     'movementSummary', 'citationMovement', 'mentionMovement', 'movementComparison',
     'competitors', 'providerScores', 'runHistory',
   ],
-  note: 'These figures pool branded and non-brand queries in one denominator. Only scores.mentionShare splits the classes. For one class, use a read filtered by queryClass.',
+  note: 'These legacy figures pool branded and non-brand queries in one denominator. mentionCoverage and scores.mentionShare preserve separate class populations.',
 }
+
+/** Class-separated answer coverage, shared with the detailed visibility report. */
+export const projectOverviewMentionCoverageSchema = z.object({
+  selection: visibilityReportSelectionSchema,
+  populations: z.array(z.object({
+    queryClass: visibilityReportPopulationClassSchema,
+    queryCount: z.number().int().nonnegative(),
+    answerCount: z.number().int().nonnegative(),
+    mentionCoverage: visibilityReportRateSchema,
+    citationCoverage: visibilityReportRateSchema,
+  }).strict()),
+}).strict()
+export type ProjectOverviewMentionCoverageDto = z.output<typeof projectOverviewMentionCoverageSchema>
 
 export interface ProjectOverviewDto {
   /** Frozen favorable scores retain separate branded and non-brand populations. */
   sentiment?: SentimentOverview
+  /** Non-brand is the headline; branded and unknown retain separate denominators.
+   * Optional only for older servers. Never substitute the pooled scores.mention. */
+  mentionCoverage?: ProjectOverviewMentionCoverageDto
   project: ProjectDto
   latestRun: LatestProjectRunDto
   health: HealthSnapshotDto | null
@@ -463,6 +480,7 @@ const projectOverviewHealthSchema = z.object({
 /** Runtime and OpenAPI schema for the agent-first composite overview. */
 export const projectOverviewDtoSchema = z.object({
   sentiment: sentimentOverviewSchema.optional(),
+  mentionCoverage: projectOverviewMentionCoverageSchema.optional(),
   project: projectDtoSchema,
   latestRun: latestProjectRunDtoSchema,
   health: projectOverviewHealthSchema.nullable(),

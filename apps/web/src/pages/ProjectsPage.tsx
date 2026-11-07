@@ -1,3 +1,4 @@
+import { formatPercent } from '@canonry/canonry-contracts'
 import { Plus } from 'lucide-react'
 import { Link, useNavigate } from '@tanstack/react-router'
 
@@ -81,7 +82,7 @@ export function ProjectsPage() {
               <tr>
                 <th>Name</th>
                 <th>Domain</th>
-                <th>Mentions</th>
+                <th>Mentions · non-brand</th>
                 <th>Last run</th>
                 <th className="text-right">Country</th>
               </tr>
@@ -89,6 +90,9 @@ export function ProjectsPage() {
             <tbody>
               {projects.map((p) => {
                 const latestRun = p.recentRuns[0]
+                const population = p.mentionCoverage?.populations.find(item => item.queryClass === 'non-brand')
+                const branded = p.mentionCoverage?.populations.find(item => item.queryClass === 'branded')
+                const coverage = population?.mentionCoverage
                 return (
                   <tr
                     key={p.project.id}
@@ -106,11 +110,13 @@ export function ProjectsPage() {
                       >
                         {p.project.displayName || p.project.name}
                       </Link>
-                      <p className="text-copy-13 text-muted">{p.project.name}</p>
+                      {p.project.displayName && p.project.displayName !== p.project.name && <p className="text-copy-13 text-muted">{p.project.name}</p>}
                     </td>
                     <td className="text-secondary">{p.project.canonicalDomain}</td>
                     <td>
-                      <ToneBadge tone={p.mentionSummary.tone}>{p.mentionSummary.value}</ToneBadge>
+                      <ToneBadge tone="neutral">{coverage?.rate == null ? '—' : formatPercent(coverage.rate, 'fraction')}<span className="sr-only"> · non-brand queries</span></ToneBadge>
+                      <p className="mt-1 text-label-12 text-muted">{coverage?.numerator != null && coverage.denominator != null ? `${coverage.numerator} of ${coverage.denominator} answers` : 'Not measured'}</p>
+                      {branded && branded.answerCount > 0 && <details className="mt-1 text-label-12 text-muted"><summary className="cursor-pointer">Branded queries</summary><p className="mt-1">{branded.mentionCoverage.rate == null ? 'Not measured' : formatPercent(branded.mentionCoverage.rate, 'fraction')}{branded.mentionCoverage.numerator != null && branded.mentionCoverage.denominator != null ? ` · ${branded.mentionCoverage.numerator} of ${branded.mentionCoverage.denominator} answers` : ''}</p></details>}
                     </td>
                     <td className="text-muted text-label-14">
                       {latestRun ? (
@@ -129,7 +135,7 @@ export function ProjectsPage() {
       ) : (
         <Card className="surface-card empty-card">
           <h3>No projects yet</h3>
-          <p className="supporting-copy">Map a public site to capture its Page Health baseline and exact fixes.</p>
+          <p className="supporting-copy">Add your site to track how AI answers mention and cite your brand.</p>
           {isAdmin ? (
             <Button
               type="button"
@@ -141,7 +147,7 @@ export function ProjectsPage() {
               }}
             >
               <Plus className="size-4 mr-1.5" />
-              Map a site
+              Add a project
             </Button>
           ) : null}
         </Card>
@@ -149,9 +155,9 @@ export function ProjectsPage() {
 
       {/* Not gated on having projects: a FRESH install is exactly where pasting
           an existing canonry.yaml matters, and it is also where the inline
-          create form is gone and "Map a site" is admin-only, so gating this
+          create form is gone and "Add a project" is admin-only, so gating this
           left a non-admin writer with no way to create a project at all. */}
-      {canWrite ? <YamlApplyPanel onApplied={() => { void refetch() }} /> : null}
+      {canWrite ? <details className="border-t border-default pt-4" open={!isAdmin && projects.length === 0}><summary className="cursor-pointer text-label-14 text-secondary">Import configuration</summary><div className="mt-4"><YamlApplyPanel onApplied={() => { void refetch() }} /></div></details> : null}
     </div>
   )
 }

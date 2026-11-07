@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { OPENROUTER_RECOMMENDED_SWEEP_MODELS, describeError, openRouterRouteModel, openRouterRouteName } from '@canonry/canonry-contracts'
+import { OPENROUTER_RECOMMENDED_SWEEP_MODELS, describeError, formatModelName, openRouterRouteModel, openRouterRouteName } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 
@@ -54,7 +54,7 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
   trigger?: 'button' | 'link'
   triggerLabel?: string
 }) {
-  const names = new Map(catalog.knownModels.map(model => [model.id, model.displayName]))
+  const names = new Map(catalog.knownModels.map(model => [model.id, formatModelName(model.id, catalog.knownModels)]))
   const recommended = OPENROUTER_RECOMMENDED_SWEEP_MODELS.filter(model => names.has(model.id))
   const catalogEmpty = catalog.knownModels.length === 0
   const [open, setOpen] = useState(false)
@@ -194,7 +194,7 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
               <label className="block text-label-14 text-secondary">Search OpenRouter models<input className="setup-input mt-1 w-full" type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>
               <fieldset disabled={busy} className="max-h-64 overflow-y-auto divide-y divide-default">
                 <legend className="sr-only">OpenRouter models</legend>
-                {matches.map(model => modelRow(model.id, model.displayName, model.id))}
+                {matches.map(model => modelRow(model.id, formatModelName(model.id, catalog.knownModels), model.id))}
                 {matches.length === 0 && <p className="py-3 text-copy-14 text-secondary">{search.trim() ? `No models match "${search.trim()}".` : `No ${vendor ?? ''} models in OpenRouter's list.`}</p>}
               </fieldset>
               {manualEntry}

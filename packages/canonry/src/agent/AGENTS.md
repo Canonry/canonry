@@ -527,3 +527,7 @@ Aero exposes the seven stored sentiment read tools in administrator and viewer
 turns. `canonry_sentiment_configure` and `canonry_sentiment_backfill` stay excluded
 from native Aero because they can start paid classifier work; API, CLI and
 external MCP retain those operator actions.
+
+Provider settings mutations (including override resets and optional Local-key
+removal), disconnect and reload stay excluded from native Aero. External MCP,
+CLI and API retain these explicitly authorized operator actions.

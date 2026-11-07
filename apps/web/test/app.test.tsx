@@ -4,6 +4,7 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
+import { within } from '@testing-library/react'
 
 import type { VisibilityReportResponse } from '@canonry/canonry-contracts'
 import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
@@ -261,13 +262,14 @@ test('runs route renders the operational timeline and filters', async () => {
   expect(html).toMatch(/Citation losses on emergency-intent prompts/)
 })
 
-test('settings route renders provider state, quota summary, and service health', async () => {
+test('settings route loads connection details while retaining integration and service health', async () => {
   const html = await renderApp('/settings')
 
   expect(html).toMatch(/Settings/)
-  expect(html).toMatch(/Rate limit/)
+  expect(html).toMatch(/Provider connections/)
+  expect(html).toMatch(/Loading connections/)
   expect(html).toMatch(/Service health/)
-  expect(html).toMatch(/Gemini/)
+  expect(html).toMatch(/Google OAuth/)
 })
 
 test('traffic route offers a source-agnostic connect entry point', async () => {
@@ -310,15 +312,17 @@ test('setup resumes at queries when a durable project has no query basket', asyn
   expect(html).toMatch(/Add queries/)
 })
 
-test('setup blocks progress until API, worker, and provider readiness pass', async () => {
+test('setup requires a configured provider before continuing and offers inline key entry', async () => {
   const html = await renderApp('/setup?experience=legacy', { providerNeedsConfig: true }, (fixture) => {
     fixture.dashboard.projects = []
     fixture.dashboard.runs = []
   })
 
-  expect(html).toMatch(/Launch is blocked until at least one provider is configured/)
-  expect(html).toMatch(/Paste a Gemini key/)
-  expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Continue<\/button>/)
+  const container = document.createElement('div')
+  container.innerHTML = html
+  const setup = within(container)
+  expect(setup.getByLabelText('Gemini API key').getAttribute('type')).toBe('password')
+  expect(setup.getByRole('button', { name: 'Continue', exact: true }).hasAttribute('disabled')).toBe(true)
 })
 
 test('setup treats a cancelled first run as retryable, not complete', async () => {
@@ -347,8 +351,8 @@ test('setup recognizes an older baseline outside the global run window', async (
     fixture.dashboard.runs = []
   })
 
-  expect(html).toMatch(/Setup is complete/)
-  expect(html).not.toMatch(/Launch AI Visibility check/)
+  expect(html).toMatch(/has saved AI Visibility results/)
+  expect(html).not.toMatch(/>Run check</)
 })
 
 test('overview route renders first-run onboarding guidance when there are no projects', async () => {
@@ -364,7 +368,7 @@ test('default overview covers multiple projects and recent runs', async () => {
 
   expect(html).toMatch(/Northstar Orthopedics/)
   expect(html).toMatch(/One follow-up run is queued/)
-  expect(html).toMatch(/System health/)
+  expect(html).toMatch(/Infrastructure/)
 })
 
 test('setup route renders step indicator with all step labels', async () => {

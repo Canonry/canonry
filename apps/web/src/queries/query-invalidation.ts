@@ -30,6 +30,7 @@ export const PROJECT_QUERY_DOMAINS = {
   sitemaps: 'getApiV1ProjectsByNameSitemaps',
   runs: 'getApiV1ProjectsByNameRuns',
   runAdmission: 'getApiV1ProjectsByNameRunAdmission',
+  runPreview: 'getApiV1ProjectsByNameRunPreview',
 } as const
 
 export type ProjectQueryDomain = keyof typeof PROJECT_QUERY_DOMAINS
@@ -142,7 +143,7 @@ export function refreshQueriesAfterWrite(queryClient: QueryClient, request: Requ
   const isRunStateRead = (query: Query): boolean => {
     const head = query.queryKey[0] as SdkQueryKey | undefined
     return isGlobalRead(query)
-      || ['getApiV1ProjectsByName', 'getApiV1ProjectsByNameOverview', 'getApiV1ProjectsByNameRuns', 'getApiV1ProjectsByNameTechnicalAeoRuns', 'getApiV1ProjectsByNameTimeline'].includes(head?._id ?? '')
+      || ['getApiV1ProjectsByName', 'getApiV1ProjectsByNameOverview', 'getApiV1ProjectsByNameRuns', 'getApiV1ProjectsByNameRunPreview', 'getApiV1ProjectsByNameTechnicalAeoRuns', 'getApiV1ProjectsByNameTimeline'].includes(head?._id ?? '')
       || ['getApiV1ProjectsByNameSeoOverview', 'getApiV1ProjectsByNameSeoRuns', 'getApiV1ProjectsByNameSeoStatus'].includes(head?._id ?? '')
       || (query.queryKey[0] === 'project-dashboard-full' && query.queryKey[3] === 'overview')
       || query.queryKey[0] === 'project-overview-slim'

@@ -181,12 +181,35 @@ that a search matched nothing. The bare
 `openrouter` connection never counts as an automatically selected sweep engine.
 Each `openrouter:<vendor/model>` selection keeps its own checkbox, result row,
 filter value and comparison history; use `providerDisplayName` to identify the
-model via OpenRouter alongside direct providers. Search behavior is automatic,
+model via OpenRouter alongside direct providers. The formatter uses catalog names
+when available and `formatModelName` from contracts for readable historical names
+without an admin settings read; raw route IDs remain filter/execution identities.
+Do not repeat the model beside its route label unless the recorded model differs.
+Global connection settings show the selected project's saved models inline. Search behavior is automatic,
 with no search-backend controls. Aero and classifiers choose their own models.
 
 ### Search answer services
 
 Render answer services from `/settings` data (`kind`, `connection`, `selectionKind`, `profiles`, `workflows`), never from a vendor name. `lib/provider-routes.ts` rebuilds route families from the catalog. A routed connection (OpenRouter, an answer service) is never an engine checkbox or a preselected engine; answer-service profiles are opt-in rows, never part of "All configured engines", never the research default, and never count toward setup readiness. Research results show the server's `evidence` and `citationMeasured` as returned, without deriving counts.
+
+### Provider connection settings
+
+`ProviderConnectionsSection` separates instance connections from project answer
+engines. Its editor reads credential-free saved values and capabilities from
+`/settings/providers/:name`, sends `expectedRevision` on writes, and uses explicit
+resets for inheritance. Keys stay in component state only; a saved key is not a
+successful network check. Disconnect reads fresh impact and sends that
+`impactRevision`; project selections and history remain available. Batch blockers
+lock identity fields while quota-only edits remain possible. Host-managed Vertex,
+batch and pricing fields stay read-only. Hosts without lifecycle metadata retain
+the compact setup form, without advertising unavailable reset or disconnect.
+
+`useUnsavedChanges` guards editor switching and router navigation. Project
+engine settings use the same draft guard for Simple and Advanced project defaults.
+Keep selected unavailable routes removable even when no connection is configured;
+search only filters the displayed choices and never changes the draft. A direct
+provider still has one project model override, while gateway models and service
+profiles remain separate explicit selections.
 
 ### Build workflow
 
@@ -364,10 +387,13 @@ no class split, so the class control never touches them. The section needs no
 read beyond /overview.
 
 Above the query table, "By engine" (`CitationVisibilitySection`,
-`byEngineClasses`) is one class at a time, Mentioned and Cited query counts per
-engine from GET /citations/visibility, one "Competitor cited instead of you"
-answer count with its base, and the cited-but-not-named split in Details; no
-summary tiles or per-model rate table. Below query evidence, "Past sweeps"
+GET /visibility-report) shows one class at a time and one row per stored engine,
+including each selected OpenRouter route. Both signals use their own API rate
+and answer denominator. The compact `.engine-comparison` table is shared with
+Advanced Property engine breakdowns: a readable model name above the secondary
+"via OpenRouter" route, then right-aligned percentages and compact fractions.
+Keep full answer counts and query class accessible, and unavailable reasons visible.
+Below query evidence, "Past sweeps"
 (`PastSweeps`, operator only) starts collapsed and retains one line per sweep:
 time, trigger ("Spot check" for a probe) and duration in words, with a partial or failed sweep's error detail kept; the time
 opens the run, and RunsPage keeps `RunRow`. "Competitors over time" is the
@@ -375,12 +401,11 @@ opens the run, and RunsPage keeps `RunRow`. "Competitors over time" is the
 closed "Competitor history" in both Simple and Advanced. Fetch historical
 competitors when that disclosure opens. Every class,
 metric and window control on these cards, the trend's included, uses
-`SegmentedRadioGroup`. On a phone all three fit the card with no inner
-scroller, in CSS only: By engine closes up its columns and wraps "Of 11
-queries" (`.av-grid-dense`), Past sweeps puts the trigger and duration under
+`SegmentedRadioGroup`. On a phone the historical grids fit the card with no inner
+scroller, in CSS only: Past sweeps puts the trigger and duration under
 the time (`.av-grid-sweeps`), and Competitors over time gives each brand's name
 and Pin/Unpin their own line above its three figures (`.av-grid-brands`). The
-desktop grids are unchanged. The Simple context
+desktop historical grids are unchanged. The Simple context
 row and the embed header name no date range ("All time" read over latest-sweep
 figures); each card states its own sweep, point or window.
 
@@ -646,7 +671,9 @@ Research retains ICP discovery and bounded tests. Promotion must use query-track
 Advanced tracked query scope and class filters must both honor URL selection. Simple tracked rows have no assignment classes, so retain their complete list and omit the class control even when the shared report URL carries a class filter. Retired scope keys require explicit recovery before scoped edit actions are available; the body keeps that recovery while the context row names the saved scope as unavailable. The tracked body renders no scope picker. Expose assignment membership behind an accessible disclosure. Within a Group, expand Subgroups before a collapsed All properties shortcut; leaf Properties remain expanded and collapsible. Reopening restores the selected Group or an explicit parent of the selected Property. Search results remain visible across matching levels.
 Research starts with direct query entry. Run once hides all pattern controls. Repeat modes offer saved patterns as an optional disclosure, not a required Template selector. Allow authorized writers to save named patterns in the browser. Repeat mode selects explicit markets, properties, or configured locations. Never expand groups implicitly. Use the shared research helper for declared variables and reject unresolved placeholders. Show every resolved query and its independent provider location before submission. Preserve editable previews and require a new review after setup changes. Submit exact reviewed queries with explicit provider, model, location, and applicable plan revision to the atomic research batch endpoint. Reuse the request key after an uncertain response. Keep direct and location-only research available without a plan or during hierarchy read failures. Save pattern provenance separately from final text. Show final-text classification and carry saved scope into tracking review. Research labels describe project brand-name/domain checks, not verified property identity. Keep saved answer engine, model, and location visible. Research and both Advanced answer views share `AnswerMarkdown` for contextual heading levels, lists, emphasis, safe external links, and no remote images. Saved answers use normal page scrolling and offer exact-text copying with inline feedback. Keep source details in a counted disclosure, preserve evidence classification, and reflow property answer rows within narrow containers. Closing scoped answers restores focus to their initiating engine button when available.
 Use the server-reported research `access.canRun` and `dailyRunLimit` for both direct and repeat research. Do not infer research permission from general `canWrite`; a research-only credential can run queries without broader write authority. Limited accounts use safe provider choices from stored history, never `/settings`, pattern saves, ICP discovery, or tracked-query promotion. Signed-in viewer authority still requires the deployment opt-in on the server. Each destination run counts toward the same project daily cap across browser, API, CLI, and MCP.
-After query publication, invalidate the project's query and measurement reads together. A refused preview or commit refreshes the workspace version while preserving the editable draft.
+After query publication, invalidate the project's query and measurement reads together. A refused preview or commit refreshes the workspace version while preserving the editable draft. A successful commit closes and resets the composer and restores focus to Add query; a failed commit preserves the input. Simple workspaces have no published Advanced plan, so only Advanced shows publication guidance. Missing query provenance is unknown, not evidence of an old query.
+
+Advanced setup supports manual Properties through the same `upsert-target` action as CLI/API. New sitemap proposals start unselected; existing included Properties remain selected. Small groups use the inline editor, with CSV import disclosed separately. The final review shows saved mention names, qualified names, and citation URL matchers; changing a display label never substitutes matching names. Name edits preserve Target identity, URL coverage, and assignments and invalidate the reviewed publish state. Optional market authoring uses `upsert-market` with exact frozen usage-edge triples, preserving any existing group association; the UI never expands Property selection into unstated provider/location/query membership. Drafts without frozen assignments publish their initial setup before creating markets.
 For Advanced Measurement, `VisibilityWorkspace` in `VisibilityTrendSection.tsx` consumes the server's frozen report. On clean URLs, normalize to the selected class using that exact population from the first all-class response; retain its cache timestamp and generated query-key identity so invalidation and scoped pagination still fetch correctly. Normalization writes the URL with `replace: true`, so it adds no history entry. Load Advanced Project signals and competitor history when their disclosures open, while Simple primary metrics still load on arrival.
 `VisibilityOverview` renders the Advanced overview: `VisibilityResultsToolbar` above the `VisibilityWorkspace` it keys by the whole selection except the open answer. The toolbar reads `useVisibilityReportFirstPage`, which is not keyed, so it mounts with the first available report and stays mounted, with its focus and open Filters panel, while a filter change reloads the results below. It is absent before the first report, on error, and for the v1 and unmeasured fallbacks. The toolbar row holds Query type, the run state and date, the Filters button, one removable token per non-default URL filter, the Property details link, and Manage queries (never in embeds). Every control value and token reads the URL selection, never the server echo; choice lists come from the displayed report and always keep the URL value. The inline Filters panel (engine, location, model, UTC dates, Results from) starts closed, closes on Escape back to its button, and Clear filters removes only those filters, never scope, market, class or the `runId` drawer. Tokens and toolbar buttons use the shared rectangular `Button` sizes and `text-button-14`, never pills. An Advanced explicit date range is a token, not context-row meta.
 Keep branded, non-brand, and unknown populations separate. Format server rates without deriving them from counts. Query results show each query once, with property and location details shared only when every engine row has identical context. Keep differing contexts beside their engine. A single-answer rate of 0 or 1 may read No or Yes, unless it carries `unattributed` or `unchecked`, which keeps its count; preserve multi-answer rates/counts and explicit unavailable evidence. Every Cited rate shows `uncheckedSourcesLabel` and every Mentioned rate `unattributedAnswersLabel`, through `excludedAnswersLabel` in `src/lib/format-helpers.ts`, never under the other signal; the Advanced trend adds `REPORT_TREND_UNCHECKED_NOTE` when a plotted Cited point left answers out. Engine rows reflow on narrow screens while retaining their mention/citation labels and answer action.
@@ -656,7 +683,7 @@ Each population opens with its headline strip: the class heading, a caption, and
 Those collapsed rows are one list, not five components. `Property outcomes`, `Query results` and `Competitors` here, plus `Project signals` and `Competitor history` in `ProjectPage.tsx`, all use `.visibility-disclosure` / `-summary` / `-label` / `-meta` from `styles.css`, so one label weight, one row rhythm, one divider and one focus ring cover the whole stack; they came from two components and read as two designs (64px bold rows against 44px quiet ones, a section gap in the middle, a focus ring on only three). Keep the utilities in the stylesheet rather than at the call sites: `design-tokens.test.ts` compiles the rule, which is the only place drift is visible. The Simple overview is the exception: it shows the same `CompetitorLandscape` as the "Competitors over time" card among its page sections, loaded on arrival. `Project signals` and Advanced `Competitor history` carry no count: their data loads when the row opens, so any number before that would be invented.
 
 The Advanced `Property outcomes` disclosure matches its Query results and Competitors siblings: a bold label and, beside it, the server's own `summary.outcomes.total` as `12 properties` (`1 property` singular). Never sum the buckets to get it; the response schema already requires the partition to sum to `total`, so a drift must stay visible rather than be papered over by a UI count. The buckets keep their labels and order (mentioned and cited, mentioned only, cited only, neither signal, not measured). `REPORT_OUTCOMES_HELP` explains all of it, and its `InfoTooltip` sits in the opened panel beside the bucket list, never inside the `<summary>` — a button there would toggle the disclosure on click and join the summary's accessible name. Its copy states what the server computes in `outcomeCounts` / `targetPresence` and nothing beyond it: the buckets count properties rather than answers, `citedOnly` is the engine using the page as a source without naming it in the answer, `notMeasured` covers both an unmeasured property and a half-measured one (calling that "mentioned but not cited" would assert an absence nothing measured), and one verified signal survives a later uncertain answer. The partition reads a property's own two signals and no competitor's, so neither this copy nor the same sentence on `measurementOutcomeCountsSchema` may say a rival was recommended instead — `citedOnly` never measured one. Give the five buckets five distinct counts in any test fixture, or a rotated tuple list renders one bucket's count under another label and still passes.
-Never draw an empty trend chart when every server rate is unavailable. Chart tooltip labels show the observation date without the time. When a chart has rates, retain its history table for screen readers without a duplicate visible disclosure; comparison warnings stay beside the chart. If no rates can be plotted, show the history table for recorded sweeps, including dates and comparison markers for partial measurements.
+Never draw an empty trend chart when every server rate is unavailable. Chart tooltip labels show the observation date without the time. When a chart has rates, retain its history table for screen readers without a duplicate visible disclosure; comparison guidance lives in the info tooltip beside the trend legend and the chart’s accessible description. If no rates can be plotted, show the history table for recorded sweeps, including dates and comparison markers for partial measurements.
 The scope picker starts with top-level Groups. Browse uses explicit frozen parent-group relationships and property memberships; keep query-context Markets separate. Search can find nested Groups and Properties. Never infer hierarchy from labels or property counts. Report recovery reads the typed `error.details` through `apiErrorDetails` and `parseVisibilityReportScopeErrorDetails`, never the message text: a retired market offers Show all markets and clears only `measurementMarketKey`, a retired scope offers Show whole site, and any other failure offers Retry.
 Scope changes must preserve unrelated URL state. `measurementRunId` must never write the global `runId` drawer parameter.
 Keep `Run AI sweep` project-wide and admin-gated. Do not offer scoped sweeps or expose query administration in embeds.
@@ -821,7 +848,9 @@ Use one named `material-*` preset on a bounded surface. It owns fill, outline,
 radius, and shadow. Do not stack material classes or add another border/shadow
 on the same edge. Layout classes still own padding and dimensions. A viewport
 attached sheet keeps its attached edges square. See `DESIGN.md` for the role
-map; preserve focus handling and accessible names when changing chrome.
+map; preserve focus handling and accessible names when changing chrome. Review
+adjacent sections together: a card edge followed by a section rule duplicates the
+boundary. Use spacing there, and plain disclosures inside bounded cards.
 
 The shared topbar's `ThemeSelector` uses icon options in `SegmentedRadioGroup`
 for Light/Dark/System and saves the choice in `canonry:theme`. Preserve its
@@ -849,15 +878,22 @@ Validation owns different risks:
   Tailwind v4 layers, properties, or color mixing.
 - `test/dashboard-class-baseline.test.tsx` checks representative route markup.
   Inspect changed class baselines before accepting them.
-- Browser checks cover desktop/narrow layouts, both themes, charts, and floating
-  controls with actual bundled fonts. Typecheck, type-aware lint, and build
-  remain required at final validation.
+- Browser checks prioritize complete desktop pages in both themes, including
+  empty, zero, failed, and expanded states, with actual bundled fonts. Inspect
+  hierarchy, repeated copy and adjacent borders as well as task completion;
+  verify keyboard focus after closing or saving. Narrow layouts are a compatibility
+  check. Typecheck, type-aware lint, and build remain required at final validation.
 
 ### Onboarding state and draft recovery
 
 - Public domain/name/locale and unsaved query/competitor inputs restore from allowlisted session storage scoped by base path and project. Scan consent and provider credentials never persist. Saving clears the saved field's draft; Reset restores persisted project/query state, while Skip or leaving preserves unsaved inputs.
-- Completion leads with a compact Project saved heading, one sweep status and Open project. Optional setup is a flat list: Connect your agent opens `/agent-setup`, and the data-source details start closed. Keep promotional demos and repeated explanatory paragraphs off this finish step. It derives scan/sweep outcomes from their latest saved runs. Distinguish never started, skipped, queued, running, partial, failed, cancelled and completed; name previous saved evidence separately. Provider/query readiness determines the next action.
-- Bare setup without a run offers Run first scan and a way to continue without scanning. Show the first scan's 100-page cap at the decision.
+- AI-first setup opens the project directly after its first result or an explicit skip. Site Health-first completion leads with a compact Project saved heading, one sweep status and Open project. Optional setup is a flat list: Connect your agent opens `/agent-setup`, and the data-source details start closed. Keep promotional demos and repeated explanatory paragraphs off this finish step. It derives scan/sweep outcomes from their latest saved runs. Distinguish never started, skipped, queued, running, partial, failed, cancelled and completed; name previous saved evidence separately. Provider/query readiness determines the next action.
+- Fresh setup leads with website and brand, then enters the exact project’s AI Visibility setup without a crawl or scan consent. `siteScan=scan` is an explicit optional Site Health entry; preserve its consent and first-scan 100-page cap. Existing scan links remain pinned to their run, while an unscanned project resumes its first AI check.
+- A saved provider connection is `Configured`, not verified access. Key saves and settings refreshes do not prove provider authentication or quota. Repair a failed first check inline with the shared revision-aware connection editor; preserve the run and saved queries on return.
+- Launch review uses the server's canonical saved query list, including its deduplication, and displays effective engines/models and market. Keep query research, generation, tuning, and result counts behind disclosures. Never infer a sweep ETA or completion percentage from elapsed time.
+- Correlate each run outcome once per launched run, including retries. A handled scan marker must not be reactivated by reloading its onboarding link. Keep the AI setup wizard mounted while completed-run overview summaries refresh; a handled AI run can still resume its saved result without emitting its outcome again. AI-first forward exits emit the existing finish/open_project action in the same journey, including an explicit skipped method; Back navigation is not completion.
+
+The schedule editor defaults a new schedule to the browser timezone, displays that zone beside its time, and requires a fresh matching server timing preview before Save. Render the returned `nextRunAt`; never compute cron or calendar recurrence in the browser.
 
 ### Layout and navigation
 
@@ -869,7 +905,7 @@ Validation owns different risks:
 - **Compact topbar** with breadcrumb, health pills, and primary action button.
 - **Page container** (`max-w-6xl`, centered) for all page content.
 - **Aero bar lane.** While the floating Aero bar shows, `RootLayout` adds `main-area-agent-bar` to `.main-area` (the wrapper holding the page): bottom padding plus a matching root `scroll-padding-bottom`, so the bar never covers a control. Product links and the version live in the sidebar and mobile navigation, outside the page. Pages never pad for the bar themselves.
-- Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`. Project pages instead use the project context row: identity lives in the topbar breadcrumb (plus one visually hidden `h1`, visible below md), and the sweep action lives in the row's `[data-project-actions]`. Embeds keep `page-header`.
+- Pages use a `page-header` (title + subtitle + optional actions) followed by `page-section` sections. Use `page-section-divider` only when a rule adds separation that an adjacent card or table edge does not already provide. Project pages instead use the project context row: identity lives in the topbar breadcrumb (plus one visually hidden `h1`, visible below md), and the sweep action lives in the row's `[data-project-actions]`. Embeds keep `page-header`.
 - **After a deploy.** Pages are lazy routes whose code files are named by content hash, and a deploy removes the old ones, so a tab opened before it fails when it opens a page it has not loaded. `ErrorBoundary` recognizes that error (`lib/stale-build.ts`), shows "Canonry was updated" with a Reload button instead of the raw message, and reloads by itself at most once per 30 s. TanStack Router's own once-per-message reload is not enough on its own: it never forgets, and Safari's message names no file. The server answers a missing file under `assets/` with a 404, never the app shell.
 - Sidebar main nav items use Lucide icons (`LayoutDashboard`, `Globe`, `Play`, `Settings`).
 - The sidebar Projects section shows each project with a colored dot indicating visibility health tone.

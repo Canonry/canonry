@@ -12,6 +12,7 @@ import { heyClient, isEmbed, isDashboardManagedSweeps } from '../api.js'
 import { toRunListItem } from '../build-dashboard.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { toTitleCase } from '../lib/format-helpers.js'
+import { formatTrackedRunKind } from '../lib/run-labels.js'
 import { useTriggerAllRuns } from '../queries/mutations.js'
 import { RUNS_STALE_MS } from '../queries/query-client.js'
 import type { RunListItemVm } from '../view-models.js'
@@ -181,7 +182,7 @@ export function RunsPage() {
             className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
           >
             <option value="all">All run types</option>
-            {Object.values(RunKinds).map((value) => <option key={value} value={value}>{toTitleCase(value.replaceAll('-', ' '))}</option>)}
+            {Object.values(RunKinds).map((value) => <option key={value} value={value}>{formatTrackedRunKind(value)}</option>)}
           </select>
           <select
             aria-label="Filter runs by date range"

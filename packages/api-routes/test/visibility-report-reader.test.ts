@@ -469,6 +469,29 @@ describe('buildVisibilityReport', () => {
       .toEqual({ numerator: 1, denominator: 2, rate: 0.5 })
     expect(report.populations.find(population => population.queryClass === 'unknown')?.summary.mentionCoverage)
       .toEqual({ numerator: 0, denominator: 1, rate: 0 })
+    expect(report.populations.map(population => [population.queryClass, population.breakdown.providers])).toEqual([
+      ['branded', [{ provider: 'openai', queryCount: 1, answerCount: 1, mentionCoverage: { numerator: 1, denominator: 1, rate: 1 }, citationCoverage: { numerator: 0, denominator: 1, rate: 0 } }]],
+      ['non-brand', [{ provider: 'openai', queryCount: 2, answerCount: 2, mentionCoverage: { numerator: 1, denominator: 2, rate: 0.5 }, citationCoverage: { numerator: 1, denominator: 2, rate: 0.5 } }]],
+      ['unknown', [{ provider: 'openai', queryCount: 1, answerCount: 1, mentionCoverage: { numerator: 0, denominator: 1, rate: 0 }, citationCoverage: { numerator: 0, denominator: 1, rate: 0 } }]],
+    ])
+  })
+
+  it('deduplicates target edges per engine and withholds missing-answer rates within the frozen scope', () => {
+    const selected = run()
+    const geminiSlots = selected.definition.slots.filter(slot => slot.id !== 'brand-slot').map(slot => ({ ...slot, id: `gemini-${slot.id}`, provider: 'gemini' }))
+    selected.definition.slots.push(...geminiSlots)
+    selected.definition.edges.push({ ...selected.definition.edges[0]!, id: 'duplicate-alpha' })
+    selected.observations.push({ ...selected.observations[0]!, slotId: 'gemini-alpha-slot', answerId: 'answer-gemini', model: 'gemini-model' })
+    const report = buildVisibilityReport(input({ runs: [selected], selection: { ...input().selection, queryClass: 'non-brand' } }))
+    expect(report.populations[0]!.breakdown.providers).toEqual([
+      { provider: 'gemini', queryCount: 2, answerCount: 1, mentionCoverage: { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' }, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' } },
+      { provider: 'openai', queryCount: 2, answerCount: 2, mentionCoverage: { numerator: 1, denominator: 2, rate: 0.5 }, citationCoverage: { numerator: 1, denominator: 2, rate: 0.5 } },
+    ])
+    const market = buildVisibilityReport(input({ runs: [selected], selection: { ...input().selection, queryClass: 'non-brand', scope: 'market', scopeKey: 'alpha' } }))
+    expect(market.populations[0]!.breakdown.providers).toEqual([
+      { provider: 'gemini', queryCount: 1, answerCount: 1, mentionCoverage: { numerator: 1, denominator: 1, rate: 1 }, citationCoverage: { numerator: 1, denominator: 1, rate: 1 } },
+      { provider: 'openai', queryCount: 1, answerCount: 1, mentionCoverage: { numerator: 1, denominator: 1, rate: 1 }, citationCoverage: { numerator: 1, denominator: 1, rate: 1 } },
+    ])
   })
 
   it.each(['project', 'group', 'property', 'market'] as const)('returns identical class populations and cursors within an all-class %s report', scope => {

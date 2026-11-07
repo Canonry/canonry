@@ -3,7 +3,7 @@ import { VISIBILITY_DISPLAY_COPY } from '@canonry/canonry-contracts'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { buildModelChangeNotice, describeError, formatPercent, formatPointDelta, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@canonry/canonry-contracts'
+import { buildModelChangeNotice, describeError, formatModelName, openRouterRouteModel, formatPercent, formatPointDelta, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@canonry/canonry-contracts'
 import type { BasketChangeEvent, BrandMetricsDto, MetricsWindow, ModelEvidenceState, PointDeltaDirection, QueryClass, QueryClassFilter } from '@canonry/canonry-contracts'
 import type { VisibilityReportComparison, VisibilityReportQueryRow, VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation, VisibilityReportSummary } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameVisibilityReportOptions } from '@canonry/canonry-api-client/react-query'
@@ -250,7 +250,7 @@ function reportComparisonCaption(comparison: VisibilityReportComparison | undefi
 
 /** Population size, then the compared sweep. The class itself is named by the section heading. */
 function reportHeadlineCaption(summary: VisibilityReportSummary, comparison: string | null): string {
-  const counts = `${summary.queryCount} ${summary.queryCount === 1 ? 'query' : 'queries'} · ${summary.answerCount} ${summary.answerCount === 1 ? 'answer' : 'answers'}`
+  const counts = `${summary.queryCount} measured ${summary.queryCount === 1 ? 'query' : 'queries'} · ${summary.answerCount} ${summary.answerCount === 1 ? 'answer' : 'answers'}`
   return comparison === null ? counts : `${counts} · ${comparison}`
 }
 
@@ -423,14 +423,14 @@ function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHea
     {group.rows.map(row => <tr className="measurement-engine-result" key={JSON.stringify([row.provider, row.model, row.location])}>
       <td className="measurement-result-engine">
         <span className="text-label-14-strong text-heading">{providerDisplayName(row.provider)}</span>
-        <span className="block break-words text-label-14 text-secondary">{row.model ?? 'Model not recorded'}</span>
+        {(!row.model || row.model !== openRouterRouteModel(row.provider)) && <span className="block break-words text-label-14 text-secondary" title={row.model ?? undefined}>{row.model ? (openRouterRouteModel(row.provider) ? formatModelName(row.model) : row.model) : 'Model not recorded'}</span>}
         {advanced && !sharedTargets ? <div className="mt-1 text-label-14 text-secondary"><QueryProperties targetKeys={row.targetKeys} labels={targetLabels} /></div> : null}
         {!sharedLocation ? <span className="mt-1 block text-label-14 text-secondary">{locationLabel(row.location)}</span> : null}
         <SentimentAnswerOutcome showLabel showSubjects={advanced} queryId={row.queryId} sourceSnapshotIds={row.sourceSnapshotIds ?? []} queryClass={queryClass === 'unknown' ? null : queryClass} provider={row.provider} model={row.model} location={row.location} />
       </td>
       <td><span className="measurement-result-mobile-label" aria-hidden="true">Mentioned</span><QueryResultRate value={row.mentionCoverage} signal="mentioned" singleAnswer={row.answerCount === 1} /></td>
       <td><span className="measurement-result-mobile-label" aria-hidden="true">Cited</span><QueryResultRate value={row.citationCoverage} signal="cited" singleAnswer={row.answerCount === 1} row={row} targetLabels={targetLabels} /></td>
-      <td className="measurement-result-action"><Button variant="ghost" className="pointer-coarse:min-h-11" aria-label={`View answers for ${row.query} · ${row.provider}`} onClick={event => onViewAnswers(row, event.currentTarget)}>{row.answerCount === 1 ? 'View answer' : 'View answers'}<ChevronRight size={16} aria-hidden="true" /></Button></td>
+      <td className="measurement-result-action"><Button variant="ghost" className="pointer-coarse:min-h-11" aria-label={`View answers for ${row.query} · ${providerDisplayName(row.provider)}`} onClick={event => onViewAnswers(row, event.currentTarget)}>{row.answerCount === 1 ? 'View answer' : 'View answers'}<ChevronRight size={16} aria-hidden="true" /></Button></td>
     </tr>)}
   </tbody>
 }
@@ -466,7 +466,7 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
   const segments = Array.from({ length: segment + 1 }, (_, index) => index)
   const boundaries = new Set(population.trend.slice(1).map(point => point.continuity.state))
   const notes = [
-    ...(points.length === 1 ? ['First measurement. A trend appears after another comparable run.'] : []),
+    ...(points.length === 1 ? ['This view has one measurement point. A trend needs at least two comparable points.'] : []),
     ...(boundaries.has('definition-changed') ? ['Gaps mark changes to what was measured.'] : []),
     ...(boundaries.has('model-changed') ? ['Gaps mark changes to answer engines or models.'] : []),
     ...(boundaries.has('legacy-unknown') ? ['Older runs lack the details needed for comparison.'] : []),
@@ -474,19 +474,24 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
     // A plotted Cited point may leave out answers whose sources could not be checked; the chart says so, the table counts them.
     ...(population.trend.some(point => point.citationCoverage.unchecked !== undefined) ? [REPORT_TREND_UNCHECKED_NOTE] : []),
   ]
-  if (points.length === 0) return <p className="py-6 text-copy-14 text-secondary">No measured trend for this selection.</p>
+  if (points.length === 0) return population.summary.mentionCoverage.rate !== null || population.summary.citationCoverage.rate !== null
+    ? null
+    : <p className="py-6 text-copy-14 text-secondary">No measured trend for this selection.</p>
   const hasRates = population.trend.some(point => point.mentionCoverage.rate !== null || point.citationCoverage.rate !== null)
+  const hasMultipleMeasuredPoints = hasRates && points.length > 1
+  const TrendDataContainer = hasMultipleMeasuredPoints ? 'div' : 'details'
   return <>
-    {hasRates ? <>
-      <fieldset className="flex flex-wrap gap-x-5 py-1 text-label-14 text-secondary">
+    {hasMultipleMeasuredPoints ? <>
+      <fieldset className="flex flex-wrap items-center gap-x-5 py-1 text-label-14 text-secondary">
         <legend className="sr-only">Trend legend</legend>
         {REPORT_TREND_SERIES.map(series => <label key={series.key} className="flex min-h-11 items-center gap-2">
           <input type="checkbox" className="size-4 accent-mono-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" checked={visibleSeries[series.key]} disabled={visibleSeries[series.key] && visibleKeys.length === 1} onChange={() => toggleSeries(series.key)} />
           <svg aria-hidden="true" className="shrink-0" width="24" height="10" viewBox="0 0 24 10"><line x1="0" y1="5" x2="24" y2="5" stroke={series.color} strokeWidth="2" strokeDasharray={series.dashed ? '6 4' : undefined} /><circle cx="12" cy="5" r="3" fill={series.dashed ? REPORT_TREND_HOLLOW_DOT : series.color} stroke={series.color} strokeWidth="2" /></svg>
           {series.label}
         </label>)}
+        {notes.length > 0 && <InfoTooltip text={notes.join(' ')} />}
       </fieldset>
-      {notes.length > 0 && <p id={descriptionId} className="pb-3 text-copy-14 text-secondary">{notes.join(' ')}</p>}
+      {notes.length > 0 && <span id={descriptionId} className="sr-only">{notes.join(' ')}</span>}
       <div className="visibility-trend-chart" role="img" data-visible-series={visibleKeys.join(' ')} aria-describedby={notes.length > 0 ? descriptionId : undefined} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -502,12 +507,12 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-    </> : <p className="py-6 text-copy-14 text-secondary">No measured trend for this selection.</p>}
-    <div className={hasRates ? 'sr-only' : 'overflow-x-auto'}>
+    </> : !hasRates ? <p className="py-6 text-copy-14 text-secondary">No measured trend for this selection.</p> : null}
+    <TrendDataContainer className={hasMultipleMeasuredPoints ? 'sr-only' : 'overflow-x-auto'}>{!hasMultipleMeasuredPoints && <summary className="cursor-pointer text-label-14 text-secondary">Measurement details</summary>}
       <table className="evidence-table" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} trend data`}><thead><tr><th>Date</th><th>Mentioned</th><th>Cited</th><th>Comparison</th></tr></thead><tbody>
         {population.trend.map(point => <tr key={point.runId}><td>{new Date(point.createdAt).toLocaleDateString()}</td><td><ReportRate value={point.mentionCoverage} signal="mentioned" /></td><td><ReportRate value={point.citationCoverage} signal="cited" /></td><td>{point.continuity.state.replaceAll('-', ' ')}</td></tr>)}
       </tbody></table>
-    </div>
+    </TrendDataContainer>
   </>
 }
 
@@ -555,7 +560,7 @@ export const VISIBILITY_TOOLBAR_COPY = {
   manageQueries: 'Manage queries',
   removeFilter: (label: string) => `Remove filter ${label}`,
   engine: (provider: string) => `Engine: ${providerDisplayName(provider)}`,
-  model: (model: string) => `Model: ${model}`,
+  model: (model: string) => `Model: ${model.includes('/') ? formatModelName(model) : model}`,
   location: (location: string) => `Requested search location: ${location}`,
   noLocation: 'No location requested',
   dateRange: (from: string, to: string) => `${from} to ${to} (UTC)`,
@@ -715,7 +720,7 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
       <div className="visibility-report-filters">
         {filterSelect('Answer engine', 'measurementProvider', provider, withSelectedChoice([{ value: '', label: 'All engines' }, ...filterOptions.providers.map(value => ({ value, label: providerDisplayName(value) }))], provider, providerDisplayName(provider)))}
         {filterSelect('Requested search location', 'measurementLocation', location, withSelectedChoice([{ value: '', label: 'All requested locations' }, ...filterOptions.locations.flatMap(option => option.kind === 'exact' ? [{ value: option.value, label: option.value }] : option.kind === 'none' ? [{ value: 'none', label: VISIBILITY_TOOLBAR_COPY.noLocation }] : [])], location, location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : location))}
-        {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value }))], model, model), 'Filter by the AI model recorded with each answer. This does not change the model used by future checks.')}
+        {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value.includes('/') ? formatModelName(value) : value }))], model, model.includes('/') ? formatModelName(model) : model), 'Filter by the AI model recorded with each answer. This does not change the model used by future checks.')}
         {dateInput('Start date (UTC)', 'measurementFrom', selection.from, 'T00:00:00.000Z')}
         {dateInput('End date (UTC)', 'measurementTo', selection.to, 'T23:59:59.999Z')}
         {filterSelect('Results from', 'measurementRunId', runId, withSelectedChoice([{ value: '', label: 'Latest saved check' }, ...[...population.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], runId, 'Selected check'), 'Choose a saved AI Visibility check to view its results. No new check starts.')}
@@ -792,10 +797,13 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       const aggregateScope = selection.mode === 'advanced' && selection.scope.kind !== 'property'
       const classNoun = REPORT_CLASS_NOUN[population.queryClass]
       const comparisonCaption = reportComparisonCaption(population.comparison, displayedSweepAt(selection, population))
+      const historyHelp = population.trend.length === 0 && (population.summary.mentionCoverage.rate !== null || population.summary.citationCoverage.rate !== null)
+        ? 'No trend history is available for this selection.'
+        : population.trend.length === 1 ? 'This view has one measurement point. A trend needs at least two comparable points.' : REPORT_CHANGE_COPY.explanation
       return <section key={population.queryClass} aria-label={REPORT_CLASS_LABEL[population.queryClass]} className="py-4">
       <div className="section-head flex-wrap items-center">
         <div className="flex items-center gap-1"><h2>{REPORT_CLASS_LABEL[population.queryClass]}</h2><InfoTooltip text={population.queryClass === 'non-brand' ? 'Queries that do not name the measured identity. Geography alone is not a brand.' : population.queryClass === 'branded' ? 'Queries that name the measured identity.' : 'These queries were not labeled as branded or non-brand when measured. Their saved results remain available here, separate from branded and non-brand rates.'} /></div>
-        <div className="report-headline-caption"><span className="tabular-nums">{reportHeadlineCaption(population.summary, comparisonCaption)}</span><InfoTooltip text={REPORT_CHANGE_COPY.explanation} /></div>
+        <div className="report-headline-caption"><span className="tabular-nums">{reportHeadlineCaption(population.summary, comparisonCaption)}</span><InfoTooltip text={historyHelp} /></div>
       </div>
       <dl className="report-headline mt-3" data-columns={aggregateScope ? 3 : 2} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} headline results`}>
         <ReportHeadlineCell label={aggregateScope ? 'Answers mentioning a property' : 'Mentioned answers'} help={selection.mode === 'advanced' ? REPORT_HEADLINE_HELP.advancedMention : REPORT_HEADLINE_HELP.simpleMention} value={population.summary.mentionCoverage} signal="mentioned" unit="answers" classNoun={classNoun} change={reportChangeLine(population.comparison, 'mentionCoverage')} />
@@ -830,7 +838,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         {answers.items.map(answer => <article key={answer.answerId} className="border-b border-default py-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <strong className="text-label-14 text-heading">{providerDisplayName(answer.provider)}</strong>
-            {answer.model ? <span className="text-label-13 text-secondary">{answer.model}</span> : null}
+            {answer.model && answer.model !== openRouterRouteModel(answer.provider) ? <span className="text-label-13 text-secondary" title={answer.model}>{openRouterRouteModel(answer.provider) ? formatModelName(answer.model) : answer.model}</span> : null}
             <span className="text-label-13 text-secondary">{answer.location === null ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(answer.location)}</span>
             <span className="text-label-13 text-secondary">{new Date(answer.createdAt).toLocaleDateString()}</span>
             <ToneBadge tone="neutral">{answer.mentioned === null ? answer.mentionUnavailableReason === 'identity-ambiguous' ? VISIBILITY_DISPLAY_COPY.ambiguous : 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge>
@@ -1310,7 +1318,7 @@ function presetHelp(row: ModelChangeRow, latestServedIds: readonly string[] | nu
   if (!isPerplexityPreset(row.provider, row.to)) return null
   if (row.served) return `Preset picks its own model. Answered with ${formatModelEvidence(row.served.to)} (was ${formatModelEvidence(row.served.from)}).`
   return latestServedIds && latestServedIds.length > 0
-    ? `Preset picks its own model. Answered with ${latestServedIds.join(', ')}.`
+    ? `Preset picks its own model. Answered with ${latestServedIds.map(model => model.includes('/') ? formatModelName(model) : model).join(', ')}.`
     : 'Preset picks its own model.'
 }
 
@@ -1438,7 +1446,7 @@ function WhatChanged({
   for (const [provider, entry] of Object.entries(served).sort(([a], [b]) => providerDisplayName(a).localeCompare(providerDisplayName(b)))) {
     // An older API sends no served ids; the recorded model stands in.
     const servedIds = (entry.latestServedModelIds as readonly string[] | undefined) ?? []
-    const ids = servedIds.length > 0 ? servedIds.join(', ') : formatModelEvidence(entry.latestObservation.state)
+    const ids = servedIds.length > 0 ? servedIds.map(model => model.includes('/') ? formatModelName(model) : model).join(', ') : formatModelEvidence(entry.latestObservation.state)
     details.push(<>{providerDisplayName(provider)} last answered with <strong>{ids}</strong> on <strong>{day(observedInstant(entry.latestObservation.observedAt))}</strong></>)
   }
 
@@ -1871,8 +1879,9 @@ export function VisibilityTrendSection({
   const readout = latestRate !== null && latestPlotted && (
     <div className="visibility-trend-current">
       <span className="visibility-trend-current-dot" style={{ backgroundColor: headlineDotColor }} aria-hidden="true" />
-      <span className="visibility-trend-current-label">{spokenLabel}</span>
-      <span className="visibility-trend-current-value">{formatPercent(latestRate)}</span>
+      <span className="visibility-trend-current-label">{spokenLabel}{!showsClassControl && metric !== 'mentionShare' ? ` · ${requestedClass} queries` : ''}</span>
+      <span className="visibility-trend-current-value">{formatPercent(latestRate)}<span className="sr-only"> · {metric === 'mentionShare' ? mentionShareScopeLabel(mentionShareScope) : `${requestedClass === 'all' ? 'all' : requestedClass} queries`}</span></span>
+      {trend?.rows.length === 1 && <InfoTooltip text="This view has one measurement point. A trend needs at least two comparable points." placement="bottom" />}
       {pointChange !== null && (
         <span className={`visibility-trend-current-delta ${changeQualified ? 'text-muted' : POINT_CHANGE_TONE[pointChange.direction]}`}>
           {pointChangeWords(pointChange)}
@@ -1884,9 +1893,6 @@ export function VisibilityTrendSection({
 
   const controls = (
     <div className="visibility-trend-controls">
-      {showsClassControl && (
-        <SegmentedRadioGroup options={QUERY_CLASS_OPTIONS} value={queryClass} onChange={setQueryClass} label="Query type" />
-      )}
       <SegmentedRadioGroup options={METRIC_OPTIONS} value={metric} onChange={setMetric} label="Metric" className="visibility-trend-metric-control" />
       {metric !== 'mentionShare' && (
         <SegmentedRadioGroup options={MODE_OPTIONS} value={mode} onChange={setMode} label="Series" />
@@ -2022,6 +2028,8 @@ export function VisibilityTrendSection({
     }
   }
 
+  const compactTrend = Boolean(trend?.hasData && trend.rows.length === 1 && !error && !(metric === 'mentionShare' && competitorCount === 0))
+
   return (
     <div className="visibility-trend-stack">
       <section className="visibility-trend" aria-labelledby={titleId}>
@@ -2042,11 +2050,17 @@ export function VisibilityTrendSection({
               {modelChangeNotice.text}
             </p>
           )}
+          {showsClassControl && <div className="mb-3"><SegmentedRadioGroup options={QUERY_CLASS_OPTIONS} value={queryClass} onChange={setQueryClass} label="Query type" /></div>}
           {readout}
-          {controls}
-          {body}
+          {!compactTrend && <>{controls}{body}</>}
         </div>
-        <Disclosure items={trendDetails} />
+        {compactTrend ? (
+          <details className="av-details">
+            <summary>Filters and details</summary>
+            <div className="pb-4">{controls}{body}</div>
+            {trendDetails.length > 0 && <ul className="av-details-list">{trendDetails.map((item, index) => <li key={index}>{item}</li>)}</ul>}
+          </details>
+        ) : <Disclosure items={trendDetails} />}
       </section>
       {data && !error ? (
         <>

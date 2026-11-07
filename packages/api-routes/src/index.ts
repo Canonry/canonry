@@ -247,6 +247,9 @@ export interface ApiRoutesOptions {
   getCachedProviderModels?: ResearchRoutesOptions['getCachedProviderModels']
   /** Callback when a provider config is updated via API */
   onProviderUpdate?: SettingsRoutesOptions['onProviderUpdate']
+  getProviderConnections?: SettingsRoutesOptions['getProviderConnections']
+  onProviderSettingsUpdate?: SettingsRoutesOptions['onProviderSettingsUpdate']
+  onProviderDisconnect?: SettingsRoutesOptions['onProviderDisconnect']
   /** Reload the execution host's provider configuration without restarting it. */
   onProviderReload?: SettingsRoutesOptions['onProviderReload']
   /** Google OAuth configuration summary + update callback */
@@ -790,6 +793,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
       onProviderUpdate: opts.onProviderUpdate,
+      getProviderConnections: opts.getProviderConnections,
+      onProviderSettingsUpdate: opts.onProviderSettingsUpdate,
+      onProviderDisconnect: opts.onProviderDisconnect,
       onProviderReload: opts.onProviderReload,
       google: opts.googleSettingsSummary,
       onGoogleUpdate: opts.onGoogleSettingsUpdate,

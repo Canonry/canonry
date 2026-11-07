@@ -53,7 +53,7 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
   }
 
   return (
-    <div className="mt-3 material-base p-3 space-y-2">
+    <div className="mt-3 space-y-3">
       <div>
         <div className="flex items-center justify-between">
           <label className="text-label-14 text-secondary" htmlFor="google-client-id">Client ID</label>
@@ -87,7 +87,7 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
         />
       </div>
       {redirectUri && marketingRedirectUri && (
-        <div className="material-base px-3 py-2">
+        <div className="space-y-2">
           <p className="text-copy-14 text-secondary">Authorized redirect URIs</p>
           <dl className="mt-1 space-y-2 text-label-12">
             <div>

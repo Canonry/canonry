@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-libra
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import type { CompetitorLandscapeResponse, EmbedClientConfig, MeasurementPlanResponse, MeasurementPlanV2, VisibilityReportResponse } from '@canonry/canonry-contracts'
-import { aggregateSentiment, emptyCitationVisibility, queryTrackingWorkspaceResponseSchema, sentimentSettingsSchema, sentimentSummarySchema, visibilityReportResponseSchema } from '@canonry/canonry-contracts'
+import { aggregateSentiment, projectDtoSchema, projectOverviewDtoSchema, runPreviewDtoSchema, queryTrackingWorkspaceResponseSchema, sentimentSettingsSchema, sentimentSummarySchema, visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
@@ -20,10 +20,11 @@ import { MARKET_SCOPE_COPY } from '../src/components/project/VisibilityScopePick
 import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src/lib/measurement-view-url.js'
 import { PROJECT_SCOPE_COPY } from '../src/lib/project-scope.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
-import { AINYC_LATEST_RUN, ainycCitationVisibility, ainycComparison, ainycEvidence, ainycLandscape, ainycMentionShare, ainycMetrics, ainycProviderScores, ainycRuns } from './ainyc-visibility-fixture.js'
+import { AINYC_LATEST_RUN, ainycComparison, ainycEvidence, ainycLandscape, ainycMentionShare, ainycMetrics, ainycProviderScores, ainycRuns } from './ainyc-visibility-fixture.js'
 import { toRunListItem } from '../src/build-dashboard.js'
 import { mapInsightDtosToVms } from '../src/mappers/insight-mapper.js'
 import { AdvancedMeasurementSection } from '../src/components/project/advanced-measurement/AdvancedMeasurementSection.js'
+import { mockFetch } from './mock-fetch.js'
 import {
   getApiV1CdpStatusQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
@@ -34,13 +35,22 @@ import {
   getApiV1ProjectsByNameMeasurementReportQueryKey,
   getApiV1ProjectsByNameQueriesQueryKey,
   getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey,
-  getApiV1ProjectsByNameCitationsVisibilityQueryKey,
   getApiV1ProjectsByNameSchedulesQueryKey,
   getApiV1ProjectsByNameScheduleQueryKey,
   getApiV1ProjectsByNameQueryKey,
+  getApiV1ProjectsByNameRunsQueryKey,
   getApiV1ProjectsByNameRunAdmissionQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
 } from '@canonry/canonry-api-client/react-query'
+
+const simpleRunPreview = runPreviewDtoSchema.parse({
+  mode: 'simple', revision: null, queryCount: 1, assignmentCount: 1,
+  queryClasses: [{ queryClass: 'non-brand', queryCount: 1, assignmentCount: 1 }],
+  requestCount: 1, expectedRequestCount: 1,
+  engines: [{ provider: 'claude', models: ['test-model'], requestCount: 1, expectedRequestCount: 1, available: true }],
+  locations: [{ location: null, requestCount: 1 }],
+  admission: { refused: false, retryAfter: null, providers: {} }, activeRunId: null, canStart: true, blockedReason: null,
+})
 
 type EmbedBlock = Pick<EmbedClientConfig, 'enabled' | 'views' | 'projectTabs'>
 
@@ -119,8 +129,8 @@ async function renderAt(
     siteHealthScan?: 'completed' | 'partial' | 'failed'
     /** GET /analytics/metrics for every window, so the trend and What changed render in one pass. */
     analyticsMetrics?: unknown
-    /** GET /citations/visibility, so the By engine card renders in one pass. */
-    citationVisibility?: unknown
+    /** Canonical report for the By engine card, scoped separately from the report workspace. */
+    engineReport?: VisibilityReportResponse
     /** GET /run-admission: whether the next sweep would be refused, or leave providers out. */
     runAdmission?: unknown
   } = {},
@@ -139,8 +149,8 @@ async function renderAt(
     // The trend's key carries its window, competitor frame and sweep revision; the prefix seeds all of them.
     queryClient.setQueryDefaults(['analytics-metrics'], { initialData: options.analyticsMetrics })
   }
-  if (options.citationVisibility !== undefined) {
-    queryClient.setQueryData(getApiV1ProjectsByNameCitationsVisibilityQueryKey({ client: heyClient, path: { name: projectName } }), options.citationVisibility)
+  if (options.engineReport !== undefined) {
+    queryClient.setQueryData([{ ...getApiV1ProjectsByNameVisibilityReportQueryKey({ client: heyClient, path: { name: projectName }, query: { queryClass: 'all', limit: 1 } })[0], tags: ['none'] }], options.engineReport)
   }
   if (options.cdpStatus !== undefined) {
     queryClient.setQueryData(
@@ -834,6 +844,41 @@ test.each([false, true])('Simple query evidence stays open with its class and si
   if (embed) expect(section!.textContent).not.toContain('Manage queries')
 })
 
+test('closing Simple answer evidence restores its View control after a direct-link visit', async () => {
+  const fixture = createDashboardFixture({})
+  const project = fixture.dashboard.projects.find(item => item.project.id === 'project_citypoint')!
+  const evidence = project.visibilityEvidence[0]!
+  onTestFinished(mockFetch(url => {
+    const path = new URL(url).pathname
+    if (path.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (path.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
+    if (path.endsWith('/runs')) return jsonResponse([])
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }))
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  const router = createAppRouter(queryClient, { initialEntries: [`/projects/project_citypoint?evidenceId=${encodeURIComponent(evidence.id)}`] })
+  await router.load()
+  const page = render(<QueryClientProvider client={queryClient}><DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}><RouterProvider router={router} /></DashboardProvider></QueryClientProvider>)
+  const directLink = await page.findByRole('dialog', { name: evidence.query })
+  fireEvent.keyDown(directLink, { key: 'Escape' })
+  await waitFor(() => expect(page.queryByRole('dialog')).toBeNull())
+  expect(router.state.location.search.evidenceId).toBeUndefined()
+
+  const table = document.querySelector<HTMLElement>('#evidence-section')!
+  fireEvent.click(within(table).getByRole('button', { name: evidence.query, exact: true }))
+  const opener = within(table).getAllByRole('button', { name: 'View', exact: true })[0]!
+  for (const close of ['Escape', 'Close']) {
+    fireEvent.click(opener)
+    const dialog = await page.findByRole('dialog', { name: evidence.query })
+    if (close === 'Escape') fireEvent.keyDown(dialog, { key: 'Escape' })
+    else fireEvent.click(within(dialog).getByRole('button', { name: 'Close', exact: true }))
+    await waitFor(() => expect(page.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(opener))
+    expect(router.state.location.search.evidenceId).toBeUndefined()
+  }
+})
+
 test('an unpublished Advanced draft and stale report filters do not replace the Simple overview', async () => {
   const html = await renderAt('/projects/project_citypoint?measurementScope=group&measurementScopeKey=old&queryClass=unknown', undefined, {
     plan: { active: null },
@@ -1094,7 +1139,7 @@ test('the unified visibility report owns scope, class, paging, search, and answe
   expect(await page.findByText('Harbor Search Result')).toBeTruthy()
   expect(observed.some(path => path.includes('/measurement-report?'))).toBe(false)
 
-  fireEvent.click(page.getByRole('button', { name: 'View answers for Harbor Search Result · openai' }))
+  fireEvent.click(page.getByRole('button', { name: 'View answers for Harbor Search Result · OpenAI' }))
   expect(await page.findByText('Stored answer text.')).toBeTruthy()
   await waitFor(() => expect(observed.some(path => path.includes('queryKey=visibility-query-old'))).toBe(true))
   fireEvent.click(page.getByRole('button', { name: 'Close answers' }))
@@ -1296,7 +1341,7 @@ test('an embed with no project-tab allowlist never mounts Portfolio data reads',
     || path.includes('/measurement-overview?')
     || path.includes('/query-tracking'),
   )).toEqual([])
-  expect(observed.some(path => path.includes('/visibility-report?'))).toBe(false)
+  expect(observed.filter(path => path.includes('/visibility-report?'))).toEqual([`/api/v1/projects/${fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name}/visibility-report?queryClass=all&limit=1`])
 })
 
 test('embedded Queries and legacy Discovery URLs fall back before reading unpublished tracking or research data', async () => {
@@ -1651,7 +1696,7 @@ test('cached setup and queries remain usable when their background refresh fails
   })
   expect(screen.getByRole('heading', { name: 'Properties' })).toBeTruthy()
   expect(screen.queryByText('Could not load the active measurement setup.')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Continue with 1 Property' }))
   await waitFor(() => expect(screen.getByRole('heading', { name: 'Groups' })).toBeTruthy())
   fireEvent.click(screen.getByRole('button', { name: 'Continue without groups' }))
   await waitFor(() => expect(screen.getByRole('heading', { name: 'Queries' })).toBeTruthy())
@@ -1826,10 +1871,11 @@ test('a fresh project offers one AI Visibility setup action instead of an unread
   expect(html).toContain('>Map site<')
   expect(html).toContain('Set up AI Visibility')
   expectTrendChartFirst(html)
-  expect(html).toContain('Where competitors are winning')
+  expect(html).not.toContain('Where competitors are winning')
+  expect([...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('h2')].map(heading => heading.textContent)).not.toContain('By engine')
   expect(html).toContain('Competitors over time')
   expect(html).toContain('Add competitor')
-  expect(html).toContain('Competitive mention and citation gaps appear after the first AI Visibility check.')
+  expect(html).not.toContain('Competitive mention and citation gaps appear after the first AI Visibility check.')
   expect(html).not.toContain('No completed check')
   expect(html.match(/No data/g) ?? []).toHaveLength(0)
   expect(html.match(/Run a check first/g) ?? []).toHaveLength(0)
@@ -1929,7 +1975,7 @@ test('a first sweep in flight replaces empty-state instructions with one live st
   document.body.append(pastSweepsPage)
   onTestFinished(() => { pastSweepsPage.remove() })
   expect(within(within(pastSweepsPage).getByRole('table', { name: 'Past checks' })).getByRole('cell', { name: 'queued' })).toBeTruthy()
-  expect(html.match(/Competitive mention and citation gaps appear after the first AI Visibility check\./g)).toHaveLength(1)
+  expect(html).not.toContain('Competitive mention and citation gaps appear after the first AI Visibility check.')
   expect(html.match(/No data/g) ?? []).toHaveLength(0)
   expect(html.match(/Run a check first/g) ?? []).toHaveLength(0)
   expect(html).not.toContain('No comparison yet')
@@ -1987,7 +2033,7 @@ test('What changed names ainyc\'s added queries as written and dates the sweep b
     'Claude last answered with claude-sonnet-5 on Sep 29',
     'Gemini last answered with gemini-3.5-flash on Sep 29',
     'OpenAI last answered with chat-latest on Sep 29',
-    'Perplexity last answered with openai/gpt-6-luna on Sep 29',
+    'Perplexity last answered with GPT-6 Luna on Sep 29',
   ])
   expect([...changes.querySelectorAll('button[aria-label]')].map(button => button.getAttribute('aria-label')))
     .toContainEqual(expect.stringMatching(/ Check before: Jul 14\.$/))
@@ -2003,7 +2049,7 @@ test('Where competitors are winning and the query table read ainyc\'s latest swe
     },
   })
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  const card = [...doc.querySelectorAll('section.page-section-divider')]
+  const card = [...doc.querySelectorAll('section')]
     .find(section => section.querySelector('h2')?.textContent === 'Where competitors are winning')!
 
   expect(card.querySelector('.av-card-meta')?.textContent).toBe('Latest check')
@@ -2036,7 +2082,7 @@ test('Where competitors are winning and the query table read ainyc\'s latest swe
   expect([...table.querySelectorAll('.query-evidence-new')].map(label => label.closest('tr')!.querySelector('button')!.getAttribute('aria-label')))
     .toEqual(['Canonry', 'Canonry AEO agency', 'Canonry reviews'])
   expect(table.textContent).not.toContain('First mention')
-  expect([...table.querySelector('tbody .query-evidence-meta')!.children].map(item => item.textContent)).toEqual(['Non-brand', 'Claude', 'Gemini', 'OpenAI', 'Perplexity'])
+  expect([...table.querySelector('tbody .query-evidence-meta')!.children].map(item => item.textContent)).toEqual(['Non-brand'])
   expect(doc.querySelector('#evidence-section')!.textContent).toContain('1 to 14 of 14 queries')
   expect(html.indexOf('Where competitors are winning')).toBeLessThan(html.indexOf('Query evidence'))
 })
@@ -2067,6 +2113,15 @@ test('switching mention share to branded leaves gaps explicitly scoped to all qu
 })
 
 test('By engine, Past sweeps and Competitors over time read ainyc as the approved cards', async () => {
+  const engineReport = visibilityReportResponse({ queryClass: 'non-brand' })
+  engineReport.selection.run.id = AINYC_LATEST_RUN.id
+  engineReport.selection.measurement.completedAt = AINYC_LATEST_RUN.createdAt
+  engineReport.populations[0]!.breakdown.providers = [
+    { provider: 'claude', queryCount: 11, answerCount: 11, mentionCoverage: { numerator: 1, denominator: 11, rate: 0.0909 }, citationCoverage: { numerator: 2, denominator: 11, rate: 0.1818 } },
+    { provider: 'gemini', queryCount: 11, answerCount: 11, mentionCoverage: { numerator: 3, denominator: 11, rate: 0.2727 }, citationCoverage: { numerator: 3, denominator: 11, rate: 0.2727 } },
+    { provider: 'openai', queryCount: 11, answerCount: 11, mentionCoverage: { numerator: 0, denominator: 11, rate: 0 }, citationCoverage: { numerator: 0, denominator: 11, rate: 0 } },
+    { provider: 'perplexity', queryCount: 11, answerCount: 11, mentionCoverage: { numerator: 3, denominator: 11, rate: 0.2727 }, citationCoverage: { numerator: 4, denominator: 11, rate: 0.3636 } },
+  ]
   const html = await renderAt('/projects/project_citypoint', undefined, { plan: { active: null }, competitorLandscape: ainycLandscape() }, {
     configureFixture(dashboard) {
       const project = withAinycSweeps(dashboard)
@@ -2074,7 +2129,7 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
       project.competitors = [{ id: 'competitor_pbj', domain: 'pbjmarketing.com', citationCount: 5, totalQueries: 14, pressureLabel: '', citedQueries: [], movement: '', notes: '' }]
       project.providerScores = ainycProviderScores()
     },
-    citationVisibility: ainycCitationVisibility(),
+    engineReport,
   })
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const card = (title: string) => [...doc.querySelectorAll('section.overview-brief')]
@@ -2082,33 +2137,12 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
   const cells = (row: Element) => [...row.children].map(cell => cell.textContent)
 
   const byEngine = card('By engine')
-  expect([...byEngine.querySelectorAll('.av-grid tr')].map(cells)).toEqual([
-    ['Of 11 queries', 'Claude', 'Gemini', 'OpenAI', 'Perplexity'],
-    ['Mentioned', '1', '3', '0', '3'],
-    ['Cited', '2', '3', '0', '4'],
-  ])
-  expect(byEngine.querySelector('.av-card-line')?.textContent).toBe('Competitor cited instead of you8 of 44 answers · non-brand queries')
-  // The tiles, engine counts, per-model rates and competitor gap rows of the
-  // old diagnostics are Details lines; the per-model rates come from /overview.
-  expect([...byEngine.querySelectorAll('.av-details-list li')].map(item => item.textContent)).toEqual([
-    'Cited and named: 4 of 11 queries',
-    'Cited but not named: 0 of 11 queries',
-    'Named but not cited: 0 of 11 queries',
-    'Not cited or named: 7 of 11 queries',
-    'All queries: cited by 4 of 4 engines, named by 4 of 4',
-    'Claude (claude-sonnet-5) citation rate: 28.6%, 4 of 14 answers, all queries',
-    'Gemini (gemini-3.5-flash) citation rate: 42.9%, 6 of 14 answers, all queries',
-    'OpenAI (chat-latest) citation rate: 14.3%, 2 of 14 answers, all queries',
-    'Perplexity (fast) citation rate: 50.0%, 7 of 14 answers, all queries',
-    '"AEO Agency in NYC" (Claude): pbjmarketing.com cited instead of you',
-    '"AEO Agency in NYC" (OpenAI): pbjmarketing.com cited instead of you',
-    '"AEO Agency NYC" (Claude): pbjmarketing.com cited instead of you',
-    '"AEO Agency NYC" (OpenAI): pbjmarketing.com cited instead of you',
-    '"Answer Engine Optimization Agency NYC" (OpenAI): pbjmarketing.com cited instead of you',
-    '"best AEO agency New York" (Claude): pbjmarketing.com cited instead of you',
-    '"best AEO agency New York" (Perplexity): pbjmarketing.com cited instead of you',
-    '"NYC AEO Agency" (OpenAI): pbjmarketing.com cited instead of you',
-  ])
+  const engineRows = [...byEngine.querySelectorAll('table[aria-label="By engine, non-brand queries"] tbody tr')]
+  expect(engineRows.map(row => row.querySelector('th')?.textContent)).toEqual(['Claude', 'Gemini', 'OpenAI', 'Perplexity'])
+  expect(engineRows[0]?.textContent).toContain('1 of 11 answers')
+  expect(engineRows[0]?.textContent).toContain('2 of 11 answers')
+  expect(engineRows[3]?.textContent).toContain('4 of 11 answers')
+  expect(byEngine.textContent).not.toContain('of 14 answers')
 
   // Trigger and duration in words; times follow the viewer's zone.
   const sweeps = [...card('Past checks').querySelectorAll('tbody tr')].map(cells)
@@ -2139,6 +2173,76 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
   expect(card('Past checks').querySelector<HTMLDetailsElement>('details.av-history')?.open).toBe(false)
   expect(competitors.closest<HTMLDetailsElement>('details.visibility-disclosure')?.open).toBe(false)
   expect(html).not.toMatch(/All time|Citation and engine diagnostics|Recent execution history|Competitor landscape/)
+})
+
+test('a completed sweep discovered by the mounted Simple route refreshes By engine without a completion event', async () => {
+  let generation = 0
+  let engineReads = 0
+  const project = projectDtoSchema.parse({ id: 'project_citypoint', name: 'Citypoint Dental NYC', canonicalDomain: 'citypoint.example', country: 'US', language: 'en' })
+  const completedRuns = [
+    { id: 'engine-before', createdAt: '2026-09-29T12:00:00.000Z' },
+    { id: 'engine-after', createdAt: '2026-09-30T12:00:00.000Z' },
+  ].map(run => ({ ...run, projectId: 'project_citypoint', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: run.createdAt, finishedAt: run.createdAt, location: null, error: null }))
+  const { page, queryClient, projectName } = await renderScopeRoute('/projects/project_citypoint', url => {
+    if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (url.pathname.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
+    if (url.pathname.endsWith('/runs') && url.searchParams.get('kind') === 'answer-visibility') return jsonResponse([completedRuns[generation]])
+    if (url.pathname.endsWith('/overview')) {
+      const score = { label: 'Not measured', value: 'No data', delta: '', tone: 'neutral', description: '', trend: [] }
+      const mentioned = generation === 0 ? 1 : 3
+      const mentionShareBase = { projectMentionSnapshots: 0, competitorMentionSnapshots: 0, combinedMentionSnapshots: 0, perCompetitor: [], ranking: [], snapshotsWithAnswerText: 0, snapshotsTotal: 0, score: null }
+      const movement = { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false }
+      return jsonResponse(projectOverviewDtoSchema.parse({
+        project, latestRun: { totalRuns: generation + 1, run: completedRuns[generation] }, health: null, topInsights: [],
+        queryCounts: { totalQueries: 4, citedQueries: 2, notCitedQueries: 2, citedRate: 0.5, mentionedQueries: mentioned, notMentionedQueries: 4 - mentioned, mentionRate: generation === 0 ? 0.25 : 0.75 },
+        providers: [{ provider: 'openai', cited: 2, total: 4, citedRate: 0.5 }],
+        transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
+        scores: {
+          mention: { ...score, label: 'Mentioned', value: generation === 0 ? '25%' : '75%' },
+          visibility: { ...score, label: 'Cited', value: '50%' },
+          mentionShare: { ...score, scope: 'non-brand', breakdown: { ...mentionShareBase, projectMentionSnapshots: mentioned, combinedMentionSnapshots: mentioned, snapshotsWithAnswerText: 4, snapshotsTotal: 4 }, branded: mentionShareBase },
+          gapQueries: score, mentionGaps: score, indexCoverage: score, competitorPressure: score, runStatus: score,
+        },
+        movementSummary: movement, citationMovement: movement, mentionMovement: movement,
+        movementComparison: { hasPreviousRun: false, comparable: false, querySetChanged: false, previousRunAt: null, currentQueryCount: 4, previousQueryCount: 0, comparableQueryCount: 0, addedQueryCount: 0, removedQueryCount: 0, addedQueries: [], removedQueries: [] },
+        competitors: [], providerScores: [{ provider: 'openai', model: null, cited: 2, total: 4, score: 50 }], attentionItems: [], runHistory: [],
+        suggestedQueries: { rows: [], totalCandidates: 0, skippedAlreadyTracked: 0 }, dateRangeLabel: 'All time', contextLabel: 'US / EN',
+      }))
+    }
+    if (url.pathname.endsWith('/visibility-report')) {
+      engineReads += 1
+      const report = visibilityReportResponse({ mode: 'simple', queryClass: 'non-brand' })
+      report.selection.run.id = completedRuns[generation]!.id
+      report.selection.measurement.completedAt = completedRuns[generation]!.createdAt
+      report.populations[0]!.breakdown.providers = [{
+        provider: 'openai', queryCount: 4, answerCount: 4,
+        mentionCoverage: generation === 0 ? { numerator: 1, denominator: 4, rate: 0.25 } : { numerator: 3, denominator: 4, rate: 0.75 },
+        citationCoverage: { numerator: 2, denominator: 4, rate: 0.5 },
+      }]
+      return jsonResponse(report)
+    }
+    return undefined
+  }, { configureFixture: withAinycSweeps })
+  onTestFinished(() => queryClient.clear())
+  await act(async () => {
+    queryClient.setQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: projectName } }), project)
+  })
+  const engineTable = await page.findByRole('table', { name: 'By engine, non-brand queries' })
+  await waitFor(() => expect(within(engineTable).getByRole('row', { name: /OpenAI/ }).textContent).toContain('1 of 4 answers'))
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+  const priorReads = engineReads
+  generation = 1
+  // The background run-list read discovers a sweep launched elsewhere. No
+  // completion observer invalidates the report, and the route stays mounted.
+  await act(async () => {
+    await queryClient.refetchQueries({ queryKey: getApiV1ProjectsByNameRunsQueryKey({
+      client: heyClient, path: { name: projectName }, query: { kind: 'answer-visibility' },
+    }) })
+  })
+  await waitFor(() => expect(within(page.getByRole('table', { name: 'By engine, non-brand queries' })).getByRole('row', { name: /OpenAI/ }).textContent).toContain('3 of 4 answers'))
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+  expect(engineReads).toBe(priorReads + 1)
+  expect(page.getByRole('heading', { name: 'By engine' }).closest('section')!.textContent).not.toContain('1 of 4 answers')
 })
 
 test('a running spot check keeps the Run button waiting', async () => {
@@ -2375,6 +2479,7 @@ test('simple manual sweep admission is independent of the scheduled roster', asy
           ? { refused: false, retryAfter: null, providers: {} }
           : { refused: true, retryAfter: streak.retryAfter, providers: { openai: streak } })
     }
+    if (path.endsWith('/run-preview')) return jsonResponse({ ...simpleRunPreview, admission: { refused: manualRefused, retryAfter: null, providers: { openai: streak } }, canStart: !manualRefused })
     if (path.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
     if (path.endsWith('/measurement-plan')) return jsonResponse(plan)
     if (path.endsWith('/visibility-report')) return jsonResponse(visibilityReportResponse({ mode: 'simple' }))
@@ -2396,7 +2501,7 @@ test('simple manual sweep admission is independent of the scheduled roster', asy
   expect(await page.findByRole('region', { name: 'OpenAI is left out of manual checks' })).toBeTruthy()
   fireEvent.click(launch)
   const confirm = await page.findByRole('button', { name: 'Run project-wide check' })
-  expect(confirm.hasAttribute('disabled')).toBe(false)
+  await waitFor(() => expect(confirm.hasAttribute('disabled')).toBe(false))
   expect(page.getByRole('dialog').textContent).toContain('OpenAI is left out')
 
   // The manual roster can become fully held even while the schedule is healthy.
@@ -2622,6 +2727,7 @@ test('a sweep confirmation cannot use cached readiness after its refresh fails',
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin)
     const path = decodeURIComponent(url.pathname)
     if (input instanceof Request && input.method === 'POST') writes.push(path)
+    if (path.endsWith('/run-preview')) return jsonResponse(simpleRunPreview)
     if (path.endsWith('/measurement-setup')) return failed
       ? jsonResponse({ code: 'INTERNAL_ERROR', message: 'temporary failure' }, 500)
       : jsonResponse(simpleMeasurementSetupResponse())
@@ -2640,7 +2746,7 @@ test('a sweep confirmation cannot use cached readiness after its refresh fails',
   const page = render(<QueryClientProvider client={queryClient}><DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}><RouterProvider router={router} /></DashboardProvider></QueryClientProvider>)
   fireEvent.click(await page.findByRole('button', { name: 'Run AI Visibility check' }))
   const confirm = await page.findByRole('button', { name: 'Run project-wide check' })
-  expect((confirm as HTMLButtonElement).disabled).toBe(false)
+  await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false))
   expect(writes).toEqual([])
   failed = true
   await act(async () => {
@@ -3804,9 +3910,10 @@ test('managed header does not label an active Site Health scan as a sweep', asyn
 })
 
 test('managed sweeps removes Simple empty-state launch instructions', async () => {
-  // By engine's empty state, now the first one a fresh Simple overview settles.
+  // The trend's settled empty state explains who runs this instance's checks.
+  const emptyMetrics = { ...ainycMetrics('all'), buckets: [], overall: { citationRate: null, cited: 0, total: 0, mentionRate: null, mentionedCount: 0 }, byProvider: {} }
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
-    managedSweeps: true, configureFixture: forceNoisyFreshVisibility, citationVisibility: emptyCitationVisibility('no-runs-yet'),
+    managedSweeps: true, configureFixture: forceNoisyFreshVisibility, analyticsMetrics: emptyMetrics,
   })
   expect(html).toContain(MANAGED_SWEEPS_COPY)
   expect(html).not.toMatch(/Run another check|Complete your first AI Visibility check|Run a check|Engine results appear after the first AI Visibility check/)

@@ -16,13 +16,13 @@ import {
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
 import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RunKinds, RunStatuses, UserRoles } from '@canonry/canonry-contracts'
-import type { MeasurementOverviewSort } from '@canonry/canonry-contracts'
+import type { MeasurementOverviewSort, RunPreviewDto } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { CitationBadge } from '../components/shared/CitationBadge.js'
 import { useDrawer } from '../hooks/use-drawer.js'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet.js'
+import * as Dialog from '@radix-ui/react-dialog'
 import { WriteButton } from '../components/shared/AccessControls.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { MentionShare } from '../components/project/MentionShare.js'
@@ -73,7 +73,7 @@ import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ProjectEngineSettingsSection, SiteHealthScanSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
 import { ManagedSweepStatus, managedSweepDate } from '../components/project/ManagedSweepStatus.js'
-import { RunAdmissionNoticeView, useRunAdmission } from '../components/project/RunAdmissionNotice.js'
+import { RunAdmissionNoticeView, RunPreviewSummary, useRunAdmission, useRunPreview } from '../components/project/RunAdmissionNotice.js'
 import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
@@ -136,7 +136,7 @@ import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
 export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
-export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [] }: {
+export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [], preview, previewPending = false, previewFailed = false, onRetryPreview = () => {} }: {
   open: boolean
   projectLabel: string
   onOpenChange: (open: boolean) => void
@@ -145,25 +145,32 @@ export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onC
   disabled: boolean
   /** Providers this sweep will not call because each keeps failing on its account. */
   leftOut?: readonly string[]
+  preview?: RunPreviewDto
+  previewPending?: boolean
+  previewFailed?: boolean
+  onRetryPreview?: () => void
 }) {
   if (isEmbed() || isDashboardManagedSweeps()) return null
-  return <Sheet open={open} onOpenChange={onOpenChange}>
-    <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
-      <SheetHeader>
-        <SheetTitle>Run AI Visibility check for the whole project?</SheetTitle>
-        <SheetDescription>
-          Runs all tracked queries for {projectLabel}. View filters do not limit the check. Provider charges apply.
+  return <Dialog.Root open={open} onOpenChange={onOpenChange}><Dialog.Portal>
+    <Dialog.Overlay className="fixed inset-0 z-50 bg-overlay-scrim/70 backdrop-blur-sm" />
+    <Dialog.Content className="material-modal fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto p-5" onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
+      <div className="space-y-2">
+        <Dialog.Title className="text-heading-20 text-heading">Review AI Visibility check</Dialog.Title>
+        <Dialog.Description className="text-copy-14 text-secondary">
+          Checks {projectLabel} using the scope below. View filters do not limit the check. Provider charges apply.
           {leftOut.length > 0
             ? ` ${leftOut.map(name => providerDisplayName(name)).join(' and ')} ${leftOut.length === 1 ? 'is' : 'are'} left out: ${leftOut.length === 1 ? 'it keeps failing on its account' : 'they keep failing on their accounts'}.`
             : null}
-        </SheetDescription>
-      </SheetHeader>
+        </Dialog.Description>
+      </div>
+      <div className="mt-5"><RunPreviewSummary preview={preview} pending={previewPending} failed={previewFailed} onRetry={onRetryPreview} /></div>
+      <p className="mt-4 text-copy-13 text-secondary">Runs once. Your schedule stays unchanged.</p>
       <div className="mt-6 flex flex-wrap gap-3">
         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <WriteButton disabled={disabled} onClick={onConfirm}>Run project-wide check</WriteButton>
+        <WriteButton disabled={disabled || previewPending || previewFailed || preview?.canStart !== true} onClick={onConfirm}>Run project-wide check</WriteButton>
       </div>
-    </SheetContent>
-  </Sheet>
+    </Dialog.Content>
+  </Dialog.Portal></Dialog.Root>
 }
 
 type SearchConsoleWorkspace = 'google' | 'bing'
@@ -627,7 +634,7 @@ function OverviewSignals({
                 <span className="min-w-0 flex-1 text-label-14 text-strong">{phrase.query}</span>
                 {phrase.provider ? <ProviderBadge provider={phrase.provider} /> : null}
                 {!isEmbed() && phrase.evidenceId ? (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => { void openEvidence(phrase.evidenceId) }}>
+                  <Button type="button" variant="ghost" size="sm" onClick={event => { event.currentTarget.focus({ preventScroll: true }); void openEvidence(phrase.evidenceId) }}>
                     View evidence
                   </Button>
                 ) : null}
@@ -1068,7 +1075,7 @@ function ProjectPageContent({
   })
   const initialConfiguredApiProviders = initialDashboard
     ? initialDashboard.dashboard.settings.providerStatuses
-      .filter(provider => provider.state === 'ready')
+      .filter(provider => provider.state !== 'needs-config')
       .map(provider => normalizeProviderName(provider.name))
     : undefined
   const serverProviderReady = measurementSetupQuery.data?.answerVisibilityProviderReady
@@ -1195,6 +1202,7 @@ function ProjectPageContent({
 
   const projectLabel = model?.project.displayName || model?.project.name || projectName
   const triggerRunMutation = useTriggerRun()
+  const runPreview = useRunPreview(projectName, sweepConfirmationProject === projectName && !isEmbed() && !isDashboardManagedSweeps())
   const portfolioQueriesQuery = useQuery({
     ...getApiV1ProjectsByNameQueriesOptions({ client: heyClient, path: { name: projectName } }),
     enabled: tab === 'portfolio' && Boolean(projectName),
@@ -1625,6 +1633,7 @@ function ProjectPageContent({
     [visibilityEvidence],
   )
   const hasTrackedQueries = trackedQueries.length > 0 || model.queryCounts.total > 0 || (headerQueriesQuery.data?.length ?? 0) > 0
+  const draftRequiresPublication = measurementSetupQuery.data?.requiresPublication === true
   const hasMeasurementPlanQueries = activeMeasurementPlan !== null
   const hasVisibilityInputs = hasTrackedQueries || hasMeasurementPlanQueries
   const visibilityInputsPending = canWrite
@@ -1643,6 +1652,7 @@ function ProjectPageContent({
   const sweepPrerequisitesReady = !sweepReadinessPending
     && !providerReadinessFailed
     && hasVisibilityInputs
+    && !draftRequiresPublication
     && providerReady === true
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
   // "Map site" invites the operator to do something that has not been done yet,
@@ -1769,7 +1779,7 @@ function ProjectPageContent({
   // resolved but neither matched the URL's identifier).
 
   async function handleTriggerRun() {
-    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady) return
+    if (runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true || sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady) return
     try {
       await triggerRunMutation.mutateAsync({
         projectName,
@@ -1783,6 +1793,10 @@ function ProjectPageContent({
   }
 
   function openAiVisibilitySetup() {
+    if (draftRequiresPublication) {
+      void navigate({ to: '/projects/$projectName/portfolio', params: { projectName } })
+      return
+    }
     void navigate({
       to: '/setup',
       search: {
@@ -2154,7 +2168,7 @@ function ProjectPageContent({
   const evidenceQueryEditor = !isEmbed() && managingQueries ? (
     <div className="mb-3 material-base p-3">
       {trackedQueries.length > 0 ? (
-        <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto material-base">
+        <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto">
           {trackedQueries.map((q) => (
             <li key={q} className="flex items-center justify-between gap-3 px-3 py-2">
               <span className="min-w-0 truncate text-label-14 text-strong" title={q}>{q}</span>
@@ -2258,7 +2272,7 @@ function ProjectPageContent({
                         : providerReadinessFailed
                           ? 'Retry AI readiness'
                         : sweepSetupRequired
-                          ? 'Set up AI Visibility'
+                          ? draftRequiresPublication ? 'Review and publish plan' : 'Set up AI Visibility'
                           : sweepsOnHold
                             ? 'AI Visibility checks on hold'
                             : 'Run AI Visibility check'}
@@ -2277,6 +2291,10 @@ function ProjectPageContent({
         onClosed={() => sweepOpener.current?.focus()}
         disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady}
         leftOut={sweepLeavesOut}
+        preview={runPreview.data}
+        previewPending={runPreview.isFetching}
+        previewFailed={runPreview.isError}
+        onRetryPreview={() => { void runPreview.refetch() }}
       />}
       <ProjectSubnav
         items={projectTabItems}
@@ -2289,6 +2307,7 @@ function ProjectPageContent({
         <AdvancedMeasurementSection
           key={projectName}
           projectName={projectName}
+          projectDomain={model.project.canonicalDomain}
           canEdit={canWrite}
           queries={portfolioQueriesQuery.data ?? []}
           isQueryLoading={isPortfolioQueriesLoading}
@@ -2364,7 +2383,7 @@ function ProjectPageContent({
             canEdit={canWrite && !isEmbed() && !isActiveMeasurementPlanLoading && !isActiveMeasurementPlanError}
             simpleOverview={(
               <>
-          <section className="page-section-divider">
+          <section className="mb-6">
             <VisibilityTrendSection
               projectName={model.project.name}
               competitorDomains={competitorDomains}
@@ -2377,14 +2396,13 @@ function ProjectPageContent({
             />
           </section>
 
-          <section className="page-section-divider">
-            <div className="av-card-head">
-              <h2 className="av-card-title">Where competitors are winning</h2>
-              {hasVisibilityBaseline ? <p className="av-card-meta">Latest check</p> : null}
-            </div>
+          {hasVisibilityBaseline && <><section className="mb-6"><details open={competitorDomains.length > 0}>
+            <summary className="av-card-head cursor-pointer">
+              <h2 className="av-card-title">{competitorDomains.length > 0 ? 'Where competitors are winning' : 'Compare competitors'}</h2>
+              <p className="av-card-meta">Latest check</p>
+            </summary>
 
-            {hasVisibilityBaseline ? (
-              <div className="competitive-summary">
+            <div className="competitive-summary">
                 <MentionShare
                   key={model.project.name}
                   summary={model.mentionShareSummary}
@@ -2410,22 +2428,16 @@ function ProjectPageContent({
                   </div>
                 </div>
               </div>
-            ) : (
-              <p className="text-copy-14 text-secondary">
-                Competitive mention and citation gaps appear after the first AI Visibility check.
-              </p>
-            )}
+          </details></section>
 
-          </section>
-
-          <div className="page-section-divider">
-            <CitationVisibilitySection projectName={model.project.name} classify={classifyQuery} hasCompetitors={competitorDomains.length > 0} providerScores={model.providerScores} />
+          <div className="mb-6">
+            <CitationVisibilitySection projectName={model.project.name} revision={latestVisibilityRevision} />
           </div>
-
+</>}
           <OverviewDisclosure
             id="evidence-section"
             title="Query evidence"
-            meta={`${model.queryCounts.total} ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
+            meta={`${model.queryCounts.total} measured ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
             defaultOpen
           >
             {model.project.locations.length > 0 && (

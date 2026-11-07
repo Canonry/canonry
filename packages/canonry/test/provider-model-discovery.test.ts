@@ -33,13 +33,13 @@ describe('SDK model discovery', () => {
     expect(fetch.mock.calls.every(call => call[1]?.method === 'GET')).toBe(true)
   })
 
-  it('follows Gemini pagination and keeps only answer-generation model choices', async () => {
+  it('follows Gemini pagination and recommends general-purpose text answers, not specialist models', async () => {
     const fetch = mock(
-      { models: [{ name: 'models/gemini-next-flash', displayName: 'Gemini Next Flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-embedding', supportedGenerationMethods: ['embedContent'] }], nextPageToken: 'page-two' },
-      { models: [{ name: 'models/gemini-next-pro', displayName: 'Gemini Next Pro', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-image', supportedGenerationMethods: ['generateContent'] }] },
+      { models: [{ name: 'models/gemini-3.8-flash', displayName: 'Gemini 3.8 Flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-embedding', supportedGenerationMethods: ['embedContent'] }], nextPageToken: 'page-two' },
+      { models: [{ name: 'models/gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-robotics-er-2-preview', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-2.5-computer-use-preview-10-2025', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-3.1-flash-image', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-3.5-transcribe', supportedGenerationMethods: ['generateContent'] }] },
     )
     const result = await geminiAdapter.listModels!({ provider: 'gemini', apiKey: 'test-key', quotaPolicy }, new AbortController().signal)
-    expect(result.map(model => model.id)).toEqual(['gemini-next-flash', 'gemini-next-pro'])
+    expect(result.map(model => model.id)).toEqual(['gemini-3.8-flash', 'gemini-3.1-pro-preview'])
     expect(String(fetch.mock.calls[1]?.[0])).toContain('pageToken=page-two')
     expect(fetch.mock.calls.every(call => call[1]?.method === 'GET')).toBe(true)
   })

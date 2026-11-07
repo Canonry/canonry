@@ -77,20 +77,20 @@ test('recommended models come first and the full catalog waits behind Browse all
   const recommended = screen.getByRole('group', { name: 'Recommended' })
   // Claude Sonnet 5.5 is not in this catalog, so it is not offered.
   expect([...recommended.querySelectorAll<HTMLElement>('label[data-model-id]')].map(row => row.textContent)).toEqual([
-    'OpenAI: GPT-6 LunaMaker of ChatGPT',
-    'Google: Gemini 3.8 FlashAdded',
+    'GPT-6 LunaMaker of ChatGPT',
+    'Gemini 3.8 FlashAdded',
   ])
   expect(screen.queryByRole('searchbox', { name: 'Search OpenRouter models' })).toBeNull()
   const browse = screen.getByRole('button', { name: 'Browse all 8 models' })
   expect(browse.getAttribute('aria-expanded')).toBe('false')
 
-  fireEvent.click(within(recommended).getByRole('checkbox', { name: 'OpenAI: GPT-6 Luna' }))
+  fireEvent.click(within(recommended).getByRole('checkbox', { name: 'GPT-6 Luna' }))
   fireEvent.click(browse)
   expect(screen.getByRole('button', { name: 'Hide the full list' }).getAttribute('aria-expanded')).toBe('true')
   fireEvent.click(screen.getByRole('checkbox', { name: 'xAI: Grok 5' }))
   // A filtered-out choice stays visible in the summary.
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search OpenRouter models' }), { target: { value: 'qwen' } })
-  expect(screen.getByText('Selected: OpenAI: GPT-6 Luna, xAI: Grok 5')).toBeTruthy()
+  expect(screen.getByText('Selected: GPT-6 Luna, xAI: Grok 5')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Save 2 models' }))
   expect(onAdd).toHaveBeenCalledWith(['openrouter:openai/gpt-6-luna', 'openrouter:x-ai/grok-5'])
 })

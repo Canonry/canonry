@@ -1,334 +1,136 @@
 import React, { useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { formatPercent, RatioUnits, type CitationVisibilityResponse } from '@canonry/canonry-contracts'
-import { getApiV1ProjectsByNameCitationsVisibilityOptions } from '@canonry/canonry-api-client/react-query'
+import { formatPercent, RatioUnits, type VisibilityReportPopulationClass, type VisibilityReportRate } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameVisibilityReportOptions } from '@canonry/canonry-api-client/react-query'
 import { heyClient, isDashboardManagedSweeps } from '../../api.js'
-import type { ProjectCommandCenterVm } from '../../view-models.js'
 import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
-import {
-  coverageTone,
-  VISIBILITY_ROW_LABEL,
-  VISIBILITY_ROW_ORDER,
-  type QueryClassLookup,
-  type VisibilityRowKey,
-} from '../../lib/answer-movement.js'
 import { extractErrorMessage } from '../../lib/extract-error-message.js'
 import { formatSweepInstant } from '../../lib/format-helpers.js'
-import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
-import { METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'
-import { Disclosure } from '../shared/Disclosure.js'
+import { AnswerEngineLabel } from '../shared/AnswerEngineLabel.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SegmentedRadioGroup } from '../shared/SegmentedRadioGroup.js'
 import { Button } from '../ui/button.js'
 
-export interface ByEngineCounts {
-  provider: string
-  /** Queries this engine has a latest answer for. */
-  answered: number
-  mentioned: number
-  cited: number
+const CLASS_LABEL: Record<VisibilityReportPopulationClass, string> = {
+  'non-brand': 'Non-brand',
+  branded: 'Branded',
+  unknown: 'Unclassified',
 }
 
-/** One query class of the By engine card, from each query's latest answer per engine. */
-export interface ByEngineClass {
-  key: VisibilityRowKey
-  /** Queries with at least one engine answer. */
-  queries: number
-  /** Queries no engine has answered yet. */
-  unanswered: number
-  engines: ByEngineCounts[]
-  /** Engine answers: one per query and engine. */
-  answers: number
-  /** Answers citing a tracked competitor's site and not yours. */
-  competitorCited: number
-  /** Those answers, in the server's order, with the competitors each one cites. */
-  competitorGaps: { query: string; provider: string; competitors: string[] }[]
-  /** Queries some engine cites you on and some engine names you on. */
-  citedAndNamed: number
-  /** Queries some engine cites you on while none names you. */
-  citedNotNamed: number
-  /** Queries some engine names you on while none cites you. */
-  namedNotCited: number
-  /** Queries no engine cites you on or names you on. */
-  neither: number
+const RATE_REASON: Record<NonNullable<VisibilityReportRate['reason']>, string> = {
+  'no-population': 'No answers in this class',
+  incomplete: 'Awaiting answers',
+  'evidence-incomplete': 'Incomplete evidence',
+  'identity-ambiguous': 'Brand identity unavailable',
+  'not-applicable': 'Not measured',
 }
 
-/**
- * The By engine figures per query class. GET /citations/visibility carries no
- * class, so each query is classified by its text with the page's classifier,
- * the one the trend and the query table use. Branded and non-brand never share
- * a count; a project that cannot classify gets one Unclassified class. Classes
- * come back in `VISIBILITY_ROW_ORDER` and only when they have queries.
- */
-export function byEngineClasses(data: CitationVisibilityResponse, classify: QueryClassLookup): ByEngineClass[] {
-  const providers = [...new Set(data.byQuery.flatMap(row => row.providers.map(entry => entry.provider)))].sort()
-  const classes = new Map<VisibilityRowKey, ByEngineClass>()
-  const classOf = (query: string): ByEngineClass => {
-    const key = classify(query) ?? 'unclassified'
-    let entry = classes.get(key)
-    if (!entry) {
-      entry = {
-        key,
-        queries: 0,
-        unanswered: 0,
-        engines: providers.map(provider => ({ provider, answered: 0, mentioned: 0, cited: 0 })),
-        answers: 0,
-        competitorCited: 0,
-        competitorGaps: [],
-        citedAndNamed: 0,
-        citedNotNamed: 0,
-        namedNotCited: 0,
-        neither: 0,
-      }
-      classes.set(key, entry)
-    }
-    return entry
-  }
-
-  // The (query, engine) pairs the grid counts. A gap outside them, such as one
-  // from an engine no longer configured, would count an answer outside the base.
-  const answered = new Map<string, string>()
-  for (const row of data.byQuery) {
-    const entry = classOf(row.query)
-    if (row.providers.length === 0) {
-      entry.unanswered++
-      continue
-    }
-    entry.queries++
-    for (const answer of row.providers) {
-      answered.set(`${row.queryId}::${answer.provider}`, row.query)
-      const engine = entry.engines.find(counts => counts.provider === answer.provider)!
-      engine.answered++
-      if (answer.mentioned) engine.mentioned++
-      if (answer.cited) engine.cited++
-      entry.answers++
-    }
-    const anyCited = row.providers.some(answer => answer.cited)
-    const anyMentioned = row.providers.some(answer => answer.mentioned)
-    if (anyCited && anyMentioned) entry.citedAndNamed++
-    else if (anyCited) entry.citedNotNamed++
-    else if (anyMentioned) entry.namedNotCited++
-    else entry.neither++
-  }
-  // Each gap row is one engine's latest answer to one query.
-  for (const gap of data.competitorGaps) {
-    const query = answered.get(`${gap.queryId}::${gap.provider}`)
-    if (query === undefined) continue
-    const entry = classOf(query)
-    entry.competitorCited++
-    entry.competitorGaps.push({ query, provider: gap.provider, competitors: gap.citingCompetitors })
-  }
-
-  return VISIBILITY_ROW_ORDER
-    .map(key => classes.get(key))
-    .filter((entry): entry is ByEngineClass => entry !== undefined && entry.queries > 0)
+function EngineMetric({ value, queryClass }: { value: VisibilityReportRate; queryClass: VisibilityReportPopulationClass }) {
+  return (
+    <>
+      <span className="engine-comparison-metric">
+        <span className="text-label-14-strong text-primary">
+          {value.rate === null ? '—' : formatPercent(value.rate, RatioUnits.fraction)}
+          <span className="sr-only"> · {CLASS_LABEL[queryClass].toLowerCase()} queries</span>
+        </span>
+        {value.rate !== null && <>
+          <span aria-hidden="true" className="text-label-13 text-secondary">{value.numerator}/{value.denominator}</span>
+          <span className="sr-only">{value.numerator} of {value.denominator} answers</span>
+        </>}
+      </span>
+      {value.rate === null && <span className="block text-label-13 text-secondary">{RATE_REASON[value.reason ?? 'not-applicable']}</span>}
+      {value.unattributed !== undefined && value.unattributed > 0 ? <span className="block text-label-13 text-secondary">{value.unattributed} unattributed</span> : null}
+      {value.unchecked !== undefined && value.unchecked > 0 ? <span className="block text-label-13 text-secondary">{value.unchecked} unchecked</span> : null}
+    </>
+  )
 }
 
-export interface UncountedCompetitorGap {
-  query: string
-  provider: string
-  competitors: string[]
-  /** Why the counts leave it out: its engine is no longer configured, or its query is no longer tracked. */
-  reason: 'engine' | 'query'
-}
-
-/**
- * The competitor gap rows the class counts leave out, in the server's order:
- * one engine's latest answer to one query, where the query is no longer
- * tracked or the engine no longer answers it. Listed on their own so no gap
- * the server returns goes unseen.
- */
-export function uncountedCompetitorGaps(data: CitationVisibilityResponse): UncountedCompetitorGap[] {
-  const tracked = new Map(data.byQuery.map(row => [row.queryId, row]))
-  return data.competitorGaps.flatMap(gap => {
-    const row = tracked.get(gap.queryId)
-    if (row?.providers.some(answer => answer.provider === gap.provider)) return []
-    return [{ query: gap.query, provider: gap.provider, competitors: gap.citingCompetitors, reason: row ? 'engine' as const : 'query' as const }]
-  })
-}
-
-const UNCOUNTED_REASON: Record<UncountedCompetitorGap['reason'], string> = {
-  engine: 'engine no longer configured',
-  query: 'query no longer tracked',
-}
-
-const SPOKEN_CLASS: Record<VisibilityRowKey, string> = {
-  'non-brand': 'non-brand queries',
-  branded: 'branded queries',
-  unclassified: 'unclassified queries',
-}
-
-const BY_ENGINE_TOOLTIP = 'Each engine\'s latest answer to each query, spot checks left out. Mentioned: the answer names you. Cited: its sources link to your site. Competitor cited instead of you: answers that cite a tracked competitor\'s site and not yours.'
-
-function plural(count: number, one: string, many: string): string {
-  return count === 1 ? one : many
-}
-
-/**
- * "By engine": Mentioned and Cited query counts per engine for ONE query
- * class, one competitor line with its base, and in Details the mention/citation
- * split, the competitors on each gap answer (and the gap answers no class
- * counts), and the all-queries engine counts and per-model citation rates. The
- * latest run's time is the card's meta; a Non-brand/Branded control sits
- * beside it, or a single class's name.
- */
-export function CitationVisibilitySection({
-  projectName,
-  classify,
-  hasCompetitors,
-  providerScores = [],
-}: {
-  projectName: string
-  classify: QueryClassLookup
-  /** Without tracked competitors the competitor line has nothing to count. */
-  hasCompetitors: boolean
-  /** GET /overview's per-model citation rates: all queries, so never in the class grid. */
-  providerScores?: ProjectCommandCenterVm['providerScores']
-}) {
+/** The API owns each class and engine denominator, including unavailable evidence. */
+export function CitationVisibilitySection({ projectName, revision }: { projectName: string; revision?: string }) {
   const titleId = useId()
-  const [selected, setSelected] = useState<VisibilityRowKey>('non-brand')
+  const [selected, setSelected] = useState<VisibilityReportPopulationClass>('non-brand')
+  const options = getApiV1ProjectsByNameVisibilityReportOptions({
+    client: heyClient,
+    path: { name: projectName },
+    query: { queryClass: 'all', limit: 1 },
+  })
   const visibilityQuery = useQuery({
-    ...getApiV1ProjectsByNameCitationsVisibilityOptions({
-      client: heyClient,
-      path: { name: projectName },
-    }),
+    ...options,
+    // Polling the completed run set rotates this key even without an event stream.
+    queryKey: [{ ...options.queryKey[0], tags: [revision ?? 'no-sweep'] }],
     staleTime: STATIC_VISIBILITY_STALE_MS,
   })
-  const data = visibilityQuery.data ?? null
-  const classes = data?.status === 'ready' ? byEngineClasses(data, classify) : []
-  const active: ByEngineClass | undefined = classes.find(entry => entry.key === selected) ?? classes.at(0)
+  const data = visibilityQuery.data
+  const classes = (['non-brand', 'branded', 'unknown'] as const).flatMap(queryClass => {
+    const population = data?.populations.find(entry => entry.queryClass === queryClass)
+    return population && (queryClass === 'non-brand' || population.summary.queryCount > 0) ? [population] : []
+  })
+  const active = classes.find(population => population.queryClass === selected) ?? classes[0]
+  const engines = active?.breakdown.providers
+  const latestAt = data?.selection.measurement.completedAt
 
   let body: React.ReactNode
   if (visibilityQuery.isError) {
     body = (
       <div className="flex flex-wrap items-center gap-3 text-label-14 text-secondary">
-        {/* The SDK throws the API's error envelope; its message says why. */}
         <span>Could not load engine results: {extractErrorMessage(visibilityQuery.error)}</span>
         <Button type="button" size="sm" variant="outline" onClick={() => { void visibilityQuery.refetch() }}>Retry</Button>
       </div>
     )
   } else if (!data) {
     body = <p role="status" className="text-copy-14 text-secondary">Loading engine results…</p>
-  } else if (data.status === 'no-data') {
+  } else if (data.selection.availability.state !== 'available' || engines === undefined) {
+    body = <p className="text-copy-14 text-secondary">Engine breakdown unavailable for this report.</p>
+  } else if (!data.selection.run.id) {
+    body = <p className="text-copy-14 text-secondary">{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Engine results appear after your first sweep.'}</p>
+  } else if (engines.length === 0) {
+    body = <p className="text-copy-14 text-secondary">No {CLASS_LABEL[active!.queryClass].toLowerCase()} queries in this sweep.</p>
+  } else if (active) {
     body = (
-      <p className="text-copy-14 text-secondary">
-        {data.reason === 'no-queries'
-          ? 'Add queries to start tracking AI citations.'
-          : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Engine results appear after the first AI Visibility check.'}
-      </p>
+      <table className="engine-comparison" aria-label={`By engine, ${CLASS_LABEL[active.queryClass].toLowerCase()} queries`}>
+        <thead>
+          <tr>
+            <th scope="col">Engine</th>
+            <th scope="col">Mentioned</th>
+            <th scope="col">Cited</th>
+          </tr>
+        </thead>
+        <tbody>
+          {engines.map(engine => (
+            <tr key={engine.provider}>
+              <th scope="row"><AnswerEngineLabel provider={engine.provider} /></th>
+              <td><EngineMetric value={engine.mentionCoverage} queryClass={active.queryClass} /></td>
+              <td><EngineMetric value={engine.citationCoverage} queryClass={active.queryClass} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     )
-  } else if (!active) {
-    body = <p className="text-copy-14 text-secondary">No engine answers yet.</p>
   }
-
-  const details: React.ReactNode[] = []
-  if (active && data?.status === 'ready') {
-    const queries = plural(active.queries, 'query', 'queries')
-    details.push(<>Cited and named: <strong>{active.citedAndNamed} of {active.queries}</strong> {queries}</>)
-    details.push(<>Cited but not named: <strong>{active.citedNotNamed} of {active.queries}</strong> {queries}</>)
-    details.push(<>Named but not cited: <strong>{active.namedNotCited} of {active.queries}</strong> {queries}</>)
-    details.push(<>Not cited or named: <strong>{active.neither} of {active.queries}</strong> {queries}</>)
-    for (const engine of active.engines) {
-      if (engine.answered < active.queries) {
-        details.push(<>{providerDisplayName(engine.provider)}: answered <strong>{engine.answered} of {active.queries}</strong> {queries}</>)
-      }
-    }
-    if (active.unanswered > 0) details.push(<>No answers yet: <strong>{active.unanswered}</strong> {plural(active.unanswered, 'query', 'queries')}</>)
-    // The server's engine counts span every query, so they say so.
-    const { providersCiting, providersMentioning, providersConfigured } = data.summary
-    details.push(<>All queries: cited by <strong>{providersCiting} of {providersConfigured}</strong> {plural(providersConfigured, 'engine', 'engines')}, named by <strong>{providersMentioning} of {providersConfigured}</strong></>)
-    for (const score of providerScores) {
-      details.push(
-        <>
-          {providerDisplayName(score.provider)}{score.model ? ` (${score.model})` : ''} citation rate:{' '}
-          <strong>{formatPercent(score.score, RatioUnits.percent)}</strong>, <strong>{score.cited} of {score.total}</strong> {plural(score.total, 'answer', 'answers')}, all queries
-        </>,
-      )
-    }
-    for (const gap of active.competitorGaps) {
-      details.push(`"${gap.query}" (${providerDisplayName(gap.provider)}): ${gap.competitors.join(', ')} cited instead of you`)
-    }
-    // Outside every class's base, so on every tab and in no count.
-    for (const gap of uncountedCompetitorGaps(data)) {
-      details.push(`"${gap.query}" (${providerDisplayName(gap.provider)}): ${gap.competitors.join(', ')} cited instead of you, not counted (${UNCOUNTED_REASON[gap.reason]})`)
-    }
-  }
-  const latestRunAt = data?.status === 'ready' ? data.summary.latestRunAt : null
-
-  // Only non-brand is a competitive read; branded sits near every answer by
-  // construction and unclassified pools both, so neither is tone-coloured.
-  const toneClass = (count: number, total: number) => active?.key === 'non-brand'
-    ? METRIC_TONE_TEXT_CLASS[coverageTone(count, total)]
-    : 'text-primary'
 
   return (
-    <section className="overview-brief" aria-labelledby={titleId}>
+    <section className="overview-brief max-w-2xl" aria-labelledby={titleId}>
       <div className="av-card-head">
-        {/* A sibling of the heading, so the heading's name stays "By engine". */}
-        <div className="inline-flex items-center">
+        <div className="inline-flex flex-wrap items-center">
           <h2 id={titleId} className="av-card-title">By engine</h2>
-          {active && <InfoTooltip text={BY_ENGINE_TOOLTIP} />}
+          <InfoTooltip text="Mentioned: the answer names you. Cited: its sources link to your site. Each rate uses this sweep’s answers in the selected query class. Missing answers are never counted as negative results." />
+          {active && <span className="ml-3 text-label-13 text-secondary">{CLASS_LABEL[active.queryClass]} queries</span>}
         </div>
-        {latestRunAt || active ? (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            {latestRunAt ? <p className="av-card-meta">Latest run {formatSweepInstant(latestRunAt)}</p> : null}
-            {classes.length > 1 ? (
-              <SegmentedRadioGroup
-                label="Query type"
-                className="flex-wrap"
-                options={classes.map(entry => ({ value: entry.key, label: VISIBILITY_ROW_LABEL[entry.key] }))}
-                value={active!.key}
-                onChange={setSelected}
-              />
-            ) : active ? (
-              <span className="mention-share-class">{VISIBILITY_ROW_LABEL[active.key]}</span>
-            ) : null}
-          </div>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {latestAt ? <p className="av-card-meta">Last sweep {formatSweepInstant(latestAt)}{data?.selection.measurement.state === 'partial' ? ' · incomplete' : ''}</p> : null}
+          {classes.length > 1 ? (
+            <SegmentedRadioGroup
+              label="Query type"
+              className="flex-wrap"
+              options={classes.map(population => ({ value: population.queryClass, label: CLASS_LABEL[population.queryClass] }))}
+              value={active!.queryClass}
+              onChange={setSelected}
+            />
+          ) : null}
+        </div>
       </div>
-
-      <div className="av-card-body">
-        {body ?? (active && (
-          <>
-            <table className="av-grid av-grid-dense" aria-label={`By engine, ${SPOKEN_CLASS[active.key]}`}>
-              <thead>
-                <tr>
-                  <th scope="col">Of {active.queries} {plural(active.queries, 'query', 'queries')}</th>
-                  {active.engines.map(engine => <th key={engine.provider} scope="col">{providerDisplayName(engine.provider)}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th scope="row" className="av-row-label">Mentioned</th>
-                  {active.engines.map(engine => (
-                    <td key={engine.provider}><span className={`av-n-sm ${toneClass(engine.mentioned, engine.answered)}`}>{engine.mentioned}</span></td>
-                  ))}
-                </tr>
-                <tr>
-                  <th scope="row" className="av-row-label">Cited</th>
-                  {active.engines.map(engine => (
-                    <td key={engine.provider}><span className={`av-n-sm ${toneClass(engine.cited, engine.answered)}`}>{engine.cited}</span></td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-            <p className="av-card-line">
-              <span className="av-card-line-label">Competitor cited instead of you</span>
-              {hasCompetitors ? (
-                <span>
-                  <span className="av-n-sm text-primary">{active.competitorCited}</span>{' '}
-                  <span className="av-of">of {active.answers} {plural(active.answers, 'answer', 'answers')}</span>
-                  <span className="sr-only"> · {SPOKEN_CLASS[active.key]}</span>
-                </span>
-              ) : (
-                <span className="text-label-13 text-secondary">No competitors tracked</span>
-              )}
-            </p>
-          </>
-        ))}
-      </div>
-      <Disclosure items={details} />
+      <div className="av-card-body">{body}</div>
     </section>
   )
 }
