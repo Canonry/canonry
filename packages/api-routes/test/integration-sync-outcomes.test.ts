@@ -248,10 +248,16 @@ describe('ga4 sync outcome', () => {
     vi.spyOn(ga, 'fetchWindowSummary').mockImplementation(async (_token, _property, windowKey) => ({
       windowKey, periodStart: dateDaysAgo(30), periodEnd: dateDaysAgo(1), totalSessions: 1, totalOrganicSessions: 0, totalDirectSessions: 0, totalUsers: 1,
     }))
-    vi.spyOn(ga, 'fetchDailyTotals').mockResolvedValue(dailyTotals(withData
-      ? [{ date: dateDaysAgo(2), sessions: 50, users: 33, engagementRate: 0.6, newUsers: 20 }]
-      : []))
-    vi.spyOn(ga, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
+    vi.spyOn(ga, 'fetchDailyTotals').mockImplementation(async (_t, _p, _days, options) => {
+      const range = options?.dateRange ?? { startDate: dateDaysAgo(360), endDate: dateDaysAgo(0) }
+      const rows = withData && dateDaysAgo(2) >= range.startDate && dateDaysAgo(2) <= range.endDate
+        ? [{ date: dateDaysAgo(2), sessions: 50, users: 33, engagementRate: 0.6, newUsers: 20 }] : []
+      return { ...dailyTotals(rows), ...range }
+    })
+    vi.spyOn(ga, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => {
+      const report = unknownWindowMetrics(windowKey)
+      return { ...report, current: { ...report.current, startDate: dateDaysAgo(180), endDate: dateDaysAgo(1) }, previous: { ...report.previous, startDate: dateDaysAgo(360), endDate: dateDaysAgo(181) } }
+    })
     vi.spyOn(ga, 'fetchTrafficByLandingPage').mockResolvedValue(withData
       ? [
           { date: dateDaysAgo(2), landingPage: '/a', sessions: 30, organicSessions: 10, users: 20 },

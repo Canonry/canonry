@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { eq } from 'drizzle-orm'
-import { gaSearchLandingPagesResponseSchema, ga4SyncResponseDtoSchema, RunStatuses } from '@canonry/canonry-contracts'
+import { and, eq } from 'drizzle-orm'
+import { canonicalMeasurementPlanV2Json, gaSearchLandingPagesResponseSchema, ga4SyncResponseDtoSchema, RunStatuses } from '@canonry/canonry-contracts'
 import {
   createClient,
   gaAcquisitionDaily,
@@ -12,15 +12,18 @@ import {
   gaSearchLandingPages,
   gaSearchLandingWindows,
   gscDailyTotals,
+  measurementPlans,
+  measurementPlanVersions,
   migrate,
   runs,
 } from '@canonry/canonry-db'
 import { GA4ApiError } from '@canonry/canonry-integration-google-analytics'
-import type { GA4SearchLandingReport, GA4SearchLandingWindowReport } from '@canonry/canonry-integration-google-analytics'
+import type { GA4SearchLandingReport, GA4SearchLandingWindowReport, fetchSearchLandingPages } from '@canonry/canonry-integration-google-analytics'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialRecord, Ga4CredentialStore } from '../src/ga.js'
 import type { GoogleConnectionRecord, GoogleConnectionStore } from '../src/google.js'
 import { dailyTotals, unknownWindowMetrics } from './ga-sync-fixtures.js'
+import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 const PROJECT = 'search-landing'
 
@@ -111,13 +114,13 @@ async function seedProject(ctx: ReturnType<typeof buildApp>, name = PROJECT, con
 }
 
 /**
- * Three windows whose rows deliberately do NOT add up to their Total, as in
+ * Four windows whose rows deliberately do NOT add up to their Total, as in
  * GA4's report (only the top pages are listed, the Total covers every page): a
  * read that summed rows would disagree with every expectation here. All values
  * are synthetic.
  */
-function readyReport(variant: 'first' | 'second' = 'first'): GA4SearchLandingReport {
-  const window = (key: '7d' | '28d' | '90d', periodStart: string): GA4SearchLandingWindowReport => ({
+function readyReport(variant: 'first' | 'second' = 'first'): Extract<GA4SearchLandingReport, { status: 'ready' }> {
+  const window = (key: '7d' | '28d' | '90d' | '180d', periodStart: string): GA4SearchLandingWindowReport => ({
     window: key,
     periodStart,
     periodEnd: '2026-10-07',
@@ -144,11 +147,11 @@ function readyReport(variant: 'first' | 'second' = 'first'): GA4SearchLandingRep
   })
   return {
     status: 'ready',
-    windows: [window('7d', '2026-10-01'), window('28d', '2026-09-10'), window('90d', '2026-07-10')],
+    windows: [window('7d', '2026-10-01'), window('28d', '2026-09-10'), window('90d', '2026-07-10'), window('180d', '2026-04-11')],
   }
 }
 
-async function mockGa(searchLanding: () => Promise<GA4SearchLandingReport>) {
+async function mockGa(searchLanding: typeof fetchSearchLandingPages) {
   const ga = await import('@canonry/canonry-integration-google-analytics')
   vi.spyOn(ga, 'getAccessToken').mockResolvedValue('fake-token')
   vi.spyOn(ga, 'fetchAggregateSummary').mockResolvedValue({
@@ -157,8 +160,8 @@ async function mockGa(searchLanding: () => Promise<GA4SearchLandingReport>) {
   vi.spyOn(ga, 'fetchWindowSummary').mockImplementation(async (_token, _property, windowKey) => ({
     windowKey, periodStart: dateDaysAgo(29), periodEnd: dateDaysAgo(0), totalSessions: 10, totalOrganicSessions: 4, totalDirectSessions: 2, totalUsers: 8,
   }))
-  vi.spyOn(ga, 'fetchDailyTotals').mockResolvedValue(dailyTotals())
-  vi.spyOn(ga, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
+  const daily = vi.spyOn(ga, 'fetchDailyTotals').mockResolvedValue(dailyTotals())
+  const windowMetrics = vi.spyOn(ga, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
   vi.spyOn(ga, 'fetchTrafficByLandingPage').mockResolvedValue([])
   const ai = vi.spyOn(ga, 'fetchAiReferrals').mockResolvedValue([])
   const social = vi.spyOn(ga, 'fetchSocialReferrals').mockResolvedValue([])
@@ -169,7 +172,7 @@ async function mockGa(searchLanding: () => Promise<GA4SearchLandingReport>) {
   })
   vi.spyOn(ga, 'fetchLeadEvents').mockResolvedValue({ startDate: dateDaysAgo(90), endDate: dateDaysAgo(0), attributionScope: 'landing-page', rows: [] })
   const searchLandingSpy = vi.spyOn(ga, 'fetchSearchLandingPages').mockImplementation(searchLanding)
-  return { searchLandingSpy, ai, social }
+  return { searchLandingSpy, ai, social, windowMetrics, daily }
 }
 
 async function sync(ctx: Context, payload: Record<string, unknown> = { days: 30 }) {
@@ -197,6 +200,7 @@ describe('GA4 Search Console landing pages', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks()
+    vi.useRealTimers()
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
   })
@@ -207,7 +211,7 @@ describe('GA4 Search Console landing pages', () => {
     const response = await sync(ctx)
 
     expect(response.statusCode).toBe(200)
-    expect(searchLandingSpy).toHaveBeenCalledWith('fake-token', '123456')
+    expect(searchLandingSpy).toHaveBeenCalledWith('fake-token', '123456', expect.objectContaining({ windows: ['7d', '28d', '90d', '180d'], now: expect.any(Date) }))
     const syncBody = ga4SyncResponseDtoSchema.parse(JSON.parse(response.body))
     expect(syncBody.measurement.searchLandingPages).toEqual({
       status: 'ready',
@@ -215,15 +219,16 @@ describe('GA4 Search Console landing pages', () => {
         { window: '7d', rowCount: 7, reportRowCount: 87, rowsCapped: false },
         { window: '28d', rowCount: 7, reportRowCount: 87, rowsCapped: false },
         { window: '90d', rowCount: 7, reportRowCount: 87, rowsCapped: true },
+        { window: '180d', rowCount: 7, reportRowCount: 87, rowsCapped: false },
       ],
-      rowCount: 21,
+      rowCount: 28,
     })
     expect(syncBody.syncedComponents).toBeUndefined()
     const storedWindows = ctx.db.select().from(gaSearchLandingWindows).all()
-    expect(storedWindows).toHaveLength(3)
+    expect(storedWindows).toHaveLength(4)
     // Each window names the GA4 property it was read from.
-    expect(storedWindows.map(window => window.propertyId)).toEqual(['123456', '123456', '123456'])
-    expect(ctx.db.select().from(gaSearchLandingPages).all()).toHaveLength(21)
+    expect(storedWindows.map(window => window.propertyId)).toEqual(['123456', '123456', '123456', '123456'])
+    expect(ctx.db.select().from(gaSearchLandingPages).all()).toHaveLength(28)
     const state = stateOf(ctx)
     expect(state).toMatchObject({ searchLandingStatus: 'ready', searchLandingError: null })
     expect(state?.searchLandingSyncedAt).toBe(state?.searchLandingAttemptedAt)
@@ -286,6 +291,164 @@ describe('GA4 Search Console landing pages', () => {
     expect(sevenDay).toMatchObject({ window: '7d', windowStart: '2026-10-01', windowDays: 7, subjectToThresholding: true })
     const ninetyDay = gaSearchLandingPagesResponseSchema.parse(JSON.parse((await read(ctx, '?window=90d')).body))
     expect(ninetyDay).toMatchObject({ window: '90d', windowStart: '2026-07-10', windowDays: 90, rowsCapped: true, reportRowCount: 87, totalRows: 7 })
+    const sixMonth = gaSearchLandingPagesResponseSchema.parse(JSON.parse((await read(ctx, '?window=180d')).body))
+    expect(sixMonth).toMatchObject({ window: '180d', windowStart: '2026-04-11', windowDays: 180, totalRows: 7, total: { organicGoogleSearchClicks: 837, activeUsers: 1093 } })
+  })
+
+  describe('reuse of native window reports', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-10-08T15:00:00.000Z'))
+    })
+
+    // This provider stub only answers requested windows. The real sync decides
+    // which windows to request, writes them and decides whether to reuse them.
+    async function mockCurrentReports() {
+      const mocks = await mockGa(async (_token, _property, options) => ({
+        status: 'ready',
+        windows: readyReport().windows.filter(window => options?.windows?.includes(window.window)).map(window => ({
+          ...window,
+          periodStart: dateDaysAgo(Number(window.window.slice(0, -1))),
+          periodEnd: dateDaysAgo(1),
+          timeZone: options?.timeZone ?? null,
+        })),
+      }))
+      mocks.windowMetrics.mockImplementation(async (_token, _property, window) => ({ ...unknownWindowMetrics(window), timeZone: 'UTC' }))
+      return mocks
+    }
+
+    function storedSearch() {
+      return {
+        windows: ctx.db.select().from(gaSearchLandingWindows).where(eq(gaSearchLandingWindows.projectId, ctx.projectId)).all(),
+        pages: ctx.db.select().from(gaSearchLandingPages).where(eq(gaSearchLandingPages.projectId, ctx.projectId)).all(),
+      }
+    }
+
+    function removeWindow(window: '180d') {
+      ctx.db.delete(gaSearchLandingPages).where(and(eq(gaSearchLandingPages.projectId, ctx.projectId), eq(gaSearchLandingPages.windowKey, window))).run()
+      ctx.db.delete(gaSearchLandingWindows).where(and(eq(gaSearchLandingWindows.projectId, ctx.projectId), eq(gaSearchLandingWindows.windowKey, window))).run()
+    }
+
+    it('reuses fresh reports with original values and provenance, fetching only missing windows after run deletion', async () => {
+      const { searchLandingSpy } = await mockCurrentReports()
+      expect((await sync(ctx)).statusCode).toBe(200)
+      const initial = storedSearch()
+      const syncedAt = stateOf(ctx)?.searchLandingSyncedAt
+      expect(initial.windows).toHaveLength(4)
+
+      vi.setSystemTime(new Date('2026-10-08T15:30:00.000Z'))
+      const repeated = await sync(ctx, { only: 'search-landing' })
+      expect(repeated.statusCode).toBe(200)
+      expect(searchLandingSpy).toHaveBeenCalledTimes(1)
+      expect(storedSearch()).toEqual(initial)
+      expect(stateOf(ctx)).toMatchObject({ searchLandingSyncedAt: syncedAt, searchLandingAttemptedAt: '2026-10-08T15:30:00.000Z' })
+      expect(ga4SyncResponseDtoSchema.parse(JSON.parse(repeated.body)).measurement.searchLandingPages)
+        .toEqual({ status: 'ready', windows: [], rowCount: 0 })
+      expect(ga4SyncResponseDtoSchema.parse(JSON.parse(repeated.body)).syncedComponents).toEqual(['traffic', 'summary'])
+
+      // An upgrade or deleted snapshot can leave just the new window missing.
+      removeWindow('180d')
+      const retained = storedSearch()
+      expect((await sync(ctx)).statusCode).toBe(200)
+      expect(searchLandingSpy).toHaveBeenLastCalledWith('fake-token', '123456', {
+        windows: ['180d'], now: new Date('2026-10-08T15:30:00.000Z'), timeZone: 'UTC',
+      })
+      const filled = storedSearch()
+      expect(filled.windows.filter(window => window.windowKey !== '180d')).toEqual(retained.windows)
+      expect(filled.pages.filter(page => page.windowKey !== '180d')).toEqual(retained.pages)
+      const newWindow = filled.windows.find(window => window.windowKey === '180d')!
+      expect(newWindow).toMatchObject({ periodStart: '2026-04-11', periodEnd: '2026-10-07', totalActiveUsers: 1093, totalClicks: 837 })
+      expect(newWindow.syncRunId).not.toBe(initial.windows[0]!.syncRunId)
+
+      ctx.db.delete(runs).where(eq(runs.id, newWindow.syncRunId!)).run()
+      expect(storedSearch()).toEqual(retained)
+      expect((await sync(ctx)).statusCode).toBe(200)
+      expect(searchLandingSpy).toHaveBeenCalledTimes(3)
+      expect(searchLandingSpy.mock.calls.at(-1)?.[2]?.windows).toEqual(['180d'])
+      expect(storedSearch().windows).toHaveLength(4)
+    })
+
+    it.each(['expired', 'new-day', 'time-zone', 'unknown-time-zone', 'property', 'definition', 'prior-failure'] as const)('refreshes native reports when %s invalidates reuse', async reason => {
+        if (reason === 'new-day') vi.setSystemTime(new Date('2026-10-08T23:45:00.000Z'))
+        const { searchLandingSpy, windowMetrics } = await mockCurrentReports()
+        expect((await sync(ctx)).statusCode).toBe(200)
+        const previousRun = storedSearch().windows[0]!.syncRunId
+        vi.setSystemTime(new Date(reason === 'expired' ? '2026-10-08T16:00:00.000Z' : reason === 'new-day' ? '2026-10-09T00:15:00.000Z' : '2026-10-08T15:30:00.000Z'))
+        if (reason === 'time-zone' || reason === 'unknown-time-zone') {
+          windowMetrics.mockImplementation(async (_token, _property, window) => ({ ...unknownWindowMetrics(window), timeZone: reason === 'time-zone' ? 'America/New_York' : undefined }))
+        } else if (reason === 'property') {
+          ctx.credentials.set(PROJECT, { ...ctx.credentials.get(PROJECT)!, propertyId: '654321' })
+        } else if (reason === 'definition') {
+          ctx.db.update(gaSearchLandingWindows).set({ reportDefinition: null }).where(eq(gaSearchLandingWindows.projectId, ctx.projectId)).run()
+        } else if (reason === 'prior-failure') {
+          ctx.db.update(gaMeasurementSyncStates).set({ searchLandingStatus: 'error', searchLandingError: 'previous provider failure' }).where(eq(gaMeasurementSyncStates.projectId, ctx.projectId)).run()
+        }
+
+        expect((await sync(ctx)).statusCode).toBe(200)
+        expect(searchLandingSpy).toHaveBeenCalledTimes(2)
+        expect(searchLandingSpy.mock.calls.at(-1)?.[2]?.windows).toEqual(['7d', '28d', '90d', '180d'])
+        const fresh = storedSearch()
+        expect(fresh.windows).toHaveLength(4)
+        expect(fresh.windows.every(window => window.syncRunId !== previousRun)).toBe(true)
+        expect(stateOf(ctx)?.searchLandingStatus).toBe('ready')
+        if (reason === 'new-day') expect(fresh.windows.find(window => window.windowKey === '180d')).toMatchObject({ periodStart: '2026-04-12', periodEnd: '2026-10-08' })
+        if (reason === 'property') expect(fresh.windows.map(window => window.propertyId)).toEqual(['654321', '654321', '654321', '654321'])
+      })
+
+    it('keeps earlier Advanced portfolio windows after a failed missing-window fetch and retries instead of treating it as covered', async () => {
+      const plan = measurementPlanV2Fixture()
+      const now = new Date().toISOString()
+      ctx.db.insert(measurementPlanVersions).values({ id: 'advanced-search-plan', projectId: ctx.projectId, revision: 1, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: '1'.repeat(64), schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: now }).run()
+      ctx.db.insert(measurementPlans).values({ projectId: ctx.projectId, activeVersionId: 'advanced-search-plan', createdAt: now, updatedAt: now }).run()
+      const { searchLandingSpy } = await mockCurrentReports()
+      expect((await sync(ctx)).statusCode).toBe(200)
+      removeWindow('180d')
+      const retained = storedSearch()
+      vi.setSystemTime(new Date('2026-10-08T15:30:00.000Z'))
+      searchLandingSpy.mockRejectedValueOnce(new GA4ApiError('Search report unavailable', 503))
+      const failed = await sync(ctx)
+      expect(failed.statusCode).toBe(200)
+      expect(ga4SyncResponseDtoSchema.parse(JSON.parse(failed.body)).measurement.searchLandingPages?.status).toBe('error')
+      expect(searchLandingSpy.mock.calls.at(-1)?.[2]?.windows).toEqual(['180d'])
+      expect(storedSearch()).toEqual(retained)
+
+      expect((await sync(ctx)).statusCode).toBe(200)
+      expect(searchLandingSpy.mock.calls.at(-1)?.[2]?.windows).toEqual(['7d', '28d', '90d', '180d'])
+      expect(storedSearch().windows).toHaveLength(4)
+      const recovered = gaSearchLandingPagesResponseSchema.parse(JSON.parse((await read(ctx, '?window=180d')).body))
+      expect(recovered).toMatchObject({ status: 'ready', windowDays: 180, total: { organicGoogleSearchClicks: 837, activeUsers: 1093 }, totalRows: 7 })
+    })
+
+    it('refuses to mark reused reports ready if their run is deleted during provider work', async () => {
+      const { searchLandingSpy, daily } = await mockCurrentReports()
+      expect((await sync(ctx)).statusCode).toBe(200)
+      const originalRun = storedSearch().windows[0]!.syncRunId!
+      vi.setSystemTime(new Date('2026-10-08T15:30:00.000Z'))
+      let notifyPaused!: () => void
+      let resume!: () => void
+      const paused = new Promise<void>(resolve => { notifyPaused = resolve })
+      const resumed = new Promise<void>(resolve => { resume = resolve })
+      daily.mockImplementationOnce(async () => {
+        notifyPaused()
+        await resumed
+        return dailyTotals()
+      })
+
+      const pending = sync(ctx)
+      await paused
+      ctx.db.delete(runs).where(eq(runs.id, originalRun)).run()
+      resume()
+      const response = await pending
+
+      expect(response.statusCode).toBe(200)
+      expect(searchLandingSpy).toHaveBeenCalledTimes(1)
+      expect(ga4SyncResponseDtoSchema.parse(JSON.parse(response.body)).measurement.searchLandingPages).toEqual({
+        status: 'error', windows: [], rowCount: 0,
+        error: 'Search landing snapshots changed during sync; retry to refresh the missing windows',
+      })
+      expect(storedSearch()).toEqual({ windows: [], pages: [] })
+      expect(stateOf(ctx)?.searchLandingStatus).toBe('error')
+    })
   })
 
   describe('Search Console link check', () => {
@@ -374,8 +537,8 @@ describe('GA4 Search Console landing pages', () => {
 
     expect((await sync(ctx)).statusCode).toBe(200)
 
-    expect(ctx.db.select().from(gaSearchLandingPages).all().map(row => row.landingPage)).toEqual(['/pricing', '/pricing', '/pricing'])
-    expect(ctx.db.select().from(gaSearchLandingWindows).all()).toHaveLength(3)
+    expect(ctx.db.select().from(gaSearchLandingPages).all().map(row => row.landingPage)).toEqual(['/pricing', '/pricing', '/pricing', '/pricing'])
+    expect(ctx.db.select().from(gaSearchLandingWindows).all()).toHaveLength(4)
     const body = gaSearchLandingPagesResponseSchema.parse(JSON.parse((await read(ctx)).body))
     expect(body).toMatchObject({ totalRows: 1, reportRowCount: 1, rowsCapped: false })
   })
@@ -446,7 +609,7 @@ describe('GA4 Search Console landing pages', () => {
 
     expect((await sync(ctx)).statusCode).toBe(200)
 
-    expect(searchLandingSpy).toHaveBeenLastCalledWith('fake-token', '654321')
+    expect(searchLandingSpy).toHaveBeenLastCalledWith('fake-token', '654321', expect.objectContaining({ windows: ['7d', '28d', '90d', '180d'] }))
     expect(ctx.db.select().from(gaSearchLandingWindows).all()).toEqual([])
     expect(ctx.db.select().from(gaSearchLandingPages).all()).toEqual([])
     expect(stateOf(ctx)).toMatchObject({ searchLandingStatus: 'unavailable', searchLandingError: reason, searchLandingSyncedAt: null })
@@ -463,7 +626,7 @@ describe('GA4 Search Console landing pages', () => {
     const connection = ctx.credentials.get(PROJECT)!
     ctx.credentials.set(PROJECT, { ...connection, propertyId: '654321' })
 
-    for (const window of ['7d', '28d', '90d']) {
+    for (const window of ['7d', '28d', '90d', '180d']) {
       const body = gaSearchLandingPagesResponseSchema.parse(JSON.parse((await read(ctx, `?window=${window}`)).body))
       expect(body).toEqual({
         source: 'ga4-search-console-link',
@@ -490,8 +653,8 @@ describe('GA4 Search Console landing pages', () => {
     }
 
     // The GET wrote nothing: the snapshot and its state are untouched.
-    expect(ctx.db.select().from(gaSearchLandingWindows).all()).toHaveLength(3)
-    expect(ctx.db.select().from(gaSearchLandingPages).all()).toHaveLength(21)
+    expect(ctx.db.select().from(gaSearchLandingWindows).all()).toHaveLength(4)
+    expect(ctx.db.select().from(gaSearchLandingPages).all()).toHaveLength(28)
     expect(stateOf(ctx)).toEqual(before)
 
     // Pointed back at the property it was read from, it is current again.
@@ -617,7 +780,7 @@ describe('GA4 Search Console landing pages', () => {
   })
 
   it.each([
-    ['?window=30d', 'Invalid window "30d". Must be one of: 7d, 28d, 90d.'],
+    ['?window=30d', 'Invalid window "30d". Must be one of: 7d, 28d, 90d, 180d.'],
     ['?limit=0', '"limit" must be an integer between 1 and 1000'],
     ['?limit=1001', '"limit" must be an integer between 1 and 1000'],
     ['?limit=2.5', '"limit" must be an integer between 1 and 1000'],
@@ -640,7 +803,7 @@ describe('GA4 Search Console landing pages', () => {
     }
     const operation = spec.paths['/api/v1/projects/{name}/ga/search-landing-pages']?.get
     expect(operation?.parameters?.map(parameter => parameter.name)).toEqual(['name', 'window', 'limit', 'offset'])
-    expect(operation?.parameters?.find(parameter => parameter.name === 'window')?.schema).toMatchObject({ enum: ['7d', '28d', '90d'], default: '28d' })
+    expect(operation?.parameters?.find(parameter => parameter.name === 'window')?.schema).toMatchObject({ enum: ['7d', '28d', '90d', '180d'], default: '28d' })
     expect(operation?.responses['200']).toMatchObject({
       content: { 'application/json': { schema: { $ref: '#/components/schemas/GaSearchLandingPagesResponse' } } },
     })

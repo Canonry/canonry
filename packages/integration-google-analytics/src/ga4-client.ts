@@ -3,6 +3,7 @@ import {
   AI_REFERRAL_ENGINE_DEFINITIONS,
   GA4_AI_ASSISTANT_CHANNEL_GROUP,
   GA_OVERVIEW_HISTORY_DAYS,
+  GA_OVERVIEW_WINDOW_DAYS,
   GA_SEARCH_LANDING_WINDOWS,
   GA_SEARCH_LANDING_WINDOW_DAYS,
   classifyAiReferralTrafficClass,
@@ -13,6 +14,7 @@ import {
   gaOverviewComparisonDaysAgo,
   gaOverviewComparisonRanges,
   isoDateDaysBeforeInTimeZone,
+  inclusiveDayCount,
   parseBoundedRate,
   withRetry,
 } from '@canonry/canonry-contracts'
@@ -35,6 +37,7 @@ import {
   resolveGa4SyncDays,
   GA4_REQUEST_TIMEOUT_MS,
   GA4_MAX_PAGES,
+  GA4_MAX_SYNC_DAYS,
   GA4_MAX_CONCURRENT_REQUESTS,
   GA4_MAX_RETRIES,
   GA4_INITIAL_RETRY_DELAY_MS,
@@ -439,7 +442,14 @@ function reportTimeZone(...responses: Array<GA4RunReportResponse | undefined>): 
   return null
 }
 
-function measurementDateRange(days?: number) {
+export interface GA4DateRange { startDate: string; endDate: string }
+
+function measurementDateRange(days?: number, requestedRange?: GA4DateRange, maxDays = GA4_MAX_SYNC_DAYS) {
+  if (requestedRange) {
+    const count = inclusiveDayCount(requestedRange.startDate, requestedRange.endDate)
+    if (count === null || count > maxDays + 1) throw new GA4ApiError('Invalid GA4 sync date range', 400)
+    return { syncDays: count, dateRange: requestedRange }
+  }
   const { effectiveDays: syncDays } = resolveGa4SyncDays(days)
   const endDate = new Date()
   const startDate = new Date()
@@ -512,11 +522,11 @@ export async function fetchAcquisitionByChannel(
   accessToken: string,
   propertyId: string,
   days?: number,
-  options?: { pageSize?: number },
+  options?: { pageSize?: number; dateRange?: GA4DateRange },
 ): Promise<GA4AcquisitionReport> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
-  const { syncDays, dateRange } = measurementDateRange(days)
+  const { syncDays, dateRange } = measurementDateRange(days, options?.dateRange)
   const rows = await fetchPagedReport(accessToken, propertyId, {
     dateRanges: [dateRange],
     dimensions: [
@@ -553,10 +563,11 @@ export async function fetchLeadEvents(
   propertyId: string,
   eventNames: string[],
   days?: number,
+  dateRangeOverride?: GA4DateRange,
 ): Promise<GA4LeadEventReport> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
-  const { dateRange } = measurementDateRange(days)
+  const { dateRange } = measurementDateRange(days, dateRangeOverride)
   const filter = { orGroup: { expressions: eventNames.map((value) => ({ filter: {
     fieldName: DIM.eventName,
     stringFilter: { matchType: 'EXACT', value },
@@ -714,13 +725,11 @@ export async function fetchTrafficByLandingPage(
   accessToken: string,
   propertyId: string,
   days?: number,
+  dateRangeOverride?: GA4DateRange,
 ): Promise<GA4TrafficRow[]> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
-  const { effectiveDays: syncDays } = resolveGa4SyncDays(days)
-  const endDate = new Date()
-  const startDate = new Date()
-  startDate.setDate(startDate.getDate() - syncDays)
+  const { syncDays, dateRange } = measurementDateRange(days, dateRangeOverride)
 
   ga4Log('info', 'fetch-traffic.start', { propertyId, days: syncDays })
 
@@ -734,7 +743,7 @@ export async function fetchTrafficByLandingPage(
   while (pageCount < GA4_MAX_PAGES) {
     pageCount++
     const request: GA4RunReportRequest = {
-      dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+      dateRanges: [dateRange],
       dimensions: [
         { name: DIM.date },
         { name: DIM.landingPagePlusQueryString },
@@ -761,10 +770,11 @@ export async function fetchTrafficByLandingPage(
 
     rows.push(...pageRows)
 
-    const totalRows = response.rowCount ?? 0
+    const totalRows = response.rowCount
     offset += pageRows.length
 
-    if (pageRows.length < PAGE_SIZE || offset >= totalRows) break
+    if (pageRows.length < PAGE_SIZE || (totalRows !== undefined && offset >= totalRows)) break
+    if (pageCount >= GA4_MAX_PAGES) throw new GA4ApiError('GA4 report truncated at the page limit', 502)
   }
 
   // Second pass: organic-only report filtered to "Organic Search" channel.
@@ -776,7 +786,7 @@ export async function fetchTrafficByLandingPage(
   while (organicPageCount < GA4_MAX_PAGES) {
     organicPageCount++
     const organicRequest: GA4RunReportRequest = {
-      dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+      dateRanges: [dateRange],
       dimensions: [{ name: DIM.date }, { name: DIM.landingPagePlusQueryString }],
       metrics: [{ name: MET.sessions }],
       dimensionFilter: {
@@ -795,9 +805,10 @@ export async function fetchTrafficByLandingPage(
       const key = `${row.dimensionValues[0]!.value}::${row.dimensionValues[1]!.value}`
       organicMap.set(key, parseInt(row.metricValues[0]!.value, 10) || 0)
     }
-    const total = organicResponse.rowCount ?? 0
+    const total = organicResponse.rowCount
     organicOffset += (organicResponse.rows ?? []).length
-    if ((organicResponse.rows ?? []).length < 10000 || organicOffset >= total) break
+    if ((organicResponse.rows ?? []).length < 10000 || (total !== undefined && organicOffset >= total)) break
+    if (organicPageCount >= GA4_MAX_PAGES) throw new GA4ApiError('GA4 organic report truncated at the page limit', 502)
   }
 
   // Third pass: direct-only report filtered to "Direct" channel.
@@ -810,7 +821,7 @@ export async function fetchTrafficByLandingPage(
   while (directPageCount < GA4_MAX_PAGES) {
     directPageCount++
     const directRequest: GA4RunReportRequest = {
-      dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+      dateRanges: [dateRange],
       dimensions: [{ name: DIM.date }, { name: DIM.landingPagePlusQueryString }],
       metrics: [{ name: MET.sessions }],
       dimensionFilter: {
@@ -829,9 +840,10 @@ export async function fetchTrafficByLandingPage(
       const key = `${row.dimensionValues[0]!.value}::${row.dimensionValues[1]!.value}`
       directMap.set(key, parseInt(row.metricValues[0]!.value, 10) || 0)
     }
-    const total = directResponse.rowCount ?? 0
+    const total = directResponse.rowCount
     directOffset += (directResponse.rows ?? []).length
-    if ((directResponse.rows ?? []).length < 10000 || directOffset >= total) break
+    if ((directResponse.rows ?? []).length < 10000 || (total !== undefined && directOffset >= total)) break
+    if (directPageCount >= GA4_MAX_PAGES) throw new GA4ApiError('GA4 direct report truncated at the page limit', 502)
   }
 
   // Merge organic and direct session counts back into the rows
@@ -1174,7 +1186,7 @@ export async function fetchDailyTotals(
   accessToken: string,
   propertyId: string,
   days: number = GA_OVERVIEW_HISTORY_DAYS,
-  options: { now?: Date } = {},
+  options: { now?: Date; dateRange?: GA4DateRange } = {},
 ): Promise<GA4DailyTotals> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
@@ -1186,7 +1198,11 @@ export async function fetchDailyTotals(
   // as the overview's periods do. Today stays in while it fills: the session
   // history reads each day's users from here.
   const requestedAt = (options.now ?? new Date()).toISOString()
-  const dateRange = { startDate: ga4RelativeDate(historyDays), endDate: ga4RelativeDate(0) }
+  const dateRange = options.dateRange
+    ? measurementDateRange(days, options.dateRange, GA_OVERVIEW_HISTORY_DAYS).dateRange
+    : { startDate: ga4RelativeDate(historyDays), endDate: ga4RelativeDate(0) }
+
+  const rowLimit = options.dateRange ? inclusiveDayCount(dateRange.startDate, dateRange.endDate)! : historyDays + 1
 
   ga4Log('info', 'fetch-daily-totals.start', { propertyId, days: historyDays })
 
@@ -1209,7 +1225,7 @@ export async function fetchDailyTotals(
         { name: MET.userEngagementDuration },
         { name: MET.bounceRate },
       ],
-      limit: historyDays + 1,
+      limit: rowLimit,
     },
     {
       dateRanges: [dateRange],
@@ -1221,7 +1237,7 @@ export async function fetchDailyTotals(
           stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
         },
       },
-      limit: historyDays + 1,
+      limit: rowLimit,
     },
   ])
 
@@ -1257,8 +1273,8 @@ export async function fetchDailyTotals(
   const timeZone = reportTimeZone(totalsRes, organicRes) ?? 'UTC'
   ga4Log('info', 'fetch-daily-totals.done', { propertyId, days: historyDays, timeZone, rows: rows.length })
   return {
-    startDate: isoDateDaysBeforeInTimeZone(requestedAt, historyDays, timeZone),
-    endDate: isoDateDaysBeforeInTimeZone(requestedAt, 0, timeZone),
+    startDate: options.dateRange?.startDate ?? isoDateDaysBeforeInTimeZone(requestedAt, historyDays, timeZone),
+    endDate: options.dateRange?.endDate ?? isoDateDaysBeforeInTimeZone(requestedAt, 0, timeZone),
     rows,
   }
 }
@@ -1273,8 +1289,6 @@ export interface GA4WindowSummary {
   totalUsers: number
 }
 
-const WINDOW_DAYS: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90 }
-
 /**
  * Fetch deduplicated totals for a fixed window (no landing-page dimension).
  * Used to back the windowed `totalUsers` headline on the dashboard — summing
@@ -1286,14 +1300,14 @@ const WINDOW_DAYS: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90 }
 export async function fetchWindowSummary(
   accessToken: string,
   propertyId: string,
-  windowKey: '7d' | '30d' | '90d',
+  windowKey: GaOverviewWindow,
 ): Promise<GA4WindowSummary> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
 
-  const days = WINDOW_DAYS[windowKey]
+  const days = GA_OVERVIEW_WINDOW_DAYS[windowKey]
   if (!days) {
-    throw new GA4ApiError(`Unsupported windowKey "${windowKey}" — must be 7d, 30d, or 90d`, 400)
+    throw new GA4ApiError(`Unsupported windowKey "${windowKey}" — must be 7d, 30d, 90d, or 180d`, 400)
   }
 
   const endDate = new Date()
@@ -1373,6 +1387,8 @@ export interface GA4WindowMetricsPeriod {
 }
 
 export interface GA4WindowMetrics {
+  /** Reporting identity for incremental daily coverage; older adapters may omit it. */
+  timeZone?: string
   windowKey: GaOverviewWindow
   current: GA4WindowMetricsPeriod
   previous: GA4WindowMetricsPeriod
@@ -1481,7 +1497,7 @@ export async function fetchWindowMetrics(
   }
 
   ga4Log('info', 'fetch-window-metrics.done', { propertyId, windowKey, timeZone })
-  return result
+  return { ...result, timeZone }
 }
 
 /**
@@ -1491,14 +1507,11 @@ export async function fetchAiReferrals(
   accessToken: string,
   propertyId: string,
   days?: number,
+  dateRangeOverride?: GA4DateRange,
 ): Promise<GA4AiReferralRow[]> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
-  const { effectiveDays: syncDays } = resolveGa4SyncDays(days)
-  const endDate = new Date()
-  const startDate = new Date()
-  startDate.setDate(startDate.getDate() - syncDays)
-  const dateRange = { startDate: formatDate(startDate), endDate: formatDate(endDate) }
+  const { syncDays, dateRange } = measurementDateRange(days, dateRangeOverride)
 
   ga4Log('info', 'fetch-ai-referrals.start', { propertyId, days: syncDays })
 
@@ -1656,9 +1669,10 @@ async function fetchAiReferralPass(
 
     rows.push(...pageRows)
 
-    const totalRows = response.rowCount ?? 0
+    const totalRows = response.rowCount
     offset += pageRows.length
-    if (pageRows.length < PAGE_SIZE || offset >= totalRows) break
+    if (pageRows.length < PAGE_SIZE || (totalRows !== undefined && offset >= totalRows)) break
+    if (pageCount >= GA4_MAX_PAGES) throw new GA4ApiError('GA4 report truncated at the page limit', 502)
   }
   return rows
 }
@@ -1682,13 +1696,11 @@ export async function fetchSocialReferrals(
   accessToken: string,
   propertyId: string,
   days?: number,
+  dateRangeOverride?: GA4DateRange,
 ): Promise<GA4SocialReferralRow[]> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
-  const { effectiveDays: syncDays } = resolveGa4SyncDays(days)
-  const endDate = new Date()
-  const startDate = new Date()
-  startDate.setDate(startDate.getDate() - syncDays)
+  const { syncDays, dateRange } = measurementDateRange(days, dateRangeOverride)
 
   ga4Log('info', 'fetch-social-referrals.start', { propertyId, days: syncDays })
 
@@ -1699,7 +1711,7 @@ export async function fetchSocialReferrals(
 
   while (pageCount < GA4_MAX_PAGES) {
     const request: GA4RunReportRequest = {
-      dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+      dateRanges: [dateRange],
       dimensions: [
         { name: DIM.date },
         { name: DIM.sessionSource },
@@ -1738,10 +1750,11 @@ export async function fetchSocialReferrals(
 
     rows.push(...pageRows)
 
-    const totalRows = response.rowCount ?? 0
+    const totalRows = response.rowCount
     offset += pageRows.length
     pageCount += 1
-    if (pageRows.length < PAGE_SIZE || offset >= totalRows) break
+    if (pageRows.length < PAGE_SIZE || (totalRows !== undefined && offset >= totalRows)) break
+    if (pageCount >= GA4_MAX_PAGES) throw new GA4ApiError('GA4 report truncated at the page limit', 502)
   }
 
   for (const row of rows) {
@@ -1842,13 +1855,17 @@ async function fetchSearchLandingWindow(
   accessToken: string,
   propertyId: string,
   window: GaSearchLandingWindow,
-  options: { requestedAt: string; pageSize: number; maxRows: number },
+  options: { requestedAt: string; pageSize: number; maxRows: number; timeZone?: string },
 ): Promise<GA4SearchLandingWindowReport & { emptyReason: string | null }> {
   const days = GA_SEARCH_LANDING_WINDOW_DAYS[window]
+  const explicitRange = options.timeZone === undefined ? null : {
+    startDate: isoDateDaysBeforeInTimeZone(options.requestedAt, days, options.timeZone),
+    endDate: isoDateDaysBeforeInTimeZone(options.requestedAt, 1, options.timeZone),
+  }
   const { rows: rawRows, firstPage, reportRowCount, capped } = await fetchPagedReportWithTotals(accessToken, propertyId, {
-    // Relative dates resolve in the property's reporting time zone, which is
-    // how GA4's own "Last N days" ranges end: yesterday, local to the property.
-    dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'yesterday' }],
+    // A known reporting zone pins the planner's calendar bounds across I/O.
+    // Otherwise GA4 resolves the relative range in its own reporting zone.
+    dateRanges: [explicitRange ?? { startDate: `${days}daysAgo`, endDate: 'yesterday' }],
     dimensions: [{ name: DIM.landingPagePlusQueryString }],
     metrics: SEARCH_LANDING_METRIC_NAMES.map((name) => ({ name })),
     metricAggregations: ['TOTAL'],
@@ -1893,8 +1910,8 @@ async function fetchSearchLandingWindow(
   const zone = timeZone ?? 'UTC'
   return {
     window,
-    periodStart: isoDateDaysBeforeInTimeZone(options.requestedAt, days, zone),
-    periodEnd: isoDateDaysBeforeInTimeZone(options.requestedAt, 1, zone),
+    periodStart: explicitRange?.startDate ?? isoDateDaysBeforeInTimeZone(options.requestedAt, days, zone),
+    periodEnd: explicitRange?.endDate ?? isoDateDaysBeforeInTimeZone(options.requestedAt, 1, zone),
     timeZone,
     total,
     rows,
@@ -1908,8 +1925,8 @@ async function fetchSearchLandingWindow(
 
 /**
  * Fetch GA4's "Google organic search traffic: Landing page + query string"
- * report for the 7, 28 and 90 days ending yesterday (property time zone): one
- * request per window, paged until every row is read or
+ * report for the 7, 28, 90 and 180 days ending yesterday (property time zone):
+ * one request per selected complete window, paged until every row is read or
  * `GA4_SEARCH_LANDING_MAX_ROWS` is reached.
  *
  * Returns `unavailable` (never throws) when GA4 refuses the Search Console
@@ -1920,10 +1937,16 @@ async function fetchSearchLandingWindow(
 export async function fetchSearchLandingPages(
   accessToken: string,
   propertyId: string,
-  options: { now?: Date; pageSize?: number; maxRows?: number } = {},
+  options: { now?: Date; pageSize?: number; maxRows?: number; windows?: readonly GaSearchLandingWindow[]; timeZone?: string } = {},
 ): Promise<GA4SearchLandingReport> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
+  const requestedWindows = options.windows ?? GA_SEARCH_LANDING_WINDOWS
+  if (requestedWindows.length === 0
+    || new Set(requestedWindows).size !== requestedWindows.length
+    || requestedWindows.some(window => !GA_SEARCH_LANDING_WINDOWS.includes(window))) {
+    throw new GA4ApiError('Search landing windows must be a non-empty selection of unique supported windows', 400)
+  }
   const requestedAt = (options.now ?? new Date()).toISOString()
   const pageSize = options.pageSize ?? GA4_SEARCH_LANDING_PAGE_SIZE
   const maxRows = options.maxRows ?? GA4_SEARCH_LANDING_MAX_ROWS
@@ -1931,8 +1954,8 @@ export async function fetchSearchLandingPages(
   ga4Log('info', 'fetch-search-landing.start', { propertyId })
   let windows: Array<GA4SearchLandingWindowReport & { emptyReason: string | null }>
   try {
-    windows = await Promise.all(GA_SEARCH_LANDING_WINDOWS.map((window) =>
-      fetchSearchLandingWindow(accessToken, propertyId, window, { requestedAt, pageSize, maxRows })))
+    windows = await Promise.all(requestedWindows.map((window) =>
+      fetchSearchLandingWindow(accessToken, propertyId, window, { requestedAt, pageSize, maxRows, timeZone: options.timeZone })))
   } catch (error) {
     if (!isSearchConsoleUnavailable(error)) throw error
     ga4Log('info', 'fetch-search-landing.unavailable', { propertyId, httpStatus: 400 })

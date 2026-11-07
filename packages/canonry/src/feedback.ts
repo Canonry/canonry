@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import {
   FEEDBACK_LIMITS,
+  feedbackAcceptedDtoSchema,
   deliveryFailed,
   normalizeAgentSlug,
   quotaExceeded,
@@ -97,8 +98,11 @@ export async function sendFeedback(
   }
 
   if (response.status === 202 || response.ok) {
-    const body = await response.json().catch(() => ({})) as Partial<FeedbackAcceptedDto>
-    return { accepted: body.accepted ?? true, id: typeof body.id === 'string' ? body.id : payload.feedbackId }
+    const receipt = feedbackAcceptedDtoSchema.safeParse(await response.json().catch(() => undefined))
+    if (!receipt.success || !receipt.data.accepted || !receipt.data.id.trim()) {
+      throw deliveryFailed('canonry.ai did not confirm feedback delivery. Your feedback may not have been stored.')
+    }
+    return receipt.data
   }
   if (response.status === 429) throw quotaExceeded('feedback submissions', { retryLater: true })
   if (response.status === 400 || response.status === 413) {

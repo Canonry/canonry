@@ -3,7 +3,7 @@ export const GA4_ADMIN_API_BASE = 'https://analyticsadmin.googleapis.com/v1beta'
 export const GA4_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly'
 export const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 export const GA4_DEFAULT_SYNC_DAYS = 30
-export const GA4_MAX_SYNC_DAYS = 90
+export const GA4_MAX_SYNC_DAYS = 180
 
 /**
  * Resolve a caller-supplied sync window into the window that will actually be
@@ -142,3 +142,6 @@ export const GA4_SEARCH_LANDING_MAX_ROWS = 10_000
 
 /** Rows requested per page of the Search Console landing-page report. */
 export const GA4_SEARCH_LANDING_PAGE_SIZE = 10_000
+
+/** Change when the report's request or parsing semantics invalidate stored window reuse. */
+export const GA4_SEARCH_LANDING_REPORT_DEFINITION = 'search-landing-v1'

@@ -1,15 +1,15 @@
 /**
- * Daily history of machine and human AI traffic from the server-side lane.
+ * Daily server-side machine activity and daily or monthly AI arrivals from
+ * independent server and GA4 counts.
  *
- * Deliberately fed by SERVER traffic only, and rendered as a sibling of the GA4
- * panel rather than inside it: the GA4 panel early-returns a connect prompt when
- * no property is bound, and this data exists with no GA4 at all. Nesting it
- * would hide it from exactly the projects it serves.
+ * Rendered as a sibling of the GA4 panel rather than inside it: that panel
+ * early-returns a connect prompt when no property is bound. Server history
+ * needs no GA4, and GA4 arrivals remain available without a server source.
  *
  * "Pages crawled" reads `crawlerContentHits`, not `crawlerHits`. The latter
  * counts robots.txt and sitemap re-fetches, which are not pages an engine read.
  */
-import { useMemo, useState, type Key } from 'react'
+import { useMemo, useState, type Key, type ReactNode } from 'react'
 import {
   Area,
   CartesianGrid,
@@ -25,12 +25,14 @@ import {
   CHART_GRID_STROKE,
   CHART_TOOLTIP_STYLE,
   ReferenceArea,
+  ReferenceLine,
   CHART_SERIES_COLORS,
   formatChartDateLabel,
   formatChartDateTick,
 } from '../shared/ChartPrimitives.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
+import { Button } from '../ui/button.js'
 import { KpiRow } from './ActivityParts.js'
 import { useServerTrafficEvents, useServerTrafficSources } from '../../queries/server-traffic.js'
 import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
@@ -38,7 +40,7 @@ import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
 // threshold made the same magnitude read "5,000" in one tile and "5.0K" in the
 // next. ActivitySection and TrafficPage still carry their own `formatCompact`
 // with identical behaviour; folding those into this import is a separate change.
-import { formatNumber } from '@canonry/canonry-contracts'
+import { formatNumber, formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameGaAiReferralDailyOptions, getApiV1ProjectsByNameGaStatusOptions } from '@canonry/canonry-api-client/react-query'
 import { useQuery } from '@tanstack/react-query'
 import { heyClient } from '../../api.js'
@@ -48,11 +50,39 @@ const CRAWLER_COLOR = CHART_SERIES_COLORS[0]
 const FETCH_COLOR = CHART_SERIES_COLORS[1]
 const VISIT_COLOR = CHART_SERIES_COLORS[2]
 const GA4_COLOR = CHART_SERIES_COLORS[3]
+// The measurement-change marker colour the visibility trend uses for setup changes.
+const COUNT_CHANGE_COLOR = CHART_SERIES_COLORS[4]
 
 // The shared segmented control is not window-specific; it takes any token
 // list. Hand-rolling it again is how the control drifted between tabs before.
 const VISIT_SOURCES = ['both', 'server', 'ga4'] as const
 type VisitSource = (typeof VISIT_SOURCES)[number]
+
+// Months read the long view (the last year and its trend); days keep the
+// selected window.
+const VISIT_GRAINS = ['days', 'months'] as const
+type VisitGrain = (typeof VISIT_GRAINS)[number]
+const MONTHS_SHOWN = 12
+
+const AI_VISITS_HISTORY_COPY = {
+  serverLoading: 'Loading monthly server visits…',
+  gaLoading: 'Loading monthly GA4 visits…',
+  gaStatusLoading: 'Checking the GA4 connection…',
+  serverError: 'Could not load monthly server visits.',
+  gaError: 'Could not load monthly GA4 visits.',
+  gaStatusError: 'Could not check the GA4 connection.',
+  retryServer: 'Retry monthly server visits',
+  retryGa: 'Retry monthly GA4 visits',
+  retryGaStatus: 'Retry GA4 connection check',
+  connectGa: 'Connect Google Analytics 4 to see monthly visits.',
+  emptyMonths: 'No monthly visits recorded yet.',
+} as const
+
+const monthDate = (month: string) => new Date(`${month}-01T00:00:00.000Z`)
+const formatMonthTick = (month: string) => monthDate(month).toLocaleDateString(undefined, { month: 'short', timeZone: 'UTC' })
+const formatMonthLabel = (month: unknown) =>
+  monthDate(String(month)).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' })
+const monthIndex = (month: string) => Number(month.slice(0, 4)) * 12 + Number(month.slice(5, 7))
 
 /**
  * Every numeric field is optional on the wire even though the schema requires
@@ -79,6 +109,13 @@ const LEGEND_STYLE = { fontSize: 12, paddingTop: 6 } as const
 const formatTooltipValue = (value: unknown) =>
   typeof value === 'number' ? formatNumber(Math.round(value)) : String(value)
 
+const SERVER_VISITS_NAME = 'Visits, server'
+/** Hover label for a server visit counted under the older arrival rule. */
+const OLDER_SERVER_VISITS_NAME = `${SERVER_VISITS_NAME} (older count)`
+/** Hover labels for a month only partly recorded: drawn hollow, off the line. */
+const PART_MONTH_SERVER_NAME = `${SERVER_VISITS_NAME} (part month)`
+const PART_MONTH_GA4_NAME = 'Visits, GA4 (part month)'
+
 /** Coerce a wire number that an older API may not send at all. */
 const num = (v: number | undefined): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 
@@ -100,6 +137,50 @@ function trendSeries(trend: Trend | null | undefined, length: number): (number |
       : trend.start + (i - trend.startIndex) * perStep)
 }
 
+/** The GA4 monthly fit's value in a month, or null outside the fitted span. */
+function monthlyTrendAt(trend: { startMonth: string; endMonth: string; start: number; end: number } | null | undefined, month: string): number | null {
+  if (!trend || month < trend.startMonth || month > trend.endMonth) return null
+  const span = monthIndex(trend.endMonth) - monthIndex(trend.startMonth)
+  if (span <= 0) return null
+  return trend.start + (trend.end - trend.start) * ((monthIndex(month) - monthIndex(trend.startMonth)) / span)
+}
+
+/**
+ * The GA4 fit's value on a calendar day, or null outside the fitted span. Its
+ * ends carry dates rather than chart indices, so it lines up with any window.
+ */
+function ga4TrendAt(trend: { startDate: string; endDate: string; start: number; end: number } | null, day: string): number | null {
+  if (!trend || day < trend.startDate || day > trend.endDate) return null
+  const startMs = Date.parse(`${trend.startDate}T00:00:00.000Z`)
+  const spanMs = Date.parse(`${trend.endDate}T00:00:00.000Z`) - startMs
+  if (spanMs <= 0) return null
+  return trend.start + (trend.end - trend.start) * ((Date.parse(`${day}T00:00:00.000Z`) - startMs) / spanMs)
+}
+
+/** Leading buckets before recording began, as one band; null when there are none. */
+function unmeasuredSpan(points: readonly Point[]): { from: string; to: string } | null {
+  // An API that predates `measured` sends undefined; treat that as measured,
+  // otherwise the whole chart paints as a "not measured" band.
+  const isMeasured = (pt: Point) => pt.measured !== false
+  if (points.length === 0 || isMeasured(points[0]!)) return null
+  const lastUnmeasured = points.findIndex(isMeasured) - 1
+  if (lastUnmeasured < 0) return { from: points[0]!.bucket, to: points[points.length - 1]!.bucket }
+  return { from: points[0]!.bucket, to: points[lastUnmeasured]!.bucket }
+}
+
+/**
+ * Buckets whose server visits were counted by the older arrival rule: from the
+ * first measured bucket through the one holding the change (`changedKey`, a day
+ * or a month to match the buckets). Never overlaps the "not measured" band.
+ */
+function olderCountSpan(points: readonly Point[], changedKey: string | undefined): { from: string; to: string } | null {
+  if (!changedKey) return null
+  const firstMeasured = points.find((pt) => pt.measured !== false)
+  const last = points[points.length - 1]?.bucket
+  if (!firstMeasured || !last || changedKey < firstMeasured.bucket) return null
+  return { from: firstMeasured.bucket, to: changedKey < last ? changedKey : last }
+}
+
 /**
  * A LONE reading has no neighbour to draw a segment to. With
  * `connectNulls={false}` and `dot={false}`, Recharts therefore renders it as
@@ -110,13 +191,16 @@ function trendSeries(trend: Trend | null | undefined, length: number): (number |
  * Draw a marker exactly where a point stands alone. Two or more in a row still
  * render as a line, so a dense window is not speckled with dots.
  */
-function isolatedPointDot(values: readonly (number | null)[], fill: string) {
+function isolatedPointDot(values: readonly (number | null)[], fill: string, hollow = false) {
   return (props: { cx?: number; cy?: number; index?: number; key?: Key | null }) => {
     const { cx, cy, index, key } = props
     const i = index ?? -1
     const alone = values[i] != null && values[i - 1] == null && values[i + 1] == null
-    if (!alone || cx === undefined || cy === undefined) return <g key={key} />
-    return <circle key={key} cx={cx} cy={cy} r={2.6} fill={fill} stroke="none" />
+    if (values[i] == null || (!hollow && !alone) || cx === undefined || cy === undefined) return <g key={key} />
+    // Hollow: a part-period reading, drawn apart from the full ones it would otherwise dent.
+    return hollow
+      ? <circle key={key} cx={cx} cy={cy} r={3.2} fill="none" stroke={fill} strokeWidth={1.6} />
+      : <circle key={key} cx={cx} cy={cy} r={2.6} fill={fill} stroke="none" />
   }
 }
 
@@ -130,6 +214,22 @@ export function AiTrafficHistoryPanel({
   const [showFetches, setShowFetches] = useState(true)
   const [showTrend, setShowTrend] = useState(true)
   const [visitSource, setVisitSource] = useState<VisitSource>('both')
+  const [visitGrain, setVisitGrain] = useState<VisitGrain>('days')
+  const monthly = visitGrain === 'months'
+  // The last 12 calendar months, this one included. Fixed at mount so the
+  // query key stays stable (see useServerTrafficEvents).
+  const monthsRange = useMemo(() => {
+    const now = new Date()
+    return {
+      since: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (MONTHS_SHOWN - 1), 1)).toISOString(),
+      until: now.toISOString(),
+    }
+  }, [])
+  const monthlyEvents = useServerTrafficEvents(
+    projectName,
+    { range: monthsRange, granularity: 'month', limit: 1 },
+    { enabled: monthly },
+  )
   // limit: 1 because this panel reads `series` and never `events`. The default
   // 500 built and shipped ~1,500 event objects per lane that are discarded.
   const events = useServerTrafficEvents(projectName, { sinceMinutes, granularity: 'day', limit: 1 })
@@ -152,9 +252,18 @@ export function AiTrafficHistoryPanel({
     ...getApiV1ProjectsByNameGaAiReferralDailyOptions({
       client: heyClient,
       path: { name: projectName },
-      query: { window: sinceMinutes >= 90 * 24 * 60 ? '90d' : sinceMinutes >= 30 * 24 * 60 ? '30d' : '7d' },
+      query: { window: sinceMinutes >= 180 * 24 * 60 ? '180d' : sinceMinutes >= 90 * 24 * 60 ? '90d' : sinceMinutes >= 30 * 24 * 60 ? '30d' : '7d' },
     }),
     enabled: Boolean(projectName) && gaConnected,
+    staleTime: TRAFFIC_STALE_MS,
+  })
+  const gaMonthly = useQuery({
+    ...getApiV1ProjectsByNameGaAiReferralDailyOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: { startDate: monthsRange.since.slice(0, 10) },
+    }),
+    enabled: Boolean(projectName) && gaConnected && monthly,
     staleTime: TRAFFIC_STALE_MS,
   })
 
@@ -169,20 +278,25 @@ export function AiTrafficHistoryPanel({
     const dto = gaDaily.data as GA4AiReferralDailyDto | undefined
     return new Map((dto?.days ?? []).map((d) => [d.date, d.sessions]))
   }, [gaDaily.data])
+  // Fitted server side over complete GA4 days. GA4 counted the same way the
+  // whole time, so its line can span days the server count cannot.
+  const gaTrend = (gaDaily.data as GA4AiReferralDailyDto | undefined)?.trend ?? null
 
   // The stretch before recording began. Charted as a band rather than left to
   // read as a flat zero, which is what an unmeasured day looks like otherwise.
-  const unmeasured = useMemo(() => {
-    // An API that predates `measured` sends undefined; treat that as measured,
-    // otherwise the whole chart paints as a "not measured" band.
-    const isMeasured = (pt: Point) => pt.measured !== false
-    if (points.length === 0 || isMeasured(points[0]!)) return null
-    const lastUnmeasured = points.findIndex(isMeasured) - 1
-    if (lastUnmeasured < 0) return { from: points[0]!.bucket, to: points[points.length - 1]!.bucket }
-    return { from: points[0]!.bucket, to: points[lastUnmeasured]!.bucket }
-  }, [points])
+  const unmeasured = useMemo(() => unmeasuredSpan(points), [points])
 
   const coverageStart = (events.data as { series?: { coverageStart?: string | null } } | undefined)?.series?.coverageStart ?? null
+
+  // Server visits on days before the API's `aiReferralCountingChangedAt` were
+  // counted by an older rule that also counted a visitor's later pages, assets
+  // and API calls, so they can read high and cannot be recounted. The day the rule
+  // changed is included: part of it was counted the old way. Banded from the
+  // first measured day, so it never overlaps the "not measured" band. The
+  // server-fitted trend already starts after it.
+  const countingChangedAt = (events.data as { series?: { aiReferralCountingChangedAt?: string | null } } | undefined)
+    ?.series?.aiReferralCountingChangedAt ?? null
+  const olderCount = useMemo(() => olderCountSpan(points, countingChangedAt?.slice(0, 10)), [countingChangedAt, points])
 
   const trends = (events.data as { series?: { trends?: Record<string, Trend | null> } } | undefined)?.series?.trends
 
@@ -199,11 +313,97 @@ export function AiTrafficHistoryPanel({
       aiUserFetchHits: pt.measured !== false ? num(pt.aiUserFetchHits) : null,
       aiReferralLandedHits: pt.measured !== false ? num(pt.aiReferralLandedHits) : null,
       ga4Visits: gaByDate.get(pt.bucket) ?? null,
+      ga4Trend: ga4TrendAt(gaTrend, pt.bucket),
       crawlTrend: crawlTrend[i],
       fetchTrend: fetchTrend[i],
       visitTrend: visitTrend[i],
     }))
-  }, [points, gaByDate, trends])
+  }, [points, gaByDate, gaTrend, trends])
+
+  // Months: the same visits by calendar month over the last year. Part-month
+  // readings (recording began inside the month, or it is still running) are
+  // kept off the line and drawn hollow, as the API names them.
+  const monthSeries = (monthlyEvents.data as {
+    series?: { points?: Point[]; trends?: Record<string, Trend | null>; partialBuckets?: string[]; aiReferralCountingChangedAt?: string | null }
+  } | undefined)?.series
+  const gaMonthsDto = gaMonthly.data as GA4AiReferralDailyDto | undefined
+  const monthPoints = useMemo(() => monthSeries?.points ?? [], [monthSeries])
+  const monthRows = useMemo(() => {
+    const partial = new Set(monthSeries?.partialBuckets ?? [])
+    const gaMonths = new Map((gaMonthsDto?.months ?? []).map((m) => [m.month, m]))
+    const visitTrend = trendSeries(monthSeries?.trends?.aiReferralLandedHits, monthPoints.length)
+    const serverMonths = new Map(monthPoints.map((point, i) => [point.bucket, { point, trend: visitTrend[i] }]))
+    // Either source can supply the calendar axis, so an unavailable server
+    // read cannot hide GA4 history.
+    const buckets = [...new Set([...serverMonths.keys(), ...gaMonths.keys()])].sort()
+    const rows = buckets.map((bucket) => {
+      const entry = serverMonths.get(bucket)
+      const pt = entry?.point
+      const server = pt && pt.measured !== false ? num(pt.aiReferralLandedHits) : null
+      const ga = gaMonths.get(bucket)
+      return {
+        bucket,
+        aiReferralLandedHits: partial.has(bucket) ? null : server,
+        serverPartial: partial.has(bucket) ? server : null,
+        ga4Visits: ga?.complete ? ga.sessions : null,
+        ga4Partial: ga && !ga.complete ? ga.sessions : null,
+        visitTrend: entry?.trend ?? null,
+        ga4Trend: monthlyTrendAt(gaMonthsDto?.monthlyTrend, bucket),
+        recorded: server !== null || (ga?.sessions ?? null) !== null,
+      }
+    })
+    // Start at the first month either count recorded, as a year of empty
+    // months before a new project's first reading says nothing.
+    const first = rows.findIndex((row) => row.recorded)
+    return first > 0 ? rows.slice(first) : rows
+  }, [monthPoints, monthSeries, gaMonthsDto])
+
+  type VisitRow = { bucket: string } & Record<string, unknown>
+  const visitRows: VisitRow[] = monthly ? monthRows : chartRows
+  // Server recording only: the GA4 view has its own readings inside that span.
+  const visitUnmeasured = useMemo(() => {
+    if (visitSource === 'ga4') return null
+    if (!monthly) return unmeasured
+    const shown = new Set(monthRows.map((row) => row.bucket))
+    return unmeasuredSpan(monthPoints.filter((pt) => shown.has(pt.bucket)))
+  }, [visitSource, monthly, monthPoints, monthRows, unmeasured])
+  const visitOlder = useMemo(
+    () => (monthly ? olderCountSpan(monthPoints, monthSeries?.aiReferralCountingChangedAt?.slice(0, 7)) : olderCount),
+    [monthly, monthPoints, monthSeries, olderCount],
+  )
+  const olderCountShown = visitOlder !== null && visitSource !== 'ga4'
+
+  const visitsTooltipFormatter = (value: unknown, name: unknown, item: { payload?: { bucket?: string } }) => {
+    const bucket = item.payload?.bucket
+    if (visitOlder && name === SERVER_VISITS_NAME && bucket !== undefined && bucket <= visitOlder.to) {
+      return [formatTooltipValue(value), OLDER_SERVER_VISITS_NAME] as [string, string]
+    }
+    return formatTooltipValue(value)
+  }
+
+  // The months strip: the newest complete month's figures, as the API reports them.
+  const lastGaMonth = (gaMonthsDto?.months ?? []).filter((m) => m.complete && m.sessions !== null).at(-1) ?? null
+  const lastServerMonth = monthRows.filter((r) => r.aiReferralLandedHits !== null).at(-1) ?? null
+  const stripMonth = visitSource === 'server'
+    ? lastServerMonth?.bucket ?? null
+    : visitSource === 'ga4'
+      ? lastGaMonth?.month ?? null
+      : lastGaMonth?.month ?? lastServerMonth?.bucket ?? null
+  const stripServer = stripMonth ? monthRows.find((r) => r.bucket === stripMonth)?.aiReferralLandedHits ?? null : null
+  const monthlyTrend = gaMonthsDto?.monthlyTrend ?? null
+  const showMonthlyServer = monthly && visitSource !== 'ga4'
+  const wantsMonthlyGa = monthly && visitSource !== 'server'
+  const showMonthlyGa = wantsMonthlyGa && gaConnected
+  const monthlyReady = (showMonthlyServer && monthlyEvents.isSuccess) || (showMonthlyGa && gaMonthly.isSuccess)
+  const monthlySettled = (!showMonthlyServer || monthlyEvents.isSuccess)
+    && (!wantsMonthlyGa || (gaStatus.isSuccess && (!gaConnected || gaMonthly.isSuccess)))
+  const monthlyHasReadings = monthRows.some(row =>
+    (showMonthlyServer && (row.aiReferralLandedHits !== null || row.serverPartial !== null))
+    || (showMonthlyGa && (row.ga4Visits !== null || row.ga4Partial !== null)))
+  const currentMonth = monthRows.find(row => row.bucket === monthsRange.until.slice(0, 7))
+  const currentGaVisits = showMonthlyGa ? currentMonth?.ga4Partial ?? null : null
+  const currentServerVisits = showMonthlyServer ? currentMonth?.serverPartial ?? null : null
+  const showCurrentMonth = currentGaVisits !== null || currentServerVisits !== null
 
   // Read from the response rather than re-summed here. AGENTS.md UI/CLI parity:
   // a component must not aggregate. The two also disagree — `totals` covers the
@@ -232,18 +432,17 @@ export function AiTrafficHistoryPanel({
   // request error as a calm "nothing happened".
   const measuredAnything = totals.crawlers > 0 || totals.fetches > 0 || totals.visits > 0
 
+  let dailyNotice: ReactNode = null
   if (events.isLoading) {
-    return <p className="text-copy-14 text-secondary">Loading AI traffic history…</p>
-  }
-  if (events.isError) {
-    return (
+    dailyNotice = <p className="text-copy-14 text-secondary">Loading AI traffic history…</p>
+  } else if (events.isError) {
+    dailyNotice = (
       <div className="flex items-center gap-1.5">
         <p role="alert" className="text-copy-14 text-negative">Could not load AI traffic history.</p>
         <InfoTooltip text="The request failed, so this is not a reading of zero activity. Retry, or check the traffic source." />
       </div>
     )
-  }
-  if (!measuredAnything) {
+  } else if (!measuredAnything) {
     // "Nothing connected" and "nothing recorded" are DIFFERENT states, and
     // `coverageStart === null` cannot tell them apart: it is equally true of a
     // source connected an hour ago that has not reported yet. Reading it as the
@@ -254,7 +453,7 @@ export function AiTrafficHistoryPanel({
     const sourceList = sources.data?.sources
     const noSourceConnected = sourceList !== undefined && sourceList.length === 0
     const connectedButSilent = !noSourceConnected && coverageStart === null
-    return (
+    dailyNotice = (
       <div className="flex items-center gap-1.5">
         <p className="text-copy-14 text-secondary">
           {noSourceConnected
@@ -276,6 +475,7 @@ export function AiTrafficHistoryPanel({
 
   return (
     <div>
+      {dailyNotice ?? <>
       <div className="mb-5">
         <KpiRow
           label="AI traffic totals"
@@ -295,8 +495,11 @@ export function AiTrafficHistoryPanel({
             {
               label: 'AI visitors',
               value: formatNumber(totals.visits),
-              detail: 'arrived from an AI answer',
-              tooltip: 'Visits your server answered that came from an AI engine. Requests answered with a redirect are excluded: a redirect is a hop, not an arrival.',
+              detail: olderCount ? 'older days may read high' : 'arrived from an AI answer',
+              tooltip: 'Visits your server answered that came from an AI engine. Requests answered with a redirect are excluded: a redirect is a hop, not an arrival.'
+                + (olderCount
+                  ? ` Days through ${formatChartDateLabel(olderCount.to)} were counted by an older rule that also counted a visitor's later pages, so they can read high and cannot be recounted.`
+                  : ''),
             },
           ]}
         />
@@ -382,52 +585,164 @@ export function AiTrafficHistoryPanel({
           )}
         </ComposedChart>
       </ResponsiveContainer>
+      </>}
 
       <div className="flex items-center justify-between gap-3 mt-5 mb-2">
         <div className="flex items-center gap-1.5">
           <h3 className="text-heading-14 text-heading">People arriving from AI</h3>
           <InfoTooltip text="Two independent counts of the same thing. Server reads your own logs and misses nothing a browser blocks, but cannot see a page served from cache. GA4 needs the browser to run a tag. They rarely match, and neither is the correction of the other." />
         </div>
-        <MetricsWindowPicker
-          windows={VISIT_SOURCES}
-          value={visitSource}
-          onChange={setVisitSource}
-          label="Visit measurement source"
-          formatOption={(src) => (src === 'ga4' ? 'GA4' : src === 'both' ? 'Both' : 'Server')}
-        />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <MetricsWindowPicker
+            windows={VISIT_GRAINS}
+            value={visitGrain}
+            onChange={setVisitGrain}
+            label="Visits by day or month"
+            formatOption={(grain) => (grain === 'months' ? 'Months' : 'Days')}
+          />
+          <MetricsWindowPicker
+            windows={VISIT_SOURCES}
+            value={visitSource}
+            onChange={setVisitSource}
+            label="Visit measurement source"
+            formatOption={(src) => (src === 'ga4' ? 'GA4' : src === 'both' ? 'Both' : 'Server')}
+          />
+        </div>
       </div>
-      <ResponsiveContainer width="100%" height={176}>
-        <ComposedChart data={chartRows} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+      {showMonthlyServer && monthlyEvents.isLoading && (
+        <p role="status" className="text-copy-14 text-secondary">{AI_VISITS_HISTORY_COPY.serverLoading}</p>
+      )}
+      {showMonthlyGa && gaMonthly.isLoading && (
+        <p role="status" className="text-copy-14 text-secondary">{AI_VISITS_HISTORY_COPY.gaLoading}</p>
+      )}
+      {wantsMonthlyGa && gaStatus.isLoading && (
+        <p role="status" className="text-copy-14 text-secondary">{AI_VISITS_HISTORY_COPY.gaStatusLoading}</p>
+      )}
+      {wantsMonthlyGa && gaStatus.isError && (
+        <div className="flex items-center gap-2">
+          <p role="alert" className="text-copy-14 text-negative">{AI_VISITS_HISTORY_COPY.gaStatusError}</p>
+          <Button variant="outline" size="sm" aria-label={AI_VISITS_HISTORY_COPY.retryGaStatus} disabled={gaStatus.isFetching}
+                  onClick={() => { void gaStatus.refetch() }}>Retry</Button>
+        </div>
+      )}
+      {showMonthlyServer && monthlyEvents.isError && (
+        <div className="flex items-center gap-2">
+          <p role="alert" className="text-copy-14 text-negative">{AI_VISITS_HISTORY_COPY.serverError}</p>
+          <Button variant="outline" size="sm" aria-label={AI_VISITS_HISTORY_COPY.retryServer} disabled={monthlyEvents.isFetching}
+                  onClick={() => { void monthlyEvents.refetch() }}>Retry</Button>
+        </div>
+      )}
+      {showMonthlyGa && gaMonthly.isError && (
+        <div className="flex items-center gap-2">
+          <p role="alert" className="text-copy-14 text-negative">{AI_VISITS_HISTORY_COPY.gaError}</p>
+          <Button variant="outline" size="sm" aria-label={AI_VISITS_HISTORY_COPY.retryGa} disabled={gaMonthly.isFetching}
+                  onClick={() => { void gaMonthly.refetch() }}>Retry</Button>
+        </div>
+      )}
+      {monthly && visitSource === 'ga4' && gaStatus.isSuccess && !gaConnected && (
+        <p className="text-copy-14 text-secondary">{AI_VISITS_HISTORY_COPY.connectGa}</p>
+      )}
+      {monthlyReady && monthlySettled && !monthlyHasReadings && (
+        <p className="text-copy-14 text-secondary">{AI_VISITS_HISTORY_COPY.emptyMonths}</p>
+      )}
+      {monthly && stripMonth && (
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 pb-3 mb-3 text-label-12 text-muted">
+          <span className="text-secondary text-label-12-strong">{formatMonthLabel(stripMonth)}</span>
+          {visitSource !== 'server' && lastGaMonth?.month === stripMonth && (
+            <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
+              {formatNumber(lastGaMonth.sessions ?? 0)}</span>visits, GA4</span>
+          )}
+          {visitSource !== 'ga4' && stripServer !== null && (
+            <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
+              {formatNumber(stripServer)}</span>visits, server</span>
+          )}
+          {visitSource !== 'server' && monthlyTrend?.changePct != null && (
+            <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
+              {monthlyTrend.changePct > 0 ? '▲' : monthlyTrend.changePct < 0 ? '▼' : ''}{formatPercent(Math.abs(monthlyTrend.changePct), RatioUnits.percent)}</span>
+              trend since {formatMonthTick(monthlyTrend.startMonth)}</span>
+          )}
+          {visitSource !== 'server' && lastGaMonth?.month === stripMonth && lastGaMonth.engines[0] && (
+            <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
+              {formatNumber(lastGaMonth.engines[0].sessions)}</span>from {lastGaMonth.engines[0].label}</span>
+          )}
+        </div>
+      )}
+      {showCurrentMonth && currentMonth && (
+        <div role="group" aria-label="Month so far" className="flex flex-wrap items-center gap-x-5 gap-y-1 mb-3 text-label-13 text-secondary">
+          <span className="text-label-13-strong">{formatMonthLabel(currentMonth.bucket)} so far</span>
+          {currentGaVisits !== null && (
+            <span><span className="text-heading text-label-13-strong tabular-nums mr-1">
+              {formatNumber(currentGaVisits)}</span>visits, GA4</span>
+          )}
+          {currentServerVisits !== null && (
+            <span><span className="text-heading text-label-13-strong tabular-nums mr-1">
+              {formatNumber(currentServerVisits)}</span>visits, server</span>
+          )}
+          <span className="flex items-center gap-1.5">
+            Hollow dots: partial months
+            <InfoTooltip text="Hollow dots show part-month totals. The current month is still filling; earlier partial months have incomplete coverage. Partial months are kept off the connecting line and out of the trend." />
+          </span>
+        </div>
+      )}
+      {(monthly ? monthlyReady && monthlyHasReadings : !dailyNotice) && <ResponsiveContainer width="100%" height={176}>
+        <ComposedChart data={visitRows} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
           <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
           <XAxis dataKey="bucket" tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE}
-                 tickFormatter={formatChartDateTick} minTickGap={28} />
+                 tickFormatter={monthly ? formatMonthTick : formatChartDateTick} minTickGap={monthly ? 8 : 28} />
           <YAxis tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} width={48} allowDecimals={false} />
           <RechartsTooltip contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
                            labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
                            itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
-                           labelFormatter={formatChartDateLabel}
-                           formatter={formatTooltipValue} />
-          {unmeasured && (
-            <ReferenceArea x1={unmeasured.from} x2={unmeasured.to} fill="var(--color-overlay-hover)"
+                           labelFormatter={monthly ? formatMonthLabel : formatChartDateLabel}
+                           formatter={visitsTooltipFormatter} />
+          {/* A one-bucket span has no width to shade, and its label would spill off the plot. */}
+          {visitUnmeasured && visitUnmeasured.from !== visitUnmeasured.to && (
+            <ReferenceArea x1={visitUnmeasured.from} x2={visitUnmeasured.to} fill="var(--color-overlay-hover)"
                            fillOpacity={0.5} stroke="none"
                            label={{ value: 'not measured', position: 'insideTop', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
           )}
+          {/* Only where the server line is drawn: GA4 never used this rule. The
+              dashed line marks the day the count changed, so the boundary reads
+              even where the shading is faint. */}
+          {visitOlder && olderCountShown && (
+            <ReferenceArea x1={visitOlder.from} x2={visitOlder.to} fill="var(--color-overlay-hover)"
+                           fillOpacity={0.3} stroke="none" />
+          )}
+          {visitOlder && olderCountShown && (
+            <ReferenceLine x={visitOlder.to} stroke={COUNT_CHANGE_COLOR} strokeDasharray="4 4" strokeWidth={1.5} />
+          )}
           <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14} />
           {visitSource !== 'ga4' && (
-            <Line type="monotone" dataKey="aiReferralLandedHits" name="Visits, server"
-                  stroke={VISIT_COLOR} strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="aiReferralLandedHits" name={SERVER_VISITS_NAME}
+                  stroke={VISIT_COLOR} strokeWidth={2} connectNulls={false}
+                  dot={monthly ? isolatedPointDot(visitRows.map((r) => (r.aiReferralLandedHits as number | null) ?? null), VISIT_COLOR) : false} />
+          )}
+          {monthly && visitSource !== 'ga4' && (
+            <Line type="monotone" dataKey="serverPartial" name={PART_MONTH_SERVER_NAME} legendType="none" connectNulls={false}
+                  stroke={VISIT_COLOR} strokeWidth={0} activeDot={false}
+                  dot={isolatedPointDot(visitRows.map((r) => (r.serverPartial as number | null) ?? null), VISIT_COLOR, true)} />
           )}
           {visitSource !== 'server' && (
             <Line type="monotone" dataKey="ga4Visits" name="Visits, GA4" connectNulls={false}
                   stroke={GA4_COLOR} strokeWidth={1.8} strokeDasharray="5 3"
-                  dot={isolatedPointDot(chartRows.map((r) => r.ga4Visits), GA4_COLOR)} />
+                  dot={isolatedPointDot(visitRows.map((r) => (r.ga4Visits as number | null) ?? null), GA4_COLOR)} />
+          )}
+          {monthly && visitSource !== 'server' && (
+            <Line type="monotone" dataKey="ga4Partial" name={PART_MONTH_GA4_NAME} legendType="none" connectNulls={false}
+                  stroke={GA4_COLOR} strokeWidth={0} activeDot={false}
+                  dot={isolatedPointDot(visitRows.map((r) => (r.ga4Partial as number | null) ?? null), GA4_COLOR, true)} />
           )}
           {showTrend && visitSource !== 'ga4' && (
             <Line type="linear" dataKey="visitTrend" legendType="none" name="Visits trend" dot={false} tooltipType="none"
                   stroke={VISIT_COLOR} strokeWidth={1.3} strokeDasharray="5 4" connectNulls />
           )}
+          {showTrend && visitSource !== 'server' && (
+            // Dotted, not dashed: the GA4 visits line is already dashed.
+            <Line type="linear" dataKey="ga4Trend" legendType="none" name="GA4 visits trend" dot={false} tooltipType="none"
+                  stroke={GA4_COLOR} strokeWidth={1.6} strokeDasharray="1 4" strokeLinecap="round" connectNulls />
+          )}
         </ComposedChart>
-      </ResponsiveContainer>
+      </ResponsiveContainer>}
     </div>
   )
 }

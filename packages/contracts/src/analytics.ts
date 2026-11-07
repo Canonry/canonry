@@ -954,7 +954,7 @@ export function parseWindow(value?: string): MetricsWindow {
   return parseWindowIn(value, WINDOW_SETS.metrics, { fallback: 'all' })
 }
 
-export function windowCutoff(window: MetricsWindow): string | null {
+export function windowCutoff(window: string): string | null {
   if (window === 'all') return null
   const days = windowDays(window)
   const d = new Date()
@@ -991,7 +991,7 @@ export interface DateRangeInput {
   window?: string
 }
 
-export interface ResolvedDateRange {
+export interface ResolvedDateRange<TWindow extends string = MetricsWindow> {
   /**
    * Inclusive lower bound as `YYYY-MM-DD`, or null for an open lower bound.
    * The explicit `startDate` when one was supplied, otherwise the window's
@@ -1001,7 +1001,7 @@ export interface ResolvedDateRange {
   /** Inclusive upper bound as `YYYY-MM-DD`, or null for an open upper bound. */
   endDate: string | null
   /** The parsed window. Only reflected in `startDate` when no explicit `startDate` was given. */
-  window: MetricsWindow
+  window: TWindow
   /**
    * True when the caller named at least one boundary itself. Callers that keep
    * per-window precomputed rollups need this: such a rollup answers a rolling
@@ -1017,8 +1017,10 @@ export interface ResolvedDateRange {
  * supplied. A rolling window cannot name a calendar month, which is why every
  * monthly total previously had to be hand-filtered out of a wider pull.
  */
-export function resolveDateRange(input: DateRangeInput): ResolvedDateRange {
-  const window = parseWindow(input.window)
+export function resolveDateRange(input: DateRangeInput): ResolvedDateRange
+export function resolveDateRange<const T extends readonly string[]>(input: DateRangeInput, windows: T): ResolvedDateRange<T[number]>
+export function resolveDateRange(input: DateRangeInput, windows: readonly string[] = WINDOW_SETS.metrics): ResolvedDateRange<string> {
+  const window = parseWindowIn(input.window, windows, { fallback: 'all' })
   const startDate = parseBoundaryDate(input.startDate, 'startDate')
   const endDate = parseBoundaryDate(input.endDate, 'endDate')
   if (startDate && endDate && startDate > endDate) {

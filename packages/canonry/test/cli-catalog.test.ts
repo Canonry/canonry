@@ -102,8 +102,8 @@ describe('CLI catalog drift guard', () => {
     const catalog = buildCliCatalog(REGISTERED_CLI_COMMANDS)
     const commands = catalog.groups.flatMap(group => group.commands)
     const search = commands.find(command => command.id === 'ga.search-landing-pages')!
-    expect(search.windows).toEqual(['7d', '28d', '90d'])
-    expect(search.usage).toContain('--window 7d|28d|90d')
+    expect(search.windows).toEqual(['7d', '28d', '90d', '180d'])
+    expect(search.usage).toContain('--window 7d|28d|90d|180d')
     expect(search.options).toContainEqual({ name: 'window', type: 'string', multiple: false })
     const traffic = commands.find(command => command.id === 'traffic.analytics')!
     expect(traffic.options).toEqual(expect.arrayContaining([

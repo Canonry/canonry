@@ -180,12 +180,15 @@ test('says the filter searched only the loaded pages when more are stored', asyn
   expect(screen.getByText('Showing the top 3 of 1,500 stored pages by clicks.')).toBeTruthy()
 })
 
-test('requests the picked window and shows that window\'s own Total', async () => {
-  const requests = serve((window) => jsonResponse(window === '7d'
+test.each([
+  { window: '7d', start: '2026-10-01', days: 7 },
+  { window: '180d', start: '2026-04-11', days: 180 },
+] as const)('requests the picked $window window and shows that window\'s own Total', async ({ window, start, days }) => {
+  const requests = serve((requestedWindow) => jsonResponse(requestedWindow === window
     ? readyWindow({
-        window: '7d',
-        windowStart: '2026-10-01',
-        windowDays: 7,
+        window,
+        windowStart: start,
+        windowDays: days,
         total: { organicGoogleSearchClicks: 301, organicGoogleSearchImpressions: 9876, organicGoogleSearchClickThroughRate: 0.03047792, organicGoogleSearchAveragePosition: 5.25, activeUsers: 377 },
         totalRows: 1,
         rows: [{ landingPage: '/', organicGoogleSearchClicks: 250, organicGoogleSearchImpressions: 4100, organicGoogleSearchClickThroughRate: 0.06097561, organicGoogleSearchAveragePosition: 6.04, activeUsers: 310 }],
@@ -195,13 +198,14 @@ test('requests the picked window and shows that window\'s own Total', async () =
   await screen.findByRole('table', { name: SEARCH_LANDING_COPY.heading })
 
   const picker = screen.getByRole('group', { name: SEARCH_LANDING_COPY.windowLabel })
-  expect(within(picker).getAllByRole('button').map(button => button.textContent)).toEqual(['7d', '28d', '90d'])
-  fireEvent.click(within(picker).getByRole('button', { name: '7d' }))
+  expect(within(picker).getAllByRole('button').map(button => button.textContent)).toEqual(['7d', '28d', '90d', '180d'])
+  fireEvent.click(within(picker).getByRole('button', { name: window }))
 
   await waitFor(() => expect(bodyRows()[0]).toEqual([TOTAL_CELL, '301', '9,876', '3.0%', '5.3', '377']))
-  expect(requests.at(-1)).toBe(`${ENDPOINT}?window=7d&limit=1000`)
+  expect(requests.at(-1)).toBe(`${ENDPOINT}?window=${window}&limit=1000`)
+  expect(screen.getByText(`${formatDate(start)} to ${formatDate('2026-10-07')} (America/Los_Angeles)`)).toBeTruthy()
   expect(bodyRows()).toHaveLength(2)
-  expect(within(picker).getByRole('button', { name: '7d' }).getAttribute('aria-pressed')).toBe('true')
+  expect(within(picker).getByRole('button', { name: window }).getAttribute('aria-pressed')).toBe('true')
 })
 
 test('tells a never-synced project to sync GA4', async () => {

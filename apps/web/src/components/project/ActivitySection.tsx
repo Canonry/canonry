@@ -30,6 +30,8 @@ import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { likelyFakeAgentHitsNote } from '../../lib/agent-trust-copy.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import {
+  GA_OVERVIEW_WINDOWS,
+  GA_OVERVIEW_WINDOW_DAYS,
   GA_SEARCH_LANDING_DEFAULT_WINDOW,
   GA_SEARCH_LANDING_MAX_LIMIT,
   GA_SEARCH_LANDING_WINDOWS,
@@ -41,7 +43,7 @@ import {
   type GaSearchLandingPagesResponse,
   type GaOverviewResponse,
   type GaSearchLandingWindow,
-  type MetricsWindow,
+  type GaOverviewWindow,
   isGaOverviewWindow,
 } from '@canonry/canonry-contracts'
 import {
@@ -73,20 +75,16 @@ import { decodeSocialSourceLabel } from '../../lib/social-source-label.js'
 // 'all' is deliberately absent. GA treats it as unbounded retention; the
 // server lane is queried with `since`, which has no unbounded form (omitting it
 // means 24h, not everything). One control offering 'all' therefore labelled two
-// incomparable ranges identically. 7d/30d/90d mean the same thing in both lanes.
-const TRAFFIC_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d']
+// incomparable ranges identically. 7d/30d/90d/180d mean the same thing in both lanes.
+const TRAFFIC_WINDOWS = GA_OVERVIEW_WINDOWS
 
 // The server-side lane is queried in minutes, the GA lane by window name. One
 // control drives both, so the mapping lives here rather than in either consumer.
-// 'all' is capped at 90 days: `sinceMinutes` has no unbounded representation,
-// and an uncapped scan is not what the operator is asking for from a chart.
-const TRAFFIC_WINDOW_MINUTES: Record<MetricsWindow, number> = {
+const TRAFFIC_WINDOW_MINUTES: Record<GaOverviewWindow, number> = {
   '7d': 7 * 24 * 60,
   '30d': 30 * 24 * 60,
   '90d': 90 * 24 * 60,
-  // Unreachable from the control (see TRAFFIC_WINDOWS); present only to satisfy
-  // the MetricsWindow key set. Never rendered as a selectable range.
-  all: 90 * 24 * 60,
+  '180d': 180 * 24 * 60,
 }
 
 function aiLandingPageSearchText(row: ApiGaTrafficAiLandingPage): string {
@@ -233,7 +231,7 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
 export function ActivitySection({ projectName }: { projectName: string }) {
   // Owned here so every panel below reads the same range. The GA4 overview only
   // shows the control in its heading; no GA4 state can take it away.
-  const [trafficWindow, setTrafficWindow] = useState<MetricsWindow>('30d')
+  const [trafficWindow, setTrafficWindow] = useState<GaOverviewWindow>('30d')
   return (
     <div>
       <ServerActivityPanel projectName={projectName} />
@@ -341,7 +339,7 @@ function SocialSourceCells({ row }: { row: ApiGaSocialReferral }) {
 }
 
 /** GA4 reads and actions for the Activity tab, shared by its overview and its detail sections. */
-function useGaActivity(projectName: string, trafficWindow: MetricsWindow) {
+function useGaActivity(projectName: string, trafficWindow: GaOverviewWindow | 'all') {
   const queryClient = useQueryClient()
   const [status, setStatus] = useState<ApiGaStatus | null>(null)
   const [traffic, setTraffic] = useState<ApiGaTraffic | null>(null)
@@ -445,7 +443,7 @@ function useGaActivity(projectName: string, trafficWindow: MetricsWindow) {
     setError(null)
     setNotice(null)
     try {
-      const result = await triggerGaSync(projectName)
+      const result = await triggerGaSync(projectName, isGaOverviewWindow(trafficWindow) ? GA_OVERVIEW_WINDOW_DAYS[trafficWindow] : undefined)
       setNotice(`Synced ${result.rowCount.toLocaleString()} page rows, ${result.aiReferralCount.toLocaleString()} AI and ${result.socialReferralCount.toLocaleString()} social referral rows (${result.days} days)`)
       await invalidateProjectQueryDomain(queryClient, 'ga')
       await loadData({ current: false })
@@ -503,7 +501,7 @@ type GaActivity = ReturnType<typeof useGaActivity>
 export function ClickThroughActivity({ projectName, window: windowProp, periodControl, between }: {
   projectName: string
   /** Owned by ActivitySection, which renders the only picker on the page. */
-  window?: MetricsWindow
+  window?: GaOverviewWindow | 'all'
   /** That picker, shown in the Site traffic heading. Absent when mounted alone. */
   periodControl?: ReactNode
   /**
@@ -946,7 +944,7 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
       )}
 
       {/* GA4's Search Console landing-page report: its own window picker,
-          because GA4 stores it for 7, 28 and 90 days ending yesterday. */}
+          because GA4 stores it for 7, 28, 90 and 180 days ending yesterday. */}
       <GoogleOrganicSearchPagesPanel projectName={projectName} />
 
       <p className="mt-6 text-copy-13 text-secondary">

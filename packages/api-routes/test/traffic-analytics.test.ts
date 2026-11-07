@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   canonicalMeasurementPlanV2Json,
@@ -146,7 +147,7 @@ describe('GET /projects/:name/traffic/analytics', () => {
     const { activity } = await readAnalytics('connected')
     const zero = { current: 0, prior: 0, deltaPct: null }
     expect(activity).toEqual({
-      windowStart: daysAgo(30), windowEnd: NOW, coverageStart: null, priorWindowComplete: false, hasData: false,
+      windowStart: daysAgo(30), windowEnd: NOW, coverageStart: null, priorWindowComplete: false, aiReferralCountingChangedAt: null, hasData: false,
       verifiedCrawlerHits: zero, unverifiedCrawlerHits: zero, aiUserFetchHits: zero,
       referralArrivals: zero, referralRedirects: 0,
       referralArrivalsByClass: { paid: zero, organic: zero, unclassified: zero },
@@ -186,6 +187,35 @@ describe('GET /projects/:name/traffic/analytics', () => {
     expect(activity!.priorWindowComplete).toBe(true)
     expect(activity!.verifiedCrawlerHits).toEqual({ current: 0, prior: 0, deltaPct: null })
     expect(activity!.byOperator).toEqual([])
+  })
+
+  test('referral changes are unavailable while the prior window holds the older count', async () => {
+    const projectId = seedProject('older-count')
+    const sourceId = seedSource(projectId)
+    seedCrawler(projectId, sourceId, { tsHour: daysAgo(70), hits: 5 })
+    seedCrawler(projectId, sourceId, { tsHour: daysAgo(2), hits: 10 })
+    seedReferral(projectId, sourceId, { tsHour: daysAgo(40), sessionsOrHits: 90, organicSessionsOrHits: 90 })
+    seedReferral(projectId, sourceId, { tsHour: daysAgo(2), sessionsOrHits: 9, organicSessionsOrHits: 9 })
+    const markOlderCountUntil = (until: string | null) => db.update(trafficSources)
+      .set({ aiReferralOlderCountUntil: until }).where(eq(trafficSources.id, sourceId)).run()
+
+    // The older count ended 20 days ago: inside the 30-day prior window.
+    markOlderCountUntil(daysAgo(20))
+    const crossing = (await readAnalytics('older-count', 30)).activity!
+    expect(crossing.aiReferralCountingChangedAt).toBe(daysAgo(20))
+    expect(crossing.priorWindowComplete).toBe(true)
+    expect(crossing.referralArrivals).toEqual({ current: 9, prior: 90, deltaPct: null })
+    expect(crossing.referralArrivalsByClass.organic).toEqual({ current: 9, prior: 90, deltaPct: null })
+    expect(crossing.verifiedCrawlerHits, 'crawler changes are unaffected').toEqual({ current: 10, prior: 0, deltaPct: null })
+
+    // It ended before the prior window began: both windows use the current rule.
+    markOlderCountUntil(daysAgo(65))
+    const after = (await readAnalytics('older-count', 30)).activity!
+    expect(after.aiReferralCountingChangedAt).toBe(daysAgo(65))
+    expect(after.referralArrivals).toEqual({ current: 9, prior: 90, deltaPct: -90 })
+
+    markOlderCountUntil(null)
+    expect((await readAnalytics('older-count', 30)).activity!.aiReferralCountingChangedAt).toBeNull()
   })
 
   test.each([7, 14, 30, 90])('period=%s selects that exact window and its equal-length prior', async period => {

@@ -11,11 +11,14 @@ import {
   GA_SEARCH_LANDING_DEFAULT_LIMIT,
   GA_SEARCH_LANDING_DEFAULT_WINDOW,
   GA_SEARCH_LANDING_MAX_LIMIT,
+  GA_SEARCH_LANDING_WINDOWS,
+  GA_SEARCH_LANDING_WINDOW_DAYS,
   RatioUnits,
   gaSearchLandingHasSearchData,
   gaSearchLandingPagesResponseSchema,
   WINDOW_SETS, parseWindowIn,
   inclusiveDayCount,
+  isoDateDaysBeforeInTimeZone,
   roundRatio,
   validationError,
 } from '@canonry/canonry-contracts'
@@ -24,7 +27,9 @@ import type {
   GaSearchLandingMetrics,
   GaSearchLandingPagesResponse,
   GaSearchLandingSyncResult,
+  GaSearchLandingWindow,
 } from '@canonry/canonry-contracts'
+import { GA4_SEARCH_LANDING_REPORT_DEFINITION } from '@canonry/canonry-integration-google-analytics'
 import type { GA4SearchLandingMetrics, GA4SearchLandingWindowReport } from '@canonry/canonry-integration-google-analytics'
 import { resolveCurrentGa4PropertyId } from './ga-property-data.js'
 import type { Ga4ConnectionStores } from './ga-property-data.js'
@@ -33,10 +38,37 @@ import { resolveProject } from './helpers.js'
 type Database = FastifyInstance['db']
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0]
 
+/** Native window totals cannot be merged across days, especially distinct users. */
+export function searchLandingWindowsToFetch(
+  db: Pick<Database, 'select'>,
+  projectId: string,
+  propertyId: string,
+  timeZone: string | null,
+  requestedAt: string,
+): GaSearchLandingWindow[] {
+  const state = db.select().from(gaMeasurementSyncStates)
+    .where(eq(gaMeasurementSyncStates.projectId, projectId)).get()
+  if (!timeZone || state?.searchLandingStatus !== 'ready') return [...GA_SEARCH_LANDING_WINDOWS]
+  const stored = db.select().from(gaSearchLandingWindows)
+    .where(eq(gaSearchLandingWindows.projectId, projectId)).all()
+  const now = Date.parse(requestedAt)
+  const end = isoDateDaysBeforeInTimeZone(requestedAt, 1, timeZone)
+  return GA_SEARCH_LANDING_WINDOWS.filter(window => {
+    const snapshot = stored.find(row => row.windowKey === window)
+    if (!snapshot) return true
+    const age = now - Date.parse(snapshot.syncedAt)
+    return snapshot.propertyId !== propertyId
+      || snapshot.reportDefinition !== GA4_SEARCH_LANDING_REPORT_DEFINITION
+      || snapshot.timeZone !== timeZone
+      || snapshot.periodStart !== isoDateDaysBeforeInTimeZone(requestedAt, GA_SEARCH_LANDING_WINDOW_DAYS[window], timeZone)
+      || snapshot.periodEnd !== end
+      || !(age >= 0 && age < 60 * 60_000)
+  })
+}
+
 /**
- * Store a complete Search Console landing-page snapshot: every window and its
- * rows replace the project's previous snapshot in one transaction, so a stored
- * snapshot never mixes two syncs, and the state turns `ready`.
+ * Replace fetched windows atomically, retaining fresh windows with their original
+ * timestamps and run provenance. A window's Total and rows always move together.
  */
 export function persistSearchLandingSnapshot(
   db: Database,
@@ -47,12 +79,28 @@ export function persistSearchLandingSnapshot(
     runId: string
     syncedAt: string
     windows: readonly GA4SearchLandingWindowReport[]
+    reuse: { windows: readonly GaSearchLandingWindow[]; timeZone: string | null; requestedAt: string }
   },
 ): GaSearchLandingSyncResult {
   db.transaction((tx) => {
-    deleteSearchLandingRows(tx, input.projectId)
+    if (input.reuse.windows.length > 0) {
+      const missing = searchLandingWindowsToFetch(tx, input.projectId, input.propertyId, input.reuse.timeZone, input.reuse.requestedAt)
+      if (missing.some(window => input.reuse.windows.includes(window))) {
+        throw new Error('Search landing snapshots changed during sync; retry to refresh the missing windows')
+      }
+    }
+    const otherProperty = tx.select({ propertyId: gaSearchLandingWindows.propertyId })
+      .from(gaSearchLandingWindows).where(eq(gaSearchLandingWindows.projectId, input.projectId))
+      .all().some(row => row.propertyId !== input.propertyId)
+    if (otherProperty) deleteSearchLandingRows(tx, input.projectId)
 
     for (const window of input.windows) {
+      tx.delete(gaSearchLandingPages).where(and(
+        eq(gaSearchLandingPages.projectId, input.projectId), eq(gaSearchLandingPages.windowKey, window.window),
+      )).run()
+      tx.delete(gaSearchLandingWindows).where(and(
+        eq(gaSearchLandingWindows.projectId, input.projectId), eq(gaSearchLandingWindows.windowKey, window.window),
+      )).run()
       tx.insert(gaSearchLandingWindows).values({
         id: crypto.randomUUID(),
         projectId: input.projectId,
@@ -61,6 +109,7 @@ export function persistSearchLandingSnapshot(
         periodStart: window.periodStart,
         periodEnd: window.periodEnd,
         timeZone: window.timeZone,
+        reportDefinition: GA4_SEARCH_LANDING_REPORT_DEFINITION,
         totalClicks: window.total.clicks,
         totalImpressions: window.total.impressions,
         totalCtr: window.total.ctr,
@@ -96,7 +145,7 @@ export function persistSearchLandingSnapshot(
     upsertSearchLandingState(tx, input.projectId, {
       searchLandingStatus: 'ready',
       searchLandingError: null,
-      searchLandingSyncedAt: input.syncedAt,
+      ...(input.windows.length > 0 ? { searchLandingSyncedAt: input.syncedAt } : {}),
       searchLandingAttemptedAt: input.syncedAt,
     }, input.syncedAt)
   })
@@ -200,7 +249,7 @@ function toWireMetrics(metrics: GA4SearchLandingMetrics): GaSearchLandingMetrics
  * rows only (no Google call): a project that never synced reads
  * `never-synced` with no Total and no rows. `total` is the stored GA4 TOTAL,
  * never a sum of the rows. No `startDate` / `endDate`: every figure is
- * GA4-computed for one of the three stored windows, and a custom range could
+ * GA4-computed for one of the stored windows, and a custom range could
  * not be answered exactly (users are distinct per grain; CTR and position are
  * ratios).
  *
