@@ -2126,6 +2126,7 @@ export type VisibilityReportResponse = {
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
                 unchecked?: number;
+                excludedNoRetrieval?: number;
             };
             citationCoverage: {
                 numerator: number | null;
@@ -2134,6 +2135,7 @@ export type VisibilityReportResponse = {
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
                 unchecked?: number;
+                excludedNoRetrieval?: number;
             };
             propertyReach: {
                 numerator: number | null;
@@ -2142,6 +2144,7 @@ export type VisibilityReportResponse = {
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
                 unchecked?: number;
+                excludedNoRetrieval?: number;
             };
             outcomes: {
                 bothSignals: number;
@@ -2179,6 +2182,7 @@ export type VisibilityReportResponse = {
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
                 unchecked?: number;
+                excludedNoRetrieval?: number;
             };
             citationCoverage: {
                 numerator: number | null;
@@ -2187,6 +2191,7 @@ export type VisibilityReportResponse = {
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
                 unchecked?: number;
+                excludedNoRetrieval?: number;
             };
             continuity: {
                 state: 'first' | 'comparable' | 'definition-changed' | 'model-changed' | 'legacy-unknown';
@@ -2209,6 +2214,7 @@ export type VisibilityReportResponse = {
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
                     unchecked?: number;
+                    excludedNoRetrieval?: number;
                 };
                 delta: number;
             } | {
@@ -2224,6 +2230,7 @@ export type VisibilityReportResponse = {
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
                     unchecked?: number;
+                    excludedNoRetrieval?: number;
                 };
                 delta: number;
             } | {
@@ -2239,6 +2246,7 @@ export type VisibilityReportResponse = {
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
                     unchecked?: number;
+                    excludedNoRetrieval?: number;
                 };
                 delta: number;
             } | {
@@ -2273,6 +2281,7 @@ export type VisibilityReportResponse = {
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
                     unchecked?: number;
+                    excludedNoRetrieval?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
@@ -2281,6 +2290,7 @@ export type VisibilityReportResponse = {
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
                     unchecked?: number;
+                    excludedNoRetrieval?: number;
                 };
                 uncheckedSources?: {
                     answers: number;
@@ -2328,6 +2338,7 @@ export type VisibilityReportResponse = {
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
                 unchecked?: number;
+                excludedNoRetrieval?: number;
             };
             citationCoverage: {
                 numerator: number | null;
@@ -2336,6 +2347,7 @@ export type VisibilityReportResponse = {
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
                 unchecked?: number;
+                excludedNoRetrieval?: number;
             };
         }>;
         observedCompetitors: Array<{
@@ -2354,6 +2366,7 @@ export type VisibilityReportResponse = {
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
                     unchecked?: number;
+                    excludedNoRetrieval?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
@@ -2362,6 +2375,7 @@ export type VisibilityReportResponse = {
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
                     unchecked?: number;
+                    excludedNoRetrieval?: number;
                 };
             }>;
             groups: Array<{
@@ -2375,6 +2389,7 @@ export type VisibilityReportResponse = {
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
                     unchecked?: number;
+                    excludedNoRetrieval?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
@@ -2383,6 +2398,7 @@ export type VisibilityReportResponse = {
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
                     unchecked?: number;
+                    excludedNoRetrieval?: number;
                 };
             }>;
         };

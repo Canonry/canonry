@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { formatPercent } from '@canonry/canonry-contracts'
 import {
+  excludedAnswersFlag,
   formatHour,
   buildPreset,
   parsePreset,
@@ -10,6 +11,30 @@ import {
   siteCitationLabel,
   splitPercentSign,
 } from '../src/lib/format-helpers.js'
+
+describe('excludedAnswersFlag', () => {
+  it('names answers written without a web search beside a cited rate', () => {
+    expect(excludedAnswersFlag({ denominator: 9, excludedNoRetrieval: 1 }, 'cited')).toEqual({
+      label: '1 excluded',
+      text: 'Excluded from the cited rate: 1 answer(s) written without a web search.',
+    })
+  })
+
+  it('names both kinds of left-out answer on one cited rate', () => {
+    expect(excludedAnswersFlag({ denominator: 8, unchecked: 1, excludedNoRetrieval: 1 }, 'cited')).toEqual({
+      label: '1 unchecked · 1 excluded',
+      text: '1 unchecked. 1 of 9 answers had sources that could not be checked, so this rate leaves it out. Excluded from the cited rate: 1 answer(s) written without a web search.',
+    })
+  })
+
+  it('says nothing when a cited rate left nothing out, and keeps the mention flag unchanged', () => {
+    expect(excludedAnswersFlag({ denominator: 9 }, 'cited')).toBeNull()
+    expect(excludedAnswersFlag({ denominator: 9, unattributed: 2 }, 'mentioned')).toEqual({
+      label: '2 unattributed',
+      text: '2 unattributed. 2 of 11 answers could not be tied to one property, so this rate leaves them out.',
+    })
+  })
+})
 
 describe('siteCitationLabel', () => {
   it('names the domain and "any page" for every state of the site-wide flag', () => {
