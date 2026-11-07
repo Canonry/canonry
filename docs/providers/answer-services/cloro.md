@@ -1,6 +1,6 @@
 # cloro
 
-[cloro](https://cloro.dev/?utm_source=canonry&utm_medium=byok) (`POST https://api.cloro.dev/v1/monitor/<surface>`) returns the answer that a logged-out visitor sees on ChatGPT, Gemini or Google AI Mode, with its inline citations and sources. Canonry runs it through the shared [search answer services](../answer-services.md) layer, so everything on that page applies here: it is never selected implicitly, only complete answers are measured, and unknown counts and costs stay unknown.
+[cloro](https://cloro.dev/?utm_source=canonry&utm_medium=byok) (`POST https://api.cloro.dev/v1/monitor/<surface>`) returns the answer that a logged-out visitor sees on ChatGPT, Gemini, Google AI Mode or Bing AI Mode, with its inline citations and sources. Canonry runs it through the shared [search answer services](../answer-services.md) layer, so everything on that page applies here: it is never selected implicitly, only complete answers are measured, and unknown counts and costs stay unknown.
 
 ## Setup
 
@@ -28,6 +28,7 @@ Each profile calls one cloro endpoint. Results are stored under the route, so tw
 | `cloro:chatgpt` | `/v1/monitor/chatgpt` | 7 (5 + 2) | research, snapshot, visibility sweep |
 | `cloro:gemini` | `/v1/monitor/gemini` | 6 (4 + 2) | research, snapshot, visibility sweep |
 | `cloro:aimode` | `/v1/monitor/aimode` | 6 (4 + 2) | research, snapshot, visibility sweep |
+| `cloro:bing-aimode` | `/v1/monitor/bing/aimode` | 6 (4 + 2) | research, snapshot, visibility sweep |
 
 cloro asks for a client timeout of at least 5 minutes: it starts no new attempt after 5 minutes, but an attempt that is running can still finish and be charged. Each request waits up to 6 minutes and is not sent again after its deadline.
 
@@ -37,7 +38,7 @@ cloro asks for a client timeout of at least 5 minutes: it starts no new attempt 
 { "prompt": "<the tracked query, unchanged>", "country": "US" }
 ```
 
-The key goes in `Authorization: Bearer`. cloro requires `country` (an uppercase ISO 3166-1 alpha-2 code). With a location, Canonry sends its country in upper case; cloro takes a country and nothing finer here, so a city location is stored as `partial`. Without a location, Canonry sends `US` and records it as the service default. cloro answers `400` for a country that a surface does not serve. No `include`, `state` (+2 credits), `legacy`, `disableWebSearch` or multi-turn prompt is sent. A query longer than 10,000 characters is refused before any request and never shortened.
+The key goes in `Authorization: Bearer`. cloro requires `country` (an uppercase ISO 3166-1 alpha-2 code). With a location, Canonry sends its country in upper case; cloro takes a country and nothing finer here, so a city location is stored as `partial`. Without a location, Canonry sends `US` and records it as the service default. cloro answers `400` for a country that a surface does not serve. No `include`, `state` (+2 credits), `legacy`, `disableWebSearch` or multi-turn prompt is sent. A query longer than 10,000 characters (3,500 for Bing AI Mode) is refused before any request and never shortened. For Bing AI Mode, cloro measures the limit after URL encoding, so a query in a non-Latin script can get a `400` with fewer characters.
 
 ## Evidence
 
@@ -49,7 +50,7 @@ The key goes in `Authorization: Bearer`. cloro requires `country` (an uppercase 
 | `datePublished` (ChatGPT only) | The source's published date, as sent. |
 | `result.model` (ChatGPT only) | The disclosed model, recorded as `servedModel`. It is empty or `null` on ChatGPT's mobile-web format, and then no model is recorded. |
 | `X-Request-ID` header | The upstream request id. |
-| (nothing) | Search queries, cost, tokens, searches and page reads. Gemini and AI Mode return no search queries, and ChatGPT returns them only with the paid `include.searchQueries`, which Canonry does not send. The body carries no amount, so cost stays unknown, never zero. The `X-Credits-Charged` header is not read. |
+| (nothing) | Search queries, cost, tokens, searches and page reads. Gemini, Google AI Mode and Bing AI Mode return no search queries, and ChatGPT returns them only with the paid `include.searchQueries`, which Canonry does not send. The body carries no amount, so cost stays unknown, never zero. The `X-Credits-Charged` header is not read. |
 
 A `200` response carries the whole answer, so it is either complete or a failed query. cloro documents that a surface sometimes returns a short canned message with no sources. Canonry stores it as a complete answer, as cloro returns it.
 

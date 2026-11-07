@@ -14,6 +14,7 @@ import { fakeFetch } from '../../fake-service.js'
 import {
   ACME_URL,
   aimodeBody,
+  bingAimodeBody,
   chatgptBody,
   CLORO_ANSWER_TEXT,
   CLORO_REQUEST_ID,
@@ -45,20 +46,28 @@ function setup(responses: ConformanceResponse[]) {
 
 describe('cloro monitor request', () => {
   it.each([
-    ['chatgpt', chatgptBody()],
-    ['gemini', geminiBody()],
-    ['aimode', aimodeBody()],
-  ])('sends the unmodified query to /v1/monitor/%s with the default country and nothing else', async (profile, body) => {
+    ['chatgpt', 'monitor/chatgpt', chatgptBody()],
+    ['gemini', 'monitor/gemini', geminiBody()],
+    ['aimode', 'monitor/aimode', aimodeBody()],
+    ['bing-aimode', 'monitor/bing/aimode', bingAimodeBody()],
+  ])('sends the unmodified query for %s to /v1/%s with the default country and nothing else', async (profile, product, body) => {
     const { stub, run } = setup([{ headers: cloroSuccessHeaders(), json: body }])
     const raw = await run(profile)
     expect(stub.calls).toHaveLength(1)
-    expect(stub.calls[0]!.url).toBe(`https://api.cloro.dev/v1/monitor/${profile}`)
+    expect(stub.calls[0]!.url).toBe(`https://api.cloro.dev/v1/${product}`)
     expect(stub.calls[0]!.init.method).toBe('POST')
     expect((stub.calls[0]!.init.headers as Record<string, string>).Authorization).toBe('Bearer cloro-test-key')
     expect(JSON.parse(String(stub.calls[0]!.init.body))).toEqual({ prompt: QUERY, country: 'US' })
     expect(raw.answerText).toBe(CLORO_ANSWER_TEXT)
-    expect(raw.evidence?.identity).toMatchObject({ route: `cloro:${profile}`, product: `monitor/${profile}`, requestedServiceModel: null, settings: {} })
+    expect(raw.evidence?.identity).toMatchObject({ route: `cloro:${profile}`, product, requestedServiceModel: null, settings: {} })
     expect(raw.evidence?.location).toEqual({ requested: null, sent: null, strength: null, serviceDefault: { country: 'US' }, status: 'not-requested' })
+  })
+
+  it('refuses a Bing AI Mode query longer than 3,500 characters before any request', async () => {
+    const { stub, run } = setup([{ headers: cloroSuccessHeaders(), json: bingAimodeBody() }])
+    const error = await run('bing-aimode', { ...INPUT, query: 'a'.repeat(3_501) }).catch((caught: unknown) => caught)
+    expect((error as Error).message).toContain('up to 3500 characters')
+    expect(stub.calls).toHaveLength(0)
   })
 
   it('sends the country of a city context in upper case and records the location as partial', async () => {
@@ -93,6 +102,18 @@ describe('cloro monitor response', () => {
       billedUnits: [],
       cost: { micros: null, currency: 'USD', basis: 'unknown', estimatedBy: null },
     })
+  })
+
+  it('keeps Bing AI Mode pills as explicit citations and its sources as answer support', async () => {
+    const { run } = setup([{ headers: cloroSuccessHeaders(), json: bingAimodeBody() }])
+    const raw = await run('bing-aimode')
+    expect(raw.evidence?.sources).toEqual([
+      { url: ACME_URL, title: 'Roof repair and replacement services', relationship: 'explicit-citation', rank: null, publishedAt: null, upstreamId: null },
+      { url: REVIEWS_URL, title: 'Best roofers in Springfield', relationship: 'explicit-citation', rank: null, publishedAt: null, upstreamId: null },
+      { url: ACME_URL, title: 'Roof repair and replacement services', relationship: 'answer-support', rank: null, publishedAt: null, upstreamId: null },
+      { url: REVIEWS_URL, title: 'Best roofers in Springfield', relationship: 'answer-support', rank: null, publishedAt: null, upstreamId: null },
+    ])
+    expect(raw.evidence?.identity.disclosedModel).toBeNull()
   })
 
   // The docs say empty on the mobile-web format; a live response sent `null`.

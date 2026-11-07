@@ -75,7 +75,7 @@ export function parseCloroMonitorResponse(body: Record<string, unknown>, context
       ...sourcesOf(result.citationPills, SourceRelationships['explicit-citation']),
       ...sourcesOf(result.sources, SourceRelationships['answer-support']),
     ],
-    // Gemini and AI Mode return no query fan-out. ChatGPT returns it only
+    // Gemini, Google AI Mode and Bing AI Mode return no query fan-out. ChatGPT returns it only
     // with the paid `include.searchQueries`, which is not sent.
     searchQueries: [],
     searchEventCount: 0,

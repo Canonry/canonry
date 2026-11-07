@@ -104,6 +104,26 @@ export function geminiBody(result: Record<string, unknown> = {}): Record<string,
   return { success: true, result: { text: CLORO_ANSWER_TEXT, sources: cloroSources(), citationPills: cloroCitationPills(), ...result } }
 }
 
+/**
+ * Bing AI Mode (`/v1/monitor/bing/aimode`): `text`, `sources` and
+ * `citationPills` only. Its pills have no `description`. Pills from the same
+ * chip share `citationPillId`, and `position` indexes `sources`.
+ */
+export function bingAimodeBody(result: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    success: true,
+    result: {
+      text: CLORO_ANSWER_TEXT,
+      sources: cloroSources(),
+      citationPills: [
+        { position: 1, label: 'Roof repair and replacement services', url: ACME_URL, domain: 'acme-roofing.example', citationPillId: 1 },
+        { position: 2, label: 'Best roofers in Springfield', url: REVIEWS_URL, domain: 'roofing-reviews.example', citationPillId: 1 },
+      ],
+      ...result,
+    },
+  }
+}
+
 export function aimodeBody(result: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     success: true,

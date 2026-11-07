@@ -21,7 +21,7 @@ import {
 /** cloro requires `country`. It is sent when no usable location is offered and recorded as the service default. */
 export const CLORO_DEFAULT_COUNTRY = 'US'
 
-function capabilities(disclosedModelKind: DisclosedModelKind): AnswerServiceProfileCapabilities {
+function capabilities(disclosedModelKind: DisclosedModelKind, maxQueryChars: number): AnswerServiceProfileCapabilities {
   return {
     groundedAnswer: true,
     textGeneration: false,
@@ -43,8 +43,8 @@ function capabilities(disclosedModelKind: DisclosedModelKind): AnswerServiceProf
     // costs +2 credits and is not sent.
     location: { granularity: 'country', strength: 'hint', serviceDefault: { country: CLORO_DEFAULT_COUNTRY } },
     filters: { includeDomains: 'none', excludeDomains: 'none' },
-    // "`prompt`: 1–10,000 characters".
-    maxQueryChars: 10_000,
+    // "`prompt`: 1–10,000 characters". Bing AI Mode accepts 3,500.
+    maxQueryChars,
     disclosedModelKind,
     // The response body carries no amount. cloro bills in credits and reports
     // the charge only in the `X-Credits-Charged` header.
@@ -52,12 +52,13 @@ function capabilities(disclosedModelKind: DisclosedModelKind): AnswerServiceProf
   }
 }
 
-function profile(input: { id: string; displayName: string; description: string; disclosedModelKind?: DisclosedModelKind }): AnswerServiceProfile {
+function profile(input: { id: string; displayName: string; description: string; endpoint?: string; maxQueryChars?: number; disclosedModelKind?: DisclosedModelKind }): AnswerServiceProfile {
   return {
     id: input.id,
     displayName: input.displayName,
     description: input.description,
-    product: `monitor/${input.id}`,
+    // The path after `/v1/`. It is `monitor/<profile id>` unless the endpoint has a different name.
+    product: input.endpoint ?? `monitor/${input.id}`,
     execution: 'sync',
     transport: 'json',
     // cloro asks for a client timeout of at least 5 minutes: it starts no new
@@ -68,7 +69,7 @@ function profile(input: { id: string; displayName: string; description: string; 
     requestedServiceModel: null,
     settings: {},
     requestPolicyVersion: 'cloro-monitor-v1',
-    capabilities: capabilities(input.disclosedModelKind ?? DisclosedModelKinds.unknown),
+    capabilities: capabilities(input.disclosedModelKind ?? DisclosedModelKinds.unknown, input.maxQueryChars ?? 10_000),
     workflows: [ProviderWorkflows.research, ProviderWorkflows.snapshot, ProviderWorkflows['visibility-sweep']],
   }
 }
@@ -100,5 +101,8 @@ export const cloroDescriptor: AnswerServiceDescriptor = {
     profile({ id: 'chatgpt', displayName: 'ChatGPT', description: 'The ChatGPT answer a logged-out visitor sees, with web search.', disclosedModelKind: DisclosedModelKinds['foundation-model'] }),
     profile({ id: 'gemini', displayName: 'Gemini', description: 'The Gemini answer a logged-out visitor sees.' }),
     profile({ id: 'aimode', displayName: 'Google AI Mode', description: 'The Google AI Mode answer a logged-out visitor sees.' }),
+    // cloro measures the 3,500 limit after URL encoding, so a query in a
+    // non-Latin script can get a 400 with fewer characters.
+    profile({ id: 'bing-aimode', displayName: 'Bing AI Mode', description: 'The Bing AI Mode answer a logged-out visitor sees.', endpoint: 'monitor/bing/aimode', maxQueryChars: 3_500 }),
   ],
 }
