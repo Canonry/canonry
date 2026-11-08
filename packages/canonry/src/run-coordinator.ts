@@ -307,6 +307,7 @@ function analysisResultFromInsights(insights: Insight[]): AnalysisResult {
       overallMentionRate: 0,
       totalPairs: 0,
       citedPairs: 0,
+      citationNotMeasuredPairs: 0,
       mentionedPairs: 0,
       providerBreakdown: {},
     },

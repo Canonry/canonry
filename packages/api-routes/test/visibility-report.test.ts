@@ -685,6 +685,12 @@ function seedCaptureRun(input: {
   frozenPlan: MeasurementPlanV2
   createdAt: string
   unchecked?: readonly string[]
+  /**
+   * Answers stored the way a sweep stored a local model's answer before
+   * `not-measured` existed: `not-cited`, no retrieval step, no URL capture and
+   * an empty raw source list.
+   */
+  noSources?: readonly string[]
   /** Answers whose captured links name Harbor; defaults to `CITING`. */
   citing?: ReadonlySet<string>
   status?: typeof RunStatuses[keyof typeof RunStatuses]
@@ -710,7 +716,8 @@ function seedCaptureRun(input: {
   }).run()
   for (const slot of manifest.expectedSlots) {
     const key = `${slot.executionId}:${slot.provider}`
-    const cites = (input.citing ?? CITING).has(key)
+    const noSources = input.noSources?.includes(key) === true
+    const cites = !noSources && (input.citing ?? CITING).has(key)
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId: id,
@@ -724,6 +731,12 @@ function seedCaptureRun(input: {
       citedDomains: cites ? ['northstar.example', 'challenger.example'] : [],
       citedUrls: cites ? ['https://northstar.example/locations/harbor/details'] : [],
       captureStatus: input.unchecked?.includes(key) ? 'partial' : 'complete',
+      ...(noSources ? {
+        retrievalStatus: 'not-applicable' as const,
+        citedUrls: null,
+        captureStatus: 'unsupported' as const,
+        rawResponse: JSON.stringify({ groundingSources: [], searchQueries: [], apiResponse: {} }),
+      } : {}),
       recommendedCompetitors: [],
       location: HARBOR_CONTEXT.label,
       measurementExecutionId: slot.executionId,
@@ -957,5 +970,55 @@ describe('visibility report citation coverage with incomplete source capture', (
       .toEqual([['challenger.example', { numerator: 1, denominator: 1, rate: 1 }]])
     const legacy = population(await read<VisibilityReportResponse>('visibility-report', 'mode=simple&runId=simple-legacy&queryClass=all'), 'unknown')
     expect(legacy.summary.citationCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+  })
+})
+
+describe('visibility report beside an engine that returns no sources', () => {
+  it('reads the same stored answers as not measured on the report, overview and portfolio reads', async () => {
+    const frozenPlan = capturePlan()
+    const versionId = seedVersion(1, frozenPlan)
+    activate(versionId)
+    seedCaptureRun({ versionId, frozenPlan, createdAt: SECOND, noSources: ['exec-nearby:gemini', 'exec-brand:gemini'] })
+
+    // Openai cites Harbor, claude cites nothing, gemini returned no sources:
+    // 1 of the 2 answers that could cite, with gemini counted on its own.
+    const nonBrand = population(await read<VisibilityReportResponse>('visibility-report', 'queryClass=non-brand'), 'non-brand')
+    const checked = { numerator: 1, denominator: 2, rate: 0.5, citationNotMeasured: 1 }
+    expect(nonBrand.summary).toMatchObject({ answerCount: 3, citationCoverage: checked })
+    expect(nonBrand.summary.mentionCoverage).toEqual({ numerator: 3, denominator: 3, rate: 1 })
+    // Unlike a partly saved list, no sources cannot hide a citation: both
+    // Properties have a measured citation outcome, and none reads not measured.
+    expect(nonBrand.summary.outcomes).toMatchObject({ bothSignals: 1, notMeasured: 0, total: 2 })
+    expect(nonBrand.summary).not.toHaveProperty('notMeasuredUnchecked')
+    expect(nonBrand.queries.items.map(row => [row.provider, row.citationCoverage, row.uncheckedSources])).toEqual([
+      ['claude', { numerator: 0, denominator: 1, rate: 0 }, undefined],
+      ['gemini', { numerator: null, denominator: null, rate: null, reason: 'citation-not-measured' }, undefined],
+      ['openai', { numerator: 1, denominator: 1, rate: 1 }, undefined],
+    ])
+
+    const wire = { state: 'available', value: 0.5, numerator: 1, denominator: 2, citationNotMeasured: 1 }
+    const overview = await read<MeasurementOverviewResponse>('measurement-overview', 'scope=all&queryClass=non-brand')
+    expect(overview.metrics.citationCoverage).toEqual(wire)
+    expect(overview.outcomes).toEqual(nonBrand.summary.outcomes)
+    expect(overview.properties.items.find(row => row.targetKey === 'harbor')!.providers.map(row => [row.provider, row.citationCoverage])).toEqual([
+      ['claude', { state: 'available', value: 0, numerator: 0, denominator: 1 }],
+      ['gemini', { state: 'unavailable', reason: 'citation_not_measured' }],
+      ['openai', { state: 'available', value: 1, numerator: 1, denominator: 1 }],
+    ])
+    const portfolio = await read<MeasurementPortfolioSummaryResponse>('measurement-portfolio-summary', 'queryClass=non-brand')
+    expect(portfolio.metrics.citationCoverage).toEqual(wire)
+  })
+
+  it('reads a Simple run of the same stored answer as not measured, as the Advanced path does', async () => {
+    seedSimpleRun('simple-local', THIRD, false)
+    db.update(querySnapshots).set({
+      provider: 'local', citationState: 'not-cited', retrievalStatus: 'not-applicable', answerMentioned: true,
+      citedDomains: [], citedUrls: null, captureStatus: 'unsupported',
+    }).run()
+
+    const legacy = population(await read<VisibilityReportResponse>('visibility-report', 'mode=simple&runId=simple-local&queryClass=all'), 'unknown')
+    expect(legacy.summary.citationCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'citation-not-measured' })
+    expect(legacy.summary.mentionCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+    expect(legacy.summary.notMeasuredNoSources).toBe(1)
   })
 })

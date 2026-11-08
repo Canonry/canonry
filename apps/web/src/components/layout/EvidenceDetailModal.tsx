@@ -11,6 +11,7 @@ import { competitorHighlightTerms, highlightTermsInText, type HighlightTermGroup
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
 import type { CitationInsightVm, ProjectCommandCenterVm } from '../../view-models.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
+import { CITATION_NOT_MEASURED } from '../../lib/citation-not-measured-copy.js'
 
 /** Shape of snapshot data used for display — works for both current evidence and fetched historical snapshots. */
 export interface EvidenceDisplayData {
@@ -178,6 +179,9 @@ export function EvidenceDetailModal({
     || display.citedCompetitorDomains.length > 0
     || display.groundingSources.length > 0
     || display.evidenceUrls.length > 0
+  // The engine returns no sources, so the Sources tab explains why it is empty.
+  const sourcesNotMeasured = display.citationState === CitationStates['not-measured']
+    && display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0
 
   // Terms to highlight in the AI answer
   const projectDisplayName = project.project.displayName || project.project.name
@@ -750,7 +754,11 @@ export function EvidenceDetailModal({
                         </div>
                       )}
 
-                      {display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
+                      {sourcesNotMeasured && (
+                        <p className="text-copy-14 text-secondary">{CITATION_NOT_MEASURED.sources}</p>
+                      )}
+
+                      {!sourcesNotMeasured && display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
                         <div className="flex items-center justify-center h-24 text-faint text-label-14">
                           No source data {isViewingHistory ? 'for this run' : 'yet'}
                         </div>

@@ -7,8 +7,10 @@ import {
   calendarMonthBounds,
   CitationStates,
   effectiveBrandNames,
+  isCitationStateMeasured,
   parseInclusiveEndMs,
   RatioUnits,
+  readCitationState,
   roundRatio,
   RunKinds,
   RunStatuses,
@@ -17,7 +19,9 @@ import {
   visibilityCompareSelectionSchema,
   type VisibilityCompareSelection,
   type VisibilityCompareDto,
+  type CitationState,
   type QueryClass,
+  type RetrievalStatus,
   type VisibilityStatsCounts,
   type VisibilityStatsDto,
   type VisibilityStatsGroupBy,
@@ -39,7 +43,9 @@ export interface VisibilityStatsSnapshotInput {
   queryId: string | null
   queryText: string | null
   provider: string
-  citationState: string
+  citationState: CitationState
+  /** Read with `citationState` through `readCitationState`; null on rows that predate it. */
+  retrievalStatus?: RetrievalStatus | null
   answerMentioned: boolean | null
   createdAt: string
 }
@@ -68,12 +74,13 @@ interface Agg {
   checked: number
   mentioned: number
   cited: number
+  citationNotMeasured: number
   first: string | null
   last: string | null
 }
 
 function emptyAgg(): Agg {
-  return { total: 0, checked: 0, mentioned: 0, cited: 0, first: null, last: null }
+  return { total: 0, checked: 0, mentioned: 0, cited: 0, citationNotMeasured: 0, first: null, last: null }
 }
 
 function addSnapshot(agg: Agg, snap: VisibilityStatsSnapshotInput): void {
@@ -87,22 +94,28 @@ function addSnapshot(agg: Agg, snap: VisibilityStatsSnapshotInput): void {
   // size this proportion depends on.
   if (snap.answerMentioned === true || snap.answerMentioned === false) agg.checked++
   if (snap.answerMentioned === true) agg.mentioned++
-  // Citation is independent of mention and is always populated.
-  if (snap.citationState === CitationStates.cited) agg.cited++
+  // Citation is independent of mention. An answer whose engine returns no
+  // sources was never measured for it and leaves the citation denominator.
+  const citationState = readCitationState(snap)
+  if (!isCitationStateMeasured(citationState)) agg.citationNotMeasured++
+  else if (citationState === CitationStates.cited) agg.cited++
   if (agg.first === null || snap.createdAt < agg.first) agg.first = snap.createdAt
   if (agg.last === null || snap.createdAt > agg.last) agg.last = snap.createdAt
 }
 
 function counts(agg: Agg): VisibilityStatsCounts {
+  const citationMeasured = agg.total - agg.citationNotMeasured
   return {
     total: agg.total,
+    citationNotMeasured: agg.citationNotMeasured,
     checked: agg.checked,
     mentioned: agg.mentioned,
     cited: agg.cited,
     // mention proportion is over the CHECKED sample; citation proportion is
-    // over the full total (every snapshot is checked for citation).
+    // over the snapshots whose citation was measured (an engine without
+    // sources measured none).
     mentionRate: agg.checked > 0 ? roundRatio(agg.mentioned / agg.checked, RatioUnits.fraction) : null,
-    citedRate: agg.total > 0 ? roundRatio(agg.cited / agg.total, RatioUnits.fraction) : null,
+    citedRate: citationMeasured > 0 ? roundRatio(agg.cited / citationMeasured, RatioUnits.fraction) : null,
   }
 }
 
@@ -348,6 +361,7 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
               queryText: querySnapshots.queryText,
               provider: querySnapshots.provider,
               citationState: querySnapshots.citationState,
+              retrievalStatus: querySnapshots.retrievalStatus,
               answerMentioned: querySnapshots.answerMentioned,
               createdAt: querySnapshots.createdAt,
             })
@@ -507,6 +521,7 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
               provider: querySnapshots.provider,
               model: querySnapshots.model,
               citationState: querySnapshots.citationState,
+              retrievalStatus: querySnapshots.retrievalStatus,
               answerMentioned: querySnapshots.answerMentioned,
               mentionIdentity: querySnapshots.mentionIdentity,
               answerText: querySnapshots.answerText,
@@ -523,7 +538,10 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
         (providerKey === undefined || normalizeText(snapshot.provider) === providerKey)
         && (locationKey === undefined || (locationKey === 'none'
           ? snapshot.location === null
-          : snapshot.location !== null && normalizeText(snapshot.location) === locationKey))),
+          : snapshot.location !== null && normalizeText(snapshot.location) === locationKey)))
+        // Retrieval status is read only to tell an engine without sources
+        // apart; this frame has never applied the no-search exclusion.
+        .map(({ retrievalStatus, ...snapshot }) => ({ ...snapshot, citationState: readCitationState({ citationState: snapshot.citationState, retrievalStatus }) })),
     }
   }
 
@@ -633,8 +651,12 @@ function loadAdvancedCompareMonth(db: DatabaseClient, projectId: string, bounds:
     runCount += 1
     const adapt = (snapshot: typeof population.snapshots[number]): VisibilityCompareSnapshotInput => ({
       ...snapshot,
-      citationState: snapshot.citation === true ? CitationStates.cited : CitationStates['not-cited'],
-      citationChecked: snapshot.citation !== null,
+      // An answer whose engine returns no sources has its own state, never an
+      // unknown capture (`citationChecked: false`).
+      citationState: snapshot.citationNotMeasured
+        ? CitationStates['not-measured']
+        : snapshot.citation === true ? CitationStates.cited : CitationStates['not-cited'],
+      citationChecked: snapshot.citationNotMeasured || snapshot.citation !== null,
       citedDomains: [],
       // The frozen reader already applied each answer's sentiment verdicts to
       // its stored mention; this frame never re-matches answer text.

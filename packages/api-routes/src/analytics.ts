@@ -2,7 +2,8 @@ import { and, desc, eq, gte, inArray, lt } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, queryBasketVersions, competitors, domainClassifications, type DatabaseClient } from '@canonry/canonry-db'
 import {
-  AI_PROVIDER_INFRA_DOMAINS, categorizeSource, categoryLabel, CitationStates,
+  AI_PROVIDER_INFRA_DOMAINS, categorizeSource, categoryLabel, CitationStates, combineCitationStates,
+  isCitationStateMeasured, readCitationState,
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
   effectiveDomains, evaluateModelPointerExposure, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses,
   RunTriggers, windowCutoff, validationError, notFound, compileBrandAliases, hostMatchesAnyDomain, hostMatchesDomain,
@@ -10,7 +11,7 @@ import {
   prepareBrandMatchText, LATEST_RUN_ID, SOURCE_BREAKDOWN_COUNT_UNITS, RatioUnits, roundRatio,
 } from '@canonry/canonry-contracts'
 import type {
-  BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
+  BrandMetricsDto, CitationState, GapAnalysisDto, SourceBreakdownDto,
   TimeBucket, TrendDirection, GapQuery, GapCategory,
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent, QueryClass,
   RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount, ModelEvidenceState,
@@ -97,7 +98,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         mentionShareScope,
         queryClass,
         buckets: [],
-        overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
+        overall: { citationRate: 0, cited: 0, total: 0, citationNotMeasured: 0, mentionRate: 0, mentionedCount: 0 },
         byProvider: {},
         trend: 'stable',
         mentionTrend: 'stable',
@@ -153,6 +154,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         model: querySnapshots.model,
         servedModel: querySnapshots.servedModel,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
         answerMentioned: querySnapshots.answerMentioned,
         mentionIdentity: querySnapshots.mentionIdentity,
         answerText: querySnapshots.answerText,
@@ -184,6 +186,9 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const runBasketRevision = new Map(projectRuns.map(run => [run.id, run.queryBasketRevision ?? null]))
     const allSnapshots = rawSnapshots.map(s => ({
       ...s,
+      // An answer whose engine returns no sources reads `not-measured`, stored
+      // as such or (an older row) as `not-cited` beside retrieval `not-applicable`.
+      citationState: readCitationState(s),
       runCreatedAt: runCreatedAt.get(s.runId)!,
       resolvedMentioned: resolveSnapshotAnswerMentioned(s, project),
       queryClass: classifyQuery
@@ -549,7 +554,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const latestRun = pickGroupRepresentative(latestGroup)
 
     if (!latestRun) {
-      return reply.send({ cited: [], gap: [], uncited: [], mentionedQueries: [], mentionGap: [], notMentioned: [], runId: '', window } satisfies GapAnalysisDto)
+      return reply.send({ cited: [], gap: [], uncited: [], citationNotMeasured: [], mentionedQueries: [], mentionGap: [], notMentioned: [], runId: '', window } satisfies GapAnalysisDto)
     }
 
     // All sweep runs in window (for consistency signal)
@@ -584,14 +589,17 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // See #480.
     const runIdToCreatedAt = new Map(windowRuns.map(r => [r.id, r.createdAt]))
 
-    // Consistency: for each query, count how many *time-points* cited/mentioned it
-    const consistencyMap = new Map<string, { citedRuns: Set<string>; totalRuns: Set<string>; mentionedRuns: Set<string> }>()
+    // Consistency: for each query, count how many *time-points* cited/mentioned
+    // it, and at how many any answer's sources were checked: a time-point that
+    // only an engine without sources answered says nothing about citation.
+    const consistencyMap = new Map<string, { citedRuns: Set<string>; totalRuns: Set<string>; mentionedRuns: Set<string>; citationMeasuredRuns: Set<string> }>()
     if (windowRunIds.length > 0) {
       const allWindowSnaps = filterTrackedSnapshots(app.db
         .select({
           queryId: querySnapshots.queryId,
           runId: querySnapshots.runId,
           citationState: querySnapshots.citationState,
+          retrievalStatus: querySnapshots.retrievalStatus,
           answerMentioned: querySnapshots.answerMentioned,
           mentionIdentity: querySnapshots.mentionIdentity,
           answerText: querySnapshots.answerText,
@@ -604,13 +612,15 @@ export async function analyticsRoutes(app: FastifyInstance) {
         const timePoint = runIdToCreatedAt.get(s.runId) ?? s.runId
         let entry = consistencyMap.get(s.queryId)
         if (!entry) {
-          entry = { citedRuns: new Set(), totalRuns: new Set(), mentionedRuns: new Set() }
+          entry = { citedRuns: new Set(), totalRuns: new Set(), mentionedRuns: new Set(), citationMeasuredRuns: new Set() }
           consistencyMap.set(s.queryId, entry)
         }
         // A query is "cited at a time-point" if ANY snapshot in any of the
         // fanned-out runs at that timestamp is cited. Same for mentions.
+        const citationState = readCitationState(s)
         entry.totalRuns.add(timePoint)
-        if (s.citationState === CitationStates.cited) entry.citedRuns.add(timePoint)
+        if (isCitationStateMeasured(citationState)) entry.citationMeasuredRuns.add(timePoint)
+        if (citationState === CitationStates.cited) entry.citedRuns.add(timePoint)
         if (resolveSnapshotAnswerMentioned(s, project)) entry.mentionedRuns.add(timePoint)
       }
     }
@@ -623,6 +633,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         query: queries.query,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
         answerMentioned: querySnapshots.answerMentioned,
         mentionIdentity: querySnapshots.mentionIdentity,
         answerText: querySnapshots.answerText,
@@ -633,9 +644,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .where(inArray(querySnapshots.runId, latestGroupRunIds))
       .all())
 
-    // Resolve answer mentions
+    // Resolve answer mentions, and read each citation through the shared rule
     const snapshots = rawSnapshots.map(s => ({
       ...s,
+      citationState: readCitationState(s),
       resolvedMentioned: resolveSnapshotAnswerMentioned(s, project),
     }))
 
@@ -651,6 +663,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const cited: GapQuery[] = []
     const gap: GapQuery[] = []
     const uncited: GapQuery[] = []
+    const citationNotMeasured: GapQuery[] = []
     const mentionedQueries: GapQuery[] = []
     const mentionGap: GapQuery[] = []
     const notMentioned: GapQuery[] = []
@@ -688,11 +701,16 @@ export async function analyticsRoutes(app: FastifyInstance) {
         citedRuns: cons?.citedRuns.size ?? 0,
         totalRuns: cons?.totalRuns.size ?? 0,
         mentionedRuns: cons?.mentionedRuns.size ?? 0,
+        citationNotMeasuredRuns: (cons?.totalRuns.size ?? 0) - (cons?.citationMeasuredRuns.size ?? 0),
       }
 
-      // Citation-based classification (existing)
+      // Citation-based classification. A query none of whose latest answers
+      // carries sources was never checked for a citation, so it is neither a
+      // gap nor uncited: it gets its own lane.
       let category: GapCategory
-      if (citedProviders.length > 0) {
+      if (combineCitationStates(qSnapshots.map(s => s.citationState)) === CitationStates['not-measured']) {
+        category = 'not-measured'
+      } else if (citedProviders.length > 0) {
         category = 'cited'
       } else if (competitorsCiting.size > 0) {
         category = 'gap'
@@ -710,6 +728,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
       if (category === 'cited') cited.push(citationEntry)
       else if (category === 'gap') gap.push(citationEntry)
+      else if (category === 'not-measured') citationNotMeasured.push(citationEntry)
       else uncited.push(citationEntry)
 
       // Answer-mention classification. A MENTION gap is "a competitor's brand
@@ -741,11 +760,12 @@ export async function analyticsRoutes(app: FastifyInstance) {
     gap.sort((a, b) => b.competitorsCiting.length - a.competitorsCiting.length)
     cited.sort((a, b) => a.query.localeCompare(b.query))
     uncited.sort((a, b) => a.query.localeCompare(b.query))
+    citationNotMeasured.sort((a, b) => a.query.localeCompare(b.query))
     mentionGap.sort((a, b) => b.competitorsMentioned.length - a.competitorsMentioned.length)
     mentionedQueries.sort((a, b) => a.query.localeCompare(b.query))
     notMentioned.sort((a, b) => a.query.localeCompare(b.query))
 
-    return reply.send({ cited, gap, uncited, mentionedQueries, mentionGap, notMentioned, runId: latestRun.id, window } satisfies GapAnalysisDto)
+    return reply.send({ cited, gap, uncited, citationNotMeasured, mentionedQueries, mentionGap, notMentioned, runId: latestRun.id, window } satisfies GapAnalysisDto)
   })
 
   // GET /projects/:name/analytics/sources — source origin breakdown.
@@ -886,7 +906,9 @@ export async function analyticsRoutes(app: FastifyInstance) {
         ranked: buildRankedList(new Map(), limit, 0, 0),
         byProvider: {},
         providersWithoutSources: [],
+        providersCitationNotMeasured: [],
         answerTotal: 0,
+        citationNotMeasuredAnswers: 0,
         runCount: 0,
         pooledAcrossRuns: false,
         unclassifiedAnswers: 0,
@@ -920,6 +942,8 @@ export async function analyticsRoutes(app: FastifyInstance) {
         queryText: querySnapshots.queryText,
         query: queries.query,
         provider: querySnapshots.provider,
+        citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
         citedDomains: querySnapshots.citedDomains,
         citedUrls: querySnapshots.citedUrls,
         measurementExecutionId: querySnapshots.measurementExecutionId,
@@ -957,14 +981,26 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // windowRunIds derives from the probe-filtered run list above. Every count
     // is one credit per (answer, domain): an answer listing three pages of one
     // site cites that site once.
+    //
+    // An answer whose engine returns no sources (a local model) could cite no
+    // domain, so it leaves every count, as an unclassified answer does: kept in,
+    // it would shrink every domain's `answerShare` by answers that could never
+    // have cited it. It is counted in `citationNotMeasuredAnswers`.
     const overallCounts = new Map<SourceCategory, Map<string, number>>()
     const queryCounts = new Map<string, Map<SourceCategory, Map<string, number>>>()
     const overallDomains = new Map<string, DomainAgg>()
     const providerDomains = new Map<string, Map<string, DomainAgg>>()
     const answersByProvider = new Map<string, { total: number; withSources: number }>()
+    const providersAnswering = new Set<string>()
     let answersWithSources = 0
+    let citationNotMeasuredAnswers = 0
 
     for (const snap of snapshots) {
+      providersAnswering.add(snap.provider)
+      if (!isCitationStateMeasured(readCitationState(snap))) {
+        citationNotMeasuredAnswers += 1
+        continue
+      }
       const domains = sourceDomainsOf(snap)
       const providerAnswers = answersByProvider.get(snap.provider) ?? { total: 0, withSources: 0 }
       providerAnswers.total += 1
@@ -1001,7 +1037,8 @@ export async function analyticsRoutes(app: FastifyInstance) {
       }
     }
 
-    const ranked = buildRankedList(overallDomains, limit, snapshots.length, answersWithSources)
+    const answerTotal = snapshots.length - citationNotMeasuredAnswers
+    const ranked = buildRankedList(overallDomains, limit, answerTotal, answersWithSources)
     const byProvider: Record<string, RankedSourceList> = {}
     for (const [provider, domains] of providerDomains) {
       const answers = answersByProvider.get(provider)!
@@ -1010,6 +1047,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const providersWithoutSources = [...answersByProvider]
       .filter(([, answers]) => answers.withSources === 0)
       .map(([provider]) => provider)
+      .sort()
+    // Engines none of whose answers in scope was checked for sources.
+    const providersCitationNotMeasured = [...providersAnswering]
+      .filter(provider => !answersByProvider.has(provider))
       .sort()
 
     let byQuery: Record<string, SourceCategoryCount[]> | undefined
@@ -1024,7 +1065,9 @@ export async function analyticsRoutes(app: FastifyInstance) {
       ranked,
       byProvider,
       providersWithoutSources,
-      answerTotal: snapshots.length,
+      providersCitationNotMeasured,
+      answerTotal,
+      citationNotMeasuredAnswers,
       runCount: windowRuns.length,
       pooledAcrossRuns: windowRuns.length > 1,
       unclassifiedAnswers,
@@ -1103,7 +1146,8 @@ interface SnapshotLike {
   queryId: string | null
   provider: string
   model: string | null
-  citationState: string
+  /** As read through `readCitationState`. */
+  citationState: CitationState
   resolvedMentioned: boolean
   answerText: string | null
   /** Canonical observation time: the parent run's logical sweep timestamp. */
@@ -1130,14 +1174,32 @@ interface SnapshotLike {
 function computeProviderMetric(snapshots: SnapshotLike[]): ProviderMetric {
   const total = snapshots.length
   const cited = snapshots.filter(s => s.citationState === CitationStates.cited).length
+  const citationNotMeasured = snapshots.filter(s => !isCitationStateMeasured(s.citationState)).length
   const mentionedCount = snapshots.filter(s => s.resolvedMentioned).length
   return {
-    citationRate: total > 0 ? Math.round((cited / total) * 10000) / 10000 : 0,
+    citationRate: citationRateOf(cited, total, citationNotMeasured),
     cited,
     total,
+    citationNotMeasured,
     mentionRate: total > 0 ? Math.round((mentionedCount / total) * 10000) / 10000 : 0,
     mentionedCount,
   }
+}
+
+/**
+ * `cited` over the answers whose sources were checked. Answers whose engine
+ * returns no sources are outside the base: with only those the rate is null
+ * (not measured), never 0. With no answers at all it stays 0, as before.
+ */
+function citationRateOf(cited: number, total: number, citationNotMeasured: number): number | null {
+  const base = total - citationNotMeasured
+  if (base > 0) return Math.round((cited / base) * 10000) / 10000
+  return total === 0 ? 0 : null
+}
+
+/** A bucket's citation base: its answers whose sources were checked. */
+function citationBase(bucket: Pick<TimeBucket, 'total' | 'citationNotMeasured'>): number {
+  return bucket.total - bucket.citationNotMeasured
 }
 
 function computeBuckets(
@@ -1234,6 +1296,7 @@ function computeBuckets(
         citationRate: metric.citationRate,
         cited: metric.cited,
         total: metric.total,
+        citationNotMeasured: metric.citationNotMeasured,
         queryCount,
         mentionRate: metric.mentionRate,
         mentionedCount: metric.mentionedCount,
@@ -1327,14 +1390,15 @@ function computeQueryChanges(
  *
  * Reads `cited` / `mentionedCount` rather than re-deriving from the rate, so
  * the already-rounded per-bucket rate never compounds into the comparison.
+ * Each signal pools over its own base: citation over the answers whose sources
+ * were checked, mention over every answer.
  */
 export function pooledRate(buckets: TimeBucket[], rateKey: 'citationRate' | 'mentionRate'): number {
-  const countKey = rateKey === 'citationRate' ? 'cited' : 'mentionedCount'
   let numerator = 0
   let denominator = 0
   for (const bucket of buckets) {
-    numerator += bucket[countKey]
-    denominator += bucket.total
+    numerator += rateKey === 'citationRate' ? bucket.cited : bucket.mentionedCount
+    denominator += rateKey === 'citationRate' ? citationBase(bucket) : bucket.total
   }
   return denominator > 0 ? numerator / denominator : 0
 }
@@ -1349,22 +1413,26 @@ function windowRateChange(rates: readonly number[]): WindowRateChange | null {
 /**
  * Each overall series' change across the window: the latest bucket's rate
  * minus the first bucket's, the change the dashboard's trend head prints.
- * Citation and mention read every bucket that measured a snapshot; mention
- * share reads only the buckets whose share is defined, which are the points
- * its line plots. The rates are already at wire precision, so rounding the
- * difference to it removes float error and nothing else.
+ * Mention reads every bucket that measured a snapshot; citation reads the
+ * buckets where an answer's sources were checked (a bucket of engines without
+ * sources has no citation rate); mention share reads only the buckets whose
+ * share is defined. Each is exactly the set of points its line plots. The
+ * rates are already at wire precision, so rounding the difference to it
+ * removes float error and nothing else.
  */
 export function computeWindowChange(buckets: readonly TimeBucket[]): WindowChange {
-  const measured = buckets.filter(b => b.total > 0)
+  const answered = buckets.filter(b => b.total > 0)
   return {
-    citationRate: windowRateChange(measured.map(b => b.citationRate)),
-    mentionRate: windowRateChange(measured.map(b => b.mentionRate)),
+    citationRate: windowRateChange(answered.flatMap(b => b.citationRate === null ? [] : [b.citationRate])),
+    mentionRate: windowRateChange(answered.map(b => b.mentionRate)),
     mentionShare: windowRateChange(buckets.flatMap(b => b.mentionShare.rate === null ? [] : [b.mentionShare.rate])),
   }
 }
 
 export function computeTrend(buckets: TimeBucket[], rateKey: 'citationRate' | 'mentionRate'): TrendDirection {
-  const nonEmpty = buckets.filter(b => b.total > 0)
+  // Only buckets that measured this signal: a bucket whose answers all lack
+  // sources says nothing about the citation trend.
+  const nonEmpty = buckets.filter(b => (rateKey === 'citationRate' ? citationBase(b) : b.total) > 0)
   if (nonEmpty.length < 2) return 'stable'
 
   const mid = Math.floor(nonEmpty.length / 2)
@@ -1401,8 +1469,10 @@ function bumpDomain(
  *   entries.length + truncatedDomainCount === domainTotal
  *   sum(entries.count) + truncatedCitedSlots === totalCitedSlots
  *   sum(bySurfaceClass.count) === totalCitedSlots
- * `answerTotal` counts every answer in the scope, including answers that cite
- * nothing, so `answerShare` reads as "share of answers citing this domain".
+ * `answerTotal` counts every answer in the scope whose sources were checked,
+ * including answers that cite nothing, so `answerShare` reads as "share of
+ * answers citing this domain". An answer from an engine that returns no sources
+ * is not in it: it could not have cited any domain.
  */
 function buildRankedList(
   domains: Map<string, DomainAgg>,

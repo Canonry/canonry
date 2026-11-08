@@ -35,6 +35,7 @@ import {
   type AttentionItemDto,
   type CitationState,
   type MentionIdentity,
+  type RetrievalStatus,
   type RunKind,
   type HealthSnapshotDto,
   type InsightDto,
@@ -85,7 +86,7 @@ import {
   type SuggestedQueryGscRow,
 } from '@canonry/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
-import { compareInsightsForTriage } from './intelligence.js'
+import { compareInsightsForTriage, mapHealthSnapshotRow } from './intelligence.js'
 import { runAdmissionState } from './run-queue.js'
 import {
   mergeGscQueryTotalsWithFallback, readGscQueryDailyFallbackRows, readGscQueryDailyRows,
@@ -193,7 +194,7 @@ export async function compositeRoutes(app: FastifyInstance, options: {
       .orderBy(desc(healthSnapshots.createdAt))
       .limit(1)
       .get()
-    const health: HealthSnapshotDto | null = healthRow ? mapHealthRow(healthRow) : null
+    const health: HealthSnapshotDto | null = healthRow ? mapHealthSnapshotRow(healthRow) : null
 
     const insightRows = app.db
       .select()
@@ -329,7 +330,10 @@ export async function compositeRoutes(app: FastifyInstance, options: {
     )
     const providerScores: ProjectOverviewProviderScoreDto[] = providerScoresBase.map(score => {
       const trend = providerTrends.get(providerKey(score.provider, score.model)) ?? []
-      return trend.length > 1 ? { ...score, trend: trend.map(p => p.rate) } : score
+      // A run whose answers from this engine carried no sources measured
+      // nothing; it is left out of the sparkline rather than drawn as 0.
+      const rates = trend.flatMap(p => p.rate === null ? [] : [p.rate])
+      return rates.length > 1 ? { ...score, trend: rates } : score
     })
     const overviewCompetitors: ProjectOverviewCompetitorDto[] = buildOverviewCompetitors(
       trackedLatest,
@@ -348,7 +352,8 @@ export async function compositeRoutes(app: FastifyInstance, options: {
     // the cross-run trends are assembled here at the composite — each tracking
     // its own signal (mention = answer-text, visibility = cited source).
     scores.mention.trend = runHistory.map(p => p.mentionRate)
-    scores.visibility.trend = runHistory.map(p => p.citationRate)
+    // Runs with no answer carrying sources have no citation rate to plot.
+    scores.visibility.trend = runHistory.flatMap(p => p.citationRate === null ? [] : [p.citationRate])
     const suggestedQueries: SuggestedQueriesSummaryDto = buildSuggestedQueriesFromGsc(
       app,
       project.id,
@@ -412,6 +417,7 @@ export async function compositeRoutes(app: FastifyInstance, options: {
         provider: querySnapshots.provider,
         model: querySnapshots.model,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
         citedUrls: querySnapshots.citedUrls,
@@ -1034,34 +1040,6 @@ function mapInsightRow(r: typeof insights.$inferSelect): InsightDto {
   }
 }
 
-function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto {
-  // Coalesce legacy provider entries (written before v80, no mention keys) to 0.
-  const providerBreakdown: HealthSnapshotDto['providerBreakdown'] = {}
-  for (const [provider, entry] of Object.entries(r.providerBreakdown)) {
-    providerBreakdown[provider] = {
-      citedRate: entry.citedRate,
-      mentionRate: entry.mentionRate ?? 0,
-      cited: entry.cited,
-      mentioned: entry.mentioned ?? 0,
-      total: entry.total,
-    }
-  }
-  return {
-    id: r.id,
-    projectId: r.projectId,
-    runId: r.runId ?? null,
-    overallCitedRate: Number(r.overallCitedRate),
-    // Legacy rows (persisted before v80) have NULL mention columns → 0.
-    overallMentionRate: r.overallMentionRate == null ? 0 : Number(r.overallMentionRate),
-    totalPairs: r.totalPairs,
-    citedPairs: r.citedPairs,
-    mentionedPairs: r.mentionedPairs ?? 0,
-    providerBreakdown,
-    createdAt: r.createdAt,
-    status: 'ready',
-  }
-}
-
 function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars: number | null): ProjectDto {
   return {
     id: row.id,
@@ -1100,7 +1078,8 @@ function buildSnapshotHit(
     queryText: string | null
     provider: string
     model: string | null
-    citationState: string
+    citationState: CitationState
+    retrievalStatus: RetrievalStatus | null
     answerText: string | null
     citedDomains: string[]
     citedUrls: string[] | null
@@ -1140,7 +1119,7 @@ function buildSnapshotHit(
     query,
     provider: row.provider,
     model: row.model,
-    citationState: row.citationState as CitationState,
+    citationState: readCitationState(row),
     matchedField,
     snippet,
     createdAt: row.createdAt,

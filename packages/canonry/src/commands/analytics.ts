@@ -117,22 +117,21 @@ function printMetrics(data: BrandMetricsDto): void {
     console.log('')
   }
 
-  console.log(`  Overall: ${formatPercent(data.overall.citationRate)} (${data.overall.cited}/${data.overall.total})`)
+  console.log(`  Overall: ${citedFigure(data.overall)}`)
   console.log(`  Trend:   ${data.trend}`)
   printWindowChange(data)
 
   if (Object.keys(data.byProvider).length > 0) {
     console.log(`\n  By Provider:`)
-    for (const [provider, metric] of Object.entries(data.byProvider) as [string, { cited: number; total: number; citationRate: number }][]) {
-      console.log(`    ${provider.padEnd(10)} ${formatPercent(metric.citationRate).padStart(6)} (${metric.cited}/${metric.total})`)
+    for (const [provider, metric] of Object.entries(data.byProvider)) {
+      console.log(`    ${provider.padEnd(10)} ${citedFigure(metric, 6)}`)
     }
   }
 
   if (data.buckets.length > 0) {
     console.log(`\n  Timeline (dates in UTC):`)
     for (const bucket of data.buckets) {
-      const bar = bucket.total > 0 ? '█'.repeat(Math.round(bucket.citationRate * 20)) : ''
-      console.log(`    ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${formatPercent(bucket.citationRate).padStart(6)}  ${bar}`)
+      console.log(`    ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${citedBar(bucket)}`)
     }
   }
 
@@ -146,8 +145,7 @@ function printMetrics(data: BrandMetricsDto): void {
       for (const bucket of data.buckets) {
         const metric = bucket.byProvider?.[provider]
         if (!metric) continue // provider absent from this bucket
-        const bar = metric.total > 0 ? '█'.repeat(Math.round(metric.citationRate * 20)) : ''
-        console.log(`      ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${formatPercent(metric.citationRate).padStart(6)}  ${bar}`)
+        console.log(`      ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${citedBar(metric)}`)
       }
     }
   }
@@ -212,6 +210,35 @@ function printMetrics(data: BrandMetricsDto): void {
   }
 }
 
+/** The citation figure inputs; an older server omits `citationNotMeasured` and sends a numeric rate. */
+interface CitedMetric {
+  citationRate: number | null
+  cited: number
+  total: number
+  citationNotMeasured?: number
+}
+
+/**
+ * A cited rate with its base: the answers whose sources were checked. An
+ * engine that returns no sources has no rate, so it reads "not measured",
+ * never 0%.
+ */
+function citedFigure(metric: CitedMetric, rateWidth = 0): string {
+  const notMeasured = metric.citationNotMeasured ?? 0
+  if (metric.citationRate === null) {
+    return `not measured (${metric.total} ${metric.total === 1 ? 'answer' : 'answers'} without sources)`
+  }
+  const excluded = notMeasured > 0 ? `, ${notMeasured} not measured` : ''
+  return `${formatPercent(metric.citationRate).padStart(rateWidth)} (${metric.cited}/${metric.total - notMeasured}${excluded})`
+}
+
+/** One timeline row's rate and bar; a point with no checked answer has neither. */
+function citedBar(metric: CitedMetric): string {
+  if (metric.citationRate === null) return `${'n/m'.padStart(6)}  not measured`
+  const bar = metric.total > 0 ? '█'.repeat(Math.round(metric.citationRate * 20)) : ''
+  return `${formatPercent(metric.citationRate).padStart(6)}  ${bar}`
+}
+
 /**
  * Each series' change from its first to its latest bucket: the server's
  * `windowChange`, the figure the dashboard's trend head prints beside the
@@ -230,11 +257,16 @@ function printWindowChange(data: BrandMetricsDto): void {
     ['Cited', windowChange.citationRate],
     [`Mention share · ${shareScope}`, windowChange.mentionShare],
   ]
+  // Buckets whose answers all lack sources carry no cited rate; with no other
+  // bucket, citation was never measured in this window.
+  const citationNotMeasured = data.buckets.length > 0 && data.buckets.every(bucket => bucket.citationRate === null)
   console.log(`\n  Change Across the Window (first → latest bucket):`)
   for (const [label, change] of series) {
     const text = change
       ? `${formatPercent(change.first)} → ${formatPercent(change.latest)} (${formatSignedPointDelta(change.delta)})`
-      : 'fewer than two buckets to compare'
+      : label === 'Cited' && citationNotMeasured
+        ? 'not measured (no answer in this window carries sources)'
+        : 'fewer than two buckets to compare'
     console.log(`    ${label}: ${text}`)
   }
 }
@@ -277,17 +309,27 @@ function formatModelEvidence(state: BrandMetricsDto['modelAttribution'][string][
   }
 }
 
+/**
+ * The runs a query's citation consistency is out of: those where an answer's
+ * sources were checked. An older server omits the not-measured count.
+ */
+function citedRunBase(consistency: GapAnalysisDto['cited'][number]['consistency']): number {
+  return consistency.totalRuns - ((consistency as { citationNotMeasuredRuns?: number }).citationNotMeasuredRuns ?? 0)
+}
+
 function printGaps(data: GapAnalysisDto): void {
+  // An older server omits the lane; none of its queries was set apart.
+  const notMeasured = (data as { citationNotMeasured?: GapAnalysisDto['citationNotMeasured'] }).citationNotMeasured ?? []
   console.log(`\nBrand Gap Analysis`)
   console.log('─'.repeat(50))
-  console.log(`  Cited: ${data.cited.length}  |  Gap: ${data.gap.length}  |  Uncited: ${data.uncited.length}`)
+  console.log(`  Cited: ${data.cited.length}  |  Gap: ${data.gap.length}  |  Uncited: ${data.uncited.length}${notMeasured.length > 0 ? `  |  Not measured: ${notMeasured.length}` : ''}`)
 
   if (data.gap.length > 0) {
     console.log(`\n  Opportunity Gaps (competitors cited, you're not):`)
     for (const q of data.gap) {
       const competitors = q.competitorsCiting.join(', ')
-      const cons = q.consistency.totalRuns > 0
-        ? ` [cited ${q.consistency.citedRuns}/${q.consistency.totalRuns} runs]`
+      const cons = citedRunBase(q.consistency) > 0
+        ? ` [cited ${q.consistency.citedRuns}/${citedRunBase(q.consistency)} runs]`
         : ''
       console.log(`    • ${q.query}${cons}`)
       console.log(`      Competitors: ${competitors}`)
@@ -297,11 +339,16 @@ function printGaps(data: GapAnalysisDto): void {
   if (data.cited.length > 0) {
     console.log(`\n  Cited Queries:`)
     for (const q of data.cited) {
-      const cons = q.consistency.totalRuns > 0
-        ? ` [${q.consistency.citedRuns}/${q.consistency.totalRuns} runs]`
+      const cons = citedRunBase(q.consistency) > 0
+        ? ` [${q.consistency.citedRuns}/${citedRunBase(q.consistency)} runs]`
         : ''
       console.log(`    ✓ ${q.query} (${q.providers.join(', ')})${cons}`)
     }
+  }
+
+  if (notMeasured.length > 0) {
+    console.log(`\n  Citations Not Measured (no answer carries sources):`)
+    for (const q of notMeasured) console.log(`    · ${q.query}`)
   }
 }
 

@@ -53,6 +53,7 @@ import { useOnboardingRunOutcome } from './OnboardingCompletePage.js'
 import { clearOnboardingDraft, readOnboardingDraft, wasOnboardingScanSkipped, writeOnboardingDraft } from '../lib/onboarding-draft.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { summarizeRunError } from '../lib/format-helpers.js'
+import { CITATION_NOT_MEASURED } from '../lib/citation-not-measured-copy.js'
 import {
   CDP_PROVIDER_NAME,
   normalizeProviderName,
@@ -1822,10 +1823,20 @@ function ReadySetupPage({
                   </div>
                   <div className="material-base p-3">
                     <p className="text-copy-13-strong text-secondary">Cited</p>
-                    <p className="text-copy-24-strong tabular-nums text-primary mt-1">
-                      {queryCounts ? <>{queryCounts.citedQueries}<span className="text-faint text-label-18"> / {queryCounts.totalQueries}</span></> : 'Unavailable'}
-                    </p>
-                    <p className="mt-0.5 text-copy-14 text-secondary">queries citing your site</p>
+                    {/* Out of the queries some answer's sources were checked for: an engine that returns no sources is not measured, never 0. */}
+                    {queryCounts && queryCounts.totalQueries > 0 && (queryCounts.citationNotMeasuredQueries ?? 0) === queryCounts.totalQueries ? (
+                      <>
+                        <p className="text-copy-24-strong text-secondary mt-1">{CITATION_NOT_MEASURED.label}</p>
+                        <p className="mt-0.5 text-copy-14 text-secondary">this engine returns no sources</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-copy-24-strong tabular-nums text-primary mt-1">
+                          {queryCounts ? <>{queryCounts.citedQueries}<span className="text-faint text-label-18"> / {queryCounts.totalQueries - (queryCounts.citationNotMeasuredQueries ?? 0)}</span></> : 'Unavailable'}
+                        </p>
+                        <p className="mt-0.5 text-copy-14 text-secondary">queries citing your site</p>
+                      </>
+                    )}
                   </div>
                   <div className="material-base p-3">
                     <p className="text-copy-13-strong text-secondary">Results</p>

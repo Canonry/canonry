@@ -29,12 +29,12 @@ vi.mock('recharts', () => {
   }
 })
 
-import { VisibilityTrendSection } from '../src/components/project/VisibilityTrendSection.js'
+import { CITATION_NOT_MEASURED_TREND_COPY, VisibilityTrendSection } from '../src/components/project/VisibilityTrendSection.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 import { cancelledSweepBetweenMetrics, removedAndReAddedMetrics, roundTripInsidePointMetrics } from './basket-scenarios-fixture.js'
 
 function provider(citationRate: number, mentionRate: number) {
-  return { citationRate, cited: 1, total: 4, mentionRate, mentionedCount: 2 }
+  return { citationRate, cited: 1, total: 4, citationNotMeasured: 0, mentionRate, mentionedCount: 2 }
 }
 
 type RateChange = { first: number; latest: number; delta: number } | null
@@ -83,7 +83,7 @@ const TWO_BUCKETS = [
   {
     startDate: '2026-04-01T00:00:00.000Z', endDate: '2026-04-08T00:00:00.000Z',
     dataStartDate: '2026-04-03T14:20:00.000Z', dataEndDate: '2026-04-03T14:20:00.000Z', sweepCount: 1,
-    citationRate: 0.25, cited: 1, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+    citationRate: 0.25, cited: 1, total: 4, citationNotMeasured: 0, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { scope: 'non-brand', rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 },
     byProvider: { gemini: provider(0.25, 0.5), openai: provider(0.5, 0.25) },
     modelEvidenceByProvider: {
@@ -94,7 +94,7 @@ const TWO_BUCKETS = [
   {
     startDate: '2026-04-08T00:00:00.000Z', endDate: '2026-04-15T00:00:00.000Z',
     dataStartDate: '2026-04-11T08:05:00.000Z', dataEndDate: '2026-04-11T08:05:00.000Z', sweepCount: 1,
-    citationRate: 0.75, cited: 3, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+    citationRate: 0.75, cited: 3, total: 4, citationNotMeasured: 0, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { scope: 'non-brand', rate: 0.75, projectMentionSnapshots: 3, competitorMentionSnapshots: 1 },
     byProvider: { gemini: provider(0.75, 0.5) },
     modelEvidenceByProvider: {
@@ -375,6 +375,79 @@ test('reads the head and legend from the API rates, so a rate near either end ne
   expect(within(legend).getByText('>99.9%')).toBeTruthy()
   expect(screen.queryByText('0%')).toBeNull()
   expect(screen.queryByText('100%')).toBeNull()
+})
+
+/** A bucket where Gemini checked sources and Local, with no web access, did not. */
+function mixedEngineBucket(start: string, sweptAt: string, geminiCited: number) {
+  return {
+    startDate: start, endDate: start, dataStartDate: sweptAt, dataEndDate: sweptAt, sweepCount: 1,
+    citationRate: geminiCited / 2, cited: geminiCited, total: 4, citationNotMeasured: 2, queryCount: 2, mentionRate: 0.5, mentionedCount: 2,
+    mentionShare: { scope: 'non-brand', rate: null, projectMentionSnapshots: 2, competitorMentionSnapshots: 0 },
+    byProvider: {
+      gemini: { citationRate: geminiCited / 2, cited: geminiCited, total: 2, citationNotMeasured: 0, mentionRate: 0.5, mentionedCount: 1 },
+      local: { citationRate: null, cited: 0, total: 2, citationNotMeasured: 2, mentionRate: 0.5, mentionedCount: 1 },
+    },
+    modelEvidenceByProvider: {},
+  }
+}
+
+test('reads Cited over the answers with sources and names an engine without sources Not measured', async () => {
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(metricsDto([
+        mixedEngineBucket('2026-04-01T00:00:00.000Z', '2026-04-03T14:20:00.000Z', 1),
+        mixedEngineBucket('2026-04-08T00:00:00.000Z', '2026-04-11T08:05:00.000Z', 2),
+      ]))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+  await screen.findByRole('list', { name: 'Engines' })
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
+
+  const legend = screen.getByRole('list', { name: 'Engines' })
+  expect([...legend.querySelectorAll('li')].map(item => item.textContent)).toEqual([
+    'Gemini100%',
+    `Local${CITATION_NOT_MEASURED_TREND_COPY.value}`,
+  ])
+  // 2 of the 2 answers with sources, not 2 of all 4.
+  expect(detailsText(document.querySelector('.visibility-trend')!)[0]).toBe('Latest point: 2 of 2 answers')
+  expect(screen.getByText(`Gemini 100% cited, 2 of 2 answers; Local cited ${CITATION_NOT_MEASURED_TREND_COPY.point}`)).toBeTruthy()
+  // An engine that cannot cite never reads as a 0% line.
+  expect(within(legend).queryByText('0%')).toBeNull()
+})
+
+test('draws no Cited chart when no engine returns sources, while Mentioned still plots', async () => {
+  const localOnly = (start: string, sweptAt: string) => ({
+    ...mixedEngineBucket(start, sweptAt, 0),
+    citationRate: null, cited: 0, total: 2, citationNotMeasured: 2,
+    byProvider: { local: { citationRate: null, cited: 0, total: 2, citationNotMeasured: 2, mentionRate: 0.5, mentionedCount: 1 } },
+  })
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse({
+        ...metricsDto([localOnly('2026-04-01T00:00:00.000Z', '2026-04-03T14:20:00.000Z'), localOnly('2026-04-08T00:00:00.000Z', '2026-04-11T08:05:00.000Z')]),
+        overall: { citationRate: null, cited: 0, total: 4, citationNotMeasured: 4, mentionRate: 0.5, mentionedCount: 2 },
+        byProvider: { local: { citationRate: null, cited: 0, total: 4, citationNotMeasured: 4, mentionRate: 0.5, mentionedCount: 2 } },
+      })
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+  await screen.findByRole('list', { name: 'Engines' })
+  expect(screen.getByRole('img', { name: /^Mentioned trend chart/ })).toBeTruthy()
+
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
+
+  expect(screen.getByText(CITATION_NOT_MEASURED_TREND_COPY.window)).toBeTruthy()
+  expect(screen.queryByRole('img', { name: /^Cited trend chart/ })).toBeNull()
+  expect(document.querySelector('.visibility-trend-current-value')).toBeNull()
 })
 
 test('prints the server change across the window, never a subtraction of the plotted rates', async () => {
@@ -784,7 +857,7 @@ function basketPoint(day: string, rate: 0 | 0.5 | 1, queryCount: number, revisio
   return {
     startDate: `${day}T00:00:00.000Z`, endDate: `${day}T23:59:59.999Z`,
     dataStartDate: `${day}T12:00:00.000Z`, dataEndDate: `${day}T12:00:00.000Z`, sweepCount: 1,
-    citationRate: rate, cited: 4 * rate, total: 4, queryCount, mentionRate: rate, mentionedCount: 4 * rate,
+    citationRate: rate, cited: 4 * rate, total: 4, citationNotMeasured: 0, queryCount, mentionRate: rate, mentionedCount: 4 * rate,
     mentionShare: { scope: 'non-brand', rate: null, projectMentionSnapshots: 4 * rate, competitorMentionSnapshots: 0 },
     byProvider: { gemini: provider(rate, rate) },
     modelEvidenceByProvider: {}, basketRevision: revision,

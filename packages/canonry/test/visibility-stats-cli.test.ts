@@ -34,16 +34,17 @@ const data: VisibilityStatsDto = {
   project: 'acme',
   groupBy: 'provider',
   window: { since: null, until: null, lastRuns: 3, runCount: 3 },
-  totals: { total: 6, checked: 5, mentioned: 3, cited: 4, mentionRate: 0.6, citedRate: 0.6667 },
+  totals: { total: 6, citationNotMeasured: 0, checked: 5, mentioned: 3, cited: 4, mentionRate: 0.6, citedRate: 0.6667 },
   byProvider: [
-    { provider: 'gemini', total: 3, checked: 3, mentioned: 2, cited: 2, mentionRate: 0.6667, citedRate: 0.6667, firstObserved: '2026-06-01T00:00:00.000Z', lastObserved: '2026-06-05T00:00:00.000Z' },
-    { provider: 'openai', total: 3, checked: 2, mentioned: 1, cited: 2, mentionRate: 0.5, citedRate: 0.6667, firstObserved: '2026-06-01T00:00:00.000Z', lastObserved: '2026-06-05T00:00:00.000Z' },
+    { provider: 'gemini', total: 3, citationNotMeasured: 0, checked: 3, mentioned: 2, cited: 2, mentionRate: 0.6667, citedRate: 0.6667, firstObserved: '2026-06-01T00:00:00.000Z', lastObserved: '2026-06-05T00:00:00.000Z' },
+    { provider: 'openai', total: 3, citationNotMeasured: 0, checked: 2, mentioned: 1, cited: 2, mentionRate: 0.5, citedRate: 0.6667, firstObserved: '2026-06-01T00:00:00.000Z', lastObserved: '2026-06-05T00:00:00.000Z' },
   ],
   queries: [
     {
       queryId: 'q1',
       query: 'best AEO platform',
       total: 4,
+      citationNotMeasured: 0,
       checked: 4,
       mentioned: 3,
       cited: 3,
@@ -52,14 +53,15 @@ const data: VisibilityStatsDto = {
       firstObserved: '2026-06-01T00:00:00.000Z',
       lastObserved: '2026-06-05T00:00:00.000Z',
       providers: [
-        { provider: 'gemini', total: 2, checked: 2, mentioned: 2, cited: 2, mentionRate: 1, citedRate: 1, firstObserved: '2026-06-01T00:00:00.000Z', lastObserved: '2026-06-05T00:00:00.000Z' },
-        { provider: 'openai', total: 2, checked: 2, mentioned: 1, cited: 1, mentionRate: 0.5, citedRate: 0.5, firstObserved: '2026-06-01T00:00:00.000Z', lastObserved: '2026-06-05T00:00:00.000Z' },
+        { provider: 'gemini', total: 2, citationNotMeasured: 0, checked: 2, mentioned: 2, cited: 2, mentionRate: 1, citedRate: 1, firstObserved: '2026-06-01T00:00:00.000Z', lastObserved: '2026-06-05T00:00:00.000Z' },
+        { provider: 'openai', total: 2, citationNotMeasured: 0, checked: 2, mentioned: 1, cited: 1, mentionRate: 0.5, citedRate: 0.5, firstObserved: '2026-06-01T00:00:00.000Z', lastObserved: '2026-06-05T00:00:00.000Z' },
       ],
     },
     {
       queryId: 'q2',
       query: 'AI search optimization',
       total: 2,
+      citationNotMeasured: 0,
       checked: 1,
       mentioned: 0,
       cited: 1,
@@ -163,9 +165,9 @@ describe('showVisibilityStats', () => {
     mockGetVisibilityStats.mockResolvedValue({
       ...data,
       byQueryClass: {
-        nonBrand: { total: 4, checked: 4, mentioned: 1, cited: 2, mentionRate: 0.25, citedRate: 0.5 },
-        branded: { total: 2, checked: 1, mentioned: 1, cited: 2, mentionRate: 1, citedRate: 1 },
-        unclassified: { total: 0, checked: 0, mentioned: 0, cited: 0, mentionRate: null, citedRate: null },
+        nonBrand: { total: 4, citationNotMeasured: 0, checked: 4, mentioned: 1, cited: 2, mentionRate: 0.25, citedRate: 0.5 },
+        branded: { total: 2, citationNotMeasured: 0, checked: 1, mentioned: 1, cited: 2, mentionRate: 1, citedRate: 1 },
+        unclassified: { total: 0, citationNotMeasured: 0, checked: 0, mentioned: 0, cited: 0, mentionRate: null, citedRate: null },
       },
     })
     const cap = captureOutput(() => showVisibilityStats('acme', {}))
@@ -177,12 +179,31 @@ describe('showVisibilityStats', () => {
     expect(cap.text()).not.toContain('unclassified')
   })
 
+  it('text reads an engine without sources as n/m and takes Cited over the measured answers only', async () => {
+    mockGetVisibilityStats.mockResolvedValue({
+      ...data,
+      totals: { total: 6, citationNotMeasured: 2, checked: 6, mentioned: 3, cited: 2, mentionRate: 0.5, citedRate: 0.5 },
+      byProvider: [
+        { provider: 'local', total: 2, citationNotMeasured: 2, checked: 2, mentioned: 1, cited: 0, mentionRate: 0.5, citedRate: null, firstObserved: '2026-06-01T00:00:00.000Z', lastObserved: '2026-06-05T00:00:00.000Z' },
+        { provider: 'openai', total: 4, citationNotMeasured: 0, checked: 4, mentioned: 2, cited: 2, mentionRate: 0.5, citedRate: 0.5, firstObserved: '2026-06-01T00:00:00.000Z', lastObserved: '2026-06-05T00:00:00.000Z' },
+      ],
+    } satisfies VisibilityStatsDto)
+    const cap = captureOutput(() => showVisibilityStats('acme', { byProvider: true }))
+    await cap.run
+    const lines = cap.lines()
+    expect(lines).toContain('Cited = cited/measured snapshots (n/m: the engine returns no sources) · Mentioned = mentioned/checked (checked excludes "not checked")')
+    // 2 cited of the 4 answers that could cite; the 2 without sources are out of the base.
+    expect(lines.find((line) => line.startsWith('TOTAL'))).toMatch(/^TOTAL\s+2\/4\s+50(\.0)?%\s+3\/6\s+50(\.0)?%/)
+    // The local engine measured no citation: n/m and no rate, never 0/2 or 0%.
+    expect(lines.find((line) => line.startsWith('  local'))).toMatch(/^ {2}local\s+n\/m\s+—\s+1\/2\s+50(\.0)?%/)
+  })
+
   it('text renders an empty-state hint when there are no rows', async () => {
     mockGetVisibilityStats.mockResolvedValue({
       ...data,
       queries: [],
       byProvider: [],
-      totals: { total: 0, checked: 0, mentioned: 0, cited: 0, mentionRate: null, citedRate: null },
+      totals: { total: 0, citationNotMeasured: 0, checked: 0, mentioned: 0, cited: 0, mentionRate: null, citedRate: null },
       window: { since: null, until: null, lastRuns: null, runCount: 0 },
     } satisfies VisibilityStatsDto)
     const cap = captureOutput(() => showVisibilityStats('acme', {}))

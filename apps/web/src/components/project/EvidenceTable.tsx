@@ -17,6 +17,7 @@ import { CitationTimeline, mergeProviderHistories } from './CitationTimeline.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { competitorHighlightTerms, type HighlightTermGroup } from '../../lib/highlight.js'
+import { CITATION_NOT_MEASURED } from '../../lib/citation-not-measured-copy.js'
 import type { CitationInsightVm, CitationState, RunHistoryPoint } from '../../view-models.js'
 
 export type CoverageMode = 'citations' | 'mentions'
@@ -96,6 +97,7 @@ function statusLabelForMode(state: CitationState, mode: CoverageMode): string {
   switch (state) {
     case 'cited': return 'Cited'
     case 'not-cited': return 'Not Cited'
+    case 'not-measured': return CITATION_NOT_MEASURED.label
     case 'lost': return 'Lost'
     case 'emerging': return 'Emerging'
     case 'pending': return 'Pending'
@@ -129,9 +131,15 @@ function summarizeProjectedSignalHistory(projected: RunHistoryPoint[], mode: Cov
   if (projected.length === 0) {
     return { key: mode, label: `${subjectCap} pending`, tone: 'pending' }
   }
+  // A run whose answers carry no sources observed no citation: the latest one
+  // says so, and an earlier one is skipped, so it is never lost, new or first.
+  if (projected.at(-1)!.citationState === 'not-measured') {
+    return { key: mode, label: CITATION_NOT_MEASURED.signal, tone: 'neutral' }
+  }
+  const measured = projected.filter(point => point.citationState !== 'not-measured')
 
-  const latest = projected[projected.length - 1]!.citationState
-  const previous = projected.length >= 2 ? projected[projected.length - 2]!.citationState : null
+  const latest = measured[measured.length - 1]!.citationState
+  const previous = measured.length >= 2 ? measured[measured.length - 2]!.citationState : null
   const isPresent = latest === 'cited' || latest === 'emerging'
   const wasPresent = previous === 'cited' || previous === 'emerging'
 
@@ -409,16 +417,24 @@ export function EvidenceTable({
                   const metadataId = `${panelId}-query-${groupIndex}`
                   const isNewQuery = added.has(normalizeQueryText(phrase))
                   const states = items.map(i => i.citationState)
+                  // Not measured only when no engine's answer carries sources;
+                  // otherwise those engines say nothing about the query.
                   const aggState: CitationState =
                     states.includes('cited') ? 'cited' :
                     states.includes('emerging') ? 'emerging' :
                     states.includes('lost') ? 'lost' :
-                    states.every(s => s === 'pending') ? 'pending' : 'not-cited'
+                    states.every(s => s === 'pending') ? 'pending' :
+                    states.every(s => s === 'not-measured' || s === 'pending') ? 'not-measured' : 'not-cited'
 
                   const queryIds = [...new Set(rawItems.map(item => item.queryId).filter((id): id is string => Boolean(id)))]
                   const sourceSnapshotIds = rawItems.map(item => item.sourceSnapshotId).filter((id): id is string => Boolean(id))
                   const mergedHistory = mergeProviderHistories(items)
                   const presentCount = items.filter(i => i.citationState === CitationStates.cited || i.citationState === 'emerging').length
+                  // Cited is out of the engines whose sources were checked; an
+                  // engine without sources is named apart, never counted as a miss.
+                  const notMeasuredCount = mode === 'citations' ? items.filter(i => i.citationState === 'not-measured').length : 0
+                  const ratioBase = items.length - notMeasuredCount
+                  const ratioText = `${presentCount} of ${ratioBase} engines ${countNoun}${notMeasuredCount > 0 ? `, ${notMeasuredCount} not measured` : ''}`
 
                   return (
                     <Fragment key={groupKey}>
@@ -446,13 +462,15 @@ export function EvidenceTable({
                         <td>
                           <div className="flex items-center gap-2">
                             <CitationBadge state={aggState} label={statusLabelForMode(aggState, mode)} className="rounded-none border-0 bg-transparent p-0 text-label-14" />
-                            <span
-                              className="text-label-14 text-secondary tabular-nums"
-                              aria-label={`${presentCount} of ${items.length} engines ${countNoun}`}
-                              title={`${presentCount} of ${items.length} engines ${countNoun}`}
-                            >
-                              {presentCount}/{items.length}
-                            </span>
+                            {ratioBase > 0 ? (
+                              <span
+                                className="text-label-14 text-secondary tabular-nums"
+                                aria-label={ratioText}
+                                title={ratioText}
+                              >
+                                {presentCount}/{ratioBase}
+                              </span>
+                            ) : null}
                           </div>
                         </td>
                         {sentimentConfigured && <td><SentimentQueryScore queryId={queryIds.length === 1 ? queryIds[0] : null} sourceSnapshotIds={queryIds.length > 1 ? [] : sourceSnapshotIds} queryClass={queryClass} location={compareLocations ? location : undefined} /></td>}
@@ -565,12 +583,15 @@ function EvidenceInlinePanel({ item, mode, onViewFull }: {
   const sources = item.evidenceUrls.length > 0
     ? item.evidenceUrls.map(url => ({ uri: url, title: item.groundingSources.find(source => source.uri === url)?.title }))
     : item.groundingSources
+  const notMeasured = item.citationState === 'not-measured'
   return (
     <div className="query-evidence-preview space-y-3">
       <p className="text-copy-13-strong text-secondary">
-        {item.evidenceUrls.length > 0 ? 'Cited sources' : sources.length > 0 ? 'Grounding sources' : 'Cited domains'}
+        {item.evidenceUrls.length > 0 ? 'Cited sources' : sources.length > 0 ? 'Grounding sources' : notMeasured ? 'Sources' : 'Cited domains'}
       </p>
-      {sources.length > 0 ? (
+      {notMeasured && sources.length === 0 && item.citedDomains.length === 0 ? (
+        <p className="text-copy-14 text-secondary">{CITATION_NOT_MEASURED.sources}</p>
+      ) : sources.length > 0 ? (
         <ul className="space-y-4">
           {sources.slice(0, sourcesExpanded ? undefined : 6).map((source, index) => (
             <li key={`${index}-${source.uri}`} className="min-w-0">

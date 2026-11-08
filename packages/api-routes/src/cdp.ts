@@ -4,7 +4,7 @@ import os from 'node:os'
 import type { FastifyInstance } from 'fastify'
 import { eq, and } from 'drizzle-orm'
 import { filterTrackedSnapshots, querySnapshots, runs, queries } from '@canonry/canonry-db'
-import { CitationStates, notFound, notImplemented, validationError, type GroundingSource } from '@canonry/canonry-contracts'
+import { CitationStates, notFound, notImplemented, readCitationState, validationError, type GroundingSource } from '@canonry/canonry-contracts'
 import { resolveProject } from './helpers.js'
 import { assertProjectScope, requireScope } from './auth.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
@@ -166,6 +166,7 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
           queryId: querySnapshots.queryId,
           provider: querySnapshots.provider,
           citationState: querySnapshots.citationState,
+          retrievalStatus: querySnapshots.retrievalStatus,
           citedDomains: querySnapshots.citedDomains,
           screenshotPath: querySnapshots.screenshotPath,
           rawResponse: querySnapshots.rawResponse,
@@ -173,6 +174,7 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
         .from(querySnapshots)
         .where(eq(querySnapshots.runId, runId))
         .all())
+        .map(({ retrievalStatus, ...snapshot }) => ({ ...snapshot, citationState: readCitationState({ citationState: snapshot.citationState, retrievalStatus }) }))
 
       // Get query texts
       const queryRows = app.db

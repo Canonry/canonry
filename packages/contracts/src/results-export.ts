@@ -16,7 +16,10 @@ export type ResultsExportFormat = z.infer<typeof resultsExportFormatSchema>
 /**
  * One persisted answer-engine observation, not a recomputed dashboard metric.
  * `answerMentioned: null` and `mentionState: null` preserve the historical
- * "not evaluated" state of legacy snapshots.
+ * "not evaluated" state of legacy snapshots. `citationState: not-measured`
+ * with `cited: null` marks an answer whose engine returns no sources; an older
+ * row of such an engine stored `not-cited` and exports as `not-measured`
+ * (`readCitationState`).
  */
 export const resultsExportRecordSchema = z.object({
   runId: z.string(),
@@ -36,7 +39,8 @@ export const resultsExportRecordSchema = z.object({
   model: z.string().nullable(),
   location: z.string().nullable(),
   citationState: citationStateSchema,
-  cited: z.boolean(),
+  /** True when cited, false when not cited, null when not measured (an empty CSV cell). */
+  cited: z.boolean().nullable(),
   answerMentioned: z.boolean().nullable(),
   // A union keeps OpenAPI generators from dropping `null` on this enum.
   mentionState: z.union([mentionStateSchema, z.null()]),

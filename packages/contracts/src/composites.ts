@@ -251,8 +251,16 @@ export interface RunHistoryPointDto {
   runId: string
   createdAt: string
   citedCount: number
+  /** Queries the run answered: the base for `mentionRate`. */
   totalCount: number
-  citationRate: number
+  /** Queries none of whose answers carries sources; out of `citationRate`. */
+  citationNotMeasuredCount: number
+  /**
+   * `citedCount` over `totalCount - citationNotMeasuredCount` (0..100). Null
+   * when the run answered queries but none carried sources; 0 for a run with
+   * no answers.
+   */
+  citationRate: number | null
   mentionedCount: number
   mentionRate: number
   status: string
@@ -460,17 +468,19 @@ const projectOverviewHealthSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   runId: z.string().nullable(),
-  overallCitedRate: fraction(),
+  overallCitedRate: fraction().nullable(),
   overallMentionRate: fraction(),
   totalPairs: z.number().int().nonnegative(),
   citedPairs: z.number().int().nonnegative(),
+  citationNotMeasuredPairs: z.number().int().nonnegative(),
   mentionedPairs: z.number().int().nonnegative(),
   providerBreakdown: z.record(z.string(), z.object({
-    citedRate: fraction(),
+    citedRate: fraction().nullable(),
     mentionRate: fraction(),
     cited: z.number().int().nonnegative(),
     mentioned: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+    citationNotMeasured: z.number().int().nonnegative(),
   })),
   createdAt: z.string(),
   status: z.enum(['ready', 'no-data']),
@@ -558,7 +568,8 @@ export const projectOverviewDtoSchema = z.object({
     createdAt: z.string(),
     citedCount: z.number().int().nonnegative(),
     totalCount: z.number().int().nonnegative(),
-    citationRate: percent(),
+    citationNotMeasuredCount: z.number().int().nonnegative(),
+    citationRate: percent().nullable(),
     mentionedCount: z.number().int().nonnegative(),
     mentionRate: percent(),
     status: z.string(),

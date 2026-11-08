@@ -13,11 +13,13 @@ import {
   buildMeasurementRunManifestV1,
   deriveCitedUrlCandidates,
   filterCapturedCitedUrls,
+  isCitationStateMeasured,
   isVertexGroundingRedirect,
   MEASUREMENT_DEFAULT_QUERY_CLASS,
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   parseMeasurementRunManifestV1,
   parseStoredMeasurementPlanAnyVersion,
+  readCitationState,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -292,7 +294,7 @@ function observationInputs(
   legacy: boolean,
 ): MeasurementReportInput['observations'] {
   const slotsByExecution = new Map(manifest.expectedSlots.map(slot => [`${slot.executionId}\u0000${slot.provider}`, slot]))
-  return snapshots.flatMap(snapshot => {
+  return snapshots.flatMap((snapshot): Array<MeasurementReportInput['observations'][number]> => {
     if (legacy ? snapshot.measurementExecutionId !== null : snapshot.measurementExecutionId === null) return []
     if (snapshot.measurementExecutionId !== null) {
       const slot = slotsByExecution.get(`${snapshot.measurementExecutionId}\u0000${snapshot.provider.trim().toLocaleLowerCase('en')}`)
@@ -301,18 +303,27 @@ function observationInputs(
       if (!supportsRequestedContext(snapshot, slot)) return []
       validateSupportedLocation(snapshot, slot)
     }
-    const sources = measurementSnapshotSources(snapshot)
-    return [{
+    const base = {
       id: snapshot.id,
       executionId: snapshot.measurementExecutionId,
       queryText: snapshot.queryText ?? '',
       provider: snapshot.provider.trim().toLocaleLowerCase('en'),
       location: snapshot.location,
       answerText: snapshot.answerText,
+      ...(snapshot.wrongSubjectTargetKeys?.length ? { wrongSubjectTargetIds: snapshot.wrongSubjectTargetKeys } : {}),
+    }
+    // An engine that returns no sources (a local model) never had a source
+    // list to capture or recover, so its answer reads as not measured rather
+    // than as a complete empty list (a miss) or a partial one (unchecked).
+    if (!isCitationStateMeasured(readCitationState(snapshot))) {
+      return [{ ...base, citedUrls: [], citedUrlsComplete: false, citationMeasured: false }]
+    }
+    const sources = measurementSnapshotSources(snapshot)
+    return [{
+      ...base,
       citedUrls: sources.historical ? null : sources.urls,
       citedUrlsComplete: !sources.historical && sources.complete,
       ...(sources.historical ? { historicalCitedUrls: sources.urls, historicalCitedUrlsComplete: sources.complete } : {}),
-      ...(snapshot.wrongSubjectTargetKeys?.length ? { wrongSubjectTargetIds: snapshot.wrongSubjectTargetKeys } : {}),
     }]
   })
 }

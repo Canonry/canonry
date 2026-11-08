@@ -11,7 +11,7 @@ import {
   readGscQueryDailyRows,
   readLatestGscDataDate,
 } from '@canonry/canonry-api-routes'
-import { CitationStates, RunKinds, RunStatuses, RunTriggers, effectiveDomains, type CompetitorIdentityInput } from '@canonry/canonry-contracts'
+import { CitationStates, RunKinds, RunStatuses, RunTriggers, effectiveDomains, isCitationStateMeasured, readCitationState, type CompetitorIdentityInput } from '@canonry/canonry-contracts'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 import { pickProjectCitedDomain } from './citation-utils.js'
@@ -847,7 +847,9 @@ export class IntelligenceService {
         id: crypto.randomUUID(),
         projectId,
         runId,
-        overallCitedRate: String(result.health.overallCitedRate),
+        // NOT NULL column: a run with no pair measured stores 0, and readers
+        // return null for it from the breakdown's `citationNotMeasured`.
+        overallCitedRate: String(result.health.overallCitedRate ?? 0),
         overallMentionRate: String(result.health.overallMentionRate),
         totalPairs: result.health.totalPairs,
         citedPairs: result.health.citedPairs,
@@ -1102,6 +1104,7 @@ export class IntelligenceService {
         queryText: querySnapshots.queryText,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
         answerMentioned: querySnapshots.answerMentioned,
         citedDomains: querySnapshots.citedDomains,
         rawResponse: querySnapshots.rawResponse,
@@ -1132,10 +1135,13 @@ export class IntelligenceService {
         citedDomains: domains,
         groundingSources: readStoredGroundingSources(r.rawResponse),
       }).citedCompetitorDomains
+      const citationState = readCitationState(r)
       snapshots.push({
         query: resolvedQuery,
         provider: r.provider,
-        cited: r.citationState === CitationStates.cited,
+        // Tri-state: an answer whose engine returns no sources observed
+        // nothing about citation (null), and no detector reads it as a miss.
+        cited: isCitationStateMeasured(citationState) ? citationState === CitationStates.cited : null,
         // Independent answer-text signal. Tri-state passes through untouched
         // (true / false / null = "not checked"); computeHealth counts only
         // exact `true`. Never coerce null→false here.

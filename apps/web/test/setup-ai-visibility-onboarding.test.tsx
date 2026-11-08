@@ -77,7 +77,7 @@ function renderProjectSetup(options: {
     : []
 
   if (!options.complete) {
-    project.queryCounts = { cited: 0, total: 0 }
+    project.queryCounts = { cited: 0, total: 0, citationNotMeasured: 0 }
     project.competitors = []
   }
   if (options.providerReady === false) {
@@ -921,7 +921,24 @@ test.each([
     queryCounts: null,
     mentioned: 'Unavailable', cited: 'Unavailable', checks: '1',
   },
-])('setup results render the per-run API summary: $scenario', async ({ status, snapshots, queryCounts, mentioned, cited, checks }) => {
+  // Local (no web access) returns no sources: its citation is never measured.
+  {
+    scenario: 'a first run whose engine returns no sources reads cited as not measured, never 0',
+    status: 'completed',
+    snapshots: [setupResultSnapshot({ provider: 'local', citationState: 'not-measured' })],
+    queryCounts: { totalQueries: 1, citedQueries: 0, mentionedQueries: 1, citationNotMeasuredQueries: 1 },
+    mentioned: '1 / 1', cited: 'Not measured', citedCaption: 'this engine returns no sources', checks: '1',
+  },
+  {
+    scenario: 'queries only an engine without sources answered leave the cited base',
+    status: 'completed',
+    snapshots: [setupResultSnapshot({}), setupResultSnapshot({ id: 'snapshot_two', provider: 'local', citationState: 'not-measured' })],
+    queryCounts: { totalQueries: 3, citedQueries: 1, mentionedQueries: 2, citationNotMeasuredQueries: 1 },
+    mentioned: '2 / 3', cited: '1 / 2', checks: '2',
+  },
+])('setup results render the per-run API summary: $scenario', async (row) => {
+  const { status, snapshots, queryCounts, mentioned, cited, checks } = row
+  const citedCaption = 'citedCaption' in row ? row.citedCaption : 'queries citing your site'
   const run = runDetailDtoSchema.parse({
     id: 'scoped-run', projectId: 'project_citypoint', kind: 'answer-visibility', status,
     createdAt: '2026-09-05T12:00:00Z', snapshots, queryCounts,
@@ -932,7 +949,7 @@ test.each([
 
   for (const [caption, expected] of [
     ['queries naming your brand', mentioned],
-    ['queries citing your site', cited],
+    [citedCaption, cited],
     ['completed engine checks', checks],
   ] as const) {
     const tile = screen.getByText(caption).parentElement!

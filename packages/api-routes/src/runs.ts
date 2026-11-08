@@ -3,7 +3,7 @@ import { and, eq, ne, asc, desc, inArray, notInArray, or, sql } from 'drizzle-or
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@canonry/canonry-db'
 import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
-import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery, RunSyncSummary } from '@canonry/canonry-contracts'
+import type { LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery, RunSyncSummary } from '@canonry/canonry-contracts'
 import {
   ProviderWorkflows,
   SEO_RUN_SCOPE,
@@ -35,6 +35,7 @@ import {
   validationError,
   parseRunError,
   serializeRunError,
+  readCitationState,
   retrievedSourceSchema,
   type RetrievedSource,
 } from '@canonry/canonry-contracts'
@@ -1032,6 +1033,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       model: querySnapshots.model,
       servedModel: querySnapshots.servedModel,
       citationState: querySnapshots.citationState,
+      retrievalStatus: querySnapshots.retrievalStatus,
       answerMentioned: querySnapshots.answerMentioned,
       mentionIdentity: querySnapshots.mentionIdentity,
       answerText: querySnapshots.answerText,
@@ -1084,7 +1086,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       queryId: s.queryId,
       query: s.query,
       provider: s.provider,
-      citationState: s.citationState,
+      citationState: readCitationState(s),
       answerMentioned,
       // Legacy alias of `mentionState`, retained for backwards compatibility.
       visibilityState: project
@@ -1128,7 +1130,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
   })
   const identifiedSignals = mappedSnapshots.flatMap(snapshot =>
     typeof snapshot.queryId === 'string' && snapshot.queryId.length > 0
-      ? [{ queryId: snapshot.queryId, citationState: snapshot.citationState as CitationState, answerMentioned: snapshot.answerMentioned }]
+      ? [{ queryId: snapshot.queryId, citationState: snapshot.citationState, answerMentioned: snapshot.answerMentioned }]
       : [],
   )
   return {

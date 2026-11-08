@@ -207,6 +207,14 @@ function toPercent(rate: number): number {
   return Math.round(rate * 1000) / 10
 }
 
+/**
+ * A rate as a chart value. A null rate (a cited rate with no answer whose
+ * sources were checked) is a gap in the line, never a point at 0.
+ */
+function toPlotted(rate: number | null): number | null {
+  return rate === null ? null : toPercent(rate)
+}
+
 function bucketProviders(bucket: BrandMetricsDto['buckets'][number]): Record<string, BucketProviderMetric | undefined> {
   return (bucket as BucketWithOptionalProviders).byProvider ?? {}
 }
@@ -223,7 +231,7 @@ export function buildTrendRows(
     // Overall plots the single metric line the toggle selects.
     const key = metric === 'cited' ? CITED_KEY : MENTIONED_KEY
     const field: 'citationRate' | 'mentionRate' = metric === 'cited' ? 'citationRate' : 'mentionRate'
-    const rows: TrendRow[] = dto.buckets.map(b => ({ date: b.startDate, [key]: toPercent(b[field]) }))
+    const rows: TrendRow[] = dto.buckets.map(b => ({ date: b.startDate, [key]: toPlotted(b[field]) }))
     return { rows, series: [key], hasData, singleBucket }
   }
 
@@ -240,9 +248,10 @@ export function buildTrendRows(
     const providers = bucketProviders(b)
     for (const provider of series) {
       const metricRow = providers[provider]
-      // null (not 0) when a provider has no data in this bucket — Recharts
-      // `connectNulls` bridges the gap rather than dropping the line to zero.
-      row[provider] = metricRow ? toPercent(metricRow[field]) : null
+      // null (not 0) when a provider has no data in this bucket, or no answer
+      // with sources (its cited rate is not measured) — Recharts `connectNulls`
+      // bridges the gap rather than dropping the line to zero.
+      row[provider] = metricRow ? toPlotted(metricRow[field]) : null
     }
     return row
   })
@@ -444,7 +453,33 @@ export function plottedMetricRates(dto: BrandMetricsDto, metric: MetricChoice): 
     })
   }
   const field: 'citationRate' | 'mentionRate' = metric === 'cited' ? 'citationRate' : 'mentionRate'
-  return dto.buckets.map(b => b[field])
+  // A bucket whose answers all lack sources has no cited rate and no point.
+  return dto.buckets.flatMap(b => {
+    const rate = b[field]
+    return rate === null ? [] : [rate]
+  })
+}
+
+/**
+ * Whether any point in the window carries a cited rate. False when every
+ * answer came from engines that return no sources, so citation was not
+ * measured at all; the chart then has nothing to plot for Cited.
+ */
+export function citationMeasuredInWindow(dto: BrandMetricsDto): boolean {
+  return dto.buckets.some(b => b.citationRate !== null)
+}
+
+/**
+ * Whether an engine answered in the window but never with sources: it has
+ * rows, and none carries a cited rate. Its line has no point, and its legend
+ * reads "Not measured" rather than a rate.
+ */
+export function providerCitationNotMeasured(dto: BrandMetricsDto, provider: string): boolean {
+  const rows = dto.buckets.flatMap(b => {
+    const row = bucketProviders(b)[provider]
+    return row ? [row] : []
+  })
+  return rows.length > 0 && rows.every(row => row.citationRate === null)
 }
 
 /**
@@ -465,15 +500,17 @@ export function metricWindowChange(dto: BrandMetricsDto, metric: MetricChoice): 
 
 /**
  * One engine's most recent 0-1 rate: the bucket the right end of its line is
- * drawn from, skipping the buckets it is missing from (the gaps `connectNulls`
- * bridges). Same field choice as `buildTrendRows` in by-engine mode, so it is
- * the unrounded value of that point. Returns null when the engine never appears.
+ * drawn from, skipping the buckets it is missing from or has no rate in (the
+ * gaps `connectNulls` bridges). Same field choice as `buildTrendRows` in
+ * by-engine mode, so it is the unrounded value of that point. Returns null
+ * when the engine never appears, or never has the rate (see
+ * `providerCitationNotMeasured`).
  */
 export function latestProviderRate(dto: BrandMetricsDto, provider: string, metric: PresenceMetricChoice): number | null {
   const field: 'citationRate' | 'mentionRate' = metric === 'mentioned' ? 'mentionRate' : 'citationRate'
   for (let i = dto.buckets.length - 1; i >= 0; i--) {
-    const metricRow = bucketProviders(dto.buckets[i]!)[provider]
-    if (metricRow) return metricRow[field]
+    const rate = bucketProviders(dto.buckets[i]!)[provider]?.[field]
+    if (rate !== undefined && rate !== null) return rate
   }
   return null
 }

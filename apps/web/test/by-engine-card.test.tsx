@@ -71,7 +71,7 @@ describe('byEngineClasses', () => {
     const data = ainycCitationVisibility()
     // Claude has no answer for the first query, and one query has none at all.
     data.byQuery[0]!.providers = data.byQuery[0]!.providers.filter(entry => entry.provider !== 'claude')
-    data.byQuery.push({ queryId: 'query_new', query: 'new AEO query', providers: [], citedCount: 0, mentionedCount: 0, totalProviders: 0 })
+    data.byQuery.push({ queryId: 'query_new', query: 'new AEO query', providers: [], citedCount: 0, mentionedCount: 0, totalProviders: 0, citationNotMeasured: 0 })
     // "AI SEO agency NYC": Gemini cites without naming you.
     data.byQuery[2]!.providers[1] = { ...data.byQuery[2]!.providers[1]!, cited: true, citationState: 'cited' }
     // "best AEO agency New York": OpenAI names you without citing.
@@ -230,7 +230,7 @@ describe('By engine restored figures (a cleanup never removes data)', () => {
   })
 
   test('names an engine without a recorded model by the engine alone', () => {
-    const { container } = renderCard(ainycCitationVisibility(), { providerScores: [{ provider: 'gemini', model: null, score: 75, cited: 3, total: 4 }] })
+    const { container } = renderCard(ainycCitationVisibility(), { providerScores: [{ provider: 'gemini', model: null, score: 75, cited: 3, total: 4, citationNotMeasured: 0 }] })
     expect(bullets(container)).toContain('Gemini citation rate: 75.0%, 3 of 4 answers, all queries')
   })
 
@@ -283,5 +283,117 @@ describe('By engine restored figures (a cleanup never removes data)', () => {
     data.summary = { ...data.summary, providersCiting: 3, providersMentioning: 4 }
     const { container } = renderCard(data)
     expect(bullets(container)).toContain('All queries: cited by 3 of 4 engines, named by 4 of 4')
+  })
+})
+
+/**
+ * A Local engine (a model with no web access) beside Gemini, as GET
+ * /citations/visibility reports it: Local's answers carry no sources, so their
+ * citation state is `not-measured` and `cited` is null.
+ *   best crm:          Gemini cited and names you; Local names you.
+ *   crm for agencies:  Gemini neither; Local names you.
+ *   crm pricing:       only Local answered, without naming you.
+ */
+function localBesideGemini(): CitationVisibilityResponse {
+  const runId = 'run_local'
+  const runCreatedAt = '2026-11-01T10:00:00.000Z'
+  const answer = (provider: string, cited: boolean | null, mentioned: boolean) => ({
+    provider,
+    citationState: cited === null ? 'not-measured' as const : cited ? 'cited' as const : 'not-cited' as const,
+    cited,
+    mentioned,
+    runId,
+    runCreatedAt,
+  })
+  const rows = [
+    { queryId: 'q1', query: 'best crm', providers: [answer('gemini', true, true), answer('local', null, true)] },
+    { queryId: 'q2', query: 'crm for agencies', providers: [answer('gemini', false, false), answer('local', null, true)] },
+    { queryId: 'q3', query: 'crm pricing', providers: [answer('local', null, false)] },
+  ]
+  return {
+    summary: {
+      providersConfigured: 2, providersCiting: 1, providersMentioning: 2, providersCitationNotMeasured: 1, totalQueries: 3,
+      queriesCitedAndMentioned: 1, queriesCitedOnly: 0, queriesMentionedOnly: 1, queriesInvisible: 0, queriesCitationNotMeasured: 1,
+      latestRunId: runId, latestRunAt: runCreatedAt,
+    },
+    byQuery: rows.map(row => ({
+      ...row,
+      citedCount: row.providers.filter(entry => entry.cited === true).length,
+      mentionedCount: row.providers.filter(entry => entry.mentioned).length,
+      totalProviders: row.providers.length,
+      citationNotMeasured: row.providers.filter(entry => entry.cited === null).length,
+    })),
+    competitorGaps: [],
+    status: 'ready',
+  }
+}
+
+const allNonBrand = () => 'non-brand' as const
+
+describe('By engine with an engine that returns no sources', () => {
+  test('counts Local mentions but checks citations only over answers with sources', () => {
+    const [nonBrand, ...rest] = byEngineClasses(localBesideGemini(), allNonBrand)
+
+    expect(rest).toEqual([])
+    expect(nonBrand!.engines).toEqual([
+      { provider: 'gemini', answered: 2, mentioned: 1, cited: 1, citationMeasured: 2 },
+      { provider: 'local', answered: 3, mentioned: 2, cited: 0, citationMeasured: 0 },
+    ])
+    // Each answered query lands in exactly one bucket. "crm pricing" had no
+    // answer with sources, so calling it "not cited or named" would assert an
+    // absence nothing measured; "crm for agencies" was checked by Gemini.
+    expect(nonBrand).toMatchObject({ queries: 3, answers: 5, citedAndNamed: 1, citedNotNamed: 0, namedNotCited: 1, neither: 0, citationNotMeasured: 1 })
+  })
+
+  test('shows Not measured in the Cited cell and keeps the mention count', () => {
+    const { container } = renderCard(localBesideGemini(), { classify: allNonBrand })
+
+    const grid = screen.getByRole('table', { name: 'By engine, non-brand queries' })
+    expect(gridText(grid)).toEqual([
+      ['Of 3 queries', 'Gemini', 'Local'],
+      ['Mentioned', '1', '2'],
+      ['Cited', '1', 'Not measured'],
+    ])
+    // Gemini's 1 of 2 cited, its 1 of 2 mentioned and Local's 2 of 3 mentioned
+    // read amber; Local's Cited cell has no count, so no tone.
+    expect(grid.querySelectorAll('.av-n-sm.text-caution-400')).toHaveLength(3)
+    expect(bullets(container)).toEqual([
+      'Cited and named: 1 of 3 queries',
+      'Cited but not named: 0 of 3 queries',
+      'Named but not cited: 1 of 3 queries',
+      'Not cited or named: 0 of 3 queries',
+      'Citations not measured: 1 of 3 queries, no answer carries sources',
+      'Gemini: answered 2 of 3 queries',
+      'Local: citations not measured, the engine returns no sources',
+      'All queries: cited by 1 of 1 engine (1 not measured), named by 2 of 2',
+    ])
+  })
+
+  test('names how many of an engine\'s answers carried no sources when only some did', () => {
+    const data = localBesideGemini()
+    // One stored Local answer predates retrieval status, so it reads as checked.
+    data.byQuery[0]!.providers[1] = { ...data.byQuery[0]!.providers[1]!, citationState: 'not-cited', cited: false }
+    const { container } = renderCard(data, { classify: allNonBrand })
+
+    expect(gridText(screen.getByRole('table'))[2]).toEqual(['Cited', '1', '0'])
+    expect(bullets(container)).toContain('Local: citations not measured on 2 of 3 answers, which carry no sources')
+  })
+
+  test('reads the citation rate by model from the API, Not measured when no answer had sources', () => {
+    const { container } = renderCard(localBesideGemini(), {
+      classify: allNonBrand,
+      providerScores: [
+        { provider: 'gemini', model: 'gemini-3.5-flash', score: 50, cited: 1, total: 2, citationNotMeasured: 0 },
+        { provider: 'local', model: 'llama3', score: null, cited: 0, total: 3, citationNotMeasured: 3 },
+        // One answer stored before retrieval status reads as checked; the other two are not measured.
+        { provider: 'local', model: 'llama3:8b', score: 0, cited: 0, total: 3, citationNotMeasured: 2 },
+      ],
+    })
+
+    expect(bullets(container)).toEqual(expect.arrayContaining([
+      'Gemini (gemini-3.5-flash) citation rate: 50.0%, 1 of 2 answers, all queries',
+      'Local (llama3) citation rate: Not measured, 3 answers without sources, all queries',
+      'Local (llama3:8b) citation rate: 0%, 0 of 1 answer, all queries',
+    ]))
   })
 })

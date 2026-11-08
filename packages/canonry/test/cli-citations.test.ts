@@ -175,6 +175,34 @@ describe('citation visibility CLI + parity', () => {
     expect(out).toContain('rival.com')
   })
 
+  it('prints an engine without sources as not measured and keeps it out of the cited base', async () => {
+    // Local answers query A (naming the project) and is the only engine on query C.
+    const project = db.select().from(projects).get()!
+    db.update(projects).set({ providers: ['gemini', 'claude', 'local'] }).run()
+    const runId = db.select().from(runs).get()!.id
+    const queryA = db.select().from(queries).all().find(row => row.query === 'query A')!
+    const queryC = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(queries).values({ id: queryC, projectId: project.id, query: 'query C', createdAt: now }).run()
+    for (const queryId of [queryA.id, queryC]) {
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(), runId, queryId, provider: 'local', citationState: 'not-measured', retrievalStatus: 'not-applicable',
+        answerMentioned: true, citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: now,
+      }).run()
+    }
+
+    const out = await captureStdout(() => showCitationVisibility('example', {}))
+    // Gemini cites query A; Local's citations were never measured.
+    expect(out).toContain('Cited in sources:     1/2 engines (1 not measured: no sources)')
+    expect(out).toContain('Mentioned in answers: 1/3 engines')
+    expect(out).toContain('citation not measured (no sources): 1')
+    expect(out).toContain('·=not measured')
+    const row = (query: string) => out.split('\n').find(line => line.startsWith(query))!
+    // Columns: claude, gemini, local, then Cite and Ment.
+    expect(row('query A').split(/\s{2,}/).slice(1)).toEqual(['cm', 'Cm', '·M', '1/2', '1/3'])
+    expect(row('query C').split(/\s{2,}/).slice(1)).toEqual(['–', '–', '·M', '·', '1/1'])
+  })
+
   it('CLI --format json matches the API response byte-for-byte', async () => {
     const apiResponse = await client.getCitationVisibility('example')
     const cliOut = await captureStdout(() => showCitationVisibility('example', { format: 'json' }))

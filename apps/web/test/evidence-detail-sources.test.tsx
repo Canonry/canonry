@@ -72,3 +72,46 @@ test.each(['auto-fetched', 'historical'])('%s snapshots preserve captured source
   expect(screen.getByText(unsafeUrl)).toBeTruthy()
   expect(screen.queryByRole('link', { name: unsafeUrl })).toBeNull()
 })
+
+test('an answer from an engine without sources says its citation was not measured', () => {
+  const project = createDashboardFixture({}).dashboard.projects[0]!
+  render(<EvidenceDetailModal project={project} onClose={() => {}} evidence={{
+    ...project.visibilityEvidence[0]!,
+    provider: 'local',
+    citationState: 'not-measured',
+    answerSnippet: 'Northwind is a common pick.',
+    answerMentioned: true,
+    visibilityState: 'visible',
+    runHistory: [],
+    citedDomains: [],
+    citedCompetitorDomains: [],
+    groundingSources: [],
+    evidenceUrls: [],
+  }} />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Sources', exact: true }))
+  const dialog = within(screen.getByRole('dialog'))
+  expect(dialog.getByText('The engine returns no sources, so whether it cites you is not measured.')).toBeTruthy()
+  expect(dialog.queryByText(/No source data/)).toBeNull()
+})
+
+test('an answer whose sources were checked and empty keeps the plain empty state', () => {
+  const project = createDashboardFixture({}).dashboard.projects[0]!
+  render(<EvidenceDetailModal project={project} onClose={() => {}} evidence={{
+    ...project.visibilityEvidence[0]!,
+    citationState: 'not-cited',
+    answerSnippet: 'An answer with no links.',
+    answerMentioned: false,
+    runHistory: [],
+    citedDomains: [],
+    citedCompetitorDomains: [],
+    groundingSources: [],
+    evidenceUrls: [],
+  }} />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Sources', exact: true }))
+  const dialog = within(screen.getByRole('dialog'))
+  // The empty state's wording is free to change; a checked answer never reads as not measured.
+  expect(dialog.getByText(/no source/i)).toBeTruthy()
+  expect(dialog.queryByText(/Not measured/)).toBeNull()
+})

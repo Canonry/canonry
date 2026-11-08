@@ -17,6 +17,7 @@ import { extractErrorMessage } from '../../lib/extract-error-message.js'
 import { formatSweepInstant } from '../../lib/format-helpers.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'
+import { CITATION_NOT_MEASURED } from '../../lib/citation-not-measured-copy.js'
 import { Disclosure } from '../shared/Disclosure.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SegmentedRadioGroup } from '../shared/SegmentedRadioGroup.js'
@@ -168,11 +169,11 @@ const SPOKEN_CLASS: Record<VisibilityRowKey, string> = {
   unclassified: 'unclassified queries',
 }
 
-const BY_ENGINE_TOOLTIP = 'Each engine\'s latest answer to each query, spot checks left out. Mentioned: the answer names you. Cited: its sources link to your site. Not measured: the engine returns no sources, so whether it cites you cannot be checked. Competitor cited instead of you: answers that cite a tracked competitor\'s site and not yours.'
+const BY_ENGINE_TOOLTIP = 'Each engine\'s latest answer to each query, spot checks left out. Mentioned: the answer names you. Cited: its sources link to your site. Not measured: the engine returns no sources, so its citations cannot be checked. Competitor cited instead of you: answers that cite a tracked competitor\'s site and not yours.'
 
 /** The Cited cell and Details copy for an engine whose answers carry no sources. */
 export const CITATION_NOT_MEASURED_COPY = {
-  cell: 'Not measured',
+  cell: CITATION_NOT_MEASURED.label,
   engine: (engine: string) => `${engine}: citations not measured, the engine returns no sources`,
   someAnswers: (engine: string, count: number, answered: number) => `${engine}: citations not measured on ${count} of ${answered} ${plural(answered, 'answer', 'answers')}, which carry no sources`,
 } as const

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { readCitationState, type CitationState, type RetrievalStatus } from '../src/index.js'
+import { combineCitationStates, readCitationState, type CitationState, type RetrievalStatus } from '../src/index.js'
 
 describe('readCitationState', () => {
   const cases: Array<{ name: string; stored: CitationState; retrievalStatus: RetrievalStatus | null | undefined; reads: CitationState }> = [
@@ -19,5 +19,19 @@ describe('readCitationState', () => {
 
   test.each(cases)('$name', ({ stored, retrievalStatus, reads }) => {
     expect(readCitationState({ citationState: stored, retrievalStatus })).toBe(reads)
+  })
+})
+
+describe('combineCitationStates', () => {
+  const cases: Array<{ name: string; states: CitationState[]; combined: CitationState | null }> = [
+    { name: 'no answers has no state', states: [], combined: null },
+    { name: 'any cited answer makes the query cited', states: ['not-measured', 'not-cited', 'cited'], combined: 'cited' },
+    { name: 'one checked miss beside answers without sources is a miss', states: ['not-measured', 'not-cited', 'not-measured'], combined: 'not-cited' },
+    { name: 'a miss checked before an answer without sources stays a miss', states: ['not-cited', 'not-measured'], combined: 'not-cited' },
+    { name: 'only answers without sources is not measured', states: ['not-measured', 'not-measured'], combined: 'not-measured' },
+  ]
+
+  test.each(cases)('$name', ({ states, combined }) => {
+    expect(combineCitationStates(states)).toBe(combined)
   })
 })

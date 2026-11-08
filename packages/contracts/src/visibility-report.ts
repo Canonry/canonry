@@ -135,7 +135,12 @@ export const visibilityReportRateSchema = z.object({
   numerator: z.number().int().nonnegative().nullable(),
   denominator: z.number().int().nonnegative().nullable(),
   rate: fraction(z.number().min(0).max(1)).nullable(),
-  reason: z.enum(['no-population', 'incomplete', 'evidence-incomplete', 'identity-ambiguous', 'not-applicable']).optional(),
+  /**
+   * Why an unavailable rate is unavailable. `citation-not-measured`: every
+   * answer came from an engine that returns no sources (a local model), so no
+   * citation was observed, which is never a 0%.
+   */
+  reason: z.enum(['no-population', 'incomplete', 'evidence-incomplete', 'identity-ambiguous', 'not-applicable', 'citation-not-measured']).optional(),
   /**
    * Answers left out of a mention rate because they could not be tied to one
    * Property (`mentionUnavailableReason: 'identity-ambiguous'`). They leave the
@@ -160,6 +165,16 @@ export const visibilityReportRateSchema = z.object({
    * carry this field.
    */
   unchecked: z.number().int().positive().optional(),
+  /**
+   * Answers left out of a citation rate because their engine returns no
+   * sources (a local model with no web access), so whether they cite a
+   * Property was never measured. They leave the numerator AND the denominator
+   * and are never counted as not cited. Present only on an available rate that
+   * left at least one out; when every answer is such an answer the rate is
+   * unavailable with reason `citation-not-measured`. May sit beside
+   * `unchecked`, never beside `unattributed`.
+   */
+  citationNotMeasured: z.number().int().positive().optional(),
 }).strict().superRefine((value, ctx) => {
   const unavailable = value.numerator === null || value.denominator === null || value.rate === null
   if (unavailable) {
@@ -172,6 +187,9 @@ export const visibilityReportRateSchema = z.object({
     if (value.unchecked !== undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unchecked'], message: 'Only an available rate can leave answers out' })
     }
+    if (value.citationNotMeasured !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['citationNotMeasured'], message: 'Only an available rate can leave answers out' })
+    }
     return
   }
   if (value.reason !== undefined) {
@@ -179,6 +197,9 @@ export const visibilityReportRateSchema = z.object({
   }
   if (value.unattributed !== undefined && value.unchecked !== undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unchecked'], message: 'A rate reads one signal: unattributed (mention) and unchecked (citation) cannot share it' })
+  }
+  if (value.unattributed !== undefined && value.citationNotMeasured !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['citationNotMeasured'], message: 'A rate reads one signal: unattributed (mention) and citationNotMeasured (citation) cannot share it' })
   }
   const { numerator, denominator } = value
   if (denominator === null || numerator === null) return
@@ -257,9 +278,19 @@ export const visibilityReportSummarySchema = z.object({
    * a subset, never an extra bucket. Present only when at least one is.
    */
   notMeasuredUnchecked: z.number().int().positive().optional(),
+  /**
+   * Of `outcomes.notMeasured`, the Properties whose mention was measured and
+   * whose every answer came from an engine that returns no sources, so their
+   * citation was never measured. Disjoint from `notMeasuredUnchecked`; a
+   * subset, never an extra bucket. Present only when at least one is.
+   */
+  notMeasuredNoSources: z.number().int().positive().optional(),
 }).strict().superRefine((value, ctx) => {
   if (value.notMeasuredUnchecked !== undefined && value.notMeasuredUnchecked > value.outcomes.notMeasured) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['notMeasuredUnchecked'], message: 'notMeasuredUnchecked is a subset of outcomes.notMeasured' })
+  }
+  if ((value.notMeasuredUnchecked ?? 0) + (value.notMeasuredNoSources ?? 0) > value.outcomes.notMeasured) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['notMeasuredNoSources'], message: 'notMeasuredUnchecked and notMeasuredNoSources are disjoint subsets of outcomes.notMeasured' })
   }
 })
 export type VisibilityReportSummary = z.output<typeof visibilityReportSummarySchema>
@@ -332,6 +363,8 @@ export const visibilityReportEvidenceRowSchema = z.object({
   mentioned: z.boolean().nullable(),
   mentionUnavailableReason: z.literal('identity-ambiguous').optional(),
   cited: z.boolean().nullable(),
+  /** Present when `cited` is null because the answer's engine returns no sources. */
+  citationUnavailableReason: z.literal('citation-not-measured').optional(),
   /** Present only for a query-key detail reading; aggregate listings never return answer bodies. */
   answerText: z.string().nullable(),
   createdAt: dateTimeSchema,

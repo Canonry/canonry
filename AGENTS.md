@@ -115,7 +115,7 @@ Every (query × provider) snapshot carries two independent signals — a model c
 3. Never compute one signal from the other. A "cited" label reads `citationState`; a "mentioned" label reads `answerMentioned`. A metric named for one and computed from the other is a bug — fix it.
 4. When you mean both, say "citation + mention coverage" or "visibility (cited or mentioned)" and disambiguate immediately.
 5. Public API field names use this vocabulary from the start; a rename needs a version bump.
-6. Render both signals in CLI/UI snapshot output: a two-glyph cell (`C/c` cited or not, `M/m` mentioned or not, `–` missing) with the legend above the table, as `canonry citations` and `canonry run` do.
+6. Render both signals in CLI/UI snapshot output: a two-glyph cell (`C/c` cited or not, `·` citation not measured, `M/m` mentioned or not, `–` missing) with the legend above the table, as `canonry citations` and `canonry run` do (`packages/canonry/src/snapshot-cell.ts`).
 7. `canonry-vocabulary/no-banned-metric-literal` bans conflating literals (`'answerRate'`, `'visibility run'`, `'paid mentions'`, …) in the CLI, api-routes, and web trees; the list is in `eslint-rules/canonry-vocabulary.js`. Bare `'visible'` stays legal (DOM, legacy enum) — review owns it.
 
 ### Branded vs non-brand (Critical)

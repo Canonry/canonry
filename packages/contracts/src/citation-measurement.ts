@@ -33,3 +33,18 @@ export function readCitationState(row: StoredCitationObservation): CitationState
 export function isCitationStateMeasured(state: CitationState): boolean {
   return state !== CitationStates['not-measured']
 }
+
+/**
+ * One query's citation state across several answers (engines, locations):
+ * `cited` when any answer cites the project, `not-cited` when at least one
+ * answer's sources were checked and none cites it, and `not-measured` only
+ * when no answer carries sources. Null for no answers at all.
+ */
+export function combineCitationStates(states: Iterable<CitationState>): CitationState | null {
+  let combined: CitationState | null = null
+  for (const state of states) {
+    if (state === CitationStates.cited) return CitationStates.cited
+    if (state === CitationStates['not-cited'] || combined === null) combined = state
+  }
+  return combined
+}

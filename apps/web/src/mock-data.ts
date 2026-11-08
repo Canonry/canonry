@@ -486,7 +486,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'openai', model: 'gpt-5.4', score: 66.666667, cited: 6, total: 9, citationNotMeasured: 0 },
       { provider: 'claude', model: 'claude-sonnet-4-6', score: 44.44, cited: 4, total: 9, citationNotMeasured: 0 },
     ],
-    queryCounts: { cited: 6, total: 9 },
+    queryCounts: { cited: 6, total: 9, citationNotMeasured: 0 },
     movementComparison: {
       hasPreviousRun: true,
       comparable: false,
@@ -694,7 +694,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'gemini', model: 'gemini-2.5-flash', score: 75, cited: 3, total: 4, citationNotMeasured: 0 },
       { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4, citationNotMeasured: 0 },
     ],
-    queryCounts: { cited: 3, total: 4 },
+    queryCounts: { cited: 3, total: 4, citationNotMeasured: 0 },
     movementComparison: {
       hasPreviousRun: true,
       comparable: true,
@@ -879,7 +879,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     providerScores: [
       { provider: 'openai', model: 'gpt-5.4', score: 57.14, cited: 4, total: 7, citationNotMeasured: 0 },
     ],
-    queryCounts: { cited: 4, total: 7 },
+    queryCounts: { cited: 4, total: 7, citationNotMeasured: 0 },
     movementComparison: {
       hasPreviousRun: false,
       comparable: false,

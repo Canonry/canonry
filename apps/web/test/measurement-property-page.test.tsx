@@ -235,6 +235,7 @@ function answerRow(overrides: {
   location?: string | null
   historical?: boolean
   mentionIdentity?: 'wrong-subject' | null
+  citationMeasured?: boolean
 }) {
   const sources = overrides.sources ?? []
   return {
@@ -252,6 +253,7 @@ function answerRow(overrides: {
     // `??` treated an explicit null as absent and fell through to a computed
     // boolean, so a test could not express "capture was incomplete" at all.
     cited: 'cited' in overrides ? overrides.cited! : sources.some(source => source.classification === 'assigned'),
+    citationMeasured: overrides.citationMeasured ?? true,
     sourceCount: sources.length,
     sourcesTruncated: false,
     sources,
@@ -1041,6 +1043,20 @@ describe('Property answer evidence', () => {
     expect(within(unknown).queryByText('Not cited')).toBeNull()
     expect(within(unknown).getAllByText('Not measured').length).toBeGreaterThan(0)
     expect(within(unknown).getByText('Sources were not fully captured')).toBeTruthy()
+  })
+
+  it('renders an answer from an engine without sources as Not measured for that reason', async () => {
+    // A local model returns no sources: `cited` is null because citation was
+    // never measured, which is neither a miss nor a partly saved list.
+    const evidence = await renderAnswers([
+      answerRow({ slot: 'a', queryText: 'where to stay by the water', cited: null, citationMeasured: false, sources: [] }),
+    ])
+    const local = answerFor(evidence, 'where to stay by the water')
+
+    expect(within(local).queryByText('Not cited')).toBeNull()
+    expect(within(local).getAllByText('Not measured').length).toBeGreaterThan(0)
+    expect(within(local).getByText('The engine returns no sources')).toBeTruthy()
+    expect(within(local).queryByText('Sources were not fully captured')).toBeNull()
   })
 
   // Was: 'puts losses above wins by default', asserting a client-side re-sort.

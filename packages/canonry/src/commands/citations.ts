@@ -1,5 +1,6 @@
 import type { CitationVisibilityResponse } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
+import { SNAPSHOT_CELL_LEGEND, citationGlyph, mentionGlyph } from '../snapshot-cell.js'
 
 export async function showCitationVisibility(
   project: string,
@@ -36,17 +37,23 @@ function printSummary(data: CitationVisibilityResponse): void {
     providersCiting,
     providersMentioning,
     providersConfigured,
+    providersCitationNotMeasured,
     totalQueries,
     queriesCitedAndMentioned,
     queriesCitedOnly,
     queriesMentionedOnly,
     queriesInvisible,
+    queriesCitationNotMeasured,
   } = data.summary
   console.log('AEO visibility (citations + mentions)')
   if (data.summary.latestRunAt) {
     console.log(`Latest run:           ${data.summary.latestRunAt}`)
   }
-  console.log(`Cited in sources:     ${providersCiting}/${providersConfigured} engines`)
+  // An engine that returns no sources is out of the cited base, never a miss.
+  const notMeasuredNote = providersCitationNotMeasured > 0
+    ? ` (${providersCitationNotMeasured} not measured: no sources)`
+    : ''
+  console.log(`Cited in sources:     ${providersCiting}/${providersConfigured - providersCitationNotMeasured} engines${notMeasuredNote}`)
   console.log(`Mentioned in answers: ${providersMentioning}/${providersConfigured} engines`)
   console.log('')
   console.log(`Queries (${totalQueries} total):`)
@@ -54,6 +61,9 @@ function printSummary(data: CitationVisibilityResponse): void {
   console.log(`  cited only:         ${queriesCitedOnly}`)
   console.log(`  mentioned only:     ${queriesMentionedOnly}`)
   console.log(`  invisible:          ${queriesInvisible}`)
+  if (queriesCitationNotMeasured > 0) {
+    console.log(`  citation not measured (no sources): ${queriesCitationNotMeasured}`)
+  }
 }
 
 function printCoverage(data: CitationVisibilityResponse): void {
@@ -83,18 +93,18 @@ function printCoverage(data: CitationVisibilityResponse): void {
   const cellWidth = Math.max(6, ...providerColumns.map(p => p.length))
   const queryWidth = Math.max(7, ...data.byQuery.map(r => r.query.length))
   const header = ['Query'.padEnd(queryWidth), ...providerColumns.map(p => p.padEnd(cellWidth)), 'Cite', 'Ment'].join('  ')
-  console.log('Per-query coverage:  (cell = [citation][mention];  C=cited c=not, M=mentioned m=not, –=no data)')
+  console.log(`Per-query coverage:  ${SNAPSHOT_CELL_LEGEND}`)
   console.log(header)
   console.log('─'.repeat(header.length))
   for (const row of data.byQuery) {
     const cells = providerColumns.map(p => {
       const provider = row.providers.find(x => x.provider === p)
       if (!provider) return '–'.padEnd(cellWidth)
-      const citationGlyph = provider.cited ? 'C' : 'c'
-      const mentionGlyph = provider.mentioned ? 'M' : 'm'
-      return `${citationGlyph}${mentionGlyph}`.padEnd(cellWidth)
+      return `${citationGlyph(provider.citationState)}${mentionGlyph(provider.mentioned)}`.padEnd(cellWidth)
     })
-    const citeCol = `${row.citedCount}/${row.totalProviders}`
+    // Cited is out of the engines whose answers carried sources.
+    const citationBase = row.totalProviders - row.citationNotMeasured
+    const citeCol = citationBase > 0 ? `${row.citedCount}/${citationBase}` : '·'
     const mentCol = `${row.mentionedCount}/${row.totalProviders}`
     console.log([row.query.padEnd(queryWidth), ...cells, citeCol, mentCol].join('  '))
   }

@@ -101,7 +101,15 @@ export const mentionStateSchema = z.enum(['mentioned', 'not-mentioned'])
 export type MentionState = z.infer<typeof mentionStateSchema>
 export const MentionStates = mentionStateSchema.enum
 
-export const computedTransitionSchema = z.enum(['new', 'cited', 'lost', 'emerging', 'not-cited'])
+/**
+ * Per-run citation transition, computed at read time. `cited` and `not-cited`
+ * are the steady states, `emerging` and `lost` move between them, and `new` is
+ * the first measured observation. `not-measured` marks an answer whose engine
+ * returns no sources: it is never a transition, and the next measured answer
+ * is compared with the last measured one, so a gap in measurement can neither
+ * gain nor lose a citation.
+ */
+export const computedTransitionSchema = z.enum(['new', 'cited', 'lost', 'emerging', 'not-cited', 'not-measured'])
 export type ComputedTransition = z.infer<typeof computedTransitionSchema>
 export const ComputedTransitions = computedTransitionSchema.enum
 
@@ -610,6 +618,11 @@ export type SnapshotListResponse = z.infer<typeof snapshotListResponseSchema>
 export const snapshotDiffRowSchema = z.object({
   queryId: z.string().nullable(),
   query: z.string().nullable(),
+  /**
+   * The query's citation state in each run across its answers: `cited` when
+   * any answer cites the project, `not-measured` only when no answer carries
+   * sources. Null when the run has no answer for the query.
+   */
   run1State: citationStateSchema.nullable(),
   run2State: citationStateSchema.nullable(),
   run1AnswerMentioned: z.boolean().nullable(),
@@ -622,6 +635,10 @@ export const snapshotDiffRowSchema = z.object({
   run1MentionState: mentionStateSchema.nullable().optional(),
   /** Mention state in run 2 — prefer this over the legacy `run2VisibilityState`. */
   run2MentionState: mentionStateSchema.nullable().optional(),
+  /**
+   * The citation state differs between the runs. A `not-measured` side never
+   * counts as a change: nothing observed whether the citation moved.
+   */
   changed: z.boolean(),
   visibilityChanged: z.boolean(),
 })

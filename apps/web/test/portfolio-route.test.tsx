@@ -1772,7 +1772,7 @@ function forceNoisyFreshVisibility(dashboard: ReturnType<typeof createDashboardF
   }
 
   project.visibilityEvidence = []
-  project.queryCounts = { cited: 0, total: 0 }
+  project.queryCounts = { cited: 0, total: 0, citationNotMeasured: 0 }
   project.recentRuns = []
   project.mentionSummary.value = 'No data'
   project.mentionSummary.delta = 'Run a check first'
@@ -1941,7 +1941,7 @@ function withAinycSweeps(dashboard: ReturnType<typeof createDashboardFixture>['d
   const completed = project.recentRuns.find(run => run.status === 'completed')!
   project.visibilityEvidence = ainycEvidence()
   project.movementComparison = ainycComparison()
-  project.queryCounts = { cited: 7, total: 14 }
+  project.queryCounts = { cited: 7, total: 14, citationNotMeasured: 0 }
   project.recentRuns = [{ ...completed, id: AINYC_LATEST_RUN.id, trigger: 'manual', createdAt: AINYC_LATEST_RUN.createdAt, startedAt: 'Sep 29, 5:59 AM' }]
   project.visibilitySweeps = [...project.recentRuns]
   // GET /overview's all-queries scores for the same sweep: 7 of 14 named, 7 of
@@ -2039,6 +2039,29 @@ test('Where competitors are winning and the query table read ainyc\'s latest swe
   expect([...table.querySelector('tbody .query-evidence-meta')!.children].map(item => item.textContent)).toEqual(['Non-brand', 'Claude', 'Gemini', 'OpenAI', 'Perplexity'])
   expect(doc.querySelector('#evidence-section')!.textContent).toContain('1 to 14 of 14 queries')
   expect(html.indexOf('Where competitors are winning')).toBeLessThan(html.indexOf('Query evidence'))
+})
+
+test.each([
+  // Local answered 4 of 14 queries alone: citation gaps count out of the 10 whose sources were checked.
+  { citationNotMeasured: 4, citationGaps: '1 / 10 queries, all queries' },
+  // No answer carries sources: there is nothing to count citation gaps out of.
+  { citationNotMeasured: 14, citationGaps: 'Not measured, all queries' },
+])('Citation gaps count out of the queries whose sources were checked ($citationNotMeasured not measured)', async ({ citationNotMeasured, citationGaps }) => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    configureFixture(dashboard) {
+      const project = withAinycSweeps(dashboard)
+      project.mentionShareSummary = ainycMentionShare()
+      project.competitors = [{ id: 'competitor_pbj', domain: 'pbjmarketing.com', citationCount: 5, totalQueries: 14, pressureLabel: '', citedQueries: [], movement: '', notes: '' }]
+      project.queryCounts = { ...project.queryCounts, citationNotMeasured }
+    },
+  })
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const card = [...doc.querySelectorAll('section.page-section-divider')]
+    .find(section => section.querySelector('h2')?.textContent === 'Where competitors are winning')!
+
+  // Mention gaps keep every query as their base: mention is measured on every answer.
+  expect([...card.querySelectorAll('.competitive-gaps .aeo-hero-row-value')].map(value => value.textContent))
+    .toEqual(['1 / 14 queries, all queries', citationGaps])
 })
 
 test('switching mention share to branded leaves gaps explicitly scoped to all queries', async () => {
@@ -2206,7 +2229,7 @@ test('fresh project settings use the empty collection instead of a noisy schedul
   const fixture = createDashboardFixture({})
   const project = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
   project.visibilityEvidence = []
-  project.queryCounts = { cited: 0, total: 0 }
+  project.queryCounts = { cited: 0, total: 0, citationNotMeasured: 0 }
   project.recentRuns = []
   fixture.dashboard.runs = []
   fixture.dashboard.settings.providerStatuses = []
@@ -2681,7 +2704,7 @@ test('an active measurement plan supplies runnable queries when the live basket 
     configureFixture(dashboard) {
       const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
       project.visibilityEvidence = []
-      project.queryCounts = { cited: 0, total: 0 }
+      project.queryCounts = { cited: 0, total: 0, citationNotMeasured: 0 }
       project.recentRuns = []
       dashboard.runs = []
     },

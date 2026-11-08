@@ -18,6 +18,8 @@ import {
 import {
   AiReferralTrafficClasses,
   CitationStates,
+  isCitationStateMeasured,
+  readCitationState,
   deltaPercent,
   formatSignedPercent,
   RatioUnits,
@@ -383,13 +385,17 @@ export function buildOrganicEvidence(
     ? db.select().from(querySnapshots).where(eq(querySnapshots.runId, latest.id)).all()
     : []
   const completedAt = latest ? latest.finishedAt ?? latest.createdAt : null
+  // Mention and citation keep separate bases: an engine that returns no
+  // sources still names (or not) the brand, but never cites or misses.
+  const citationStates = snapshots.map(snapshot => readCitationState(snapshot))
   const visibility = latest && completedAt ? {
     runId: latest.id,
     completedAt,
     ageDays: Math.max(0, (Date.now() - new Date(completedAt).getTime()) / 86_400_000),
     answerPairs: snapshots.length,
     mentionedPairs: snapshots.filter(snapshot => snapshot.answerMentioned === true).length,
-    citedPairs: snapshots.filter(snapshot => snapshot.citationState === CitationStates.cited).length,
+    citedPairs: citationStates.filter(state => state === CitationStates.cited).length,
+    citationNotMeasuredPairs: citationStates.filter(state => !isCitationStateMeasured(state)).length,
   } : null
 
   type PageEvidence = OrganicEvidenceDto['pages'][number]

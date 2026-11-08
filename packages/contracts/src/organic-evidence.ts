@@ -81,9 +81,13 @@ export const organicEvidenceDtoSchema = z.object({
     runId: z.string(),
     completedAt: z.string(),
     ageDays: z.number().nonnegative(),
+    /** Every (query × engine) answer in the run. The base of `mentionedPairs`. */
     answerPairs: z.number().int().nonnegative(),
     mentionedPairs: z.number().int().nonnegative(),
+    /** Out of `answerPairs - citationNotMeasuredPairs`, the answers whose sources were checked. */
     citedPairs: z.number().int().nonnegative(),
+    /** Answers whose engine returns no sources (a local model): neither cited nor not cited. */
+    citationNotMeasuredPairs: z.number().int().nonnegative(),
   }).nullable(),
   measurement: gaMeasurementAnalysisDtoSchema,
   pages: z.array(z.object({

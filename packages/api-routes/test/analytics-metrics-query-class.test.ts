@@ -133,7 +133,7 @@ describe('GET /projects/:name/analytics/metrics?queryClass=', () => {
       [1, 2, 0.5, 1, 0.5, 2],
       [0, 2, 0, 0, 0, 2],
     ])
-    expect(body.overall).toEqual({ citationRate: 0.25, cited: 1, total: 4, mentionRate: 0.25, mentionedCount: 1 })
+    expect(body.overall).toEqual({ citationRate: 0.25, cited: 1, total: 4, citationNotMeasured: 0, mentionRate: 0.25, mentionedCount: 1 })
     expect(body.windowChange.mentionRate).toEqual({ first: 0.5, latest: 0, delta: -0.5 })
     expect(body.basketChanges).toEqual([])
     expect(body.queryChanges).toEqual([])
@@ -145,7 +145,7 @@ describe('GET /projects/:name/analytics/metrics?queryClass=', () => {
     expect(body.buckets.map(b => [b.startDate, b.mentionedCount, b.total, b.mentionRate, b.queryCount])).toEqual([
       [pooled.buckets[1]!.startDate, 1, 1, 1, 1],
     ])
-    expect(body.overall).toEqual({ citationRate: 1, cited: 1, total: 1, mentionRate: 1, mentionedCount: 1 })
+    expect(body.overall).toEqual({ citationRate: 1, cited: 1, total: 1, citationNotMeasured: 0, mentionRate: 1, mentionedCount: 1 })
     // One point has no first-to-latest change.
     expect(body.windowChange.mentionRate).toBeNull()
     expect(body.basketChanges.map(c => [c.added, c.removed])).toEqual([[[BRANDED], []]])

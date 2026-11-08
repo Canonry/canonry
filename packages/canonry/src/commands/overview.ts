@@ -68,7 +68,8 @@ export async function showAllOverviews(opts: ShowOverviewOpts): Promise<void> {
   console.log(`  ${cell('Project', cols.project)}${cell('Mention', cols.mention)}${cell('Cited', cols.cited)}${cell('Mention share · scope', cols.share)}${cell('Queries', cols.queries)}Latest run`)
   for (const ov of overviews) {
     const project = ov.project.displayName || ov.project.name
-    const queries = `${ov.queryCounts.citedQueries}/${ov.queryCounts.totalQueries}`
+    // Cited out of the queries some answer's sources were checked for.
+    const queries = `${ov.queryCounts.citedQueries}/${ov.queryCounts.totalQueries - ov.queryCounts.citationNotMeasuredQueries}`
     const latest = ov.latestRun.run?.finishedAt ?? ov.latestRun.run?.createdAt ?? '—'
     console.log(
       `  ${cell(project, cols.project)}`
@@ -148,7 +149,13 @@ function renderHuman(overview: ProjectOverviewDto): void {
     console.log(`    ${brandedSentiment.coverage.counts.favorable} favorable / ${brandedSentiment.coverage.judged} judged${brandedSentiment.provisional ? ' · provisional' : ''}`)
   }
 
-  console.log(`\n  Queries cited:     ${queryCounts.citedQueries}/${queryCounts.totalQueries} (${formatPercent(queryCounts.citedRate)})`)
+  // Cited is out of the queries with an answer whose sources were checked;
+  // an engine that returns no sources is not measured, never a miss.
+  const notMeasuredQueries = queryCounts.citationNotMeasuredQueries
+  const notMeasuredNote = notMeasuredQueries > 0 ? `, ${notMeasuredQueries} not measured (no sources)` : ''
+  console.log(queryCounts.citedRate === null
+    ? `\n  Queries cited:     not measured (${notMeasuredQueries} queries, no answer carries sources)`
+    : `\n  Queries cited:     ${queryCounts.citedQueries}/${queryCounts.totalQueries - notMeasuredQueries} (${formatPercent(queryCounts.citedRate)})${notMeasuredNote}`)
   console.log(`  Queries mentioned: ${queryCounts.mentionedQueries}/${queryCounts.totalQueries} (${formatPercent(queryCounts.mentionRate)})`)
 
   if (movementComparison.hasPreviousRun) {
@@ -165,7 +172,9 @@ function renderHuman(overview: ProjectOverviewDto): void {
   if (providers.length > 0) {
     console.log('\n  Providers:')
     for (const p of providers) {
-      console.log(`    ${p.provider.padEnd(12)} ${p.cited}/${p.total} (${formatPercent(p.citedRate)})`)
+      console.log(p.citedRate === null
+        ? `    ${p.provider.padEnd(12)} not measured (${p.total} answers without sources)`
+        : `    ${p.provider.padEnd(12)} ${p.cited}/${p.total - p.citationNotMeasured} (${formatPercent(p.citedRate)})`)
     }
   }
 
@@ -173,7 +182,9 @@ function renderHuman(overview: ProjectOverviewDto): void {
     console.log('\n  Models:')
     for (const m of providerScores) {
       const label = `${m.provider}/${m.model ?? 'unknown'}`.padEnd(28)
-      console.log(`    ${label} ${m.cited}/${m.total} (${formatPercent(m.score, 'percent')})`)
+      console.log(m.score === null
+        ? `    ${label} not measured (${m.total} answers without sources)`
+        : `    ${label} ${m.cited}/${m.total - m.citationNotMeasured} (${formatPercent(m.score, 'percent')})`)
     }
   }
 
@@ -197,7 +208,9 @@ function renderHuman(overview: ProjectOverviewDto): void {
   }
 
   if (health) {
-    console.log(`\n  Health: ${formatPercent(health.overallCitedRate)} cited (${health.citedPairs}/${health.totalPairs} pairs)`)
+    console.log(health.overallCitedRate === null
+      ? '\n  Health: citations not measured (no answer carries sources)'
+      : `\n  Health: ${formatPercent(health.overallCitedRate)} cited (${health.citedPairs}/${health.totalPairs - health.citationNotMeasuredPairs} pairs)`)
   }
 
   if (topInsights.length > 0) {
@@ -210,6 +223,10 @@ function renderHuman(overview: ProjectOverviewDto): void {
   if (runHistory.length > 0) {
     console.log(`\n  Run history (last ${runHistory.length}):`)
     for (const point of runHistory) {
+      if (point.citationRate === null) {
+        console.log(`    ${point.createdAt.slice(0, 10)} citations not measured (no answer carries sources)`)
+        continue
+      }
       const bar = '█'.repeat(Math.round(point.citationRate / 10))
       console.log(`    ${point.createdAt.slice(0, 10)} ${formatPercent(point.citationRate, 'percent').padStart(6)} ${bar}`)
     }

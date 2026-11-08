@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON } from '@canonry/canonry-contracts'
+import { CITATION_NOT_MEASURED_REASON, formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON } from '@canonry/canonry-contracts'
 import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
@@ -77,6 +77,7 @@ const UNAVAILABLE_REASONS: Record<string, string> = {
   evidence_incomplete: 'Source evidence is incomplete',
   identity_ambiguous: UNATTRIBUTED_MENTION_REASON,
   not_applicable: 'Not applicable for this Property',
+  citation_not_measured: 'The engines return no sources',
 }
 
 /** Measurement state in the operator's language, never the wire token. */
@@ -151,15 +152,16 @@ const EM_DASH = '\u2014'
 
 /**
  * Citation is three states for the same reason mention is. Null means the
- * sources were never fully captured, so neither "Not cited" nor a source count
- * is a claim this run supports: both report an unseen list as an empty one.
+ * sources were never fully captured, or the engine returns none at all
+ * (`citationMeasured: false`), so neither "Not cited" nor a source count is a
+ * claim this run supports: both report an unseen list as an empty one.
  */
 function CitationSignal({ row }: { row: AnswerRow }) {
   if (row.cited === null) {
     return (
       <span className="inline-flex flex-col items-start gap-0.5">
         <ToneBadge tone="neutral">Not measured</ToneBadge>
-        <span className="text-label-12 text-muted">Sources were not fully captured</span>
+        <span className="text-label-12 text-muted">{row.citationMeasured === false ? 'The engine returns no sources' : 'Sources were not fully captured'}</span>
       </span>
     )
   }
@@ -167,6 +169,9 @@ function CitationSignal({ row }: { row: AnswerRow }) {
 }
 
 function AnswerSources({ row }: { row: AnswerRow }) {
+  if (row.citationMeasured === false) {
+    return <p className="py-2 text-copy-14 text-secondary">{CITATION_NOT_MEASURED_REASON}</p>
+  }
   if (row.cited === null && row.sources.length === 0) {
     return <p className="py-2 text-copy-14 text-secondary">The sources for this answer were not fully captured, so none can be shown.</p>
   }

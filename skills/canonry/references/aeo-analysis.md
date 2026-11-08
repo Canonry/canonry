@@ -37,12 +37,14 @@ A "cited" query means the client's domain appeared in an AI provider's grounding
 
 A "not-cited" query means the AI answered without grounding on the client's domain.
 
+A "not-measured" citation means the engine returns no sources at all (a local model with no web access), so whether it would cite the client was never observed. It is never a miss and is left out of every cited rate; report it as not measured, and read that answer's mention as usual.
+
 ## Reading Evidence Output
 
-`cnry evidence` renders a two-glyph cell per (query × provider): `[C/c][M/m]` — uppercase = present, lowercase = absent, `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). Always print the legend before the table; never collapse the two signals into one cell. Lead your interpretation with the mention glyph.
+`cnry evidence` renders a two-glyph cell per (query × provider): `[C/c][M/m]` — uppercase = present, lowercase = absent, `·` = citation not measured (the engine returns no sources), `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). Always print the legend before the table; never collapse the two signals into one cell. Lead your interpretation with the mention glyph.
 
 ```
-Legend: [C/c][M/m]  C=cited c=not-cited  M=mentioned m=not-mentioned  –=no snapshot
+Legend: [C/c/·][M/m]  C=cited c=not-cited ·=not measured  M=mentioned m=not-mentioned  –=no snapshot
 
 [C][M]  AEO Agency NYC             ← mentioned AND cited: branded/direct match, fully visible
 [c][M]  best plumber brooklyn      ← mentioned but NOT cited: named in the answer, domain not in sources (mention win, citation gap)

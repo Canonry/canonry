@@ -2519,6 +2519,9 @@ export const healthSnapshots = sqliteTable('health_snapshots', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   runId: text('run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  // Over the pairs whose sources were checked. NOT NULL, so a run none of
+  // whose pairs carried sources stores 0; readers return null for it, since
+  // providerBreakdown's `citationNotMeasured` then covers every pair.
   overallCitedRate: text('overall_cited_rate').notNull(),
   // Answer-text mention rate, independent of citation. Nullable because the
   // column is added by migration v80 via ALTER TABLE ADD COLUMN — rows
@@ -2530,7 +2533,10 @@ export const healthSnapshots = sqliteTable('health_snapshots', {
   // Count of pairs MENTIONED in the answer text. Nullable for the same
   // legacy-row reason as overall_mention_rate; coalesced NULL→0 on read.
   mentionedPairs: integer('mentioned_pairs'),
-  providerBreakdown: text('provider_breakdown', { mode: 'json' }).$type<Record<string, { citedRate: number; mentionRate: number; cited: number; mentioned: number; total: number }>>().notNull().default({}),
+  // `citedRate` is over the provider's pairs whose sources were checked, null
+  // when none were; `citationNotMeasured` counts the rest. Rows written before
+  // it existed have no key (read 0) and a rate computed over every pair.
+  providerBreakdown: text('provider_breakdown', { mode: 'json' }).$type<Record<string, { citedRate: number | null; mentionRate: number; cited: number; mentioned: number; total: number; citationNotMeasured?: number }>>().notNull().default({}),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_health_snapshots_project').on(table.projectId),
