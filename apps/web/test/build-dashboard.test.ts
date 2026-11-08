@@ -2,6 +2,7 @@ import { test, expect } from 'vitest'
 
 import { buildDashboard, buildPortfolioProject, buildProjectCommandCenter, toRunListItem, type ProjectData } from '../src/build-dashboard.js'
 import type { ApiRun, ApiSettings } from '../src/api.js'
+import { connectionFixture } from './provider-settings-fixtures.js'
 
 test('unrecognized stored job kinds retain a readable type and their reported outcome', () => {
   const item = toRunListItem({
@@ -398,6 +399,25 @@ test('buildDashboard surfaces both the model override and the adapter default mo
   const openai = statuses.find((p) => p.name === 'openai')
   expect(openai?.model).toBeUndefined()
   expect(openai?.defaultModel).toBe('gpt-5.4')
+})
+
+test('buildDashboard carries each connection\'s saved revision to the provider statuses an administrator sees', () => {
+  const apiSettings: ApiSettings = {
+    providers: [
+      { name: 'openai', configured: true },
+      { name: 'claude', configured: true },
+    ],
+    providerConnections: [connectionFixture({ name: 'openai', revision: 'openai-r1' })],
+    providerCatalog: [],
+    google: { configured: false },
+    bing: { configured: false },
+  }
+
+  const statuses = buildDashboard([], apiSettings).settings.providerStatuses
+
+  expect(statuses.find(provider => provider.name === 'openai')).toMatchObject({ revision: 'openai-r1' })
+  // Without connection details (a narrower credential), no revision is claimed.
+  expect(statuses.find(provider => provider.name === 'claude')).not.toHaveProperty('revision')
 })
 
 test('buildDashboard names the missing local-provider requirement truthfully', () => {

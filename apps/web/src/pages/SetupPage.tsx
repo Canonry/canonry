@@ -2,7 +2,7 @@ import { CitationStates } from '@canonry/canonry-contracts'
 import { AnswerMarkdown } from '../components/shared/AnswerMarkdown.js'
 import { ProviderBadge } from '../components/shared/ProviderBadge.js'
 import { RunPreviewSummary, useRunPreview } from '../components/project/RunAdmissionNotice.js'
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefCallback } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type RefCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { isDashboardManagedSweeps, type ApiProject } from '../api.js'
@@ -18,6 +18,7 @@ import {
   isOpenRouterRoute,
   normalizeQueryText,
   openRouterRouteModel,
+  providerConnectionName,
   uniqueQueryTexts,
   QueryClasses,
   type QueryClass,
@@ -35,6 +36,7 @@ import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
 import { PROVIDER_CONNECTION_TEST_COPY, ProviderConnectionTestLine, providerConnectionStatus } from '../components/settings/ProviderConnectionTest.js'
 import { useProviderConnectionTests } from '../queries/provider-connection-tests.js'
+import { catalogRouteFamilies } from '../lib/provider-routes.js'
 import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
 import { OpenRouterModelPicker } from '../components/shared/OpenRouterModelPicker.js'
 import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
@@ -676,17 +678,29 @@ function ReadySetupPage({
   })
   const openRouterCatalog = (openRouterSettingsQuery.data?.providerCatalog ?? []).find(provider => provider.name === 'openrouter')
   const runnableProviderCount = runnableApiProviders.length + (cdpConfigured === true ? 1 : 0)
-  // The saved connections behind the listed engines. OpenRouter models share one connection.
+  // The saved connections behind the listed engines: every route of a routed
+  // family (OpenRouter models, answer-service profiles) shares its connection.
+  const engineRouteFamilies = catalogRouteFamilies(settingsCatalogQuery.data?.providerCatalog ?? [])
   const engineConnectionNames = [...new Set([
-    ...runnableApiProviders.map(provider => isOpenRouterRoute(provider.name) ? ProviderNames.openrouter : normalizeProviderName(provider.name)),
+    ...runnableApiProviders.map(provider => providerConnectionName(normalizeProviderName(provider.name), engineRouteFamilies)),
     ...(runnableApiProviders.length === 0 && cdpConfigured === true ? [CDP_PROVIDER_NAME] : []),
   ])]
-  const engineConnectionTests = useProviderConnectionTests(engineConnectionNames.map(name => ({ name })))
+  const engineConnectionStatusOf = (name: string) => settings.providerStatuses.find(provider => normalizeProviderName(provider.name) === name)
+  // An administrator's settings read carries each connection's saved revision.
+  const engineConnectionTests = useProviderConnectionTests(engineConnectionNames.map(name => {
+    const revision = engineConnectionStatusOf(name)?.revision
+    return revision === undefined ? { name } : { name, revision }
+  }))
   const engineConnectionLabel = (name: string): string => {
     if (name === CDP_PROVIDER_NAME) return 'ChatGPT in Chrome'
-    const status = settings.providerStatuses.find(provider => normalizeProviderName(provider.name) === name)
+    const status = engineConnectionStatusOf(name)
     return status?.displayName ?? status?.name ?? name
   }
+  // A test of an API connection reaches the provider on the operator's account; Chrome's does not.
+  const engineConnectionTestNoticeId = useId()
+  const engineConnectionTestNotice = engineConnectionNames.includes(CDP_PROVIDER_NAME)
+    ? null
+    : PROVIDER_CONNECTION_TEST_COPY.sends(engineConnectionNames.map(engineConnectionLabel))
   // Connected only after a passing test of every listed connection; saved settings alone prove nothing.
   const engineConnectionStatus = providerConnectionStatus(engineConnectionTests.records)
   const [selectedProvider, setSelectedProvider] = useState(runnableApiProviders[0]?.name ?? '')
@@ -1384,11 +1398,14 @@ function ReadySetupPage({
       ) : null}
       {providerReadiness === true && engineConnectionNames.length > 0 && !providerFormVisible ? (
         <div className="space-y-2">
-          <Button type="button" variant="outline" size="sm" className={TOUCH_TARGET} disabled={engineConnectionTests.testing} onClick={engineConnectionTests.test}>
-            {engineConnectionTests.testing
-              ? PROVIDER_CONNECTION_TEST_COPY.testing
-              : engineConnectionNames.length > 1 ? PROVIDER_CONNECTION_TEST_COPY.testMany : PROVIDER_CONNECTION_TEST_COPY.testOne}
-          </Button>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Button type="button" variant="outline" size="sm" className={TOUCH_TARGET} disabled={engineConnectionTests.testing} aria-describedby={engineConnectionTestNotice ? engineConnectionTestNoticeId : undefined} onClick={engineConnectionTests.test}>
+              {engineConnectionTests.testing
+                ? PROVIDER_CONNECTION_TEST_COPY.testing
+                : engineConnectionNames.length > 1 ? PROVIDER_CONNECTION_TEST_COPY.testMany : PROVIDER_CONNECTION_TEST_COPY.testOne}
+            </Button>
+            {engineConnectionTestNotice ? <p id={engineConnectionTestNoticeId} className="text-copy-14 text-secondary">{engineConnectionTestNotice}</p> : null}
+          </div>
           <div role="status">
             {engineConnectionTests.records.some(record => record !== undefined) ? (
               <ul aria-label={PROVIDER_CONNECTION_TEST_COPY.results} className="space-y-1">

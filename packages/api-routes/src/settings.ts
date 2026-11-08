@@ -150,8 +150,10 @@ export interface SettingsRoutesOptions {
   /**
    * Run one saved connection's own healthcheck now, a live provider call.
    * Resolves undefined when the connection is not configured on this host.
+   * Once `signal` aborts (the route stopped waiting), the check must send
+   * nothing more: pass it on to the adapter's healthcheck.
    */
-  onProviderTest?: (name: string) => Promise<ProviderHealthcheckResult | undefined>
+  onProviderTest?: (name: string, signal: AbortSignal) => Promise<ProviderHealthcheckResult | undefined>
   /** How long a connection test waits for the host's check. Defaults to `PROVIDER_TEST_TIMEOUT_MS`. */
   providerTestTimeoutMs?: number
   google?: GoogleSettingsSummary
@@ -172,14 +174,19 @@ type ProviderTestCheck =
   | { kind: 'not-configured' }
   | { kind: 'timed-out' }
 
-/** The host's check, bounded by `timeoutMs`. A late answer is dropped: a check changes nothing on the server. */
+/**
+ * The host's check, bounded by `timeoutMs`. When the route stops waiting, the
+ * check's signal aborts, so its retries stop instead of spending on in the
+ * background. A late answer is dropped: a check changes nothing on the server.
+ */
 async function runProviderTest(test: NonNullable<SettingsRoutesOptions['onProviderTest']>, name: string, timeoutMs: number): Promise<ProviderTestCheck> {
+  const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<ProviderTestCheck>(resolve => {
     timer = setTimeout(() => resolve({ kind: 'timed-out' }), timeoutMs)
     timer.unref()
   })
-  const check = Promise.resolve().then(() => test(name)).then((result): ProviderTestCheck => (
+  const check = Promise.resolve().then(() => test(name, controller.signal)).then((result): ProviderTestCheck => (
     result ? { kind: 'checked', check: result } : { kind: 'not-configured' }
   ))
   try {
@@ -190,6 +197,8 @@ async function runProviderTest(test: NonNullable<SettingsRoutesOptions['onProvid
     return { kind: 'checked', check: { ok: false, provider: name, message: describeError(error) } }
   } finally {
     clearTimeout(timer)
+    // Whatever the outcome, nothing of this test keeps running once the route answers.
+    controller.abort(new Error(`The ${name} connection test is over.`))
   }
 }
 
@@ -427,13 +436,19 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     return providerReloadResponseDtoSchema.parse({ reloaded: true, providers })
   }, err => (err instanceof AppError && err.code === 'NOT_IMPLEMENTED' ? OutcomeReasonCodes.UNSUPPORTED : undefined)))
 
+  // Connections with a test still running on this server: a repeat click waits
+  // for that result instead of stacking another check on the same quota.
+  const testsInFlight = new Set<string>()
+
   // A POST because it calls the provider now; it reads and changes no saved state.
   app.post<{ Params: { name: string } }>('/settings/providers/:name/test', async (request) => withFeatureOutcome(app, { feature: 'providers', operation: 'test' }, async (settle): Promise<ProviderConnectionTestResultDto> => {
-    // The check spends on the operator's provider account with the saved key,
-    // so it takes the authority that saves that key: never a viewer, a
-    // read-only key, or a key scoped to something else.
+    // The check spends on the operator's install-wide provider account with
+    // the saved key, so only an install administrator runs it, as with the
+    // connection's detail, reload and disconnect: never a viewer, a read-only
+    // key, a key scoped to something else, or a key confined to one project.
     requireAdminSession(request)
     requirePaidReadScope(request, [SETTINGS_WRITE_SCOPE], `Testing a provider connection calls the provider with its saved key, which requires the "${SETTINGS_WRITE_SCOPE}" scope on your API key.`)
+    requireInstanceAdministrator(request)
     const name = request.params.name
     const adapters = opts.providerAdapters ?? []
     const adapter = adapters.find(item => item.name === name)
@@ -442,10 +457,22 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       throw validationError(`Invalid provider: ${name}. Must be one of: ${validNames.join(', ')}`, { provider: name, validProviders: validNames })
     }
     if (!opts.onProviderTest) throw notImplemented('Provider connection tests are not supported in this deployment')
+    if (testsInFlight.has(name)) {
+      throw operationInProgress(`A ${adapter.displayName} connection test is already running. Wait for its result, then test again.`, {
+        provider: name,
+        reason: ProviderConnectionTestErrorReasons['provider-test-in-progress'],
+      })
+    }
 
     const startedAt = Date.now()
     const timeoutMs = opts.providerTestTimeoutMs ?? PROVIDER_TEST_TIMEOUT_MS
-    const outcome = await runProviderTest(opts.onProviderTest, name, timeoutMs)
+    testsInFlight.add(name)
+    let outcome: ProviderTestCheck
+    try {
+      outcome = await runProviderTest(opts.onProviderTest, name, timeoutMs)
+    } finally {
+      testsInFlight.delete(name)
+    }
     if (outcome.kind === 'not-configured') {
       throw validationError(`${adapter.displayName} is not configured. Save its connection, then test it.`, {
         provider: name,

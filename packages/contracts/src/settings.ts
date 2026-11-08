@@ -169,9 +169,11 @@ export type ProviderConnectionTestResultDto = z.infer<typeof providerConnectionT
 /**
  * `error.details.reason` when a connection test is refused before any provider
  * request. `provider-not-configured`: the connection has no saved settings to
- * test. Callers branch on this value, never on the message.
+ * test. `provider-test-in-progress`: a test of the same connection is still
+ * running on this server; wait for its result instead of stacking another.
+ * Callers branch on this value, never on the message.
  */
-export const providerConnectionTestErrorReasonSchema = z.enum(['provider-not-configured'])
+export const providerConnectionTestErrorReasonSchema = z.enum(['provider-not-configured', 'provider-test-in-progress'])
 export const ProviderConnectionTestErrorReasons = providerConnectionTestErrorReasonSchema.enum
 export type ProviderConnectionTestErrorReason = z.infer<typeof providerConnectionTestErrorReasonSchema>
 

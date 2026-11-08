@@ -853,22 +853,27 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
       },
     },
     settings: {
-      providerStatuses: (apiSettings?.providers ?? []).map(p => ({
-        name: p.name,
-        displayName: p.displayName,
-        ...(p.kind ? { kind: p.kind } : {}),
-        keyUrl: p.keyUrl,
-        modelHint: p.modelHint,
-        model: p.model,
-        defaultModel: p.defaultModel,
-        state: (p.configured ? 'configured' : 'needs-config') as 'configured' | 'needs-config',
-        detail: p.configured
-          ? 'Configuration saved.'
-          : p.name.toLowerCase() === 'local'
-            ? 'Base URL is missing.'
-            : 'API key is missing.',
-        quota: p.quota,
-      })),
+      providerStatuses: (apiSettings?.providers ?? []).map(p => {
+        // Present only for an install administrator: the connection's saved revision.
+        const connection = apiSettings?.providerConnections?.find(entry => entry.name === p.name)
+        return {
+          name: p.name,
+          displayName: p.displayName,
+          ...(p.kind ? { kind: p.kind } : {}),
+          keyUrl: p.keyUrl,
+          modelHint: p.modelHint,
+          model: p.model,
+          defaultModel: p.defaultModel,
+          state: (p.configured ? 'configured' : 'needs-config') as 'configured' | 'needs-config',
+          detail: p.configured
+            ? 'Configuration saved.'
+            : p.name.toLowerCase() === 'local'
+              ? 'Base URL is missing.'
+              : 'API key is missing.',
+          quota: p.quota,
+          ...(connection ? { revision: connection.revision } : {}),
+        }
+      }),
       google: {
         state: apiSettings?.google?.configured ? 'ready' : 'needs-config',
         detail: apiSettings?.google?.configured

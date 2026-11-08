@@ -144,6 +144,31 @@ describe('withRetry', () => {
     expect(throttled).toHaveBeenCalledTimes(2)
     expect(paced).toEqual([45_000])
   })
+
+  it('ends a pending wait as soon as its signal aborts, and starts no further attempt', async () => {
+    const controller = new AbortController()
+    const reason = new Error('nobody is waiting for this check')
+    const fn = vi.fn(async () => { throw Object.assign(new Error('Too Many Requests'), { status: 429 }) })
+    const started = Date.now()
+    // Without the signal this would wait 60 seconds, then try again.
+    const pending = withRetry(fn, { maxRetries: 3, baseDelayMs: 60_000, jitter: false, isRetryable: isRetryableHttpError, signal: controller.signal })
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(1))
+    controller.abort(reason)
+    await expect(pending).rejects.toBe(reason)
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry an attempt that failed once its signal aborted', async () => {
+    const controller = new AbortController()
+    // A request cut off mid-flight fails without a status, which reads as a retryable network error.
+    const fn = vi.fn(async () => {
+      controller.abort()
+      throw new Error('Request was aborted.')
+    })
+    await expect(withRetry(fn, { baseDelayMs: 1, isRetryable: isRetryableHttpError, signal: controller.signal })).rejects.toThrow('Request was aborted.')
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('isRetryableHttpError', () => {

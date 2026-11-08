@@ -39,9 +39,9 @@ async function harness(lifecycle = false) {
   migrate(db)
   const now = new Date().toISOString()
   db.insert(projects).values({ id: 'project-demo', name: 'demo', displayName: 'Demo', canonicalDomain: 'demo.example', country: 'US', language: 'en', providers: ['openai'], createdAt: now, updatedAt: now }).run()
-  for (const [name, scopes] of Object.entries({ root: ['*'], unrelated: ['runs.write'], read: ['read'], research: ['read', 'research.run'], settings: ['read', 'settings.write'], logs: ['read', 'logs.read'], scopedLogs: ['read', 'logs.read'] })) {
+  for (const [name, scopes] of Object.entries({ root: ['*'], unrelated: ['runs.write'], read: ['read'], research: ['read', 'research.run'], settings: ['read', 'settings.write'], logs: ['read', 'logs.read'], scopedLogs: ['read', 'logs.read'], projectAdmin: ['*'] })) {
     const token = `cnry_smoke_${name}`
-    db.insert(apiKeys).values({ id: name, name, keyHash: hashApiKey(token), keyPrefix: token.slice(0, 9), scopes, projectId: name === 'read' || name === 'scopedLogs' ? 'project-demo' : null, createdAt: now }).run()
+    db.insert(apiKeys).values({ id: name, name, keyHash: hashApiKey(token), keyPrefix: token.slice(0, 9), scopes, projectId: name === 'read' || name === 'scopedLogs' || name === 'projectAdmin' ? 'project-demo' : null, createdAt: now }).run()
   }
   const app = Fastify()
   cleanup.push(async () => { await app.close(); db.$client.close(); fs.rmSync(dir, { recursive: true, force: true }) })
@@ -132,7 +132,7 @@ describe('agent operations cross-surface smoke', () => {
     expect(await api.testProvider('openai')).toEqual(connected)
     await run(['openai', '--format', 'json'])
     expect(JSON.parse(out.mock.calls.at(-1)![0])).toEqual(connected)
-    const mcp = await connect('settings')
+    const mcp = await connect('root')
     const viaMcp = await mcp.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })
     expect(viaMcp.isError).not.toBe(true)
     expect(viaMcp.structuredContent).toEqual(connected)
@@ -157,6 +157,16 @@ describe('agent operations cross-surface smoke', () => {
     expect((await unrelated.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })).isError).toBe(true)
     state.client = new ApiClient(origin, 'cnry_smoke_unrelated', { skipProbe: true })
     await expect(run(['openai', '--format', 'json'])).rejects.toMatchObject({ exitCode: 1, details: { httpStatus: 403 } })
+    expect(providerTest).toHaveBeenCalledTimes(7)
+
+    // So is a full-access key confined to one project: the connection and its account are the install's.
+    const narrow = 'narrower than the install'
+    const projectAdmin = await connect('projectAdmin')
+    const refused = await projectAdmin.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain(narrow)
+    state.client = new ApiClient(origin, 'cnry_smoke_projectAdmin', { skipProbe: true })
+    await expect(run(['openai', '--format', 'json'])).rejects.toMatchObject({ exitCode: 1, message: expect.stringContaining(narrow), details: { httpStatus: 403 } })
     expect(providerTest).toHaveBeenCalledTimes(7)
   })
 

@@ -322,6 +322,9 @@ function ProviderConnectionEditor({ connection, catalog, compact = false, onDirt
   const batchPending = connection.blockers.some(blocker => blocker.code === 'outstanding-batches')
   // Only saved settings can be tested, at the revision this editor shows.
   const connectionTest = useProviderConnectionTests([{ name: connection.name, revision: connection.revision }])
+  // An engine's or gateway's test is a request on the operator's provider account. A browser
+  // connection's reaches Chrome, and a search answer service's is a free key check or none.
+  const testSendsRequest = connection.configured && connection.mode !== 'browser' && connection.kind !== ProviderKinds['answer-service']
   const testRecord = connectionTest.records[0]
   const dirty = apiKey.trim() !== '' || clearKey
     || (inheritEndpoint ? connection.baseUrl !== null : baseUrl.trim() !== (connection.baseUrl ?? ''))
@@ -417,9 +420,10 @@ function ProviderConnectionEditor({ connection, catalog, compact = false, onDirt
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" disabled={!dirty}>{saving ? 'Saving…' : 'Save connection'}</Button>
         <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-        {connection.configured && <Button type="button" variant="outline" disabled={dirty || connectionTest.testing} aria-describedby={`${id}-test-status`} onClick={connectionTest.test}>{connectionTest.testing ? PROVIDER_CONNECTION_TEST_COPY.testing : PROVIDER_CONNECTION_TEST_COPY.testOne}</Button>}
+        {connection.configured && <Button type="button" variant="outline" disabled={dirty || connectionTest.testing} aria-describedby={testSendsRequest ? `${id}-test-notice ${id}-test-status` : `${id}-test-status`} onClick={connectionTest.test}>{connectionTest.testing ? PROVIDER_CONNECTION_TEST_COPY.testing : PROVIDER_CONNECTION_TEST_COPY.testOne}</Button>}
         {dirty && <span className="text-label-12 text-secondary">Unsaved changes</span>}
       </div>
+      {testSendsRequest && <p id={`${id}-test-notice`} className="text-copy-14 text-secondary">{PROVIDER_CONNECTION_TEST_COPY.sends([connection.displayName])}</p>}
       {connection.configured && <div id={`${id}-test-status`} role="status">
         {dirty
           ? <p className="text-copy-14 text-secondary">{PROVIDER_CONNECTION_TEST_COPY.saveFirst}</p>

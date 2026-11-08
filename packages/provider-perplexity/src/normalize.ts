@@ -130,7 +130,8 @@ export function validateConfig(config: PerplexityConfig): PerplexityHealthcheckR
   }
 }
 
-export async function healthcheck(config: PerplexityConfig): Promise<PerplexityHealthcheckResult> {
+/** Once `signal` aborts, no further attempt starts and the request in flight is cancelled. */
+export async function healthcheck(config: PerplexityConfig, signal?: AbortSignal): Promise<PerplexityHealthcheckResult> {
   const validation = validateConfig(config)
   if (!validation.ok) return validation
 
@@ -139,7 +140,8 @@ export async function healthcheck(config: PerplexityConfig): Promise<PerplexityH
     const client = createClient(config.apiKey)
     // Same engine as a sweep, so a mistyped preset fails here; no forced search.
     const response = await withRetry(() =>
-      postAgent(client, { ...agentSelection(model), input: 'Say "ok"' }),
+      postAgent(client, { ...agentSelection(model), input: 'Say "ok"' }, signal),
+      { signal },
     )
     assertUsableResponse(response)
     const text = extractAgentAnswerText(response)
@@ -319,8 +321,8 @@ function createClient(apiKey: string): OpenAI {
   return new OpenAI({ apiKey, baseURL: BASE_URL })
 }
 
-function postAgent(client: OpenAI, body: PerplexityAgentRequest): Promise<Record<string, unknown>> {
-  return client.post<Record<string, unknown>>(AGENT_PATH, { body })
+function postAgent(client: OpenAI, body: PerplexityAgentRequest, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  return client.post<Record<string, unknown>>(AGENT_PATH, { body, signal })
 }
 
 /**

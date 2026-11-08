@@ -79,7 +79,8 @@ native Aero. Unsupported hosts return `NOT_IMPLEMENTED`.
 
 `settings provider test <name>` calls `ApiClient.testProvider`
 (`POST /settings/providers/{name}/test`, access `live`). The host hook
-`onProviderTest` runs the active registration's own `adapter.healthcheck(config)`;
+`onProviderTest` runs the active registration's own `adapter.healthcheck(config, signal)`
+with the route's signal, so a check the route stopped waiting for stops retrying;
 an unregistered connection resolves `undefined` (`VALIDATION_ERROR`,
 `details.reason: provider-not-configured`). JSON preserves the DTO. A `failed`
 result prints first, then exits 2 (`PROVIDER_TEST_FAILED`); `connected` and

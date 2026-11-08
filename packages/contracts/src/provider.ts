@@ -437,7 +437,12 @@ export interface ProviderAdapter {
   /** Read model metadata only; must never generate an answer or spend query quota. */
   listModels?(config: ProviderConfig, signal: AbortSignal): Promise<ModelDefinition[]>
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult
-  healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult>
+  /**
+   * Check the saved settings against the provider now. Once `signal` aborts,
+   * the check sends nothing more: its retries stop and its request in flight
+   * is cancelled, so a check nobody waits for stops spending.
+   */
+  healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult>
   executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult>
   /**
    * The first half of `executeTrackedQuery`: the exact request it sends. An

@@ -17,7 +17,11 @@ export type ProviderConnectionTestRecord =
 
 export interface ProviderConnectionTestTarget {
   name: string
-  /** The saved connection revision on screen, when known. A record from another revision is out of date. */
+  /**
+   * The saved connection revision on screen, when known. Only a record of this
+   * revision is shown; one from another revision, or one recorded without a
+   * revision, may describe settings changed since (from the CLI or another tab).
+   */
   revision?: string
 }
 
@@ -45,8 +49,8 @@ export function useProviderConnectionTestRecords(targets: readonly ProviderConne
   return targets.map((target, index) => {
     const record = stored[index]?.data
     if (!record) return undefined
-    // A test of earlier saved settings says nothing about the current ones.
-    if (target.revision !== undefined && record.revision !== null && record.revision !== target.revision) return undefined
+    // A test of other saved settings, or of settings it cannot name, says nothing about these.
+    if (target.revision !== undefined && record.revision !== target.revision) return undefined
     return record
   })
 }

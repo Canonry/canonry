@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apiKeys, createClient, migrate, projects, users } from '@canonry/canonry-db'
 import { notImplemented, type ProviderHealthcheckResult } from '@canonry/canonry-contracts'
 import { apiRoutes, hashApiKey, type ApiRoutesOptions, type OutcomeTelemetryEvent } from '../src/index.js'
+import { NARROW_KEY_DENIED_MESSAGE } from '../src/auth.js'
 import { featureOutcomes } from './feature-outcome-capture.js'
 
 type ProviderTestHook = NonNullable<ApiRoutesOptions['onProviderTest']>
@@ -114,11 +115,18 @@ describe('POST /settings/providers/:name/test', () => {
       checkedAt,
       durationMs: expect.any(Number),
     })
-    expect(onProviderTest).toHaveBeenCalledWith(name)
+    expect(onProviderTest).toHaveBeenCalledWith(name, expect.any(AbortSignal))
   })
 
-  it('reports a check that never answers as failed once the wait ends', async () => {
-    const { test } = await harness({ onProviderTest: () => new Promise(() => {}), timeoutMs: 20 })
+  it('reports a check that never answers as failed once the wait ends, and tells it to stop', async () => {
+    let signal: AbortSignal | undefined
+    const { test } = await harness({
+      onProviderTest: (_name, given) => {
+        signal = given
+        return new Promise(() => {})
+      },
+      timeoutMs: 20,
+    })
     const response = await test('gemini')
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({
@@ -127,6 +135,30 @@ describe('POST /settings/providers/:name/test', () => {
       model: null,
       message: 'Gemini did not answer within 1 second. Check the endpoint and network, then test again.',
     })
+    // An unanswered check would otherwise keep retrying, and spending, after the answer.
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('refuses a second test of a connection while its first is still running, and tests it again once that ends', async () => {
+    const finish: Array<(result: ProviderHealthcheckResult) => void> = []
+    const onProviderTest = vi.fn<ProviderTestHook>(name => name === 'gemini'
+      ? new Promise(resolve => { finish.push(resolve) })
+      : Promise.resolve({ ok: true, verified: false, provider: 'exa', message: 'Exa key saved, not verified' }))
+    const { test } = await harness({ onProviderTest })
+    const first = test('gemini')
+    await vi.waitFor(() => expect(onProviderTest).toHaveBeenCalledTimes(1))
+    const repeat = await test('gemini')
+    expect(repeat.statusCode).toBe(409)
+    expect(repeat.json()).toMatchObject({ error: { code: 'OPERATION_IN_PROGRESS', details: { provider: 'gemini', reason: 'provider-test-in-progress' } } })
+    // Another connection's test is not held up.
+    expect((await test('exa')).statusCode).toBe(200)
+    expect(onProviderTest.mock.calls.map(([name]) => name)).toEqual(['gemini', 'exa'])
+    finish[0]!({ ok: true, provider: 'gemini', message: 'gemini api key verified' })
+    expect((await first).json()).toMatchObject({ status: 'connected' })
+    const again = test('gemini')
+    await vi.waitFor(() => expect(finish).toHaveLength(2))
+    finish[1]!({ ok: false, provider: 'gemini', message: '401 Unauthorized' })
+    expect((await again).json()).toMatchObject({ status: 'failed' })
   })
 
   it.each([
@@ -170,21 +202,28 @@ describe('POST /settings/providers/:name/test', () => {
     expect(response.json()).toMatchObject({ error: { code: 'NOT_IMPLEMENTED', message: 'Connection tests are paused on this host' } })
   })
 
-  it.each(['root', 'settings', 'project'])('lets a %s credential that can save provider keys run the test', async (key) => {
+  it('lets the install administrator key run the test', async () => {
     const onProviderTest = vi.fn<ProviderTestHook>(async () => ({ ok: true, provider: 'gemini', message: 'gemini api key verified' }))
     const { test } = await harness({ onProviderTest })
-    expect((await test('gemini', key)).statusCode).toBe(200)
+    expect((await test('gemini', 'root')).statusCode).toBe(200)
     expect(onProviderTest).toHaveBeenCalledTimes(1)
   })
 
-  // `write` reaches this route's own scope check; `read` and `viewer` are refused earlier for any POST,
-  // which this keeps true should the route ever be marked as a read.
-  it.each(['read', 'write', 'viewer'])('refuses a %s credential before any provider call, since the test spends on the provider account', async (key) => {
+  // The test spends on the install-wide provider account, so it takes the authority of the
+  // connection's other administrator routes. `read` and `viewer` are refused earlier for any
+  // POST, which this keeps true should the route ever be marked as a read.
+  it.each([
+    { key: 'read', error: { code: 'FORBIDDEN' } },
+    { key: 'viewer', error: { code: 'FORBIDDEN' } },
+    { key: 'write', error: { code: 'FORBIDDEN', message: expect.stringContaining('"settings.write" scope') } },
+    { key: 'settings', error: { code: 'FORBIDDEN', message: NARROW_KEY_DENIED_MESSAGE } },
+    { key: 'project', error: { code: 'FORBIDDEN', message: NARROW_KEY_DENIED_MESSAGE } },
+  ])('refuses a $key credential before any provider call', async ({ key, error }) => {
     const onProviderTest = vi.fn<ProviderTestHook>(async () => ({ ok: true, provider: 'gemini', message: 'gemini api key verified' }))
     const { test } = await harness({ onProviderTest })
     const response = await test('gemini', key)
     expect(response.statusCode).toBe(403)
-    expect(response.json()).toMatchObject({ error: { code: 'FORBIDDEN' } })
+    expect(response.json()).toMatchObject({ error })
     expect(onProviderTest).not.toHaveBeenCalled()
   })
 

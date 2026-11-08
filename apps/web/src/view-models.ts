@@ -309,6 +309,8 @@ export interface ProviderStatusVm {
     maxRequestsPerMinute: number
     maxRequestsPerDay: number
   }
+  /** The saved connection revision, when the settings read lists connection details. */
+  revision?: string
 }
 
 export interface GoogleSettingsVm {

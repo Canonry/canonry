@@ -12,7 +12,7 @@ Unlike the cloud providers (Gemini, OpenAI, Claude), local LLMs have no built-in
 
 Validates that `baseUrl` is present and non-empty. Returns the model name that will be used (default: `llama3`).
 
-### `healthcheck(config: LocalConfig): Promise<LocalHealthcheckResult>`
+### `healthcheck(config: LocalConfig, signal?: AbortSignal): Promise<LocalHealthcheckResult>`
 
 Calls `GET /models` on the configured endpoint to verify connectivity. Returns ok/error with the number of models detected. Does not require a specific model to be present.
 
