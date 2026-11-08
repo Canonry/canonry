@@ -71,7 +71,7 @@ describe('onboarding surfaces are instrumented', () => {
     // PROJECT so a run launched for one project is never reported against
     // another's onboarding, and marked handled so a remount cannot re-report it.
     const setup = read('pages/SetupPage.tsx')
-    expect(setup).toContain('markOnboardingRunLaunched(createdProjectName, run.id)')
+    expect(setup).toContain("markOnboardingRunLaunched(createdProjectName, run.id, RunKinds['answer-visibility'])")
     expect(setup).toContain('readOnboardingLaunchedRun(resumeProjectName)')
     expect(setup).toContain('markOnboardingRunHandled')
   })

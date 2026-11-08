@@ -5,11 +5,15 @@ import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  forbidden,
   OPENROUTER_ROUTE_FAMILY,
   operationInProgress,
   providerConnectionSettingsDtoSchema,
+  ProviderConnectionsUnavailableReasons,
+  ProviderConnectionUsageSources,
   ProviderKinds,
   RunKinds,
+  settingsDtoSchema,
   type ProviderConnectionConfigDto,
   type ProviderSettingsUpdateRequest,
 } from '@canonry/canonry-contracts'
@@ -143,6 +147,67 @@ describe('provider settings lifecycle HTTP boundary', () => {
       { name: 'gamma', displayName: 'gamma', providers: ['gemini'], sources: ['project'] },
     ] })
     expect((await app.inject({ method: 'GET', url: '/api/v1/settings/providers/local', headers: headers() })).json().usage).toEqual({ projectCount: 0, projects: [] })
+  })
+
+  it('marks a project with an unreadable plan or draft as unknown usage while every other reference still counts', async () => {
+    const { app, db } = await harness()
+    // beta inherits the configured engines; gamma names an engine no connection serves.
+    for (const [id, providers] of [['beta', []], ['gamma', ['openai']]] as const) {
+      db.insert(projects).values({ id, name: id, displayName: id, canonicalDomain: `${id}.example`, country: 'US', language: 'en', providers: [...providers], createdAt: now, updatedAt: now }).run()
+    }
+    db.insert(measurementPlanDrafts).values({ id: 'beta-draft', projectId: 'beta', createdBy: 'test', updatedBy: 'test', createdAt: now, updatedAt: now, authoringJson: '{"defaultContext":' }).run()
+    db.insert(measurementPlanVersions).values({ id: 'gamma-plan', projectId: 'gamma', revision: 1, schemaVersion: 2, canonicalJson: JSON.stringify({ schemaVersion: 2 }), checksum: 'c'.repeat(64), createdAt: now }).run()
+    db.insert(measurementPlans).values({ projectId: 'gamma', activeVersionId: 'gamma-plan', createdAt: now, updatedAt: now }).run()
+    // A published plan's engines replace this selection, so with the plan unreadable it proves nothing.
+    db.insert(schedules).values({ id: 'gamma-schedule', projectId: 'gamma', kind: RunKinds['answer-visibility'], cronExpr: '0 0 * * *', providers: ['gemini'], createdAt: now, updatedAt: now }).run()
+    const unknown = { projectCount: 2, projects: [
+      { name: 'beta', displayName: 'beta', sources: [ProviderConnectionUsageSources['measurement-draft']] },
+      { name: 'gamma', displayName: 'gamma', sources: [ProviderConnectionUsageSources['measurement-plan'], ProviderConnectionUsageSources.schedule] },
+    ] }
+    const response = await app.inject({ method: 'GET', url: '/api/v1/settings', headers: headers() })
+    expect(response.statusCode).toBe(200)
+    const listed = settingsDtoSchema.parse(response.json())
+    expect(listed.providerConnectionsUnavailable).toBeUndefined()
+    expect(listed.providerConnections?.find(connection => connection.name === 'gemini')?.usage).toEqual({
+      projectCount: 2,
+      projects: [
+        { name: 'alpha', displayName: 'Alpha', providers: ['gemini'], sources: ['project'] },
+        { name: 'beta', displayName: 'beta', providers: ['gemini'], sources: ['project'] },
+      ],
+      unknown,
+    })
+    // The editor and disconnect preview read the same usage.
+    const local = await app.inject({ method: 'GET', url: '/api/v1/settings/providers/local', headers: headers() })
+    expect(local.statusCode).toBe(200)
+    expect(local.json().usage).toEqual({ projectCount: 0, projects: [], unknown })
+  })
+
+  it('answers /settings without the connection list, and without the failure text, when the host cannot build it', async () => {
+    const { app, read } = await harness()
+    const secret = 'cnry_must-not-leak'
+    // A raw failure and a refusal without a typed reason both quote values only the server log may see.
+    for (const failure of [new Error(`ENOENT /private/canonry/config.yaml ${secret}`), forbidden(`Host refusal ${secret}`)]) {
+      read.mockImplementation(() => { throw failure })
+      const response = await app.inject({ method: 'GET', url: '/api/v1/settings', headers: headers() })
+      expect(response.statusCode).toBe(200)
+      expect(response.body).not.toContain(secret)
+      const settings = settingsDtoSchema.parse(response.json())
+      expect(settings.providerConnections).toBeUndefined()
+      expect(settings.providerConnectionsUnavailable).toEqual({
+        reason: ProviderConnectionsUnavailableReasons['internal-error'],
+        message: 'Provider connections could not be loaded. Check the server log, then retry.',
+      })
+      expect(settings.providers).toEqual([{ name: 'gemini', configured: true }, { name: 'openrouter', configured: true }, { name: 'local', configured: false }])
+      expect(settings.providerCatalog.map(entry => entry.name)).toEqual(['gemini', 'openrouter', 'local'])
+      expect(settings.google).toEqual({ configured: false })
+      expect(settings.bing).toEqual({ configured: false })
+    }
+    // A caller who never receives the list learns nothing about its state either.
+    read.mockClear()
+    const narrow = await app.inject({ method: 'GET', url: '/api/v1/settings', headers: headers('reader') })
+    expect(narrow.statusCode).toBe(200)
+    expect(Object.keys(narrow.json()).sort()).toEqual(['bing', 'google', 'providerCatalog', 'providers'])
+    expect(read).not.toHaveBeenCalled()
   })
 
   it('rejects stale disconnect impact and forwards the current host revision', async () => {

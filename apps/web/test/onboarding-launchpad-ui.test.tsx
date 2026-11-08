@@ -20,7 +20,7 @@ import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { AGENT_SETUP_GUIDE_URL, AGENT_SETUP_REQUEST, resolveAutoResumeTarget } from '../src/pages/OnboardingSetupPage.js'
 import { runOutcome, visibilityOutcome } from '../src/pages/OnboardingCompletePage.js'
-import { isOnboardingHandoff, markOnboardingHandoff } from '../src/lib/onboarding-telemetry.js'
+import { isOnboardingHandoff, markOnboardingHandoff, readOnboardingLaunchedRun } from '../src/lib/onboarding-telemetry.js'
 import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 
 vi.mock('../src/components/project/SiteHealthSection.js', () => ({
@@ -600,6 +600,42 @@ test('reloading a finished onboarding scan does not report its outcome twice', a
   const second = await renderSetup(url)
   await waitFor(() => expect(second.queryClient.getQueryData(getApiV1RunsByIdQueryKey({ client: heyClient, path: { id: run.id } }))).toMatchObject(run))
   expect(events.filter(event => event.surface === 'site_health' && event.event === 'onboarding.step_completed' && event.step === 'run')).toHaveLength(1)
+})
+
+test('continuing to AI Visibility while the onboarding scan runs leaves the scan to Site Health', async () => {
+  const events: Array<Record<string, unknown>> = []
+  const scan = { id: 'scan-still-running', projectId: AUTO_RESUME_PROJECT.id, kind: 'site-audit', status: 'running', trigger: 'manual', createdAt: '2026-09-05T12:00:00Z', snapshots: [] }
+  onTestFinished(mockFetch((url, init) => {
+    const path = pathOf(url)
+    if (path === '/api/v1/telemetry/onboarding') {
+      events.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return jsonResponse({ accepted: true }, 202)
+    }
+    if (path === '/api/v1/projects') return jsonResponse([AUTO_RESUME_PROJECT])
+    if (path === `/api/v1/runs/${scan.id}`) return jsonResponse(scan)
+    if (path.endsWith('/queries') || path.includes('/runs?')) return jsonResponse([])
+    return jsonResponse({})
+  }))
+  const siteHealthUrl = `/setup?onboarding=site-health&setupProject=example-com&siteHealthRunId=${scan.id}`
+  await renderSetup(siteHealthUrl, { mappedProjectName: 'example-com' })
+  await waitFor(() => expect(readOnboardingLaunchedRun('example-com')).toMatchObject({ runId: scan.id, handled: false }))
+
+  // The scan finishes after the operator moves on to AI Visibility.
+  scan.status = 'completed'
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue onboarding' }))
+
+  // AI setup starts at its queries instead of polling the scan as its check.
+  expect(await screen.findByRole('heading', { name: 'Add queries' })).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Run your first AI Visibility check' })).toBeNull()
+
+  // Back on Site Health, the finished scan reports its own outcome once, and
+  // AI setup reported no failure for it.
+  cleanup()
+  await renderSetup(siteHealthUrl, { mappedProjectName: 'example-com' })
+  await waitFor(() => expect(events.filter(event => event.event === 'onboarding.step_completed' && event.step === 'run')).toEqual([
+    expect.objectContaining({ surface: 'site_health', method: 'automatic' }),
+  ]))
+  expect(events.filter(event => event.event === 'onboarding.blocked')).toEqual([])
 })
 
 

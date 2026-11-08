@@ -49,6 +49,7 @@ import { buildMeasurementObservationSignals } from './measurement-report.js'
 import { planScopeOptions, simpleScopeOptions } from './measurement-scope-options.js'
 import {
   buildVisibilityReport,
+  locationMatches,
   VisibilityReportCursorError,
   VisibilityReportScopeError,
   type VisibilityReportDefinitionInput,
@@ -899,21 +900,121 @@ function simpleRunInput(
     : legacySimpleRun(project, run, snapshots, includeEvidence)
 }
 
+/**
+ * One report run for a Simple sweep. A `--all-locations` sweep writes one run
+ * per location at the same `createdAt`, and the sweep, not one of its rows, is
+ * the unit (#480). Slot and execution ids gain their run's location, so the
+ * same query and engine in two locations stay two slots while the query still
+ * counts once; the ids stay stable from sweep to sweep, so matched cohorts and
+ * the change since the previous sweep still line up.
+ */
+function mergeSimpleSweep(members: ReadonlyArray<{ run: typeof runs.$inferSelect; input: VisibilityReportRunInput }>): VisibilityReportRunInput {
+  const [first, ...rest] = members
+  if (first === undefined) throw new Error('A Simple sweep has at least one run.')
+  if (rest.length === 0) return first.input
+  const scoped = (id: string, run: typeof runs.$inferSelect) => `${id}@${run.location ?? ''}`
+  const definitionIds = members.map(member => member.input.definitionId)
+  const fingerprints = members.map(member => member.input.modelFingerprint)
+  const completedAt = members.map(member => member.input.completedAt)
+  return {
+    ...first.input,
+    completedAt: completedAt.every(value => value !== null) ? [...completedAt].sort().at(-1)! : null,
+    state: members.some(member => member.input.state === 'partial') ? 'partial' : 'measured',
+    definitionId: definitionIds.every(id => id !== null)
+      ? `simple-sweep:${createHash('sha256').update(JSON.stringify([...definitionIds].sort())).digest('hex')}`
+      : null,
+    comparableDefinitionIds: [],
+    modelFingerprint: fingerprints.every(value => value === fingerprints[0]) ? fingerprints[0]! : null,
+    definition: {
+      ...first.input.definition,
+      slots: members.flatMap(({ run, input }) => input.definition.slots.map(slot => ({
+        ...slot, id: scoped(slot.id, run), executionId: scoped(slot.executionId, run),
+      }))),
+      edges: members.flatMap(({ run, input }) => input.definition.edges.map(edge => ({
+        ...edge, id: scoped(edge.id, run), executionId: scoped(edge.executionId, run),
+      }))),
+    },
+    observations: members.flatMap(({ run, input }) => input.observations.map(observation => ({
+      ...observation, slotId: scoped(observation.slotId, run),
+    }))),
+  }
+}
+
+/**
+ * Simple sweeps from runs ordered newest first. A `--all-locations` sweep is
+ * sibling runs that share `createdAt`, each measuring its own location. Two
+ * runs of one location at the same instant are two sweeps, the lower id first.
+ */
+function simpleSweeps<T extends { createdAt: string; location: string | null }>(ordered: readonly T[]): T[][] {
+  const sweeps: T[][] = []
+  let current: T[] = []
+  let locations = new Set<string | null>()
+  for (const run of ordered) {
+    if (current.length > 0 && (run.createdAt !== current[0]!.createdAt || locations.has(run.location))) {
+      sweeps.push(current)
+      current = []
+      locations = new Set()
+    }
+    current.push(run)
+    locations.add(run.location)
+  }
+  if (current.length > 0) sweeps.push(current)
+  return sweeps
+}
+
+/**
+ * The eligible Simple sweep before `selected` (the selected sweep's oldest
+ * run) that measured `location`, as all of its sibling runs. Like the report's
+ * own run list it is bounded, and unlike it, it ignores the date window: a
+ * change compares against the sweep that actually came before.
+ */
+function previousSimpleSweep(
+  db: DatabaseClient,
+  projectId: string,
+  selected: Pick<typeof runs.$inferSelect, 'id' | 'createdAt'>,
+  location: VisibilityReportQuery['location'],
+) {
+  const earlier = db.select().from(runs).where(and(
+    eq(runs.projectId, projectId),
+    eq(runs.kind, RunKinds['answer-visibility']),
+    inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+    notProbeRun(),
+    isNull(runs.measurementPlanVersionId),
+    isNull(runs.measurementScope),
+    or(
+      lt(runs.createdAt, selected.createdAt),
+      and(eq(runs.createdAt, selected.createdAt), lt(runs.id, selected.id)),
+    ),
+  )).orderBy(desc(runs.createdAt), desc(runs.id)).limit(VISIBILITY_REPORT_MAX_RUNS).all()
+  return simpleSweeps(earlier.filter(run => locationMatches(run.location, location)))[0] ?? []
+}
+
 function simpleReaderInput(
   db: DatabaseClient,
   project: { id: string; displayName: string; canonicalDomain: string },
   query: VisibilityReportQuery,
   includeHistory: boolean,
 ): VisibilityReportReaderInput {
+  // A pinned run reads exactly that run. Otherwise a location filter keeps the
+  // runs that measured that location, and each sweep is read as one result.
+  const pinned = query.runId !== undefined
   const sourceRuns = completedVisibilityRuns(db, project.id, true, query)
-  const materializedRuns = includeHistory ? sourceRuns : sourceRuns.slice(0, 1)
+    .filter(run => pinned || locationMatches(run.location, query.location))
+  const sweeps = pinned ? sourceRuns.map(run => [run]) : simpleSweeps(sourceRuns)
+  const materializedSweeps = includeHistory ? sweeps : sweeps.slice(0, 1)
   // Apply the run/time predicate before touching sidecars. A long-lived
   // project may have many historical captures, but this report's bounded run
   // selection is the only history it is entitled to reconstruct.
-  const frozen = frozenSimpleDefinitions(db, project.id, materializedRuns.map(run => run.id))
-  const selectedRun = sourceRuns.at(0)
-  const candidates = materializedRuns.map(run => simpleRunInput(db, project, run, frozen.get(run.id), run.id === selectedRun?.id))
-  if (query.runId !== undefined && !candidates.some(run => run.id === query.runId)) {
+  const frozen = frozenSimpleDefinitions(db, project.id, materializedSweeps.flat().map(run => run.id))
+  const selectedSweep = sweeps.at(0)
+  const selectedRun = selectedSweep?.[0]
+  const readSweep = (
+    sweep: readonly (typeof runs.$inferSelect)[],
+    definitions: ReturnType<typeof frozenSimpleDefinitions>,
+    includeEvidence: boolean,
+  ) => mergeSimpleSweep(sweep.map(run => ({ run, input: simpleRunInput(db, project, run, definitions.get(run.id), includeEvidence) })))
+  const candidates = materializedSweeps.map(sweep => readSweep(sweep, frozen, sweep === selectedSweep))
+  if (pinned && !candidates.some(run => run.id === query.runId)) {
     throw validationError(`Measurement run "${query.runId}" is not an eligible simple result.`)
   }
   const previousInput = (): VisibilityReportPreviousRunInput | null => {
@@ -921,12 +1022,15 @@ function simpleReaderInput(
     // first), so it needs no predecessor read.
     if (!includeHistory || selectedRun === undefined || selectedRun.measurementScope !== null) return null
     return readPreviousSweep(() => {
-      const predecessor = previousEligibleVisibilityRun(db, project.id, true, selectedRun)
-      if (predecessor === undefined) return null
-      const loaded = candidates.find(candidate => candidate.id === predecessor.id)
+      // A pinned run compares with its own location in the sweep before it.
+      const location: VisibilityReportQuery['location'] = !pinned ? query.location
+        : selectedRun.location === null ? { kind: 'none' } : { kind: 'exact', value: selectedRun.location }
+      const predecessor = previousSimpleSweep(db, project.id, selectedSweep?.at(-1) ?? selectedRun, location)
+      const representative = predecessor[0]
+      if (representative === undefined) return null
+      const loaded = candidates.find(candidate => candidate.id === representative.id)
       if (loaded !== undefined) return { run: loaded }
-      const definition = frozenSimpleDefinitions(db, project.id, [predecessor.id]).get(predecessor.id)
-      return { run: simpleRunInput(db, project, predecessor, definition, false) }
+      return { run: readSweep(predecessor, frozenSimpleDefinitions(db, project.id, predecessor.map(run => run.id)), false) }
     })
   }
   return {

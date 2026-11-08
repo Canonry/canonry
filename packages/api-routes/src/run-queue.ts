@@ -139,18 +139,27 @@ export function hasActiveMeasurementPlan(db: DatabaseClient, projectId: string):
 /** Shared setup/launch gate; a deliberately deactivated plan may run as Simple. */
 export function requiresMeasurementPublication(db: DatabaseClient, projectId: string): boolean {
   if (hasActiveMeasurementPlan(db, projectId)) return false
-  const draft = db.select({ id: measurementPlanDrafts.id }).from(measurementPlanDrafts)
-    .where(eq(measurementPlanDrafts.projectId, projectId)).get()
-  if (draft === undefined) return false
+  const draft = db.select({ id: measurementPlanDrafts.id, etagVersion: measurementPlanDrafts.etagVersion })
+    .from(measurementPlanDrafts).where(eq(measurementPlanDrafts.projectId, projectId)).get()
+  // Opening Advanced setup creates a seeded draft at ETag version 1, and every
+  // content edit bumps it. Until an operator edits it nothing is being set up,
+  // so a project that was only looked at keeps measuring as Simple.
+  if (draft === undefined || draft.etagVersion <= 1) return false
   // Deactivation deliberately returns to Simple while preserving draft work.
   return db.select({ id: measurementPlanVersions.id }).from(measurementPlanVersions)
     .where(eq(measurementPlanVersions.projectId, projectId)).limit(1).get() === undefined
 }
 
-/** A draft is not permission to measure the live library as a Simple project. */
+/**
+ * A draft is not permission for an operator to measure the live library as a
+ * Simple project. A schedule keeps measuring it until the plan is published:
+ * no one is there to see a refused scheduled sweep, and refusing it would
+ * leave a gap in the trend.
+ */
 export function assertPublishedMeasurementPlanForSweep(db: DatabaseClient, params: Pick<QueueRunParams, 'projectId' | 'trigger' | 'kind'>): void {
   if ((params.kind ?? RunKinds['answer-visibility']) === RunKinds['answer-visibility']
-    && params.trigger !== RunTriggers.probe && requiresMeasurementPublication(db, params.projectId)) {
+    && params.trigger !== RunTriggers.probe && params.trigger !== RunTriggers.scheduled
+    && requiresMeasurementPublication(db, params.projectId)) {
     throw validationError('Publish the Advanced Measurement draft before starting a sweep.')
   }
 }

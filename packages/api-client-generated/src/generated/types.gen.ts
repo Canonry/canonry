@@ -15527,6 +15527,17 @@ export type ProviderConnectionSettingsDto = {
             providers: Array<string>;
             sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
         }>;
+        /**
+         * Present only when a project's saved measurement plan or draft could not be read. The listed sources of those projects (a schedule follows its unreadable plan) may also reference this connection; they are never counted in projectCount or listed in projects.
+         */
+        unknown?: {
+            projectCount: number;
+            projects: Array<{
+                name: string;
+                displayName: string;
+                sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+            }>;
+        };
     };
     impactRevision: string;
 };
@@ -16473,9 +16484,27 @@ export type SettingsDto = {
                 providers: Array<string>;
                 sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
             }>;
+            /**
+             * Present only when a project's saved measurement plan or draft could not be read. The listed sources of those projects (a schedule follows its unreadable plan) may also reference this connection; they are never counted in projectCount or listed in projects.
+             */
+            unknown?: {
+                projectCount: number;
+                projects: Array<{
+                    name: string;
+                    displayName: string;
+                    sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+                }>;
+            };
         };
         impactRevision: string;
     }>;
+    /**
+     * Present instead of providerConnections, for the same install administrator, when the host could not build that list. Every other settings field is still returned.
+     */
+    providerConnectionsUnavailable?: {
+        reason: 'config-unreadable' | 'internal-error';
+        message: string;
+    };
     google: {
         configured: boolean;
     };
@@ -27018,6 +27047,10 @@ export type GetApiV1SettingsProvidersByNameData = {
 };
 
 export type GetApiV1SettingsProvidersByNameErrors = {
+    /**
+     * The host could not read its saved provider configuration (error.details.reason config-unreadable).
+     */
+    400: ErrorEnvelope;
     /**
      * Install administrator authority is required.
      */

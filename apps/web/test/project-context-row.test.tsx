@@ -31,7 +31,7 @@ afterEach(() => {
 
 const PROJECT_PAGE_TABS = [
   'overview', 'portfolio', 'search-console', 'seo-data', 'journeys', 'conversions', 'local', 'queries', 'client-queries', 'discovery',
-  'activity', 'backlinks', 'technical-aeo', 'history', 'settings',
+  'activity', 'traffic', 'backlinks', 'technical-aeo', 'history', 'settings',
 ] as const satisfies readonly ProjectPageTab[]
 
 const CONTEXT_TITLE_CLASS = 'project-context-title md:sr-only'

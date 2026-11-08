@@ -5,6 +5,7 @@ import type { ApiRoutesOptions } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   AppError,
+  ProviderConnectionsUnavailableReasons,
   ProviderKinds,
   ProviderNames,
   forbidden,
@@ -46,8 +47,11 @@ export function createProviderSettingsController(host: ProviderSettingsHost) {
     try {
       return loadConfig(host.configPath)
     } catch {
-      // YAML exceptions can contain the credential-bearing source line.
-      throw validationError('Provider configuration could not be loaded; repair config.yaml and retry.')
+      // YAML exceptions can contain the credential-bearing source line, and
+      // loader messages name the file's path; neither belongs in a response.
+      throw validationError('Saved provider settings could not be read from config.yaml. Repair the file on the host, then reload provider connections.', {
+        reason: ProviderConnectionsUnavailableReasons['config-unreadable'],
+      })
     }
   }
 

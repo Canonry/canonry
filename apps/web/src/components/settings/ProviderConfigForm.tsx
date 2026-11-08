@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode, type ComponentProps
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import * as Dialog from '@radix-ui/react-dialog'
-import { describeError, isOpenRouterRoute, ProviderKinds, ProviderNames, ProviderQuotaFields, type ProviderCatalogEntryDto, type ProviderConnectionSettingsDto, type ProviderQuotaField, type ProviderSettingsUpdateRequest } from '@canonry/canonry-contracts'
+import { describeError, isOpenRouterRoute, ProviderConnectionsUnavailableReasons, ProviderKinds, ProviderNames, ProviderQuotaFields, type ProviderCatalogEntryDto, type ProviderConnectionSettingsDto, type ProviderConnectionsUnavailableReason, type ProviderQuotaField, type ProviderSettingsUpdateRequest, type SettingsDto } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { disconnectProvider, fetchProviderConnection, fetchSettings, reloadProviderConnections, updateProviderConfig } from '../../api.js'
@@ -419,9 +419,36 @@ function ProviderConnectionEditor({ connection, catalog, compact = false, onDirt
   </form>
 }
 
+export const PROVIDER_CONNECTIONS_COPY = {
+  configUnreadable: 'Saved connection settings could not be read',
+  internalError: 'Connection details could not be loaded',
+  configuredOnServer: 'Configured on this server',
+  usageUnknown: (count: number) => `Usage unknown for ${count} ${count === 1 ? 'project' : 'projects'}`,
+  usageUnknownDetail: (count: number) => count === 1
+    ? 'Saved measurement settings could not be read for 1 project, so whether it uses this connection is unknown.'
+    : `Saved measurement settings could not be read for ${count} projects, so whether they use this connection is unknown.`,
+} as const
+
+/** The server's reason decides the heading and whether re-reading can help; its message carries the instructions. */
+function unavailableView(reason: ProviderConnectionsUnavailableReason): { title: string; retry: boolean } {
+  switch (reason) {
+    // Repairing the file is only half the fix; the message sends the operator to Reload from host.
+    case ProviderConnectionsUnavailableReasons['config-unreadable']: return { title: PROVIDER_CONNECTIONS_COPY.configUnreadable, retry: false }
+    case ProviderConnectionsUnavailableReasons['internal-error']: return { title: PROVIDER_CONNECTIONS_COPY.internalError, retry: true }
+  }
+}
+
+function usageSummary(usage: ProviderConnectionSettingsDto['usage']): string {
+  return [
+    usage.projectCount > 0 ? `Used by ${usage.projectCount} ${usage.projectCount === 1 ? 'project' : 'projects'}` : '',
+    usage.unknown ? PROVIDER_CONNECTIONS_COPY.usageUnknown(usage.unknown.projectCount) : '',
+  ].filter(part => part !== '').join(' · ')
+}
+
 export function ProviderConnectionsSection({ projects }: { projects: { name: string; displayName?: string | null; providers: string[] }[] }) {
   const queryClient = useQueryClient()
-  const settings = useQuery({ queryKey: ['settings'], queryFn: fetchSettings, staleTime: 60_000 })
+  // Typed by the wire contract so the connection-list state the server reports is readable here.
+  const settings = useQuery<SettingsDto>({ queryKey: ['settings'], queryFn: fetchSettings, staleTime: 60_000 })
   const [adding, setAdding] = useState(() => window.location.hash.startsWith('#provider-'))
   const [fallbackEditing, setFallbackEditing] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -437,6 +464,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
   const [projectName, setProjectName] = useState('')
   const guard = useUnsavedChanges(dirty, busy)
   const connections = settings.data?.providerConnections
+  const unavailable = settings.data?.providerConnectionsUnavailable
   const selectedProject = projectName || projects[0]?.name
   const selectedModels = projects.find(project => project.name === selectedProject)?.providers.filter(isOpenRouterRoute) ?? []
 
@@ -520,12 +548,13 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
     const routed = connection.kind !== ProviderKinds['answer-engine']
     const active = editing?.name === connection.name
     const managed = !connection.capabilities.apiKey && !connection.capabilities.baseUrl
+    const usage = usageSummary(connection.usage)
     return <div key={connection.name} id={`provider-${connection.name}`} className="scroll-mt-24 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-copy-14-strong text-heading">{connection.displayName}</p>
           <p className="mt-1 break-words text-copy-14 text-secondary">{connection.mode === 'browser' ? 'Browser connection' : connection.kind === ProviderKinds['model-gateway'] ? 'Model gateway' : connection.kind === ProviderKinds['answer-service'] ? 'Search answer service · choose profiles in each project' : connection.effectiveModel ?? 'Direct answer engine'}{connection.baseUrl ? ` · ${connection.baseUrl}` : ''}</p>
-          {connection.usage.projectCount > 0 && <p className="mt-1 text-label-12 text-secondary">Used by {connection.usage.projectCount} {connection.usage.projectCount === 1 ? 'project' : 'projects'}</p>}
+          {usage && <p className="mt-1 text-label-12 text-secondary">{usage}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ToneBadge tone={connection.configured ? 'neutral' : 'caution'}>{connection.configured ? 'Configured' : 'Not configured'}</ToneBadge>
@@ -555,15 +584,33 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
     { label: 'Browser providers', entries: available.filter(connection => connection.mode === 'browser') },
   ]
 
+  const unavailableState = unavailable ? { ...unavailableView(unavailable.reason), message: unavailable.message } : null
+  const configuredOnServer = settings.data?.providers.filter(provider => provider.configured) ?? []
+
   return <section aria-labelledby="provider-connections-title" aria-busy={busy || settings.isLoading}>
     <div className="section-head">
       <h2 id="provider-connections-title">Provider connections</h2>
-      {connections && <div className="flex flex-wrap gap-2">{connections.some(connection => connection.capabilities.reload) && <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => guard.request(() => void reload())}>Reload from host</Button>}<Button ref={addProviderAction} type="button" variant="outline" size="sm" disabled={busy} onClick={() => setAdding(current => !current)}>{adding ? 'Close catalog' : 'Add provider'}</Button></div>}
+      {(connections || unavailable) && <div className="flex flex-wrap gap-2">{(unavailable || connections?.some(connection => connection.capabilities.reload)) && <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => guard.request(() => void reload())}>Reload from host</Button>}{connections && <Button ref={addProviderAction} type="button" variant="outline" size="sm" disabled={busy} onClick={() => setAdding(current => !current)}>{adding ? 'Close catalog' : 'Add provider'}</Button>}</div>}
     </div>
     <p className="mb-4 text-copy-14 text-secondary">Save credentials and defaults here. Each project chooses the answer engines it runs.</p>
     {settings.isLoading && <p role="status" className="text-copy-14 text-secondary">Loading connections…</p>}
     {(settings.isError || error) && <div className="mb-4 space-y-2"><p role="alert" className="text-copy-14 text-negative-400">{error ?? 'Could not load provider connections.'}</p><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { setError(null); void settings.refetch() }}>Retry</Button></div>}
-    {connections ? <>
+    {unavailableState ? <div className="space-y-4">
+      <div role="alert" className="space-y-1">
+        <p className="text-copy-14-strong text-heading">{unavailableState.title}</p>
+        <p className="text-copy-14 text-secondary">{unavailableState.message}</p>
+      </div>
+      {unavailableState.retry && <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { setError(null); void settings.refetch() }}>Retry</Button>}
+      {/* An editor opened before the list became unavailable keeps its unsaved draft; saving reports the server's refusal. */}
+      {editing && <div className="divide-y divide-default">{connectionRow(editing)}</div>}
+      {configuredOnServer.length > 0 && <div>
+        <h3 className="text-label-12 text-secondary">{PROVIDER_CONNECTIONS_COPY.configuredOnServer}</h3>
+        <div className="mt-1 divide-y divide-default">{configuredOnServer.map(provider => <div key={provider.name} className="flex flex-wrap items-center justify-between gap-3 py-3">
+          <div className="min-w-0"><p className="text-copy-14-strong text-heading">{provider.displayName ?? provider.name}</p>{(provider.model ?? provider.defaultModel) && <p className="break-words text-copy-14 text-secondary">{provider.model ?? provider.defaultModel}</p>}</div>
+          <ToneBadge tone="neutral">Configured</ToneBadge>
+        </div>)}</div>
+      </div>}
+    </div> : connections ? <>
       <div className="divide-y divide-default">{connections.filter(connection => connection.configured || connection.name === editing?.name).map(connectionRow)}</div>
       {!connections.some(connection => connection.configured) && !editing && <p className="py-4 text-copy-14 text-secondary">No provider connections configured. Add a provider to start choosing answer engines.</p>}
       {adding && <div className="mt-5 border-t border-default pt-4">
@@ -590,6 +637,10 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
         {disconnecting && <div className="mt-4 space-y-3 text-copy-14 text-secondary">
           <p>{disconnecting.usage.projectCount} {disconnecting.usage.projectCount === 1 ? 'project references' : 'projects reference'} this connection.</p>
           {disconnecting.usage.projects.length > 0 && <ul className="space-y-2">{disconnecting.usage.projects.map(project => <li key={project.name}><span className="text-heading">{project.displayName}</span><span className="block break-words text-label-12">{project.providers.map(provider => providerDisplayName(provider, settings.data?.providerCatalog)).join(', ')} · {project.sources.join(', ')}</span></li>)}</ul>}
+          {disconnecting.usage.unknown && <div role="status" className="space-y-2">
+            <p className="text-caution-400">{PROVIDER_CONNECTIONS_COPY.usageUnknownDetail(disconnecting.usage.unknown.projectCount)}</p>
+            <ul className="space-y-2">{disconnecting.usage.unknown.projects.map(project => <li key={project.name}><span className="text-heading">{project.displayName}</span><span className="block break-words text-label-12">Unreadable: {project.sources.join(', ')}</span></li>)}</ul>
+          </div>}
           {disconnecting.hostUses.map(use => <p key={use}>Host usage: {use}</p>)}
           {disconnecting.blockers.map(blocker => <p key={blocker.code} role="status" className="text-caution-400">{blocker.message}</p>)}
           {!disconnecting.capabilities.disconnect && <p className="text-caution-400">This connection cannot be disconnected here.</p>}

@@ -71,12 +71,17 @@ export type ProviderConnectionConfigDto = z.infer<typeof providerConnectionConfi
 
 export const providerConnectionUsageSourceSchema = z.enum(['project', 'schedule', 'measurement-plan', 'measurement-draft'])
 export const ProviderConnectionUsageSources = providerConnectionUsageSourceSchema.enum
+export type ProviderConnectionUsageSource = z.infer<typeof providerConnectionUsageSourceSchema>
 export const providerConnectionSettingsDtoSchema = providerConnectionConfigDtoSchema.extend({
   usage: z.object({
     projectCount: z.number().int().nonnegative(),
     projects: z.array(z.object({
       name: z.string(), displayName: z.string(), providers: z.array(z.string()), sources: z.array(providerConnectionUsageSourceSchema),
     })),
+    unknown: z.object({
+      projectCount: z.number().int().positive(),
+      projects: z.array(z.object({ name: z.string(), displayName: z.string(), sources: z.array(providerConnectionUsageSourceSchema) })),
+    }).optional().describe('Present only when a project\'s saved measurement plan or draft could not be read. The listed sources of those projects (a schedule follows its unreadable plan) may also reference this connection; they are never counted in projectCount or listed in projects.'),
   }),
   impactRevision: z.string(),
 })
@@ -185,6 +190,26 @@ export const integrationSettingsSummaryDtoSchema = z.object({
 export type IntegrationSettingsSummaryDto = z.infer<typeof integrationSettingsSummaryDtoSchema>
 
 /**
+ * Why `GET /settings` returned `providerConnectionsUnavailable` instead of
+ * `providerConnections`. `config-unreadable`: the host could not read its
+ * saved provider configuration (for example a YAML or schema mistake in a
+ * hand edit); repair it on the host, then reload provider connections.
+ * `internal-error`: the list could not be built for another reason; the server
+ * log has the detail. Also `error.details.reason` when a provider connection
+ * read or write is refused for the same cause. Branch on this, never on a message.
+ */
+export const providerConnectionsUnavailableReasonSchema = z.enum(['config-unreadable', 'internal-error'])
+export const ProviderConnectionsUnavailableReasons = providerConnectionsUnavailableReasonSchema.enum
+export type ProviderConnectionsUnavailableReason = z.infer<typeof providerConnectionsUnavailableReasonSchema>
+
+export const providerConnectionsUnavailableDtoSchema = z.object({
+  reason: providerConnectionsUnavailableReasonSchema,
+  /** Operator guidance. Never contains a credential, a configuration line, or a file path. */
+  message: z.string(),
+})
+export type ProviderConnectionsUnavailableDto = z.infer<typeof providerConnectionsUnavailableDtoSchema>
+
+/**
  * Response shape for `GET /settings`. Powers the dashboard's settings page
  * and the `setup_state` telemetry derived from provider presence.
  */
@@ -193,6 +218,8 @@ export const settingsDtoSchema = z.object({
   providerCatalog: z.array(providerCatalogEntryDtoSchema).default([]),
   /** Present only for an install administrator on a host exposing saved provider configuration. */
   providerConnections: z.array(providerConnectionSettingsDtoSchema).optional(),
+  providerConnectionsUnavailable: providerConnectionsUnavailableDtoSchema.optional()
+    .describe('Present instead of providerConnections, for the same install administrator, when the host could not build that list. Every other settings field is still returned.'),
   google: integrationSettingsSummaryDtoSchema,
   bing: integrationSettingsSummaryDtoSchema,
 })

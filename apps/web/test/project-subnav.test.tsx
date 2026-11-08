@@ -13,7 +13,12 @@ const items = [
   { key: 'technical-aeo', label: 'Site Health' },
   { key: 'journeys', label: 'Journeys' },
   { key: 'traffic', label: 'Server traffic' },
-].map(item => ({ ...item, key: item.key as ProjectPageTab, href: `/projects/demo/${item.key}` }))
+].map(item => ({
+  ...item,
+  key: item.key as ProjectPageTab,
+  // As in ProjectPage: AI Visibility is the project root, the parent of every other section.
+  href: item.key === 'overview' ? '/projects/demo' : `/projects/demo/${item.key}`,
+}))
 const overflowItems = [
   { key: 'conversions' as const, label: 'Conversions', href: '/projects/demo/conversions' },
   { key: 'local' as const, label: 'Local Presence', href: '/projects/demo/local' },
@@ -24,7 +29,7 @@ const overflowItems = [
 const settingsItem = { key: 'settings' as const, label: 'Settings', href: '/projects/demo/settings' }
 const baseWidths: Record<string, number> = {
   overview: 112, 'search-console': 132, 'seo-data': 56, activity: 84, 'technical-aeo': 108, journeys: 96, traffic: 132,
-  more: 80, settings: 88,
+  conversions: 104, local: 124, queries: 76, backlinks: 92, history: 128, more: 80, settings: 88,
 }
 const moreLabels = ['Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Change History']
 let widths = { ...baseWidths }
@@ -70,10 +75,11 @@ async function renderNav(activeTab: ProjectPageTab = 'overview', filtered = fals
       activeTab={activeTab}
     />,
   })
+  const projectRoot = createRoute({ getParentRoute: () => root, path: '/projects/demo' })
   const route = createRoute({ getParentRoute: () => root, path: '/projects/demo/$section' })
   const router = createRouter({
-    routeTree: root.addChildren([route]),
-    history: createMemoryHistory({ initialEntries: [`/projects/demo/${activeTab}?measurementScope=market&measurementScopeKey=metro-alpha&runId=drawer-run&onboarding=1`] }),
+    routeTree: root.addChildren([projectRoot, route]),
+    history: createMemoryHistory({ initialEntries: [`/projects/demo${activeTab === 'overview' ? '' : `/${activeTab}`}?measurementScope=market&measurementScopeKey=metro-alpha&runId=drawer-run&onboarding=1`] }),
   })
   await router.load()
   const view = render(<RouterProvider router={router} />)
@@ -130,7 +136,9 @@ test('the overflow menu supports keyboard navigation and restores focus on Escap
   expect(document.activeElement).toBe(trigger)
 })
 
-test('overflow destinations and Settings retain measurement and drawer URL state', async () => {
+// The subnav's Settings tab exists only in embeds; operators reach Settings
+// through the sidebar's Project settings link (portfolio-route.test.tsx).
+test('overflow destinations and the embed Settings tab retain measurement and drawer URL state', async () => {
   containerWidth = 650
   const { nav, router } = await renderNav()
   const settings = within(nav).getByRole('link', { name: 'Settings' }) as HTMLAnchorElement
@@ -156,14 +164,35 @@ test('embed-filtered sections remain filtered when they overflow', async () => {
   expect(within(nav).queryByText('Queries')).toBeNull()
 })
 
-test('an active low-frequency section remains identified inside More', async () => {
-  const { nav } = await renderNav('history')
-  const trigger = within(nav).getByRole('button', { name: 'More' })
-  expect(trigger.classList.contains('project-subnav-link-active')).toBe(true)
-  fireEvent.click(trigger)
-  expect(within(nav).getByRole('menuitem', { name: 'Change History' }).getAttribute('aria-current')).toBe('page')
+const primaryLabels = ['AI Visibility', 'Search Engines', 'SEO', 'Activity', 'Site Health', 'Journeys', 'Server traffic']
+
+function currentPageLinks(nav: HTMLElement) {
+  return within(nav).getAllByRole('link').filter(link => link.getAttribute('aria-current') === 'page').map(link => link.textContent)
+}
+
+test.each([
+  { tab: 'activity', label: 'Activity', row: [...primaryLabels, 'Settings'] },
+  { tab: 'history', label: 'Change History', row: [...primaryLabels, 'Change History', 'Settings'] },
+] as const)('the row names the open $label section as the current page', async ({ tab, label, row }) => {
+  const { nav } = await renderNav(tab)
+  expect(within(nav).getAllByRole('link').map(link => link.textContent)).toEqual(row)
+  expect(currentPageLinks(nav)).toEqual([label])
+  fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
+  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(moreLabels.filter(name => name !== label))
   fireEvent.pointerDown(document.body)
   expect(within(nav).queryByRole('menu')).toBeNull()
+})
+
+test.each([
+  { tab: 'history', label: 'Change History', width: 400 },
+  { tab: 'settings', label: 'Settings', width: 150 },
+] as const)('the open $label section keeps its tab when the panel is too narrow for the rest', async ({ tab, label, width }) => {
+  containerWidth = width
+  const { nav } = await renderNav(tab)
+  expect(currentPageLinks(nav)).toEqual([label])
+  fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
+  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toContain('AI Visibility')
+  expect(within(nav).queryByRole('menuitem', { name: label })).toBeNull()
 })
 
 test('a long active tab remains reachable at narrow widths and other tabs return when widened', async () => {
