@@ -65,6 +65,8 @@ export const projects = sqliteTable('projects', {
   configSource: text('config_source').$type<ConfigSource>().notNull().default('cli'),
   configRevision: integer('config_revision').notNull().default(1),
   icpDescription: text('icp_description'),
+  /** The social platforms this project monitors (`SocialMonitorPlatform` values, each at most once); default `[]`, none. */
+  socialPlatforms: text('social_platforms', { mode: 'json' }).$type<SocialMonitorPlatform[]>().notNull().default([]),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })
@@ -4493,6 +4495,89 @@ export const sentimentAttempts = sqliteTable('sentiment_attempts', {
   uniqueIndex('idx_sentiment_attempt_number').on(table.workItemId, table.attemptNumber),
   index('idx_sentiment_attempt_dispatch').on(table.dispatchedAt),
   foreignKey({ columns: [table.projectId, table.workItemId], foreignColumns: [sentimentWorkItems.projectId, sentimentWorkItems.id] }).onDelete('cascade'),
+])
+
+/**
+ * A platform social monitoring searches. Must equal `SocialMonitorPlatform` in
+ * contracts (`social-monitoring.ts`, Canonry/canonry#1463; issue #95 calls it
+ * `SocialPlatformName`) once that lands, then import it from there instead.
+ * Stored as TEXT, so the union is a write-side type only. Not the GA4 social
+ * referral grouping (`SocialPlatform` in `social-platform.ts`).
+ */
+export type SocialMonitorPlatform = 'x' | 'reddit' | 'linkedin'
+
+/**
+ * One social post a social monitoring run found for a project. `(platform,
+ * external_id)` identifies the post across the whole install, so it is stored
+ * once however many runs see it. It goes with its run or its project; a
+ * deleted query only clears `query_id`.
+ *
+ * Identity and capture facts are non-null; what a platform may not expose
+ * (author, follower count, engagement counts, a title, a community) is null
+ * for unknown, never zero. `sentiment` stays null until a judgment is stored.
+ */
+export const socialMentions = sqliteTable('social_mentions', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
+  platform: text('platform').$type<SocialMonitorPlatform>().notNull(),
+  /** The tracked query whose search found the post; null when none did or it was deleted. */
+  queryId: text('query_id').references(() => queries.id, { onDelete: 'set null' }),
+  /** The platform's own post id. */
+  externalId: text('external_id').notNull(),
+  externalUrl: text('external_url').notNull(),
+  authorHandle: text('author_handle'),
+  authorName: text('author_name'),
+  authorFollowers: integer('author_followers'),
+  /** The post body; empty for a post with only a title. */
+  contentText: text('content_text').notNull(),
+  /** The post title where the platform has one (a Reddit submission). */
+  contentTitle: text('content_title'),
+  /** Whether the post links to one of the project's domains. */
+  mentionsDomain: integer('mentions_domain', { mode: 'boolean' }).notNull(),
+  sentiment: text('sentiment'),
+  engagementLikes: integer('engagement_likes'),
+  engagementShares: integer('engagement_shares'),
+  engagementComments: integer('engagement_comments'),
+  /** The platform's own score for the post (Reddit's net votes), as reported. */
+  engagementScore: integer('engagement_score'),
+  subreddit: text('subreddit'),
+  hashtags: text('hashtags', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  /** Platform-specific fields that have no column of their own. */
+  metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+  postedAt: text('posted_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_social_mentions_run').on(table.runId),
+  index('idx_social_mentions_project').on(table.projectId),
+  index('idx_social_mentions_project_platform').on(table.projectId, table.platform),
+  index('idx_social_mentions_query').on(table.queryId),
+  uniqueIndex('idx_social_mentions_platform_external').on(table.platform, table.externalId),
+])
+
+/**
+ * How a project authenticates to one social platform, one row per platform
+ * and project.
+ *
+ * `access_token`, `refresh_token` and `api_key` hold secrets. No read API
+ * returns them: the API and CLI layers that read this table mask them. Which
+ * of them a row carries depends on the platform's auth, so all three are
+ * nullable.
+ */
+export const socialConnections = sqliteTable('social_connections', {
+  id: text('id').primaryKey(),
+  platform: text('platform').$type<SocialMonitorPlatform>().notNull(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  tokenExpiresAt: text('token_expires_at'),
+  apiKey: text('api_key'),
+  scopes: text('scopes', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_social_connections_platform_project').on(table.platform, table.projectId),
 ])
 
 export { seoProfiles, seoJobs, seoTasks, seoBudgets } from './seo-schema.js'

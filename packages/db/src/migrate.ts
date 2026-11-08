@@ -5643,6 +5643,60 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       stampBrowserAgentOlderCount(tx, new Date().toISOString())
     },
   },
+  {
+    version: 223,
+    name: 'social-monitoring-tables',
+    // Social monitoring: the posts a run found, each platform's credentials per
+    // project, and the platforms a project monitors. Every existing project
+    // reads `[]`, so none starts monitoring on upgrade.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS social_mentions (
+        id                   TEXT PRIMARY KEY,
+        project_id           TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        run_id               TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        platform             TEXT NOT NULL,
+        query_id             TEXT REFERENCES queries(id) ON DELETE SET NULL,
+        external_id          TEXT NOT NULL,
+        external_url         TEXT NOT NULL,
+        author_handle        TEXT,
+        author_name          TEXT,
+        author_followers     INTEGER,
+        content_text         TEXT NOT NULL,
+        content_title        TEXT,
+        mentions_domain      INTEGER NOT NULL,
+        sentiment            TEXT,
+        engagement_likes     INTEGER,
+        engagement_shares    INTEGER,
+        engagement_comments  INTEGER,
+        engagement_score     INTEGER,
+        subreddit            TEXT,
+        hashtags             TEXT NOT NULL DEFAULT '[]',
+        metadata             TEXT NOT NULL DEFAULT '{}',
+        posted_at            TEXT NOT NULL,
+        created_at           TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_social_mentions_run ON social_mentions(run_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_social_mentions_project ON social_mentions(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_social_mentions_project_platform ON social_mentions(project_id, platform)`,
+      `CREATE INDEX IF NOT EXISTS idx_social_mentions_query ON social_mentions(query_id)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_social_mentions_platform_external ON social_mentions(platform, external_id)`,
+      `CREATE TABLE IF NOT EXISTS social_connections (
+        id                TEXT PRIMARY KEY,
+        platform          TEXT NOT NULL,
+        project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        access_token      TEXT,
+        refresh_token     TEXT,
+        token_expires_at  TEXT,
+        api_key           TEXT,
+        scopes            TEXT NOT NULL DEFAULT '[]',
+        metadata          TEXT NOT NULL DEFAULT '{}',
+        created_at        TEXT NOT NULL,
+        updated_at        TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_social_connections_platform_project ON social_connections(platform, project_id)`,
+      `ALTER TABLE projects ADD COLUMN social_platforms TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
 ]
 
 /** v222: the hourly tables holding a hosted browser agent's hours, counted or judged likely fake. */
