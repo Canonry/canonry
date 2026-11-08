@@ -16,5 +16,14 @@
     "citations",
     "mentions",
     "mcp"
-  ]
+  ],
+  "extensions": {
+    "com.nousresearch.hermes": {
+      "servers": {
+        "canonry": {
+          "trust": "untrusted"
+        }
+      }
+    }
+  }
 }

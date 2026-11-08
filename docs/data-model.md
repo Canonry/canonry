@@ -194,8 +194,8 @@ small every link looks ubiquitous. The backfill classifies every stored scan
 from rows the crawl already persisted; it deliberately does not rewrite
 immutable layout coordinates, and those rows keep `template_links_excluded = 0`
 so the map can say their positions predate the split.
-Migration 138 replaces the rule for every NEW scan. The crawler (aeo-audit
-4.7.0) reports where each link occurrence sat, from the page's own landmarks,
+Migration 138 replaces the rule for every NEW scan. The crawler (audit engine
+4.7.0+) reports where each link occurrence sat, from the page's own landmarks,
 and those three counts are stored per link beside the landmark ruleset version
 on the snapshot. Any content occurrence makes a link editorial, navigation with
 no content occurrence makes it chrome, and `unknown` carries no evidence, so a

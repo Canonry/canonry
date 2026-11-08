@@ -11,7 +11,7 @@ import { apiRoutes } from '@canonry/canonry-api-routes'
 // crawl engine: the clamp unit alone cannot prove that an unset --max-edges
 // survives normalization, persistence, and the executor hand-off. Only the
 // engine call is stubbed.
-vi.mock('@canonry/aeo-audit', () => ({ runSiteCrawl: vi.fn() }))
+vi.mock('@canonry/agent-readiness', () => ({ runSiteCrawl: vi.fn() }))
 vi.mock('../src/site-audit-root.js', () => ({
   resolveSiteAuditRootUrl: vi.fn(async (url: string) => {
     const normalizedUrl = new URL(url).href
@@ -19,7 +19,7 @@ vi.mock('../src/site-audit-root.js', () => ({
   }),
 }))
 
-import { runSiteCrawl } from '@canonry/aeo-audit'
+import { runSiteCrawl } from '@canonry/agent-readiness'
 import { executeSiteAudit } from '../src/execute-site-audit.js'
 
 const NOW = '2026-09-03T00:00:00.000Z'

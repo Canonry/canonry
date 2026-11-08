@@ -13,14 +13,14 @@ import {
   siteCrawlPages,
   siteCrawlSnapshots,
 } from '@canonry/canonry-db'
-import { runSiteCrawl } from '@canonry/aeo-audit'
+import { runSiteCrawl } from '@canonry/agent-readiness'
 import type {
   CrawlEdgeObservation,
   CrawlEvent,
   CrawlPageMetrics,
   CrawlPageObservation,
   SiteCrawlReport,
-} from '@canonry/aeo-audit'
+} from '@canonry/agent-readiness'
 import {
   SITE_AUDIT_DEFAULT_PAGE_LIMIT,
   SITE_AUDIT_MAX_EDGE_LIMIT,

@@ -12,7 +12,7 @@ const nullableRunStatusSchema = z.union([runStatusSchema, z.null()])
 
 /**
  * Technical AEO — site-wide technical audit surfaced from
- * `@canonry/aeo-audit`'s `runSiteCrawl`. A `site-audit` run discovers pages
+ * `@canonry/agent-readiness`'s `runSiteCrawl`. A `site-audit` run discovers pages
  * from the root, robots/sitemaps, and internal links; audits each reachable
  * HTML page; and rolls the reports into a site score plus crawl graph.
  *
@@ -22,13 +22,13 @@ const nullableRunStatusSchema = z.union([runStatusSchema, z.null()])
  * schedule kind stays `site-audit` (the existing `RunKinds` value).
  */
 
-/** Per-factor / per-page health bucket — mirrors aeo-audit's `scoreToStatus`. */
+/** Per-factor / per-page health bucket — mirrors the audit engine's `scoreToStatus`. */
 export const siteAuditFactorStatusSchema = z.enum(['pass', 'partial', 'fail'])
 export type SiteAuditFactorStatus = z.infer<typeof siteAuditFactorStatusSchema>
 export const SiteAuditFactorStatuses = siteAuditFactorStatusSchema.enum
 
 /**
- * Bucket a 0–100 score into pass / partial / fail. Same thresholds aeo-audit
+ * Bucket a 0–100 score into pass / partial / fail. Same thresholds the engine
  * uses (`pass ≥ 70`, `partial 40–69`, `fail < 40`) — kept here as a pure helper
  * so canonry can classify the site-level factor averages it computes itself
  * without taking a dependency on the audit package.
@@ -91,7 +91,7 @@ export type SiteAuditFactorSummaryDto = z.infer<typeof siteAuditFactorSummarySch
 
 /**
  * A factor that scores poorly across many pages — the "fix this once, lift the
- * whole site" list. Produced by aeo-audit (`affectedPages` = pages scoring
+ * whole site" list. Produced by the audit engine (`affectedPages` = pages scoring
  * < 70 for the factor); canonry adds `affectedPct` server-side so the dashboard
  * and CLI render the same share without recomputing it.
  */
@@ -103,7 +103,7 @@ export const siteAuditCrossCuttingIssueSchema = z.object({
   totalPages: z.number().int().nonnegative(),
   /**
    * `affectedPages / totalPages * 100` at wire precision, `0` when `totalPages`
-   * is `0`. Computed by canonry, not aeo-audit. Audits stored by earlier
+   * is `0`. Computed by canonry, not the audit engine. Audits stored by earlier
    * versions carry a whole number.
    */
   affectedPct: percent(z.number().nonnegative()),
@@ -210,7 +210,7 @@ export const siteAuditPageFactorSchema = z.object({
   score: z.number(),
   /**
    * This factor's share of the page score, 0–100 to one decimal, exactly as
-   * `@canonry/aeo-audit` recorded it. The page score divides by the weight of
+   * `@canonry/agent-readiness` recorded it. The page score divides by the weight of
    * the factors that applied, and the engine splits 100 across them by largest
    * remainder, so one page's shares add up to exactly 100; a factor that did
    * not apply to the page reports 0.
@@ -384,7 +384,7 @@ export type SiteCrawlSummaryDto = z.infer<typeof siteCrawlSummarySchema>
 
 /**
  * Why a crawl stopped early. Mirrors `CrawlTerminationReason` from
- * @canonry/aeo-audit, plus two values canonry itself writes: `complete` when
+ * @canonry/agent-readiness, plus two values canonry itself writes: `complete` when
  * the crawl finished on its own, and `unknown`, the NOT NULL column default in
  * `packages/db` that a row keeps when nothing ever set a reason. `unknown` is
  * in the set precisely because it is persisted and reader-visible: leaving it
@@ -452,7 +452,7 @@ export const SiteHealthStates = siteHealthStateSchema.enum
  */
 export const SITE_GRAPH_LEGEND_STATES = siteHealthStateSchema.options
 
-/** Exact state vocabulary emitted by @canonry/aeo-audit's Site Crawl contract. */
+/** Exact state vocabulary emitted by @canonry/agent-readiness's Site Crawl contract. */
 export const SiteCrawlFetchStates = {
   discovered: 'discovered',
   robotsBlocked: 'robots-blocked',
@@ -470,7 +470,7 @@ export const SiteCrawlFetchedStates = [
   SiteCrawlFetchStates.fetchError,
 ] as const satisfies readonly SiteCrawlFetchState[]
 
-/** Exact indexability vocabulary emitted by @canonry/aeo-audit's Site Crawl contract. */
+/** Exact indexability vocabulary emitted by @canonry/agent-readiness's Site Crawl contract. */
 export const SiteCrawlIndexabilityStates = {
   indexable: 'indexable',
   noindex: 'noindex',
@@ -671,7 +671,7 @@ export const TEMPLATE_LINK_MIN_FETCHED_PAGES = 15
 
 /**
  * Where one link occurrence sat in the page, as the crawler's landmark ruleset
- * saw it. Mirrors `CrawlLinkPlacement` from `@canonry/aeo-audit` (4.7.0+).
+ * saw it. Mirrors `CrawlLinkPlacement` from `@canonry/agent-readiness` (engine 4.7.0+).
  *
  * This is DOM ground truth, not a guess: `navigation` means the occurrence sat
  * inside a nav, header, footer, or aside landmark (or the equivalent ARIA
@@ -832,7 +832,7 @@ export function normalizeTemplateAnchorText(anchor: string): string {
 
 /**
  * How a stored edge came to exist. Mirrors `CrawlEdgeType` from
- * `@canonry/aeo-audit`, plus the historical `link` default that predates the
+ * `@canonry/agent-readiness`, plus the historical `link` default that predates the
  * column carrying the crawler's own value.
  *
  * Only `anchor` is a link a person can click on a page, which is the only kind
@@ -1854,7 +1854,7 @@ export function formatSiteAuditPageBudget(maxPages: number | null): string {
 }
 /**
  * The crawler's own depth limit when a request sets none
- * (`DEFAULT_SITE_CRAWL_LIMITS.maxDepth` in `@canonry/aeo-audit`, which a test
+ * (`DEFAULT_SITE_CRAWL_LIMITS.maxDepth` in `@canonry/agent-readiness`, which a test
  * pins). Named here so the dashboard can say what "default" actually means.
  */
 export const SITE_AUDIT_DEFAULT_MAX_DEPTH = 10

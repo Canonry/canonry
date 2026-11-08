@@ -3,7 +3,7 @@ import type { AiCrawlerRule, AiReferrerRule } from './types.js'
 
 /**
  * User-agents belonging to Canonry's own tooling. These hit client sites as a
- * side effect of running an AEO audit / sweep (e.g. `aeo-audit --sitemap`
+ * side effect of running an AEO audit / sweep (e.g. `agent-readiness --sitemap`
  * crawls sitemap.xml, robots.txt, llms.txt, and inner pages) and are NOT real
  * visitors or third-party crawlers. Events matching these are dropped from the
  * traffic rollup so our own measurement tooling never inflates a client's
