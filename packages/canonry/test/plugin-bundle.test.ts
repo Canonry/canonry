@@ -129,7 +129,6 @@ function createPluginScratch(): PluginScratch {
     for (const client of ['.codex-plugin', '.claude-plugin']) {
       writeJson(path.join(root, 'plugins/canonry', client, 'plugin.json'), sharedPluginMetadata)
     }
-    fs.writeFileSync(path.join(root, 'plugins/canonry/README.md'), '```bash\nnpm install -g @canonry/canonry@1.0.0\n```\n')
     writeJson(path.join(root, 'plugins/canonry/mcp.json'), {
       $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json',
       mcpServers: {
@@ -372,7 +371,7 @@ describe('native Canonry plugin bundle', () => {
       expect(historyCheck.stderr).toContain('version must advance beyond 1.0.0')
 
       // A release bumps both package manifests; the sync carries the version
-      // into the plugin manifests and the README's runtime install.
+      // into the plugin manifests.
       for (const relativePath of scratchPackageManifests) {
         const manifestPath = path.join(scratch, relativePath)
         writeJson(manifestPath, { ...readJson<Record<string, unknown>>(manifestPath), version: '1.0.1' })
@@ -433,32 +432,6 @@ describe('native Canonry plugin bundle', () => {
           expect(result.stderr, label).toContain(failure)
         }
       }
-    } finally {
-      fs.rmSync(scratch, { recursive: true, force: true })
-    }
-  })
-
-  it('pins the README runtime install to the Canonry package version', () => {
-    const { root: scratch, run } = createPluginScratch()
-    const readmePath = path.join(scratch, 'plugins/canonry/README.md')
-
-    try {
-      // An unpinned and a stale install both drift; another @canonry package is left alone.
-      fs.writeFileSync(readmePath, 'npm install -g @canonry/canonry\nnpm install -g @canonry/canonry@0.9.0\nnpm install -g @canonry/canonry-contracts@0.1.0\n')
-      const drifted = run('--check')
-      expect(drifted.status).toBe(1)
-      expect(drifted.stderr).toContain('plugins/canonry/README.md runtime install must pin @canonry/canonry@1.0.0')
-      expect(fs.readFileSync(readmePath, 'utf8')).toContain('npm install -g @canonry/canonry\n')
-
-      const synced = run()
-      expect(synced.status, synced.stderr).toBe(0)
-      expect(fs.readFileSync(readmePath, 'utf8')).toBe('npm install -g @canonry/canonry@1.0.0\nnpm install -g @canonry/canonry@1.0.0\nnpm install -g @canonry/canonry-contracts@0.1.0\n')
-      expect(run('--check').status).toBe(0)
-
-      fs.writeFileSync(readmePath, 'Install the Canonry runtime first.\n')
-      const missing = run('--check')
-      expect(missing.status).toBe(1)
-      expect(missing.stderr).toContain('plugins/canonry/README.md must install the runtime with "npm install -g @canonry/canonry@1.0.0"')
     } finally {
       fs.rmSync(scratch, { recursive: true, force: true })
     }
