@@ -4,7 +4,7 @@
  *
  * `viewer-write-controls.test.tsx` proves `WriteButton` behaves correctly. It
  * cannot prove the SECTIONS use it, and four of them did not: Discovery, GBP,
- * Research queries and Technical AEO each rendered a plain `Button` wired to a
+ * Research queries and Agent Readiness each rendered a plain `Button` wired to a
  * mutation, so a viewer got an enabled control that the server was always going
  * to refuse with a 403. "Find queries" looked broken rather than forbidden.
  *

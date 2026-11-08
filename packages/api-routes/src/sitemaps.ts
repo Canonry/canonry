@@ -19,7 +19,7 @@ export async function sitemapRoutes(app: FastifyInstance, opts: SitemapRoutesOpt
   app.get<{ Params: { name: string } }>('/projects/:name/sitemaps', async (request): Promise<SitemapCoverageResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
 
-    // The site's own sitemaps: the files the latest surfaced Site Health scan
+    // The site's own sitemaps: the files the latest surfaced Agent Readiness scan
     // read pages from. Each crawled page records the sitemaps that listed it.
     const scan = app.db
       .select({ runId: siteCrawlSnapshots.runId, attemptId: siteCrawlSnapshots.attemptId, createdAt: siteCrawlSnapshots.createdAt })

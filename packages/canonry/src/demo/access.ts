@@ -1,9 +1,13 @@
+import { withLegacyAgentReadinessPaths } from '@canonry/canonry-contracts'
+
 /**
  * Audited stored-data routes for the dedicated synthetic demo server.
  * Match Fastify's registered route pattern, never user-supplied path prefixes.
  * Every new endpoint and every non-read method stays closed until reviewed here.
+ * Agent Readiness reads are listed at their canonical path; the deprecated
+ * `technical-aeo` twin of each is derived.
  */
-const DEMO_READ_ROUTES: ReadonlySet<string> = new Set([
+const DEMO_READ_ROUTES: ReadonlySet<string> = new Set(withLegacyAgentReadinessPaths([
   '/api/v1/auth/session',
   '/api/v1/backlinks/releases',
   '/api/v1/backlinks/status',
@@ -143,23 +147,23 @@ const DEMO_READ_ROUTES: ReadonlySet<string> = new Set([
   '/api/v1/projects/:name/seo/runs/:id',
   '/api/v1/projects/:name/snapshots',
   '/api/v1/projects/:name/snapshots/diff',
-  '/api/v1/projects/:name/technical-aeo',
-  '/api/v1/projects/:name/technical-aeo/changes',
-  '/api/v1/projects/:name/technical-aeo/crawl',
-  '/api/v1/projects/:name/technical-aeo/crawl/pages',
-  '/api/v1/projects/:name/technical-aeo/crawl/pages/audit',
-  '/api/v1/projects/:name/technical-aeo/dead-links',
-  '/api/v1/projects/:name/technical-aeo/graph',
-  '/api/v1/projects/:name/technical-aeo/internal-links',
-  '/api/v1/projects/:name/technical-aeo/internal-links/neighbors',
-  '/api/v1/projects/:name/technical-aeo/pages',
-  '/api/v1/projects/:name/technical-aeo/path',
-  '/api/v1/projects/:name/technical-aeo/runs',
-  '/api/v1/projects/:name/technical-aeo/runs/:runId/page-health-preview',
-  '/api/v1/projects/:name/technical-aeo/runs/:runId/progress',
-  '/api/v1/projects/:name/technical-aeo/structure',
-  '/api/v1/projects/:name/technical-aeo/subgraph',
-  '/api/v1/projects/:name/technical-aeo/trend',
+  '/api/v1/projects/:name/agent-readiness',
+  '/api/v1/projects/:name/agent-readiness/changes',
+  '/api/v1/projects/:name/agent-readiness/crawl',
+  '/api/v1/projects/:name/agent-readiness/crawl/pages',
+  '/api/v1/projects/:name/agent-readiness/crawl/pages/audit',
+  '/api/v1/projects/:name/agent-readiness/dead-links',
+  '/api/v1/projects/:name/agent-readiness/graph',
+  '/api/v1/projects/:name/agent-readiness/internal-links',
+  '/api/v1/projects/:name/agent-readiness/internal-links/neighbors',
+  '/api/v1/projects/:name/agent-readiness/pages',
+  '/api/v1/projects/:name/agent-readiness/path',
+  '/api/v1/projects/:name/agent-readiness/runs',
+  '/api/v1/projects/:name/agent-readiness/runs/:runId/page-health-preview',
+  '/api/v1/projects/:name/agent-readiness/runs/:runId/progress',
+  '/api/v1/projects/:name/agent-readiness/structure',
+  '/api/v1/projects/:name/agent-readiness/subgraph',
+  '/api/v1/projects/:name/agent-readiness/trend',
   '/api/v1/projects/:name/timeline',
   '/api/v1/projects/:name/trends',
   '/api/v1/projects/:name/traffic/events',
@@ -172,7 +176,7 @@ const DEMO_READ_ROUTES: ReadonlySet<string> = new Set([
   '/api/v1/runs',
   '/api/v1/runs/:id',
   '/api/v1/session',
-])
+]))
 
 /** The audited route patterns, for tests that must exercise every one. A fresh copy, so no caller can widen access. */
 export function listDemoReadRoutes(): string[] {

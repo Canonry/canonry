@@ -112,7 +112,7 @@ import {
   getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions,
   getApiV1ProjectsByNameMeasurementPlanOptions,
   getApiV1ProjectsByNameSchedulesOptions,
-  getApiV1ProjectsByNameTechnicalAeoRunsOptions,
+  getApiV1ProjectsByNameAgentReadinessRunsOptions,
   getApiV1ProjectsByNameMeasurementReportOptions,
   getApiV1ProjectsByNameMeasurementSetupOptions,
   getApiV1ProjectsByNameQueriesOptions,
@@ -136,7 +136,7 @@ import {
 } from '../lib/ai-visibility-provider-readiness.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'traffic' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'traffic' | 'backlinks' | 'agent-readiness' | 'history' | 'settings'
 
 export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [], preview, previewPending = false, previewFailed = false, onRetryPreview = () => {} }: {
   open: boolean
@@ -1015,7 +1015,7 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
 }
 
 /**
- * Same window Site Health's own scan picker reads. Deep enough that a run of
+ * Same window Agent Readiness's own scan picker reads. Deep enough that a run of
  * failures does not hide the completed scan underneath them.
  */
 const MAP_SITE_SCAN_HISTORY_LIMIT = 20
@@ -1658,7 +1658,7 @@ function ProjectPageContent({
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
   // "Map site" invites the operator to do something that has not been done yet,
   // so it needs the one fact the sweep-readiness flags never carry: whether
-  // this project already has a Site Health scan.
+  // this project already has an Agent Readiness scan.
   //
   // Scan history, not the crawl summary: a scorecard-only scan published no
   // crawl, so the crawl summary reports no scan for a project that has one and
@@ -1666,7 +1666,7 @@ function ProjectPageContent({
   // already excludes probes.
   const mapSiteCandidate = !isEmbed() && tab === 'overview' && sweepSetupRequired && !hasVisibilityInputs
   const siteAuditScansQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoRunsOptions({
+    ...getApiV1ProjectsByNameAgentReadinessRunsOptions({
       client: heyClient,
       path: { name: projectName },
       query: { limit: MAP_SITE_SCAN_HISTORY_LIMIT },
@@ -1682,7 +1682,7 @@ function ProjectPageContent({
   // read has actually come back without a scan to open.
   const showMapSite = mapSiteCandidate && siteAuditScansQuery.isSuccess && !hasReadableSiteAudit
   // `/projects/:name` opens on AI Visibility, which for a project in this state
-  // is entirely empty, while the Page Health result the operator just waited
+  // is entirely empty, while the Agent Readiness score the operator just waited
   // for sits two tabs away. Point at the evidence they actually have.
   const showViewPageHealth = mapSiteCandidate && hasReadableSiteAudit
   // The collection read returns [] when no schedule exists. This keeps fresh
@@ -1809,7 +1809,7 @@ function ProjectPageContent({
 
   function openSiteHealth() {
     void navigate({
-      to: '/projects/$projectName/technical-aeo',
+      to: '/projects/$projectName/agent-readiness',
       params: { projectName },
     })
   }
@@ -1990,8 +1990,9 @@ function ProjectPageContent({
     { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
     { key: 'seo-data', label: 'SEO', href: `${projectTabBase}/seo-data` },
     { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
-    // `technical-aeo` is a stable route and embed token. Site Health is the product label.
-    { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },
+    // `agent-readiness` is the route and embed token; the retired `/technical-aeo`
+    // route redirects here, and embeds that still list `technical-aeo` keep the tab.
+    { key: 'agent-readiness', label: 'Agent Readiness', href: `${projectTabBase}/agent-readiness` },
     // Journeys reads private visitor evidence: never for view-only accounts, and
     // absent from the embed allowlist, so embeds drop it automatically.
     ...(account?.role !== UserRoles.viewer ? [{ key: 'journeys' as const, label: 'Journeys', href: `${projectTabBase}/journeys` }] : []),
@@ -2244,7 +2245,7 @@ function ProjectPageContent({
                   </WriteButton>
                 ) : showViewPageHealth ? (
                   <WriteButton type="button" onClick={openSiteHealth}>
-                    View Page Health
+                    View Agent Readiness score
                   </WriteButton>
                 ) : null}
                 {/* Secondary, not primary. The schedule beside it is what actually
@@ -2267,9 +2268,9 @@ function ProjectPageContent({
                     : hasActiveVisibilitySweep
                       ? 'AI Visibility check running…'
                       : sweepReadinessPending
-                        ? 'Checking AI readiness…'
+                        ? 'Checking AI engines…'
                         : providerReadinessFailed
-                          ? 'Retry AI readiness'
+                          ? 'Retry engine check'
                         : sweepSetupRequired
                           ? draftRequiresPublication ? 'Review and publish plan' : 'Set up AI Visibility'
                           : sweepsOnHold
@@ -2673,7 +2674,7 @@ function ProjectPageContent({
           onTrackingQueryIdChange={value => updateVisibilitySearch({ trackingQueryId: value })}
           publishGuard={{ sweepActive: hasActiveVisibilitySweep }}
         />
-      ) : tab === 'technical-aeo' ? (
+      ) : tab === 'agent-readiness' ? (
         <SiteHealthSection
           projectName={model.project.name}
           projectId={model.project.id}

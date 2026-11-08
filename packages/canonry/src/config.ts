@@ -392,7 +392,7 @@ export interface AgentConfigEntry {
 export interface DashboardConfigEntry {
   /**
    * First-open dashboard experience. `legacy` preserves the existing setup
-   * wizard, `platform` enables the domain-first Site Health launchpad, and
+   * wizard, `platform` enables the domain-first Agent Readiness launchpad, and
    * `auto` enables the launchpad only when the authoritative project list is
    * empty. Omitted defaults to `auto`: fresh installs use the launchpad after
    * an authoritative empty project-list response, while existing installs
@@ -646,7 +646,7 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
   if (!fs.existsSync(configPath)) {
     throw new Error(
       `Config not found at ${configPath}.\n` +
-      'Run "canonry bootstrap" to create the local Page Health runtime; provider credentials are optional.\n' +
+      'Run "canonry bootstrap" to create the local Agent Readiness runtime; provider credentials are optional.\n' +
       'Use "canonry init" instead only when you want interactive provider/OAuth provisioning.',
     )
   }

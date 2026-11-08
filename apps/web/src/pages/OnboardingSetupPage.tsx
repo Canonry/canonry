@@ -76,11 +76,11 @@ export const AGENT_SETUP_REQUEST = `Help me set up Canonry for my public site.
 ${AGENT_SETUP_RESOURCES}Pick one path and stay on it. Use connected Canonry tools (plugin or MCP) only if you have them and I have not pointed you at a specific install. A connected tool runs in its own process and never sees \`CANONRY_CONFIG_DIR\`, \`CANONRY_PORT\`, or anything else you export in a shell, so it always acts on my default install. If I named a config directory, a port, or a sandbox, that is the shell path: use \`cnry\` and tell me which path you chose. Never mix the two in one run, and never create a duplicate project. The \`cnry\` and \`canonry\` commands are interchangeable.
 
 1. Ask for my public domain, country, and language. Do not create or scan anything yet. Country and language are only applied when a project is created, so if you reuse an existing project, report its country and language instead of changing them.
-2. Shell path only: confirm \`cnry\` is on PATH, then run \`cnry --version\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. Then run \`cnry doctor --format json\`, which is the command that says whether config, database, and server are in place. \`cnry --version\` does not read config and succeeds on a completely unconfigured install, so it cannot answer this. If config is missing, run \`cnry bootstrap\` yourself: it is not interactive, takes about a second, and is safe to rerun. Do not hand it to me and wait. The interactive command is \`cnry init\`, which is optional provider and OAuth setup that Page Health does not need. Bootstrap prints an API key, so do not repeat its output back to me, and never ask me to paste passwords, API keys, OAuth credentials, or command output.
+2. Shell path only: confirm \`cnry\` is on PATH, then run \`cnry --version\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. Then run \`cnry doctor --format json\`, which is the command that says whether config, database, and server are in place. \`cnry --version\` does not read config and succeeds on a completely unconfigured install, so it cannot answer this. If config is missing, run \`cnry bootstrap\` yourself: it is not interactive, takes about a second, and is safe to rerun. Do not hand it to me and wait. The interactive command is \`cnry init\`, which is optional provider and OAuth setup that Agent Readiness does not need. Bootstrap prints an API key, so do not repeat its output back to me, and never ask me to paste passwords, API keys, OAuth credentials, or command output.
 3. Confirm the API is reachable. \`cnry doctor --format json\` reports it, and any project read exits non-zero with \`CONNECTION_ERROR\` when it is not. If it is unreachable, propose \`cnry start\` and wait for approval. Use \`cnry start\`, which is the background daemon, and not \`cnry serve\`, which runs in the foreground and will block you until I stop it, even though some error messages suggest it. Stop anything you started with \`cnry stop\`.
-4. List projects with the connected project tool or \`cnry project list --format json\`, and reuse one whose domain matches. Confirm the proposed name is not already assigned to a different domain. To find out whether a project has already been scanned, run \`cnry technical-aeo score <project> --format json\` with no \`--run-id\`, which reports the latest run. Read the \`hasData\` field, not the score: this command exits 0 and reports \`aggregateScore: 0\` for a project that has never been scanned, so reading the score alone would have you tell me my site scored zero. If \`hasData\` is true and \`runStatus\` is \`completed\` or \`partial\`, read that scan instead of starting a new one. If no project matches, show the exact create operation and wait for approval.
-5. Propose a bounded Site Health scan: \`--max-pages 100\` for a first look, plus whether dead-link checking is on (it is off unless you pass \`--check-dead-links\`). Show the connected operation or the exact \`cnry technical-aeo run <project> --max-pages 100 --wait --format json\` command with the project name filled in, and wait for separate approval before scanning. \`--wait\` polls for up to 15 minutes and returns only the run id and status. If the status it returns is still \`queued\` or \`running\`, the scan has not finished: do not rerun it or report results, poll \`cnry technical-aeo progress <project> --run-id <run-id> --format json\` until it is terminal. If \`--wait\` outruns your own tool timeout first, recover the run id with \`cnry technical-aeo score <project> --format json\` and poll the same way.
-6. When the run is \`completed\` or \`partial\`, read \`cnry technical-aeo crawl <project> --run-id <run-id> --format json\` first. It is the only one of these commands that carries \`termination\` and \`complete\`; the score and pages commands do not. Then read \`cnry technical-aeo score <project> --run-id <run-id> --format json\` and \`cnry technical-aeo pages <project> --run-id <run-id> --sort score-asc --limit 10 --format jsonl\`. Tell me the termination reason in plain words and whether the scan covered the whole site or stopped at a page, link, depth, or time limit. A \`partial\` run scored the pages it reached and not my site, so never present it as a full-site result. If it stopped early, the fix depends on the reason, so say which: a page or depth limit needs a larger budget, a time limit needs a smaller scan (a lower \`--max-pages\` or \`--max-depth\`). If the run failed or was cancelled, inspect the run error and stop.
+4. List projects with the connected project tool or \`cnry project list --format json\`, and reuse one whose domain matches. Confirm the proposed name is not already assigned to a different domain. To find out whether a project has already been scanned, run \`cnry agent-readiness score <project> --format json\` with no \`--run-id\`, which reports the latest run. Read the \`hasData\` field, not the score: this command exits 0 and reports \`aggregateScore: 0\` for a project that has never been scanned, so reading the score alone would have you tell me my site scored zero. If \`hasData\` is true and \`runStatus\` is \`completed\` or \`partial\`, read that scan instead of starting a new one. If no project matches, show the exact create operation and wait for approval.
+5. Propose a bounded Agent Readiness scan: \`--max-pages 100\` for a first look, plus whether dead-link checking is on (it is off unless you pass \`--check-dead-links\`). Show the connected operation or the exact \`cnry agent-readiness run <project> --max-pages 100 --wait --format json\` command with the project name filled in, and wait for separate approval before scanning. \`--wait\` polls for up to 15 minutes and returns only the run id and status. If the status it returns is still \`queued\` or \`running\`, the scan has not finished: do not rerun it or report results, poll \`cnry agent-readiness progress <project> --run-id <run-id> --format json\` until it is terminal. If \`--wait\` outruns your own tool timeout first, recover the run id with \`cnry agent-readiness score <project> --format json\` and poll the same way.
+6. When the run is \`completed\` or \`partial\`, read \`cnry agent-readiness overview <project> --run-id <run-id> --format json\` first. It is the only one of these commands that carries \`termination\` and \`complete\`; the score and page-scores commands do not. Then read \`cnry agent-readiness score <project> --run-id <run-id> --format json\` and \`cnry agent-readiness page-scores <project> --run-id <run-id> --sort score-asc --limit 10 --format jsonl\`. Tell me the termination reason in plain words and whether the scan covered the whole site or stopped at a page, link, depth, or time limit. A \`partial\` run scored the pages it reached and not my site, so never present it as a full-site result. If it stopped early, the fix depends on the reason, so say which: a page or depth limit needs a larger budget, a time limit needs a smaller scan (a lower \`--max-pages\` or \`--max-depth\`). If the run failed or was cancelled, inspect the run error and stop.
 7. Summarize only completed evidence, then propose AI Visibility setup. Ask before you add queries, connect providers, start a provider-backed or quota-consuming run, edit files, or publish.`
 
 export type OnboardingProjectListState =
@@ -292,7 +292,7 @@ export type SiteHealthDispatchSettlement<T extends SiteHealthDispatchResult> =
 /**
  * The site scan can take a moment to queue on a cold worker. Bound only the
  * handoff, not the server job: after the boundary the valid project moves into
- * Site Health, where the normal persisted run list resumes it.
+ * Agent Readiness, where the normal persisted run list resumes it.
  */
 export async function settleSiteHealthDispatch<T extends SiteHealthDispatchResult>(
   dispatch: Promise<T>,
@@ -317,8 +317,8 @@ export function watchTimedOutSiteHealthDispatch(
 ): void {
   void dispatch.catch(() => {
     addToast({
-      title: 'Site Health scan did not start',
-      detail: 'The project is safe. Choose Run scan in Site Health to retry.',
+      title: 'Agent Readiness scan did not start',
+      detail: 'The project is safe. Choose Run scan in Agent Readiness to retry.',
       tone: 'negative',
       dedupeKey: `site-health-dispatch:${projectId}`,
     })
@@ -528,7 +528,7 @@ function SiteHealthOnboardingPageBody({
         <OnboardingProgress current="site" />
         <div className="mt-8 flex items-center gap-3 text-label-14 text-secondary" role="status">
           <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
-          Loading Site Health setup…
+          Loading Agent Readiness setup…
         </div>
       </div>
     )
@@ -540,7 +540,7 @@ function SiteHealthOnboardingPageBody({
         <div className="page-header">
           <div className="page-header-left">
             <h1 className="page-title">Can’t resume setup</h1>
-            <p className="page-subtitle">Canonry could not load the project for this Site Health scan.</p>
+            <p className="page-subtitle">Canonry could not load the project for this Agent Readiness scan.</p>
           </div>
         </div>
         <div className="rounded-md border border-negative bg-negative-soft p-4" role="alert">
@@ -618,7 +618,7 @@ function SiteHealthOnboardingPageBody({
             <OnboardingProgress current="site" />
             <div className="flex min-h-72 items-center justify-center gap-3 text-label-14 text-secondary" role="status">
               <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
-              Loading Site Health…
+              Loading Agent Readiness…
             </div>
           </div>
         )}
@@ -939,13 +939,13 @@ function PlatformSetupPageBody({
       )
 
       // Do not leave a valid project pinned to the form while the request is
-      // still settling. Site Health's normal persisted run list will pick up
+      // still settling. Agent Readiness's normal persisted run list will pick up
       // the queued scan as soon as it exists.
       watchTimedOutSiteHealthDispatch(dispatch, project.id)
       await openSiteHealthSetup(project)
     } catch (error) {
       setPhase('recovery')
-      setDispatchError(onboardingError(error, 'The project was created, but the Site Health scan could not be started.'))
+      setDispatchError(onboardingError(error, 'The project was created, but the Agent Readiness scan could not be started.'))
       const reasonCode = onboardingErrorReason(error, 'run_rejected')
       emit({
         flowVersion: ONBOARDING_FLOW_VERSION,
@@ -1086,14 +1086,14 @@ function PlatformSetupPageBody({
         <div className="page-header mt-8">
           <div className="page-header-left">
             <h1 className="page-title">Project created</h1>
-            <p className="page-subtitle">{createdProject.displayName || createdProject.name} is ready. The Site Health scan needs another try.</p>
+            <p className="page-subtitle">{createdProject.displayName || createdProject.name} is ready. The Agent Readiness scan needs another try.</p>
           </div>
         </div>
         <div ref={errorRef} className="rounded-md border border-negative bg-negative-soft p-4" role="alert" tabIndex={-1}>
           <p className="text-copy-14-strong text-heading">{dispatchError}</p>
-          <p className="mt-1 text-copy-14 text-secondary">You can retry the scan or continue setup and retry from Site Health.</p>
+          <p className="mt-1 text-copy-14 text-secondary">You can retry the scan or continue setup and retry from Agent Readiness.</p>
           <div className="mt-4 flex flex-wrap gap-3">
-            <Button type="button" onClick={retryDispatch}>Retry Site Health scan</Button>
+            <Button type="button" onClick={retryDispatch}>Retry Agent Readiness scan</Button>
             <Button type="button" variant="secondary" onClick={() => { void openSiteHealthSetup(createdProject) }}>Continue setup</Button>
           </div>
         </div>
@@ -1111,7 +1111,7 @@ function PlatformSetupPageBody({
         <p className="mt-2 max-w-lg text-copy-14 text-secondary">
           {skipSiteScan
             ? 'See how AI assistants mention your brand and cite your website.'
-            : 'Find page health issues on your public website.'}
+            : 'Check how ready your public website is for AI agents.'}
         </p>
       </header>
 
@@ -1242,7 +1242,7 @@ function PlatformSetupPageBody({
               ? <><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> {skipSiteScan ? 'Creating project…' : 'Mapping site…'}</>
               : skipSiteScan ? 'Continue' : 'Scan site'}
           </Button>
-          {phase === 'dispatching' ? <span className="text-center text-label-14 text-secondary" role="status">Opening Site Health when the scan is ready.</span> : null}
+          {phase === 'dispatching' ? <span className="text-center text-label-14 text-secondary" role="status">Opening Agent Readiness when the scan is ready.</span> : null}
           <Button asChild type="button" variant="ghost" className={TOUCH_TARGET}>
             <Link to="/setup" search={{ experience: 'platform', siteScan: skipSiteScan ? 'scan' : 'skip' }}>
               {skipSiteScan ? 'Scan site first' : 'Set up AI Visibility instead'}

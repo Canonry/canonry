@@ -45,6 +45,12 @@ export type CliCommandSpec = {
   access?: OperationAccess
   /** Resolve access for flags that change a command from a write to a stored preview. */
   accessFor?: (input: CliAccessContext) => OperationAccess
+  /**
+   * Path of the canonical command this spec is a deprecated name for. A
+   * deprecated alias runs the canonical implementation with the same flags,
+   * output and exit codes; help names the canonical command instead.
+   */
+  deprecatedAliasOf?: readonly string[]
   run: (input: CliCommandInput) => Promise<void> | void
 }
 
@@ -71,6 +77,9 @@ function printCommandHelp(spec: CliCommandSpec): void {
   console.log(`\nUsage:  ${commandUsage(spec)}\n`)
   const access = spec.access ?? OperationAccesses.stored
   console.log(`Access: ${access} (${access === OperationAccesses.live ? 'calls a provider now' : access === OperationAccesses.write ? 'changes server state' : 'uses stored data'})\n`)
+  if (spec.deprecatedAliasOf) {
+    console.log(`Deprecated: use canonry ${spec.deprecatedAliasOf.join(' ')}. This name still works, with the same flags, output and exit codes.\n`)
+  }
   if (spec.help) console.log(`${spec.help}\n`)
   const aliases = Object.entries(spec.windowAliases ?? {}).map(([canonical, alias]) => `--${alias} for --${canonical}`)
   if (aliases.length) console.log(`Aliases: ${aliases.join('; ')}. Do not combine an alias with its canonical flag.\n`)
@@ -128,6 +137,14 @@ export function printGroupHelp(group: string, specs: readonly CliCommandSpec[], 
 
   console.log(`\nUsage:  canonry ${group} <command> [options]\n`)
 
+  // A group made only of deprecated names points at its canonical group once,
+  // and each command line below names its own replacement.
+  const replacementRoots = new Set(groupSpecs.map(spec => spec.deprecatedAliasOf?.[0]))
+  const [replacementRoot] = replacementRoots
+  if (replacementRoots.size === 1 && replacementRoot !== undefined) {
+    console.log(`Deprecated: use canonry ${replacementRoot}. These names still work, with the same flags, output and exit codes.\n`)
+  }
+
   if (parentSpec && (!accessFilter || (parentSpec.access ?? OperationAccesses.stored) === accessFilter)) {
     const access = parentSpec.access ?? OperationAccesses.stored
     console.log(`  [${access}] ${commandUsage(parentSpec)}\n`)
@@ -137,6 +154,7 @@ export function printGroupHelp(group: string, specs: readonly CliCommandSpec[], 
 
   for (const spec of groupSpecs) {
     console.log(`  [${spec.access ?? OperationAccesses.stored}] ${commandUsage(spec)}`)
+    if (spec.deprecatedAliasOf) console.log(`      use: canonry ${spec.deprecatedAliasOf.join(' ')}`)
   }
 
   console.log()

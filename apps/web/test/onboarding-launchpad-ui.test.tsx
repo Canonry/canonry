@@ -41,7 +41,7 @@ vi.mock('../src/components/project/SiteHealthSection.js', () => ({
     onContinueOnboarding?: () => void
     onSkipOnboarding?: () => void
   }) => (
-    <section aria-label="Explicit Site Health">
+    <section aria-label="Explicit Agent Readiness">
       <p>{`${projectName}:${projectId}:${initialRunId ?? 'latest'}:${String(showOnboardingActions)}`}</p>
       <button type="button" onClick={onReleaseInitialRun}>Release initial scan</button>
       <button type="button" onClick={onContinueOnboarding}>Continue onboarding</button>
@@ -188,7 +188,7 @@ test('auto resumes an unscanned project directly into its first AI check', async
     })
   })
   expect(await screen.findByRole('heading', { name: 'Add queries' })).toBeTruthy()
-  expect(screen.queryByRole('region', { name: 'Explicit Site Health' })).toBeNull()
+  expect(screen.queryByRole('region', { name: 'Explicit Agent Readiness' })).toBeNull()
   expect(screen.queryByText('Launch is blocked until at least one provider is configured.')).toBeNull()
   expect(screen.queryByRole('heading', { name: 'System check' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Scan your site' })).toBeNull()
@@ -248,7 +248,7 @@ test('auto resume leaves a scanned install on the wizard instead of reopening fi
 
   expect(await screen.findByRole('listitem', { current: 'step' })).toBeTruthy()
   expect(router.state.location.search).not.toMatchObject({ onboarding: 'site-health' })
-  expect(screen.queryByRole('region', { name: 'Explicit Site Health' })).toBeNull()
+  expect(screen.queryByRole('region', { name: 'Explicit Agent Readiness' })).toBeNull()
 })
 
 test('auto resume reads the whole scan history, not the runs endpoint\'s 30-day default', async () => {
@@ -339,10 +339,11 @@ test('the finish step keeps optional features in a visible list with details clo
   expect(href('Connect Search Console')).toBe('/projects/example-com/search-console')
   expect(href('Connect Google Analytics')).toBe('/projects/example-com/activity')
   expect(href('Connect Business Profile')).toBe('/projects/example-com/local')
-  expect(screen.getByRole('link', { name: 'Review page health' }).getAttribute('href')).toBe('/projects/example-com/technical-aeo')
+  expect(screen.getByRole('link', { name: 'Review Agent Readiness score' }).getAttribute('href')).toBe('/projects/example-com/agent-readiness')
   fireEvent.click(dataSummary)
   expect(dataDetails.open).toBe(false)
   // Finishing setup does not need a score read or a synthetic results preview.
+  expect(reads).not.toContain('/api/v1/projects/example-com/agent-readiness')
   expect(reads).not.toContain('/api/v1/projects/example-com/technical-aeo')
   expect(screen.queryByRole('tablist', { name: 'Example agent sessions' })).toBeNull()
 })
@@ -485,7 +486,7 @@ test('the finish step shows a sweep still running as in progress', async () => {
   await waitFor(() => {
     expect(within(progress).getByText('AI Visibility').closest('li')?.textContent).toContain('In progress')
   })
-  expect(within(progress).getAllByText('Complete')).toHaveLength(2)  // scan + page health
+  expect(within(progress).getAllByText('Complete')).toHaveLength(2)  // scan + score
   expect(screen.getByRole('status').textContent).toBe('AI Visibility check running.')
 })
 
@@ -631,7 +632,7 @@ test('resolveAutoResumeTarget agrees with the serve banner', () => {
   ])).toEqual({ projectName: 'alpha', runId: 'r_failed' })
 })
 
-test('an explicit Site Health handoff wins over the configured legacy surface and resumes the exact run', async () => {
+test('an explicit Agent Readiness handoff wins over the configured legacy surface and resumes the exact run', async () => {
   const restore = mockFetch((url) => {
     if (pathOf(url) === '/api/v1/projects') {
       return jsonResponse([{
@@ -651,7 +652,7 @@ test('an explicit Site Health handoff wins over the configured legacy surface an
 
   const { router } = await renderSetup('/setup?onboarding=site-health&setupProject=example-com&siteHealthRunId=site-audit-1')
 
-  expect(await screen.findByRole('region', { name: 'Explicit Site Health' })).toBeTruthy()
+  expect(await screen.findByRole('region', { name: 'Explicit Agent Readiness' })).toBeTruthy()
   expect(screen.getByText('example-com:project-example:site-audit-1:true')).toBeTruthy()
   expect(screen.queryByText('Step 2 of 5')).toBeNull()
 
@@ -676,7 +677,7 @@ test('an explicit Site Health handoff wins over the configured legacy surface an
   })
 })
 
-test('the explicit Site Health handoff never falls back to a different project', async () => {
+test('the explicit Agent Readiness handoff never falls back to a different project', async () => {
   const restore = mockFetch((url) => pathOf(url) === '/api/v1/projects'
     ? jsonResponse([{
         id: 'project-different',
@@ -695,7 +696,7 @@ test('the explicit Site Health handoff never falls back to a different project',
 
   expect(await screen.findByRole('heading', { name: 'Project not found' })).toBeTruthy()
   expect(screen.getByText(/missing-project/)).toBeTruthy()
-  expect(screen.queryByRole('region', { name: 'Explicit Site Health' })).toBeNull()
+  expect(screen.queryByRole('region', { name: 'Explicit Agent Readiness' })).toBeNull()
 })
 
 test('a malformed AI Visibility handoff never falls back to the first project', async () => {
@@ -708,7 +709,7 @@ test('a malformed AI Visibility handoff never falls back to the first project', 
   expect(screen.queryByText('Step 3 of 5')).toBeNull()
 })
 
-test('the explicit Site Health handoff can be skipped to the finish step', async () => {
+test('the explicit Agent Readiness handoff can be skipped to the finish step', async () => {
   const restore = mockFetch((url) => pathOf(url) === '/api/v1/projects'
     ? jsonResponse([{
         id: 'project-example',
@@ -760,7 +761,7 @@ test('continues a mapped project into focused AI Visibility setup', async () => 
   expect(screen.queryByRole('button', { name: 'Set up Advanced measurement instead' })).toBeNull()
 })
 
-test('does not resume another project when the Site Health handoff is stale', async () => {
+test('does not resume another project when the Agent Readiness handoff is stale', async () => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
   const restore = mockFetch(() => jsonResponse([]))
   onTestFinished(restore)
@@ -843,7 +844,7 @@ test('creates without a crawl and enters provider-free query setup for the exact
   expect(router.state.location.search).not.toHaveProperty('siteScan')
   expect(requests.filter(request => request.path === '/api/v1/projects' && request.method === 'POST')).toHaveLength(1)
   expect(JSON.parse(requests.find(request => request.path === '/api/v1/projects' && request.method === 'POST')!.body!)).toMatchObject({ displayName: 'Example Brand', country: 'GB', language: 'fr' })
-  expect(requests.some(request => request.path.endsWith('/technical-aeo/runs') && request.method === 'POST')).toBe(false)
+  expect(requests.some(request => request.path.endsWith('/agent-readiness/runs') && request.method === 'POST')).toBe(false)
 })
 
 test('keeps the auto launchpad in an accessible loading state until the project list resolves', async () => {
@@ -875,7 +876,7 @@ test('auto waits for a successful authoritative empty project list before showin
   await renderSetup()
 
   expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
-  expect(screen.getByText('Find page health issues on your public website.')).toBeTruthy()
+  expect(screen.getByText('Check how ready your public website is for AI agents.')).toBeTruthy()
   const setupForm = screen.getByRole('form', { name: 'Scan your site' })
   const agentSummary = screen.getByText('Use your agent instead')
   const agentOption = agentSummary.closest('details')!
@@ -1168,14 +1169,14 @@ test('the setup request cannot strand an agent or point it at the wrong install'
   // project, which reads as a real score of zero.
   expect(AGENT_SETUP_REQUEST).toContain('Read the `hasData` field, not the score')
   // Neither `score` nor `pages` carries the termination reason.
-  expect(AGENT_SETUP_REQUEST).toContain('technical-aeo crawl')
+  expect(AGENT_SETUP_REQUEST).toContain('agent-readiness overview')
   expect(AGENT_SETUP_REQUEST).toContain('only one of these commands that carries `termination`')
   // `--wait` gives up after 15 minutes and exits 0 with a non-terminal status,
   // which must not read as a finished scan. Rerunning is the wrong recovery.
   expect(AGENT_SETUP_REQUEST).toContain('polls for up to 15 minutes')
   expect(AGENT_SETUP_REQUEST).toContain('the scan has not finished')
   expect(AGENT_SETUP_REQUEST).not.toContain('no timeout')
-  expect(AGENT_SETUP_REQUEST).toContain('technical-aeo progress')
+  expect(AGENT_SETUP_REQUEST).toContain('agent-readiness progress')
   expect(AGENT_SETUP_REQUEST).toContain('do not rerun it')
   // A time limit needs a SMALLER scan, which is the counterintuitive direction.
   expect(AGENT_SETUP_REQUEST).toContain('a time limit needs a smaller scan')
@@ -1344,7 +1345,7 @@ test('auto shows a retry shell when the authoritative project-list read fails', 
   expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
 })
 
-test('creates once, queues the canonical Site Health run, and hands off with exact URL state', async () => {
+test('creates once, queues the canonical Agent Readiness run, and hands off with exact URL state', async () => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
   const requests: Array<{ path: string; method: string; body: string }> = []
   const restore = mockFetch(async (url, init) => {
@@ -1363,7 +1364,7 @@ test('creates once, queues the canonical Site Health run, and hands off with exa
         autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
       }, 201)
     }
-    if (path === '/api/v1/projects/example-com/technical-aeo/runs' && method === 'POST') {
+    if (path === '/api/v1/projects/example-com/agent-readiness/runs' && method === 'POST') {
       return jsonResponse({ runId: 'site-audit-1', status: 'queued' }, 202)
     }
     return jsonResponse([])
@@ -1410,10 +1411,10 @@ test('creates once, queues the canonical Site Health run, and hands off with exa
     country: 'GB',
     language: 'fr',
   })
-  const siteAudit = requests.find((request) => request.path.endsWith('/technical-aeo/runs') && request.method === 'POST')
+  const siteAudit = requests.find((request) => request.path.endsWith('/agent-readiness/runs') && request.method === 'POST')
   expect(siteAudit).toBeDefined()
   expect(JSON.parse(siteAudit?.body ?? '{}')).toEqual({ checkDeadLinks: true, maxPages: 100 })
-  // The hand-off is a first-run start, not a resume: the Site Health page's
+  // The hand-off is a first-run start, not a resume: the Agent Readiness page's
   // start event must say so (it once reported resumed on every hand-off).
   await waitFor(() => {
     const start = requests
@@ -1436,7 +1437,7 @@ test('preserves a created project with retry and setup recovery when dispatch fa
         autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
       }, 201)
     }
-    if (path.endsWith('/technical-aeo/runs') && init?.method === 'POST') {
+    if (path.endsWith('/agent-readiness/runs') && init?.method === 'POST') {
       return jsonResponse({ error: { message: 'worker unavailable' } }, 503)
     }
     return jsonResponse([])
@@ -1449,7 +1450,7 @@ test('preserves a created project with retry and setup recovery when dispatch fa
   fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
 
   expect(await screen.findByRole('heading', { name: 'Project created' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Retry Site Health scan' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Retry Agent Readiness scan' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Continue setup' })).toBeTruthy()
   expect(getToasts().filter((toast) => toast.tone === 'negative')).toHaveLength(0)
 })
@@ -1472,7 +1473,7 @@ test('keeps auto mode on project-created recovery after the project list becomes
     if (path === '/api/v1/projects' && (init?.method ?? 'GET') === 'GET') {
       return jsonResponse(created ? [project] : [])
     }
-    if (path.endsWith('/technical-aeo/runs') && init?.method === 'POST') {
+    if (path.endsWith('/agent-readiness/runs') && init?.method === 'POST') {
       return jsonResponse({ error: { message: 'worker unavailable' } }, 503)
     }
     return jsonResponse([])
@@ -1508,7 +1509,7 @@ test('surfaces a create-only name collision and never starts a scan', async () =
 
   expect(await screen.findByText(/project with this name already exists/i)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'View projects' })).toBeTruthy()
-  expect(requests.some((request) => request.includes('technical-aeo/runs'))).toBe(false)
+  expect(requests.some((request) => request.includes('agent-readiness/runs'))).toBe(false)
 })
 
 test('keeps auto mode on actionable conflict recovery after the project list becomes non-empty', async () => {

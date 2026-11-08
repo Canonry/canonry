@@ -92,7 +92,7 @@ export function OnboardingCompletePage({
               : 'No AI Visibility check yet.'}
           </p>
           {sweep.hasEarlierResults ? <p className="mt-2 text-copy-14 text-secondary">Earlier AI results remain available.</p> : null}
-          {scan.hasEarlierResults ? <p className="mt-2 text-copy-14 text-secondary">Earlier page health results remain available.</p> : null}
+          {scan.hasEarlierResults ? <p className="mt-2 text-copy-14 text-secondary">Earlier Agent Readiness results remain available.</p> : null}
           <div className="mt-6 flex flex-wrap gap-3">
             <Button asChild className={TOUCH_TARGET}>
               <Link to="/projects/$projectName" params={{ projectName }} replace aria-label={`Open project ${projectName}`} onClick={() => trackNextAction('open_project')}>
@@ -223,7 +223,7 @@ function OptionalSetup({ projectName, onAction }: { projectName: string; onActio
           </Link>
         </li>
       </ul>
-      <Link to="/projects/$projectName/technical-aeo" params={{ projectName }} className={`${linkClass} mt-2`} onClick={() => onAction('review_page_health')}>Review page health</Link>
+      <Link to="/projects/$projectName/agent-readiness" params={{ projectName }} className={`${linkClass} mt-2`} onClick={() => onAction('review_page_health')}>Review Agent Readiness score</Link>
     </section>
   )
 }

@@ -270,7 +270,7 @@ test('a completed embed keeps competitor comparison optional and reads engine co
   expect(observedMethods.every(request => request.method === 'GET')).toBe(true)
 })
 
-test.each([[['report']], [['report', 'overview']], [['report', 'technical-aeo']]])(
+test.each([[['report']], [['report', 'overview']], [['report', 'agent-readiness']], [['report', 'technical-aeo']]])(
   'a retired Report embed does not issue project analytics reads: %j',
   async (projectTabs) => {
     const { observed } = await renderEmbedOverview(null, projectTabs)

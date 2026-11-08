@@ -31,7 +31,7 @@ const SAMPLE_RECORDS = {
   planRevision: async ({ read }: Lookup) => (await read('measurement-plan/versions')).versions[0]?.revision?.toString(),
   querySet: async ({ read }: Lookup) => (await read('measurement-query-sets')).querySets[0]?.id,
   researchRun: async ({ read }: Lookup) => (await read('research/runs')).runs[0]?.id,
-  siteAuditRun: async ({ read }: Lookup) => (await read('technical-aeo/runs')).scans[0]?.runId,
+  siteAuditRun: async ({ read }: Lookup) => (await read('agent-readiness/runs')).scans[0]?.runId,
   measurementProperty: async ({ read }: Lookup) => (await read('measurement-plan/draft/targets'))?.items?.[0]?.stableKey,
   measurementResult: async ({ read, record }: Lookup) => {
     const targetKey = await record('measurementProperty')
@@ -70,6 +70,8 @@ const PATH_PARAMETERS: Record<string, RecordKind | 'project'> = {
   '/api/v1/projects/:name/measurement-plan/versions/:revision': 'planRevision',
   '/api/v1/projects/:name/measurement-query-sets/:setId': 'querySet',
   '/api/v1/projects/:name/research/runs/:runId': 'researchRun',
+  '/api/v1/projects/:name/agent-readiness/runs/:runId': 'siteAuditRun',
+  // The deprecated technical-aeo twin of every Agent Readiness read is allowlisted too.
   '/api/v1/projects/:name/technical-aeo/runs/:runId': 'siteAuditRun',
   '/api/v1/projects/:name/traffic/sources/:id': 'trafficSource',
   '/api/v1/runs/:id': 'firstAnswerRun',
@@ -89,9 +91,11 @@ const REQUIRED_QUERIES: Record<string, (lookup: Lookup) => Promise<Record<string
   },
   '/api/v1/projects/:name/search': async () => ({ q: 'resort roof' }),
   '/api/v1/projects/:name/snapshots/diff': async ({ record }) => ({ run1: await record('firstAnswerRun'), run2: await record('lastAnswerRun') }),
-  '/api/v1/projects/:name/technical-aeo/crawl/pages/audit': async ({ project }) => ({ url: `https://${PROJECTS[project]}/` }),
-  '/api/v1/projects/:name/technical-aeo/internal-links/neighbors': async ({ project }) => ({ url: `https://${PROJECTS[project]}/` }),
-  '/api/v1/projects/:name/technical-aeo/path': async ({ project }) => ({ toUrl: `https://${PROJECTS[project]}/contact/` }),
+  ...Object.fromEntries(['agent-readiness', 'technical-aeo'].flatMap(segment => [
+    [`/api/v1/projects/:name/${segment}/crawl/pages/audit`, async ({ project }: Lookup) => ({ url: `https://${PROJECTS[project]}/` })],
+    [`/api/v1/projects/:name/${segment}/internal-links/neighbors`, async ({ project }: Lookup) => ({ url: `https://${PROJECTS[project]}/` })],
+    [`/api/v1/projects/:name/${segment}/path`, async ({ project }: Lookup) => ({ toUrl: `https://${PROJECTS[project]}/contact/` })],
+  ])),
   '/api/v1/projects/:name/trends': async () => ({ surface: 'site-health' }),
   '/api/v1/projects/:name/visibility-compare': async () => {
     const now = new Date()

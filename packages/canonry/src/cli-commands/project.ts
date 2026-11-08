@@ -26,7 +26,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'create'],
     usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--site-audit-max-pages <1-50000|full>] [--format json]',
-    help: 'Create a project. Pass --domain for the public site to scan. Provider credentials are not required for Page Health.',
+    help: 'Create a project. Pass --domain for the public site to scan. Provider credentials are not required for Agent Readiness.',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -322,7 +322,7 @@ function parseNegativeReviewMaxStars(raw: string | undefined): number | null | u
 }
 
 /**
- * A whole number from 1 to the hard limit saves a Site Health page budget,
+ * A whole number from 1 to the hard limit saves an Agent Readiness page budget,
  * `full` saves null (scans cover the full site), absent leaves the stored
  * budget alone. Validated here so a typo never reaches the server.
  */

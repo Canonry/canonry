@@ -979,11 +979,12 @@ describe('canonry', () => {
 
       const output = logs.join('\n')
       // Init is optional provider provisioning; its handoff must still lead
-      // with the provider-free Page Health activation path.
+      // with the provider-free Agent Readiness activation path.
       expect(output).toMatch(/Next: canonry serve/)
       expect(output).toMatch(/canonry project create/)
-      expect(output).toMatch(/canonry technical-aeo run/)
-      expect(output).toMatch(/canonry technical-aeo score/)
+      expect(output).toMatch(/canonry agent-readiness run/)
+      expect(output).toMatch(/canonry agent-readiness score/)
+      expect(output).not.toMatch(/canonry technical-aeo/)
       expect(output).toMatch(/AI Visibility is optional/)
       expect(output).not.toMatch(/5 guided steps/)
       expect(output).toMatch(/canonry doctor/)
@@ -1018,7 +1019,7 @@ describe('canonry', () => {
       expect(payload.primaryNextStep).toBe('canonry serve')
       expect(Array.isArray(payload.nextSteps)).toBe(true)
       expect(payload.nextSteps!.some(s => s.includes('canonry project create'))).toBe(true)
-      expect(payload.nextSteps!.some(s => s.includes('canonry technical-aeo run'))).toBe(true)
+      expect(payload.nextSteps!.some(s => s.includes('canonry agent-readiness run'))).toBe(true)
       expect(payload.nextSteps!.some(s => s.includes('AI Visibility is optional'))).toBe(true)
       // Off loopback or behind a proxy, setup from this machine needs the root
       // key too, so the guidance names the key rather than a place to stand.
@@ -1692,7 +1693,7 @@ describe('canonry', () => {
     }
   })
 
-  it('ApiClient keeps analytics, visibility stats, and bounded Technical AEO reads under /api/v1 for an external base URL', async () => {
+  it('ApiClient keeps analytics, visibility stats, and every Agent Readiness call on its canonical /api/v1 path for an external base URL', async () => {
     const fakeFetch = vi.fn(async (_request: Request) =>
       new Response('{}', {
         status: 200,
@@ -1707,6 +1708,12 @@ describe('canonry', () => {
     await client.getAnalyticsGaps('acme')
     await client.getAnalyticsSources('acme')
     await client.getTechnicalAeoScore('acme')
+    await client.getTechnicalAeoPages('acme', { status: 'error', limit: 10 })
+    await client.getTechnicalAeoTrend('acme', { limit: 5 })
+    await client.getSiteAuditIssues('acme', { runId: 'run-1', limit: 2 })
+    await client.getSiteAuditIssuePages('acme', 'issue-1', { runId: 'run-1', cursor: 'next-1' })
+    await client.getTechnicalAeoPageAudit('acme', { runId: 'run-1', nodeKey: 'page:root' })
+    await client.triggerSiteAudit('acme', { maxPages: 100 })
     await client.getTechnicalAeoProgress('acme', 'run-1')
     await client.getTechnicalAeoCrawl('acme', { runId: 'run-1' })
     await client.getSiteHealthSubgraph('acme', { nodeKey: 'page:root', hops: 2, maxNodes: 25, maxEdges: 50 })
@@ -1723,18 +1730,27 @@ describe('canonry', () => {
       'https://example.test/canonry/api/v1/projects/acme/analytics/metrics',
       'https://example.test/canonry/api/v1/projects/acme/analytics/gaps',
       'https://example.test/canonry/api/v1/projects/acme/analytics/sources',
-      'https://example.test/canonry/api/v1/projects/acme/technical-aeo',
-      'https://example.test/canonry/api/v1/projects/acme/technical-aeo/runs/run-1/progress',
-      'https://example.test/canonry/api/v1/projects/acme/technical-aeo/crawl?runId=run-1',
-      'https://example.test/canonry/api/v1/projects/acme/technical-aeo/subgraph?nodeKey=page%3Aroot&hops=2&maxNodes=25&maxEdges=50',
-      'https://example.test/canonry/api/v1/projects/acme/technical-aeo/path?fromNodeKey=page%3Aroot&toUrl=https%3A%2F%2Facme.test%2Fpricing&maxDepth=8',
-      'https://example.test/canonry/api/v1/projects/acme/technical-aeo/changes?fromRunId=run-1&toRunId=run-2&scope=pages&change=changed&cursor=changes-2&limit=25',
-      'https://example.test/canonry/api/v1/projects/acme/technical-aeo/crawl/pages?inventoryEligible=true&cursor=page-2&limit=25',
-      'https://example.test/canonry/api/v1/projects/acme/technical-aeo/structure?parentPath=%2Fguides&limit=20',
-      'https://example.test/canonry/api/v1/projects/acme/technical-aeo/internal-links?followable=false&limit=20',
-      'https://example.test/canonry/api/v1/projects/acme/technical-aeo/internal-links/neighbors?nodeKey=node-1&limit=20',
-      'https://example.test/canonry/api/v1/projects/acme/technical-aeo/dead-links?limit=20',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/pages?status=error&limit=10',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/trend?limit=5',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/issues?runId=run-1&limit=2',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/issues/issue-1/pages?runId=run-1&cursor=next-1',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/crawl/pages/audit?runId=run-1&nodeKey=page%3Aroot',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/runs',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/runs/run-1/progress',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/crawl?runId=run-1',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/subgraph?nodeKey=page%3Aroot&hops=2&maxNodes=25&maxEdges=50',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/path?fromNodeKey=page%3Aroot&toUrl=https%3A%2F%2Facme.test%2Fpricing&maxDepth=8',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/changes?fromRunId=run-1&toRunId=run-2&scope=pages&change=changed&cursor=changes-2&limit=25',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/crawl/pages?inventoryEligible=true&cursor=page-2&limit=25',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/structure?parentPath=%2Fguides&limit=20',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/internal-links?followable=false&limit=20',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/internal-links/neighbors?nodeKey=node-1&limit=20',
+      'https://example.test/canonry/api/v1/projects/acme/agent-readiness/dead-links?limit=20',
     ])
+    const trigger = fakeFetch.mock.calls[10]![0]
+    expect(trigger.method).toBe('POST')
+    expect(await trigger.json()).toEqual({ maxPages: 100 })
   })
 
   it('ApiClient scopes analytics sources to one run and class and sends includeByQuery only when set', async () => {

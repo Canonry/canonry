@@ -13,7 +13,7 @@ For a calendar-month comparison of a Property, group or market, call
 use `canonry_measurement_changes` for compatible stored-run comparisons of
 changed Properties. Do not substitute a project-wide month comparison for
 Property-scoped data.
-For Site Health reports, read `site-health.md` and keep crawl and audit
+For Agent Readiness reports, read `site-health.md` and keep crawl and audit
 provenance separate from answer-visibility periods.
 
 For project-wide month-over-month AEO claims, use `canonry_visibility_compare`

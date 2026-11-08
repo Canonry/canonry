@@ -233,7 +233,7 @@ export function useTriggerSiteAudit() {
         lastAnnouncedStatus: result.status,
       })
       addToast({
-        title: result.status === 'running' ? 'Site Health scan already running' : 'Site Health scan queued',
+        title: result.status === 'running' ? 'Agent Readiness scan already running' : 'Agent Readiness scan queued',
         detail: `${variables.projectLabel ?? variables.projectName} will refresh automatically when the scan finishes.`,
         tone: 'neutral',
         dedupeKey: `run:${result.runId}`,

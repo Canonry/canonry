@@ -32,10 +32,10 @@ If the server isn't running, start it with `canonry serve`.
 | `canonry timeline <project>` | Per-query citation history over time |
 | `canonry export <project>` | Full project data export |
 
-### Auditing
+### Agent Readiness
 
 ```bash
-# Run a technical AEO audit on a URL
+# Check one page's Agent Readiness with the standalone AEO audit
 npx @canonry/aeo-audit@4 <url> --format json
 ```
 

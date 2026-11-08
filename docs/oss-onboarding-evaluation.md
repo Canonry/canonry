@@ -1,5 +1,7 @@
 # Canonry OSS onboarding rework: reveal the operating platform
 
+> **Naming note:** this record keeps the names in use when it was written. The feature it calls Site Health, Page Health, and Technical AEO is now **Agent Readiness** (CLI `canonry agent-readiness`, API `/agent-readiness`, MCP `canonry_agent_readiness_*`); the old names still work as deprecated aliases.
+
 ## The rework in one sentence
 
 This is not a shorter setup wizard. It changes Canonry's first mental model from an LLM query runner into an evidence-connected AEO operating platform.

@@ -22,8 +22,8 @@ async function invoke(args: string[], format: 'json' | 'jsonl' | 'text' = 'json'
   }
 }
 
-describe('stored Site Health issue CLI', () => {
-  it.each(['site-health', 'technical-aeo'])('%s preserves issue and page DTOs and exact scan selection', async root => {
+describe('stored Agent Readiness issue CLI', () => {
+  it.each(['agent-readiness', 'site-health', 'technical-aeo'])('%s preserves issue and page DTOs and exact scan selection', async root => {
     client.getSiteAuditIssues.mockResolvedValue(storedIssues)
     const list = await invoke([root, 'issues', 'sample-store', '--run-id', 'scan-2026-10-10', '--cursor', 'opaque-current', '--limit', '2', '--stored-only'])
     expect(JSON.parse(list)).toEqual(storedIssues)
@@ -40,7 +40,7 @@ describe('stored Site Health issue CLI', () => {
 
   it('keeps scan provenance and pagination on every JSONL record', async () => {
     client.getSiteAuditIssues.mockResolvedValue(storedIssues)
-    const lines = (await invoke(['site-health', 'issues', 'sample-store'], 'jsonl')).trim().split('\n').map(line => JSON.parse(line))
+    const lines = (await invoke(['agent-readiness', 'issues', 'sample-store'], 'jsonl')).trim().split('\n').map(line => JSON.parse(line))
     expect(lines).toHaveLength(2)
     for (const line of lines) expect(line).toMatchObject({
       project: 'sample-store', runId: 'scan-2026-10-10', attemptId: 'attempt-sample',
@@ -53,7 +53,7 @@ describe('stored Site Health issue CLI', () => {
     expect(lines[0]).not.toHaveProperty('issues')
 
     client.getSiteAuditIssuePages.mockResolvedValue(storedIssuePages)
-    const pageLines = (await invoke(['site-health', 'issue-pages', 'sample-store', '--issue-id', 'duplicate-title-sample'], 'jsonl')).trim().split('\n').map(line => JSON.parse(line))
+    const pageLines = (await invoke(['agent-readiness', 'issue-pages', 'sample-store', '--issue-id', 'duplicate-title-sample'], 'jsonl')).trim().split('\n').map(line => JSON.parse(line))
     expect(pageLines).toHaveLength(2)
     expect(pageLines[0]).toMatchObject({ kind: 'site-health-issue-pages-header', issueId: 'duplicate-title-sample', nextCursor: 'opaque-pages-next' })
     expect(pageLines[1]).toMatchObject({
@@ -64,21 +64,21 @@ describe('stored Site Health issue CLI', () => {
 
   it('prints an explicit unavailable JSONL header even when no findings were retained', async () => {
     client.getSiteAuditIssues.mockResolvedValue(unavailableIssues)
-    const lines = (await invoke(['site-health', 'issues', 'sample-store'], 'jsonl')).trim().split('\n').map(line => JSON.parse(line))
+    const lines = (await invoke(['agent-readiness', 'issues', 'sample-store'], 'jsonl')).trim().split('\n').map(line => JSON.parse(line))
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ state: 'unavailable', total: null, nextCursor: null, coverage: { pageFindings: 'unavailable', crossPage: 'unavailable' } })
   })
 
   it('makes partial and unavailable coverage visible in human output', async () => {
     client.getSiteAuditIssues.mockResolvedValue(storedIssues)
-    const partial = await invoke(['site-health', 'issues', 'sample-store'], 'text')
+    const partial = await invoke(['agent-readiness', 'issues', 'sample-store'], 'text')
     expect(partial).toContain('audited 2026-10-10T14:00:00.000Z')
     expect(partial).toContain('Evidence: partial · crawl partial (max-pages)')
     expect(partial).toContain('1 audited page(s) lack finding evidence; 2 malformed or uncoded finding(s) omitted.')
     expect(partial).toContain('[advisory] title.duplicate · 2 page(s)')
     expect(partial).toContain('Next cursor: opaque-issues-next')
     client.getSiteAuditIssues.mockResolvedValue(unavailableIssues)
-    const unavailable = await invoke(['site-health', 'issues', 'sample-store'], 'text')
+    const unavailable = await invoke(['agent-readiness', 'issues', 'sample-store'], 'text')
     expect(unavailable).toContain('Evidence: unavailable')
     expect(unavailable).toContain('Total in this stored selection: unknown.')
     expect(unavailable).not.toContain('No issues')
@@ -86,7 +86,7 @@ describe('stored Site Health issue CLI', () => {
 
   it('labels recommendations as factor guidance rather than issue-specific fixes', async () => {
     client.getSiteAuditIssuePages.mockResolvedValue(storedIssuePages)
-    const output = await invoke(['site-health', 'issue-pages', 'sample-store', '--issue-id', 'duplicate-title-sample'], 'text')
+    const output = await invoke(['agent-readiness', 'issue-pages', 'sample-store', '--issue-id', 'duplicate-title-sample'], 'text')
     expect(output).toContain('Guidance for this page’s whole factor (not issue-specific):')
     expect(output).toContain('Review titles and descriptions for this page.')
     expect(output).toContain('Additional guidance was omitted')
@@ -102,25 +102,30 @@ describe('stored Site Health issue CLI', () => {
         id: 'defect-noindex', code: 'robots.noindex', findingType: 'missing', disposition: 'actionable',
         affectedPages: 1, message: 'Page declares noindex.', examples: [defectPage], examplesTruncated: false }],
     })
-    const list = await invoke(['site-health', 'issues', 'sample-store'], 'text')
+    const list = await invoke(['agent-readiness', 'issues', 'sample-store'], 'text')
     expect(list).toContain('[actionable · critical] robots.noindex · 1 page(s)')
     client.getSiteAuditIssuePages.mockResolvedValue({
       ...storedIssuePages, issueId: 'defect-noindex', total: 1, nextCursor: null, pages: [defectPage],
     })
-    const detail = await invoke(['site-health', 'issue-pages', 'sample-store', '--issue-id', 'defect-noindex'], 'text')
+    const detail = await invoke(['agent-readiness', 'issue-pages', 'sample-store', '--issue-id', 'defect-noindex'], 'text')
     expect(detail).toContain('Guidance for this issue:')
     expect(detail).toContain('Review whether this page should allow indexing.')
     expect(detail).not.toContain('whole factor')
   })
 
   it.each(['0', '101', '2.5', '2junk'])('rejects invalid --limit %s before reading evidence', async limit => {
-    await expect(invoke(['site-health', 'issues', 'sample-store', '--limit', limit])).rejects.toMatchObject({ code: 'CLI_USAGE_ERROR' })
+    await expect(invoke(['agent-readiness', 'issues', 'sample-store', '--limit', limit])).rejects.toMatchObject({ code: 'CLI_USAGE_ERROR' })
     expect(client.getSiteAuditIssues).not.toHaveBeenCalled()
   })
 
   it('requires an issue identity and names the invoked alias in the error', async () => {
+    await expect(invoke(['agent-readiness', 'issue-pages', 'sample-store'])).rejects.toMatchObject({
+      code: 'CLI_USAGE_ERROR', details: { command: 'agent-readiness.issue-pages' },
+      displayMessage: expect.stringContaining('Usage: canonry agent-readiness issue-pages <project> --issue-id <id>'),
+    })
     await expect(invoke(['site-health', 'issue-pages', 'sample-store'])).rejects.toMatchObject({
       code: 'CLI_USAGE_ERROR', details: { command: 'site-health.issue-pages' },
+      displayMessage: expect.stringContaining('Usage: canonry site-health issue-pages <project> --issue-id <id>'),
     })
     expect(client.getSiteAuditIssuePages).not.toHaveBeenCalled()
   })

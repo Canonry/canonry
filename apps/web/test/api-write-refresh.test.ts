@@ -8,14 +8,15 @@ import {
   getApiV1ProjectsByNameGoogleGscPerformanceOptions,
   getApiV1ProjectsByNameBingStatusOptions,
   getApiV1ProjectsByNameGaStatusOptions,
-  getApiV1ProjectsByNameTechnicalAeoRunsOptions,
+  getApiV1ProjectsByNameAgentConversationsOptions,
+  getApiV1ProjectsByNameAgentReadinessRunsOptions,
   getApiV1ProjectsOptions,
   getApiV1RunsOptions,
   getApiV1ProjectsQueryKey,
   getApiV1SettingsOptions,
 } from '@canonry/canonry-api-client/react-query'
 import { postApiV1ProjectsByNameAdsSync, postApiV1ProjectsByNameGbpSync, postApiV1ProjectsByNameGoogleAdsSync, postApiV1ProjectsByNameGtmSync, postApiV1ProjectsByNameQueryTrackingCommit, postApiV1ProjectsByNameQueryTrackingPreview, putApiV1ProjectsByName } from '@canonry/canonry-api-client'
-import { appendQueries, applyProjectConfig, deleteProject, fetchSettings, heyClient, inspectBingSitemap, recordOnboardingEvent, removeLocation, triggerAllRuns, triggerGscSync, triggerInspectSitemap, triggerRun, triggerSiteAudit, updateGoogleAuthConfig } from '../src/api.js'
+import { appendQueries, applyProjectConfig, deleteAgentConversation, deleteProject, fetchSettings, heyClient, inspectBingSitemap, recordOnboardingEvent, removeLocation, triggerAllRuns, triggerGscSync, triggerInspectSitemap, triggerRun, triggerSiteAudit, updateGoogleAuthConfig } from '../src/api.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch as installMockFetch, pathOf } from './mock-fetch.js'
 
@@ -328,7 +329,7 @@ test.each([
       return jsonResponse(scope === 'all' ? [] : scope === 'site-audit' ? { runId: 'queued-run', status: 'queued' } : { id: 'queued-run' })
     }
     if (pathOf(url) === '/api/v1/projects/alpha') return jsonResponse({ id: 'alpha-id', name: 'alpha' })
-    if (pathOf(url) === '/api/v1/projects/alpha/technical-aeo/runs') {
+    if (pathOf(url) === '/api/v1/projects/alpha/agent-readiness/runs') {
       scanReads += 1
       return jsonResponse({ scans: queued && scope === 'site-audit' ? [{ runId: 'queued-run', status: 'queued' }] : [] })
     }
@@ -346,7 +347,7 @@ test.each([
   const project = new QueryObserver(queryClient, getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: 'alpha' } }))
   onTestFinished(project.subscribe(() => {}))
   await waitFor(() => expect(project.getCurrentResult().data?.id).toBe('alpha-id'))
-  const scans = new QueryObserver(queryClient, getApiV1ProjectsByNameTechnicalAeoRunsOptions({ client: heyClient, path: { name: 'alpha' } }))
+  const scans = new QueryObserver(queryClient, getApiV1ProjectsByNameAgentReadinessRunsOptions({ client: heyClient, path: { name: 'alpha' } }))
   onTestFinished(scans.subscribe(() => {}))
   await waitFor(() => expect(scans.getCurrentResult().isSuccess).toBe(true))
   await observe(queryClient, ['project-dashboard-full', 'alpha-id', 'none', 'evidence'], async () => {
@@ -375,6 +376,46 @@ test.each([
     releaseRuns(jsonResponse([]))
     await write
   }
+})
+
+// Aero's reads and Agent Readiness's reads share the generated
+// `getApiV1ProjectsByNameAgent` prefix. An Aero write (here, deleting a saved
+// conversation) refreshes Aero's own reads and must not re-read scan history.
+test('an Aero conversation write refreshes Aero reads without re-reading Agent Readiness scans', async () => {
+  let conversationReads = 0
+  let scanReads = 0
+  const deletes: string[] = []
+  const restore = mockFetch((url, init) => {
+    const requestPath = pathOf(url)
+    if (init?.method === 'DELETE') {
+      deletes.push(requestPath)
+      return jsonResponse({ id: 'c1', status: 'deleted' })
+    }
+    if (requestPath === '/api/v1/projects/alpha/agent/conversations') {
+      conversationReads += 1
+      return jsonResponse({ conversations: [], currentConversationId: null, nextOffset: null })
+    }
+    if (requestPath === '/api/v1/projects/alpha/agent-readiness/runs') {
+      scanReads += 1
+      return jsonResponse({ scans: [] })
+    }
+    return jsonResponse({ error: { message: `Unexpected ${requestPath}` } }, 404)
+  })
+  onTestFinished(restore)
+  const queryClient = client()
+  const conversations = new QueryObserver(queryClient, getApiV1ProjectsByNameAgentConversationsOptions({ client: heyClient, path: { name: 'alpha' } }))
+  onTestFinished(conversations.subscribe(() => {}))
+  const scans = new QueryObserver(queryClient, getApiV1ProjectsByNameAgentReadinessRunsOptions({ client: heyClient, path: { name: 'alpha' } }))
+  onTestFinished(scans.subscribe(() => {}))
+  await waitFor(() => expect(conversations.getCurrentResult().isSuccess && scans.getCurrentResult().isSuccess).toBe(true))
+  expect([conversationReads, scanReads]).toEqual([1, 1])
+
+  await deleteAgentConversation('alpha', 'c1')
+
+  expect(deletes).toEqual(['/api/v1/projects/alpha/agent/conversations/c1'])
+  await waitFor(() => expect(conversationReads).toBe(2))
+  expect(scanReads).toBe(1)
+  expect(scans.getCurrentResult().isStale).toBe(false)
 })
 
 test.each([

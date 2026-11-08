@@ -214,17 +214,20 @@ test('invalidates Tag Manager evidence and conversion integrity after a Tag Mana
   expect(predicateMatches('getApiV1ProjectsByNameGoogleAdsStatus')).toBe(false)
 })
 
-test('invalidates every Site Health operation for site-audit runs', () => {
+test('invalidates every Agent Readiness operation for site-audit runs', () => {
   invalidateQueriesForRunKind(queryClient, RunKinds['site-audit'], 'demo')
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeo')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoPages')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoTrend')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoCrawl')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoCrawlPages')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoGraph')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoStructure')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighbors')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoDeadLinks')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadiness')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessPages')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessTrend')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessCrawl')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessCrawlPages')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessGraph')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessStructure')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessInternalLinksNeighbors')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessDeadLinks')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessRuns')).toBe(true)
+  // Aero's reads share the `Agent` prefix; a scan never changes them.
+  expect(predicateMatches('getApiV1ProjectsByNameAgentConversations')).toBe(false)
 })
 
 test('does not invalidate domain-scoped operations for answer-visibility runs', () => {
@@ -233,5 +236,5 @@ test('does not invalidate domain-scoped operations for answer-visibility runs', 
   expect(predicateMatches('getApiV1ProjectsByNameBingCoverage')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameGaTraffic')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameGbpSummary')).toBe(false)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeo')).toBe(false)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadiness')).toBe(false)
 })

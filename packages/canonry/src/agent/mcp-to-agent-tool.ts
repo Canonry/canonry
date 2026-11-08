@@ -15,6 +15,7 @@ import { CliError } from '../cli-error.js'
 import { runWithUsageTags, type ApiClient } from '../client.js'
 import {
   CanonryMcpToolNames,
+  DEPRECATED_MCP_TOOL_ALIAS_NAMES,
   type CanonryMcpRegistryTool,
   type CanonryMcpTool,
   type CanonryMcpToolName,
@@ -1021,6 +1022,11 @@ export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set(
   CanonryMcpToolNames.canonry_agent_conversations_resume,
   CanonryMcpToolNames.canonry_agent_conversations_delete,
   CanonryMcpToolNames.canonry_results_clear,
+
+  // Deprecated names (canonry_technical_aeo_*, canonry_site_health_*) answer
+  // exactly like their canonry_agent_readiness_* tools. They exist only for
+  // existing external clients; Aero gets the canonical tools once.
+  ...DEPRECATED_MCP_TOOL_ALIAS_NAMES,
 ])
 
 /**

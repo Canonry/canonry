@@ -252,7 +252,7 @@ test('embed view allowlist permits an allowlisted route', async () => {
   expect(html).not.toContain('embed-view-unavailable')
 })
 
-test.each([[['report']], [['report', 'overview']], [['technical-aeo', 'report']]])(
+test.each([[['report']], [['report', 'overview']], [['agent-readiness', 'report']], [['technical-aeo', 'report']]])(
   'a legacy Report embed shows a retirement message without rendering another project tab: %j',
   async (projectTabs) => {
     const html = await renderAt('/projects/project_citypoint/report', { enabled: true, projectTabs })
@@ -306,6 +306,27 @@ test('embed hides the project sweep action that leaks on every tab', async () =>
   expect(embedDoc.querySelector('.av-card-title')?.textContent).toBe('AI answers over time')
   expect(embed).toContain('Query evidence')
   expect(embed).toContain('Mention share')
+})
+
+// Agent Readiness's embed tab key was `technical-aeo`. A host that still sends
+// it keeps the tab, under its new name and route, and the retired route opens it.
+test('an embed that still lists technical-aeo shows and opens the Agent Readiness tab', async () => {
+  const tabs = (html: string) => [...parseHtml(html).querySelectorAll('[data-project-tab]')]
+    .map(tab => `${tab.getAttribute('data-project-tab')}:${tab.textContent}`)
+  const links = (html: string) => [...parseHtml(html).querySelectorAll('nav[aria-label="Project sections"] a')]
+    .map(link => `${link.textContent}:${link.getAttribute('href')?.split('?')[0]}`)
+  const embed = { enabled: true, projectTabs: ['overview', 'technical-aeo'] }
+
+  const overview = await renderAt('/projects/project_citypoint', embed)
+  expect(tabs(overview)).toEqual(['overview:AI Visibility', 'agent-readiness:Agent Readiness', 'more:More'])
+  expect(links(overview)).toEqual([
+    'AI Visibility:/projects/Citypoint%20Dental%20NYC',
+    'Agent Readiness:/projects/Citypoint%20Dental%20NYC/agent-readiness',
+  ])
+
+  const retiredRoute = await renderAt('/projects/project_citypoint/technical-aeo', embed)
+  expect(parseHtml(retiredRoute).querySelector('.project-subnav-current')?.textContent).toBe('Agent Readiness')
+  expect(retiredRoute).not.toContain('embed-view-unavailable')
 })
 
 test('the client Queries tab appears only when the embed grants query editing', async () => {

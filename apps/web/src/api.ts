@@ -76,8 +76,8 @@ import {
   postApiV1ProjectsByNameGoogleIndexingRequest,
   // Discovery
   postApiV1ProjectsByNameDiscoverRun,
-  // Technical AEO (site-audit)
-  postApiV1ProjectsByNameTechnicalAeoRuns,
+  // Agent Readiness (site-audit)
+  postApiV1ProjectsByNameAgentReadinessRuns,
   getApiV1ProjectsByNameDiscoverSessions,
   getApiV1ProjectsByNameDiscoverSessionsById,
   getApiV1ProjectsByNameDiscoverSessionsByIdPromote,
@@ -948,7 +948,7 @@ export async function updateProject(projectName: string, updates: {
   defaultLocation?: string | null
   providers?: string[]
   providerModels?: Record<string, string>
-  /** Site Health page budget; null means the full site. Omitted keeps the stored value. */
+  /** Agent Readiness page budget; null means the full site. Omitted keeps the stored value. */
   siteAuditMaxPages?: number | null
 }): Promise<ApiProject> {
   const project = await fetchProject(projectName)
@@ -1547,7 +1547,7 @@ export function triggerSiteAudit(
   body?: Partial<SiteAuditRunRequest>,
 ): Promise<SiteAuditRunResponseDto> {
   return invokeWeb<SiteAuditRunResponseDto>(() =>
-    postApiV1ProjectsByNameTechnicalAeoRuns({
+    postApiV1ProjectsByNameAgentReadinessRuns({
       client: heyClient,
       path: { name: project },
       body: (body ?? {}) as never,

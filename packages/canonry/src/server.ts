@@ -1557,8 +1557,8 @@ export async function createServer(opts: {
       });
   };
 
-  // Shared Technical-AEO site-audit worker. Used by BOTH the manual
-  // `POST /technical-aeo/runs` route and the scheduled `site-audit` kind. The
+  // Shared Agent Readiness site-audit worker. Used by BOTH the manual
+  // `POST /agent-readiness/runs` route and the scheduled `site-audit` kind. The
   // run row is created by the caller. This runs the full crawl and audit, then
   // hands off to the post-run coordinator on completion.
   //
@@ -2104,7 +2104,7 @@ export async function createServer(opts: {
     },
     onSiteAuditRequested: (runId, projectId, auditOpts) => {
       // The scheduler already created the site-audit run row; run the same
-      // worker the manual POST /technical-aeo/runs route uses, with the
+      // worker the manual POST /agent-readiness/runs route uses, with the
       // scheduler's full-site page budget.
       runSiteAudit(runId, projectId, auditOpts);
     },

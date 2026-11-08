@@ -2,7 +2,7 @@
 
 [Canonry](https://canonry.ai) is an open-source, agent-first Answer Engine
 Optimization (AEO) platform for AI search and SEO operations. It brings AI
-answer evidence, search data, site audits, traffic, and
+answer evidence, search data, Agent Readiness scans, traffic, and
 content workflows together so an agent can investigate a gap, prepare a fix,
 and measure what changed.
 
@@ -15,8 +15,8 @@ and the local `canonry-mcp` adapter. Together they guide your agent through:
 - **Search and SEO research:** investigate keyword volume, difficulty, rankings,
   and competitor gaps with DataForSEO; combine Search Console, Bing Webmaster
   Tools, and GA4 evidence with query discovery and one-off research.
-- **Site Health:** crawl pages, inspect technical AEO findings, and review
-  internal links and AI readiness.
+- **Agent Readiness:** crawl pages, score how ready each one is for AI agents
+  and answer engines, inspect findings, and review internal links.
 - **AI traffic:** inspect crawler visits, user-triggered AI fetches, and
   referral arrivals from server logs.
 - **Content, publishing, and indexing:** find content gaps, prepare WordPress
@@ -47,7 +47,7 @@ cnry bootstrap
 
 `cnry bootstrap` creates the local configuration, SQLite database, and default
 API key. The command is safe to run again and preserves existing settings.
-Provider credentials are optional, so Page Health works before you add one.
+Provider credentials are optional, so Agent Readiness works before you add one.
 
 The command prints a new full-access API key once. Run it in a private terminal.
 Never paste the output into an agent chat or shared log. Existing standalone

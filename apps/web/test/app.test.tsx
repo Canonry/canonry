@@ -215,14 +215,15 @@ test('project route renders a concise visibility summary with progressive detail
   // embed configs pass that id on the wire (CANONRY_EMBED_PROJECT_TABS), so
   // renaming it would break an existing install's allowlist.
   expect(html).toMatch(/AI Visibility/)
-  // The route/embed token remains `technical-aeo`; only the product label changes.
-  expect(html).toMatch(/Site Health/)
+  // Agent Readiness is one name: the tab label, its `agent-readiness` route and embed token.
+  expect(html).toMatch(/Agent Readiness/)
+  expect(html).not.toMatch(/Site Health/)
   const subnav = new DOMParser().parseFromString(html, 'text/html').querySelector('.project-subnav')
   const visibleTabs = [...(subnav?.querySelectorAll('.project-subnav-link') ?? [])]
     .filter(link => !link.closest('.project-subnav-measure'))
     .map(link => link.textContent?.trim())
   expect(visibleTabs).toEqual([
-    'AI Visibility', 'Search Engines', 'SEO', 'Activity', 'Site Health', 'Journeys', 'Server traffic', 'More',
+    'AI Visibility', 'Search Engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'More',
   ])
   const projectSettings = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('a.sidebar-link')]
     .find(link => link.textContent?.includes('Project settings'))

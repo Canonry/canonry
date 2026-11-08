@@ -175,6 +175,11 @@ export interface CanonryMcpTool<
   outputSchema?: z.ZodObject
   annotations: ToolAnnotations
   openApiOperations: string[]
+  /**
+   * Set only on a deprecated alias: the canonical tool it answers as. Aliases
+   * stay callable for existing clients but are left out of guidance and Aero.
+   */
+  deprecatedAliasOf?: string
   handler: (client: ApiClient, input: z.infer<TSchema>) => Promise<unknown>
 }
 
@@ -1187,7 +1192,7 @@ const technicalAeoTrendInputSchema = z.object({
 
 const trendsInputSchema = z.object({
   project: projectNameSchema,
-  surface: trendSurfaceSchema.describe('Which card: index-coverage (Google and Bing indexed pages by day), site-health (site score and pages checked per scan), backlinks (referring domains, linking hosts and top-10 concentration per Common Crawl release, crawler and proxy hosts left out).'),
+  surface: trendSurfaceSchema.describe('Which card: index-coverage (Google and Bing indexed pages by day), site-health (Agent Readiness score and pages checked per scan), backlinks (referring domains, linking hosts and top-10 concentration per Common Crawl release, crawler and proxy hosts left out).'),
   window: metricsWindowSchema.optional().describe('Window ending on the latest reading. Defaults to 90d for index-coverage and all otherwise. Leave it out when you pass startDate or endDate.'),
   startDate: calendarDateSchema.optional().describe('First calendar day (YYYY-MM-DD) of your own range instead of a window.'),
   endDate: calendarDateSchema.optional().describe('Last calendar day (YYYY-MM-DD) of your own range instead of a window.'),
@@ -1210,13 +1215,13 @@ const siteHealthIssuesInputSchema = siteAuditIssueListQuerySchema.extend({
 })
 
 const siteHealthIssuePagesInputSchema = siteHealthIssuesInputSchema.extend({
-  issueId: z.string().min(1).describe('Exact issue ID from canonry_site_health_issues. Keep the returned runId when inspecting affected pages.'),
+  issueId: z.string().min(1).describe('Exact issue ID from canonry_agent_readiness_issues. Keep the returned runId when inspecting affected pages.'),
 })
 
 const siteHealthPageAuditInputSchema = z.object({
   project: projectNameSchema,
   runId: crawlRunIdSchema,
-  nodeKey: z.string().min(1).optional().describe('Exact crawl node key, as returned by Site Health page or subgraph reads.'),
+  nodeKey: z.string().min(1).optional().describe('Exact crawl node key, as returned by Agent Readiness page or subgraph reads.'),
   url: z.string().url().optional().describe('Exact page URL. Use this only when a crawl node key is unavailable.'),
 }).refine((value) => Boolean(value.nodeKey || value.url), {
   message: 'Provide nodeKey or url.',
@@ -1267,7 +1272,7 @@ const siteHealthChangesInputSchema = z.object({
   toRunId: runIdSchema.optional().describe('Later complete crawl run ID. Omit to compare the latest complete crawl.'),
   scope: z.enum(['all', 'pages', 'links']).optional().describe('Limit the diff to page or link changes. Omit or use all for both.'),
   change: z.enum(['all', 'added', 'removed', 'changed']).optional().describe('Limit the diff to one change kind. Omit or use all for every kind.'),
-  cursor: z.string().min(1).optional().describe('Opaque cursor from the previous Site Health changes result.'),
+  cursor: z.string().min(1).optional().describe('Opaque cursor from the previous Agent Readiness changes result.'),
   limit: z.number().int().positive().max(25).default(25).describe('Hard MCP cap: 25 records, because each change carries before and after DTOs.'),
 })
 
@@ -1906,7 +1911,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_results_clear',
     title: 'Preview or clear saved results',
-    description: 'Clear only explicitly selected visibility runs and research batches. Preview is the default; back up evidence and set confirm=true to delete. Refuses active work and other run kinds. Preserves queries, plans, schedules, Site Health, backlinks, usage, and the audit trail.',
+    description: 'Clear only explicitly selected visibility runs and research batches. Preview is the default; back up evidence and set confirm=true to delete. Refuses active work and other run kinds. Preserves queries, plans, schedules, Agent Readiness, backlinks, usage, and the audit trail.',
     access: 'write',
     tier: 'monitoring',
     inputSchema: resultsClearRequestSchema.safeExtend({ project: projectNameSchema }),
@@ -3383,7 +3388,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_project_upsert',
     title: 'Create or replace project',
-    description: 'Create or replace a Canonry project. PUT semantics: fields not in the request are reset to their defaults. Provide the full intended project shape. Exceptions: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it. An omitted qualifiedAliases (the aliases Simple sentiment treats as this brand\'s own names) keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it. Competitors are not part of this request, but a new identity (display name, aliases, domains) that claims a tracked competitor\'s curated alias drops that alias, and the drop is audited. An omitted siteAuditMaxPages (the Site Health page budget for scans that set none, 1 to 50,000) keeps the stored budget; send null for the full site. An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode: `off` (no unattended detection pass), `preview` (the default: detect and log, store nothing) or `apply` (store the detected names, which restates history).',
+    description: 'Create or replace a Canonry project. PUT semantics: fields not in the request are reset to their defaults. Provide the full intended project shape. Exceptions: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it. An omitted qualifiedAliases (the aliases Simple sentiment treats as this brand\'s own names) keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it. Competitors are not part of this request, but a new identity (display name, aliases, domains) that claims a tracked competitor\'s curated alias drops that alias, and the drop is audited. An omitted siteAuditMaxPages (the Agent Readiness page budget for scans that set none, 1 to 50,000) keeps the stored budget; send null for the full site. An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode: `off` (no unattended detection pass), `preview` (the default: detect and log, store nothing) or `apply` (store the detected names, which restates history).',
     access: 'write',
     tier: 'setup',
     inputSchema: projectUpsertInputSchema,
@@ -3405,7 +3410,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_apply_config',
     title: 'Apply project config',
-    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it; and a competitor given as a plain domain keeps its stored curated aliases, while `{ domain, aliases }` sets them exactly (`[]` clears). A spec identity that claims a competitor\'s alias drops that alias (audited); a new competitor whose name overlaps another competitor\'s alias (one brand key contains the other) or that is the project\'s own site fails the apply. An omitted siteAuditMaxPages keeps the stored Site Health page budget (null means the full site). An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode (off, preview or apply). For multi-document YAML, call this tool once per project document. Call canonry_apply_config_preview first.',
+    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it; and a competitor given as a plain domain keeps its stored curated aliases, while `{ domain, aliases }` sets them exactly (`[]` clears). A spec identity that claims a competitor\'s alias drops that alias (audited); a new competitor whose name overlaps another competitor\'s alias (one brand key contains the other) or that is the project\'s own site fails the apply. An omitted siteAuditMaxPages keeps the stored Agent Readiness page budget (null means the full site). An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode (off, preview or apply). For multi-document YAML, call this tool once per project document. Call canonry_apply_config_preview first.',
     access: 'write',
     tier: 'core',
     inputSchema: applyConfigInputSchema,
@@ -4287,53 +4292,53 @@ const rawCanonryMcpTools = [
     handler: (client, input) => client.promoteDiscovery(input.project, input.sessionId, input.request),
   }),
   defineTool({
-    name: 'canonry_site_health_overview',
-    title: 'Get Site Health overview',
-    description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary provides complete eligibility counts and disjoint excluded reasons, including terminal redirects. Start a Site Health investigation with the latest or selected scan summary: root URL, completeness, crawl and link counts, budgets, versions, termination, and dead-link check state. Follow with a focused Site Health subgraph, shortest path, or scan changes; never request the interactive graph projection through MCP.',
+    name: 'canonry_agent_readiness_overview',
+    title: 'Get Agent Readiness overview',
+    description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary provides complete eligibility counts and disjoint excluded reasons, including terminal redirects; unknown indexability is not canonical-away. Start an Agent Readiness investigation with the latest or selected scan summary: root URL, completeness, crawl and link counts, budgets, versions, termination, and dead-link check state. An older scorecard-only scan has no crawl, and this never fabricates one. Follow with a focused subgraph (canonry_agent_readiness_subgraph), shortest path (canonry_agent_readiness_path), or scan changes (canonry_agent_readiness_changes); never request the interactive graph projection through MCP.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoCrawlInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/crawl'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/crawl'],
     handler: (client, input) => client.getTechnicalAeoCrawl(input.project, { runId: input.runId, date: input.date }),
   }),
   defineTool({
-    name: 'canonry_site_health_issues',
-    title: 'List stored Site Health issues',
-    description: 'Read paginated finding groups from a saved audit, including duplicate metadata and critical defects regardless of aggregate score. Never starts a crawl. Preserve scan date, run/attempt identity, coverage and partial/unavailable states: an empty result does not prove the site is clean. Disposition separates actionable findings, advisory guidance, unverified checks and information; severity retains the recorded critical-defect level. recommendationsScope distinguishes issue-specific defect guidance from whole-factor advice. stableIdentity=false means the ID cannot establish continuity across scans. Follow nextCursor with the returned runId, or inspect one issue with canonry_site_health_issue_pages.',
+    name: 'canonry_agent_readiness_issues',
+    title: 'List stored Agent Readiness issues',
+    description: 'Read paginated finding groups from a saved Agent Readiness scan, including duplicate metadata and critical defects regardless of aggregate score. Never starts a crawl. Preserve scan date, run/attempt identity, coverage and partial/unavailable states: an empty result does not prove the site is clean. Disposition separates actionable findings, advisory guidance, unverified checks and information; severity retains the recorded critical-defect level. recommendationsScope distinguishes issue-specific defect guidance from whole-factor advice. stableIdentity=false means the ID cannot establish continuity across scans. Follow nextCursor with the returned runId, or inspect one issue with canonry_agent_readiness_issue_pages.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: siteHealthIssuesInputSchema,
     outputSchema: siteAuditIssuesResponseSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/issues'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/issues'],
     handler: (client, input) => client.getSiteAuditIssues(input.project, {
       runId: input.runId, cursor: input.cursor, limit: input.limit,
     }),
   }),
   defineTool({
-    name: 'canonry_site_health_issue_pages',
-    title: 'Read pages affected by a saved audit issue',
-    description: 'Read paginated affected URLs and saved messages for one issue in the selected audit. Use the issue ID and runId from canonry_site_health_issues; continue with nextCursor without changing the selection. Null node keys and unavailable/partial coverage remain explicit. recommendationsScope identifies issue-specific defect guidance or broader factor advice; do not present factor advice as an exact fix for this finding. This stored read never crawls, changes content or authorizes edits.',
+    name: 'canonry_agent_readiness_issue_pages',
+    title: 'Read pages affected by a saved Agent Readiness issue',
+    description: 'Read paginated affected URLs and saved messages for one issue in the selected Agent Readiness scan. Use the issue ID and runId from canonry_agent_readiness_issues; continue with nextCursor without changing the selection. Null node keys and unavailable/partial coverage remain explicit. recommendationsScope identifies issue-specific defect guidance or broader factor advice; do not present factor advice as an exact fix for this finding. This stored read never crawls, changes content or authorizes edits.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: siteHealthIssuePagesInputSchema,
     outputSchema: siteAuditIssuePagesResponseSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/issues/{issueId}/pages'],
     handler: (client, input) => client.getSiteAuditIssuePages(input.project, input.issueId, {
       runId: input.runId, cursor: input.cursor, limit: input.limit,
     }),
   }),
   defineTool({
-    name: 'canonry_site_health_page_audit',
-    title: 'Get Site Health page audit',
-    description: 'Connect one graph page\'s audit score to its exact persisted evidence: factor scores and each factor\'s `sharePct` of the page score (its `weight` is relative, never a percentage), stable finding codes and messages, recommendations, and critical defects. The response includes crawl provenance and explicit no-crawl, details-unavailable, not-found, not-audited, ready/scores-only states. Use nodeKey from a Site Health page or subgraph read when possible. Link score remains an importance signal, not an audit finding.',
+    name: 'canonry_agent_readiness_page_audit',
+    title: 'Get Agent Readiness page audit',
+    description: 'Connect one graph page\'s audit score to its exact persisted evidence: factor scores and each factor\'s `sharePct` of the page score (its `weight` is relative, never a percentage), stable finding codes and messages, recommendations, and critical defects. The response includes crawl provenance and explicit no-crawl, details-unavailable, not-found, not-audited, ready/scores-only states. Use nodeKey from canonry_agent_readiness_pages or canonry_agent_readiness_subgraph when possible. Link score remains an importance signal, not an audit finding.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: siteHealthPageAuditInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/crawl/pages/audit'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/crawl/pages/audit'],
     handler: (client, input) => client.getTechnicalAeoPageAudit(input.project, {
       runId: input.runId,
       nodeKey: input.nodeKey,
@@ -4341,14 +4346,14 @@ const rawCanonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_site_health_subgraph',
-    title: 'Inspect focused Site Health subgraph',
+    name: 'canonry_agent_readiness_subgraph',
+    title: 'Inspect focused Agent Readiness subgraph',
     description: 'Read a compact canonical neighborhood around one page or the crawl root. Defaults to 25 nodes and 50 edges; expand hops or refocus only when needed. `countAccuracy=lower-bound` means traversal reached a cap, and `complete`/`termination` qualify partial-crawl results. This intentionally omits visualization coordinates and never materializes the full site graph.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: siteHealthSubgraphInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/subgraph'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/subgraph'],
     handler: (client, input) => client.getSiteHealthSubgraph(input.project, {
       runId: input.runId,
       nodeKey: input.nodeKey,
@@ -4359,14 +4364,14 @@ const rawCanonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_site_health_path',
-    title: 'Find shortest Site Health path',
+    name: 'canonry_agent_readiness_path',
+    title: 'Find shortest Agent Readiness link path',
     description: 'Find the shortest directed path of followable internal links from the crawl root or a selected page to one required destination. Use `complete` and `termination` to qualify unreachable or truncated outcomes from a partial crawl; it returns one path, not a graph traversal.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: siteHealthPathInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/path'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/path'],
     handler: (client, input) => client.getSiteHealthPath(input.project, {
       runId: input.runId,
       fromNodeKey: input.fromNodeKey,
@@ -4377,14 +4382,14 @@ const rawCanonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_site_health_changes',
-    title: 'Compare Site Health scans',
+    name: 'canonry_agent_readiness_changes',
+    title: 'Compare Agent Readiness scans',
     description: 'Compare two immutable complete scans (or the latest pair) for added, removed, and changed canonical pages or links. Results echo resolved filters and scan IDs; the first page has an exact summary, while continuations omit summary/total. MCP pages cap at 25 because every change carries before/after DTOs; filter before paging.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: siteHealthChangesInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/changes'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/changes'],
     handler: (client, input) => client.getSiteHealthChanges(input.project, {
       fromRunId: input.fromRunId,
       toRunId: input.toRunId,
@@ -4395,27 +4400,27 @@ const rawCanonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_technical_aeo_score',
-    title: 'Get Technical AEO score',
+    name: 'canonry_agent_readiness_score',
+    title: 'Get Agent Readiness score',
     description:
-      'pagesFailing and pagesPartial are independent counts; their sum is the number of audited pages below pass for that factor. Any failing page makes a factor fail, independently of its average score or affected-page count. These counts use the audited-page population; crawl eligibility is a separate inventory population. affectedPageRanking orders recorded per-factor below-pass counts from largest to smallest; this is affected-page breadth, not a prediction of mention or citation lift. Factor cohorts overlap, so do not add their counts together. runSelection flags same-date ambiguity and prefers a complete run on the latest scan date, otherwise the largest page sample. Get the Technical AEO scorecard for a project: the latest site-audit aggregate 0–100 score, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. A factor\'s share of the site score is `sharePct` (0–100, the shares add up to 100; null for a scan that did not record it); its `weight` is relative and never a percentage. When `hasData` is false, no scored audit is available for the selected scan; a stored crawl may still exist. Inspect the stored crawl before proposing a new audit.',
+      'pagesFailing and pagesPartial are independent counts; their sum is the number of audited pages below pass for that factor. Any failing page makes a factor fail, independently of its average score or affected-page count. These counts use the audited-page population; crawl eligibility is a separate inventory population. affectedPageRanking orders recorded per-factor below-pass counts from largest to smallest; this is affected-page breadth, not a prediction of mention or citation lift. Factor cohorts overlap, so do not add their counts together. runSelection flags same-date ambiguity and prefers a complete run on the latest scan date, otherwise the largest page sample. Get the Agent Readiness scorecard for a project: the aggregate 0–100 score of the latest scan, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. A factor\'s share of the site score is `sharePct` (0–100, the shares add up to 100; null for a scan that did not record it); its `weight` is relative and never a percentage. When `hasData` is false, no scored audit is available for the selected scan; a stored crawl may still exist. Inspect the stored crawl with canonry_agent_readiness_overview before proposing a new scan.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoScoreInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness'],
     handler: (client, input) => client.getTechnicalAeoScore(input.project, { runId: input.runId }),
   }),
   defineTool({
-    name: 'canonry_technical_aeo_pages',
-    title: 'List Technical AEO pages',
+    name: 'canonry_agent_readiness_page_scores',
+    title: 'List Agent Readiness page scores',
     description:
-      'List the per-page breakdown of the latest site-audit run (paginated). Filter status=error to surface unreachable pages, or sort score-asc (default) to surface the worst-scoring pages first. Use after canonry_technical_aeo_score to drill into which pages drag the site score down.',
+      'List the per-page scores of the latest Agent Readiness scan (paginated). Filter status=error to surface unreachable pages, or sort score-asc (default) to surface the worst-scoring pages first. Use after canonry_agent_readiness_score to drill into which pages drag the site score down.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoPagesInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/pages'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/pages'],
     handler: (client, input) => client.getTechnicalAeoPages(input.project, {
       runId: input.runId,
       status: input.status,
@@ -4425,20 +4430,20 @@ const rawCanonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_technical_aeo_trend',
-    title: 'Get Technical AEO trend',
-    description: 'Get the aggregate Technical AEO score over time (oldest-first) across past site-audit runs. Use to answer "is our technical AEO improving?".',
+    name: 'canonry_agent_readiness_trend',
+    title: 'Get Agent Readiness score trend',
+    description: 'Get the aggregate Agent Readiness score over time (oldest-first) across past scans. Use to answer "is our Agent Readiness improving?".',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoTrendInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/trend'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/trend'],
     handler: (client, input) => client.getTechnicalAeoTrend(input.project, input.limit !== undefined ? { limit: input.limit } : undefined),
   }),
   defineTool({
     name: 'canonry_sitemaps',
     title: 'Compare sitemaps across the site, Google and Bing',
-    description: 'Read, from stored data, the sitemap files the latest Site Health scan read pages from, each engine\'s sitemap list (status, URL count, submitted and last read) and what each engine is missing: sitemaps the site declares or someone submitted to the other engine. google or bing is null when that engine is not connected or its list was never read. Use for "are my sitemaps in Google and Bing?" before submitting anything.',
+    description: 'Read, from stored data, the sitemap files the latest Agent Readiness scan read pages from, each engine\'s sitemap list (status, URL count, submitted and last read) and what each engine is missing: sitemaps the site declares or someone submitted to the other engine. google or bing is null when that engine is not connected or its list was never read. Use for "are my sitemaps in Google and Bing?" before submitting anything.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: projectInputSchema,
@@ -4463,25 +4468,14 @@ const rawCanonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_technical_aeo_crawl',
-    title: 'Get persisted Technical AEO crawl',
-    description: 'For a historical question pass its exact UTC date (YYYY-MM-DD). If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary gives whole-snapshot eligibility and disjoint excluded reasons; unknown is not canonical-away. Read persisted full-crawl metadata for the latest or selected Technical AEO site-audit run: root URL, crawl/indexability/link-score versions, effective budgets, completeness, counts, and explicit dead-link check state. This does not fabricate a graph from older scorecard-only audits.',
-    access: 'read',
-    tier: 'monitoring',
-    inputSchema: technicalAeoCrawlInputSchema,
-    annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/crawl'],
-    handler: (client, input) => client.getTechnicalAeoCrawl(input.project, { runId: input.runId, date: input.date }),
-  }),
-  defineTool({
-    name: 'canonry_technical_aeo_crawl_pages',
-    title: 'List Technical AEO crawl pages',
+    name: 'canonry_agent_readiness_pages',
+    title: 'List Agent Readiness crawl pages',
     description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary gives whole-snapshot eligible/excluded counts, disjoint excluded reasons, and urlVersions (parameter copies of a page the audit did not score; pass urlVersions=exclude to list pages only); healthReasonCounts covers the filtered list before paging. Use these exact counts, never infer canonical-away from unknown indexability. healthReason distinguishes terminal redirects from canonical-to-other pages. Default runSelection reports same-date ambiguity and selects complete or most-pages evidence on the latest scan date. Read one bounded, cursor-paged list of canonical crawl nodes. Filter crawler-derived indexability and audit state, then follow nextCursor; this is technical inventory eligibility, not a claim about Google index coverage. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoCrawlPagesInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/crawl/pages'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/crawl/pages'],
     handler: (client, input) => client.getTechnicalAeoCrawlPages(input.project, {
       runId: input.runId,
       date: input.date,
@@ -4496,14 +4490,14 @@ const rawCanonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_technical_aeo_structure',
-    title: 'List Technical AEO site structure',
+    name: 'canonry_agent_readiness_structure',
+    title: 'List Agent Readiness site structure',
     description: 'Read one bounded level of the persisted site hierarchy below parentPath. Follow nextCursor for more siblings; request a child path separately rather than attempting to materialize the entire website tree. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoStructureInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/structure'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/structure'],
     handler: (client, input) => client.getTechnicalAeoStructure(input.project, {
       runId: input.runId,
       parentPath: input.parentPath,
@@ -4512,14 +4506,14 @@ const rawCanonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_technical_aeo_internal_links',
-    title: 'List Technical AEO internal links',
-    description: 'Read a bounded, cursor-paged list of persisted internal crawl edges. Filter by source URL, target URL, followability, or link kind. Nav, header, and footer links are marked isTemplate; templateSource says which rule decided each one (placement, ubiquity, or unmeasured when neither had evidence) and templateDetection reports the same for the scan, so an empty content-only list is not evidence of no content links and two scans classified by different rules are never compared as if they were the same measurement. Use the neighbors tool for one page rather than loading a graph. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
+    name: 'canonry_agent_readiness_links',
+    title: 'List Agent Readiness internal links',
+    description: 'Read a bounded, cursor-paged list of persisted internal crawl edges. Filter by source URL, target URL, followability, or link kind. Nav, header, and footer links are marked isTemplate; templateSource says which rule decided each one (placement, ubiquity, or unmeasured when neither had evidence) and templateDetection reports the same for the scan, so an empty content-only list is not evidence of no content links and two scans classified by different rules are never compared as if they were the same measurement. Use canonry_agent_readiness_link_neighbors for one page rather than loading a graph. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoInternalLinksInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/internal-links'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/internal-links'],
     handler: (client, input) => client.getTechnicalAeoInternalLinks(input.project, {
       runId: input.runId,
       sourceUrl: input.sourceUrl,
@@ -4531,14 +4525,14 @@ const rawCanonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_technical_aeo_link_neighbors',
-    title: 'Get Technical AEO page link neighbors',
+    name: 'canonry_agent_readiness_link_neighbors',
+    title: 'Get Agent Readiness page link neighbors',
     description: 'Read bounded inbound and outbound internal links for exactly one crawl node, selected by nodeKey or URL. Filter by link kind to separate editorial links from nav, header, and footer links. It returns independent truncation flags for inbound and outbound edges, not a transitive traversal. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoLinkNeighborsInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/internal-links/neighbors'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/internal-links/neighbors'],
     handler: (client, input) => client.getTechnicalAeoInternalLinkNeighbors(input.project, {
       runId: input.runId,
       nodeKey: input.nodeKey,
@@ -4548,14 +4542,14 @@ const rawCanonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_technical_aeo_dead_links',
-    title: 'List Technical AEO dead links',
+    name: 'canonry_agent_readiness_dead_links',
+    title: 'List Agent Readiness dead links',
     description: 'Read the persisted dead-link check state and a bounded, cursor-paged list of findings. A disabled result means the crawl was run without opt-in checks; it never means zero dead links.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoDeadLinksInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/dead-links'],
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/dead-links'],
     handler: (client, input) => client.getTechnicalAeoDeadLinks(input.project, {
       runId: input.runId,
       cursor: input.cursor,
@@ -4563,15 +4557,15 @@ const rawCanonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_technical_aeo_run',
-    title: 'Run Technical AEO site audit',
+    name: 'canonry_agent_readiness_run',
+    title: 'Run Agent Readiness scan',
     description:
-      'Start a site-audit run. The run discovers root, sitemap, and linked pages. Without maxPages it uses the project\'s saved page budget (siteAuditMaxPages), else the full site (up to 50,000 pages), and the engine derives the link-observation budget from that page count with a 100,000 floor, so raising maxPages raises it too. An explicit maxEdges is a ceiling that replaces the derivation and can sit below it. It returns {runId, status} and continues in the background. If an active run has identical effective options, this tool returns it; different options are refused. Poll canonry_run_get, then read the crawl and score tools.',
+      'Start an Agent Readiness scan (a site-audit run). The scan discovers root, sitemap, and linked pages. Without maxPages it uses the project\'s saved page budget (siteAuditMaxPages), else the full site (up to 50,000 pages), and the engine derives the link-observation budget from that page count with a 100,000 floor, so raising maxPages raises it too. An explicit maxEdges is a ceiling that replaces the derivation and can sit below it. It returns {runId, status} and continues in the background. If an active run has identical effective options, this tool returns it; different options are refused. Poll canonry_run_get, then read canonry_agent_readiness_overview and canonry_agent_readiness_score.',
     access: 'write',
     tier: 'monitoring',
     inputSchema: technicalAeoRunInputSchema,
     annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
-    openApiOperations: ['POST /api/v1/projects/{name}/technical-aeo/runs'],
+    openApiOperations: ['POST /api/v1/projects/{name}/agent-readiness/runs'],
     handler: (client, input) => client.triggerSiteAudit(input.project, {
       sitemapUrl: input.sitemapUrl,
       limit: input.limit,
@@ -5102,10 +5096,64 @@ const rawCanonryMcpTools = [
   }),
 ] as const
 
-export const canonryMcpTools = rawCanonryMcpTools.map(tool => {
+const canonicalCanonryMcpTools = rawCanonryMcpTools.map(tool => {
   if (tool.access !== 'read' || toolOperationAccess(tool) !== OperationAccesses.live) return tool
   return { ...tool, annotations: { ...tool.annotations, openWorldHint: true } }
 })
+
+type CanonicalCanonryMcpToolName = typeof rawCanonryMcpTools[number]['name']
+
+/**
+ * Deprecated MCP tool names, each answering as its canonical tool. Agent
+ * Readiness was published as Site Health and Technical AEO; these names stay
+ * registered so existing clients keep working, with the canonical tool's input
+ * schema, handler, annotations, access, tier and OpenAPI operation. Guidance
+ * (`canonry_help`, toolkit listings, playbooks) and Aero name only canonical
+ * tools. Remove them only in a future major version.
+ */
+export const DEPRECATED_MCP_TOOL_ALIASES = {
+  canonry_technical_aeo_score: 'canonry_agent_readiness_score',
+  canonry_technical_aeo_pages: 'canonry_agent_readiness_page_scores',
+  canonry_technical_aeo_trend: 'canonry_agent_readiness_trend',
+  canonry_site_health_overview: 'canonry_agent_readiness_overview',
+  canonry_technical_aeo_crawl: 'canonry_agent_readiness_overview',
+  canonry_technical_aeo_crawl_pages: 'canonry_agent_readiness_pages',
+  canonry_site_health_page_audit: 'canonry_agent_readiness_page_audit',
+  canonry_site_health_issues: 'canonry_agent_readiness_issues',
+  canonry_site_health_issue_pages: 'canonry_agent_readiness_issue_pages',
+  canonry_technical_aeo_structure: 'canonry_agent_readiness_structure',
+  canonry_technical_aeo_internal_links: 'canonry_agent_readiness_links',
+  canonry_technical_aeo_link_neighbors: 'canonry_agent_readiness_link_neighbors',
+  canonry_technical_aeo_dead_links: 'canonry_agent_readiness_dead_links',
+  canonry_site_health_subgraph: 'canonry_agent_readiness_subgraph',
+  canonry_site_health_path: 'canonry_agent_readiness_path',
+  canonry_site_health_changes: 'canonry_agent_readiness_changes',
+  canonry_technical_aeo_run: 'canonry_agent_readiness_run',
+} as const satisfies Record<string, CanonicalCanonryMcpToolName>
+
+export type DeprecatedMcpToolAlias = keyof typeof DEPRECATED_MCP_TOOL_ALIASES
+
+export const DEPRECATED_MCP_TOOL_ALIAS_NAMES = Object.keys(DEPRECATED_MCP_TOOL_ALIASES) as DeprecatedMcpToolAlias[]
+
+function deprecatedAliasTool(alias: DeprecatedMcpToolAlias): CanonryMcpTool<z.ZodTypeAny, DeprecatedMcpToolAlias> {
+  const canonicalName = DEPRECATED_MCP_TOOL_ALIASES[alias]
+  const canonical = canonicalCanonryMcpTools.find(tool => tool.name === canonicalName) as CanonryMcpTool | undefined
+  if (!canonical) throw new Error(`Deprecated MCP tool ${alias} names a missing tool: ${canonicalName}`)
+  return {
+    ...canonical,
+    name: alias,
+    title: `${canonical.title} (deprecated name)`,
+    description: `Deprecated name for ${canonical.name}; call that tool instead. Same input and output.`,
+    inputJsonSchema: toJsonSchema(canonical.inputSchema, alias),
+    deprecatedAliasOf: canonical.name,
+  }
+}
+
+/** Canonical tools first, then the deprecated aliases that answer as them. */
+export const canonryMcpTools = [
+  ...canonicalCanonryMcpTools,
+  ...DEPRECATED_MCP_TOOL_ALIAS_NAMES.map(deprecatedAliasTool),
+]
 
 export type CanonryMcpRegistryTool = typeof canonryMcpTools[number]
 export type CanonryMcpToolName = CanonryMcpRegistryTool['name']

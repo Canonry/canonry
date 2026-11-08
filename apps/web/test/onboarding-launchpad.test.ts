@@ -73,8 +73,8 @@ describe('platform onboarding launchpad', () => {
 
     expect(getToasts()).toEqual([
       expect.objectContaining({
-        title: 'Site Health scan did not start',
-        detail: 'The project is safe. Choose Run scan in Site Health to retry.',
+        title: 'Agent Readiness scan did not start',
+        detail: 'The project is safe. Choose Run scan in Agent Readiness to retry.',
         tone: 'negative',
       }),
     ])

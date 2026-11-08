@@ -9,7 +9,7 @@ pnpm exec vitest run --project canonry agent-analyst-replay.test.ts agent-progre
 
 Fixtures cover Simple and Advanced scope, branded versus non-brand denominators,
 missing evidence, stale measurement dates, incompatible comparisons, selected
-Site Health pages, permission downgrades, and bounded execution. Scripted replies
+Agent Readiness pages, permission downgrades, and bounded execution. Scripted replies
 verify the harness and transport. They do **not** measure a model's reasoning
 quality or establish that a prompt change improved it.
 

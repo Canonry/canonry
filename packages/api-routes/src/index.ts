@@ -458,7 +458,7 @@ export interface ApiRoutesOptions {
   harvestSearchQueries?: DiscoveryRoutesOptions['harvestSearchQueries']
   /** Discovery harvest embed seam — embeds query strings for the semantic novelty pass. Wire to the Gemini embedder; unset/rejecting degrades novelty to exact-match. */
   embedQueries?: DiscoveryRoutesOptions['embedQueries']
-  /** Technical AEO callback — fires after a `site-audit` run row is created. Wire to `executeSiteAudit`. */
+  /** Agent Readiness callback — fires after a `site-audit` run row is created. Wire to `executeSiteAudit`. */
   onSiteAuditRequested?: TechnicalAeoRoutesOptions['onSiteAuditRequested']
   /** Backlinks feature callbacks — see `backlinksRoutes` for details. */
   getBacklinksStatus?: BacklinksRoutesOptions['getBacklinksStatus']

@@ -498,7 +498,7 @@ test('keeps scoped-writer launch blocked while project provider readiness loads'
   fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
   const launch = screen.getByRole('button', { name: 'Run check' }) as HTMLButtonElement
   expect(launch.disabled).toBe(true)
-  expect(launch.title).toBe('Checking provider readiness before launch.')
+  expect(launch.title).toBe('Checking provider connections before launch.')
   expect(screen.queryByText(/Launch is blocked until a provider allowed by this project/)).toBeNull()
   await waitFor(() => expect(resolveReadiness).toBeTypeOf('function'))
   resolveReadiness?.(jsonResponse({ answerVisibilityProviderReady: true }))
@@ -512,7 +512,7 @@ test('retries a failed scoped-provider readiness read without losing the query d
     : jsonResponse({ answerVisibilityProviderReady: true }))
   fireEvent.click(await screen.findByRole('button', { name: 'Edit queries' }))
   fireEvent.change(screen.getByLabelText('Queries (one per line)'), { target: { value: 'keep this query draft' } })
-  expect(await screen.findByText('Provider readiness could not be checked. Try again.')).toBeTruthy()
+  expect(await screen.findByText('Provider connections could not be checked. Try again.')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Retry provider check' }))
   expect(await within(screen.getByRole('region', { name: 'AI engines' })).findByText('Configured')).toBeTruthy()
   expect((screen.getByLabelText('Queries (one per line)') as HTMLTextAreaElement).value).toBe('keep this query draft')
@@ -531,11 +531,11 @@ test('does not keep a stale ready result after a scoped-provider refresh fails',
   fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }))
   fireEvent.click(screen.getByRole('button', { name: 'Refresh connections' }))
   const providerSection = within(screen.getByRole('region', { name: 'AI engines' }))
-  expect(await providerSection.findByText('Provider readiness could not be checked. Try again.')).toBeTruthy()
+  expect(await providerSection.findByText('Provider connections could not be checked. Try again.')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Continue', exact: true }))
   const blockedLaunch = screen.getByRole('button', { name: 'Run check' }) as HTMLButtonElement
   expect(blockedLaunch.disabled).toBe(true)
-  expect(blockedLaunch.title).toBe('Provider readiness could not be checked. Try again.')
+  expect(blockedLaunch.title).toBe('Provider connections could not be checked. Try again.')
 })
 
 test('keeps a confirmed missing provider blocked for scoped writers without credential controls', async () => {
@@ -601,7 +601,7 @@ test('finishing the project-scoped onboarding lands on the finish step', async (
   })
 })
 
-test('keeps the existing project-scoped setup destination outside Site Health onboarding', async () => {
+test('keeps the existing project-scoped setup destination outside Agent Readiness onboarding', async () => {
   const { projectName } = renderProjectSetup({ onboarding: false, complete: true })
 
   expect(screen.queryByRole('list', { name: 'Onboarding progress' })).toBeNull()

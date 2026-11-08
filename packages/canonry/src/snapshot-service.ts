@@ -184,7 +184,7 @@ export class SnapshotService {
         finalUrl: homepageUrl,
         auditedAt: new Date().toISOString(),
         overallScore: 0,
-        summary: `Technical audit unavailable: ${message}`,
+        summary: `Agent Readiness scan unavailable: ${message}`,
         factors: [],
       }
     }
@@ -519,7 +519,7 @@ function buildBatchAnalysisPrompt(ctx: {
     `Services: ${ctx.profile.services.join(', ') || 'unknown'}`,
     `Category terms: ${ctx.profile.categoryTerms.join(', ') || 'unknown'}`,
     `Manual competitor hints: ${ctx.manualCompetitors.join(', ') || 'none'}`,
-    `Technical audit: ${ctx.audit.overallScore}/100 — ${ctx.audit.summary}`,
+    `Agent Readiness score: ${ctx.audit.overallScore}/100 — ${ctx.audit.summary}`,
     '',
     'Responses JSON:',
     JSON.stringify(ctx.responses, null, 2),
@@ -531,7 +531,7 @@ function buildFallbackBatchAssessment(companyName: string, audit: SnapshotAuditD
     assessments: [],
     whatThisMeans: [
       `${companyName} needs category-level visibility, not just branded comprehension.`,
-      `The technical baseline is ${audit.overallScore}/100, so weak site signals may be making AI systems prefer better-structured alternatives.`,
+      `The Agent Readiness baseline is ${audit.overallScore}/100, so weak site signals may be making AI systems prefer better-structured alternatives.`,
     ],
     recommendedActions: buildFallbackRecommendedActions(audit),
   }

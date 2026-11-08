@@ -190,12 +190,12 @@ export function markOnboardingRunHandled(runId: string): void {
 }
 
 /**
- * One-shot marker for the launchpad's hand-off into Site Health.
+ * One-shot marker for the launchpad's hand-off into Agent Readiness.
  *
- * Site Health used to report `resumed: Boolean(initialRunId)`, but the
+ * Agent Readiness used to report `resumed: Boolean(initialRunId)`, but the
  * launchpad always hands off WITH the run it just started, so every first-run
  * start read as a resume (14 of 14 in the data). The launchpad now marks the
- * run it handed over; the Site Health page consumes the marker on arrival and
+ * run it handed over; the Agent Readiness page consumes the marker on arrival and
  * reports a fresh start. A later reload finds no marker and is a real resume.
  */
 export function markOnboardingHandoff(runId: string): void {

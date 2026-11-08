@@ -38,12 +38,12 @@ canonry bootstrap
 canonry serve
 ```
 
-Opens at [http://127.0.0.1:4100](http://127.0.0.1:4100). No provider credential is needed for Page Health.
+Opens at [http://127.0.0.1:4100](http://127.0.0.1:4100). No provider credential is needed for Agent Readiness.
 
 Local state defaults to `~/.canonry/config.yaml` and `~/.canonry/data.db`.
 Set `CANONRY_CONFIG_DIR=/private/path` consistently for `canonry bootstrap`,
 the server, and all CLI/MCP clients to isolate an install in another directory.
-Provider credentials are optional for bootstrap and Page Health.
+Provider credentials are optional for bootstrap and Agent Readiness.
 
 > **Use `127.0.0.1`, not `localhost`.** `canonry serve` binds the IPv4 loopback
 > `127.0.0.1` (override with `CANONRY_HOST`). On machines where `localhost`
@@ -218,11 +218,11 @@ Simple and Advanced Measurement dashboards use the same presentation policy:
   sweep and schedule writes on the server; see below.
 - `site-audit` hides scan launch and retry controls, plus next-scan settings, for
   **viewers only**. Admins retain scan controls so they can investigate failures
-  from Site Health. Both scan dispatchers also suppress managed viewer launches.
+  from Agent Readiness. Both scan dispatchers also suppress managed viewer launches.
   This role-aware scan policy deliberately differs from the legacy sweep policy.
 
 Managed status reads the corresponding schedule's actual `nextRunAt`.
-Site Health shows “Next scan Thursday 1 Oct, 06:00 UTC · managed by your Canonry
+Agent Readiness shows “Next scan Thursday 1 Oct, 06:00 UTC · managed by your Canonry
 team” when that is the enabled schedule's time. Without a usable schedule time,
 it shows “Scans are run by your Canonry team”, with no invented date. The sweep
 status shows the next date in the schedule's own timezone, such as “Next sweep:
@@ -245,7 +245,7 @@ neither setting, the injected client config is byte-identical;
 When `answer-visibility` is managed, Aero does not get the tools that start
 or fill a run, write or delete a schedule, or apply a project config (an
 applied spec replaces the schedule). Its cancel tool refuses answer-visibility
-sweeps but still stops the site audits and syncs Aero can start. This holds in
+sweeps but still stops the Agent Readiness scans and syncs Aero can start. This holds in
 every tool scope, so a write-scope Aero turn from the API or
 `canonry agent ask` cannot start a sweep either. Aero can still read runs and
 schedules. The operator's own `canonry run` and `canonry schedule` commands are

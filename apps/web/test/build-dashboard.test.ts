@@ -1597,7 +1597,7 @@ test.each([
   { stored: null, expected: null },
   // The server formats an unset budget as null; a fixture without the field reads the same.
   { stored: undefined, expected: null },
-])('project views carry the saved Site Health page budget ($stored)', ({ stored, expected }) => {
+])('project views carry the saved Agent Readiness page budget ($stored)', ({ stored, expected }) => {
   const data: ProjectData = {
     project: {
       id: 'proj_budget',

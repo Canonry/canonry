@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterEach, onTestFinished } from 'vitest'
 import React from 'react'
 import { render, screen, waitFor, act, cleanup, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { RouterProvider } from '@tanstack/react-router'
+import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router'
 import { RunKinds, RunStatuses, projectDtoSchema, runDetailDtoSchema } from '@canonry/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
@@ -10,7 +10,7 @@ import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { heyClient } from '../src/api.js'
 import { getApiV1ProjectsQueryKey } from '@canonry/canonry-api-client/react-query'
-import { preloadAllLazyRoutes } from '../src/router/routes.js'
+import { preloadAllLazyRoutes, routeTree } from '../src/router/routes.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 
@@ -201,6 +201,58 @@ test('retired report URLs redirect to AI Visibility without reading the report A
   expect([...container.querySelectorAll('h1')].map(heading => heading.textContent)).toEqual(['Citypoint Dental NYC'])
 })
 
+// Agent Readiness lived at `/technical-aeo` before it was renamed. Saved links
+// keep their scan, run and scope selection and land on the canonical route,
+// which reads only the canonical API.
+test('the retired technical-aeo route opens Agent Readiness with its search and hash kept', async () => {
+  const requestedPaths: string[] = []
+  const restore = mockFetch(url => {
+    requestedPaths.push(pathOf(url))
+    return jsonResponse({ error: { message: 'not needed for route compatibility' } }, 503)
+  })
+  onTestFinished(restore)
+  const { container, router } = await renderRoute('/projects/project_citypoint/technical-aeo?siteHealthRunId=run_seven&runId=run_drawer&measurementScope=group&measurementScopeKey=north#scan')
+  expect(router.state.location.pathname).toBe('/projects/project_citypoint/agent-readiness')
+  expect(router.state.location.search).toEqual({
+    siteHealthRunId: 'run_seven', runId: 'run_drawer', measurementScope: 'group', measurementScopeKey: 'north',
+  })
+  expect(router.state.location.hash).toBe('scan')
+  // Replaced, not pushed: Back never returns to the retired address.
+  expect(router.history.length).toBe(1)
+  expect(router.history.location.pathname).toBe('/projects/project_citypoint/agent-readiness')
+  expect(container.querySelector('.project-subnav-current')?.textContent).toBe('Agent Readiness')
+  await waitFor(() => expect(requestedPaths.some(path => /^\/api\/v1\/projects\/[^/]+\/agent-readiness\/runs(?:\?|$)/.test(path))).toBe(true))
+  expect(requestedPaths.filter(path => path.includes('/technical-aeo'))).toEqual([])
+})
+
+test('navigating to the retired technical-aeo route replaces it with Agent Readiness', async () => {
+  const restore = mockFetch(() => jsonResponse({ error: { message: 'not needed for route compatibility' } }, 503))
+  onTestFinished(restore)
+  const { router } = await renderRoute('/projects/project_citypoint/activity')
+  await act(async () => {
+    await router.navigate({ to: '/projects/$projectName/technical-aeo', params: { projectName: 'project_citypoint' }, search: { siteHealthRunId: 'run_seven' } })
+  })
+  expect(router.state.location.pathname).toBe('/projects/project_citypoint/agent-readiness')
+  expect(router.state.location.search).toEqual({ siteHealthRunId: 'run_seven' })
+  expect(router.history.length).toBe(2)
+  await act(async () => { router.history.back() })
+  await waitFor(() => expect(router.state.location.pathname).toBe('/projects/project_citypoint/activity'))
+})
+
+test('the retired technical-aeo redirect keeps the dashboard base path', async () => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createRouter({
+    routeTree,
+    basepath: '/canonry',
+    context: { queryClient },
+    history: createMemoryHistory({ initialEntries: ['/canonry/projects/demo/technical-aeo?siteHealthRunId=run_seven'] }),
+  })
+  await router.load()
+  expect(router.history.location.pathname).toBe('/canonry/projects/demo/agent-readiness')
+  expect(router.history.location.search).toBe('?siteHealthRunId=run_seven')
+  expect(router.history.length).toBe(1)
+})
+
 test('/projects/$id/local renders the local presence tab', async () => {
   const restore = mockFetch(url => pathOf(url).endsWith('/google/connections')
     ? jsonResponse([])
@@ -324,7 +376,7 @@ test.each([false, true])('deleting a project updates the live portfolio before n
   onTestFinished(unmount)
 
   const activity = () => within(screen.getByRole('heading', { name: 'Activity', exact: true }).closest('section')!)
-  await waitFor(() => expect(activity().getByRole('button', { name: /Alpha.*Technical AEO audit completed/ })).toBeTruthy())
+  await waitFor(() => expect(activity().getByRole('button', { name: /Alpha.*Agent Readiness scan completed/ })).toBeTruthy())
   await act(async () => { await router.navigate({ to: '/projects/$projectName/settings', params: { projectName: 'alpha' } }) })
   const deleteButton = await screen.findByRole('button', { name: 'Delete project', exact: true })
   await waitFor(() => expect(queryClient.isFetching()).toBe(0))

@@ -29,7 +29,7 @@
   --chart-tone-caution: #fbbf24;
   --chart-tone-negative: #fb7185;
   --chart-tone-neutral: #a1a1a1;
-  /* Site Health's four-way state palette is Okabe-Ito-derived. These literals
+  /* Agent Readiness's four-way state palette is Okabe-Ito-derived. These literals
      are WebGL-safe and remain distinct under common color-vision deficiencies. */
   --chart-site-health-eligible: #56b4e9;
   --chart-site-health-hidden: #e69f00;
@@ -2998,7 +2998,7 @@
     .tracking-row-actions { flex-direction: column; align-items: flex-start; gap: 0; }
   }
 
-  /* Site Health tables read as prose, not as a spec sheet: sentence-case
+  /* Agent Readiness tables read as prose, not as a spec sheet: sentence-case
      headers at body size instead of the all-caps letterspaced default. Scoped
      to this one surface so the shared .evidence-table stays as it is. */
   .site-health-table th {

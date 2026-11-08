@@ -89,24 +89,24 @@ describe('resolveEmbedConfig', () => {
     expect(resolveEmbedConfig({}, cfg).theme).toEqual({ accent: '#0af' })
   })
 
-  it('parses CANONRY_EMBED_PROJECT_TABS on comma + whitespace and lowercases', () => {
+  it('parses CANONRY_EMBED_PROJECT_TABS on comma + whitespace, lowercases, and reads the renamed technical-aeo key as agent-readiness', () => {
     const out = resolveEmbedConfig(
-      { CANONRY_EMBED: '1', CANONRY_EMBED_PROJECT_TABS: 'Overview, technical-aeo  Overview' },
+      { CANONRY_EMBED: '1', CANONRY_EMBED_PROJECT_TABS: 'Overview, technical-aeo  Overview Agent-Readiness' },
       baseConfig(),
     )
-    expect(out.projectTabs).toEqual(['overview', 'technical-aeo'])
+    expect(out.projectTabs).toEqual(['overview', 'agent-readiness'])
   })
 
   it('CANONRY_EMBED_PROJECT_TABS overrides config.embed.projectTabs (env wins)', () => {
     const cfg = baseConfig({ enabled: true, projectTabs: ['overview', 'backlinks'] })
     expect(
-      resolveEmbedConfig({ CANONRY_EMBED: '1', CANONRY_EMBED_PROJECT_TABS: 'overview, technical-aeo' }, cfg).projectTabs,
-    ).toEqual(['overview', 'technical-aeo'])
+      resolveEmbedConfig({ CANONRY_EMBED: '1', CANONRY_EMBED_PROJECT_TABS: 'overview, agent-readiness' }, cfg).projectTabs,
+    ).toEqual(['overview', 'agent-readiness'])
   })
 
-  it('uses config.embed.projectTabs when the env var is unset', () => {
+  it('uses config.embed.projectTabs when the env var is unset, keeping a saved technical-aeo grant as agent-readiness', () => {
     const cfg = baseConfig({ enabled: true, projectTabs: ['overview', 'technical-aeo'] })
-    expect(resolveEmbedConfig({ CANONRY_EMBED: '1' }, cfg).projectTabs).toEqual(['overview', 'technical-aeo'])
+    expect(resolveEmbedConfig({ CANONRY_EMBED: '1' }, cfg).projectTabs).toEqual(['overview', 'agent-readiness'])
   })
 
   it('defaults an empty / whitespace-only projectTabs list to overview in embed mode', () => {
@@ -123,7 +123,7 @@ describe('resolveEmbedConfig', () => {
 
 describe('unsupportedEmbedProjectTabs', () => {
   it('returns tab names that have no server-side read classifier', () => {
-    expect(unsupportedEmbedProjectTabs(['overview', 'technical-aeo', 'report', 'backlinks', 'local'])).toEqual([
+    expect(unsupportedEmbedProjectTabs(['overview', 'agent-readiness', 'report', 'backlinks', 'local'])).toEqual([
       'report',
       'backlinks',
       'local',

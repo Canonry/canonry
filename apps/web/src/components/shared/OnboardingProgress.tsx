@@ -1,15 +1,16 @@
 export type OnboardingStage = 'site' | 'fixes' | 'visibility' | 'done'
 
 /**
- * The path from setup to a result used five names for one crawl: "Site audit"
- * here, "Map your site" as the heading, "Map site" on the button, "Site Health"
- * on the tab it lands on, and "Page health" for its score. Two are enough: the
- * scan, and the score it produces. "Site Health" is the product name the tab
- * and the CLI already use, so the scan takes it.
+ * The path from setup to a result once used five names for one crawl: "Site
+ * audit" here, "Map your site" as the heading, "Map site" on the button, the
+ * tab's own name, and another name for its score. Two are enough: the scan,
+ * and the score it produces. The feature is Agent Readiness, on its tab and in
+ * the CLI, so these stages say what happens in it: "Scan site", then "Score",
+ * the same name as the view the stage opens.
  */
 const ONBOARDING_STAGES = [
   { id: 'site', label: 'Scan site', optional: false },
-  { id: 'fixes', label: 'Page health', optional: false },
+  { id: 'fixes', label: 'Score', optional: false },
   { id: 'visibility', label: 'AI Visibility', optional: true },
   { id: 'done', label: 'Next steps', optional: false },
 ] as const satisfies ReadonlyArray<{

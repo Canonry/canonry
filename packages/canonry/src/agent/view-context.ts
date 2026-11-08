@@ -40,11 +40,11 @@ export async function readAeroViewEvidence(options: AeroViewOptions): Promise<un
     if (!context.page?.nodeKey) {
       const overview = await client.getTechnicalAeoCrawl(projectName, context.page)
       const search = new URLSearchParams(overview.runId ? { siteHealthRunId: overview.runId } : {})
-      return { context, retrievedAt: new Date().toISOString(), source: { label: 'Open Site Health', href: `${base}/projects/${encodeURIComponent(projectName)}/technical-aeo?${search}` }, overview, instruction: 'No page is selected. Ask which page if the prompt is ambiguous. Retrieval time is not the crawl date.' }
+      return { context, retrievedAt: new Date().toISOString(), source: { label: 'Open Agent Readiness', href: `${base}/projects/${encodeURIComponent(projectName)}/agent-readiness?${search}` }, overview, instruction: 'No page is selected. Ask which page if the prompt is ambiguous. Retrieval time is not the crawl date.' }
     }
     const audit = await client.getTechnicalAeoPageAudit(projectName, context.page)
     const search = new URLSearchParams({ nodeKey: context.page.nodeKey, ...(audit.runId || context.page.runId ? { runId: audit.runId ?? context.page.runId! } : {}) })
-    return { context, retrievedAt: new Date().toISOString(), source: { label: 'Open stored page audit', href: `${base}/api/v1/projects/${encodeURIComponent(projectName)}/technical-aeo/crawl/pages/audit?${search}` }, audit, interpretation: 'A stored technical audit is not proof of a cause for mention or citation changes.' }
+    return { context, retrievedAt: new Date().toISOString(), source: { label: 'Open stored page audit', href: `${base}/api/v1/projects/${encodeURIComponent(projectName)}/agent-readiness/crawl/pages/audit?${search}` }, audit, interpretation: 'A stored Agent Readiness scan is not proof of a cause for mention or citation changes.' }
   }
   const request = visibilityReportRequestSchema.parse(context?.selection ?? { queryClass: 'all', limit: 10 })
   const report = await client.getVisibilityReport(projectName, request)

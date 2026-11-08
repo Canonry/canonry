@@ -31,7 +31,7 @@ afterEach(() => {
 
 const PROJECT_PAGE_TABS = [
   'overview', 'portfolio', 'search-console', 'seo-data', 'journeys', 'conversions', 'local', 'queries', 'client-queries', 'discovery',
-  'activity', 'backlinks', 'technical-aeo', 'history', 'settings',
+  'activity', 'backlinks', 'agent-readiness', 'history', 'settings',
 ] as const satisfies readonly ProjectPageTab[]
 
 const CONTEXT_TITLE_CLASS = 'project-context-title md:sr-only'
@@ -236,8 +236,8 @@ test.each([
     meta: null,
   },
   {
-    label: 'Simple Site Health',
-    path: '/projects/project_citypoint/technical-aeo',
+    label: 'Simple Agent Readiness',
+    path: '/projects/project_citypoint/agent-readiness',
     advanced: false,
     parts: [CONTEXT_TITLE_CLASS, 'project-context-domain', 'project-context-actions'],
     meta: null,

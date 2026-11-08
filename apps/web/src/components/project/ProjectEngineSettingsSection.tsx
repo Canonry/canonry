@@ -375,9 +375,9 @@ function routeHelp(provider: { name: string; kind?: string; defaultModel: string
   return isOpenRouterRoute(provider.name) ? provider.defaultModel : 'Model is detected/fixed for this browser engine.'
 }
 
-/** Visible copy for the Site Health scans section, exported so tests assert the shipped strings. */
+/** Visible copy for the Agent Readiness scans section, exported so tests assert the shipped strings. */
 export const SITE_HEALTH_SCAN_SETTINGS_COPY = {
-  heading: 'Site Health scans',
+  heading: 'Agent Readiness scans',
   help: `Used by every scan that sets no budget, scheduled or manual. Onboarding's first look always checks ${pageCountLabel(SITE_AUDIT_ONBOARDING_PAGE_LIMIT)}.`,
   pageBudget: 'Page budget',
   customOption: 'Custom number...',
@@ -416,10 +416,10 @@ function pageBudgetFromForm({ choice, customText }: PageBudgetForm): number | nu
 }
 
 /**
- * The project's saved Site Health page budget: what every scan that sets no
+ * The project's saved Agent Readiness page budget: what every scan that sets no
  * budget of its own uses, scheduled or manual. Null is the full site.
  *
- * Writers can change it, except that a deployment which manages Site Health
+ * Writers can change it, except that a deployment which manages Agent Readiness
  * scans leaves it to administrators, as it does the scan controls themselves.
  * Everyone else, embeds and the public demo included, reads the saved value.
  */

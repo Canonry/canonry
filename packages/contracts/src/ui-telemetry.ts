@@ -29,6 +29,9 @@ export const UI_PAGES = [
   '/projects/:projectName/report',
   '/projects/:projectName/activity',
   '/projects/:projectName/backlinks',
+  '/projects/:projectName/agent-readiness',
+  // Agent Readiness's earlier route. It now redirects, but dashboards built
+  // before the rename still report it, so their events must keep validating.
   '/projects/:projectName/technical-aeo',
   '/projects/:projectName/history',
   '/projects/:projectName/settings',
@@ -61,6 +64,8 @@ export const UI_PROJECT_TABS = [
   'report',
   'activity',
   'backlinks',
+  'agent-readiness',
+  // Kept for events from dashboards built before Agent Readiness was renamed.
   'technical-aeo',
   'history',
   'settings',

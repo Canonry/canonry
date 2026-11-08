@@ -79,7 +79,7 @@ export function PageAuditEvidence({
       ) : !audit ? (
         <p className="mt-4 text-copy-14 text-secondary">No findings are available for this page.</p>
       ) : audit.state === 'no-crawl' ? (
-        <p className="mt-4 text-copy-14 text-secondary">No Site Health scan is available.</p>
+        <p className="mt-4 text-copy-14 text-secondary">No Agent Readiness scan is available.</p>
       ) : audit.state === 'details-unavailable' ? (
         <p className="mt-4 text-copy-14 text-secondary">This scan saved its summary, but not the findings for each page.</p>
       ) : audit.state === 'not-found' ? (

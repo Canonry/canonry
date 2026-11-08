@@ -344,6 +344,16 @@ function isReadTool(name: string): boolean {
 }
 
 /**
+ * The canonical tool a deprecated name answers as, else the name itself. Aero
+ * is given only canonical tools, but a transcript saved before a rename (such
+ * as `canonry_technical_aeo_score` to `canonry_agent_readiness_score`) still
+ * shows the old name, so the model may call it again.
+ */
+function canonicalToolName(name: string): string {
+  return metadata.get(name)?.deprecatedAliasOf ?? name
+}
+
+/**
  * Some models misspell tool names (`canrony_...` for `canonry_...`). pi looks
  * the tool up before any hook runs and answers "Tool X not found", so the call
  * has to be renamed in the assistant message itself, before pi prepares it.
@@ -357,7 +367,8 @@ function correctToolNames(runtime: Runtime, message: AssistantMessage, visible: 
   for (const block of message.content) {
     if (block.type !== 'toolCall' || visible.has(block.name)) continue
     known ??= new Set([...metadata.keys(), ...runtime.allowed.map(tool => tool.name), ...visible])
-    const matches = nearToolNames(block.name, known)
+    const renamed = canonicalToolName(block.name)
+    const matches = renamed === block.name ? nearToolNames(block.name, known) : [renamed]
     if (matches.length !== 1 || !visible.has(matches[0]!) || !isReadTool(matches[0]!)) continue
     runtime.corrected.set(block.id, block.name)
     block.name = matches[0]!
@@ -396,6 +407,14 @@ function withCorrectedToolNames(runtime: Runtime, response: AssistantMessageEven
  */
 function suggestToolName(runtime: Runtime, name: string): string | undefined {
   const visible = visibleTools(runtime).map(tool => tool.name)
+  const renamed = canonicalToolName(name)
+  if (renamed !== name) {
+    if (!visible.includes(renamed) && !runtime.allowed.some(tool => tool.name === renamed)) return undefined
+    const toolkit = metadata.get(renamed)?.tier
+    return visible.includes(renamed) || !toolkit
+      ? `${name} is now ${renamed}. Call ${renamed} instead.`
+      : `${name} is now ${renamed}. Call ${LOAD} with toolkit "${toolkit}", then call ${renamed}.`
+  }
   const matches = nearToolNames(name, new Set([...visible, ...runtime.allowed.map(tool => tool.name)]))
   if (matches.length === 0 || matches.length > MAX_NAME_SUGGESTIONS || matches.includes(name)) return undefined
   if (matches.length > 1) return `${name} is not a tool. Did you mean one of: ${matches.join(', ')}? Call the one you meant by its exact name.`

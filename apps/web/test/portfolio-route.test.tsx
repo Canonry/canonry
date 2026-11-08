@@ -27,8 +27,8 @@ import { AdvancedMeasurementSection } from '../src/components/project/advanced-m
 import { mockFetch } from './mock-fetch.js'
 import {
   getApiV1CdpStatusQueryKey,
-  getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
-  getApiV1ProjectsByNameTechnicalAeoRunsQueryKey,
+  getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey,
+  getApiV1ProjectsByNameAgentReadinessRunsQueryKey,
   getApiV1ProjectsByNameMeasurementOverviewInfiniteQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
@@ -122,7 +122,7 @@ async function renderAt(
     readiness?: boolean
     configureFixture?: (dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) => void
     /**
-     * The status of this project's most recent readable Site Health scan, or
+     * The status of this project's most recent readable Agent Readiness scan, or
      * undefined for a project that has never been scanned (what the
      * fresh-project fixtures mean).
      */
@@ -184,7 +184,7 @@ async function renderAt(
     )
   }
   queryClient.setQueryData(
-    getApiV1ProjectsByNameTechnicalAeoRunsQueryKey({ client: heyClient, path: { name: projectName }, query: { limit: 20 } }),
+    getApiV1ProjectsByNameAgentReadinessRunsQueryKey({ client: heyClient, path: { name: projectName }, query: { limit: 20 } }),
     {
       project: projectName,
       scans: options.siteHealthScan
@@ -200,7 +200,7 @@ async function renderAt(
     },
   )
   if (options.failedScanHandoff) {
-    queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey({
+    queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
       client: heyClient, path: { name: projectName, runId: 'run_failed' },
     }), { project: projectName, runId: 'run_failed', status: 'failed', phase: 'failed', attempt: null,
       layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
@@ -938,8 +938,8 @@ test('a Simple project loads pinned and historical competitors from the stored-e
   expect(html).not.toContain('cited (any page)')
 })
 
-test('project navigation ignores stale Site Health onboarding markers', async () => {
-  const html = await renderAt('/projects/project_citypoint/technical-aeo?onboarding=site-health')
+test('project navigation ignores stale Agent Readiness onboarding markers', async () => {
+  const html = await renderAt('/projects/project_citypoint/agent-readiness?onboarding=site-health')
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const link = [...doc.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Project sections"] a')]
     .find(anchor => anchor.textContent === 'AI Visibility')
@@ -950,7 +950,7 @@ test('project navigation ignores stale Site Health onboarding markers', async ()
   expect(destination.search).toBe('')
 })
 
-test('a stale Site Health onboarding marker cannot redirect the project overview', async () => {
+test('a stale Agent Readiness onboarding marker cannot redirect the project overview', async () => {
   const fixture = createDashboardFixture({})
   const projectName = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.project.name
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -1885,7 +1885,7 @@ test('a fresh project offers one AI Visibility setup action instead of an unread
   expect(html).not.toContain('Run AI Visibility check')
 })
 
-test('Map site is the overview primary action and is omitted on Site Health', async () => {
+test('Map site is the overview primary action and is omitted on Agent Readiness', async () => {
   const unmappedProject = {
     configureFixture(dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) {
       forceNoisyFreshVisibility(dashboard)
@@ -1903,7 +1903,7 @@ test('Map site is the overview primary action and is omitted on Site Health', as
   const overviewActions = [...overviewRow.querySelectorAll('[data-project-actions] button')].map(button => button.textContent)
   expect(overviewActions).toEqual(expect.arrayContaining(['Map site', 'Set up AI Visibility']))
 
-  const siteHealth = await renderAt('/projects/project_citypoint/technical-aeo', undefined, undefined, unmappedProject)
+  const siteHealth = await renderAt('/projects/project_citypoint/agent-readiness', undefined, undefined, unmappedProject)
   expect(siteHealth).not.toContain('>Map site<')
 
   // An invitation to map a site that is already mapped is just a wrong label.
@@ -1934,7 +1934,7 @@ test('Map site is the overview primary action and is omitted on Site Health', as
 
 test('a scanned project is pointed at the evidence it has, not an empty tab', async () => {
   // `/projects/:name` opens on AI Visibility, which for a project with no
-  // queries is entirely empty, while the Page Health result the operator just
+  // queries is entirely empty, while the Agent Readiness score the operator just
   // waited through onboarding for is two tabs away with nothing pointing at it.
   const scanned = await renderAt('/projects/project_citypoint', undefined, undefined, {
     configureFixture(dashboard) {
@@ -1948,10 +1948,10 @@ test('a scanned project is pointed at the evidence it has, not an empty tab', as
     siteHealthScan: 'partial',
   })
 
-  expect(scanned).toContain('>View Page Health<')
+  expect(scanned).toContain('>View Agent Readiness score<')
   expect(scanned).not.toContain('>Map site<')
   const scannedRow = contextRow(new DOMParser().parseFromString(scanned, 'text/html'))
-  expect([...scannedRow.querySelectorAll('[data-project-actions] button')].map(button => button.textContent)).toContain('View Page Health')
+  expect([...scannedRow.querySelectorAll('[data-project-actions] button')].map(button => button.textContent)).toContain('View Agent Readiness score')
 })
 
 test('a first sweep in flight replaces empty-state instructions with one live status', async () => {
@@ -2381,7 +2381,7 @@ test('a query-ready project with a configured provider can run an AI sweep', asy
   expect(html).toContain('Run AI Visibility check')
   expectTrendChartFirst(html)
   expect(html).not.toContain('Set up AI Visibility to capture a baseline')
-  expect(html).not.toContain('Checking AI readiness')
+  expect(html).not.toContain('Checking AI engines')
   }
 })
 
@@ -2415,8 +2415,8 @@ test('a project-scoped writer reads sweep readiness without instance settings ac
   })
 
   expect(html).toContain('Run AI Visibility check')
-  expect(html).not.toContain('Checking AI readiness')
-  expect(html).not.toContain('Retry AI readiness')
+  expect(html).not.toContain('Checking AI engines')
+  expect(html).not.toContain('Retry engine check')
   const container = renderedPage(html)
   expect(container.querySelector('a[href="/settings#provider-openai"]')).toBeNull()
   expect(container.textContent).toContain('Ask an administrator to fix OpenAI.')
@@ -2567,14 +2567,14 @@ test('a project-scoped writer can retry when the project readiness read fails', 
     </AccountProvider>,
   )
 
-  const retry = await page.findByRole('button', { name: 'Retry AI readiness' })
+  const retry = await page.findByRole('button', { name: 'Retry engine check' })
   expect(retry.hasAttribute('disabled')).toBe(false)
   expect(page.queryByRole('button', { name: 'Set up AI Visibility' })).toBeNull()
   expect(page.queryByRole('button', { name: 'Run AI Visibility check' })).toBeNull()
   fireEvent.click(retry)
   const launch = await page.findByRole('button', { name: 'Run AI Visibility check' })
   expect(launch.hasAttribute('disabled')).toBe(false)
-  expect(page.queryByRole('button', { name: 'Retry AI readiness' })).toBeNull()
+  expect(page.queryByRole('button', { name: 'Retry engine check' })).toBeNull()
   expect(setupReads).toBe(2)
   expect(requests.filter(path => path.startsWith('/api/v1/settings'))).toEqual([])
 })
@@ -2712,7 +2712,7 @@ test('window focus refreshes server-owned sweep readiness on a mounted project',
     focusManager.setFocused(false)
     focusManager.setFocused(true)
   })
-  expect(await page.findByRole('button', { name: 'Checking AI readiness…' })).toBeTruthy()
+  expect(await page.findByRole('button', { name: 'Checking AI engines…' })).toBeTruthy()
 
   releaseFocusRead?.()
   expect(await page.findByRole('button', { name: 'Run AI Visibility check' })).toBeTruthy()
@@ -2756,8 +2756,8 @@ test('a sweep confirmation cannot use cached readiness after its refresh fails',
   fireEvent.click(confirm)
   expect(writes).toEqual([])
   fireEvent.click(page.getByRole('button', { name: 'Cancel' }))
-  expect(await page.findByRole('button', { name: 'Retry AI readiness' })).toBeTruthy()
-  await waitFor(() => expect(document.activeElement).toBe(page.getByRole('button', { name: 'Retry AI readiness' })))
+  expect(await page.findByRole('button', { name: 'Retry engine check' })).toBeTruthy()
+  await waitFor(() => expect(document.activeElement).toBe(page.getByRole('button', { name: 'Retry engine check' })))
 })
 
 test('AI Visibility honors the project provider allowlist instead of any configured provider', async () => {
@@ -3168,7 +3168,7 @@ async function renderScopeRoute(
     observed.push(url)
     const response = await respond(url)
     if (response) return response
-    // Only the run lists; Site Health's own `/technical-aeo/runs` has another shape.
+    // Only the run lists; Agent Readiness's own `/agent-readiness/runs` has another shape.
     if (/^\/api\/v1\/(?:projects\/[^/]+\/)?runs$/.test(decodeURIComponent(url.pathname))) return jsonResponse([])
     return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
   }) as typeof fetch
@@ -3279,15 +3279,15 @@ test('a long Group label wraps in the row trigger instead of being clipped', asy
   expect(cssLengthPx(compiledElementProperty(rules, slot, 'min-width')!, rules)).toBe(0)
 })
 
-test('a scoped Advanced Site Health tab says Project-wide, while unscoped and Simple tabs say nothing', async () => {
+test('a scoped Advanced Agent Readiness tab says Project-wide, while unscoped and Simple tabs say nothing', async () => {
   const parse = (html: string) => new DOMParser().parseFromString(html, 'text/html')
-  const scoped = parse(await renderAt('/projects/project_citypoint/technical-aeo?measurementScope=group&measurementScopeKey=north', undefined, { plan: measurementPlanV2Response(4) }))
+  const scoped = parse(await renderAt('/projects/project_citypoint/agent-readiness?measurementScope=group&measurementScopeKey=north', undefined, { plan: measurementPlanV2Response(4) }))
   const slot = contextRow(scoped).querySelector('.project-context-scope')!
   expect(slot.textContent).toBe('Project-wide')
   expect([...slot.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['This tab covers the whole project. Your measurement scope stays selected for AI Visibility and Queries.'])
 
-  const unscoped = parse(await renderAt('/projects/project_citypoint/technical-aeo', undefined, { plan: measurementPlanV2Response(4) }))
-  const simple = parse(await renderAt('/projects/project_citypoint/technical-aeo?measurementScope=group&measurementScopeKey=north'))
+  const unscoped = parse(await renderAt('/projects/project_citypoint/agent-readiness', undefined, { plan: measurementPlanV2Response(4) }))
+  const simple = parse(await renderAt('/projects/project_citypoint/agent-readiness?measurementScope=group&measurementScopeKey=north'))
   for (const doc of [unscoped, simple]) {
     expect(contextRow(doc).querySelector('.project-context-scope')).toBeNull()
     expect(doc.body.textContent).not.toContain('Project-wide')
@@ -3297,13 +3297,13 @@ test('a scoped Advanced Site Health tab says Project-wide, while unscoped and Si
 
 test('a viewer reads setup on a scope-blind tab only when the URL is scoped', async () => {
   const setupKey = (projectName: string) => getApiV1ProjectsByNameMeasurementSetupQueryKey({ client: heyClient, path: { name: projectName } })
-  const scoped = await renderScopeRoute('/projects/project_citypoint/technical-aeo?measurementScope=group&measurementScopeKey=north', trackingRoute(), { accountRole: 'viewer' })
+  const scoped = await renderScopeRoute('/projects/project_citypoint/agent-readiness?measurementScope=group&measurementScopeKey=north', trackingRoute(), { accountRole: 'viewer' })
   await waitFor(() => expect(contextRow(scoped.page.container).querySelector('.project-context-scope')?.textContent).toBe(PROJECT_SCOPE_COPY.projectWide))
   expect(scoped.observed.filter(url => url.pathname.endsWith('/measurement-setup'))).toHaveLength(1)
   expect(scoped.observed.some(url => url.pathname.endsWith('/measurement-plan'))).toBe(false)
   scoped.page.unmount()
 
-  const unscoped = await renderScopeRoute('/projects/project_citypoint/technical-aeo', trackingRoute(), { accountRole: 'viewer' })
+  const unscoped = await renderScopeRoute('/projects/project_citypoint/agent-readiness', trackingRoute(), { accountRole: 'viewer' })
   // Effects have run, so an enabled read would already be fetching.
   expect(unscoped.queryClient.getQueryState(setupKey(unscoped.projectName))?.fetchStatus ?? 'idle').toBe('idle')
   expect(unscoped.observed.some(url => url.pathname.endsWith('/measurement-setup'))).toBe(false)
@@ -3312,7 +3312,7 @@ test('a viewer reads setup on a scope-blind tab only when the URL is scoped', as
 
 test('a public demo visitor on a scope-blind tab reads the plan once for the Advanced tag, and no setup', async () => {
   window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
-  const { observed, page } = await renderScopeRoute('/projects/project_citypoint/technical-aeo', trackingRoute(), { accountRole: 'viewer' })
+  const { observed, page } = await renderScopeRoute('/projects/project_citypoint/agent-readiness', trackingRoute(), { accountRole: 'viewer' })
   await waitFor(() => expect(contextRow(page.container).querySelector('.project-mode-tag')?.textContent).toBe('Advanced1 property · 1 market'))
   expect(observed.filter(url => url.pathname.endsWith('/measurement-plan'))).toHaveLength(1)
   expect(observed.some(url => url.pathname.endsWith('/measurement-setup'))).toBe(false)
@@ -3824,7 +3824,7 @@ test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s heade
       expect(renderedPage(html).querySelector('.project-context-meta')).toBeNull()
       expect(actions.querySelectorAll('p:not([role="status"])')).toHaveLength(0)
     }
-    expect(html).not.toMatch(/Run AI Visibility check|Run measurement|Checking AI readiness|Set up AI Visibility/)
+    expect(html).not.toMatch(/Run AI Visibility check|Run measurement|Checking AI engines|Set up AI Visibility/)
   }
 })
 
@@ -3903,7 +3903,7 @@ test.each(['simple', 'advanced'] as const)('managed %s settings exposes schedule
   expect(within(section).queryByRole('button', { name: /Set schedule|Edit schedule|Pause|Resume|Remove|Save schedule/ })).toBeNull()
 })
 
-test('managed header does not label an active Site Health scan as a sweep', async () => {
+test('managed header does not label an active Agent Readiness scan as a sweep', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     managedSweeps: true, configureFixture(dashboard) {
       const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
@@ -3923,8 +3923,8 @@ test('managed sweeps removes Simple empty-state launch instructions', async () =
   expect(html).not.toMatch(/Run another check|Complete your first AI Visibility check|Run a check|Engine results appear after the first AI Visibility check/)
 })
 
-test('legacy managedSweeps alone still leaves Site Health scan controls available', async () => {
-  const html = await renderAt('/projects/project_citypoint/technical-aeo', undefined, undefined, { managedSweeps: true })
+test('legacy managedSweeps alone still leaves Agent Readiness scan controls available', async () => {
+  const html = await renderAt('/projects/project_citypoint/agent-readiness', undefined, undefined, { managedSweeps: true })
   expect(html).toMatch(/Run scan|Checking scan/)
   expect(projectActions(html).textContent).toContain(MANAGED_SWEEPS_RUNNING_COPY)
 })
@@ -3937,10 +3937,10 @@ test('managed sweeps replaces the global batch sweep control', async () => {
   expect(managed).toContain(MANAGED_SWEEPS_COPY)
 })
 
-// Reverses #1108's deliberate Site Health exclusion when site-audit is opted in.
+// Reverses #1108's deliberate Agent Readiness exclusion when site-audit is opted in.
 // The legacy boolean alone remains answer-visibility-only (asserted above).
-test.each(['simple', 'advanced'] as const)('managed run kinds remove %s Site Health viewer launches and show the actual schedule', async mode => {
-  const html = await renderAt('/projects/project_citypoint/technical-aeo', undefined,
+test.each(['simple', 'advanced'] as const)('managed run kinds remove %s Agent Readiness viewer launches and show the actual schedule', async mode => {
+  const html = await renderAt('/projects/project_citypoint/agent-readiness', undefined,
     mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined,
     { managedRunKinds: ['answer-visibility', 'site-audit'], accountRole: 'viewer',
       scanSchedule: { ...managedSchedule, kind: 'site-audit', nextRunAt: '2026-10-01T06:00:00.000Z' },
@@ -3954,8 +3954,8 @@ test.each(['simple', 'advanced'] as const)('managed run kinds remove %s Site Hea
   expect(container.querySelector('time[datetime="2026-10-01T06:00:00.000Z"]')).not.toBeNull()
 })
 
-test.each(['simple', 'advanced'] as const)('managed %s Site Health hides the cold URL recovery button without losing failure copy', async mode => {
-  const html = await renderAt('/projects/project_citypoint/technical-aeo?siteHealthRunId=run_failed', undefined,
+test.each(['simple', 'advanced'] as const)('managed %s Agent Readiness hides the cold URL recovery button without losing failure copy', async mode => {
+  const html = await renderAt('/projects/project_citypoint/agent-readiness?siteHealthRunId=run_failed', undefined,
     mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined,
     { managedRunKinds: ['site-audit'], accountRole: 'viewer', failedScanHandoff: true },
   )
@@ -3965,8 +3965,8 @@ test.each(['simple', 'advanced'] as const)('managed %s Site Health hides the col
   expect(html).toContain('Scans are run by your Canonry team')
 })
 
-test.each(['simple', 'advanced'] as const)('managed %s Site Health keeps admin scan controls', async mode => {
-  const html = await renderAt('/projects/project_citypoint/technical-aeo', undefined,
+test.each(['simple', 'advanced'] as const)('managed %s Agent Readiness keeps admin scan controls', async mode => {
+  const html = await renderAt('/projects/project_citypoint/agent-readiness', undefined,
     mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined,
     { managedRunKinds: ['site-audit'], accountRole: 'admin' },
   )
@@ -3975,7 +3975,7 @@ test.each(['simple', 'advanced'] as const)('managed %s Site Health keeps admin s
   expect(html).not.toContain('Scans are run by your Canonry team')
 })
 
-test.each(['', '/technical-aeo', '/settings', '/history'])('unset managed run kinds preserve Simple and Advanced viewer routes (%s)', async suffix => {
+test.each(['', '/agent-readiness', '/settings', '/history'])('unset managed run kinds preserve Simple and Advanced viewer routes (%s)', async suffix => {
   for (const mode of ['simple', 'advanced'] as const) {
     const measurement = mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined
     const original = await renderAt(`/projects/project_citypoint${suffix}`, undefined, measurement, { accountRole: 'viewer' })
@@ -3985,8 +3985,8 @@ test.each(['', '/technical-aeo', '/settings', '/history'])('unset managed run ki
       expect(within(doc).getByRole('heading', { level: 1, name: 'Citypoint Dental NYC' })).toBeTruthy()
       expect(html).not.toContain('Scans are run by your Canonry team')
       expect(html).not.toContain('Checks are run by your Canonry team')
-      expect(within(projectActions(html)).getByRole('button', { name: /AI Visibility check running|Checking AI readiness|Set up AI Visibility|Run AI Visibility check/ }).hasAttribute('disabled')).toBe(true)
-      if (suffix === '/technical-aeo') expect(within(doc).getByRole('heading', { name: 'Site Health' })).toBeTruthy()
+      expect(within(projectActions(html)).getByRole('button', { name: /AI Visibility check running|Checking AI engines|Set up AI Visibility|Run AI Visibility check/ }).hasAttribute('disabled')).toBe(true)
+      if (suffix === '/agent-readiness') expect(within(doc).getByRole('heading', { name: 'Agent Readiness' })).toBeTruthy()
       if (suffix === '/settings') {
         expect(within(doc).getByRole('heading', { name: 'Project settings unavailable' })).toBeTruthy()
         expect(within(doc).getByRole('link', { name: 'Return to overview' })).toBeTruthy()
@@ -3998,17 +3998,17 @@ test.each(['', '/technical-aeo', '/settings', '/history'])('unset managed run ki
   }
 })
 
-// Project Settings' "Site Health scans" section: the saved page budget every
+// Project Settings' "Agent Readiness scans" section: the saved page budget every
 // scan without its own budget uses. Simple and Advanced share the section.
 function siteHealthScansSection(html: string) {
-  return within(renderedPage(html)).getByRole('heading', { level: 2, name: 'Site Health scans' }).closest('section')!
+  return within(renderedPage(html)).getByRole('heading', { level: 2, name: 'Agent Readiness scans' }).closest('section')!
 }
 
 function advancedSettings(mode: 'simple' | 'advanced') {
   return mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined
 }
 
-test.each(['simple', 'advanced'] as const)('%s Settings shows the saved Site Health page budget in its editor', async mode => {
+test.each(['simple', 'advanced'] as const)('%s Settings shows the saved Agent Readiness page budget in its editor', async mode => {
   for (const { saved, choice, custom } of [
     { saved: null, choice: 'full', custom: null },
     { saved: 2_500, choice: '2500', custom: null },
@@ -4044,7 +4044,7 @@ test.each(['simple', 'advanced'] as const)('%s project hides Settings navigation
   expect(page.queryByRole('link', { name: 'Settings', exact: true })).toBeNull()
   expect(page.getByText('Your account has view-only access to this project.')).toBeTruthy()
   expect(page.queryByRole('heading', { name: 'Project settings', exact: true })).toBeNull()
-  expect(page.queryByRole('region', { name: 'Site Health scans' })).toBeNull()
+  expect(page.queryByRole('region', { name: 'Agent Readiness scans' })).toBeNull()
   expect(page.queryByRole('heading', { name: 'Scheduled runs' })).toBeNull()
   expect(page.queryByRole('heading', { name: 'Notifications' })).toBeNull()
   expect(observed.some(url => url.pathname.endsWith('/notifications'))).toBe(false)
@@ -4068,13 +4068,13 @@ test.each(['simple', 'advanced'] as const)('%s Settings shows the saved page bud
       },
     })
     const section = siteHealthScansSection(html)
-    expect(section.textContent, label).toBe('Site Health scansPage budget: 2,500 pages')
+    expect(section.textContent, label).toBe('Agent Readiness scansPage budget: 2,500 pages')
     expect(within(section).queryByRole('combobox'), label).toBeNull()
     expect(within(section).queryByRole('button', { name: /Save|Cancel/ }), label).toBeNull()
   }
 })
 
-test.each(['simple', 'advanced'] as const)('%s Settings lets a project writer edit the page budget when Site Health scans are not managed', async mode => {
+test.each(['simple', 'advanced'] as const)('%s Settings lets a project writer edit the page budget when Agent Readiness scans are not managed', async mode => {
   const html = await renderAt('/projects/project_citypoint/settings', undefined, advancedSettings(mode), {
     apiKey: { id: 'key-project-writer', scopes: ['*'], projectId: 'project_citypoint', readOnly: false },
     managedRunKinds: ['answer-visibility'],
@@ -4127,7 +4127,7 @@ test.each(['simple', 'advanced'] as const)('%s Settings saves the page budget th
     </QueryClientProvider>,
   )
 
-  const section = await page.findByRole('region', { name: 'Site Health scans' })
+  const section = await page.findByRole('region', { name: 'Agent Readiness scans' })
   const select = within(section).getByRole('combobox', { name: 'Page budget' }) as HTMLSelectElement
   expect(select.value).toBe('2500')
 
@@ -4139,7 +4139,7 @@ test.each(['simple', 'advanced'] as const)('%s Settings saves the page budget th
   // The rest of the project is the stored project, unchanged.
   expect(puts[0]!.aliases).toEqual(['A1 Citypoint'])
   expect(puts[0]!.displayName).toBe(project.project.displayName ?? project.project.name)
-  // The project page's cached project now carries the new budget, which Site Health's Scan settings reads.
+  // The project page's cached project now carries the new budget, which Agent Readiness Scan settings reads.
   const cached = queryClient.getQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: project.project.name } })) as { siteAuditMaxPages?: number | null } | undefined
   expect(cached?.siteAuditMaxPages).toBe(10_000)
 

@@ -39,12 +39,12 @@ cnry dashboard reset-password                  # clear a forgotten dashboard pas
 cnry --version
 ```
 
-`cnry bootstrap` is the provider-free Page Health path. It stores state under
+`cnry bootstrap` is the provider-free Agent Readiness path. It stores state under
 `$CANONRY_CONFIG_DIR` when set, otherwise `~/.canonry`, and prints a new API key
 once. With no provider, its `--format json` output lists `nextSteps` for adding
-one, and `technical-aeo run|score|crawl` / `site-health overview` print a
+one, and `agent-readiness run|score|overview` print a
 `NO_PROVIDER` notice on stderr (one `{"notice":{...}}` line for JSON): AI
-Visibility is the next step after Page Health. The operator adds the key in the
+Visibility is the next step after Agent Readiness. The operator adds the key in the
 dashboard or in their own terminal; never ask for it in chat. `cnry settings
 provider` registers a provider on the running server immediately. `cnry init` is the optional interactive path when provider/OAuth setup is
 wanted at the same time. An agent must ask the operator to run either
@@ -143,7 +143,7 @@ cnry project update <name> --display-name "Sample Brand" --expect-revision 4
 cnry project update <name> --dispatch-mode claude=batch   # scheduled sweeps batch this provider (repeatable; see Batch mode below)
 cnry project update <name> --clear-dispatch-mode claude   # back to sync
 cnry project update <name> --negative-review-max-stars 2   # review.negative for 1-2 star Google reviews only (1-4, or "default" for 3)
-cnry project update <name> --site-audit-max-pages 2500   # Site Health page budget for scans that set none (1-50000, or "full" for the full site); create takes it too, spec.siteAuditMaxPages in apply
+cnry project update <name> --site-audit-max-pages 2500   # Agent Readiness page budget for scans that set none (1-50000, or "full" for the full site); create takes it too, spec.siteAuditMaxPages in apply
 cnry project update <name> --competitor-auto-aliases apply   # store answer-derived competitor names after each sweep (off | preview | apply; default preview logs only); spec.competitorAutoAliases in apply
 cnry project update <name> --add-qualified-alias "Acme NYC"      # sentiment treats this existing alias as the brand's own name (see Brand aliases)
 cnry project update <name> --remove-qualified-alias "Acme NYC"   # repeatable; create takes --qualified-alias
@@ -447,7 +447,7 @@ cnry bing submit-sitemap <project> <url>   # ask Bing to read a sitemap (adds a 
 cnry google submit-sitemap <project> <url> # the same for Google
 ```
 
-Canonry compares three stored lists: the sitemap files the latest Site Health scan read pages from (`site.sitemaps`), Search Console's list (stored by every Google sync, files inside each index included) and Bing's (stored by `bing sync`). For each engine, `missing` holds sitemaps the site declares, or someone submitted to the other engine, that this engine lacks (not offered from the other engine: a sitemap it only found by itself, one it reports errors for, or an index on a host where this engine already has every sitemap the site declares); a file inside a missing index is left out, since adding the index covers it. Google is offered only sitemaps inside the connected property, Bing only its site's host and subdomains. An engine is `null` until its list has been read once; after that an empty list means it has none. `submittedAt: null` on a top-level row means the engine found the sitemap itself; on a file inside an index it came through the index. A new submission shows in the stored list after that engine's next sync.
+Canonry compares three stored lists: the sitemap files the latest Agent Readiness scan read pages from (`site.sitemaps`), Search Console's list (stored by every Google sync, files inside each index included) and Bing's (stored by `bing sync`). For each engine, `missing` holds sitemaps the site declares, or someone submitted to the other engine, that this engine lacks (not offered from the other engine: a sitemap it only found by itself, one it reports errors for, or an index on a host where this engine already has every sitemap the site declares); a file inside a missing index is left out, since adding the index covers it. Google is offered only sitemaps inside the connected property, Bing only its site's host and subdomains. An engine is `null` until its list has been read once; after that an empty list means it has none. `submittedAt: null` on a top-level row means the engine found the sitemap itself; on a file inside an index it came through the index. A new submission shows in the stored list after that engine's next sync.
 
 ### Stored trend figures (`cnry trends`)
 
@@ -455,7 +455,7 @@ The figures a dashboard tab's trend card leads with, from stored data only: each
 
 ```bash
 cnry trends <project> --surface index-coverage          # Google and Bing indexed / not indexed pages, last 90 days by default
-cnry trends <project> --surface site-health             # site score and pages checked, one reading per scan, all history by default
+cnry trends <project> --surface site-health             # Agent Readiness score and pages checked, one reading per scan, all history by default
 cnry trends <project> --surface backlinks --window 90d  # referring domains, linking hosts and top-10 concentration per Common Crawl release
 cnry trends <project> --surface index-coverage --start 2026-08-01 --end 2026-08-31  # your own calendar range instead of a window
 cnry trends <project> --surface backlinks --format json # TrendsResponse; jsonl degrades to the json document
@@ -497,46 +497,55 @@ cnry visibility-compare <project> --from 2026-05 --to 2026-06 --scope property -
 - **`groupBy` in the payload:** present (`"provider"`) only with `--by-provider`; omitted otherwise (absent = no breakdown) — the generated SDK types it `groupBy?: 'provider'`.
 - **mention vs cited stay independent** — a model can do either, both, or neither. Don't read one from the other.
 
-## Site Health (technical-aeo compatibility)
+<a id="site-health-technical-aeo-compatibility"></a>
 
-Site-wide technical audit (structured data, AI-readable content, AI-crawler access, content depth/freshness/extractability, …) powered by `@canonry/aeo-audit`'s `runSiteCrawl`. Runs as the `site-audit` run kind — discovers in-scope URLs from the project root, sitemaps, and internal links; stores the URL/link graph; audits eligible HTML pages; and rolls the results into one 0–100 site score. Pure HTTP, no LLM cost; a large site can take minutes, so it runs in the background. `site-health` is the operator-facing CLI name; `technical-aeo` remains compatible.
+## Agent Readiness
+
+Site-wide Agent Readiness scan (structured data, AI-readable content, AI-crawler access, content depth/freshness/extractability, agent integrations, …) powered by `@canonry/aeo-audit`'s `runSiteCrawl`. Runs as the `site-audit` run kind — discovers in-scope URLs from the project root, sitemaps, and internal links; stores the URL/link graph; audits eligible HTML pages; and rolls the results into one 0–100 Agent Readiness score. Pure HTTP, no LLM cost; a large site can take minutes, so it runs in the background. The API serves the same data under `/api/v1/projects/<name>/agent-readiness/…`, and the MCP tools are `canonry_agent_readiness_*`.
 
 ```bash
-cnry technical-aeo run <project> --wait                 # full crawl + audit; without --max-pages uses the project's saved page budget, else the full site (up to 50,000 pages); edges derived from the page count unless --max-edges is set; --wait polls up to 15 minutes, so follow a longer scan with technical-aeo progress
-cnry technical-aeo run <project> --sitemap-url <url> --max-pages 5000 --max-edges 250000 --max-depth 12   # optional crawl seeds and custom budgets; hard caps are 50,000 pages / 1,000,000 edges
-cnry technical-aeo run <project> --check-dead-links --wait   # opt in to dead-link checks; they are off by default
-cnry technical-aeo progress <project> --run-id <id> [--format json] # exact durable phase and pages found / checked / failed counters; never a synthesized percentage
-cnry technical-aeo crawl <project> [--run-id <id>] [--format json]   # crawl metadata, budgets, completeness, and termination
-cnry site-health overview <project> [--run-id <id>] [--format json] # operator-facing alias for crawl metadata
-cnry site-health issues <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl] # stored findings including passing-score issues, affected-page counts and example URLs
-cnry site-health issue-pages <project> --issue-id <id> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl] # affected URLs for one issue; pin the run from the issue list
-cnry site-health page-audit <project> (--node-key <key>|--url <url>) [--run-id <id>] [--format json] # exact audit score, factor findings, recommendations, and crawl provenance for one graph page
-cnry site-health subgraph <project> [--node-key <key>|--url <url>] [--hops <n>] [--max-nodes <n>] [--max-edges <n>] [--format json] # focused semantic graph (MCP defaults to 25 nodes / 50 edges)
-cnry site-health path <project> (--to-node-key <key>|--to-url <url>) [--from-node-key <key>|--from-url <url>] [--max-depth <n>] [--format json] # directed shortest followable-link path
-cnry site-health changes <project> [--from-run-id <id>] [--to-run-id <id>] [--scope all|pages|links] [--change all|added|removed|changed] [--cursor <cursor>] [--limit <n>] [--format json|jsonl] # canonical scan diff; either scan ID is optional; JSONL begins with scan/cursor/filter metadata
-cnry technical-aeo changes <project> [--from-run-id <id>] [--to-run-id <id>] [--scope all|pages|links] [--change all|added|removed|changed] [--cursor <cursor>] [--limit <n>] [--format json|jsonl] # compatibility alias with the same independently optional scan IDs
-cnry technical-aeo crawl-pages <project> [--fetch-state <state>] [--indexability-state <state>] [--url-versions include|exclude|only] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # bounded URL inventory with depth and link score; --url-versions exclude lists pages only, as the dashboard does
-cnry technical-aeo page-audit <project> (--node-key <key>|--url <url>) [--run-id <id>] [--format json] # compatibility alias for one page's exact audit evidence
-cnry technical-aeo structure <project> [--parent-path <path>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # one level of the path hierarchy
-cnry technical-aeo links <project> [--source-url <url>] [--target-url <url>] [--followable|--nofollow] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # bounded internal-link edges
-cnry technical-aeo links neighbors <project> (--node-key <key>|--url <url>) [--limit <n>] [--format json]   # bounded inbound/outbound neighborhood
-cnry technical-aeo dead-links <project> [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # disabled unless the run opted in
-cnry technical-aeo score <project> [--format json]      # site score + per-factor scorecard (avg + pass/partial/fail per page) + delta vs the previous audit
-cnry technical-aeo pages <project> [--status error] [--sort score-asc|score-desc|url] [--format json|jsonl]   # audited-page compatibility view (worst-first by default)
-cnry technical-aeo trend <project> [--format json|jsonl] # aggregate-score history across past audits
+# Scan
+cnry agent-readiness run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--check-dead-links] [--include-geo] [--no-agent-skills] [--wait] [--format json]
+cnry agent-readiness run <project> --wait                 # full crawl + audit; without --max-pages uses the project's saved page budget, else the full site (up to 50,000 pages); edges derived from the page count unless --max-edges is set; --wait polls up to 15 minutes, so follow a longer scan with agent-readiness progress
+cnry agent-readiness run <project> --sitemap-url <url> --max-pages 5000 --max-edges 250000 --max-depth 12   # optional crawl seeds and custom budgets; hard caps are 50,000 pages / 1,000,000 edges
+cnry agent-readiness run <project> --check-dead-links --wait   # opt in to dead-link checks; they are off by default
+cnry agent-readiness progress <project> --run-id <id> [--format json]   # exact durable phase and pages found / checked / failed counters; never a synthesized percentage
 cnry schedule set <project> --kind site-audit --preset weekly   # keep it fresh
 cnry schedule set <project> --kind site-audit --check-dead-links --include-geo   # make every scheduled scan a deep scan (keeps the timing)
+
+# Score
+cnry agent-readiness score <project> [--run-id <id>] [--format json]   # Agent Readiness score + per-factor scorecard (avg + pass/partial/fail per page) + delta vs the previous scan
+cnry agent-readiness page-scores <project> [--run-id <id>] [--status success|error] [--sort score-asc|score-desc|url] [--limit <n>] [--format json|jsonl]   # per-page scores of audited pages (worst-first by default); --status error lists unreachable pages
+cnry agent-readiness trend <project> [--limit <n>] [--format json|jsonl]   # Agent Readiness score history across past scans
+
+# Scan overview, pages, and findings
+cnry agent-readiness overview <project> [--run-id <id> | --date YYYY-MM-DD] [--format json]   # crawl metadata, budgets, completeness, and termination
+cnry agent-readiness pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--url-versions include|exclude|only] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # bounded URL inventory with depth and link score; --url-versions exclude lists pages only, as the dashboard does
+cnry agent-readiness page-audit <project> (--node-key <key>|--url <url>) [--run-id <id>] [--format json]   # exact audit score, factor findings, recommendations, and crawl provenance for one graph page
+cnry agent-readiness issues <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # stored findings including passing-score issues, affected-page counts and example URLs
+cnry agent-readiness issue-pages <project> --issue-id <id> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # affected URLs for one issue; pin the run from the issue list
+
+# Site structure and links
+cnry agent-readiness structure <project> [--run-id <id>] [--parent-path <path>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # one level of the path hierarchy
+cnry agent-readiness links <project> [--run-id <id>] [--source-url <url>] [--target-url <url>] [--followable|--nofollow] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # bounded internal-link edges
+cnry agent-readiness neighbors <project> (--node-key <key>|--url <url>) [--run-id <id>] [--limit <n>] [--format json]   # bounded inbound/outbound neighborhood of one page
+cnry agent-readiness dead-links <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # disabled unless the run opted in
+cnry agent-readiness subgraph <project> [--run-id <id>] [--node-key <key>|--url <url>] [--hops <n>] [--max-nodes <n>] [--max-edges <n>] [--format json]   # focused semantic graph (MCP defaults to 25 nodes / 50 edges)
+cnry agent-readiness path <project> (--to-node-key <key>|--to-url <url>) [--run-id <id>] [--from-node-key <key>|--from-url <url>] [--max-depth <n>] [--format json]   # directed shortest followable-link path
+cnry agent-readiness changes <project> [--from-run-id <id>] [--to-run-id <id>] [--scope all|pages|links] [--change all|added|removed|changed] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # canonical scan diff; either scan ID is optional; JSONL begins with scan/cursor/filter metadata
 ```
+
+**Deprecated names.** The older `technical-aeo …` and `site-health …` commands still work as aliases, with the same flags, output, JSON, and exit codes; they will be removed only in a future major version. Four subcommands have new names: `technical-aeo crawl` and `site-health overview` are `agent-readiness overview`; `technical-aeo crawl-pages` and `site-health pages` are `agent-readiness pages`; `technical-aeo pages` is `agent-readiness page-scores`; and `technical-aeo links neighbors` and `site-health neighbors` are `agent-readiness neighbors`. Every other subcommand keeps its name.
 
 Agent integration checks run by default, inspecting discoverable actions, forms, and tool links. Use `--no-agent-skills` to disable them. Geographic checks are off by default; `--include-geo` adds location and service-area signals. Both selections change scan identity. Lighthouse is not exposed by Canonry.
 
 A scheduled scan always covers the full site (or the project's saved page budget). Which checks it runs belongs to the schedule: `schedule set --kind site-audit` takes the same `--check-dead-links`, `--include-geo` and `--no-agent-skills` flags as a manual scan, and any of them sets the whole list of checks. `--default-checks` goes back to the defaults (no dead links, no location checks, agent checks on). Without these flags the schedule keeps its checks, so moving, pausing or resuming it never drops them; check flags alone keep the current timing. `schedule show` prints them on a `Checks:` line, and the API returns them as `siteAudit` (PUT `siteAudit`: omit to keep, `null` to reset).
 
-For agent site readiness, begin with `cnry technical-aeo score <project> --format json`. Use `cnry site-health overview <project>` only to add crawl metadata; it never replaces the score. Use `cnry site-health page-audit` (MCP: `canonry_site_health_page_audit`) to tie a selected graph page's audit score to exact findings and fixes. Link score is importance, not an audit verdict. Then request a focused neighborhood, a shortest path, or scan-to-scan changes. Do not ask an agent to materialize the interactive graph: it can exceed the MCP tool-result limit. The matching traversal tools are `canonry_site_health_subgraph`, `canonry_site_health_path`, and `canonry_site_health_changes`; the subgraph tool defaults to a small focused result and should be expanded only when needed.
+To assess Agent Readiness, begin with `cnry agent-readiness score <project> --format json`. Use `cnry agent-readiness overview <project>` only to add crawl metadata; it never replaces the score. Use `cnry agent-readiness page-audit` (MCP: `canonry_agent_readiness_page_audit`) to tie a selected graph page's audit score to exact findings and fixes. Link score is importance, not an audit verdict. Then request a focused neighborhood, a shortest path, or scan-to-scan changes. Do not ask an agent to materialize the interactive graph: it can exceed the MCP tool-result limit. The matching traversal tools are `canonry_agent_readiness_subgraph`, `canonry_agent_readiness_path`, and `canonry_agent_readiness_changes`; the subgraph tool defaults to a small focused result and should be expanded only when needed.
 
-- The score is only available after at least one audit runs — `score` returns `hasData: false` until then.
-- URL versions are not scored. A parameter address (a filter, view or cache setting) whose canonical names the same path is a copy of that page: the audit fetches it to learn that, then leaves it out of the score, the factor counts, `technical-aeo pages` and the fix lists. `inventorySummary.urlVersions` counts them, each one's `auditState` is `url-version` with `urlVersionOf` naming its page, and `crawl-pages --url-versions only` lists them. Once 3 addresses with the same parameter pattern (site section plus parameter names) prove to be copies, the crawl stops fetching that pattern, unless one of them turns out to be a page of its own; those copies have no rows, and `inventorySummary.urlVersionsNotFetched` counts them. The URL versions a scan found are `urlVersions + urlVersionsNotFetched`, which is the number the dashboard and `technical-aeo crawl` show. A parameter page with no such canonical (`?page=2`, `?id=123`) is scored like any page. Scans made before this rule scored every address.
-- `issues` and `issue-pages` read stored evidence only; `technical-aeo` aliases expose the same commands. JSONL begins with provenance, coverage, total and continuation metadata, including for an empty result. An unavailable cross-page source in an older scan is not a measured zero, and a partial scan cannot establish site-wide absence. Follow the cursor before claiming a complete list. Issue dispositions guide review; advisory metadata findings do not automatically justify an edit or a blog post.
+- The score is only available after at least one scan runs — `score` returns `hasData: false` until then.
+- URL versions are not scored. A parameter address (a filter, view or cache setting) whose canonical names the same path is a copy of that page: the audit fetches it to learn that, then leaves it out of the score, the factor counts, `agent-readiness page-scores` and the fix lists. `inventorySummary.urlVersions` counts them, each one's `auditState` is `url-version` with `urlVersionOf` naming its page, and `agent-readiness pages --url-versions only` lists them. Once 3 addresses with the same parameter pattern (site section plus parameter names) prove to be copies, the crawl stops fetching that pattern, unless one of them turns out to be a page of its own; those copies have no rows, and `inventorySummary.urlVersionsNotFetched` counts them. The URL versions a scan found are `urlVersions + urlVersionsNotFetched`, which is the number the dashboard and `agent-readiness overview` show. A parameter page with no such canonical (`?page=2`, `?id=123`) is scored like any page. Scans made before this rule scored every address.
+- `issues` and `issue-pages` read stored evidence only. JSONL begins with provenance, coverage, total and continuation metadata, including for an empty result. An unavailable cross-page source in an older scan is not a measured zero, and a partial scan cannot establish site-wide absence. Follow the cursor before claiming a complete list. Issue dispositions guide review; advisory metadata findings do not automatically justify an edit or a blog post.
 - Reads without `--run-id` use the newest scan that published a crawl, including one that stopped at its page budget (`complete: false`, `termination: max-pages`). A failed, cancelled, or still-running scan never replaces it. `changes` compares complete crawls only.
 - Graph reads are server-paged and bounded. Use `--run-id` to inspect a specific retained run.
 - A subgraph with `countAccuracy: "lower-bound"` hit a traversal cap: totals and omissions are minimums, not site-wide counts. Its `complete` and `termination` fields apply to every observation.
@@ -724,7 +733,7 @@ cnry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
 cnry schedule set <project> --kind data-refresh --preset daily   # refresh all connected GSC/Bing (coverage + full data sync)/GA/GBP integrations (no --source)
 cnry schedule set <project> --kind backlinks-sync --preset weekly # re-probe Common Crawl; sync only when a newer rolling window is published (no --source/--provider)
 cnry doctor --project <project> --check site.reachability   # probe the homepage now; the server also probes every 10 min and pages health.degraded after two failed passes
-cnry schedule set <project> --kind site-audit --preset weekly     # Technical AEO: bounded full-site crawl and audit (no --source/--provider)
+cnry schedule set <project> --kind site-audit --preset weekly     # Agent Readiness scan: bounded full-site crawl and audit (no --source/--provider)
 cnry schedule set <project> --kind site-audit --check-dead-links --include-geo   # weekly deep scan: dead links + location checks on every scheduled scan
 cnry schedule set <project> --kind seo-sync --cron '0 7 2 * *'  # paid SEO refresh of every saved profile, monthly (needs seo.run; no --source/--provider)
 cnry schedule show <project>

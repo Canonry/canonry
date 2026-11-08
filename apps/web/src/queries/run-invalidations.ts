@@ -83,7 +83,7 @@ export function invalidateQueriesForRunKind(
       return
     case RunKinds['site-audit']:
       void invalidateProjectQueryDomain(queryClient, 'technicalAeo')
-      // The Site Health trend card reads its scans through the trends read.
+      // The Agent Readiness trend card reads its scans through the trends read.
       void invalidateProjectQueryDomain(queryClient, 'trends', { projectName })
       // The site's own sitemaps come from the latest scan.
       void invalidateProjectQueryDomain(queryClient, 'sitemaps', { projectName })

@@ -31,9 +31,9 @@ subtle borders, no visual noise.
 | `src/components/shared/ToneBadge.tsx` | Status indicator component with tone colors |
 | `src/components/shared/TrendCard.tsx` | The trend card a dashboard tab leads with: figures across the top, the chosen one charted over time (see "Trend cards") |
 | `src/components/project/` | Project page section components (GscSection, TrafficSection, `SiteHealthSection`, etc.) |
-| `src/components/project/SiteGraphSigma.tsx` / `site-graph-sigma.ts` | Site Health WebGL map and its Graphology adapter; consumes server-published coordinates only. The map defaults to content links and hides nav/header/footer links; the toggle changes only which edges are DRAWN, never the positions, which the server laid out without them. When `isTemplateDetectionApplied(templateDetection)` is false the toggle is disabled with plain-word copy and nothing is hidden, because the per-link flag proves nothing then. The header strip is ONE line of numbers (`site-map-link-counts`, built by `siteMapLinkCountsLabel`); why the split is worth having, which rule produced it, and any stale-layout warning live in an `InfoTooltip` beside it (`siteMapLinkRuleHelp`), always, in every state, because `applied` means the weaker ubiquity rule that cannot see an editorial link whose wording matches the menu. CUSTOMER-FACING COPY SAYS "links in your page text" and "menu and footer links", never "content link", "template link", "nav", or "chrome": those are our words, and the reader's distinction is WHERE the link was written. The wire vocabulary is unchanged and must stay (`linkKind=content|template|all`, `isTemplate`, `templateDetection`); this split is copy only. Short visible label, detail in a tooltip is the rule across this surface: an InfoTooltip is placed as a SIBLING of a heading, never a child, or its help text joins the heading's accessible name and any `aria-labelledby` landmark that points at it. Site Health tests assert complete independent help literals through mounted controls and real SDK reads. Keep copy and count helpers private unless another production caller needs them; retain compiled style contracts through the shared test-only Tailwind producer. |
-| `src/components/project/PageAuditEvidence.tsx` | Site Health "Findings and fixes": the per-factor technical checks. Every check starts COLLAPSED so the page opens scannable; the `<summary>` row carries factor name, score, and pass/partial/fail, which is everything needed to decide what to open. Native `<details>` is the disclosure primitive here, so the toggle is a real button with browser-managed expanded state and closed content stays out of the tab order. Critical defects render in their OWN always-visible section above the checks, so collapsing hides nothing that demands attention. |
-| `src/components/project/SiteHealthSection.tsx` | Site Health scan controls and results. Agent integration checks default on and can be disabled for a scan; geographic checks default off. `site-health-check-help.ts` owns the plain-language info-icon copy shared by settings, factor rows, and per-page findings. Help buttons stay outside row/disclosure triggers. Ordinary default selection uses the API scan history's `preferredRunId`, labelled "Latest scan" with the selection rule in an adjacent info icon; explicit historical and onboarding active-run selections remain pinned, and a scan started from the header is shown once it finishes (completed or partial) until the operator picks another. Technical factor badges use the API's worst-page `status`, separately from the displayed mean score. The page-budget picker's first choice sends no `maxPages`, so the server applies the project's saved `siteAuditMaxPages`, else the full site; never fill in a number client-side, which would bypass the saved budget. When the project saved a smaller budget, a one-off "Full site" choice sends the 50,000 hard limit explicitly (`oneOffFullSiteChoice`). Project Settings edits the saved budget in `SiteHealthScanSettingsSection` (`ProjectEngineSettingsSection.tsx`): admins only when `isDashboardManagedRunKind('site-audit')`, read-only in embeds and the public demo. `updateProject` sends `siteAuditMaxPages` only when the caller sets it, so every other save keeps the stored value. Budget wording comes from `formatSiteAuditPageBudget` / `formatPageCount` in contracts, shared with the CLI. The Pages list asks for `urlVersions=exclude`, so both filters hold pages only; the audit's skipped URL versions appear as one caveat beside the page count (`urlVersionsSkippedHelp`, counting `urlVersionsFound`: the API's `inventorySummary.urlVersions` plus `urlVersionsNotFetched`, the copies the crawl skipped without fetching), never as rows. A row shows its path, and any parameters on a second line, since two addresses can share a path. A URL version can still be opened from the map: the inspector's reasons name its page (`URL version of <path>, not scored`) and the findings panel says why it has no score. |
+| `src/components/project/SiteGraphSigma.tsx` / `site-graph-sigma.ts` | Agent Readiness WebGL map and its Graphology adapter; consumes server-published coordinates only. The map defaults to content links and hides nav/header/footer links; the toggle changes only which edges are DRAWN, never the positions, which the server laid out without them. When `isTemplateDetectionApplied(templateDetection)` is false the toggle is disabled with plain-word copy and nothing is hidden, because the per-link flag proves nothing then. The header strip is ONE line of numbers (`site-map-link-counts`, built by `siteMapLinkCountsLabel`); why the split is worth having, which rule produced it, and any stale-layout warning live in an `InfoTooltip` beside it (`siteMapLinkRuleHelp`), always, in every state, because `applied` means the weaker ubiquity rule that cannot see an editorial link whose wording matches the menu. CUSTOMER-FACING COPY SAYS "links in your page text" and "menu and footer links", never "content link", "template link", "nav", or "chrome": those are our words, and the reader's distinction is WHERE the link was written. The wire vocabulary is unchanged and must stay (`linkKind=content|template|all`, `isTemplate`, `templateDetection`); this split is copy only. Short visible label, detail in a tooltip is the rule across this surface: an InfoTooltip is placed as a SIBLING of a heading, never a child, or its help text joins the heading's accessible name and any `aria-labelledby` landmark that points at it. Agent Readiness tests assert complete independent help literals through mounted controls and real SDK reads. Keep copy and count helpers private unless another production caller needs them; retain compiled style contracts through the shared test-only Tailwind producer. |
+| `src/components/project/PageAuditEvidence.tsx` | Agent Readiness "Findings and fixes": the per-factor technical checks. Every check starts COLLAPSED so the page opens scannable; the `<summary>` row carries factor name, score, and pass/partial/fail, which is everything needed to decide what to open. Native `<details>` is the disclosure primitive here, so the toggle is a real button with browser-managed expanded state and closed content stays out of the tab order. Critical defects render in their OWN always-visible section above the checks, so collapsing hides nothing that demands attention. |
+| `src/components/project/SiteHealthSection.tsx` | Agent Readiness scan controls and results (views Map, Pages, Score; see "Agent Readiness" below). Agent integration checks default on and can be disabled for a scan; geographic checks default off. `site-health-check-help.ts` owns the plain-language info-icon copy shared by settings, factor rows, and per-page findings. Help buttons stay outside row/disclosure triggers. Ordinary default selection uses the API scan history's `preferredRunId`, labelled "Latest scan" with the selection rule in an adjacent info icon; explicit historical and onboarding active-run selections remain pinned, and a scan started from the header is shown once it finishes (completed or partial) until the operator picks another. Technical factor badges use the API's worst-page `status`, separately from the displayed mean score. The page-budget picker's first choice sends no `maxPages`, so the server applies the project's saved `siteAuditMaxPages`, else the full site; never fill in a number client-side, which would bypass the saved budget. When the project saved a smaller budget, a one-off "Full site" choice sends the 50,000 hard limit explicitly (`oneOffFullSiteChoice`). Project Settings edits the saved budget in `SiteHealthScanSettingsSection` (`ProjectEngineSettingsSection.tsx`): admins only when `isDashboardManagedRunKind('site-audit')`, read-only in embeds and the public demo. `updateProject` sends `siteAuditMaxPages` only when the caller sets it, so every other save keeps the stored value. Budget wording comes from `formatSiteAuditPageBudget` / `formatPageCount` in contracts, shared with the CLI. The Pages list asks for `urlVersions=exclude`, so both filters hold pages only; the audit's skipped URL versions appear as one caveat beside the page count (`urlVersionsSkippedHelp`, counting `urlVersionsFound`: the API's `inventorySummary.urlVersions` plus `urlVersionsNotFetched`, the copies the crawl skipped without fetching), never as rows. A row shows its path, and any parameters on a second line, since two addresses can share a path. A URL version can still be opened from the map: the inspector's reasons name its page (`URL version of <path>, not scored`) and the findings panel says why it has no score. |
 | `src/components/project/RunAdmissionNotice.tsx` | The AI Visibility notice for a sweep that is refused, or leaves out providers that keep failing on their accounts, from `GET /projects/:name/run-admission` (`useRunAdmission`, read once by `ProjectPage` above both overviews and their loading state). While refused, the header sweep button reads "AI sweeps on hold" and is disabled, because the API would refuse it; the confirm sheet names the providers a sweep leaves out. Copy states when the hold lifts, never that a sweep will run (a project may have no schedule). The settings action appears only for a rejected key and deep-links to `/settings#provider-<name>`; credit is added in the provider's console. Saving a provider invalidates every project's admission (`invalidateProjectQueryDomain(…, 'runAdmission')`). |
 | `src/queries/` | TanStack Query hooks for data fetching |
 | `src/view-models.ts` | Data transformation from API DTOs to display format |
@@ -471,7 +471,7 @@ renders the selected window’s stored GA4 Total without summing its page rows.
 Every dashboard tab leads with `TrendCard`: its figures across the top, and the
 chosen figure charted over time below them, with the tab's lists and per-request
 detail unchanged underneath. Site traffic, Search Engines (Search Console
-performance plus indexed pages, and Bing's the same way), Site Health and Backlinks use it.
+performance plus indexed pages, and Bing's the same way), Agent Readiness and Backlinks use it.
 
 - Every value and change is the API's. Stored levels come from
   `GET /projects/:name/trends` (`canonry trends`, `canonry_trends`):
@@ -705,6 +705,11 @@ Pick by intent (documented at every call site in `mutations.ts` /
 per-project sub-endpoint (Bing, GSC, GA, etc.) and churns unrelated caches.
 For "the projects list" use the exact-key form.
 
+Aero's reads (`getApiV1ProjectsByNameAgent…`, under `/agent/`) share their
+prefix with Agent Readiness (`getApiV1ProjectsByNameAgentReadiness…`). Match
+Aero reads with `isAeroQueryId` in `queries/query-invalidation.ts`, never the
+bare prefix, or an Aero write re-reads every scan.
+
 ### Spec gaps (loose-object endpoints)
 
 A handful of endpoints (~41) still return `looseObjectSchema` in the spec —
@@ -756,7 +761,7 @@ ranges. The component accepts a schedule kind.
 Managed `site-audit` hides viewer scan controls and next-scan settings; admins
 retain them. Gate `startScan` and `startAudit` themselves, including recovery
 callbacks, and keep all progress, score, map, page, failure, partial and dead-link
-evidence visible. Site Health reads the site-audit schedule and falls back to
+evidence visible. Agent Readiness reads the site-audit schedule and falls back to
 “Scans are run by your Canonry team” without a date. The admin-only creation
 scan in `OnboardingSetupPage` is outside this client policy. Other kinds keep
 their existing controls. The operator's manual lever is `canonry run <project>`, and the flag
@@ -770,7 +775,7 @@ Test Simple and Advanced behavior through `ProjectPage`: it does not supply
 
 ### Read-only embed mode (#716)
 
-When the server injects `window.__CANONRY_CONFIG__.embed` (via `canonry serve --embed`), `RootLayout` (`src/App.tsx`) takes a chromeless branch — placed AFTER every hook so Rules of Hooks hold on both paths — rendering only `<Outlet/>` inside a minimal `app-shell-embed` shell with NO sidebar / topbar / mobile nav / footer / drawers / `RunNotificationObserver` / `Toaster` / `AeroBarHost`. The optional `embed.views` allowlist gates the route via `embedViewIdForPath` (a non-allowlisted route renders a `embed-view-unavailable` state instead of the page, so surfaces like `/settings` are not reachable inside the iframe — a presentational gate, NOT a security boundary; the API key scope is the real boundary). The optional `embed.projectTabs` allowlist is a FINER gate. Every project surface reads it through `effectiveEmbedProjectTabs(getEmbedConfig())`, never raw: outside embed that is `undefined` (all tabs); inside embed `filterEmbedProjectTabs` normalizes it against `EMBED_PROJECT_TABS` (`overview`, `search-console`, `local`, `activity`, `backlinks`, `technical-aeo`, `history`, `settings`). That is only the client's render list: the server enforces its own narrower read allowlist (`SERVER_ENFORCED_EMBED_PROJECT_TABS` in `packages/canonry/src/embed.ts`: `overview`, `technical-aeo`), so the other tabs can render while their API reads are refused. `portfolio`, `queries`, `discovery`, and `conversions` are always dropped, even when the host names them. An embed with no list gets every tab in `EMBED_PROJECT_TABS`, and a list with no valid tab falls back to `overview`; the server's boot-wide config already defaults an unset list to `overview` (`packages/canonry/src/embed.ts`). `ProjectPage` filters the subnav to that list, and `resolveEmbedProjectTab` falls a direct-URL hit on a hidden tab back to Overview (or the first allowed tab). A child route with no subnav entry gates on the tab it belongs to, through the same list: the Property detail route (`/projects/$projectName/properties/$targetKey`, `MeasurementPropertyPage`) is governed by `portfolio`, so in every embed it renders "This view is not available here." with a link back to the project overview, and fires no measurement reads. That matches `ProjectPage`, which skips the plan read and renders no Property links when embedded. Site Health retains the stable `technical-aeo` allowlist token. This is what `embed.views` cannot do — every `/projects/*` collapses to the one `project` view id. Same posture as `views`: presentational, NOT a security boundary; the API key scope governs data. The optional `embed.theme` supports `mode`, `bg`, `fg`, and `accent` through `embedThemeStyle` (sanitized, via the React `style` prop). Font overrides are unsupported. Every dashboard uses the bundled Geist files. With embed off, `getEmbedConfig()` returns `null` and the full chrome renders exactly as before.
+When the server injects `window.__CANONRY_CONFIG__.embed` (via `canonry serve --embed`), `RootLayout` (`src/App.tsx`) takes a chromeless branch — placed AFTER every hook so Rules of Hooks hold on both paths — rendering only `<Outlet/>` inside a minimal `app-shell-embed` shell with NO sidebar / topbar / mobile nav / footer / drawers / `RunNotificationObserver` / `Toaster` / `AeroBarHost`. The optional `embed.views` allowlist gates the route via `embedViewIdForPath` (a non-allowlisted route renders a `embed-view-unavailable` state instead of the page, so surfaces like `/settings` are not reachable inside the iframe — a presentational gate, NOT a security boundary; the API key scope is the real boundary). The optional `embed.projectTabs` allowlist is a FINER gate. Every project surface reads it through `effectiveEmbedProjectTabs(getEmbedConfig())`, never raw: outside embed that is `undefined` (all tabs); inside embed `filterEmbedProjectTabs` maps retired keys to their current key (`normalizeEmbedProjectTabs`: `technical-aeo` becomes `agent-readiness`) and normalizes the list against `EMBED_PROJECT_TABS` (`overview`, `search-console`, `seo-data`, `local`, `activity`, `traffic`, `backlinks`, `agent-readiness`, `history`, `settings`). That is only the client's render list: the server enforces its own narrower read allowlist (`SERVER_ENFORCED_EMBED_PROJECT_TABS` in `packages/canonry/src/embed.ts`: `overview`, `agent-readiness`), so the other tabs can render while their API reads are refused. `portfolio`, `queries`, `discovery`, and `conversions` are always dropped, even when the host names them. An embed with no list gets every tab in `EMBED_PROJECT_TABS`, and a list with no valid tab falls back to `overview`; the server's boot-wide config already defaults an unset list to `overview` (`packages/canonry/src/embed.ts`). `ProjectPage` filters the subnav to that list, and `resolveEmbedProjectTab` falls a direct-URL hit on a hidden tab back to Overview (or the first allowed tab). A child route with no subnav entry gates on the tab it belongs to, through the same list: the Property detail route (`/projects/$projectName/properties/$targetKey`, `MeasurementPropertyPage`) is governed by `portfolio`, so in every embed it renders "This view is not available here." with a link back to the project overview, and fires no measurement reads. That matches `ProjectPage`, which skips the plan read and renders no Property links when embedded. Agent Readiness's allowlist token is `agent-readiness`; a host list that still names `technical-aeo` keeps the tab, so never compare a tab key against the retired token. This is what `embed.views` cannot do — every `/projects/*` collapses to the one `project` view id. Same posture as `views`: presentational, NOT a security boundary; the API key scope governs data. The optional `embed.theme` supports `mode`, `bg`, `fg`, and `accent` through `embedThemeStyle` (sanitized, via the React `style` prop). Font overrides are unsupported. Every dashboard uses the bundled Geist files. With embed off, `getEmbedConfig()` returns `null` and the full chrome renders exactly as before.
 
 ### DTO types — generated vs hand-typed
 
@@ -805,8 +810,8 @@ import { CHART_TOOLTIP_STYLE, CHART_AXIS_TICK, CHART_SERIES_COLORS } from '../sh
 - Custom SVG is allowed only for non-chart visualizations (gauges, sparklines,
   timelines) where Recharts is overkill.
 
-**Narrow Site Health exception:** the `/technical-aeo` route is labeled **Site
-Health** and renders its site map with stable `sigma@3` through
+**Narrow Agent Readiness exception:** the `/agent-readiness` route (**Agent
+Readiness**) renders its site map with stable `sigma@3` through
 `@react-sigma/core@5` and `graphology`. This is a WebGL graph renderer, not a
 second charting system. Keep all Sigma/Graphology imports inside
 `SiteGraphSigma.tsx` and `site-graph-sigma.ts`; every other visual stays on the
@@ -865,7 +870,7 @@ server's config injection. Keep both paths aligned. Embeds keep their own mode
 (dark when omitted) and custom colors, with no standalone selector. Theme
 overrides must reach floating layers too: a portal outside a themed container
 does not inherit its tokens. Native controls use the corresponding `color-scheme`.
-Keep chart/provider identity and the accessible Site Health state palette
+Keep chart/provider identity and the accessible Agent Readiness state palette
 separate from semantic UI colors.
 
 **Design-token ratchet.** `design-tokens/no-literal-palette` in `.oxlintrc.json`
@@ -890,8 +895,8 @@ Validation owns different risks:
 ### Onboarding state and draft recovery
 
 - Public domain/name/locale and unsaved query/competitor inputs restore from allowlisted session storage scoped by base path and project. Scan consent and provider credentials never persist. Saving clears the saved field's draft; Reset restores persisted project/query state, while Skip or leaving preserves unsaved inputs.
-- AI-first setup opens the project directly after its first result or an explicit skip. Site Health-first completion leads with a compact Project saved heading, one sweep status and Open project. Optional setup is a flat list: Connect your agent opens `/agent-setup`, and the data-source details start closed. Keep promotional demos and repeated explanatory paragraphs off this finish step. It derives scan/sweep outcomes from their latest saved runs. Distinguish never started, skipped, queued, running, partial, failed, cancelled and completed; name previous saved evidence separately. Provider/query readiness determines the next action.
-- Fresh setup leads with website and brand, then enters the exact project’s AI Visibility setup without a crawl or scan consent. `siteScan=scan` is an explicit optional Site Health entry; preserve its consent and first-scan 100-page cap. Existing scan links remain pinned to their run, while an unscanned project resumes its first AI check.
+- AI-first setup opens the project directly after its first result or an explicit skip. Agent Readiness-first completion leads with a compact Project saved heading, one sweep status and Open project. Optional setup is a flat list: Connect your agent opens `/agent-setup`, and the data-source details start closed. Keep promotional demos and repeated explanatory paragraphs off this finish step. It derives scan/sweep outcomes from their latest saved runs. Distinguish never started, skipped, queued, running, partial, failed, cancelled and completed; name previous saved evidence separately. Provider/query readiness determines the next action.
+- Fresh setup leads with website and brand, then enters the exact project’s AI Visibility setup without a crawl or scan consent. `siteScan=scan` is an explicit optional Agent Readiness entry; preserve its consent and first-scan 100-page cap. Existing scan links remain pinned to their run, while an unscanned project resumes its first AI check.
 - A saved provider connection is `Configured`, not verified access. Key saves and settings refreshes do not prove provider authentication or quota. Repair a failed first check inline with the shared revision-aware connection editor; preserve the run and saved queries on return.
 - Launch review uses the server's canonical saved query list, including its deduplication, and displays effective engines/models and market. Keep query research, generation, tuning, and result counts behind disclosures. Never infer a sweep ETA or completion percentage from elapsed time.
 - Correlate each run outcome once per launched run, including retries. A handled scan marker must not be reactivated by reloading its onboarding link. Keep the AI setup wizard mounted while completed-run overview summaries refresh; a handled AI run can still resume its saved result without emitting its outcome again. AI-first forward exits emit the existing finish/open_project action in the same journey, including an explicit skipped method; Back navigation is not completion.
@@ -974,6 +979,35 @@ The schedule editor defaults a new schedule to the browser timezone, displays th
 - History fallback pins show unavailable metrics, never latest-only counts under
   a historical window.
 
+### Agent Readiness
+
+The site crawl and audit is **Agent Readiness** in every visible string: the
+tab, headings, aria-labels, toasts, the run label ("Agent Readiness scan") and
+the score ("Agent Readiness score"). Its views are Map | Pages | Score; the
+view ids (`map`, `inventory`, `technical`) are unchanged. The onboarding stages
+are Scan site | Score | AI Visibility | Next steps. Readiness means only Agent
+Readiness in the UI: provider and engine setup says "Checking AI engines…" or
+"provider connections", never "readiness". `canonry-vocabulary/no-retired-feature-name`
+rejects the retired names (Site Health, Technical AEO, technical audit, Page
+health) in `src`.
+
+The route and embed tab key are `agent-readiness`
+(`/projects/$projectName/agent-readiness`, `ProjectPageTab` `agent-readiness`).
+The retired `/projects/$projectName/technical-aeo` route redirects there with
+`replace: true`, keeping its search (`siteHealthRunId`, `runId`, scope,
+onboarding markers) and hash, so bookmarks, shared links and an embed's
+remembered tab still open the right scan. Link to the canonical route only.
+First-party code calls the canonical `…AgentReadiness…` SDK operations and
+query keys, never the deprecated `…TechnicalAeo…` twins; scan launches POST
+`agent-readiness/runs`, which `refreshQueriesAfterWrite` treats as a run
+trigger. CLI commands named in copy are the canonical `canonry agent-readiness …`
+family. Internal identifiers stay as they are (`SiteHealthSection`,
+`TechnicalAeoSection`, `PROJECT_QUERY_DOMAINS.technicalAeo`, run kind
+`site-audit`, Aero's `site-health` view token, `onboarding=site-health`,
+`siteHealthRunId`, telemetry action and event names). Telemetry keeps the
+`technical-aeo` page and tab in `UI_PAGES` / `UI_PROJECT_TABS` beside the
+canonical ones, for events from dashboards built before the rename.
+
 ### Retired Report tab
 
 The dedicated Report UI is removed. Legacy `/projects/:name/report` URLs
@@ -990,7 +1024,7 @@ Keep fixture dates and behavior checks independent of display wording.
 ## Common Mistakes
 
 - **Importing `recharts` directly** — use `ChartPrimitives.tsx` exports.
-- **Adding alternative charting libraries** (Chart.js, D3, Highcharts) — Recharts is the only chart library; the isolated Site Health Sigma/Graphology exception above is not a precedent for other views.
+- **Adding alternative charting libraries** (Chart.js, D3, Highcharts) — Recharts is the only chart library; the isolated Agent Readiness Sigma/Graphology exception above is not a precedent for other views.
 - **Hardcoding `/api/v1`** — use the base path from `window.__CANONRY_CONFIG__`.
 - **Using card grids for tabular data** — analysts prefer tables for scanability.
 - **Adding decorative gradients or glow effects** — the design system is clean and flat.
@@ -1007,7 +1041,7 @@ Keep fixture dates and behavior checks independent of display wording.
 
 ### Aero view context
 
-`AeroViewProvider` carries effective Property/Site Health selection to the native
+`AeroViewProvider` carries effective Property/Agent Readiness selection to the native
 bar. URL-backed report filters use `aero-view.ts`; publish component-owned run/page
 selection with `usePublishAeroView`. Never send a carried filter a page does not
 apply. Context is frozen per prompt and included in Copy as CLI. The server

@@ -507,7 +507,7 @@ test('Geist materials keep their role radius, opaque fill and layered elevation'
   expect(root['--shadow-material-modal']).toBe('0 0 0 1px #ffffff25, 0px 1px 1px #00000005, 0px 8px 16px -4px #0000000a, 0px 24px 32px -8px #0000000f, 0 0 0 1px hsl(0 0% 0%)')
 })
 
-test('Site Health uses a color-vision-safe graph palette in both themes', async () => {
+test('Agent Readiness uses a color-vision-safe graph palette in both themes', async () => {
   const source = await readFile(stylesPath, 'utf8')
   const light = source.match(/\[data-theme='light'\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? ''
 

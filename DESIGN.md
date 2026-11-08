@@ -104,7 +104,7 @@ each choice.
   native `color-scheme` and browser `theme-color`, so charts and body portals
   change together. Synchronize other open tabs. Embeds retain their configured
   theme (dark when unspecified), custom colors, and chromeless layout.
-- Provider colors identify engines. Chart series and the Site Health state
+- Provider colors identify engines. Chart series and the Agent Readiness state
   palette retain their separate analytical meanings; they are not decorative
   aliases for button or badge colors.
 
@@ -188,7 +188,7 @@ each choice.
   focus states and keyboard access. Keep desktop controls compact; increase
   standalone touch targets for coarse pointers where needed.
 - Do not communicate state through color alone.
-- Site Health graph states use the dedicated color-vision-safe
+- Agent Readiness graph states use the dedicated color-vision-safe
   `--chart-site-health-*` palette plus matching status glyphs in labels, search,
   and the legend. Node size remains reserved for internal-link importance.
 - Dense tables may scroll horizontally; controls and headings must reflow

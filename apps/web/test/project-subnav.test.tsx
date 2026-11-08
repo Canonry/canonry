@@ -10,7 +10,7 @@ const items = [
   { key: 'search-console', label: 'Search Engines' },
   { key: 'seo-data', label: 'SEO' },
   { key: 'activity', label: 'Activity' },
-  { key: 'technical-aeo', label: 'Site Health' },
+  { key: 'agent-readiness', label: 'Agent Readiness' },
   { key: 'journeys', label: 'Journeys' },
   { key: 'traffic', label: 'Server traffic' },
 ].map(item => ({ ...item, key: item.key as ProjectPageTab, href: `/projects/demo/${item.key}` }))
@@ -23,7 +23,7 @@ const overflowItems = [
 ]
 const settingsItem = { key: 'settings' as const, label: 'Settings', href: '/projects/demo/settings' }
 const baseWidths: Record<string, number> = {
-  overview: 112, 'search-console': 132, 'seo-data': 56, activity: 84, 'technical-aeo': 108, journeys: 96, traffic: 132,
+  overview: 112, 'search-console': 132, 'seo-data': 56, activity: 84, 'agent-readiness': 108, journeys: 96, traffic: 132,
   more: 80, settings: 88,
 }
 const moreLabels = ['Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Change History']
@@ -64,7 +64,7 @@ async function renderNav(activeTab: ProjectPageTab = 'overview', filtered = fals
   const root = createRootRoute({
     validateSearch: search => search,
     component: () => <ProjectSubnav
-      items={filtered ? items.filter(item => ['overview', 'technical-aeo'].includes(item.key)) : items}
+      items={filtered ? items.filter(item => ['overview', 'agent-readiness'].includes(item.key)) : items}
       overflowItems={filtered ? [] : overflowItems}
       settingsItem={filtered ? null : settingsItem}
       activeTab={activeTab}
@@ -84,7 +84,7 @@ async function renderNav(activeTab: ProjectPageTab = 'overview', filtered = fals
 test('wide navigation keeps the primary sections and Settings visible', async () => {
   const { nav } = await renderNav()
   expect(within(nav).getAllByRole('link').map(item => item.textContent)).toEqual([
-    'AI Visibility', 'Search Engines', 'SEO', 'Activity', 'Site Health', 'Journeys', 'Server traffic', 'Settings',
+    'AI Visibility', 'Search Engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'Settings',
   ])
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(moreLabels)
@@ -99,18 +99,18 @@ test('a narrow container moves excess primary sections into More without a viewp
   expect(within(nav).getByRole('link', { name: 'SEO' })).toBeTruthy()
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-    'Activity', 'Site Health', 'Journeys', 'Server traffic', ...moreLabels,
+    'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', ...moreLabels,
   ])
   act(() => { containerWidth = 1600; resize?.() })
-  expect(within(nav).getByRole('link', { name: 'Site Health' })).toBeTruthy()
+  expect(within(nav).getByRole('link', { name: 'Agent Readiness' })).toBeTruthy()
   expect(within(nav).queryByRole('menu')).toBeNull()
 })
 
 test('the active primary section stays visible and Settings overflows on very narrow panels', async () => {
   containerWidth = 220
-  const { nav } = await renderNav('technical-aeo')
-  expect(within(nav).getAllByRole('link').map(item => item.textContent)).toEqual(['Site Health'])
-  expect(within(nav).getByRole('link', { name: 'Site Health' }).getAttribute('aria-current')).toBe('page')
+  const { nav } = await renderNav('agent-readiness')
+  expect(within(nav).getAllByRole('link').map(item => item.textContent)).toEqual(['Agent Readiness'])
+  expect(within(nav).getByRole('link', { name: 'Agent Readiness' }).getAttribute('aria-current')).toBe('page')
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getByRole('menuitem', { name: 'Settings' })).toBeTruthy()
 })
@@ -149,9 +149,9 @@ test('overflow destinations and Settings retain measurement and drawer URL state
 test('embed-filtered sections remain filtered when they overflow', async () => {
   containerWidth = 180
   const { nav } = await renderNav('overview', true)
-  expect(within(nav).queryByRole('link', { name: 'Site Health' })).toBeNull()
+  expect(within(nav).queryByRole('link', { name: 'Agent Readiness' })).toBeNull()
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
-  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Site Health'])
+  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Agent Readiness'])
   expect(within(nav).queryByText('Settings')).toBeNull()
   expect(within(nav).queryByText('Queries')).toBeNull()
 })
@@ -168,16 +168,16 @@ test('an active low-frequency section remains identified inside More', async () 
 
 test('a long active tab remains reachable at narrow widths and other tabs return when widened', async () => {
   containerWidth = 210
-  widths['technical-aeo'] = 280
-  const { nav } = await renderNav('technical-aeo')
-  const active = within(nav).getByRole('link', { name: 'Site Health' })
+  widths['agent-readiness'] = 280
+  const { nav } = await renderNav('agent-readiness')
+  const active = within(nav).getByRole('link', { name: 'Agent Readiness' })
   expect(active.classList.contains('project-subnav-current')).toBe(true)
   expect(active.querySelector('.project-subnav-label')).toBeTruthy()
   expect(within(nav).getAllByRole('link')).toHaveLength(1)
   expect(within(nav).getByRole('button', { name: 'More' })).toBeTruthy()
-  act(() => { containerWidth = 1600; widths['technical-aeo'] = baseWidths['technical-aeo']!; resize?.() })
+  act(() => { containerWidth = 1600; widths['agent-readiness'] = baseWidths['agent-readiness']!; resize?.() })
   expect(within(nav).getAllByRole('link')).toHaveLength(8)
-  expect(within(nav).getByRole('link', { name: 'Site Health' }).getAttribute('aria-current')).toBe('page')
+  expect(within(nav).getByRole('link', { name: 'Agent Readiness' }).getAttribute('aria-current')).toBe('page')
 })
 
 test('font or label width changes remeasure the available tab budget', async () => {

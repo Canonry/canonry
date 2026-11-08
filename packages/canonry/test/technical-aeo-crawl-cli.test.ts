@@ -69,14 +69,14 @@ async function captureConsole(fn: () => Promise<void>): Promise<string[]> {
   return lines
 }
 
-describe('Technical AEO full-crawl CLI', () => {
+describe('Agent Readiness full-crawl CLI', () => {
   // The API resolves an omitted page budget (the project's saved one, else the
   // full site), so the CLI must not fill one in.
   it('leaves omitted budgets for the API to resolve', async () => {
     mocked.triggerSiteAudit.mockResolvedValue({ runId: 'run-defaults', status: 'queued' })
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     try {
-      await dispatchRegisteredCommand(['technical-aeo', 'run', 'acme'], 'json', TECHNICAL_AEO_CLI_COMMANDS)
+      await dispatchRegisteredCommand(['agent-readiness', 'run', 'acme'], 'json', TECHNICAL_AEO_CLI_COMMANDS)
     } finally {
       log.mockRestore()
     }
@@ -93,11 +93,13 @@ describe('Technical AEO full-crawl CLI', () => {
 
   it('says in --help that an omitted --max-pages uses the saved budget, else the full site, and that --wait can stop first', async () => {
     const help = (await captureConsole(async () => {
-      await dispatchRegisteredCommand(['technical-aeo', 'run', '--help'], 'text', TECHNICAL_AEO_CLI_COMMANDS)
+      await dispatchRegisteredCommand(['agent-readiness', 'run', '--help'], 'text', TECHNICAL_AEO_CLI_COMMANDS)
     })).join('\n')
-    expect(help).toContain('Usage:  canonry technical-aeo run <project> [--sitemap-url <url>] [--max-pages <n>]')
+    expect(help).toContain('Usage:  canonry agent-readiness run <project> [--sitemap-url <url>] [--max-pages <n>]')
+    expect(help).toContain('Start an Agent Readiness scan. No answer-engine provider is required.')
     expect(help).toContain("Without --max-pages the scan uses the project's saved page budget (canonry project update <project> --site-audit-max-pages <n|full>), else the full site, up to 50,000 pages.")
-    expect(help).toContain('--wait polls for up to 15 minutes, so a large full-site scan can outlast it; follow it with canonry technical-aeo progress <project> --run-id <id>.')
+    expect(help).toContain('--wait polls for up to 15 minutes, so a large full-site scan can outlast it; follow it with canonry agent-readiness progress <project> --run-id <id>.')
+    expect(help).not.toContain('Deprecated')
   })
 
   it('keeps dead-link checks off unless --check-dead-links is explicitly supplied', async () => {
@@ -105,7 +107,7 @@ describe('Technical AEO full-crawl CLI', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     try {
       await dispatchRegisteredCommand([
-        'technical-aeo', 'run', 'acme', '--max-pages', '50000', '--max-edges', '1000000', '--max-depth', '12',
+        'agent-readiness', 'run', 'acme', '--max-pages', '50000', '--max-edges', '1000000', '--max-depth', '12',
       ], 'json', TECHNICAL_AEO_CLI_COMMANDS)
     } finally {
       log.mockRestore()
@@ -123,8 +125,19 @@ describe('Technical AEO full-crawl CLI', () => {
     })
   })
 
-  it('registers bounded graph reads under Technical AEO and Site Health aliases', () => {
+  it('registers bounded graph reads under Agent Readiness and its deprecated names', () => {
     expect(TECHNICAL_AEO_CLI_COMMANDS.map((spec) => spec.path.join(' '))).toEqual(expect.arrayContaining([
+      'agent-readiness overview',
+      'agent-readiness progress',
+      'agent-readiness pages',
+      'agent-readiness page-audit',
+      'agent-readiness structure',
+      'agent-readiness links',
+      'agent-readiness neighbors',
+      'agent-readiness dead-links',
+      'agent-readiness subgraph',
+      'agent-readiness path',
+      'agent-readiness changes',
       'technical-aeo crawl',
       'technical-aeo progress',
       'technical-aeo crawl-pages',
@@ -149,8 +162,8 @@ describe('Technical AEO full-crawl CLI', () => {
     ]))
   })
 
-  it('requires an exact run ID for Site Health progress', async () => {
-    await expect(command(['technical-aeo', 'progress']).run({
+  it('requires an exact run ID for Agent Readiness progress', async () => {
+    await expect(command(['agent-readiness', 'progress']).run({
       positionals: ['acme'],
       values: {},
       format: 'json',
@@ -159,13 +172,13 @@ describe('Technical AEO full-crawl CLI', () => {
       code: 'CLI_USAGE_ERROR',
       message: '--run-id is required',
       displayMessage: expect.stringContaining(
-        'Usage: canonry technical-aeo progress <project> --run-id <id> [--format json]',
+        'Usage: canonry agent-readiness progress <project> --run-id <id> [--format json]',
       ),
     })
     expect(mocked.getTechnicalAeoProgress).not.toHaveBeenCalled()
   })
 
-  it('prints exact stored Site Health progress as JSON', async () => {
+  it('prints exact stored Agent Readiness progress as JSON', async () => {
     const progress = {
       project: 'acme',
       runId: 'run-1',
@@ -183,7 +196,7 @@ describe('Technical AEO full-crawl CLI', () => {
     mocked.getTechnicalAeoProgress.mockResolvedValue(progress)
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     try {
-      await command(['technical-aeo', 'progress']).run({
+      await command(['agent-readiness', 'progress']).run({
         positionals: ['acme'],
         values: { 'run-id': 'run-1' },
         format: 'json',
@@ -215,7 +228,7 @@ describe('Technical AEO full-crawl CLI', () => {
     try {
       await technicalAeoProgress('acme', { runId: 'run-1' })
       const output = String(log.mock.calls[0]?.[0])
-      expect(output).toContain('Site Health progress: checking (running)')
+      expect(output).toContain('Agent Readiness scan progress: checking (running)')
       expect(output).toContain('Pages: 42 found · 17 checked · 1 failed')
       expect(output).toContain('Eligible: 12 · Links found: 88')
       expect(output).not.toContain('%')
@@ -225,7 +238,7 @@ describe('Technical AEO full-crawl CLI', () => {
   })
 
   it('requires exactly one page selector for page audit evidence', async () => {
-    await expect(command(['technical-aeo', 'page-audit']).run({
+    await expect(command(['agent-readiness', 'page-audit']).run({
       positionals: ['acme'],
       values: {},
       format: 'json',
@@ -339,7 +352,7 @@ describe('Technical AEO full-crawl CLI', () => {
         runId: null,
       })
       await technicalAeoPageAudit('acme', { nodeKey: 'page:guide' })
-      expect(log).toHaveBeenLastCalledWith(expect.stringContaining('No persisted Site Health crawl'))
+      expect(log).toHaveBeenLastCalledWith(expect.stringContaining('No persisted Agent Readiness crawl for "acme". Run `canonry agent-readiness run acme` first.'))
 
       mocked.getTechnicalAeoPageAudit.mockResolvedValueOnce({
         state: 'details-unavailable',
@@ -382,7 +395,7 @@ describe('Technical AEO full-crawl CLI', () => {
   })
 
   it('requires a page selector before calling the bounded neighbors endpoint', async () => {
-    await expect(command(['technical-aeo', 'links', 'neighbors']).run({
+    await expect(command(['agent-readiness', 'neighbors']).run({
       positionals: ['acme'],
       values: {},
       format: 'json',
@@ -394,7 +407,7 @@ describe('Technical AEO full-crawl CLI', () => {
     expect(mocked.getTechnicalAeoInternalLinkNeighbors).not.toHaveBeenCalled()
   })
 
-  it('uses Site Health usage in alias handler errors', async () => {
+  it('uses the deprecated site-health usage in its alias handler errors', async () => {
     await expect(command(['site-health', 'path']).run({
       positionals: ['acme'],
       values: {},
@@ -586,7 +599,7 @@ describe('Technical AEO full-crawl CLI', () => {
     ])
   })
 
-  it('preserves scan IDs and continuation metadata for paged Site Health changes in JSONL', async () => {
+  it('preserves scan IDs and continuation metadata for paged Agent Readiness changes in JSONL', async () => {
     mocked.getSiteHealthChanges.mockResolvedValue({
       project: 'acme',
       state: 'ready',
@@ -701,7 +714,7 @@ describe('Technical AEO full-crawl CLI', () => {
     }
   })
 
-  it('forwards an individually selected scan ID for Site Health changes', async () => {
+  it('forwards an individually selected scan ID for Agent Readiness changes', async () => {
     mocked.getSiteHealthChanges.mockClear()
     mocked.getSiteHealthChanges.mockResolvedValue({
       project: 'acme',
@@ -712,7 +725,7 @@ describe('Technical AEO full-crawl CLI', () => {
     })
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     try {
-      await command(['technical-aeo', 'changes']).run({
+      await command(['agent-readiness', 'changes']).run({
         positionals: ['acme'],
         values: { 'to-run-id': 'run-after' },
         format: 'json',
@@ -838,7 +851,7 @@ describe('crawl reads from a scan that stopped at its budget', () => {
   })
 })
 
-describe('Technical AEO factor shares in the CLI', () => {
+describe('Agent Readiness factor shares in the CLI', () => {
   it('prints each factor share of the site score, and the shares add up to 100%', async () => {
     mocked.getTechnicalAeoScore.mockResolvedValue(coreScore(true))
     const [output] = await captureConsole(() => technicalAeoScore('acme', {}))

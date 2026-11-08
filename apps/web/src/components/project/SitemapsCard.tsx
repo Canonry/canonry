@@ -126,7 +126,7 @@ export function SitemapsCard(props: SitemapsCardProps) {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <div className="flex items-center gap-1.5">
             <h3>Sitemaps</h3>
-            <InfoTooltip text={`Canonry compares the sitemaps your site lists (from the latest Site Health scan) with what ${engine} and the other engine have, and shows what ${engine} is missing. Submitting asks ${engine} to read a sitemap; it does not guarantee indexing.`} />
+            <InfoTooltip text={`Canonry compares the sitemaps your site lists (from the latest Agent Readiness scan) with what ${engine} and the other engine have, and shows what ${engine} is missing. Submitting asks ${engine} to read a sitemap; it does not guarantee indexing.`} />
           </div>
           {missingCount > 0 && (
             <InfoTooltip

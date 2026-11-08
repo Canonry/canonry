@@ -29,8 +29,8 @@ export async function sitemapsCommand(project: string, opts: { engine?: 'google'
   }
   const lines = [
     result.site.scannedAt
-      ? `Site: ${result.site.sitemaps.length} sitemap file${result.site.sitemaps.length === 1 ? '' : 's'} in the Site Health scan of ${result.site.scannedAt}`
-      : 'Site: no Site Health scan yet, so only the engines are compared.',
+      ? `Site: ${result.site.sitemaps.length} sitemap file${result.site.sitemaps.length === 1 ? '' : 's'} in the Agent Readiness scan of ${result.site.scannedAt}`
+      : 'Site: no Agent Readiness scan yet, so only the engines are compared.',
   ]
   for (const engine of opts.engine ? [opts.engine] : (['google', 'bing'] as const)) {
     lines.push('', ...engineLines(ENGINE_NAMES[engine], result[engine]))

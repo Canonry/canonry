@@ -43,7 +43,7 @@ function renderSection(
 }
 
 function section() {
-  return screen.getByRole('region', { name: 'Site Health scans' })
+  return screen.getByRole('region', { name: 'Agent Readiness scans' })
 }
 function budgetSelect() {
   return screen.getByRole('combobox', { name: 'Page budget' }) as HTMLSelectElement
@@ -55,7 +55,7 @@ function saveButton() {
 test('the heading carries its explanation in a sibling tooltip and the select offers every budget', () => {
   renderSection(null)
 
-  expect(screen.getByRole('heading', { level: 2, name: 'Site Health scans' })).not.toBeNull()
+  expect(screen.getByRole('heading', { level: 2, name: 'Agent Readiness scans' })).not.toBeNull()
   expect(within(section()).getByRole('button', { name: HELP })).not.toBeNull()
   const options = within(budgetSelect()).getAllByRole('option') as HTMLOptionElement[]
   expect(options.map(option => [option.value, option.textContent])).toEqual(OPTIONS)
@@ -202,7 +202,7 @@ test('the section is busy while saving and a refused save keeps the draft with t
 test.each([
   { label: 'a viewer', account: { name: 'viewer', role: 'viewer' as const }, apiKey: undefined, managed: false },
   { label: 'a read-only key', account: null, apiKey: { ...PROJECT_WRITER, readOnly: true }, managed: false },
-  { label: 'a project writer when Site Health scans are managed', account: null, apiKey: PROJECT_WRITER, managed: true },
+  { label: 'a project writer when Agent Readiness scans are managed', account: null, apiKey: PROJECT_WRITER, managed: true },
 ])('$label reads the saved budget without a control to change it', ({ account, apiKey, managed }) => {
   if (managed) window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
   for (const [saved, text] of [
@@ -213,7 +213,7 @@ test.each([
     [1, 'Page budget: 1 page'],
   ] as const) {
     renderSection(saved, { account, apiKey })
-    expect(section().textContent).toBe(`Site Health scans${text}`)
+    expect(section().textContent).toBe(`Agent Readiness scans${text}`)
     expect(screen.queryByRole('combobox')).toBeNull()
     expect(screen.queryByRole('button', { name: /Save|Cancel/ })).toBeNull()
     cleanup()
@@ -227,7 +227,7 @@ test.each([
   window.__CANONRY_CONFIG__ = config
   renderSection(10_000)
 
-  expect(section().textContent).toBe('Site Health scans' + 'Page budget: 10,000 pages')
+  expect(section().textContent).toBe('Agent Readiness scans' + 'Page budget: 10,000 pages')
   expect(screen.queryByRole('combobox')).toBeNull()
   expect(screen.queryByRole('spinbutton')).toBeNull()
   expect(screen.queryByRole('button', { name: /Save|Cancel/ })).toBeNull()
@@ -235,8 +235,8 @@ test.each([
 
 test.each([
   { label: 'a project writer', account: null, apiKey: PROJECT_WRITER, managed: false },
-  { label: 'an administrator when Site Health scans are managed', account: { name: 'admin', role: 'admin' as const }, apiKey: undefined, managed: true },
-  { label: 'an install without accounts when Site Health scans are managed', account: null, apiKey: undefined, managed: true },
+  { label: 'an administrator when Agent Readiness scans are managed', account: { name: 'admin', role: 'admin' as const }, apiKey: undefined, managed: true },
+  { label: 'an install without accounts when Agent Readiness scans are managed', account: null, apiKey: undefined, managed: true },
 ])('$label can change the budget', async ({ account, apiKey, managed }) => {
   if (managed) window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
   const { onSave } = renderSection(null, { account, apiKey })

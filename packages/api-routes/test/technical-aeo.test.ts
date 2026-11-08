@@ -1210,7 +1210,7 @@ describe('GET /technical-aeo crawl reads', () => {
     expect(mismatch.json()).toEqual({
       error: {
         code: 'VALIDATION_ERROR',
-        message: 'Site Health changes cursor does not match this snapshot comparison and filter',
+        message: 'Agent Readiness changes cursor does not match this snapshot comparison and filter',
       },
     })
   })
@@ -3208,5 +3208,45 @@ describe('GET /technical-aeo template link reads', () => {
       expect(invalid.statusCode).toBe(400)
       expect(invalid.json().error.code).toBe('VALIDATION_ERROR')
     }
+  })
+})
+
+describe('Agent Readiness paths and the deprecated technical-aeo alias', () => {
+  // Stored reads the seeded audits and comparable crawl can answer.
+  const STORED_READS = ['', '/pages', '/trend', '/crawl', '/crawl/pages', '/structure', '/internal-links', '/dead-links', '/runs', '/issues']
+
+  it('answers every stored read identically at both path segments', async () => {
+    seedMinimalComparableCrawlForRunA()
+    for (const suffix of STORED_READS) {
+      const canonical = await ctx.app.inject({ method: 'GET', url: `/api/v1/projects/tech-aeo/agent-readiness${suffix}` })
+      const legacy = await ctx.app.inject({ method: 'GET', url: `/api/v1/projects/tech-aeo/technical-aeo${suffix}` })
+      expect(canonical.statusCode, `agent-readiness${suffix}`).toBe(200)
+      expect(legacy.statusCode, `technical-aeo${suffix}`).toBe(200)
+      expect(legacy.json(), suffix).toEqual(canonical.json())
+    }
+    const selected = await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/agent-readiness?runId=${ctx.runA}`)
+    expect(selected.status).toBe(200)
+    expect(selected.body.aggregateScore).toBe((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${ctx.runA}`)).body.aggregateScore)
+  })
+
+  it('refuses an unknown project the same way at both segments', async () => {
+    const canonical = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/missing/agent-readiness' })
+    const legacy = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/missing/technical-aeo' })
+    expect(canonical.statusCode).toBe(404)
+    expect(legacy.statusCode).toBe(404)
+    expect(legacy.json()).toEqual(canonical.json())
+  })
+
+  it('queues one scan whichever segment starts it', async () => {
+    const first = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/agent-readiness/runs', payload: { limit: 50 } })
+    expect(first.statusCode).toBe(200)
+    const firstBody = first.json() as { runId: string; status: string }
+    expect(firstBody.status).toBe('queued')
+    expect(ctx.db.select().from(runs).where(eq(runs.id, firstBody.runId)).get()?.kind).toBe('site-audit')
+
+    const second = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: { limit: 50 } })
+    expect(second.statusCode).toBe(200)
+    expect((second.json() as { runId: string }).runId).toBe(firstBody.runId)
+    expect(ctx.siteAuditRequested).toHaveLength(1)
   })
 })

@@ -320,14 +320,14 @@ try {
   mark('compact Advanced summaries and filtered Simple/Advanced competitor reads match installed CLI')
   const crawlReads = {}
   for (const project of ['simple', 'advanced']) {
-    const latest = await apiRead(project, 'technical-aeo/crawl', {})
+    const latest = await apiRead(project, 'agent-readiness/crawl', {})
     assert.equal(latest.runId, `${project}-crawl-2026-09-28`)
     assert.equal(latest.inventorySummary.total, 5)
     crawlReads[project] = []
     for (const date of ['2026-09-26', '2026-09-25', '2025-09-26']) {
-      const summary = await apiRead(project, 'technical-aeo/crawl', { date })
+      const summary = await apiRead(project, 'agent-readiness/crawl', { date })
       const pagesQuery = { date, inventoryEligible: false, limit: 1 }
-      const pages = await apiRead(project, 'technical-aeo/crawl/pages', pagesQuery)
+      const pages = await apiRead(project, 'agent-readiness/crawl/pages', pagesQuery)
       assert.equal(summary.requestedDate, date)
       assert.equal(pages.requestedDate, date)
       if (date === '2026-09-26') {
@@ -357,8 +357,10 @@ try {
         assert.equal(pages.total, 0)
         assert.deepEqual(pages.pages, [])
       }
-      assert.deepEqual(stable(await installedRead(['technical-aeo', 'crawl', project, '--date', date])), stable(summary))
-      assert.deepEqual(stable(await installedRead(['technical-aeo', 'crawl-pages', project, '--date', date, '--inventory-eligible', 'false', '--limit', '1'])), stable(pages))
+      assert.deepEqual(stable(await installedRead(['agent-readiness', 'overview', project, '--date', date])), stable(summary))
+      assert.deepEqual(stable(await installedRead(['agent-readiness', 'pages', project, '--date', date, '--inventory-eligible', 'false', '--limit', '1'])), stable(pages))
+      // The deprecated technical-aeo name still answers with the same summary.
+      if (date === '2026-09-26') assert.deepEqual(stable(await installedRead(['technical-aeo', 'crawl', project, '--date', date])), stable(summary))
       crawlReads[project].push({ date, summary, pagesQuery, pages })
     }
   }
@@ -380,10 +382,11 @@ try {
         assert.equal((await call(client, 'canonry_sentiment_backfill', { project: 'simple', ...jobs[0].body })).id, jobs[0].id)
         assert.deepEqual(await call(client, 'canonry_sentiment_job', { project: 'simple', jobId: jobs[0].id }), await http('simple', `/jobs/${jobs[0].id}`))
         for (const project of ['simple', 'advanced']) for (const selected of crawlReads[project]) {
-          for (const name of ['canonry_site_health_overview', 'canonry_technical_aeo_crawl']) {
+          // canonry_technical_aeo_crawl is a deprecated name that must answer exactly like the canonical tool.
+          for (const name of ['canonry_agent_readiness_overview', 'canonry_technical_aeo_crawl']) {
             assert.deepEqual(stable(await call(client, name, { project, date: selected.date })), stable(selected.summary))
           }
-          assert.deepEqual(stable(await call(client, 'canonry_technical_aeo_crawl_pages', { project, ...selected.pagesQuery })), stable(selected.pages))
+          assert.deepEqual(stable(await call(client, 'canonry_agent_readiness_pages', { project, ...selected.pagesQuery })), stable(selected.pages))
         }
       }
       if (role !== 'scoped') {

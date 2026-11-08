@@ -13597,9 +13597,9 @@ export type OnboardingTelemetryEvent = {
 export type UiTelemetryEvent = {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.page_time';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
     visitId: string;
     foregroundMs: number;
     activeMs: number;
@@ -13607,26 +13607,26 @@ export type UiTelemetryEvent = {
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.page_viewed';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.action';
     action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'feedback.submit' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'bing.sync' | 'sitemap.submit' | 'journeys.visitor_open' | 'journeys.visit_open' | 'journeys.agent_open' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
     integration?: 'google' | 'gsc' | 'ga' | 'bing' | 'gbp' | 'wordpress' | 'openai_ads' | 'google_ads' | 'gtm' | 'traffic_cloudflare' | 'traffic_vercel' | 'traffic_cloud_run' | 'traffic_wordpress';
     format?: 'csv' | 'json' | 'html';
     filter?: 'provider' | 'model' | 'location' | 'window' | 'query_class' | 'seoProfile' | 'other';
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.error';
     kind: 'render' | 'unhandled' | 'api';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
     component?: string;
     errorName?: string;
     route?: string;
@@ -13636,11 +13636,11 @@ export type UiTelemetryEvent = {
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.vitals';
     metric: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB';
     rating: 'good' | 'needs-improvement' | 'poor';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
 };
 
 export type OrganicEvidenceDto = {
@@ -38090,6 +38090,41 @@ export type PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses = {
 
 export type PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponse = PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses[keyof PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest audit.
+         */
+        runId?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessErrors = {
+    /**
+     * Project or site-audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessError = GetApiV1ProjectsByNameAgentReadinessErrors[keyof GetApiV1ProjectsByNameAgentReadinessErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessResponses = {
+    /**
+     * Agent Readiness scorecard returned.
+     */
+    200: SiteAuditScoreDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessResponse = GetApiV1ProjectsByNameAgentReadinessResponses[keyof GetApiV1ProjectsByNameAgentReadinessResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoData = {
     body?: never;
     path: {
@@ -38118,12 +38153,63 @@ export type GetApiV1ProjectsByNameTechnicalAeoError = GetApiV1ProjectsByNameTech
 
 export type GetApiV1ProjectsByNameTechnicalAeoResponses = {
     /**
-     * Technical AEO scorecard returned.
+     * Agent Readiness scorecard returned.
      */
     200: SiteAuditScoreDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoResponse = GetApiV1ProjectsByNameTechnicalAeoResponses[keyof GetApiV1ProjectsByNameTechnicalAeoResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest audit.
+         */
+        runId?: string;
+        /**
+         * Filter by page audit status: `success` or `error`.
+         */
+        status?: 'success' | 'error';
+        /**
+         * Sort order: `score-asc` (default), `score-desc`, or `url`.
+         */
+        sort?: 'score-asc' | 'score-desc' | 'url';
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/pages';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesErrors = {
+    /**
+     * Project or site-audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesError = GetApiV1ProjectsByNameAgentReadinessPagesErrors[keyof GetApiV1ProjectsByNameAgentReadinessPagesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesResponses = {
+    /**
+     * Audited pages returned.
+     */
+    200: SiteAuditPagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesResponse = GetApiV1ProjectsByNameAgentReadinessPagesResponses[keyof GetApiV1ProjectsByNameAgentReadinessPagesResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoPagesData = {
     body?: never;
@@ -38176,6 +38262,41 @@ export type GetApiV1ProjectsByNameTechnicalAeoPagesResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoPagesResponse = GetApiV1ProjectsByNameTechnicalAeoPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoPagesResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessTrendData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Max data points returned (most recent runs). Default 30.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/trend';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessTrendErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessTrendError = GetApiV1ProjectsByNameAgentReadinessTrendErrors[keyof GetApiV1ProjectsByNameAgentReadinessTrendErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessTrendResponses = {
+    /**
+     * Agent Readiness trend returned.
+     */
+    200: SiteAuditTrendResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessTrendResponse = GetApiV1ProjectsByNameAgentReadinessTrendResponses[keyof GetApiV1ProjectsByNameAgentReadinessTrendResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoTrendData = {
     body?: never;
     path: {
@@ -38204,7 +38325,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoTrendError = GetApiV1ProjectsByNam
 
 export type GetApiV1ProjectsByNameTechnicalAeoTrendResponses = {
     /**
-     * Technical AEO trend returned.
+     * Agent Readiness trend returned.
      */
     200: SiteAuditTrendResponseDto;
 };
@@ -38262,6 +38383,49 @@ export type GetApiV1ProjectsByNameTrendsResponses = {
 
 export type GetApiV1ProjectsByNameTrendsResponse = GetApiV1ProjectsByNameTrendsResponses[keyof GetApiV1ProjectsByNameTrendsResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessCrawlData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.
+         */
+        date?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/crawl';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlErrors = {
+    /**
+     * Invalid date, conflicting runId/date, or invalid cursor identity.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlError = GetApiV1ProjectsByNameAgentReadinessCrawlErrors[keyof GetApiV1ProjectsByNameAgentReadinessCrawlErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlResponses = {
+    /**
+     * Persisted crawl summary returned.
+     */
+    200: SiteCrawlSummaryDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlResponse = GetApiV1ProjectsByNameAgentReadinessCrawlResponses[keyof GetApiV1ProjectsByNameAgentReadinessCrawlResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlData = {
     body?: never;
     path: {
@@ -38305,6 +38469,53 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlResponse = GetApiV1ProjectsByNameTechnicalAeoCrawlResponses[keyof GetApiV1ProjectsByNameTechnicalAeoCrawlResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessGraphData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Maximum graph nodes. Defaults to and is capped at 20,000.
+         */
+        maxNodes?: number;
+        /**
+         * Maximum graph edges. Defaults to and is capped at 50,000.
+         */
+        maxEdges?: number;
+        /**
+         * Restrict links to `content` (excludes nav, header, and footer links) or `template` (only those). Defaults to `all`. A link neither rule could classify matches neither filter, which is why every link response also carries `templateDetection` and every edge carries `templateSource`: an empty `content` list means "could not tell" under an `unavailable-*` detection, and `templateSource` says whether a link that IS classified was decided by where it sits in the page (`placement`) or by how many pages repeat it (`ubiquity`).
+         */
+        linkKind?: 'all' | 'content' | 'template';
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/graph';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessGraphErrors = {
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessGraphError = GetApiV1ProjectsByNameAgentReadinessGraphErrors[keyof GetApiV1ProjectsByNameAgentReadinessGraphErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessGraphResponses = {
+    /**
+     * Bounded Agent Readiness graph projection returned.
+     */
+    200: SiteCrawlGraphResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessGraphResponse = GetApiV1ProjectsByNameAgentReadinessGraphResponses[keyof GetApiV1ProjectsByNameAgentReadinessGraphResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoGraphData = {
     body?: never;
     path: {
@@ -38345,12 +38556,67 @@ export type GetApiV1ProjectsByNameTechnicalAeoGraphError = GetApiV1ProjectsByNam
 
 export type GetApiV1ProjectsByNameTechnicalAeoGraphResponses = {
     /**
-     * Bounded Site Health graph projection returned.
+     * Bounded Agent Readiness graph projection returned.
      */
     200: SiteCrawlGraphResponseDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoGraphResponse = GetApiV1ProjectsByNameTechnicalAeoGraphResponses[keyof GetApiV1ProjectsByNameTechnicalAeoGraphResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Focus page canonical node key. Omit nodeKey and url to use the crawl root.
+         */
+        nodeKey?: string;
+        /**
+         * Focus page canonical URL. Omit nodeKey and url to use the crawl root.
+         */
+        url?: string;
+        /**
+         * Undirected neighborhood radius. Defaults to 1; maximum 3.
+         */
+        hops?: number;
+        /**
+         * Maximum canonical nodes. Defaults to 25; maximum 200.
+         */
+        maxNodes?: number;
+        /**
+         * Maximum canonical edges. Defaults to 50; maximum 500.
+         */
+        maxEdges?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/subgraph';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphErrors = {
+    /**
+     * Project, crawl-bearing run, or focus page not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphError = GetApiV1ProjectsByNameAgentReadinessSubgraphErrors[keyof GetApiV1ProjectsByNameAgentReadinessSubgraphErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphResponses = {
+    /**
+     * Bounded canonical Agent Readiness neighborhood returned.
+     */
+    200: SiteHealthSubgraphResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphResponse = GetApiV1ProjectsByNameAgentReadinessSubgraphResponses[keyof GetApiV1ProjectsByNameAgentReadinessSubgraphResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoSubgraphData = {
     body?: never;
@@ -38400,12 +38666,71 @@ export type GetApiV1ProjectsByNameTechnicalAeoSubgraphError = GetApiV1ProjectsBy
 
 export type GetApiV1ProjectsByNameTechnicalAeoSubgraphResponses = {
     /**
-     * Bounded canonical Site Health neighborhood returned.
+     * Bounded canonical Agent Readiness neighborhood returned.
      */
     200: SiteHealthSubgraphResponseDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoSubgraphResponse = GetApiV1ProjectsByNameTechnicalAeoSubgraphResponses[keyof GetApiV1ProjectsByNameTechnicalAeoSubgraphResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessPathData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Source canonical node key. Omit both source selectors to start at the crawl root.
+         */
+        fromNodeKey?: string;
+        /**
+         * Source canonical URL. Omit both source selectors to start at the crawl root.
+         */
+        fromUrl?: string;
+        /**
+         * Target canonical node key. Required when toUrl is omitted.
+         */
+        toNodeKey?: string;
+        /**
+         * Target canonical URL. Required when toNodeKey is omitted.
+         */
+        toUrl?: string;
+        /**
+         * Maximum directed link depth. Defaults to 12; maximum 24.
+         */
+        maxDepth?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/path';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPathErrors = {
+    /**
+     * A target selector is required.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project, crawl-bearing run, source page, or target page not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPathError = GetApiV1ProjectsByNameAgentReadinessPathErrors[keyof GetApiV1ProjectsByNameAgentReadinessPathErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessPathResponses = {
+    /**
+     * Directed internal-link path result returned.
+     */
+    200: SiteHealthPathResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPathResponse = GetApiV1ProjectsByNameAgentReadinessPathResponses[keyof GetApiV1ProjectsByNameAgentReadinessPathResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoPathData = {
     body?: never;
@@ -38466,6 +38791,65 @@ export type GetApiV1ProjectsByNameTechnicalAeoPathResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoPathResponse = GetApiV1ProjectsByNameTechnicalAeoPathResponses[keyof GetApiV1ProjectsByNameTechnicalAeoPathResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessChangesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Baseline complete crawl. Omit for the complete crawl immediately before the target.
+         */
+        fromRunId?: string;
+        /**
+         * Target complete crawl. Omit for the latest complete crawl.
+         */
+        toRunId?: string;
+        /**
+         * Restrict records and first-page summary counts to pages, links, or both.
+         */
+        scope?: 'all' | 'pages' | 'links';
+        /**
+         * Restrict records and first-page summary counts to one change kind.
+         */
+        change?: 'all' | 'added' | 'removed' | 'changed';
+        /**
+         * Opaque keyset cursor bound to both run IDs and the selected filters.
+         */
+        cursor?: string;
+        /**
+         * Maximum change records. Defaults to 25; maximum 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/changes';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessChangesErrors = {
+    /**
+     * Invalid filters, run direction, or cursor context.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or selected crawl-bearing run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessChangesError = GetApiV1ProjectsByNameAgentReadinessChangesErrors[keyof GetApiV1ProjectsByNameAgentReadinessChangesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessChangesResponses = {
+    /**
+     * Canonical Agent Readiness snapshot comparison returned.
+     */
+    200: SiteHealthChangesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessChangesResponse = GetApiV1ProjectsByNameAgentReadinessChangesResponses[keyof GetApiV1ProjectsByNameAgentReadinessChangesResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoChangesData = {
     body?: never;
     path: {
@@ -38518,12 +38902,59 @@ export type GetApiV1ProjectsByNameTechnicalAeoChangesError = GetApiV1ProjectsByN
 
 export type GetApiV1ProjectsByNameTechnicalAeoChangesResponses = {
     /**
-     * Canonical Site Health snapshot comparison returned.
+     * Canonical Agent Readiness snapshot comparison returned.
      */
     200: SiteHealthChangesResponseDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoChangesResponse = GetApiV1ProjectsByNameTechnicalAeoChangesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoChangesResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Stored non-probe audit run. Omit for the standard latest crawl selection.
+         */
+        runId?: string;
+        /**
+         * Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.
+         */
+        cursor?: string;
+        /**
+         * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/issues';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesErrors = {
+    /**
+     * Invalid query/cursor or evidence/response read budget exceeded.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or explicitly selected non-probe audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesError = GetApiV1ProjectsByNameAgentReadinessIssuesErrors[keyof GetApiV1ProjectsByNameAgentReadinessIssuesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesResponses = {
+    /**
+     * Stored issue groups and coverage returned.
+     */
+    200: SiteAuditIssuesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesResponse = GetApiV1ProjectsByNameAgentReadinessIssuesResponses[keyof GetApiV1ProjectsByNameAgentReadinessIssuesResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoIssuesData = {
     body?: never;
@@ -38571,6 +39002,57 @@ export type GetApiV1ProjectsByNameTechnicalAeoIssuesResponses = {
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoIssuesResponse = GetApiV1ProjectsByNameTechnicalAeoIssuesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact issue ID from the stored issue list.
+         */
+        issueId: string;
+    };
+    query?: {
+        /**
+         * Stored non-probe audit run. Omit for the standard latest crawl selection.
+         */
+        runId?: string;
+        /**
+         * Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.
+         */
+        cursor?: string;
+        /**
+         * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/issues/{issueId}/pages';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesErrors = {
+    /**
+     * Invalid query/cursor or evidence/response read budget exceeded.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project, selected non-probe audit run, or issue not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesError = GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesErrors[keyof GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesResponses = {
+    /**
+     * Stored affected page evidence and coverage returned.
+     */
+    200: SiteAuditIssuePagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesResponse = GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesResponses[keyof GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesData = {
     body?: never;
@@ -38623,6 +39105,53 @@ export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponse = GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Exact canonical crawl node key. Required when url is omitted.
+         */
+        nodeKey?: string;
+        /**
+         * Exact persisted crawl URL. Required when nodeKey is omitted.
+         */
+        url?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/crawl/pages/audit';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditErrors = {
+    /**
+     * Exactly one page selector is required.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or explicitly selected crawl-bearing run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditError = GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditErrors[keyof GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditResponses = {
+    /**
+     * Page audit evidence state returned.
+     */
+    200: SiteCrawlPageAuditDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditResponse = GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditResponses[keyof GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditData = {
     body?: never;
     path: {
@@ -38670,6 +39199,89 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditResponse = GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditResponses[keyof GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.
+         */
+        date?: string;
+        /**
+         * Filter Canonry technical inventory eligibility (`true` or `false`).
+         */
+        inventoryEligible?: boolean;
+        /**
+         * Filter by persisted fetch state.
+         */
+        fetchState?: string;
+        /**
+         * Filter by crawler-derived indexability state; this is not Google index coverage.
+         */
+        indexabilityState?: string;
+        /**
+         * Return only the page with this node key. Combined with a filter it answers whether that exact page is in the filtered set, without paging through the list.
+         */
+        nodeKey?: string;
+        /**
+         * Filter by the derived page state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.
+         */
+        healthState?: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+        /**
+         * Filter by audit state. A URL version has `url-version`: it was fetched and classified but not scored.
+         */
+        auditState?: string;
+        /**
+         * URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Once a few addresses with the same parameter pattern prove to be copies, the crawl stops fetching that pattern: those have no rows and `inventorySummary.urlVersionsNotFetched` counts them. Scans made before URL versions were set aside have none.
+         */
+        urlVersions?: 'include' | 'exclude' | 'only';
+        /**
+         * Sort order. Defaults to `url`.
+         */
+        sort?: 'url' | 'path' | 'score-asc' | 'score-desc';
+        /**
+         * Opaque cursor from the previous bounded crawl response.
+         */
+        cursor?: string;
+        /**
+         * Page size. Defaults to 100 (50 for structure/neighbors); maximum 200 (100 for structure/neighbors).
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/crawl/pages';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesErrors = {
+    /**
+     * Invalid date, conflicting runId/date, invalid urlVersions, or invalid cursor identity.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesError = GetApiV1ProjectsByNameAgentReadinessCrawlPagesErrors[keyof GetApiV1ProjectsByNameAgentReadinessCrawlPagesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesResponses = {
+    /**
+     * Crawl pages returned.
+     */
+    200: SiteCrawlPagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesResponse = GetApiV1ProjectsByNameAgentReadinessCrawlPagesResponses[keyof GetApiV1ProjectsByNameAgentReadinessCrawlPagesResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
     body?: never;
     path: {
@@ -38704,7 +39316,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
          */
         nodeKey?: string;
         /**
-         * Filter by the derived Site Health state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.
+         * Filter by the derived page state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.
          */
         healthState?: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
         /**
@@ -38753,6 +39365,53 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesResponse = GetApiV1ProjectsByNameTechnicalAeoCrawlPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoCrawlPagesResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessStructureData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Parent URL path. Defaults to `/`.
+         */
+        parentPath?: string;
+        /**
+         * Opaque cursor from the previous bounded crawl response.
+         */
+        cursor?: string;
+        /**
+         * Maximum immediate children. Defaults to 50; maximum 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/structure';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessStructureErrors = {
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessStructureError = GetApiV1ProjectsByNameAgentReadinessStructureErrors[keyof GetApiV1ProjectsByNameAgentReadinessStructureErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessStructureResponses = {
+    /**
+     * Immediate crawl children returned.
+     */
+    200: SiteCrawlStructureResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessStructureResponse = GetApiV1ProjectsByNameAgentReadinessStructureResponses[keyof GetApiV1ProjectsByNameAgentReadinessStructureResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoStructureData = {
     body?: never;
     path: {
@@ -38799,6 +39458,65 @@ export type GetApiV1ProjectsByNameTechnicalAeoStructureResponses = {
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoStructureResponse = GetApiV1ProjectsByNameTechnicalAeoStructureResponses[keyof GetApiV1ProjectsByNameTechnicalAeoStructureResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Restrict to a source URL.
+         */
+        sourceUrl?: string;
+        /**
+         * Restrict to a target URL.
+         */
+        targetUrl?: string;
+        /**
+         * Restrict to followable or nofollow link observations.
+         */
+        followable?: boolean;
+        /**
+         * Restrict links to `content` (excludes nav, header, and footer links) or `template` (only those). Defaults to `all`. A link neither rule could classify matches neither filter, which is why every link response also carries `templateDetection` and every edge carries `templateSource`: an empty `content` list means "could not tell" under an `unavailable-*` detection, and `templateSource` says whether a link that IS classified was decided by where it sits in the page (`placement`) or by how many pages repeat it (`ubiquity`).
+         */
+        linkKind?: 'all' | 'content' | 'template';
+        /**
+         * Opaque cursor from the previous bounded crawl response.
+         */
+        cursor?: string;
+        /**
+         * Page size. Defaults to 100 (50 for structure/neighbors); maximum 200 (100 for structure/neighbors).
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/internal-links';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksErrors = {
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksError = GetApiV1ProjectsByNameAgentReadinessInternalLinksErrors[keyof GetApiV1ProjectsByNameAgentReadinessInternalLinksErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksResponses = {
+    /**
+     * Internal crawl links returned.
+     */
+    200: SiteCrawlInternalLinksResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksResponse = GetApiV1ProjectsByNameAgentReadinessInternalLinksResponses[keyof GetApiV1ProjectsByNameAgentReadinessInternalLinksResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksData = {
     body?: never;
@@ -38859,6 +39577,61 @@ export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksResponse = GetApiV1ProjectsByNameTechnicalAeoInternalLinksResponses[keyof GetApiV1ProjectsByNameTechnicalAeoInternalLinksResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Canonical crawl node key.
+         */
+        nodeKey?: string;
+        /**
+         * Canonical crawl URL.
+         */
+        url?: string;
+        /**
+         * Restrict links to `content` (excludes nav, header, and footer links) or `template` (only those). Defaults to `all`. A link neither rule could classify matches neither filter, which is why every link response also carries `templateDetection` and every edge carries `templateSource`: an empty `content` list means "could not tell" under an `unavailable-*` detection, and `templateSource` says whether a link that IS classified was decided by where it sits in the page (`placement`) or by how many pages repeat it (`ubiquity`).
+         */
+        linkKind?: 'all' | 'content' | 'template';
+        /**
+         * Maximum inbound and outbound edges independently. Defaults to 50; maximum 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/internal-links/neighbors';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsErrors = {
+    /**
+     * A nodeKey or URL is required.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsError = GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsErrors[keyof GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsResponses = {
+    /**
+     * Bounded internal-link neighborhood returned.
+     */
+    200: SiteCrawlNeighborsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsResponse = GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsResponses[keyof GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsData = {
     body?: never;
     path: {
@@ -38914,6 +39687,49 @@ export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsResponses = 
 
 export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsResponse = GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsResponses[keyof GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Opaque cursor from the previous bounded crawl response.
+         */
+        cursor?: string;
+        /**
+         * Page size. Defaults to 100 (50 for structure/neighbors); maximum 200 (100 for structure/neighbors).
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/dead-links';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksErrors = {
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksError = GetApiV1ProjectsByNameAgentReadinessDeadLinksErrors[keyof GetApiV1ProjectsByNameAgentReadinessDeadLinksErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksResponses = {
+    /**
+     * Dead-link status and findings returned.
+     */
+    200: SiteCrawlDeadLinksResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksResponse = GetApiV1ProjectsByNameAgentReadinessDeadLinksResponses[keyof GetApiV1ProjectsByNameAgentReadinessDeadLinksResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoDeadLinksData = {
     body?: never;
     path: {
@@ -38957,6 +39773,116 @@ export type GetApiV1ProjectsByNameTechnicalAeoDeadLinksResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoDeadLinksResponse = GetApiV1ProjectsByNameTechnicalAeoDeadLinksResponses[keyof GetApiV1ProjectsByNameTechnicalAeoDeadLinksResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessRunsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Max scans returned (most recent first). Defaults to 20; max 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/runs';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsError = GetApiV1ProjectsByNameAgentReadinessRunsErrors[keyof GetApiV1ProjectsByNameAgentReadinessRunsErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsResponses = {
+    /**
+     * Agent Readiness scan history returned.
+     */
+    200: SiteHealthScansResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsResponse = GetApiV1ProjectsByNameAgentReadinessRunsResponses[keyof GetApiV1ProjectsByNameAgentReadinessRunsResponses];
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsData = {
+    body?: {
+        /**
+         * Deprecated compatibility alias for the sitemap override.
+         */
+        sitemapUrl?: string;
+        /**
+         * Deprecated compatibility alias for maxPages. Max 2000.
+         */
+        limit?: number;
+        /**
+         * Crawl page budget. When omitted, the project's saved budget (siteAuditMaxPages) applies, else the full site; max 50000.
+         */
+        maxPages?: number;
+        /**
+         * Internal-link observation budget. When omitted the crawl engine derives it from the page count; max 1000000.
+         */
+        maxEdges?: number;
+        /**
+         * Maximum crawl depth from the root. Max 100.
+         */
+        maxDepth?: number;
+        /**
+         * Enable dead-link checking. Defaults to false.
+         */
+        checkDeadLinks?: boolean;
+        /**
+         * Opt in to geographic signals for location and service-area businesses. Part of scan identity.
+         */
+        includeGeo?: boolean;
+        /**
+         * Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.
+         */
+        includeAgentSkills?: boolean;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent-readiness/runs';
+};
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsErrors = {
+    /**
+     * Invalid site-audit request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * A crawl with different effective options is already queued or running.
+     */
+    409: ErrorEnvelope;
+    /**
+     * The site-audit executor is unavailable on this deployment.
+     */
+    422: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsError = PostApiV1ProjectsByNameAgentReadinessRunsErrors[keyof PostApiV1ProjectsByNameAgentReadinessRunsErrors];
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsResponses = {
+    /**
+     * Site-audit run queued (or the in-flight run returned).
+     */
+    200: SiteAuditRunResponseDto;
+};
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsResponse = PostApiV1ProjectsByNameAgentReadinessRunsResponses[keyof PostApiV1ProjectsByNameAgentReadinessRunsResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoRunsData = {
     body?: never;
     path: {
@@ -38985,7 +39911,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsError = GetApiV1ProjectsByName
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsResponses = {
     /**
-     * Site Health scan history returned.
+     * Agent Readiness scan history returned.
      */
     200: SiteHealthScansResponseDto;
 };
@@ -39067,6 +39993,40 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsResponses = {
 
 export type PostApiV1ProjectsByNameTechnicalAeoRunsResponse = PostApiV1ProjectsByNameTechnicalAeoRunsResponses[keyof PostApiV1ProjectsByNameTechnicalAeoRunsResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact site-audit run ID.
+         */
+        runId: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/progress';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressErrors = {
+    /**
+     * Project or non-probe site-audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressError = GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressErrors[keyof GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponses = {
+    /**
+     * Exact stored Agent Readiness scan progress returned.
+     */
+    200: SiteAuditRunProgressDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponse = GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponses[keyof GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressData = {
     body?: never;
     path: {
@@ -39094,12 +40054,46 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressError = GetApiV
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponses = {
     /**
-     * Exact stored Site Health progress returned.
+     * Exact stored Agent Readiness scan progress returned.
      */
     200: SiteAuditRunProgressDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponse = GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponses[keyof GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact site-audit run ID.
+         */
+        runId: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/page-health-preview';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewErrors = {
+    /**
+     * Project or non-probe site-audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewError = GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewErrors[keyof GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewResponses = {
+    /**
+     * Bounded provisional Agent Readiness score preview returned.
+     */
+    200: SiteAuditLivePageHealthDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewResponse = GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewResponses[keyof GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewData = {
     body?: never;
@@ -39128,7 +40122,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewError 
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewResponses = {
     /**
-     * Bounded provisional Page Health preview returned.
+     * Bounded provisional Agent Readiness score preview returned.
      */
     200: SiteAuditLivePageHealthDto;
 };

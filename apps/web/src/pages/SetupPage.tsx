@@ -169,7 +169,7 @@ interface SetupPageProps {
   siteHealthOnboarding?: boolean
   /**
    * This visit is part of first-run onboarding, so finishing or skipping ends
-   * on its "You're set" step. True for the Site Health handoff and for the
+   * on its "You're set" step. True for the Agent Readiness handoff and for the
    * first run that skipped the site scan, which shares no other UI with it.
    */
   onboardingFinish?: boolean
@@ -286,7 +286,7 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboarding
         <Card role="alert" className="compact-stack">
           <h2>Project not found</h2>
           <p className="text-secondary">
-            Canonry could not find the project handed off from Site Health. Refresh the project list or choose a project to continue.
+            Canonry could not find the project handed off from Agent Readiness. Refresh the project list or choose a project to continue.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => { void refetch() }}>Retry</Button>
@@ -390,7 +390,7 @@ function ReadySetupPage({
   const resumeLoading = !!resumeProject && resumeQueriesQuery.isPending
   const sessionLaunchedRun = useRef(readOnboardingLaunchedRun(resumeProjectName, true)).current
   // Handled means the outcome was reported, not that its result was dismissed.
-  // A handled Site Health marker must not resume as an AI Visibility run.
+  // A handled Agent Readiness marker must not resume as an AI Visibility run.
   const resumableLaunchedRunId = sessionLaunchedRun
     && (!sessionLaunchedRun.handled || resumeProjectRuns.some(run => run.id === sessionLaunchedRun.runId))
     ? sessionLaunchedRun.runId
@@ -449,7 +449,7 @@ function ReadySetupPage({
     }
     void navigate({
       to: siteHealthOnboarding
-        ? '/projects/$projectName/technical-aeo'
+        ? '/projects/$projectName/agent-readiness'
         : '/projects/$projectName',
       params: { projectName: createdProjectName },
       // Project-scoped setup replaces the project route on entry. Replace it
@@ -600,7 +600,7 @@ function ReadySetupPage({
     ?? configurableProviders.find(provider => provider.state !== 'ready' && provider.state !== 'configured')
     ?? configurableProviders.at(0)
   const researchPrompt = `Help me choose AI Visibility queries for Canonry project ${JSON.stringify(createdProjectName ?? projectName)} (${domain}).
-1. Read the project, its existing tracked queries, and Site Health findings. Ask about my customers, services, and locations if needed, then propose relevant customer queries.
+1. Read the project, its existing tracked queries, and Agent Readiness findings. Ask about my customers, services, and locations if needed, then propose relevant customer queries.
 2. Check the configured connection's capabilities, then use Canonry's Research flow to test a small approved batch. Retrieve saved answers and any available sources. Compare brand mentions separately from site citations; unavailable citation evidence is not a "not cited" result. Text-only routes can inform query research but cannot establish an AI Visibility baseline. Research does not add queries to tracking. If more candidates are needed, propose ICP Discovery separately.
 3. Recommend a short list with reasons. Ask before provider usage. Once I approve, preserve existing queries and return the combined list, one query per line, for me to paste into setup. Do not change tracked queries or launch an AI Visibility check.`
   const copyResearchPrompt = async () => {
@@ -719,9 +719,9 @@ function ReadySetupPage({
   const readinessBlockedReason = systemBlockReason && systemBlockReason !== 'no_provider'
     ? model.launchState.blockedReason
     : providerReadinessFailed
-      ? 'Provider readiness could not be checked. Try again.'
+      ? 'Provider connections could not be checked. Try again.'
       : providerReadiness === undefined
-      ? 'Checking provider readiness before launch.'
+      ? 'Checking provider connections before launch.'
       : systemBlockReason === 'no_provider'
         ? 'Launch is blocked until a provider allowed by this project is configured.'
         : undefined
@@ -1202,7 +1202,7 @@ function ReadySetupPage({
           )}
         </div>
         {providerReadinessFailed ? (
-          <p role="alert" className="text-copy-14 text-negative">Provider readiness could not be checked. Try again.</p>
+          <p role="alert" className="text-copy-14 text-negative">Provider connections could not be checked. Try again.</p>
         ) : null}
         <Button
           type="button"
