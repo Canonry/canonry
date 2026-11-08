@@ -1,5 +1,5 @@
 import type { ProjectDto, InsightDto, MentionShareBreakdownDto, ProjectOverviewDto, QueryClassifier, RunErrorDto, RunKind } from '@canonry/canonry-contracts'
-import { RunKinds, RunStatuses, RunTriggers, CitationStates, compileQueryClassifier, effectiveBrandNames, formatRunErrorOneLine, portfolioWhatChangedItems } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, CitationStates, compileQueryClassifier, effectiveBrandNames, formatRunErrorOneLine, isWhatChangedActiveRun, portfolioWhatChangedItems } from '@canonry/canonry-contracts'
 import type {
   ApiCompetitor,
   ApiBingCoverageSummary,
@@ -812,11 +812,17 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
   return {
     portfolioOverview: {
       projects: portfolioProjects,
-      // Each project's rows come from its overview; the shared roll-up adds
-      // the one all-clear or awaiting row `canonry overview --all` prints too.
-      // A project whose overview failed to load has no rows and no check.
+      // Each project's rows come from its overview's counts through the roll-up
+      // `canonry overview --all` prints too. Runs in progress come from the run
+      // list, which is polled while a sweep runs; the overview is read again
+      // only when one completes. A project whose overview failed is named, not
+      // counted as clear.
       attentionItems: hasProjects
-        ? portfolioWhatChangedItems(projectDataList.map(data => data.overview?.whatChanged ?? null))
+        ? portfolioWhatChangedItems(projectDataList.map(data => ({
+            project: data.project,
+            whatChanged: data.overview?.whatChanged ?? null,
+            activeRuns: data.runs.filter(isWhatChangedActiveRun).length,
+          })))
         : [{
             id: 'attention_setup',
             tone: 'neutral',

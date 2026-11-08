@@ -518,7 +518,7 @@ describe('canonry overview — human output', () => {
     expect(at).toBeGreaterThan(-1)
     expect(lines.slice(at, at + 10)).toEqual([
       '  What changed:',
-      '    Demo lost mentions: 2 queries lost a mention in the latest check.',
+      '    Demo lost mentions: 3 queries lost a mention in the latest check.',
       '    Demo lost citations: 1 query lost a citation in the latest check.',
       '    Demo has active runs: 1 run in progress.',
       '    Lost mentions:',
@@ -579,7 +579,7 @@ function makeWhatChanged(overrides: Partial<ProjectOverviewWhatChangedDto> = {})
     },
     activeRuns: { count: 1, runIds: ['run_live'] },
     items: [
-      { id: 'attention_p-1_lost_mentions', tone: 'negative', title: 'Demo lost mentions', detail: '2 queries lost a mention in the latest check.', actionLabel: 'Open project', href: '/projects/demo' },
+      { id: 'attention_p-1_lost_mentions', tone: 'negative', title: 'Demo lost mentions', detail: '3 queries lost a mention in the latest check.', actionLabel: 'Open project', href: '/projects/demo' },
       { id: 'attention_p-1_lost', tone: 'negative', title: 'Demo lost citations', detail: '1 query lost a citation in the latest check.', actionLabel: 'Open project', href: '/projects/demo' },
       ACTIVE_ROW,
     ],
@@ -622,10 +622,22 @@ describe('canonry overview --all — What changed', () => {
     const lines = await captureAll([projectOverview('alpha', makeWhatChanged()), projectOverview('beta', quiet)])
     const at = lines.indexOf('What changed:')
     expect(at).toBeGreaterThan(-1)
-    expect(lines.slice(at + 1, at + 4)).toEqual([
-      '  Demo lost mentions: 2 queries lost a mention in the latest check.',
-      '  Demo lost citations: 1 query lost a citation in the latest check.',
-      '  Demo has active runs: 1 run in progress.',
+    expect(lines.slice(at + 1)).toEqual([
+      '  alpha lost mentions: 3 queries lost a mention in the latest check.',
+      '  alpha lost citations: 1 query lost a citation in the latest check.',
+      '  alpha has active runs: 1 run in progress.',
+      '',
+    ])
+  })
+
+  // The same unread row the dashboard shows when a project's overview fails:
+  // its changes are unknown, so the portfolio is never called clear.
+  it('names a project whose overview reports no What changed instead of printing all clear', async () => {
+    const quiet = makeWhatChanged({ lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: { count: 0, runIds: [] }, items: [] })
+    const lines = await captureAll([projectOverview('alpha', quiet), projectOverview('beta', undefined)])
+    expect(lines.slice(lines.indexOf('What changed:') + 1)).toEqual([
+      '  1 project couldn\'t be loaded: beta. Its lost mentions and citations are unknown.',
+      '',
     ])
   })
 

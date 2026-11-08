@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { eq } from 'drizzle-orm'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   canonicalMeasurementPlanV2Json,
   projectOverviewDtoSchema,
@@ -129,6 +129,8 @@ describe('What changed: Simple projects', () => {
     answerText?: string
     storedMentioned?: boolean
     mentionIdentity?: MentionIdentity | null
+    /** When the answer was stored; ten seconds into its run when omitted. */
+    at?: string
   }) {
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
@@ -143,7 +145,7 @@ describe('What changed: Simple projects', () => {
       competitorOverlap: [],
       recommendedCompetitors: [],
       location: answer.location ?? null,
-      createdAt: new Date(Date.parse(runCreatedAt(runId)) + 10_000).toISOString(),
+      createdAt: answer.at ?? new Date(Date.parse(runCreatedAt(runId)) + 10_000).toISOString(),
     }).run()
   }
 
@@ -229,6 +231,74 @@ describe('What changed: Simple projects', () => {
     expect(whatChanged.lostMentions).toEqual({ queryCount: 1, queries: [simpleLost('best polyurea roof coating', 'q_skipped', 'non-brand', ['gemini'])], truncated: false })
     expect(whatChanged.lostCitations).toEqual(NOTHING_LOST)
     expect(whatChanged.items).toEqual([lostMentionsRow(PROJECT_ID, 'acme', 'Acme Coatings', '1 query lost a mention in the latest check.')])
+  })
+
+  /** Counts the statements that read stored answers, between calls to `take`. */
+  function countAnswerReads() {
+    const client = db.$client
+    const prepare = client.prepare.bind(client)
+    let count = 0
+    const spy = vi.spyOn(client, 'prepare').mockImplementation(((source: string) => {
+      if (/^\s*select/i.test(source) && source.includes('"query_snapshots"')) count += 1
+      return prepare(source)
+    }) as typeof client.prepare)
+    onTestFinished(() => spy.mockRestore())
+    return { take: () => { const taken = count; count = 0; return taken } }
+  }
+
+  // A query first asked in the latest check has nothing to compare with. The
+  // read must not search every earlier sweep for an answer that isn't there.
+  it('reads a slot with no earlier answer as new, with the same reads however long the history', async () => {
+    seedProject()
+    addQuery('q_kept', 'best polyurea roof coating')
+    addQuery('q_new', 'roof coating warranty')
+    const addHistory = (fromDay: number, toDay: number) => {
+      for (let day = fromDay; day <= toDay; day += 1) {
+        const id = `run_july_${day}`
+        addRun(id, new Date(Date.UTC(2026, 6, day)).toISOString())
+        addAnswer(id, 'q_kept', { mentioned: true, cited: true })
+      }
+    }
+    addHistory(21, 30)
+    addRun('run_latest', SECOND)
+    addAnswer('run_latest', 'q_kept', { mentioned: false, cited: true })
+    addAnswer('run_latest', 'q_new', { mentioned: true, cited: true })
+    const expected = { queryCount: 1, queries: [simpleLost('best polyurea roof coating', 'q_kept', 'non-brand', ['openai'])], truncated: false }
+
+    const reads = countAnswerReads()
+    const tenSweeps = await readWhatChanged('acme')
+    const tenSweepReads = reads.take()
+    addHistory(1, 20)
+    reads.take()
+    const thirtySweeps = await readWhatChanged('acme')
+
+    expect(tenSweeps.lostMentions).toEqual(expected)
+    expect(thirtySweeps.lostMentions).toEqual(expected)
+    expect(thirtySweeps.lostCitations).toEqual(NOTHING_LOST)
+    expect(reads.take()).toBe(tenSweepReads)
+  })
+
+  // A retried request can leave two answers for one slot in a sweep: the
+  // newest stands for it, whichever order the rows were stored in.
+  it.each(['older first', 'newer first'] as const)('reads a slot answered twice in one sweep from its newest answer (%s)', async order => {
+    seedProject()
+    addQuery('q_best', 'best polyurea roof coating')
+    addRun('run_1', FIRST)
+    addRun('run_2', SECOND)
+    const secondsInto = (runAt: string, seconds: number) => new Date(Date.parse(runAt) + seconds * 1000).toISOString()
+    const answerTwice = (runId: string, runAt: string, older: { mentioned: boolean; cited: boolean }, newer: { mentioned: boolean; cited: boolean }) => {
+      const first = () => addAnswer(runId, 'q_best', { ...older, at: secondsInto(runAt, 10) })
+      const retry = () => addAnswer(runId, 'q_best', { ...newer, at: secondsInto(runAt, 20) })
+      if (order === 'older first') { first(); retry() } else { retry(); first() }
+    }
+    // The previous retry named and cited the brand; the latest retry does neither.
+    answerTwice('run_1', FIRST, { mentioned: false, cited: false }, { mentioned: true, cited: true })
+    answerTwice('run_2', SECOND, { mentioned: true, cited: true }, { mentioned: false, cited: false })
+
+    const whatChanged = await readWhatChanged('acme')
+    const lostBest = { queryCount: 1, queries: [simpleLost('best polyurea roof coating', 'q_best', 'non-brand', ['openai'])], truncated: false }
+    expect(whatChanged.lostMentions).toEqual(lostBest)
+    expect(whatChanged.lostCitations).toEqual(lostBest)
   })
 
   it('compares each location of a fan-out sweep with that location\'s previous check', async () => {

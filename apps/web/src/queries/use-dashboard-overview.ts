@@ -128,19 +128,11 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
           && r.trigger !== 'probe')
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       const cacheBustKey = completedRuns.length > 0 ? completedRuns[0]!.id : 'no-run'
-      // The overview's "What changed" counts runs in progress, so starting or
-      // finishing one refetches it, not only a completed sweep. Probes never
-      // count there, so they never refetch.
-      const activeRunKey = projectRuns
-        .filter(r => (r.status === RunStatuses.queued || r.status === RunStatuses.running)
-          && r.kind === RunKinds['answer-visibility']
-          && r.trigger !== RunTriggers.probe)
-        .map(r => r.id)
-        .sort()
-        .join(',')
 
+      // Starting, queuing or failing a run never refetches the overview:
+      // "What changed" takes runs in progress from this polled run list.
       return {
-        queryKey: ['project-overview-slim', project.id, cacheBustKey, activeRunKey] as const,
+        queryKey: ['project-overview-slim', project.id, cacheBustKey] as const,
         queryFn: async (): Promise<ProjectData> => {
           const overview = await fetchProjectOverview(project.name).catch(() => null)
           return {
@@ -159,9 +151,9 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
         },
         enabled: !effectiveInitial && includeOverviews && projectsQuery.isSuccess && runsQuery.isSuccess,
         staleTime: STATIC_VISIBILITY_STALE_MS,
-        // A run starting or finishing changes the key. Keep the project's last
-        // overview on screen until the new one lands, rather than blanking the
-        // page to its skeleton.
+        // A completed sweep changes the key. Keep the project's last overview
+        // on screen until the new one lands, rather than blanking the page to
+        // its skeleton.
         placeholderData: () => lastLoadedOverview(queryClient, project.id),
       }
     }),

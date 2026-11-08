@@ -160,7 +160,8 @@ export function OverviewPage() {
   // Each project's tracked competitors come from the same overview read as
   // its pressure figure, one row per competitor the project tracks.
   const competitorsByProject = new Map(safeDashboard.projects.map(entry => [entry.project.id, entry.competitors]))
-  // "What changed" rows arrive built from each project's overview `whatChanged`.
+  // "What changed" rows arrive built from each project's overview `whatChanged`
+  // and the run list's runs in progress (`build-dashboard.ts`).
   const attentionItems = model.attentionItems
 
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }

@@ -93,11 +93,12 @@ export async function showAllOverviews(opts: ShowOverviewOpts): Promise<void> {
     )
   }
 
-  // The dashboard's "What changed": every project's rows, or the one fallback
-  // row. A server too old to report it has nothing to list.
+  // The dashboard's "What changed": every project's rows, or one status row.
+  // A server too old to report it has nothing to list.
   if (overviews.some(ov => ov.whatChanged !== undefined)) {
     console.log('\nWhat changed:')
-    for (const item of portfolioWhatChangedItems(overviews.map(ov => ov.whatChanged ?? null))) {
+    const entries = overviews.map(ov => ({ project: ov.project, whatChanged: ov.whatChanged ?? null }))
+    for (const item of portfolioWhatChangedItems(entries)) {
       console.log(`  ${item.title}: ${item.detail}`)
     }
   }

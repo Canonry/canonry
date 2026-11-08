@@ -24,22 +24,22 @@
  * The caller passes runs that already leave probes out.
  */
 
-import { eq, inArray } from 'drizzle-orm'
+import { asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   CitationStates,
   compareText,
+  isWhatChangedActiveRun,
   normalizeQueryText,
   OVERVIEW_WHAT_CHANGED_QUERY_LIMIT,
   RunKinds,
-  RunStatuses,
-  type AttentionItemDto,
+  whatChangedProjectItems,
   type OverviewWhatChangedComparisonDto,
   type OverviewWhatChangedSignalDto,
   type ProjectOverviewWhatChangedDto,
   type QueryClass,
   type VisibilityReportLocationSelection,
 } from '@canonry/canonry-contracts'
-import { queries, querySnapshots, type DatabaseClient, type projects, type runs } from '@canonry/canonry-db'
+import { queries, querySnapshots, runs, type DatabaseClient, type projects } from '@canonry/canonry-db'
 import { resolveSnapshotAnswerMentioned } from './helpers.js'
 import { readQueryClasses } from './query-class-read.js'
 import { locationMatches, pairContinuity, type VisibilityReportPreviousRunInput, type VisibilityReportRunInput } from './visibility-report-reader.js'
@@ -49,8 +49,6 @@ type RunRow = typeof runs.$inferSelect
 type ProjectRow = typeof projects.$inferSelect
 type UnavailableReason = Extract<OverviewWhatChangedComparisonDto, { state: 'unavailable' }>['reason']
 
-/** Earlier runs read per query while looking for each answer's previous check. */
-const PREVIOUS_CHECK_BATCH_RUNS = 5
 /** How many earlier AI Visibility runs a previous check is looked for in, as the project page's timeline reads. */
 const PREVIOUS_CHECK_MAX_RUNS = 100
 /** Snapshot ids per `IN (...)` list. */
@@ -74,8 +72,7 @@ export function buildOverviewWhatChanged(db: DatabaseClient, input: OverviewWhat
   const lost = input.advanced === null
     ? simpleLostSignals(db, input.project, input.latestSweep, input.runs)
     : advancedLostSignals(input.advanced, input.latestSweep, input.location, input.since)
-  const activeRuns = input.runs.filter(run => run.kind === RunKinds['answer-visibility']
-    && (run.status === RunStatuses.queued || run.status === RunStatuses.running))
+  const activeRuns = input.runs.filter(isWhatChangedActiveRun)
   const lostMentions = signalDto(lost.mentions)
   const lostCitations = signalDto(lost.citations)
   return {
@@ -85,7 +82,11 @@ export function buildOverviewWhatChanged(db: DatabaseClient, input: OverviewWhat
     lostMentions,
     lostCitations,
     activeRuns: { count: activeRuns.length, runIds: activeRuns.map(run => run.id) },
-    items: whatChangedItems(input.project, lostMentions.queryCount, lostCitations.queryCount, activeRuns.length),
+    items: whatChangedProjectItems(input.project, {
+      lostMentionQueries: lostMentions.queryCount,
+      lostCitationQueries: lostCitations.queryCount,
+      activeRuns: activeRuns.length,
+    }),
   }
 }
 
@@ -170,6 +171,50 @@ function slotKey(queryId: string, provider: string, location: string | null): st
   return `${queryId}\u0000${provider}\u0000${location ?? ''}`
 }
 
+/** An earlier answer, with what picks the newest one per slot. */
+interface EarlierAnswer {
+  id: string
+  runId: string
+  queryId: string | null
+  queryText: string | null
+  provider: string
+  location: string | null
+  createdAt: string
+}
+
+/**
+ * The newest answer in these runs for each stored slot identity: the query
+ * id (its text when the id is gone), the engine and the location. One query
+ * however many runs or slots there are, ranked as `compareRecency` ranks.
+ */
+function newestEarlierAnswers(db: DatabaseClient, runIds: readonly string[]): EarlierAnswer[] {
+  if (runIds.length === 0) return []
+  return db.all<EarlierAnswer>(sql`
+    SELECT "id", "runId", "queryId", "queryText", "provider", "location", "createdAt" FROM (
+      SELECT ${querySnapshots.id} AS "id", ${querySnapshots.runId} AS "runId", ${querySnapshots.queryId} AS "queryId",
+        ${querySnapshots.queryText} AS "queryText", ${querySnapshots.provider} AS "provider",
+        ${querySnapshots.location} AS "location", ${querySnapshots.createdAt} AS "createdAt",
+        ROW_NUMBER() OVER (
+          PARTITION BY
+            CASE WHEN ${querySnapshots.queryId} IS NULL THEN 'text:' || COALESCE(${querySnapshots.queryText}, '') ELSE 'id:' || ${querySnapshots.queryId} END,
+            ${querySnapshots.provider},
+            COALESCE(${querySnapshots.location}, '')
+          ORDER BY ${runs.createdAt} DESC, ${runs.id} DESC, ${querySnapshots.createdAt} DESC, ${querySnapshots.id} ASC
+        ) AS "slotRank"
+      FROM ${querySnapshots}
+      INNER JOIN ${runs} ON ${runs.id} = ${querySnapshots.runId}
+      WHERE ${inArray(querySnapshots.runId, [...runIds])}
+    )
+    WHERE "slotRank" = 1`)
+}
+
+/** Negative when `left` is the more recent answer: the newer run, then the newer answer, then the lower id. */
+function compareRecency(left: EarlierAnswer, right: EarlierAnswer, runOrder: ReadonlyMap<string, number>): number {
+  return (runOrder.get(left.runId) ?? 0) - (runOrder.get(right.runId) ?? 0)
+    || compareText(right.createdAt, left.createdAt)
+    || compareText(left.id, right.id)
+}
+
 function simpleLostSignals(
   db: DatabaseClient,
   project: ProjectRow,
@@ -193,9 +238,14 @@ function simpleLostSignals(
     return byId ?? (snapshot.queryText ? trackedByText.get(normalizeQueryText(snapshot.queryText)) : undefined)
   }
 
+  // A slot answered twice in one sweep (a retried request) is its newest
+  // answer, as on the previous side, so which one counts never depends on
+  // the order rows come back in.
   const current = new Map<string, { query: typeof tracked[number]; snapshot: SignalRow }>()
   for (const snapshot of db.select(SNAPSHOT_SIGNAL_COLUMNS).from(querySnapshots)
-    .where(inArray(querySnapshots.runId, latestCheck.runIds)).all()) {
+    .where(inArray(querySnapshots.runId, latestCheck.runIds))
+    .orderBy(desc(querySnapshots.createdAt), asc(querySnapshots.id))
+    .all()) {
     const query = trackedQuery(snapshot)
     if (query === undefined) continue
     const key = slotKey(query.id, snapshot.provider, snapshot.location)
@@ -203,34 +253,23 @@ function simpleLostSignals(
   }
 
   // Each answer's previous check is the newest earlier answer for its slot,
-  // whatever the run's status. Earlier runs are read a few at a time and only
-  // until every slot has one; the slot's previous answer is almost always in
-  // the sweep right before.
+  // whatever the run's status, read in one query over a bounded window. A
+  // slot with no earlier answer (a new query, engine or location) is new,
+  // not a change, and costs no further read.
   const earlier = overviewRuns
     .filter(run => run.kind === RunKinds['answer-visibility'] && run.createdAt < latestCheck.createdAt)
     .slice(0, PREVIOUS_CHECK_MAX_RUNS)
   const runOrder = new Map(earlier.map((run, index) => [run.id, index]))
-  const previousIdBySlot = new Map<string, { id: string; runId: string }>()
-  for (let start = 0; start < earlier.length && previousIdBySlot.size < current.size; start += PREVIOUS_CHECK_BATCH_RUNS) {
-    const batch = earlier.slice(start, start + PREVIOUS_CHECK_BATCH_RUNS).map(run => run.id)
-    const rows = db.select({
-      id: querySnapshots.id,
-      runId: querySnapshots.runId,
-      queryId: querySnapshots.queryId,
-      queryText: querySnapshots.queryText,
-      provider: querySnapshots.provider,
-      location: querySnapshots.location,
-      createdAt: querySnapshots.createdAt,
-    }).from(querySnapshots).where(inArray(querySnapshots.runId, batch)).all()
-    rows.sort((left, right) => (runOrder.get(left.runId) ?? 0) - (runOrder.get(right.runId) ?? 0)
-      || compareText(right.createdAt, left.createdAt)
-      || compareText(left.id, right.id))
-    for (const row of rows) {
-      const query = trackedQuery(row)
-      if (query === undefined) continue
-      const key = slotKey(query.id, row.provider, row.location)
-      if (current.has(key) && !previousIdBySlot.has(key)) previousIdBySlot.set(key, { id: row.id, runId: row.runId })
-    }
+  const previousIdBySlot = new Map<string, EarlierAnswer>()
+  for (const answer of newestEarlierAnswers(db, earlier.map(run => run.id))) {
+    const query = trackedQuery(answer)
+    if (query === undefined) continue
+    const key = slotKey(query.id, answer.provider, answer.location)
+    if (!current.has(key)) continue
+    // A query's answers can be stored under its id and, from before a
+    // re-add, under its text alone: the newer of the two is its previous check.
+    const chosen = previousIdBySlot.get(key)
+    if (chosen === undefined || compareRecency(answer, chosen, runOrder) < 0) previousIdBySlot.set(key, answer)
   }
 
   const previousById = new Map<string, SignalRow>()
@@ -402,52 +441,4 @@ function signalDto(lost: ReadonlyMap<string, LostQuery>): OverviewWhatChangedSig
     })),
     truncated: rows.length > OVERVIEW_WHAT_CHANGED_QUERY_LIMIT,
   }
-}
-
-function queryCountLabel(count: number): string {
-  return `${count} ${count === 1 ? 'query' : 'queries'}`
-}
-
-/** The project's rows in Overview's What changed, in the order they list. */
-function whatChangedItems(
-  project: ProjectRow,
-  lostMentionQueries: number,
-  lostCitationQueries: number,
-  activeRunCount: number,
-): AttentionItemDto[] {
-  const label = project.displayName || project.name
-  const projectHref = `/projects/${encodeURIComponent(project.name)}`
-  const items: AttentionItemDto[] = []
-  // Mentions first, then citations: the two signals are counted apart.
-  if (lostMentionQueries > 0) {
-    items.push({
-      id: `attention_${project.id}_lost_mentions`,
-      tone: 'negative',
-      title: `${label} lost mentions`,
-      detail: `${queryCountLabel(lostMentionQueries)} lost a mention in the latest check.`,
-      actionLabel: 'Open project',
-      href: projectHref,
-    })
-  }
-  if (lostCitationQueries > 0) {
-    items.push({
-      id: `attention_${project.id}_lost`,
-      tone: 'negative',
-      title: `${label} lost citations`,
-      detail: `${queryCountLabel(lostCitationQueries)} lost a citation in the latest check.`,
-      actionLabel: 'Open project',
-      href: projectHref,
-    })
-  }
-  if (activeRunCount > 0) {
-    items.push({
-      id: `attention_${project.id}_active`,
-      tone: 'neutral',
-      title: `${label} has active runs`,
-      detail: `${activeRunCount} ${activeRunCount === 1 ? 'run' : 'runs'} in progress.`,
-      actionLabel: 'View runs',
-      href: '/runs',
-    })
-  }
-  return items
 }
