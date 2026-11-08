@@ -16,6 +16,16 @@ export function citationGlyph(state: CitationState): string {
   }
 }
 
+/**
+ * What a cited figure is out of: the answers (or queries, pairs, engines)
+ * whose sources were checked. A newer CLI can read an older server that
+ * predates the not-measured counts; it counted every answer as checked, so
+ * its base is the total.
+ */
+export function citedBase(total: number, notMeasured: number | undefined): number {
+  return total - (notMeasured ?? 0)
+}
+
 /** The mention half of a snapshot cell: `–` when the answer text was never checked. */
 export function mentionGlyph(mentioned: boolean | null | undefined): string {
   if (mentioned === true) return 'M'

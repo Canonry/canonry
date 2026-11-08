@@ -1,4 +1,5 @@
-import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
+import type { CitationVisibilityResponse } from '@canonry/canonry-contracts'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -201,6 +202,25 @@ describe('citation visibility CLI + parity', () => {
     // Columns: claude, gemini, local, then Cite and Ment.
     expect(row('query A').split(/\s{2,}/).slice(1)).toEqual(['cm', 'Cm', '·M', '1/2', '1/3'])
     expect(row('query C').split(/\s{2,}/).slice(1)).toEqual(['–', '–', '·M', '·', '1/1'])
+  })
+
+  it('reads every engine as checked from a server that predates the not-measured counts', async () => {
+    // An older server sends none of the not-measured counts: it counted every engine as checked.
+    const { summary: { providersCitationNotMeasured: _engines, queriesCitationNotMeasured: _queries, ...summary }, byQuery, ...rest } = await client.getCitationVisibility('example')
+    const older = { ...rest, summary, byQuery: byQuery.map(({ citationNotMeasured: _answers, ...row }) => row) } as CitationVisibilityResponse
+    const read = vi.spyOn(ApiClient.prototype, 'getCitationVisibility').mockResolvedValue(older)
+    try {
+      const out = await captureStdout(() => showCitationVisibility('example', {}))
+      expect(out.split('\n')).toContain('Cited in sources:     1/2 engines')
+      expect(out).not.toContain('citation not measured (no sources)')
+      const row = (query: string) => out.split('\n').find(line => line.startsWith(query))!
+      // Columns: claude, gemini, then Cite and Ment.
+      expect(row('query A').split(/\s{2,}/).slice(1)).toEqual(['cm', 'Cm', '1/2', '0/2'])
+      expect(row('query B').split(/\s{2,}/).slice(1)).toEqual(['cm', 'cm', '0/2', '0/2'])
+      expect(out).not.toContain('NaN')
+    } finally {
+      read.mockRestore()
+    }
   })
 
   it('CLI --format json matches the API response byte-for-byte', async () => {

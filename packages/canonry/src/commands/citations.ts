@@ -1,6 +1,6 @@
 import type { CitationVisibilityResponse } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { SNAPSHOT_CELL_LEGEND, citationGlyph, mentionGlyph } from '../snapshot-cell.js'
+import { SNAPSHOT_CELL_LEGEND, citationGlyph, citedBase, mentionGlyph } from '../snapshot-cell.js'
 
 export async function showCitationVisibility(
   project: string,
@@ -53,7 +53,7 @@ function printSummary(data: CitationVisibilityResponse): void {
   const notMeasuredNote = providersCitationNotMeasured > 0
     ? ` (${providersCitationNotMeasured} not measured: no sources)`
     : ''
-  console.log(`Cited in sources:     ${providersCiting}/${providersConfigured - providersCitationNotMeasured} engines${notMeasuredNote}`)
+  console.log(`Cited in sources:     ${providersCiting}/${citedBase(providersConfigured, providersCitationNotMeasured)} engines${notMeasuredNote}`)
   console.log(`Mentioned in answers: ${providersMentioning}/${providersConfigured} engines`)
   console.log('')
   console.log(`Queries (${totalQueries} total):`)
@@ -103,7 +103,7 @@ function printCoverage(data: CitationVisibilityResponse): void {
       return `${citationGlyph(provider.citationState)}${mentionGlyph(provider.mentioned)}`.padEnd(cellWidth)
     })
     // Cited is out of the engines whose answers carried sources.
-    const citationBase = row.totalProviders - row.citationNotMeasured
+    const citationBase = citedBase(row.totalProviders, row.citationNotMeasured)
     const citeCol = citationBase > 0 ? `${row.citedCount}/${citationBase}` : '·'
     const mentCol = `${row.mentionedCount}/${row.totalProviders}`
     console.log([row.query.padEnd(queryWidth), ...cells, citeCol, mentCol].join('  '))

@@ -13,6 +13,7 @@ import {
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
+import { citedBase } from '../snapshot-cell.js'
 
 export interface VisibilityStatsOptions {
   since?: string
@@ -186,7 +187,7 @@ function printVisibilityCompare(data: VisibilityCompareDto): void {
  * mentioned/checked (checked excludes "not checked").
  */
 function citedCell(c: VisibilityStatsCounts): string {
-  const measured = c.total - c.citationNotMeasured
+  const measured = citedBase(c.total, c.citationNotMeasured)
   return measured === 0 && c.total > 0 ? 'n/m' : `${c.cited}/${measured}`
 }
 function mentionedCell(c: VisibilityStatsCounts): string {

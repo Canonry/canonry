@@ -179,6 +179,30 @@ describe('showHealth human render', () => {
     expect(out).toContain('60.0% cited (4/6)')
   })
 
+  it('reads every pair as checked from a server that predates the not-measured counts', async () => {
+    // An older server sends neither count: it counted every pair as checked.
+    const older = ({ citationNotMeasuredPairs: _pairs, providerBreakdown, ...snapshot }: HealthSnapshotDto) => ({
+      ...snapshot,
+      providerBreakdown: Object.fromEntries(Object.entries(providerBreakdown)
+        .map(([provider, { citationNotMeasured: _answers, ...stats }]) => [provider, stats])),
+    })
+    mockGetHealth.mockResolvedValue(older(health))
+    mockGetHealthHistory.mockResolvedValue(snapshots.map(older))
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showHealth('demo', {})
+      await showHealth('demo', { history: true })
+    } finally {
+      console.log = origLog
+    }
+    expect(logs).toContain('        50.0% cited (6/12 pairs)')
+    expect(logs).toContain(`  ${'openai'.padEnd(15)} 50.0% mentioned (3/6)   60.0% cited (4/6)`)
+    expect(logs).toContain(`${'2026-04-28T00:00:00'.padEnd(25)}  25.0%        ${'3/12'.padEnd(15)}    42.0%        5/12`)
+    expect(logs.join('\n')).not.toContain('NaN')
+  })
+
   it('--history table renders a Mention Rate column next to Cited Rate', async () => {
     mockGetHealthHistory.mockResolvedValue(snapshots)
     const logs: string[] = []

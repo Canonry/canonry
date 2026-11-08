@@ -1,6 +1,7 @@
 import { formatPercent } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
+import { citedBase } from '../snapshot-cell.js'
 
 /**
  * A cited rate and its base. The base is the pairs whose sources were
@@ -46,7 +47,7 @@ export async function showHealth(
       const mRate = formatPercent(snap.overallMentionRate).padStart(6)
       const mRatio = `${snap.mentionedPairs}/${snap.totalPairs}`.padEnd(15)
       const cRate = snap.overallCitedRate === null ? 'not measured' : formatPercent(snap.overallCitedRate).padStart(6)
-      const cRatio = `${snap.citedPairs}/${snap.totalPairs - snap.citationNotMeasuredPairs}`
+      const cRatio = `${snap.citedPairs}/${citedBase(snap.totalPairs, snap.citationNotMeasuredPairs)}`
       const date = snap.createdAt.slice(0, 19).padEnd(25)
       console.log(`${date} ${mRate}        ${mRatio}   ${cRate}        ${cRatio}`)
     }
@@ -73,13 +74,13 @@ export async function showHealth(
   console.log(`Health: ${formatPercent(health.overallMentionRate)} mentioned (${health.mentionedPairs}/${health.totalPairs} pairs)`)
   console.log(health.overallCitedRate === null
     ? `        citations not measured (no pair's engine returns sources, ${notMeasured} pairs)`
-    : `        ${formatPercent(health.overallCitedRate)} cited (${health.citedPairs}/${health.totalPairs - notMeasured} pairs)${notMeasured > 0 ? `, ${notMeasured} not measured (no sources)` : ''}`)
+    : `        ${formatPercent(health.overallCitedRate)} cited (${health.citedPairs}/${citedBase(health.totalPairs, notMeasured)} pairs)${notMeasured > 0 ? `, ${notMeasured} not measured (no sources)` : ''}`)
   console.log('')
 
   if (health.providerBreakdown && Object.keys(health.providerBreakdown).length > 0) {
     console.log('Provider Breakdown:')
     for (const [provider, stats] of Object.entries(health.providerBreakdown)) {
-      console.log(`  ${provider.padEnd(15)} ${formatPercent(stats.mentionRate)} mentioned (${stats.mentioned}/${stats.total})   ${citedText(stats.citedRate, stats.cited, stats.total - stats.citationNotMeasured)}`)
+      console.log(`  ${provider.padEnd(15)} ${formatPercent(stats.mentionRate)} mentioned (${stats.mentioned}/${stats.total})   ${citedText(stats.citedRate, stats.cited, citedBase(stats.total, stats.citationNotMeasured))}`)
     }
   }
 }

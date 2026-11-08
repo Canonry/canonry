@@ -7,6 +7,7 @@ import { showOverview } from '../src/commands/overview.js'
 import * as clientModule from '../src/client.js'
 import { createCanonryMcpServerWithCatalog } from '../src/mcp/server.js'
 import { invokeCliRead, prepareCliReadFixture } from './cli-read-fixture.js'
+import { invokeCli } from './cli-test-utils.js'
 
 function makeSentiment() {
   const { state, reason, provisional, coverage, score, selection } = sentimentFixtureSummary
@@ -459,6 +460,41 @@ describe('canonry overview — human output', () => {
     expect(lines).toContain(`    ${'local/llama3'.padEnd(28)} not measured (3 answers without sources)`)
     expect(lines).toContain('  Health: 50.0% cited (1/2 pairs)')
     expect(lines).toContain('    2026-05-01 citations not measured (no answer carries sources)')
+  })
+
+  it('reads every answer as checked from a server that predates the not-measured counts', async () => {
+    const current = makeOverview({
+      queryCounts: { totalQueries: 3, citedQueries: 1, notCitedQueries: 2, citedRate: 0.3333, citationNotMeasuredQueries: 0, mentionedQueries: 2, notMentionedQueries: 1, mentionRate: 0.6667 },
+      providers: [{ provider: 'gemini', citedRate: 0.5, cited: 1, total: 2, citationNotMeasured: 0 }],
+      providerScores: [{ provider: 'gemini', model: 'gemini-2.5-flash', score: 50, cited: 1, total: 2, citationNotMeasured: 0 }],
+      health: {
+        id: 'h-1', projectId: 'p-1', runId: 'r-2',
+        overallCitedRate: 0.2, overallMentionRate: 0.4, totalPairs: 5, citedPairs: 1, citationNotMeasuredPairs: 0, mentionedPairs: 2,
+        providerBreakdown: {}, createdAt: '2026-05-02T00:00:00.000Z', status: 'ready',
+      },
+    })
+    // An older server sends none of the not-measured counts: it counted every answer as checked.
+    const { citationNotMeasuredQueries: _queries, ...queryCounts } = current.queryCounts
+    const { citationNotMeasuredPairs: _pairs, ...health } = current.health!
+    const older = {
+      ...current, queryCounts, health,
+      providers: current.providers.map(({ citationNotMeasured: _answers, ...provider }) => provider),
+      providerScores: current.providerScores.map(({ citationNotMeasured: _answers, ...score }) => score),
+    } as ProjectOverviewDto
+    const lines = (await captureOutput(older)).split('\n')
+    expect(lines).toContain('  Queries cited:     1/3 (33.3%)')
+    expect(lines).toContain('    gemini       1/2 (50.0%)')
+    expect(lines).toContain(`    ${'gemini/gemini-2.5-flash'.padEnd(28)} 1/2 (50.0%)`)
+    expect(lines).toContain('  Health: 20.0% cited (1/5 pairs)')
+    expect(lines.join('\n')).not.toContain('NaN')
+
+    // `overview --all` prints the same base in its table.
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const { pathname } = new URL((input instanceof Request ? input : new Request(input, init)).url)
+      return Response.json(pathname === '/prefix/api/v1/projects' ? [older.project] : older)
+    }))
+    const all = await invokeCli(['overview', '--all'])
+    expect(all.stdout.split('\n')).toContain(`  ${'Demo'.padEnd(20)}${'75.0%'.padEnd(10)}${'50.0%'.padEnd(13)}${'60.0% · non-brand queries'.padEnd(42)}${'1/3'.padEnd(10)}—`)
   })
 
   it('renders citation and mention movement separately with query-basket comparability', async () => {

@@ -1,6 +1,7 @@
 import { formatPercent, type MentionShareDto, type ProjectOverviewDto, type ScoreSummaryDto } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
+import { citedBase } from '../snapshot-cell.js'
 import { runAdmissionLines } from './run.js'
 
 export interface ShowOverviewOpts {
@@ -64,12 +65,13 @@ export async function showAllOverviews(opts: ShowOverviewOpts): Promise<void> {
   // truncated to its column width so multi-word score values like
   // "Add competitors" or "No data" don't bleed into adjacent columns.
   console.log(`\nOverviews (${overviews.length} project${overviews.length === 1 ? '' : 's'}):\n`)
-  const cols = { project: 20, mention: 10, cited: 10, share: 42, queries: 10 }
+  // Cited fits "Not measured", the value for a project whose engines return no sources.
+  const cols = { project: 20, mention: 10, cited: 13, share: 42, queries: 10 }
   console.log(`  ${cell('Project', cols.project)}${cell('Mention', cols.mention)}${cell('Cited', cols.cited)}${cell('Mention share · scope', cols.share)}${cell('Queries', cols.queries)}Latest run`)
   for (const ov of overviews) {
     const project = ov.project.displayName || ov.project.name
     // Cited out of the queries some answer's sources were checked for.
-    const queries = `${ov.queryCounts.citedQueries}/${ov.queryCounts.totalQueries - ov.queryCounts.citationNotMeasuredQueries}`
+    const queries = `${ov.queryCounts.citedQueries}/${citedBase(ov.queryCounts.totalQueries, ov.queryCounts.citationNotMeasuredQueries)}`
     const latest = ov.latestRun.run?.finishedAt ?? ov.latestRun.run?.createdAt ?? '—'
     console.log(
       `  ${cell(project, cols.project)}`
@@ -155,7 +157,7 @@ function renderHuman(overview: ProjectOverviewDto): void {
   const notMeasuredNote = notMeasuredQueries > 0 ? `, ${notMeasuredQueries} not measured (no sources)` : ''
   console.log(queryCounts.citedRate === null
     ? `\n  Queries cited:     not measured (${notMeasuredQueries} queries, no answer carries sources)`
-    : `\n  Queries cited:     ${queryCounts.citedQueries}/${queryCounts.totalQueries - notMeasuredQueries} (${formatPercent(queryCounts.citedRate)})${notMeasuredNote}`)
+    : `\n  Queries cited:     ${queryCounts.citedQueries}/${citedBase(queryCounts.totalQueries, notMeasuredQueries)} (${formatPercent(queryCounts.citedRate)})${notMeasuredNote}`)
   console.log(`  Queries mentioned: ${queryCounts.mentionedQueries}/${queryCounts.totalQueries} (${formatPercent(queryCounts.mentionRate)})`)
 
   if (movementComparison.hasPreviousRun) {
@@ -174,7 +176,7 @@ function renderHuman(overview: ProjectOverviewDto): void {
     for (const p of providers) {
       console.log(p.citedRate === null
         ? `    ${p.provider.padEnd(12)} not measured (${p.total} answers without sources)`
-        : `    ${p.provider.padEnd(12)} ${p.cited}/${p.total - p.citationNotMeasured} (${formatPercent(p.citedRate)})`)
+        : `    ${p.provider.padEnd(12)} ${p.cited}/${citedBase(p.total, p.citationNotMeasured)} (${formatPercent(p.citedRate)})`)
     }
   }
 
@@ -184,7 +186,7 @@ function renderHuman(overview: ProjectOverviewDto): void {
       const label = `${m.provider}/${m.model ?? 'unknown'}`.padEnd(28)
       console.log(m.score === null
         ? `    ${label} not measured (${m.total} answers without sources)`
-        : `    ${label} ${m.cited}/${m.total - m.citationNotMeasured} (${formatPercent(m.score, 'percent')})`)
+        : `    ${label} ${m.cited}/${citedBase(m.total, m.citationNotMeasured)} (${formatPercent(m.score, 'percent')})`)
     }
   }
 
@@ -210,7 +212,7 @@ function renderHuman(overview: ProjectOverviewDto): void {
   if (health) {
     console.log(health.overallCitedRate === null
       ? '\n  Health: citations not measured (no answer carries sources)'
-      : `\n  Health: ${formatPercent(health.overallCitedRate)} cited (${health.citedPairs}/${health.totalPairs - health.citationNotMeasuredPairs} pairs)`)
+      : `\n  Health: ${formatPercent(health.overallCitedRate)} cited (${health.citedPairs}/${citedBase(health.totalPairs, health.citationNotMeasuredPairs)} pairs)`)
   }
 
   if (topInsights.length > 0) {

@@ -198,6 +198,23 @@ describe('showVisibilityStats', () => {
     expect(lines.find((line) => line.startsWith('  local'))).toMatch(/^ {2}local\s+n\/m\s+—\s+1\/2\s+50(\.0)?%/)
   })
 
+  it('text reads every answer as measured from a server that predates citationNotMeasured', async () => {
+    // An older server sends no citationNotMeasured: it counted every answer as measured.
+    const older = <T extends { citationNotMeasured: number }>({ citationNotMeasured: _notMeasured, ...counts }: T) => counts
+    mockGetVisibilityStats.mockResolvedValue({
+      ...data,
+      totals: older(data.totals),
+      byProvider: data.byProvider.map(older),
+      queries: data.queries.map(query => ({ ...older(query), providers: query.providers.map(older) })),
+    })
+    const cap = captureOutput(() => showVisibilityStats('acme', { byProvider: true }))
+    await cap.run
+    const lines = cap.lines()
+    expect(lines.find((line) => line.startsWith('TOTAL'))).toMatch(/^TOTAL\s+4\/6\s+66\.7%\s+3\/5\s+60(\.0)?%/)
+    expect(lines.find((line) => line.startsWith('  gemini'))).toMatch(/^ {2}gemini\s+2\/3\s+66\.7%/)
+    expect(cap.text()).not.toContain('NaN')
+  })
+
   it('text renders an empty-state hint when there are no rows', async () => {
     mockGetVisibilityStats.mockResolvedValue({
       ...data,
