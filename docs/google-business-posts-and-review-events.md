@@ -31,6 +31,20 @@ strings and duplicate JSON members. Malformed JSON-LD, unsupported contexts and
 excessive nesting fail closed. A malformed percent escape is read as a space
 rather than refusing the page. No schema is removed from the article.
 
+"Offer" and "deal" are also ordinary words, so they do not block an article on
+their own when used that way:
+
+- In the article's own sentences (paragraph and list-item text) the words may
+  appear freely, for example "the manufacturer offers a written warranty".
+- Anywhere on the page, including headings and structured data, clear verb uses
+  pass: "deals with", "does the contractor offer", "what the company offers",
+  "offers free inspections".
+- Promotions are refused wherever they appear: "special offers", "travel deals",
+  "explore our deals", "offer ends", "deal of the week", discounts, coupons, promo
+  codes, special rates, "book now", "save 20" and "20% off". Links to an offers or
+  deals page, and a menu item, heading or button that only says "Offers" or
+  "Deals", are refused too.
+
 Commands (machine-readable JSON):
 
 - `cnry gbp posts list PROJECT --account accounts/ID --location locations/ID`
