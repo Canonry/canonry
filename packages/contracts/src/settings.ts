@@ -142,6 +142,39 @@ export const providerReloadResponseDtoSchema = z.object({
 })
 export type ProviderReloadResponseDto = z.infer<typeof providerReloadResponseDtoSchema>
 
+/**
+ * What testing a saved provider connection showed. `connected`: a live request
+ * reached the provider with the saved settings and succeeded. `failed`: the
+ * provider refused the settings, could not be reached, or did not answer in
+ * time; `message` says why. `not-verified`: the settings are saved, but the
+ * provider documents no free check, so the first real request is the first proof.
+ */
+export const providerConnectionTestStatusSchema = z.enum(['connected', 'failed', 'not-verified'])
+export const ProviderConnectionTestStatuses = providerConnectionTestStatusSchema.enum
+export type ProviderConnectionTestStatus = z.infer<typeof providerConnectionTestStatusSchema>
+
+/** `POST /settings/providers/{name}/test`. Credential-free: the server redacts `message` before it is returned. */
+export const providerConnectionTestResultDtoSchema = z.object({
+  provider: z.string(),
+  displayName: z.string(),
+  status: providerConnectionTestStatusSchema,
+  ok: z.boolean().describe('False only when status is failed. A not-verified connection is ok but unproven, so read status.'),
+  message: z.string().describe('The provider\'s own result or refusal, with credentials redacted.'),
+  model: z.string().nullable().describe('The model this connection runs, as its check reported it, or null when the check names none.'),
+  checkedAt: z.string().describe('When the check finished (ISO 8601).'),
+  durationMs: z.number().int().nonnegative(),
+}).refine(result => result.ok === (result.status !== ProviderConnectionTestStatuses.failed), 'ok is false exactly when status is failed')
+export type ProviderConnectionTestResultDto = z.infer<typeof providerConnectionTestResultDtoSchema>
+
+/**
+ * `error.details.reason` when a connection test is refused before any provider
+ * request. `provider-not-configured`: the connection has no saved settings to
+ * test. Callers branch on this value, never on the message.
+ */
+export const providerConnectionTestErrorReasonSchema = z.enum(['provider-not-configured'])
+export const ProviderConnectionTestErrorReasons = providerConnectionTestErrorReasonSchema.enum
+export type ProviderConnectionTestErrorReason = z.infer<typeof providerConnectionTestErrorReasonSchema>
+
 /** Credential-free adapter metadata used for project-scoped model controls. */
 export const providerCatalogEntryDtoSchema = z.object({
   name: z.string(),

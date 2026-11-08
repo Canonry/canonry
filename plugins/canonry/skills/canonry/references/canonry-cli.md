@@ -776,6 +776,7 @@ cnry settings reload-providers --format json   # apply the server's saved provid
 cnry settings provider gemini --api-key <KEY> --model gemini-flash-latest
 cnry settings provider openai --max-per-day 1000 --max-per-minute 20
 cnry settings provider-info openai --format json   # saved config, defaults and project impact
+cnry settings provider test openai --format json   # check the saved key with the provider now
 cnry settings provider openai --reset-model --reset-limits
 cnry settings provider local --remove-key         # remove an optional Local key
 cnry settings disconnect-provider openai          # inspect impact; makes no changes
@@ -804,6 +805,17 @@ not revoked at its vendor. Reconnect before running those engine selections agai
 Pass the preview's `impactRevision` with `--if-impact-revision` to reject changed
 project impact. Resets and disconnect require install administrator authority and
 `settings.write`; host-managed credentials must be changed on the host.
+
+`provider test <name>` checks a saved connection with the provider now, using
+the server's active settings, and changes nothing. Most answer engines answer one
+tiny prompt on the provider account; Local lists its models; OpenRouter reads its
+key; a search answer service with no free key check makes no request. `status` is
+`connected`, `failed` (with the provider's redacted reason; no answer within 30
+seconds also fails) or `not-verified` (saved, but the first real request is the
+first proof). Exit 0 for `connected` and `not-verified`, 2 for `failed` after the
+result is printed, 1 for an unknown or unconfigured provider. It requires
+`settings.write` and refuses read-only and `--stored-only` use. A passing test
+proves the key and endpoint, not the account's quota.
 
 `reload-providers` rereads the connected server's config file: provider keys,
 models, Vertex AI settings, batch settings, pricing, quotas, and CDP. Any config

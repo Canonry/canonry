@@ -198,7 +198,12 @@ Render answer services from `/settings` data (`kind`, `connection`, `selectionKi
 engines. Its editor reads credential-free saved values and capabilities from
 `/settings/providers/:name`, sends `expectedRevision` on writes, and uses explicit
 resets for inheritance. Keys stay in component state only; a saved key is not a
-successful network check. Disconnect reads fresh impact and sends that
+successful network check. Test connection (setup's engine step and this editor)
+calls `POST /settings/providers/:name/test` and keeps each result in the tab's query
+cache (`queries/provider-connection-tests.ts`), bound to the connection revision on
+screen and forgotten on save, disconnect, reload or a new CDP endpoint. A connection
+reads "Connected" only after a passing test, otherwise "Saved, not verified". The
+browser row keeps "Configured": its card checks Chrome live. Disconnect reads fresh impact and sends that
 `impactRevision`; project selections and history remain available. Batch blockers
 lock identity fields while quota-only edits remain possible. Host-managed Vertex,
 batch and pricing fields stay read-only. Hosts without lifecycle metadata retain

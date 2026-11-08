@@ -183,7 +183,7 @@ export function createAnswerServiceAdapter(definition: AnswerServiceDefinition, 
     if (problem) return { ok: false, provider: config.provider, message: problem }
     const keyCheck = descriptor.settings.keyCheck
     if (!keyCheck) {
-      return { ok: true, provider: config.provider, message: `${descriptor.displayName} key saved, not verified: the service documents no free key check.` }
+      return { ok: true, verified: false, provider: config.provider, message: `${descriptor.displayName} key saved, not verified: the service documents no free key check.` }
     }
     try {
       await requestKeyCheck(descriptor, { method: keyCheck.method, path: keyCheck.path }, {

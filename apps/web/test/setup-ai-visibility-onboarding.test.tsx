@@ -15,6 +15,7 @@ import { formatSweepInstant } from '../src/lib/format-helpers.js'
 import { SetupPage } from '../src/pages/SetupPage.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import { connectionFixture } from './provider-settings-fixtures.js'
+import { PROVIDER_CONNECTION_TEST_COPY } from '../src/components/settings/ProviderConnectionTest.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 
@@ -76,6 +77,8 @@ function renderProjectSetup(options: {
   settingsResponse?: () => Response | Promise<Response>
   /** Answers `POST /projects/:name/queries/generate`. */
   generateResponse?: (init?: RequestInit) => Response | Promise<Response>
+  /** Answers `POST /settings/providers/:name/test`. */
+  providerTestResponse?: (name: string) => Response | Promise<Response>
 }) {
   const fixture = createDashboardFixture()
   // Match the key destinations published by the provider adapter catalog.
@@ -138,6 +141,8 @@ function renderProjectSetup(options: {
     if (pathOf(url).endsWith('/run-preview')) return options.previewResponse?.() ?? jsonResponse(runPreviewFixture(canonicalQueryCount))
     if (pathOf(url).endsWith('/measurement-setup')) return jsonResponse({ answerVisibilityProviderReady: options.providerReady !== false })
     if (pathOf(url) === '/api/v1/cdp/status') return options.cdpResponse?.() ?? jsonResponse(options.cdpStatus ?? {})
+    const tested = pathOf(url).match(/^\/api\/v1\/settings\/providers\/([^/]+)\/test$/)
+    if (tested && init?.method === 'POST' && options.providerTestResponse) return options.providerTestResponse(decodeURIComponent(tested[1]!))
     if (pathOf(url).startsWith('/api/v1/settings/providers/')) return options.providerResponse?.() ?? jsonResponse(init?.method === 'GET' ? connectionFixture({ name: pathOf(url).split('/').at(-1) ?? 'gemini', displayName: 'Gemini' }) : { name: 'gemini', configured: true })
     if (pathOf(url).endsWith('/queries/generate') && options.generateResponse) return options.generateResponse(init)
     if (pathOf(url).endsWith('/queries')) {
@@ -212,9 +217,9 @@ test('picks and saves several OpenRouter models in the provider step before allo
   expect(screen.getByText('Change engines', { selector: 'summary' }).closest('details')?.open).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }))
   expect(screen.getByRole('heading', { name: 'AI engines' })).toBeTruthy()
-  expect(screen.getByText('Configured')).toBeTruthy()
+  expect(screen.getByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
   // The saved models are named from OpenRouter's catalog, not by raw ID.
-  const engines = await screen.findByRole('list', { name: 'Connected AI engines' })
+  const engines = await screen.findByRole('list', { name: 'Saved AI engines' })
   expect(within(engines).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Model AOpenRouter', 'Model BOpenRouter'])
   expect(screen.queryByText('Choose models')).toBeNull()
   expect(screen.queryByRole('group', { name: 'Choose OpenRouter models' })).toBeNull()
@@ -553,7 +558,7 @@ test('retries a failed scoped-provider readiness read without losing the query d
   fireEvent.change(screen.getByLabelText('Queries (one per line)'), { target: { value: 'keep this query draft' } })
   expect(await screen.findByText('Provider connections could not be checked. Try again.')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Retry provider check' }))
-  expect(await within(screen.getByRole('region', { name: 'AI engines' })).findByText('Configured')).toBeTruthy()
+  expect(await within(screen.getByRole('region', { name: 'AI engines' })).findByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
   expect((screen.getByLabelText('Queries (one per line)') as HTMLTextAreaElement).value).toBe('keep this query draft')
   expect(attempts).toBe(2)
   expect(requests).not.toContain('/api/v1/settings')
@@ -718,11 +723,44 @@ test('offers provider setup before queries and keeps the draft after saving and 
 
   // Readiness comes from refreshed settings, not an optimistic key-save result.
   markProviderReady('gemini')
-  expect(await screen.findByText('Configured')).toBeTruthy()
+  expect(await screen.findByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
   expect(screen.queryByLabelText('API key')).toBeNull()
   expect((screen.getByLabelText('Queries (one per line)') as HTMLTextAreaElement).value).toBe('unsubmitted customer question')
   expect(navigate).not.toHaveBeenCalled()
   expect(requests.filter(request => request.method === 'POST' && /\/(?:runs|generate)$/.test(request.path))).toEqual([])
+})
+
+test.each([
+  {
+    outcome: 'passes',
+    result: { status: 'connected', ok: true, message: 'gemini api key verified' },
+    badge: PROVIDER_CONNECTION_TEST_COPY.connected,
+    line: `Gemini: ${PROVIDER_CONNECTION_TEST_COPY.connectedLine}`,
+  },
+  {
+    outcome: 'fails',
+    result: { status: 'failed', ok: false, message: '400 API key not valid.' },
+    badge: PROVIDER_CONNECTION_TEST_COPY.savedNotVerified,
+    line: `Gemini: ${PROVIDER_CONNECTION_TEST_COPY.failed('400 API key not valid.')}`,
+  },
+])('the engine step tests the saved connection and reads $badge when the test $outcome', async ({ result, badge, line }) => {
+  const tested: string[] = []
+  renderProjectSetup({
+    onboarding: true,
+    readyProviderNames: ['gemini'],
+    providerTestResponse: name => {
+      tested.push(name)
+      return jsonResponse({ provider: name, displayName: 'Gemini', model: 'gemini-2.5-flash', checkedAt: '2026-11-08T10:00:00.000Z', durationMs: 900, ...result })
+    },
+  })
+  const engines = await screen.findByRole('region', { name: 'AI engines' })
+  expect(within(engines).getByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
+  expect(tested).toEqual([])
+  fireEvent.click(within(engines).getByRole('button', { name: PROVIDER_CONNECTION_TEST_COPY.testOne }))
+  const results = await within(engines).findByRole('list', { name: PROVIDER_CONNECTION_TEST_COPY.results })
+  expect(within(results).getAllByRole('listitem').map(item => item.textContent)).toEqual([line])
+  expect(within(engines).getByText(badge)).toBeTruthy()
+  expect(tested).toEqual(['gemini'])
 })
 
 test('keeps failed provider setup retryable without losing queries', async () => {

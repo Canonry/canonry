@@ -118,6 +118,7 @@ const expectedToolNames = [
   'canonry_provider_settings_get',
   'canonry_provider_disconnect',
   'canonry_providers_reload',
+  'canonry_provider_test',
   'canonry_telemetry_get',
   'canonry_google_connections_list',
   'canonry_gsc_performance',
@@ -909,7 +910,7 @@ describe('MCP tool registry', () => {
     }
     // 65 canonical monitoring tools plus the 17 deprecated Agent Readiness names.
     expect(counts.get('monitoring')).toBe(82)
-    expect(counts.get('setup')).toBe(72)
+    expect(counts.get('setup')).toBe(73)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(14)
     expect(counts.get('gbp')).toBe(18)

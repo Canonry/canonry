@@ -3348,6 +3348,20 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'post',
+    path: '/api/v1/settings/providers/{name}/test',
+    summary: 'Test a saved provider connection',
+    description: 'Requires settings.write (an administrator account, or a key with settings.write or the wildcard). Runs the saved connection\'s own healthcheck now: most answer engines answer one tiny prompt on the provider account, Local lists its models, OpenRouter reads its key, a browser connection reaches Chrome, and a search answer service with no free key check makes no request. Accepts no body or credentials and changes no saved settings. status connected means a live request succeeded with the saved settings; failed carries the provider\'s reason with credentials redacted, including a check that does not finish within 30 seconds; not-verified means the settings stay unproven until the first real request. ok is false exactly when status is failed. A known connection that is not configured returns VALIDATION_ERROR with error.details.reason provider-not-configured. Unsupported hosts return NOT_IMPLEMENTED.',
+    tags: ['settings'],
+    parameters: [providerNameParameter],
+    responses: {
+      200: jsonResponse('Connection test result, including a failed test.', 'ProviderConnectionTestResultDto'),
+      400: errorResponse('Unknown provider connection (error.details.validProviders), or one that is not configured (error.details.reason provider-not-configured).'),
+      403: errorResponse('The credential lacks settings.write, or the account has view-only access.'),
+      501: errorResponse('Provider connection tests are not supported.'),
+    },
+  },
+  {
     method: 'put',
     path: '/api/v1/settings/google',
     summary: 'Update Google OAuth settings',

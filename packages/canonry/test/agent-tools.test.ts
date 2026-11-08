@@ -140,6 +140,8 @@ describe('buildAllTools', () => {
     expect(tools).toHaveLength(expectedCount)
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_agent_clear)
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_results_clear)
+    // A provider connection test spends on the operator's provider account.
+    expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_provider_test)
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_mcp_profile)
     // Spot-check that every other tool from the registry is exposed.
     expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_project_overview)

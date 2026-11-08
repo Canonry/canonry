@@ -7,8 +7,9 @@ import { ToneBadge } from '../shared/ToneBadge.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { fetchCdpStatus, configureCdp, type ApiCdpStatus } from '../../api.js'
-import { describeError } from '@canonry/canonry-contracts'
+import { describeError, ProviderNames } from '@canonry/canonry-contracts'
 import { useUnsavedChanges } from '../../hooks/use-unsaved-changes.js'
+import { forgetProviderConnectionTests } from '../../queries/provider-connection-tests.js'
 
 function shortCdpError(error: string): string {
   const summary = error.replace(/^Error:\s*/, '').replace(/\s+/g, ' ').trim()
@@ -125,6 +126,8 @@ export function CdpConfigCard() {
             setCdpSaving(true)
             try {
               await configureCdp(cdpHost.trim(), Number(cdpPort))
+              // A new endpoint makes any earlier browser connection test stale.
+              forgetProviderConnectionTests(queryClient, ProviderNames.cdpChatgpt)
               const status = await fetchCdpStatus()
               setCdpStatus(status)
               setCdpStatusError(null)

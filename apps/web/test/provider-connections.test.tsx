@@ -3,9 +3,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Link, RouterProvider } from '@tanstack/react-router'
-import { ProviderConnectionsUnavailableReasons, ProviderConnectionUsageSources, type ProviderConnectionSettingsDto } from '@canonry/canonry-contracts'
+import { ProviderConnectionsUnavailableReasons, ProviderConnectionUsageSources, type ProviderConnectionSettingsDto, type ProviderConnectionTestResultDto } from '@canonry/canonry-contracts'
 
 import { PROVIDER_CONNECTIONS_COPY, ProviderConfigForm, ProviderConnectionsSection } from '../src/components/settings/ProviderConfigForm.js'
+import { PROVIDER_CONNECTION_TEST_COPY } from '../src/components/settings/ProviderConnectionTest.js'
 import { CdpConfigCard } from '../src/components/settings/CdpConfigCard.js'
 import { connectionFixture, settingsFixture } from './provider-settings-fixtures.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
@@ -13,12 +14,14 @@ import { getToasts } from '../src/lib/toast-store.js'
 
 afterEach(cleanup)
 
-function renderConnections(initial: ProviderConnectionSettingsDto[], options: { rejectDelete?: boolean; router?: boolean } = {}) {
+function renderConnections(initial: ProviderConnectionSettingsDto[], options: { rejectDelete?: boolean; router?: boolean; test?: (name: string) => Response } = {}) {
   let connections = initial
   const writes: { method: string; body: unknown; path: string }[] = []
   const restore = mockFetch((url, init) => {
     const path = pathOf(url)
     if (path === '/api/v1/settings') return jsonResponse(settingsFixture(connections))
+    const tested = path.match(/^\/api\/v1\/settings\/providers\/([^/]+)\/test$/)
+    if (tested && init?.method === 'POST' && options.test) return options.test(decodeURIComponent(tested[1]!))
     const name = path.split('/').at(-1)
     const current = connections.find(connection => connection.name === name)
     if (!current) throw new Error(`Unexpected fetch ${path}`)
@@ -250,7 +253,7 @@ test('an unreadable host configuration shows the server reason, keeps configured
   const configured = screen.getByRole('heading', { name: PROVIDER_CONNECTIONS_COPY.configuredOnServer }).parentElement!
   expect(within(configured).getByText('OpenAI')).toBeTruthy()
   expect(within(configured).getByText('saved-model')).toBeTruthy()
-  expect(within(configured).getByText('Configured')).toBeTruthy()
+  expect(within(configured).getByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Reload from config file' }))
   expect(await screen.findByRole('button', { name: 'Manage' })).toBeTruthy()
   expect(writes).toEqual(['/api/v1/settings/providers/reload'])
@@ -329,3 +332,68 @@ test('a provider with no known default model says the provider default applies',
   fireEvent.click(screen.getByText('Advanced provider settings'))
   expect(screen.getByRole('textbox', { name: 'Model (optional)', description: 'Leave blank to use the provider’s default model.' })).toBeTruthy()
 })
+
+function testResult(overrides: Partial<ProviderConnectionTestResultDto> = {}): ProviderConnectionTestResultDto {
+  return { provider: 'openai', displayName: 'OpenAI', status: 'connected', ok: true, message: 'openai api key verified', model: 'old-model', checkedAt: '2026-11-08T10:00:00.000Z', durationMs: 900, ...overrides }
+}
+
+async function connectionRow(name: string) {
+  return waitFor(() => {
+    const row = document.getElementById(`provider-${name}`)
+    if (!row) throw new Error(`No ${name} row yet`)
+    return row
+  })
+}
+
+test('a passing test from the editor reads Connected on the connection until its settings are saved again', async () => {
+  const tested = vi.fn((_name: string) => jsonResponse(testResult()))
+  const writes = renderConnections([connectionFixture({ model: 'old-model', effectiveModel: 'old-model' })], { test: tested })
+  const row = await connectionRow('openai')
+  expect(within(row).getByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
+  const form = await manage()
+  fireEvent.click(within(form).getByRole('button', { name: PROVIDER_CONNECTION_TEST_COPY.testOne }))
+  expect(await within(form).findByText(PROVIDER_CONNECTION_TEST_COPY.connectedLine)).toBeTruthy()
+  expect(within(row).getByText(PROVIDER_CONNECTION_TEST_COPY.connected)).toBeTruthy()
+  expect(tested).toHaveBeenCalledWith('openai')
+  // New saved settings are unproven again, whatever the earlier test showed.
+  fireEvent.change(within(form).getByLabelText('Model ID'), { target: { value: 'custom-model' } })
+  fireEvent.click(within(form).getByRole('button', { name: 'Save connection' }))
+  await waitFor(() => expect(writes).toHaveLength(1))
+  await waitFor(() => expect(within(row).getByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy())
+  expect(within(row).queryByText(PROVIDER_CONNECTION_TEST_COPY.connected)).toBeNull()
+})
+
+test.each([
+  {
+    case: 'the provider refuses the saved key',
+    response: () => jsonResponse(testResult({ status: 'failed', ok: false, message: '401 Incorrect API key provided' })),
+    line: PROVIDER_CONNECTION_TEST_COPY.failed('401 Incorrect API key provided'),
+  },
+  {
+    case: 'the host cannot run tests',
+    response: () => jsonResponse({ error: { code: 'NOT_IMPLEMENTED', message: 'Provider connection tests are not supported in this deployment' } }, 501),
+    line: PROVIDER_CONNECTION_TEST_COPY.notRun('Provider connection tests are not supported in this deployment'),
+  },
+])('stays Saved, not verified when $case, and the row keeps the reason after the editor closes', async ({ response, line }) => {
+  renderConnections([connectionFixture()], { test: response })
+  const form = await manage()
+  fireEvent.click(within(form).getByRole('button', { name: PROVIDER_CONNECTION_TEST_COPY.testOne }))
+  expect(await within(form).findByText(line)).toBeTruthy()
+  fireEvent.click(within(form).getByRole('button', { name: 'Cancel' }))
+  const row = await connectionRow('openai')
+  await waitFor(() => expect(within(row).getByText(line)).toBeTruthy())
+  expect(within(row).getByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
+})
+
+test('tests only saved settings: an unsaved edit disables the test until it is saved', async () => {
+  const tested = vi.fn((_name: string) => jsonResponse(testResult()))
+  renderConnections([connectionFixture()], { test: tested })
+  const form = await manage()
+  fireEvent.change(within(form).getByLabelText('Replace API key'), { target: { value: 'unsaved-key' } })
+  const button = within(form).getByRole('button', { name: PROVIDER_CONNECTION_TEST_COPY.testOne }) as HTMLButtonElement
+  expect(button.disabled).toBe(true)
+  expect(within(form).getByText(PROVIDER_CONNECTION_TEST_COPY.saveFirst)).toBeTruthy()
+  fireEvent.click(button)
+  expect(tested).not.toHaveBeenCalled()
+})
+

@@ -12,6 +12,7 @@ import {
   generateWorkerScript,
   generateWranglerToml,
 } from '@canonry/canonry-integration-cloudflare-worker'
+import { redactKnownSecrets } from '@canonry/canonry-contracts'
 
 export interface CloudflareWorkerArtifacts {
   outputDirectory: string
@@ -252,14 +253,7 @@ export function assertCloudflareArtifactsDoNotContainSecrets(
 }
 
 export function redactCloudflareSecrets(message: string, secrets: CloudflareTrafficSecrets): string {
-  let redacted = message
-  const secretValues = 'apiToken' in secrets
-    ? [secrets.apiToken]
-    : [secrets.bearerToken, secrets.hmacSecret]
-  for (const secret of secretValues) {
-    if (secret) redacted = redacted.replaceAll(secret, '[REDACTED]')
-  }
-  return redacted
+  return redactKnownSecrets(message, 'apiToken' in secrets ? [secrets.apiToken] : [secrets.bearerToken, secrets.hmacSecret])
 }
 
 async function runWrangler(command: string, args: readonly string[], opts: { cwd: string }): Promise<void> {

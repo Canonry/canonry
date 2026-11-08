@@ -252,6 +252,9 @@ export interface ApiRoutesOptions {
   onProviderDisconnect?: SettingsRoutesOptions['onProviderDisconnect']
   /** Reload the execution host's provider configuration without restarting it. */
   onProviderReload?: SettingsRoutesOptions['onProviderReload']
+  /** Run a saved provider connection's healthcheck now (a live provider call). Absent: tests answer NOT_IMPLEMENTED. */
+  onProviderTest?: SettingsRoutesOptions['onProviderTest']
+  providerTestTimeoutMs?: SettingsRoutesOptions['providerTestTimeoutMs']
   /** Google OAuth configuration summary + update callback */
   googleSettingsSummary?: SettingsRoutesOptions['google']
   onGoogleSettingsUpdate?: SettingsRoutesOptions['onGoogleUpdate']
@@ -797,6 +800,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onProviderSettingsUpdate: opts.onProviderSettingsUpdate,
       onProviderDisconnect: opts.onProviderDisconnect,
       onProviderReload: opts.onProviderReload,
+      onProviderTest: opts.onProviderTest,
+      providerTestTimeoutMs: opts.providerTestTimeoutMs,
       google: opts.googleSettingsSummary,
       onGoogleUpdate: opts.onGoogleSettingsUpdate,
       bing: opts.bingSettingsSummary,

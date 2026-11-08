@@ -1,8 +1,9 @@
 import { loadConfig, saveConfigPatch, getConfigPath } from '../config.js'
 import { createApiClient } from '../client.js'
-import { isMachineFormat } from '../cli-error.js'
+import { CliError, EXIT_SYSTEM_ERROR, isMachineFormat } from '../cli-error.js'
 import { setGoogleAuthConfig } from '../google-config.js'
-import type { ProviderConnectionSettingsDto, ProviderSettingsUpdateRequest } from '@canonry/canonry-contracts'
+import { formatDurationSeconds, ProviderConnectionTestStatuses } from '@canonry/canonry-contracts'
+import type { ProviderConnectionSettingsDto, ProviderConnectionTestStatus, ProviderSettingsUpdateRequest } from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -131,6 +132,36 @@ export async function reloadProviders(format?: string): Promise<void> {
   console.log('Saved provider configuration is now active on the server.')
   for (const provider of result.providers) {
     console.log(`  ${provider.name}: ${provider.configured ? 'configured' : 'not configured'}`)
+  }
+}
+
+function testStatusLabel(status: ProviderConnectionTestStatus): string {
+  switch (status) {
+    case ProviderConnectionTestStatuses.connected: return 'connected'
+    case ProviderConnectionTestStatuses.failed: return 'failed'
+    case ProviderConnectionTestStatuses['not-verified']: return 'saved, not verified'
+  }
+}
+
+export async function testProvider(name: string, format?: string): Promise<void> {
+  const result = await getClient().testProvider(name)
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(result, null, 2))
+  } else {
+    console.log(`${result.displayName}: ${testStatusLabel(result.status)}`)
+    if (result.model) console.log(`  Model:   ${result.model}`)
+    console.log(`  Result:  ${result.message}`)
+    console.log(`  Checked: ${result.checkedAt} (${formatDurationSeconds(result.durationMs / 1000)})`)
+  }
+  // Decided after the output is printed, so stdout is the same whatever the result.
+  if (!result.ok) {
+    throw new CliError({
+      code: 'PROVIDER_TEST_FAILED',
+      message: `${result.displayName} connection test failed: ${result.message}`,
+      displayMessage: `Error: the ${result.displayName} connection test failed. Fix the saved key or endpoint with "canonry settings provider ${result.provider}", then test again.`,
+      details: { provider: result.provider, status: result.status },
+      exitCode: EXIT_SYSTEM_ERROR,
+    })
   }
 }
 

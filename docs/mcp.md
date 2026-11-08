@@ -154,6 +154,14 @@ show its impact; its `impactRevision` is required as `expectedImpactRevision`.
 Stale previews and outstanding work block removal. Disconnect preserves project
 selections and historical results and does not revoke the vendor key. Provider
 updates, disconnect and reload are excluded from native Aero.
+`canonry_provider_test` mirrors `canonry settings provider test <name>` and
+`POST /settings/providers/{name}/test`: after explicit operator approval it runs
+one saved connection's own healthcheck against the provider (usually one tiny
+prompt on the operator's account) and returns `status` `connected`, `failed` or
+`not-verified`, with the provider's redacted message and the model checked. A
+failed check is a normal result with `ok: false`, not a tool error. It accepts no
+credentials, changes no settings, requires `settings.write`, and is excluded from
+native Aero and read-only or stored-only catalogs.
 `canonry_providers_reload` mirrors `canonry settings reload-providers`: after
 explicit operator approval it reloads the connected host's saved provider
 credentials, models, quotas and batch settings without restarting the server.

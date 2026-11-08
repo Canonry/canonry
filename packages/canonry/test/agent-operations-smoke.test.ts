@@ -5,7 +5,7 @@ import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Client } from '@modelcontextprotocol/client'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { apiRoutes, hashApiKey } from '@canonry/canonry-api-routes'
+import { apiRoutes, hashApiKey, type ApiRoutesOptions } from '@canonry/canonry-api-routes'
 import { apiKeys, createClient, migrate, projects, OperationalLogStore } from '@canonry/canonry-db'
 import { providerConnectionFixture } from './fixtures/provider-connection.js'
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
@@ -53,6 +53,7 @@ async function harness(lifecycle = false) {
     providers[0]!.model = model ?? providers[0]!.model
     return { ...providers[0]! }
   })
+  const providerTest = vi.fn<NonNullable<ApiRoutesOptions['onProviderTest']>>(async () => ({ ok: true, provider: 'openai', message: 'openai api key verified', model: 'gpt-old' }))
   const connection = structuredClone(providerConnectionFixture)
   const providerDisconnect = vi.fn(() => { connection.configured = false; connection.apiKeyConfigured = false; connection.revision = 'connection-v2' })
   const options: McpHttpOptions = { db, selfApiUrl: '' }
@@ -63,6 +64,7 @@ async function harness(lifecycle = false) {
     providerAdapters: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-old', knownModels: [], modelValidationPattern: /^gpt-/, modelValidationHint: 'gpt model' }],
     googleSettingsSummary: { configured: true },
     onProviderUpdate: providerUpdate,
+    onProviderTest: providerTest,
     ...(lifecycle ? { getProviderConnections: () => [connection], onProviderDisconnect: providerDisconnect } : {}),
     getTelemetryStatus: () => ({ enabled: telemetry, anonymousId: '01234567-89ab-4cde-8fab-0123456789ab' }),
     setTelemetryEnabled: value => { telemetry = value },
@@ -84,7 +86,7 @@ async function harness(lifecycle = false) {
     cleanup.push(() => mcp.close())
     return mcp
   }
-  return { app, api, connect, providerUpdate, providerDisconnect, origin }
+  return { app, api, connect, providerUpdate, providerDisconnect, providerTest, origin }
 }
 
 describe('agent operations cross-surface smoke', () => {
@@ -120,6 +122,42 @@ describe('agent operations cross-surface smoke', () => {
     const repeated = await mcp.callTool({ name: 'canonry_provider_disconnect', arguments: { provider: 'openai', expectedImpactRevision: disconnected.impactRevision } })
     expect(repeated.isError).not.toBe(true)
     expect(repeated.structuredContent).toEqual(disconnected)
+  })
+
+  it('tests a saved provider with the same result through the API, the CLI and MCP', async () => {
+    const { api, connect, providerTest, origin } = await harness()
+    const out = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const run = (args: string[]) => dispatchRegisteredCommand(['settings', 'provider', 'test', ...args], 'human', SETTINGS_CLI_COMMANDS)
+    const connected = { provider: 'openai', displayName: 'OpenAI', status: 'connected', ok: true, message: 'openai api key verified', model: 'gpt-old', checkedAt: expect.any(String), durationMs: expect.any(Number) }
+    expect(await api.testProvider('openai')).toEqual(connected)
+    await run(['openai', '--format', 'json'])
+    expect(JSON.parse(out.mock.calls.at(-1)![0])).toEqual(connected)
+    const mcp = await connect('settings')
+    const viaMcp = await mcp.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })
+    expect(viaMcp.isError).not.toBe(true)
+    expect(viaMcp.structuredContent).toEqual(connected)
+
+    // A provider refusal is a result everywhere; only the CLI turns it into exit 2, after printing it.
+    providerTest.mockResolvedValue({ ok: false, provider: 'openai', message: '401 Incorrect API key provided', model: 'gpt-old' })
+    const failed = { ...connected, status: 'failed', ok: false, message: '401 Incorrect API key provided' }
+    await expect(run(['openai', '--format', 'json'])).rejects.toMatchObject({ code: 'PROVIDER_TEST_FAILED', exitCode: 2 })
+    expect(JSON.parse(out.mock.calls.at(-1)![0])).toEqual(failed)
+    const failedViaMcp = await mcp.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })
+    expect(failedViaMcp.isError).not.toBe(true)
+    expect(failedViaMcp.structuredContent).toEqual(failed)
+
+    // Nothing saved is the caller's mistake (exit 1), on every surface.
+    providerTest.mockResolvedValue(undefined)
+    await expect(run(['openai', '--format', 'json'])).rejects.toMatchObject({ exitCode: 1, details: { httpStatus: 400 } })
+    expect((await mcp.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })).isError).toBe(true)
+    expect(providerTest).toHaveBeenCalledTimes(7)
+
+    // A key that cannot save provider settings is refused on every surface, before any provider call.
+    const unrelated = await connect('unrelated')
+    expect((await unrelated.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })).isError).toBe(true)
+    state.client = new ApiClient(origin, 'cnry_smoke_unrelated', { skipProbe: true })
+    await expect(run(['openai', '--format', 'json'])).rejects.toMatchObject({ exitCode: 1, details: { httpStatus: 403 } })
+    expect(providerTest).toHaveBeenCalledTimes(7)
   })
 
   it('denies internal diagnostics in the actual CLI while exposing host-derived identity', async () => {

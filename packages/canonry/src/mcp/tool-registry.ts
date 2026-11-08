@@ -85,6 +85,7 @@ import {
   providerDisconnectRequestSchema,
   providerReloadRequestSchema,
   providerReloadResponseDtoSchema,
+  providerConnectionTestResultDtoSchema,
   providerQuotaPolicySchema,
   snapshotRequestInputSchema,
   trafficConnectCloudRunRequestSchema,
@@ -2486,6 +2487,20 @@ const rawCanonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/settings/providers/reload'],
     handler: (client, input) => client.reloadProviders(input),
+  }),
+  defineTool({
+    name: 'canonry_provider_test',
+    title: 'Test a saved provider connection',
+    description: 'With explicit operator approval, check one saved provider connection against the provider now. Most answer engines answer one tiny prompt on the provider account, Local lists its models, OpenRouter reads its key, and a search answer service with no free key check makes no request. Requires settings.write. Accepts no credentials and changes no settings. Returns status connected, failed (with the provider\'s redacted reason) or not-verified, and the model checked. A failed check is a result with ok false, not a tool error. Unsupported deployments return NOT_IMPLEMENTED.',
+    access: 'write',
+    requiredScope: 'settings.write',
+    tier: 'setup',
+    inputSchema: z.object({ provider: z.string().min(1).describe('Connection name from canonry_settings_get, such as gemini, local or openrouter. Never a model route.') }).strict(),
+    outputSchema: providerConnectionTestResultDtoSchema,
+    // Repeating it changes nothing, but every call reaches the provider.
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/settings/providers/{name}/test'],
+    handler: (client, input) => client.testProvider(input.provider),
   }),
   defineTool({
     name: 'canonry_telemetry_get',

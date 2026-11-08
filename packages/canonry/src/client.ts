@@ -350,6 +350,7 @@ import type {
   ProviderDisconnectRequest,
   ProviderReloadRequest,
   ProviderReloadResponseDto,
+  ProviderConnectionTestResultDto,
   TelemetryStatusDto,
 } from '@canonry/canonry-contracts'
 import {
@@ -425,6 +426,7 @@ import {
   getApiV1SettingsProvidersByName,
   deleteApiV1SettingsProvidersByName,
   postApiV1SettingsProvidersReload,
+  postApiV1SettingsProvidersByNameTest,
   postApiV1Snapshot,
   getApiV1Telemetry,
   putApiV1Telemetry,
@@ -2716,6 +2718,13 @@ export class ApiClient {
   async reloadProviders(body: ProviderReloadRequest = {}, signal?: AbortSignal): Promise<ProviderReloadResponseDto> {
     return this.invoke<ProviderReloadResponseDto>(() =>
       postApiV1SettingsProvidersReload({ client: this.heyClient, body, signal }),
+    )
+  }
+
+  /** Run one saved connection's healthcheck now. A failed check is a result (`ok: false`), not an error. */
+  async testProvider(name: string): Promise<ProviderConnectionTestResultDto> {
+    return this.invoke<ProviderConnectionTestResultDto>(() =>
+      postApiV1SettingsProvidersByNameTest({ client: this.heyClient, path: { name } }),
     )
   }
 

@@ -13,6 +13,7 @@ import {
 import { usageError } from '../cli-error.js'
 
 const PROVIDER_USAGE = 'canonry settings provider <name> [--api-key <key>] [--base-url <url> | --reset-base-url] [--model <model> | --reset-model] [--remove-key] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--reset-quota <field>] [--reset-limits] [--if-revision <revision>] [--format json]'
+const PROVIDER_TEST_USAGE = 'canonry settings provider test <name> [--format json]'
 
 export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -41,6 +42,21 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     run: async input => {
       const { reloadProviders } = await import('../commands/settings.js')
       return reloadProviders(input.format)
+    },
+  },
+  {
+    // Longer than `settings provider <name>`, so dispatch picks it for `provider test`.
+    path: ['settings', 'provider', 'test'],
+    usage: PROVIDER_TEST_USAGE,
+    help: 'Checks the saved connection with the provider now and changes no settings. Most answer engines answer one tiny prompt on your provider account; Local lists its models; OpenRouter reads its key. Exit 0: connected, or saved but not verifiable for free. Exit 2: the provider refused the settings or did not answer. Exit 1: unknown or unconfigured provider.',
+    run: async input => {
+      const { testProvider } = await import('../commands/settings.js')
+      const name = requirePositional(input, 0, {
+        command: 'settings.provider.test',
+        usage: PROVIDER_TEST_USAGE,
+        message: 'provider name is required (e.g. gemini, openai, claude, perplexity, muse, local, openrouter)',
+      })
+      await testProvider(name, input.format)
     },
   },
   {

@@ -58,6 +58,7 @@ import {
   forbidden,
   notFound,
   validationError,
+  redactKnownSecrets,
   redactUrlPrivateFields,
   embedProjectTabsError,
   embedClientConfigForRequest,
@@ -3721,6 +3722,15 @@ export async function createServer(opts: {
       registry.getAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
     getBatchEligibleProviderNames: () => batchEligibleProviderNames(registry),
+    // The active registration's own healthcheck: the settings a sweep would
+    // use right now. A live provider call that changes nothing here.
+    onProviderTest: async (name: string) => {
+      const provider = registry.get(name);
+      if (!provider) return undefined;
+      const result = await provider.adapter.healthcheck(provider.config);
+      // A vendor error can quote the key it was sent; it never leaves in a test result.
+      return { ...result, message: redactKnownSecrets(result.message, [provider.config.apiKey]) };
+    },
     onProviderReload: (input, auditContext) => {
       if (input.configPath !== undefined && (
         runtimePathIdentity(input.configPath) !== runtimeConfigIdentity

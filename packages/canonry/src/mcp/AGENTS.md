@@ -98,6 +98,8 @@ Cloudflare connect is intentionally deferred. It is a local deployment workflow 
 
 `canonry dashboard reset-password` has no MCP tool and no API route to classify. It edits the local `config.yaml` and exists for an operator who cannot sign in; reopening first-run setup is a root action on the host. Do not add a tool or a route for it: agents tell the operator to run the CLI.
 
+`canonry_provider_test` mirrors `settings provider test` and `POST /settings/providers/{name}/test`: explicit operator approval and `settings.write`. It runs one saved connection's healthcheck against the provider (it spends, usually a few tokens) and returns the result DTO; a failed check is `ok: false`, never a tool error. It accepts no credentials and changes no settings. Read-only and stored-only catalogs and native Aero exclude it.
+
 `canonry_providers_reload` mirrors `settings reload-providers` and `POST /settings/providers/reload`: explicit operator approval, install administrator authority and `settings.write`. It reloads the connected host's own saved providers without accepting credentials or arbitrary file paths. Optional config/database path pins are one install identity pair. Read-only catalogs and native Aero exclude this install-wide mutation.
 
 Reload refuses provider removal or non-quota configuration changes while that provider has submitting, submitted or ended batches, or an executing sweep can still submit or cancel one (`OPERATION_IN_PROGRESS`); quota-only updates stay available. The host preserves the registration that work needs for dispatch, polling, ingestion and cancellation.

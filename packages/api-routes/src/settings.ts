@@ -12,19 +12,26 @@ import type {
   ProviderSettingsField,
   ProviderConnectionConfigDto,
   ProviderConnectionSettingsDto,
+  ProviderConnectionTestResultDto,
   ProviderDisconnectRequest,
+  ProviderHealthcheckResult,
   ProviderSettingsUpdateRequest,
   SettingsDto,
 } from '@canonry/canonry-contracts'
 import {
   AppError,
+  describeError,
   validationError,
   notImplemented,
   internalError,
   OutcomeReasonCodes,
   OutcomeStatuses,
+  providerConnectionTestResultDtoSchema,
+  ProviderConnectionTestErrorReasons,
+  ProviderConnectionTestStatuses,
   providerReloadRequestSchema,
   providerReloadResponseDtoSchema,
+  redactLogString,
   ProviderKinds,
   providerRouteName,
   routeFamiliesOf,
@@ -39,7 +46,7 @@ import {
   providerSummaryEntryDtoSchema,
   ProviderNames,
 } from '@canonry/canonry-contracts'
-import { isInstanceAdministrator, requireAdminSession, requireInstanceAdministrator, requireScope } from './auth.js'
+import { isInstanceAdministrator, requireAdminSession, requireInstanceAdministrator, requirePaidReadScope, requireScope } from './auth.js'
 import { auditFromRequest, type AuditEntry } from './helpers.js'
 import { connectionRoute, outcomeProviderName } from './connection-telemetry.js'
 import { withFeatureOutcome } from './feature-outcome.js'
@@ -140,10 +147,55 @@ export interface SettingsRoutesOptions {
   onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry | null
   /** Reload only this host's captured provider configuration; never select caller paths. */
   onProviderReload?: (input: ProviderReloadRequest, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry[] | Promise<ProviderSummaryEntry[]>
+  /**
+   * Run one saved connection's own healthcheck now, a live provider call.
+   * Resolves undefined when the connection is not configured on this host.
+   */
+  onProviderTest?: (name: string) => Promise<ProviderHealthcheckResult | undefined>
+  /** How long a connection test waits for the host's check. Defaults to `PROVIDER_TEST_TIMEOUT_MS`. */
+  providerTestTimeoutMs?: number
   google?: GoogleSettingsSummary
   onGoogleUpdate?: (clientId: string, clientSecret: string) => GoogleSettingsSummary | null
   bing?: BingSettingsSummary
   onBingUpdate?: (apiKey: string) => BingSettingsSummary | null
+}
+
+/**
+ * How long a connection test waits for the host's check before reporting it
+ * failed. Healthchecks retry throttles and network errors, so a refused
+ * endpoint can take several seconds; an unreachable one would otherwise hang.
+ */
+export const PROVIDER_TEST_TIMEOUT_MS = 30_000
+
+type ProviderTestCheck =
+  | { kind: 'checked'; check: ProviderHealthcheckResult }
+  | { kind: 'not-configured' }
+  | { kind: 'timed-out' }
+
+/** The host's check, bounded by `timeoutMs`. A late answer is dropped: a check changes nothing on the server. */
+async function runProviderTest(test: NonNullable<SettingsRoutesOptions['onProviderTest']>, name: string, timeoutMs: number): Promise<ProviderTestCheck> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<ProviderTestCheck>(resolve => {
+    timer = setTimeout(() => resolve({ kind: 'timed-out' }), timeoutMs)
+    timer.unref()
+  })
+  const check = Promise.resolve().then(() => test(name)).then((result): ProviderTestCheck => (
+    result ? { kind: 'checked', check: result } : { kind: 'not-configured' }
+  ))
+  try {
+    return await Promise.race([check, timeout])
+  } catch (error) {
+    // A deliberate refusal from the host keeps its status; anything else is this provider's failure.
+    if (error instanceof AppError) throw error
+    return { kind: 'checked', check: { ok: false, provider: name, message: describeError(error) } }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function secondsLabel(ms: number): string {
+  const seconds = Math.max(1, Math.round(ms / 1000))
+  return `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`
 }
 
 export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesOptions) {
@@ -373,6 +425,67 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     const providers = await opts.onProviderReload(parsed.data, { actor, userAgent, actorSession, requestId, credentialId })
     settle({ status: OutcomeStatuses.succeeded, counts: { providers: providers.filter(provider => provider.configured).length } })
     return providerReloadResponseDtoSchema.parse({ reloaded: true, providers })
+  }, err => (err instanceof AppError && err.code === 'NOT_IMPLEMENTED' ? OutcomeReasonCodes.UNSUPPORTED : undefined)))
+
+  // A POST because it calls the provider now; it reads and changes no saved state.
+  app.post<{ Params: { name: string } }>('/settings/providers/:name/test', async (request) => withFeatureOutcome(app, { feature: 'providers', operation: 'test' }, async (settle): Promise<ProviderConnectionTestResultDto> => {
+    // The check spends on the operator's provider account with the saved key,
+    // so it takes the authority that saves that key: never a viewer, a
+    // read-only key, or a key scoped to something else.
+    requireAdminSession(request)
+    requirePaidReadScope(request, [SETTINGS_WRITE_SCOPE], `Testing a provider connection calls the provider with its saved key, which requires the "${SETTINGS_WRITE_SCOPE}" scope on your API key.`)
+    const name = request.params.name
+    const adapters = opts.providerAdapters ?? []
+    const adapter = adapters.find(item => item.name === name)
+    if (!adapter) {
+      const validNames = adapters.map(item => item.name)
+      throw validationError(`Invalid provider: ${name}. Must be one of: ${validNames.join(', ')}`, { provider: name, validProviders: validNames })
+    }
+    if (!opts.onProviderTest) throw notImplemented('Provider connection tests are not supported in this deployment')
+
+    const startedAt = Date.now()
+    const timeoutMs = opts.providerTestTimeoutMs ?? PROVIDER_TEST_TIMEOUT_MS
+    const outcome = await runProviderTest(opts.onProviderTest, name, timeoutMs)
+    if (outcome.kind === 'not-configured') {
+      throw validationError(`${adapter.displayName} is not configured. Save its connection, then test it.`, {
+        provider: name,
+        reason: ProviderConnectionTestErrorReasons['provider-not-configured'],
+      })
+    }
+    const check: ProviderHealthcheckResult = outcome.kind === 'checked'
+      ? outcome.check
+      : { ok: false, provider: name, message: `${adapter.displayName} did not answer within ${secondsLabel(timeoutMs)}. Check the endpoint and network, then test again.` }
+    const status = !check.ok
+      ? ProviderConnectionTestStatuses.failed
+      : check.verified === false ? ProviderConnectionTestStatuses['not-verified'] : ProviderConnectionTestStatuses.connected
+
+    const provider = outcomeProviderName(name)
+    switch (status) {
+      case ProviderConnectionTestStatuses.connected:
+        settle({ status: OutcomeStatuses.succeeded, ...(provider ? { provider } : {}) })
+        break
+      case ProviderConnectionTestStatuses['not-verified']:
+        settle({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.UNSUPPORTED, ...(provider ? { provider } : {}) })
+        break
+      case ProviderConnectionTestStatuses.failed:
+        settle({ status: OutcomeStatuses.failed, reasonCode: outcome.kind === 'timed-out' ? OutcomeReasonCodes.TIMEOUT : OutcomeReasonCodes.UNKNOWN, ...(provider ? { provider } : {}) })
+        break
+      default: {
+        const _exhaustive: never = status
+        return _exhaustive
+      }
+    }
+    return providerConnectionTestResultDtoSchema.parse({
+      provider: name,
+      displayName: adapter.displayName,
+      status,
+      ok: status !== ProviderConnectionTestStatuses.failed,
+      // Provider errors can quote a key fragment or an Authorization header.
+      message: redactLogString(check.message),
+      model: check.model ?? null,
+      checkedAt: new Date().toISOString(),
+      durationMs: Math.max(0, Date.now() - startedAt),
+    })
   }, err => (err instanceof AppError && err.code === 'NOT_IMPLEMENTED' ? OutcomeReasonCodes.UNSUPPORTED : undefined)))
 
   app.put<{

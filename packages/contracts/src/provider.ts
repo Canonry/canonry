@@ -392,6 +392,12 @@ export interface ProviderHealthcheckResult {
   provider: string
   message: string
   model?: string
+  /**
+   * False when `ok` holds without any request to the provider: it documents no
+   * free check, so the saved settings stay unproven until the first real
+   * request. Absent means a passing check reached the provider.
+   */
+  verified?: boolean
 }
 
 export interface ProviderAdapter {
