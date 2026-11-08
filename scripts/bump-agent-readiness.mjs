@@ -1,28 +1,29 @@
 #!/usr/bin/env node
-// Bump the pinned @canonry/aeo-audit dependency to a target version.
+// Bump the pinned @canonry/agent-readiness dependency to a target version.
 //
-// aeo-audit is the real audit engine (runAeoAudit / runSiteCrawl). canonry
-// pins it to an EXACT version on purpose: aeo-audit ships breaking majors
-// (e.g. 3.x -> 4.x), and an exact pin forces every bump through CI (typecheck +
-// the 4000+ test suite) instead of a floating `^` silently pulling a release
-// that changes the report shape mid-build. This script is that controlled bump.
+// @canonry/agent-readiness (formerly @canonry/aeo-audit) is the real audit
+// engine (runAgentReadinessAudit / runSiteCrawl). canonry pins it to an EXACT
+// version on purpose: the engine ships breaking majors (e.g. 7.x -> 8.x), and
+// an exact pin forces every bump through CI (typecheck + the 4000+ test suite)
+// instead of a floating `^` silently pulling a release that changes the report
+// shape mid-build. This script is that controlled bump.
 //
 // By default it bumps ONLY the engine dependency, not canonry's own version —
-// an aeo-audit bump and a canonry npm release are decoupled, so the engine
+// an engine bump and a canonry npm release are decoupled, so the engine
 // updates in-repo and ships with the next canonry release. Pass `--version-bump`
 // to also patch canonry so the bump publishes to npm on merge.
 //
 // Usage (local release step):
-//   node scripts/bump-aeo-audit.mjs            # bump engine to the npm `latest` dist-tag
-//   node scripts/bump-aeo-audit.mjs 4.1.0      # bump engine to an explicit version
-//   node scripts/bump-aeo-audit.mjs --version-bump      # ALSO patch canonry's version
-//   pnpm install                               # then refresh the lockfile + node_modules
+//   node scripts/bump-agent-readiness.mjs                 # bump engine to the npm `latest` dist-tag
+//   node scripts/bump-agent-readiness.mjs 8.1.0           # bump engine to an explicit version
+//   node scripts/bump-agent-readiness.mjs --version-bump  # ALSO patch canonry's version
+//   pnpm install                                          # then refresh the lockfile + node_modules
 //
-// Environment (used by .github/workflows/bump-aeo-audit.yml):
-//   AEO_AUDIT_VERSION     target version (overridden by a positional arg)
-//   BUMP_CANONRY_VERSION  "true" to also patch the canonry version (default: no bump)
-//   GITHUB_OUTPUT         when set, the script appends `changed`/`from`/`to`/
-//                         `canonry_from`/`canonry_to`/`version_note` step outputs.
+// Environment (used by .github/workflows/bump-agent-readiness.yml):
+//   AGENT_READINESS_VERSION  target version (overridden by a positional arg)
+//   BUMP_CANONRY_VERSION     "true" to also patch the canonry version (default: no bump)
+//   GITHUB_OUTPUT            when set, the script appends `changed`/`from`/`to`/
+//                            `canonry_from`/`canonry_to`/`version_note` step outputs.
 //
 // The script only edits manifests. It never runs `pnpm install`, so the caller
 // controls when the lockfile is regenerated.
@@ -34,7 +35,7 @@ import { dirname, join } from 'node:path'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-const DEP = '@canonry/aeo-audit'
+const DEP = '@canonry/agent-readiness'
 // The local Canonry runtime uses the full-crawl engine. apps/worker has no
 // audit-engine dependency.
 const DEP_TARGETS = [
@@ -76,7 +77,7 @@ function replaceField(relPath, key, expectedValue, nextValue) {
 
 function resolveLatestVersion() {
   // `npm view` reads the npm registry; the `latest` dist-tag is the version a
-  // bare `npm install @canonry/aeo-audit` would resolve to.
+  // bare `npm install @canonry/agent-readiness` would resolve to.
   const out = execFileSync('npm', ['view', DEP, 'dist-tags.latest'], { encoding: 'utf8' })
   const version = out.trim()
   if (!/^\d+\.\d+\.\d+/.test(version)) {
@@ -100,7 +101,7 @@ function emitOutput(pairs) {
 
 function main() {
   const args = process.argv.slice(2)
-  // Canonry's own version is NOT bumped by default — an aeo-audit engine bump and
+  // Canonry's own version is NOT bumped by default — an engine bump and
   // a canonry npm release are decoupled. Opt in with `--version-bump` (or
   // BUMP_CANONRY_VERSION=true) when you want the bump to ship to npm on merge.
   // An explicit `--no-version-bump` still works and wins over any opt-in.
@@ -108,7 +109,7 @@ function main() {
     !args.includes('--no-version-bump') &&
     (args.includes('--version-bump') || process.env.BUMP_CANONRY_VERSION === 'true')
   const positional = args.find((arg) => !arg.startsWith('--'))
-  const requested = positional || process.env.AEO_AUDIT_VERSION || ''
+  const requested = positional || process.env.AGENT_READINESS_VERSION || ''
   const target = requested.trim() || resolveLatestVersion()
 
   // Read the currently-pinned spec from the canonical consumer. Preserve any

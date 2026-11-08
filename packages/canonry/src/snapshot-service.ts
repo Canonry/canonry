@@ -1,4 +1,4 @@
-import { runAeoAudit } from '@canonry/aeo-audit'
+import { runAgentReadinessAudit } from '@canonry/agent-readiness'
 import {
   determineAnswerMentioned,
   hostMatchesDomain,
@@ -60,8 +60,8 @@ type BatchAssessment = {
   recommendedActions: string[]
 }
 
-type AeoAuditReport = Awaited<ReturnType<typeof runAeoAudit>>
-type AeoAuditFactor = AeoAuditReport['factors'][number]
+type AgentReadinessReport = Awaited<ReturnType<typeof runAgentReadinessAudit>>
+type AgentReadinessFactor = AgentReadinessReport['factors'][number]
 
 export class SnapshotService {
   constructor(private readonly registry: ProviderRegistry) {}
@@ -174,7 +174,7 @@ export class SnapshotService {
 
   private async runAudit(homepageUrl: string): Promise<SnapshotAuditDto> {
     try {
-      const report = await runAeoAudit(homepageUrl)
+      const report = await runAgentReadinessAudit(homepageUrl)
       return mapAuditReport(report)
     } catch (err) {
       const message = describeError(err)
@@ -746,7 +746,7 @@ function extractCompetitorsFromResponse(ctx: {
   return [...competitors].slice(0, 6)
 }
 
-function mapAuditReport(report: AeoAuditReport): SnapshotAuditDto {
+function mapAuditReport(report: AgentReadinessReport): SnapshotAuditDto {
   return {
     url: report.url,
     finalUrl: report.finalUrl,
@@ -757,7 +757,7 @@ function mapAuditReport(report: AeoAuditReport): SnapshotAuditDto {
   }
 }
 
-function mapAuditFactor(factor: AeoAuditFactor) {
+function mapAuditFactor(factor: AgentReadinessFactor) {
   return {
     id: factor.id,
     name: factor.name,

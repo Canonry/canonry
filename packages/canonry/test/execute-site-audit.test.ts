@@ -24,7 +24,7 @@ import {
 // The executor is intentionally tested at the event boundary.  The audit
 // engine has its own HTTP/BFS suite; Canonry owns receipt, graph, and publish
 // semantics.
-vi.mock('@canonry/aeo-audit', () => ({ runSiteCrawl: vi.fn() }))
+vi.mock('@canonry/agent-readiness', () => ({ runSiteCrawl: vi.fn() }))
 vi.mock('@canonry/canonry-api-routes', () => ({
   resolvePublicHttpTarget: vi.fn(),
   resolveWebhookTarget: vi.fn().mockResolvedValue({ ok: true }),
@@ -35,8 +35,8 @@ vi.mock('../src/site-audit-root.js', () => ({
     return { requestedUrl: normalizedUrl, effectiveUrl: normalizedUrl, redirects: [] }
   }),
 }))
-import { runSiteCrawl } from '@canonry/aeo-audit'
-import { FACTOR_DEFINITIONS, scoreFactors } from '@canonry/aeo-audit/scoring'
+import { runSiteCrawl } from '@canonry/agent-readiness'
+import { FACTOR_DEFINITIONS, scoreFactors } from '@canonry/agent-readiness/scoring'
 import { isNonPageMedia,
   clampSiteAuditEdgeLimit,
   clampSiteAuditLimit,

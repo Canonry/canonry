@@ -40,19 +40,19 @@ function compareSemver(left: string, right: string): number {
   return 0
 }
 
-describe('AEO audit dependency boundary', () => {
+describe('Agent readiness engine dependency boundary', () => {
   it('keeps the public full-crawl engine exact in Canonry', () => {
     const canonryPackage = readJson('packages/canonry/package.json')
 
-    const localEngineVersion = canonryPackage.dependencies?.['@canonry/aeo-audit']
+    const localEngineVersion = canonryPackage.dependencies?.['@canonry/agent-readiness']
 
     expect(localEngineVersion).toBeDefined()
     expect(localEngineVersion).toMatch(/^\d+\.\d+\.\d+$/)
-    expect(compareSemver(localEngineVersion!, '4.6.2')).toBeGreaterThanOrEqual(0)
+    expect(compareSemver(localEngineVersion!, '8.0.0')).toBeGreaterThanOrEqual(0)
 
-    expect(readText('packages/canonry/src/execute-site-audit.ts')).toContain("from '@canonry/aeo-audit'")
-    expect(readText('packages/canonry/src/snapshot-service.ts')).toContain("from '@canonry/aeo-audit'")
+    expect(readText('packages/canonry/src/execute-site-audit.ts')).toContain("from '@canonry/agent-readiness'")
+    expect(readText('packages/canonry/src/snapshot-service.ts')).toContain("from '@canonry/agent-readiness'")
 
-    expect(readText('scripts/bump-aeo-audit.mjs')).toContain("const DEP = '@canonry/aeo-audit'")
+    expect(readText('scripts/bump-agent-readiness.mjs')).toContain("const DEP = '@canonry/agent-readiness'")
   })
 })

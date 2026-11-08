@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { scoreFactors } from '@canonry/aeo-audit/scoring'
+import { scoreFactors } from '@canonry/agent-readiness/scoring'
 import { and, eq } from 'drizzle-orm'
 import { apiRoutes } from '@canonry/canonry-api-routes'
 import { createClient, migrate, projects, runs, siteCrawlGraphLayouts, siteCrawlGraphNodes, type DatabaseClient } from '@canonry/canonry-db'
@@ -39,9 +39,9 @@ const SITES = [
   },
 ] as const
 
-/** Factor id, name, and weight triples declared by the installed @canonry/aeo-audit analyzers. */
+/** Factor id, name, and weight triples declared by the installed @canonry/agent-readiness analyzers. */
 function installedAuditFactors(): Set<string> {
-  const dir = path.join(import.meta.dirname, '..', 'node_modules', '@canonry', 'aeo-audit', 'dist')
+  const dir = path.join(import.meta.dirname, '..', 'node_modules', '@canonry', 'agent-readiness', 'dist')
   const triples = new Set<string>()
   for (const file of fs.readdirSync(dir, { recursive: true, encoding: 'utf8' })) {
     if (!file.endsWith('.js')) continue
@@ -118,7 +118,7 @@ describe('demo site crawl inventories', () => {
   })
 
   it.each(SITES)('$name writes link importance on the 0 to 100 scale a real crawl writes', site => {
-    // @canonry/aeo-audit writes `linkScore` as `value / maximum * 100` rounded
+    // @canonry/agent-readiness writes `linkScore` as `value / maximum * 100` rounded
     // to two decimals, and executeSiteAudit stores it unchanged as
     // `linkScoreNormalized`. A demo on any other scale makes every reader guess.
     const crawl = buildDemoSiteCrawl(site.input())

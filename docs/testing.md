@@ -262,7 +262,7 @@ canonry serve
 ## Dependency Verification Checklist
 
 1. Run tests and typechecks for the affected packages.
-2. Run `packages/canonry/test/aeo-audit-dependency-contract.test.ts` to verify the published audit-engine pins and integration boundaries.
+2. Run `packages/canonry/test/agent-readiness-dependency-contract.test.ts` to verify the published audit-engine pins and integration boundaries.
 3. Confirm the worker starts without an audit-engine dependency; audit execution belongs to the production full-crawl engine.
 4. Confirm `packages/api-routes/` has no direct dependency on `apps/*`.
 5. Confirm `packages/canonry/` bundles SPA assets correctly (`build-web.ts`).
