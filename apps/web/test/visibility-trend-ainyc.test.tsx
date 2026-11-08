@@ -117,7 +117,9 @@ test('reads 25.0% of 100 answers on Sep 29, with its change qualified in view an
 
   // +4.5 comes partly from the 3 branded queries added Sep 29, so a caution
   // sits beside the change where it is read, rather than the change being withheld.
-  expect(readout()).toEqual({ value: '25.0% · all queries', change: 'up 4.5 points', caveat: THREE_ADDED })
+  // The label names the class, so the figure does not repeat it.
+  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mentioned · all queries')
+  expect(readout()).toEqual({ value: '25.0%', change: 'up 4.5 points', caveat: THREE_ADDED })
   expect(card.querySelector('.visibility-trend-current .info-tooltip-trigger-caution')?.textContent).toBe('Queries changed')
   expect(bullets(card.querySelector(':scope > details.av-details'))).toEqual([
     'Latest point: 25 of 100 answers',
@@ -149,11 +151,12 @@ test('qualifies the Cited change too, and keeps mention share\'s plain because o
   await screen.findByRole('list', { name: 'Engines' })
 
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
-  expect(readout()).toEqual({ value: '27.0% · all queries', change: 'up 7.0 points', caveat: THREE_ADDED })
+  expect(readout()).toEqual({ value: '27.0%', change: 'up 7.0 points', caveat: THREE_ADDED })
   expect(bullets(trendCard().querySelector(':scope > details.av-details'))[0]).toBe('Latest point: 27 of 100 answers')
 
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
-  expect(readout()).toEqual({ value: '31.7% · non-brand answers', change: 'down 2.9 points', caveat: null })
+  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share in non-brand answers')
+  expect(readout()).toEqual({ value: '31.7%', change: 'down 2.9 points', caveat: null })
   expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual(['Latest point: 13 of 41 tracked-brand mentions', 'Base: Mar 13 to Apr 8 point'])
 })
 

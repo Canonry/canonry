@@ -61,7 +61,7 @@ test.each([
     ],
   }} />)
   if (mode === 'historical') {
-    const history = screen.getAllByRole('button', { name: /^Run .*Mention not measured/ })
+    const history = screen.getAllByRole('button', { name: /^Check .*Mention not measured/ })
     expect(history).toHaveLength(2)
     fireEvent.click(history[0]!)
   }

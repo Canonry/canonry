@@ -65,7 +65,7 @@ test.each(['auto-fetched', 'historical'])('%s snapshots preserve captured source
       { runId: 'latest', createdAt: '2026-09-28T12:00:00Z', citationState: 'cited', answerMentioned: true },
     ],
   }} />)
-  if (mode === 'historical') fireEvent.click(screen.getAllByRole('button', { name: /^Run / })[0]!)
+  if (mode === 'historical') fireEvent.click(screen.getAllByRole('button', { name: /^Check / })[0]!)
   await screen.findByText('An answer with captured source URLs.')
   fireEvent.click(screen.getByRole('button', { name: 'Sources', exact: true }))
   expect(screen.getByRole('link', { name: url }).getAttribute('href')).toBe(url)

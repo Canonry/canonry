@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { RunKinds } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses } from '@canonry/canonry-contracts'
 import {
   ApiError,
   type ApiRun,
@@ -31,10 +31,12 @@ function useWriteGuard(): () => void {
   return () => { assertCanWrite(account) }
 }
 
-function queuedTitleForRun(kind: string) {
-  if (kind === 'gsc-sync') return 'GSC sync queued'
-  if (kind === 'inspect-sitemap') return 'Sitemap inspection queued'
-  return 'AI Visibility check queued'
+function queuedTitleForRun(run: Pick<ApiRun, 'kind' | 'status'>) {
+  if (run.kind === RunKinds['gsc-sync']) return 'GSC sync queued'
+  if (run.kind === RunKinds['inspect-sitemap']) return 'Sitemap inspection queued'
+  // As the Agent Readiness scan toast does: a run the response reports as
+  // already underway is not announced as queued.
+  return run.status === RunStatuses.running ? 'AI Visibility check already running' : 'AI Visibility check queued'
 }
 
 function queuedDetailForRun(projectLabel: string | undefined, kind: string) {
@@ -54,11 +56,11 @@ function queueTrackedRunToast(run: ApiRun, options: {
     kind: run.kind,
     projectLabel: options.projectLabel,
     sourceAction: options.sourceAction,
-    lastAnnouncedStatus: 'queued',
+    lastAnnouncedStatus: run.status,
   })
 
   addToast({
-    title: queuedTitleForRun(run.kind),
+    title: queuedTitleForRun(run),
     detail: queuedDetailForRun(options.projectLabel, run.kind),
     tone: 'neutral',
     dedupeKey: `run:${run.id}`,

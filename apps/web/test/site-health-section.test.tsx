@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import {
   getApiV1ProjectsByNameQueryKey,
+  getApiV1ProjectsByNameAgentReadinessQueryKey,
   getApiV1ProjectsByNameAgentReadinessRunsQueryKey,
   getApiV1ProjectsByNameAgentReadinessCrawlPagesInfiniteQueryKey,
   getApiV1ProjectsByNameAgentReadinessCrawlPagesAuditQueryKey,
@@ -455,6 +456,22 @@ function projectKey() {
   return getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: projectName } })
 }
 
+/** The Score view's score read for one scan, which the header shares. */
+function scoreKey(runId: string) {
+  return getApiV1ProjectsByNameAgentReadinessQueryKey({ client: heyClient, path: { name: projectName }, query: { runId } })
+}
+
+/** GET /agent-readiness?runId=… as the API answers it. */
+function scoreResponse(runId: string, aggregateScore: number, runStatus: 'completed' | 'partial' = 'completed', hasData = true) {
+  return {
+    project: projectName, hasData, runId, runStatus,
+    sitemapUrl: 'https://citypoint.example/sitemap.xml', auditedAt: '2026-08-08T18:16:33.000Z',
+    aggregateScore, pagesDiscovered: 42, pagesAudited: 37, pagesSkipped: 0, pagesErrored: 0,
+    deltaScore: null, trend: null, previousScore: null, previousAuditedAt: null,
+    factors: [], crossCuttingIssues: [], prioritizedFixes: [],
+  }
+}
+
 function makeClient() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -467,6 +484,7 @@ function makeClient() {
     path: { name: projectName },
   }), summary('run_1', 42))
   seedRun(queryClient, 'run_1')
+  queryClient.setQueryData(scoreKey('run_1'), scoreResponse('run_1', 84))
   return queryClient
 }
 
@@ -770,7 +788,9 @@ test('leads with the map, truthful crawl metrics, and an explicit disabled dead-
   vi.stubGlobal('fetch', fetchMock)
   const queryClient = renderSection()
 
-  expect(screen.getByRole('heading', { name: 'Agent Readiness', level: 2 })).not.toBeNull()
+  // The selected tab names the feature; the section heads the scan it shows.
+  expect(screen.getByRole('heading', { name: 'Site scan', level: 2 })).not.toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Agent Readiness' })).toBeNull()
   expect(screen.getByRole('option', { name: 'Latest scan' })).not.toBeNull()
   expect(screen.getByRole('button', { name: 'Shows the most complete scan from the latest day with results. Choose a dated entry to view another scan.' })).not.toBeNull()
   expect(screen.getByRole('tab', { name: 'Map' }).getAttribute('aria-selected')).toBe('true')
@@ -796,6 +816,102 @@ test('leads with the map, truthful crawl metrics, and an explicit disabled dead-
     const url = input instanceof Request ? input.url : String(input)
     return url.includes('/dead-links')
   })).toBe(false)
+})
+
+const SCORE_READ_PATH = '/api/v1/projects/citypoint/agent-readiness'
+
+function scanHeader(): HTMLElement {
+  return screen.getByRole('heading', { name: 'Site scan', level: 2 }).parentElement as HTMLElement
+}
+
+test('leads the header with the shown scan\'s score on every view, from the Score view\'s read', async () => {
+  const queryClient = makeClient()
+  queryClient.removeQueries({ queryKey: scoreKey('run_1') })
+  const reads = installSiteReads({ '/agent-readiness': scoreResponse('run_1', 84) })
+  renderSection(queryClient)
+
+  const score = await within(scanHeader()).findByText('Score 84/100')
+  // State first: the scan's status, then its score.
+  expect(score.previousElementSibling?.textContent).toBe('Complete')
+  // One read, of the operation and scan the Score view reads, so the two share
+  // a cache entry and cannot disagree.
+  const scoreReads = () => reads.filter(read => read.path === SCORE_READ_PATH)
+  expect(scoreReads()).toEqual([{ method: 'GET', path: SCORE_READ_PATH, query: { runId: 'run_1' } }])
+  expect(queryClient.getQueryData(scoreKey('run_1'))).toMatchObject({ runId: 'run_1', aggregateScore: 84 })
+  for (const view of ['Pages', 'Score', 'Map'] as const) {
+    fireEvent.click(screen.getByRole('tab', { name: view }))
+    expect(within(scanHeader()).getByText('Score 84/100')).not.toBeNull()
+  }
+  expect(scoreReads()).toHaveLength(1)
+})
+
+test.each([
+  { state: 'a partial scan', badge: 'Partial scan', score: 'Score so far 86/100' },
+  { state: 'a scan the API holds no score for', badge: 'Complete', score: null },
+  { state: 'a failed scan', badge: 'Scan failed', score: null },
+  { state: 'a running scan', badge: 'Scan running', score: null },
+] as const)('names a score in the header only for a scored scan: $state', async ({ state, badge, score }) => {
+  const queryClient = makeClient()
+  queryClient.removeQueries({ queryKey: scoreKey('run_1') })
+  let props: Partial<React.ComponentProps<typeof SiteHealthSection>> = {}
+  if (state === 'a partial scan') {
+    queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_1', 'partial')))
+    seedRun(queryClient, 'run_1', summary('run_1', 42, false))
+  } else if (state === 'a failed scan' || state === 'a running scan') {
+    seedExactProgress(queryClient, state === 'a failed scan' ? 'failed' : 'checking')
+    props = { initialRunId: 'run_selected' }
+  }
+  // Every read answers with a score, so a read the header should not make would show one.
+  const reads = installSiteReads({
+    '/agent-readiness': state === 'a scan the API holds no score for'
+      ? scoreResponse('run_1', 0, 'completed', false)
+      : scoreResponse(props.initialRunId ?? 'run_1', 86, state === 'a partial scan' ? 'partial' : 'completed'),
+  })
+  renderSection(queryClient, props)
+
+  expect(within(scanHeader()).getByText(badge)).not.toBeNull()
+  if (score) {
+    expect(await within(scanHeader()).findByText(score)).not.toBeNull()
+    return
+  }
+  if (state === 'a scan the API holds no score for') {
+    await waitFor(() => expect(queryClient.getQueryState(scoreKey('run_1'))?.status).toBe('success'))
+  } else {
+    // A failed or unfinished scan has no score to read.
+    await act(async () => {})
+    expect(reads.filter(read => read.path === SCORE_READ_PATH)).toEqual([])
+  }
+  expect(within(scanHeader()).queryByText(/^Score/)).toBeNull()
+})
+
+test('offers Scan history only once there is a scan to choose', async () => {
+  const historyHelp = 'Shows the most complete scan from the latest day with results. Choose a dated entry to view another scan.'
+  const scanActions = () => screen.getByText('Scan settings', { selector: 'summary' }).closest('details')!.parentElement as HTMLElement
+  // No scan yet, and a first scan still running: the picker could only offer "Latest scan".
+  for (const scans of [[], [scan('run_first', 'running', false)]]) {
+    const queryClient = makeClient()
+    queryClient.setQueryData(scanHistoryKey(), scanHistory(...scans))
+    queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessCrawlQueryKey({ client: heyClient, path: { name: projectName } }), {
+      ...summary('unused', 0), hasCrawlData: false, legacyAuditAvailable: false, runId: null, detailsAvailable: false,
+    })
+    renderSection(queryClient)
+    expect(screen.queryByText('Scan history')).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'View an Agent Readiness scan' })).toBeNull()
+    expect(screen.queryByRole('button', { name: historyHelp })).toBeNull()
+    // With no label row above it to line up with, the scan actions sit flush.
+    const actions = scanActions()
+    expect(compiledElementProperty(await renderedCss(actions), actions, 'padding-top')).toBeUndefined()
+    cleanup()
+    queryClient.clear()
+  }
+
+  renderSection()
+  expect(screen.getByText('Scan history')).not.toBeNull()
+  expect(screen.getByRole('combobox', { name: 'View an Agent Readiness scan' })).not.toBeNull()
+  expect(screen.getByRole('button', { name: historyHelp })).not.toBeNull()
+  const actions = scanActions()
+  const css = await renderedCss(actions)
+  expect(cssLengthPx(compiledElementProperty(css, actions, 'padding-top') ?? '', css)).toBe(20)
 })
 
 test('shows the requested and effective hosts when the site moves to a different address', () => {
@@ -1166,11 +1282,45 @@ test('keeps dead-link checks off by default when starting a scan', () => {
 
   fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
 
-  expect(mutationMock.mutate).toHaveBeenCalledWith({
+  expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
     projectName,
     projectId,
     body: { checkDeadLinks: false },
-  })
+  }))
+})
+
+test('closes Scan settings on an outside click, on Escape, and when a scan starts', () => {
+  renderSection()
+  const summary = screen.getByText('Scan settings', { selector: 'summary' })
+  const settings = summary.closest('details') as HTMLDetailsElement
+  const pageBudget = screen.getByRole('combobox', { name: 'Page budget' })
+
+  settings.open = true
+  fireEvent.pointerDown(pageBudget)
+  expect(settings.open).toBe(true)
+  fireEvent.pointerDown(document.body)
+  expect(settings.open).toBe(false)
+
+  // Escape closes it and returns focus to the control that opened it.
+  settings.open = true
+  pageBudget.focus()
+  fireEvent.keyDown(pageBudget, { key: 'Escape' })
+  expect(settings.open).toBe(false)
+  expect(document.activeElement).toBe(summary)
+
+  // An open panel would cover the new scan's progress.
+  settings.open = true
+  fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
+  expect(mutationMock.mutate).toHaveBeenCalledTimes(1)
+  expect(settings.open).toBe(false)
+})
+
+test('names the project by its display name in the scan-queued notice', () => {
+  renderSection()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
+
+  expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({ projectLabel: 'Citypoint' }))
 })
 
 test('releases a pinned onboarding scan before the header starts its replacement', async () => {
@@ -1195,11 +1345,11 @@ test('releases a pinned onboarding scan before the header starts its replacement
 
   fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
 
-  expect(mutationMock.mutate).toHaveBeenCalledWith({
+  expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
     projectName,
     projectId,
     body: { checkDeadLinks: false },
-  })
+  }))
   expect(onReleaseInitialRun).toHaveBeenCalledOnce()
   expect(history.value).toBe('')
 
@@ -1316,11 +1466,11 @@ test('sends the chosen crawl budget and optional checks', () => {
   fireEvent.change(screen.getByLabelText('Crawl depth'), { target: { value: '2' } })
   fireEvent.click(screen.getByRole('button', { name: /Run scan/ }))
 
-  expect(mutationMock.mutate).toHaveBeenCalledWith({
+  expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
     projectName,
     projectId,
     body: { checkDeadLinks: false, includeGeo: true, includeAgentSkills: false, maxPages: 500, maxDepth: 2 },
-  })
+  }))
 })
 
 
@@ -1349,7 +1499,7 @@ test.each([
   expect(screen.getByRole('button', { name: 'How many pages one scan may read before it stops. Project default uses your saved budget. Full site checks up to 50,000 pages.' })).not.toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
   // The server resolves the saved budget; the dashboard never fills one in.
-  expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith({ projectName, projectId, body: { checkDeadLinks: false } })
+  expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectName, projectId, body: { checkDeadLinks: false } }))
 })
 
 test('the no-budget choice follows the cached project after a Settings save', async () => {
@@ -1380,7 +1530,7 @@ test('offers a one-off full-site scan only when the project saved a smaller budg
   ])
   fireEvent.change(budget, { target: { value: '50000' } })
   fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
-  expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith({ projectName, projectId, body: { checkDeadLinks: false, maxPages: 50_000 } })
+  expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectName, projectId, body: { checkDeadLinks: false, maxPages: 50_000 } }))
 })
 
 test('names no number for the no-budget choice before the project read lands', async () => {
@@ -2063,11 +2213,11 @@ test('offers rerun recovery when a pinned onboarding scan is cancelled before a 
   expect(screen.queryByRole('tablist', { name: 'Agent Readiness views' })).toBeNull()
   expect(screen.getByRole('list', { name: 'Onboarding progress' }).querySelector('[aria-current="step"]')?.textContent).toContain('Scan site')
   fireEvent.click(within(recovery).getByRole('button', { name: 'Run scan again' }))
-  expect(mutationMock.mutate).toHaveBeenCalledWith({
+  expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
     projectName,
     projectId,
     body: { checkDeadLinks: true, maxPages: 100 },
-  })
+  }))
   expect(onReleaseInitialRun).toHaveBeenCalledOnce()
 })
 
@@ -2171,11 +2321,11 @@ test('keeps a partial crawl recoverable when it publishes no score', () => {
   expect(onSkipOnboarding).not.toHaveBeenCalled()
 
   fireEvent.click(screen.getByRole('button', { name: 'Run Agent Readiness scan again' }))
-  expect(mutationMock.mutate).toHaveBeenCalledWith({
+  expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
     projectName,
     projectId,
     body: { checkDeadLinks: true, maxPages: 100 },
-  })
+  }))
 })
 
 test('keeps explicit onboarding recoverable and follows the active replacement after a terminal scan publishes no crawl data', async () => {
@@ -2193,11 +2343,11 @@ test('keeps explicit onboarding recoverable and follows the active replacement a
   expect(screen.getByText('This scan did not produce a score. Run it again to continue setup.')).not.toBeNull()
   expect(screen.queryByText(/map|graph|inventory/i)).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Run scan again' }))
-  expect(mutationMock.mutate).toHaveBeenCalledWith({
+  expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
     projectName,
     projectId,
     body: { checkDeadLinks: true, maxPages: 100 },
-  })
+  }))
 
   queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
     client: heyClient,
@@ -2406,10 +2556,11 @@ test('loads the complete inventory in 200-page batches', async () => {
   renderSection(queryClient)
   fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
 
-  expect(screen.getByText('Showing 2 of 3 pages found.')).not.toBeNull()
+  // Not "pages found": the scan counts above use that for every address discovered (42 here).
+  expect(screen.getByText('Showing 2 of 3 pages.')).not.toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Load more pages' }))
 
-  await waitFor(() => expect(screen.getByText('Showing 3 of 3 pages found.')).not.toBeNull())
+  await waitFor(() => expect(screen.getByText('Showing 3 of 3 pages.')).not.toBeNull())
   expect(fetchMock.mock.calls.some(([input]) => {
     const url = input instanceof Request ? input.url : String(input)
     return url.includes('cursor=cursor_2')
@@ -2459,7 +2610,11 @@ test('expands site sections lazily while preserving the selected run', async () 
   await act(async () => {})
   expect(reads.filter(read => read.path.endsWith('/structure') && read.query.parentPath === '/services')).toHaveLength(0)
   fireEvent.click(within(sections).getByRole('button', { name: 'Expand /services' }))
-  await within(sections).findByRole('button', { name: '/services/roof-repair' })
+  const child = await within(sections).findByRole('button', { name: '/services/roof-repair' })
+  // A long path wraps at its hyphens and slashes, not between any two letters.
+  const css = await renderedCss(child)
+  expect(compiledElementProperty(css, child, 'overflow-wrap')).toBe('break-word')
+  expect(compiledElementProperty(css, child, 'word-break')).toBeUndefined()
   expect(reads.filter(read => read.path.endsWith('/structure'))).toEqual([{ method: 'GET', path: '/api/v1/projects/citypoint/agent-readiness/structure', query: { runId: 'run_1', parentPath: '/services', limit: '100' } }])
   fireEvent.click(within(sections).getByRole('button', { name: 'Collapse /services' }))
   expect(within(sections).queryByRole('button', { name: '/services/roof-repair' })).toBeNull()
@@ -2708,16 +2863,52 @@ test('contains selected-page link tables inside mobile-safe grid items', async (
 
 
 
-test('removes map-specific chrome from the Score view', () => {
+test('page-count help talks about pages, and link-count help about links', () => {
   renderSection()
+
+  expect(screen.getByRole('button', { name: 'How many pages this scan discovered, whether or not it could load them. Hiding menu and footer links does not change it.' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'How many of the pages it found this scan actually loaded. Hiding menu and footer links does not change it.' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'How many links between pages on this site the scan recorded. This always counts every link, including menu and footer.' })).toBeTruthy()
+})
+
+test('a failed latest scan promises earlier results only when there are some', () => {
+  const withEarlier = makeClient()
+  withEarlier.setQueryData(scanHistoryKey(), scanHistory(scan('run_new', 'failed', false), scan('run_1')))
+  renderSection(withEarlier)
+  expect(screen.getByRole('alert').textContent).toBe('The latest scan failed. The previous completed results remain available.')
+  cleanup()
+
+  const onlyFailed = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+  onlyFailed.setQueryData(projectKey(), storedProject(null))
+  onlyFailed.setQueryData(scanHistoryKey(), scanHistory(scan('run_new', 'failed', false)))
+  onlyFailed.setQueryData(getApiV1ProjectsByNameAgentReadinessCrawlQueryKey({ client: heyClient, path: { name: projectName } }), {
+    project: projectName, hasCrawlData: false,
+  })
+  renderSection(onlyFailed)
+  expect(screen.getByRole('alert').textContent).toBe('The latest scan failed, and there are no earlier results to show.')
+})
+
+test('keeps the scan counts on every view and removes only map chrome from Score', () => {
+  renderSection()
+  // The four scan counts, label and value, so each view's own count
+  // ("2 pages", "N pages scored") reads against the same numbers.
+  const scanCounts = () => {
+    const strip = screen.getByText('Pages found').parentElement!.parentElement!
+    return ['Pages found', 'Pages checked', 'Indexable', 'Internal links']
+      .map(label => [label, within(strip).getByText(label).parentElement!.lastElementChild!.textContent])
+  }
+  const counts = [['Pages found', '42'], ['Pages checked', '40'], ['Indexable', '37'], ['Internal links', '1']]
 
   // The view description is a tooltip on the heading now, so it is reachable
   // by its accessible name rather than rendered as a second line of prose.
   expect(screen.getByRole('button', { name: MAP_VIEW_HELP })).not.toBeNull()
+  expect(scanCounts()).toEqual(counts)
+  fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
+  expect(scanCounts()).toEqual(counts)
   fireEvent.click(screen.getByRole('tab', { name: 'Score' }))
 
   expect(screen.getByRole('button', { name: TECHNICAL_VIEW_HELP })).not.toBeNull()
-  expect(screen.queryByText('Pages found')).toBeNull()
+  expect(scanCounts()).toEqual(counts)
   expect(screen.queryByText('Dead-link check')).toBeNull()
   expect(screen.getByText('Score view for run_1')).not.toBeNull()
 })
@@ -3066,14 +3257,14 @@ test('keeps a filtered selection until the server says it does not match', async
       await screen.findByRole('button', { name: '/thanks' })
       await waitFor(() => expect(reads.filter(read => read.path.endsWith('/crawl/pages'))).toHaveLength(1))
       expect(screen.getByRole('heading', { name: '/services/roof-repair', level: 3 })).not.toBeNull()
-      expect(screen.getByText('Loading page details...')).not.toBeNull()
+      expect(screen.getByText('Loading page details…')).not.toBeNull()
       expect(reads).toEqual([{ method: 'GET', path: '/api/v1/projects/citypoint/agent-readiness/crawl/pages', query: { runId: 'run_1', healthState: 'hidden', nodeKey: 'page_services', limit: '1' } }])
       await act(async () => { deferred.resolve(answer) })
       if (filterState === 'applied') {
         await screen.findByText('Select a page to inspect its internal links and crawl signals.')
         expect(screen.queryByRole('heading', { name: '/services/roof-repair', level: 3 })).toBeNull()
       } else {
-        await waitFor(() => expect(screen.queryByText('Loading page details...')).toBeNull())
+        await waitFor(() => expect(screen.queryByText('Loading page details…')).toBeNull())
         expect(screen.getByRole('heading', { name: '/services/roof-repair', level: 3 })).not.toBeNull()
       }
     } finally {
@@ -3288,11 +3479,23 @@ test('the compressed headings keep their own accessible names', () => {
   // second line of prose it replaced.
   renderSection()
 
-  expect(screen.getByRole('heading', { name: 'Agent Readiness', level: 2 })).not.toBeNull()
+  const scanHeading = screen.getByRole('heading', { name: 'Site scan', level: 2 })
   expect(screen.getByRole('heading', { name: 'Site map', level: 2 })).not.toBeNull()
   // ...and each explanation is still reachable, on its own control.
   expect(screen.getByRole('button', { name: MAP_VIEW_HELP })).not.toBeNull()
+  expect(scanHeading.nextElementSibling?.contains(screen.getByRole('button', { name: MAP_VIEW_HELP }))).toBe(true)
   expect(screen.getByRole('button', { name: MAP_NAVIGATION_HELP })).not.toBeNull()
+})
+
+test('names what a capped map was given against the whole scan', () => {
+  // "Shown" belongs to the map's own count of the links it draws, so the cap
+  // line says what the map holds, not what it shows.
+  const queryClient = makeClient()
+  seedRun(queryClient, 'run_1', summary('run_1', 42), { sampled: true, totalNodes: 5, totalEdges: 9, omittedNodes: 3, omittedEdges: 8 })
+  renderSection(queryClient)
+
+  expect(screen.getByText('Map limited to 2 of 5 pages and 1 of 9 links')).not.toBeNull()
+  expect(screen.queryByText(/^Showing/)).toBeNull()
 })
 
 
@@ -3477,7 +3680,7 @@ test('a link tile never presents a bounded count as a total', async () => {
       renderSection(queryClient)
       fireEvent.click(screen.getByRole('button', { name: '/services/roof-repair' }))
       if (row.showAll) fireEvent.click(screen.getByRole('checkbox', { name: 'Show menu and footer links' }))
-      if (row.state === 'pending') await screen.findByText('Loading page links...')
+      if (row.state === 'pending') await screen.findByText('Loading page links…')
       if (row.state === 'error') await screen.findByText('Page links could not be loaded.')
       const tile = screen.getByText('Links in').parentElement!
       await waitFor(() => expect(within(tile).getByText(row.value)).not.toBeNull())
@@ -3724,14 +3927,14 @@ test.each(['header', 'failed', 'no crawl', 'no score', 'no details'] as const)('
     } else {
       expect(buttons.length).toBeGreaterThan(0)
       fireEvent.click(buttons.at(-1)!)
-      expect(mutationMock.mutate).toHaveBeenCalledWith({
+      expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
         projectName,
         projectId,
         body: {
           checkDeadLinks: Boolean(props.showOnboardingActions),
           ...(props.showOnboardingActions ? { maxPages: 100 } : {}),
         },
-      })
+      }))
     }
     cleanup()
     queryClient.clear()
@@ -3795,7 +3998,7 @@ test('the default crawl depth says what it is, and deeper limits exist', async (
   expect(Math.max(...within(depth).getAllByRole('option').map(option => Number(option.getAttribute('value'))))).toBe(100)
   fireEvent.change(depth, { target: { value: '100' } })
   fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
-  expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith({ projectName, projectId, body: { checkDeadLinks: false, maxDepth: 100 } })
+  expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectName, projectId, body: { checkDeadLinks: false, maxDepth: 100 } }))
 
 })
 
@@ -3816,7 +4019,7 @@ test.each([false, true])('returning to an unstarted scan is neutral and recovera
   expect(onContinueOnboarding).toHaveBeenCalledOnce()
   expect(mutationMock.mutate).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Run first scan' }))
-  expect(mutationMock.mutate).toHaveBeenCalledWith({ projectName, projectId, body: { checkDeadLinks: true, maxPages: 100 } })
+  expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({ projectName, projectId, body: { checkDeadLinks: true, maxPages: 100 } }))
 })
 
 

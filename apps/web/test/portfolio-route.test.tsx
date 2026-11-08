@@ -819,6 +819,10 @@ test.each([false, true])('a Simple project retains its overview with or without 
   expect(html).toContain('Mention gaps')
   expect(html).toContain('Citation gaps')
   expect(html).toContain('Query evidence')
+  // The disclosure toggle is named by its heading alone; its meta line describes it.
+  const evidenceToggle = /<summary class="overview-disclosure-summary" aria-labelledby="([^"]+)"[^>]*><h2 id="([^"]+)" class="overview-disclosure-title">Query evidence<\/h2>/.exec(html)
+  expect(evidenceToggle).not.toBeNull()
+  expect(evidenceToggle![1]).toBe(evidenceToggle![2])
   expect(html).toContain('AI Visibility check running')
   expect(html).not.toContain('Set up advanced measurement')
   expect(html).not.toContain('Republish setup')
@@ -1301,7 +1305,8 @@ test('a direct Portfolio URL falls back safely in embed mode', async () => {
   expect(html).toContain('Citypoint Dental NYC')
   expect(html).toContain('AI answers over time')
   expect(html).not.toContain('Import sitemap')
-  expect(html).not.toContain('>All projects</a>')
+  // No dashboard chrome: the sidebar's Overview link stays out of the embed.
+  expect(html).not.toContain('>Overview</a>')
   expect(html).not.toContain('Coverage and performance')
 })
 
@@ -3338,7 +3343,7 @@ test('a viewer on Advanced tracked Queries gets exactly one scope trigger, in th
   expect(within(nav).getByRole('link', { name: 'Queries' }).getAttribute('aria-current')).toBe('page')
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-    'Conversions', 'Local Presence', 'Backlinks', 'Change History',
+    'Conversions', 'Local presence', 'Backlinks', 'Change history',
   ])
 })
 
@@ -3381,7 +3386,7 @@ test('Simple tracked Queries have no scope trigger', async () => {
   expect(within(nav).getByRole('link', { name: 'Queries' }).getAttribute('aria-current')).toBe('page')
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-    'Conversions', 'Local Presence', 'Backlinks', 'Change History',
+    'Conversions', 'Local presence', 'Backlinks', 'Change history',
   ])
 })
 
@@ -3989,8 +3994,13 @@ test.each(['', '/agent-readiness', '/settings', '/history'])('unset managed run 
       expect(within(doc).getByRole('heading', { level: 1, name: 'Citypoint Dental NYC' })).toBeTruthy()
       expect(html).not.toContain('Scans are run by your Canonry team')
       expect(html).not.toContain('Checks are run by your Canonry team')
-      expect(within(projectActions(html)).getByRole('button', { name: /AI Visibility check running|Checking AI engines|Set up AI Visibility|Run AI Visibility check/ }).hasAttribute('disabled')).toBe(true)
-      if (suffix === '/agent-readiness') expect(within(doc).getByRole('heading', { name: 'Agent Readiness' })).toBeTruthy()
+      if (suffix === '/agent-readiness') {
+        // Agent Readiness leads with its own scan, so the context row offers no AI Visibility check there.
+        expect(within(projectActions(html)).queryByRole('button')).toBeNull()
+        expect(within(doc).getByRole('heading', { name: 'Site scan' })).toBeTruthy()
+      } else {
+        expect(within(projectActions(html)).getByRole('button', { name: /AI Visibility check running|Checking AI engines|Set up AI Visibility|Run AI Visibility check/ }).hasAttribute('disabled')).toBe(true)
+      }
       if (suffix === '/settings') {
         expect(within(doc).getByRole('heading', { name: 'Project settings unavailable' })).toBeTruthy()
         expect(within(doc).getByRole('link', { name: 'Return to overview' })).toBeTruthy()

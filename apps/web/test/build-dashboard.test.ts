@@ -550,7 +550,7 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
 
   const evidence = buildProjectCommandCenter(data).visibilityEvidence[0]!
 
-  expect(evidence.changeLabel).toBe('Cited for 2 runs')
+  expect(evidence.changeLabel).toBe('Cited in the last 2 checks')
   expect(evidence.historyScope).toBe('provider')
   expect(evidence.modelsSeen).toEqual(['gpt-4o', 'gpt-4.1'])
   expect(
@@ -881,6 +881,8 @@ test('portfolio "All projects stable" attention item is non-navigable (no dead l
   const stable = items.find(i => i.id === 'attention_stable')
   expect(stable).toBeDefined()
   expect(stable!.title).toBe('All projects stable')
+  // Both signals are checked, so the all-clear names both.
+  expect(stable!.detail).toBe('No lost mentions or citations, and no runs in progress.')
   expect(stable!.tone).toBe('positive')
   // The bug fix: no href and no action label → rendered as a static row.
   expect(stable!.href).toBeUndefined()
@@ -1464,9 +1466,9 @@ test('buildProjectCommandCenter keeps the latest completed sweep when newer fail
   // Each answer is evidence for the sweep it came from, and says only what that
   // sweep saw: no change is claimed, since the window holds no earlier sweep.
   expect(cc.visibilityEvidence.map(row => [row.query, row.sourceRunId, row.answerMentioned, row.citationState, row.changeLabel, row.visibilityChangeLabel])).toEqual([
-    ['best polyurea roof coating', 'run_ok', true, 'cited', 'Cited in latest run', 'Visible in latest run'],
-    ['polyurea vs silicone roof coating', 'run_ok', false, 'not-cited', 'Not cited in latest run', 'Not visible in latest run'],
-    ['roof coating contractors', null, undefined, 'pending', 'Awaiting first run', 'Awaiting first run'],
+    ['best polyurea roof coating', 'run_ok', true, 'cited', 'Cited in the latest check', 'Mentioned in the latest check'],
+    ['polyurea vs silicone roof coating', 'run_ok', false, 'not-cited', 'Not cited in the latest check', 'Not mentioned in the latest check'],
+    ['roof coating contractors', null, undefined, 'pending', 'Awaiting first check', 'Awaiting first check'],
   ])
 })
 
@@ -1538,8 +1540,8 @@ test('the latest completed sweep\'s answer keeps its own state when cancelled ru
   })
 
   expect(cc.visibilityEvidence.map(row => [row.query, row.sourceRunId, row.citationState, row.changeLabel, row.visibilityChangeLabel])).toEqual([
-    ['best polyurea roof coating', 'run_ok', 'cited', 'Cited in latest run', 'Visible in latest run'],
-    ['polyurea vs silicone roof coating', 'run_ok', 'not-cited', 'Not cited in latest run', 'Not visible in latest run'],
+    ['best polyurea roof coating', 'run_ok', 'cited', 'Cited in the latest check', 'Mentioned in the latest check'],
+    ['polyurea vs silicone roof coating', 'run_ok', 'not-cited', 'Not cited in the latest check', 'Not mentioned in the latest check'],
   ])
 })
 
@@ -1567,8 +1569,96 @@ test('a sweep still running never changes the latest completed sweep\'s answer',
   })
 
   expect(cc.visibilityEvidence.map(row => [row.query, row.citationState, row.changeLabel, row.visibilityChangeLabel])).toEqual([
-    ['best polyurea roof coating', 'cited', 'Cited for 2 runs', 'Visible for 2 runs'],
-    ['polyurea vs silicone roof coating', 'not-cited', 'Not cited across 2 runs', 'Not visible across 2 runs'],
+    ['best polyurea roof coating', 'cited', 'Cited in the last 2 checks', 'Mentioned in the last 2 checks'],
+    ['polyurea vs silicone roof coating', 'not-cited', 'Not cited in the last 2 checks', 'Not mentioned in the last 2 checks'],
+  ])
+})
+
+test('What changed lists lost mentions and lost citations apart, each query once, from the latest completed check', () => {
+  const { project, run, snapshot } = sweepFixture()
+  const first = run('run_1', 'completed', '2026-09-01T00:00:00Z')
+  const latest = run('run_2', 'completed', '2026-09-08T00:00:00Z')
+  const cancelled = run('run_3', 'cancelled', '2026-09-09T00:00:00Z')
+  const queries = ['best polyurea roof coating', 'polyurea vs silicone roof coating', 'roof coating contractors']
+  /** A timeline point whose mention and citation each carry their own transition, as the route computes them. */
+  const point = (runId: string, createdAt: string, signals: { mentioned: boolean; cited: boolean; transition: string; mentionTransition: string }) => ({
+    runId, createdAt, location: null,
+    citationState: signals.cited ? 'cited' : 'not-cited', transition: signals.transition,
+    answerMentioned: signals.mentioned, mentionState: signals.mentioned ? 'mentioned' : 'not-mentioned', mentionTransition: signals.mentionTransition,
+    visibilityState: signals.mentioned ? 'visible' : 'not-visible',
+    visibilityTransition: signals.mentionTransition === 'mentioned' ? 'visible' : signals.mentionTransition === 'not-mentioned' ? 'not-visible' : signals.mentionTransition,
+  })
+  // q0 lost its mention on both engines and was never cited.
+  const lostMention = [
+    point('run_1', '2026-09-01T00:00:00Z', { mentioned: true, cited: false, transition: 'new', mentionTransition: 'new' }),
+    point('run_2', '2026-09-08T00:00:00Z', { mentioned: false, cited: false, transition: 'not-cited', mentionTransition: 'lost' }),
+  ]
+  // q1 lost its citation on one engine and was never mentioned.
+  const lostCitation = [
+    point('run_1', '2026-09-01T00:00:00Z', { mentioned: false, cited: true, transition: 'new', mentionTransition: 'new' }),
+    point('run_2', '2026-09-08T00:00:00Z', { mentioned: false, cited: false, transition: 'lost', mentionTransition: 'not-mentioned' }),
+  ]
+  // q2 kept both in the latest completed check; only a cancelled run after it lost them.
+  const keptInLatest = [
+    point('run_1', '2026-09-01T00:00:00Z', { mentioned: true, cited: true, transition: 'new', mentionTransition: 'new' }),
+    point('run_2', '2026-09-08T00:00:00Z', { mentioned: true, cited: true, transition: 'cited', mentionTransition: 'mentioned' }),
+    point('run_3', '2026-09-09T00:00:00Z', { mentioned: false, cited: false, transition: 'lost', mentionTransition: 'lost' }),
+  ]
+  const answer = (index: number, provider: string, mentioned: boolean, cited: boolean) => ({
+    ...snapshot('run_2', index, cited, '2026-09-08T00:00:10Z'),
+    id: `snap_${provider}_${index}`, query: queries[index]!, provider,
+    answerMentioned: mentioned, visibilityState: mentioned ? 'visible' : 'not-visible', mentionState: mentioned ? 'mentioned' : 'not-mentioned',
+  })
+  const data: ProjectData = {
+    project,
+    runs: [first, latest, cancelled],
+    queries: queries.map((query, index) => ({ id: `q_${index}`, query, createdAt: '2026-08-01T00:00:00Z' })),
+    competitors: [],
+    timeline: [
+      { query: queries[0]!, runs: lostMention, providerRuns: { openai: lostMention, gemini: lostMention }, modelRuns: {} },
+      { query: queries[1]!, runs: lostCitation, providerRuns: { openai: lostCitation }, modelRuns: {} },
+      { query: queries[2]!, runs: keptInLatest, providerRuns: { openai: keptInLatest }, modelRuns: {} },
+    ],
+    latestRunDetails: [{ ...latest, snapshots: [answer(0, 'openai', false, false), answer(0, 'gemini', false, false), answer(1, 'openai', false, false), answer(2, 'openai', true, true)] }],
+    previousRunDetails: [],
+  }
+
+  // The rows behind the counts: three lost one signal each, and only their own check counts.
+  const rows = buildProjectCommandCenter(data).visibilityEvidence
+  expect(rows.map(row => [row.query, row.provider, row.citationState, row.visibilityChangeLabel])).toEqual([
+    ['best polyurea roof coating', 'gemini', 'not-cited', 'Lost since the previous check'],
+    ['best polyurea roof coating', 'openai', 'not-cited', 'Lost since the previous check'],
+    ['polyurea vs silicone roof coating', 'openai', 'lost', 'Not mentioned in the last 2 checks'],
+    ['roof coating contractors', 'openai', 'cited', 'Mentioned in the last 2 checks'],
+  ])
+  const items = buildDashboard([data], null).portfolioOverview.attentionItems
+  expect(items.map(item => [item.id, item.tone, item.title, item.detail, item.actionLabel, item.href])).toEqual([
+    ['attention_proj_1_lost_mentions', 'negative', 'Acme Coatings lost mentions', '1 query lost a mention in the latest check.', 'Open project', '/projects/acme'],
+    ['attention_proj_1_lost', 'negative', 'Acme Coatings lost citations', '1 query lost a citation in the latest check.', 'Open project', '/projects/acme'],
+  ])
+})
+
+test('What changed counts every distinct query that lost a signal, in the plural', () => {
+  const { project, run, snapshot } = sweepFixture()
+  const first = run('run_1', 'completed', '2026-09-01T00:00:00Z')
+  const latest = run('run_2', 'completed', '2026-09-08T00:00:00Z')
+  const queries = ['best polyurea roof coating', 'polyurea vs silicone roof coating']
+  const lost = [
+    { runId: 'run_1', createdAt: '2026-09-01T00:00:00Z', location: null, citationState: 'cited', transition: 'new', answerMentioned: true, mentionState: 'mentioned', mentionTransition: 'new', visibilityState: 'visible', visibilityTransition: 'new' },
+    { runId: 'run_2', createdAt: '2026-09-08T00:00:00Z', location: null, citationState: 'not-cited', transition: 'lost', answerMentioned: false, mentionState: 'not-mentioned', mentionTransition: 'lost', visibilityState: 'not-visible', visibilityTransition: 'lost' },
+  ]
+  const items = buildDashboard([{
+    project,
+    runs: [first, latest],
+    queries: queries.map((query, index) => ({ id: `q_${index}`, query, createdAt: '2026-08-01T00:00:00Z' })),
+    competitors: [],
+    timeline: queries.map(query => ({ query, runs: lost, providerRuns: { openai: lost }, modelRuns: {} })),
+    latestRunDetails: [{ ...latest, snapshots: [snapshot('run_2', 0, false, '2026-09-08T00:00:10Z'), snapshot('run_2', 1, false, '2026-09-08T00:00:10Z')] }],
+    previousRunDetails: [],
+  }], null).portfolioOverview.attentionItems
+  expect(items.map(item => [item.title, item.detail])).toEqual([
+    ['Acme Coatings lost mentions', '2 queries lost a mention in the latest check.'],
+    ['Acme Coatings lost citations', '2 queries lost a citation in the latest check.'],
   ])
 })
 

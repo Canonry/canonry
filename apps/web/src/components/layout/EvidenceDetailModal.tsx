@@ -12,6 +12,7 @@ import { competitorHighlightTerms, type HighlightTermGroup } from '../../lib/hig
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
 import type { CitationInsightVm, ProjectCommandCenterVm } from '../../view-models.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
+import { formatSweepDay, formatSweepInstant } from '../../lib/format-helpers.js'
 
 /** Shape of snapshot data used for display — works for both current evidence and fetched historical snapshots. */
 export interface EvidenceDisplayData {
@@ -88,16 +89,36 @@ function describeMentionChange(transition?: string, mentionState?: string): stri
   switch (transition) {
     case MentionTransitions.new: return 'First observation'
     case MentionTransitions.emerging: return 'First mention'
-    case MentionTransitions.lost: return 'Lost since last run'
+    case MentionTransitions.lost: return 'Lost since the previous check'
     default:
       // Accept both the canonical 'mentioned' / 'not-mentioned' values and
       // the legacy 'visible' / 'not-visible' aliases so consumers can pass
       // either while the API and DTO migration rolls out.
-      if (mentionState === MentionStates.mentioned || mentionState === VisibilityStates.visible) return 'Mentioned in latest run'
-      if (mentionState === 'pending') return 'Awaiting first run'
-      if (mentionState === MentionStates['not-mentioned'] || mentionState === VisibilityStates['not-visible']) return 'Not mentioned in latest run'
+      if (mentionState === MentionStates.mentioned || mentionState === VisibilityStates.visible) return 'Mentioned in the latest check'
+      if (mentionState === 'pending') return 'Awaiting first check'
+      if (mentionState === MentionStates['not-mentioned'] || mentionState === VisibilityStates['not-visible']) return 'Not mentioned in the latest check'
       return 'Mention not measured'
   }
+}
+
+/** The modal's empty states, exported so tests assert the shipped strings. */
+export const EVIDENCE_EMPTY_COPY = {
+  sourcesPending: 'Sources appear after the first check.',
+  noSources: 'This answer has no sources.',
+  sourcesNotRecorded: 'No sources recorded for this check.',
+  nothingRecorded: 'No mention assessment or sources recorded for this check.',
+} as const
+
+/**
+ * Each check's chip names its day ("Nov 7", with the year outside the current
+ * one). Checks that share a day add their time ("Nov 7, 3:04 PM"), so no two
+ * chips read alike.
+ */
+function checkChipLabels(runs: readonly { createdAt: string }[]): string[] {
+  const days = runs.map(run => formatSweepDay(run.createdAt))
+  return runs.map((run, index) => days.filter(day => day === days[index]).length > 1
+    ? formatSweepInstant(run.createdAt)
+    : days[index]!)
 }
 
 export function EvidenceDetailModal({
@@ -123,6 +144,7 @@ export function EvidenceDetailModal({
   const myDomains = new Set(projectDomains.map(normalizeProjectDomain))
   const history = evidence.runHistory
   const hasHistory = history.length > 1
+  const chipLabels = checkChipLabels(history)
 
   // Auto-fetch answer text when the initial evidence has none (e.g. latest run
   // was a single-provider run that didn't include this provider).
@@ -200,6 +222,11 @@ export function EvidenceDetailModal({
     || display.citedCompetitorDomains.length > 0
     || display.groundingSources.length > 0
     || display.evidenceUrls.length > 0
+  // A recorded answer without links has no sources; with no answer recorded,
+  // nothing says whether it would have had any.
+  const noSourcesCopy = isPending
+    ? EVIDENCE_EMPTY_COPY.sourcesPending
+    : display.answerSnippet ? EVIDENCE_EMPTY_COPY.noSources : EVIDENCE_EMPTY_COPY.sourcesNotRecorded
 
   // Terms to highlight in the AI answer
   const projectDisplayName = project.project.displayName || project.project.name
@@ -304,7 +331,7 @@ export function EvidenceDetailModal({
         searchQueries: [],
         evidenceUrls: [],
         changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, mentionDisplayStatus(run)),
-        summary: 'Snapshot data not available for this run.',
+        summary: 'This check saved no answer for this query.',
       }
 
       setRunCache(prev => ({ ...prev, [cacheKey]: data }))
@@ -329,7 +356,7 @@ export function EvidenceDetailModal({
         searchQueries: [],
         evidenceUrls: [],
         changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, mentionDisplayStatus(run)),
-        summary: 'Failed to load historical run data.',
+        summary: 'Could not load this check.',
       })
     } finally {
       if (requestId === activeRequestRef.current) {
@@ -375,7 +402,7 @@ export function EvidenceDetailModal({
     if (isPending) {
       return {
         label: 'Pending',
-        title: 'Awaiting first run',
+        title: 'Awaiting first check',
         meta: 'No provider data yet',
       }
     }
@@ -415,7 +442,7 @@ export function EvidenceDetailModal({
           {/* ── Run history timeline ── */}
           {hasHistory && (
             <div className="evidence-modal-timeline">
-              <p className="drawer-section-label mb-1.5">Run history</p>
+              <p className="drawer-section-label mb-1.5">Check history</p>
               <div className="flex items-center gap-1 overflow-x-auto pb-1">
                 {history.map((run, i) => {
                   const isSelected = (selectedRunIdx === -1 && i === history.length - 1) || selectedRunIdx === i
@@ -424,8 +451,7 @@ export function EvidenceDetailModal({
                   const dotColor = status === MentionStates.mentioned
                     ? 'bg-positive-400' : status === MentionStates['not-mentioned'] && transition === MentionTransitions.lost
                       ? 'bg-negative-400' : 'bg-mono-600'
-                  const date = new Date(run.createdAt)
-                  const label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                  const label = chipLabels[i]!
                   const modelChanged = Boolean(run.model && i > 0 && history[i - 1]?.model && history[i - 1]!.model !== run.model)
                   return (
                     <button
@@ -434,10 +460,10 @@ export function EvidenceDetailModal({
                       className={`evidence-run-dot ${isSelected ? 'evidence-run-dot--selected' : ''}`}
                       onClick={() => { void selectHistoricalRun(i === history.length - 1 ? -1 : i) }}
                       aria-label={[
-                        `Run ${label}: ${mentionStatusLabel(status)}`,
+                        `Check ${label}: ${mentionStatusLabel(status)}`,
                         run.model ? `model ${run.model.includes('/') ? formatModelName(run.model) : run.model}` : null,
                         modelChanged ? 'model changed' : null,
-                      ].filter(Boolean).join(' \u2014 ')}
+                      ].filter(Boolean).join(', ')}
                       aria-pressed={isSelected}
                     >
                       <span
@@ -450,8 +476,8 @@ export function EvidenceDetailModal({
                 })}
               </div>
               {selectedRunIdx >= 0 && selectedRunIdx < history.length && (
-                <p className="text-copy-13 text-muted mt-1">
-                  Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} {'\u2014'} <span className="capitalize">{mentionStatusLabel(mentionDisplayStatus(history[selectedRunIdx]))}</span>
+                <p className="text-copy-13 text-secondary mt-1">
+                  Viewing the check from {formatSweepInstant(history[selectedRunIdx].createdAt)} · <span className="capitalize">{mentionStatusLabel(mentionDisplayStatus(history[selectedRunIdx]))}</span>
                   <button type="button" className="text-secondary hover:text-strong ml-2" onClick={() => { void selectHistoricalRun(-1) }}>{'\u2190'} Back to latest</button>
                 </p>
               )}
@@ -474,7 +500,7 @@ export function EvidenceDetailModal({
           <div className="evidence-modal-body">
             {loadingHistory && (
               <div className="md:col-span-2 flex items-center justify-center py-12 text-muted text-label-14">
-                Loading historical run data{'\u2026'}
+                Loading this check{'\u2026'}
               </div>
             )}
 
@@ -515,9 +541,12 @@ export function EvidenceDetailModal({
                     </div>
                   )}
 
+                  {/* A past check without its answer says why: not saved, or not
+                      loaded. The latest answer's summary is never shown: it
+                      only restates the status above. */}
                   {!display.answerSnippet && !loadingHistory && (
-                    <div className="material-base px-4 py-8 text-center text-faint text-label-14">
-                      No answer text recorded for this run
+                    <div className="material-base px-4 py-8 text-center text-secondary text-label-14">
+                      {isViewingHistory && display.summary ? display.summary : 'No answer text recorded for this check'}
                     </div>
                   )}
 
@@ -526,7 +555,7 @@ export function EvidenceDetailModal({
                     <div>
                       <div className="drawer-section-label flex items-center">
                         <span>Web searches the model ran</span>
-                        <InfoTooltip text="The search queries this AI model issued while researching your prompt. They reveal how the model reformulated your query — the phrasings worth optimizing your content for. Distinct from grounding sources (what it found) and citations (what it linked)." />
+                        <InfoTooltip text="The search queries this AI model issued while researching your prompt. They reveal how the model reformulated your query: the phrasings worth optimizing your content for. Distinct from grounding sources (what it found) and citations (what it linked)." />
                       </div>
                       <ul className="grid gap-1">
                         {display.searchQueries.map((q, i) => (
@@ -543,7 +572,7 @@ export function EvidenceDetailModal({
                   {!isViewingHistory && !isUnmeasured && evidence.relatedTechnicalSignals.length > 0 && (
                     <div>
                       <p className="drawer-section-label">
-                        {isMentioned ? 'Why you\'re visible' : 'What to fix'}
+                        {isMentioned ? 'Why you\'re mentioned' : 'What to fix'}
                       </p>
                       <div className="action-items-list">
                         {evidence.relatedTechnicalSignals.map((signal, i) => (
@@ -568,11 +597,6 @@ export function EvidenceDetailModal({
                       </div>
                     </div>
                   )}
-
-                  {/* Summary */}
-                  {display.summary && (
-                    <p className="text-copy-13 text-faint border-t border-subtle pt-3 mt-1">{display.summary}</p>
-                  )}
                 </div>
 
                 {/* Right: leaderboard + sources */}
@@ -584,7 +608,7 @@ export function EvidenceDetailModal({
                         className={`sidebar-tab ${sidebarTab === 'mentions' ? 'sidebar-tab--active' : ''}`}
                         onClick={() => setSidebarTab('mentions')}
                         type="button"
-                        title="Canonry's answer-level visibility assessment and any company names extracted from the answer text."
+                        title="Whether the answer text names your brand or domain, and any company names found in it."
                       >
                         Mentions
                       </button>
@@ -592,7 +616,7 @@ export function EvidenceDetailModal({
                         className={`sidebar-tab ${sidebarTab === 'sources' ? 'sidebar-tab--active' : ''}`}
                         onClick={() => setSidebarTab('sources')}
                         type="button"
-                        title="Grounding links the model used to build the answer. These are supporting sources, not the primary visibility signal."
+                        title="Links the model used to build the answer. Your domain in these links is what counts as cited."
                       >
                         Sources
                       </button>
@@ -640,7 +664,7 @@ export function EvidenceDetailModal({
                                 <span key={term} className="mention-chip mention-chip--muted">{term}</span>
                               ))}
                             </div>
-                            <p className="text-copy-13 text-faint mt-1.5">None of these appear in the answer text.</p>
+                            <p className="text-copy-13 text-secondary mt-1.5">None of these appear in the answer text.</p>
                           </div>
                         )}
                       </div>
@@ -702,7 +726,7 @@ export function EvidenceDetailModal({
                         <div>
                           <div className="drawer-section-label flex items-center">
                             <span>Grounding source links ({display.groundingSources.length})</span>
-                            <InfoTooltip text="Links the model used as grounding or supporting context while producing the answer. These are not the same thing as answer visibility." />
+                            <InfoTooltip text="Links the model used as grounding or supporting context while producing the answer. They are separate from mentions in the answer text." />
                           </div>
                           <ul className="grid min-w-0 gap-3">
                             {display.groundingSources.map((src, i) => (
@@ -726,18 +750,18 @@ export function EvidenceDetailModal({
                       )}
 
                       {display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
-                        <div className="flex items-center justify-center h-24 text-faint text-label-14">
-                          No source data {isViewingHistory ? 'for this run' : 'yet'}
-                        </div>
+                        <p className="flex items-center justify-center h-24 text-center text-copy-14 text-secondary">
+                          {noSourcesCopy}
+                        </p>
                       )}
                     </>
                   )}
 
                   {/* No data state */}
                   {!hasMentionData && !hasSourceData && (
-                    <div className="flex items-center justify-center h-24 text-faint text-label-14">
-                      No answer visibility data {isViewingHistory ? 'for this run' : 'yet'}
-                    </div>
+                    <p className="flex items-center justify-center h-24 text-center text-copy-14 text-secondary">
+                      {EVIDENCE_EMPTY_COPY.nothingRecorded}
+                    </p>
                   )}
                 </div>
               </>

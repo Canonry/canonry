@@ -541,7 +541,9 @@ function providerSummaries(registry: ProviderRegistry, config: CanonryConfig, in
     name: adapter.name,
     displayName: adapter.displayName,
     keyUrl: adapter.keyUrl,
-    modelHint: `e.g. ${adapter.modelRegistry.defaultModel}`,
+    // A gateway or answer service has no single default model, and "e.g. "
+    // with nothing after it is not a hint.
+    ...(adapter.modelRegistry.defaultModel ? { modelHint: `e.g. ${adapter.modelRegistry.defaultModel}` } : {}),
     model: registry.get(adapter.name)?.config.model ?? undefined,
     defaultModel: adapter.modelRegistry.defaultModel,
     configured: Boolean(registry.get(adapter.name)),

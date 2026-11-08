@@ -293,3 +293,17 @@ test('without added queries a first sweep still reads "First mention"', () => {
   expect(within(row).getByText('First mention')).toBeTruthy()
   expect(within(row).queryByText('new query')).toBeNull()
 })
+
+test('status labels use the sentence case the rest of the product uses', () => {
+  render(<EvidenceTable evidence={[
+    evidence('Best widgets', 'non-brand', { citationState: 'not-cited', answerMentioned: false, visibilityState: 'not-visible' }),
+  ]} />)
+
+  const row = () => screen.getByText('Best widgets').closest('tr')!
+  expect(within(row()).getAllByText('Not mentioned').length).toBeGreaterThan(0)
+  expect(within(row()).queryByText('Not Mentioned')).toBeNull()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Citations' }))
+  expect(within(row()).getAllByText('Not cited').length).toBeGreaterThan(0)
+  expect(within(row()).queryByText('Not Cited')).toBeNull()
+})

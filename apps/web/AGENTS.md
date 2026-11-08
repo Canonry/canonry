@@ -204,7 +204,8 @@ lock identity fields while quota-only edits remain possible. Host-managed Vertex
 batch and pricing fields stay read-only. Hosts without lifecycle metadata retain
 the compact setup form, without advertising unavailable reset or disconnect.
 When `/settings` returns `providerConnectionsUnavailable` instead of the list, the
-section shows its reason and message, keeps Reload from host, lists the server's
+section shows its reason and message, keeps Reload from config file (it re-reads
+the server's saved provider config and calls no provider), lists the server's
 configured providers read-only, and never claims nothing is configured. A
 connection's `usage.unknown` projects (an unreadable plan or draft) appear beside
 the counted ones in the row and the disconnect dialog, never as unused.
@@ -389,7 +390,12 @@ Under a rule, "Mention gaps" and "Citation gaps" read GET /overview's
 and include that scope in each value's accessible text. Show the denominator
 once, beside the count, rather than repeating the server's caption. They have
 no class split, so the class control never touches them. The section needs no
-read beyond /overview.
+read beyond /overview. A gap counts only tracked competitors, so with none
+tracked the rows give way to an empty state (`COMPETITOR_COMPARISON_COPY`:
+"No competitors set", why, and an Add competitors action for writers outside
+embeds), and Mention share reads "No comparison" with its named-in count. The
+disclosure toggle takes its name from the heading alone (`aria-labelledby`),
+with its meta line as the description.
 
 Above the query table, "By engine" (`CitationVisibilitySection`,
 GET /visibility-report) shows one class at a time and one row per stored engine,
@@ -901,9 +907,11 @@ Validation owns different risks:
 
 - Public domain/name/locale and unsaved query/competitor inputs restore from allowlisted session storage scoped by base path and project. Scan consent and provider credentials never persist. Saving clears the saved field's draft; Reset restores persisted project/query state, while Skip or leaving preserves unsaved inputs.
 - AI-first setup opens the project directly after its first result or an explicit skip. Agent Readiness-first completion leads with a compact Project saved heading, one sweep status and Open project. Optional setup is a flat list: Connect your agent opens `/agent-setup`, and the data-source details start closed. Keep promotional demos and repeated explanatory paragraphs off this finish step. It derives scan/sweep outcomes from their latest saved runs. Distinguish never started, skipped, queued, running, partial, failed, cancelled and completed; name previous saved evidence separately. Provider/query readiness determines the next action.
-- Fresh setup leads with website and brand, then enters the exact project’s AI Visibility setup without a crawl or scan consent. `siteScan=scan` is an explicit optional Agent Readiness entry; preserve its consent and first-scan 100-page cap. Existing scan links remain pinned to their run, while an unscanned project resumes its first AI check.
+- Fresh setup leads with website and brand, then enters the exact project’s AI Visibility setup without a crawl or scan consent. The Brand name and Project name fields hold only what the operator types: the names derived from the website (`suggestedBrandName`, the normalized project name) are their placeholders and apply when a field is left blank, so typing never appends to a suggestion and clearing never refills one. A name conflict opens Project details, focuses Project name and links to the existing project. `siteScan=scan` is an explicit optional Agent Readiness entry; preserve its consent and first-scan 100-page cap. Existing scan links remain pinned to their run, while an unscanned project resumes its first AI check.
+- Telemetry status (`GET /api/v1/telemetry`) is operator-only and refuses cookie sessions, so setup reads it only when the browser carries its own API key; a cookie session never asks and shows no telemetry toggle.
 - A saved provider connection is `Configured`, not verified access. Key saves and settings refreshes do not prove provider authentication or quota. Repair a failed first check inline with the shared revision-aware connection editor; preserve the run and saved queries on return.
-- Launch review uses the server's canonical saved query list, including its deduplication, and displays effective engines/models and market. Keep query research, generation, tuning, and result counts behind disclosures. Never infer a sweep ETA or completion percentage from elapsed time.
+- Launch review uses the server's canonical saved query list, including its deduplication, and displays effective engines/models and market. Website, Market (`formatLocaleLabel`) and Location read as one definition list, in setup and in the project's run review. Keep query research, generation and tuning behind disclosures. Query counts and Save count unique queries (`uniqueQueryTexts`, the server's `normalizeQueryText` rule); Generate appends only new queries and says how many duplicates it skipped. Progress names its total only from the launched check's previewed request count ("2 of 6 engine results saved"); a resumed check without one says only what is saved. Never infer a sweep ETA or completion percentage from elapsed time.
+- The first result leads with what the check found: a flat row (Mentioned X of N queries, Cited Y of N queries, Engine results) labelled as all queries, then one saved answer: a non-brand answer that mentions, else cites, the brand (by the server's `queryClass` on the saved queries; a branded query hands the engine the name), then any that mentions or cites, else the first. Read full answer appears only when the preview is cut. A completed check ticks the last setup step.
 - Correlate each run outcome once per launched run, including retries. A handled scan marker must not be reactivated by reloading its onboarding link. The Agent Readiness scan and the first AI check share one launched-run marker that records its run kind; AI setup resumes and reports only an AI Visibility check, and treats a marker without a kind as one only when its run is in the project's AI Visibility run list. Keep the AI setup wizard mounted while completed-run overview summaries refresh; a handled AI run can still resume its saved result without emitting its outcome again. AI-first forward exits emit the existing finish/open_project action in the same journey, including an explicit skipped method; Back navigation is not completion.
 - A resumed run's list status does not prove that its answer details have loaded. Keep a loading/retry state until the detail read settles before treating zero saved answers as a failure. User-driven step changes focus the new step heading; failed checks retain an exit to the saved project.
 
@@ -921,8 +929,10 @@ The schedule editor defaults a new schedule to the browser timezone, displays th
 - **Aero bar lane.** While the floating Aero bar shows, `RootLayout` adds `main-area-agent-bar` to `.main-area` (the wrapper holding the page): bottom padding plus a matching root `scroll-padding-bottom`, so the bar never covers a control. Product links and the version live in the sidebar and mobile navigation, outside the page. Pages never pad for the bar themselves.
 - Pages use a `page-header` (title + subtitle + optional actions) followed by `page-section` sections. Use `page-section-divider` only when a rule adds separation that an adjacent card or table edge does not already provide. Project pages instead use the project context row: identity lives in the topbar breadcrumb (plus one visually hidden `h1`, visible below md), and the sweep action lives in the row's `[data-project-actions]`. Embeds keep `page-header`.
 - **After a deploy.** Pages are lazy routes whose code files are named by content hash, and a deploy removes the old ones, so a tab opened before it fails when it opens a page it has not loaded. `ErrorBoundary` recognizes that error (`lib/stale-build.ts`), shows "Canonry was updated" with a Reload button instead of the raw message, and reloads by itself at most once per 30 s. TanStack Router's own once-per-message reload is not enough on its own: it never forgets, and Safari's message names no file. The server answers a missing file under `assets/` with a 404, never the app shell.
-- Runs uses one compact filter bar and a table. Status, project, type, date and search remain URL-backed. Run links preserve the opener through loading and saved-detail drawers and restore it on dismissal. Unknown routes use the root router's `notFoundComponent`, with a working project recovery link.
-- Project sections use `ProjectSubnav`'s underline tab row, with the remaining sections in More. The open section is always a visible tab with `aria-current="page"`: an open More section shows as a tab before More, and narrow panels move other sections into More, never the open one. Operators reach Settings through the sidebar's Project settings link, which carries the dashboard URL state like the tabs (minus `onboarding`); only embeds get a Settings tab. Row links use `activeOptions={{ exact: true }}`: AI Visibility is the project root, so the router's default prefix match would also mark it current on every other section.
+- "/" is named Overview everywhere it appears (sidebar, mobile navigation, breadcrumb root, page title); "Projects" is the project list at `/projects`. The sidebar footer keeps product links, and the version shows once, in the lockup.
+- Overview's "What changed" lists lost mentions and lost citations as separate items, one per query (built in `build-dashboard.ts` from the dashboard reads; moving it into the server's overview response is an open follow-up). Its rows label "Competitor pressure" visibly and say "No competitors set" for a project that tracks none.
+- Runs uses one compact filter bar and a table. "Run all projects" opens a review first (project count, what each runs, that provider charges apply); there is no all-projects preview API, so it shows no request totals. Status, project, type, date and search remain URL-backed. Run links preserve the opener through loading and saved-detail drawers and restore it on dismissal. Unknown routes use the root router's `notFoundComponent`, with a working project recovery link.
+- Project sections use `ProjectSubnav`'s underline tab row in `projectSectionTabs()` order (AI Visibility, Queries, then the rest, in sentence case), with the remaining sections in More. On Agent Readiness the project row hides Run AI Visibility check, because that tab has its own Run scan. The open section is always a visible tab with `aria-current="page"`: an open More section shows as a tab before More, and narrow panels move other sections into More, never the open one. Operators reach Settings through the sidebar's Project settings link, which carries the dashboard URL state like the tabs (minus `onboarding`); only embeds get a Settings tab. Row links use `activeOptions={{ exact: true }}`: AI Visibility is the project root, so the router's default prefix match would also mark it current on every other section.
 - Sidebar main nav items use Lucide icons (`LayoutDashboard`, `Globe`, `Play`, `Settings`).
 - The sidebar Projects section shows each project with a colored dot indicating visibility health tone.
 - The sidebar Resources section sits at the bottom, with the `Rocket` icon for Setup. Doc links sit in the sidebar footer.
@@ -936,6 +946,8 @@ The schedule editor defaults a new schedule to the browser timezone, displays th
 - `aria-label` on nav landmarks.
 - Focus-visible rings on interactive elements.
 - Screen-reader-only labels (`.sr-only`) where needed.
+- A `<summary>` that holds a heading takes its accessible name from that heading alone (`aria-labelledby`); counts or dates beside it are its description (`aria-describedby`).
+- Setup and settings fields share `.setup-input` / `.setup-textarea`, whose `:focus-visible` border and ring are stronger than both the resting and hover borders in both themes (pinned in `design-tokens.test.ts`).
 
 ### Component organization
 
@@ -1013,6 +1025,21 @@ family. Internal identifiers stay as they are (`SiteHealthSection`,
 `siteHealthRunId`, telemetry action and event names). Telemetry keeps the
 `technical-aeo` page and tab in `UI_PAGES` / `UI_PROJECT_TABS` beside the
 canonical ones, for events from dashboards built before the rename.
+
+Inside the tab, the section heading is "Site scan" (never the tab's own name)
+and leads with state: the status badge, then the shown scan's "Score N/100"
+("Score so far" for a partial scan) read from the same score query the Score
+view uses, then the date. The four scan counts (Pages found, Pages checked,
+Indexable, Internal links) show on every view, so each view's own count reads
+against them; one word means one number ("70 pages scored", "Showing 72 of 72
+pages", the map's "75 pages on the map · 284 links shown" counting the links it
+draws). Scan history appears only once there is a scan to pick. The Score
+table's band column is "Worst page" (the worst audited page's band, beside the
+mean score), and checks list worst first: Fail, Partial, Pass, then more pages
+affected, then the lower score; ties keep the API order. A failed latest scan
+mentions earlier results only when there are some. Scan settings is a
+`<details>` popover that closes on an outside pointerdown, on Escape (focus
+returns to its summary), and when a scan starts.
 
 ### Retired Report tab
 

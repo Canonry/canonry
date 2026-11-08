@@ -10,12 +10,18 @@ import { ManagedSweepStatus, MANAGED_SWEEPS_COPY } from '../components/project/M
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ONBOARDING_FLOW_VERSION,
+  ProviderNames,
   RunKinds,
   RunStatuses,
   bucketOnboardingCount,
-  formatZonedTimestamp,
+  formatLocaleLabel,
   isOpenRouterRoute,
+  normalizeQueryText,
   openRouterRouteModel,
+  uniqueQueryTexts,
+  QueryClasses,
+  type QueryClass,
+  type CitationState,
   type OnboardingTelemetryEvent,
 } from '@canonry/canonry-contracts'
 
@@ -59,7 +65,7 @@ import { useOnboardingRunOutcome } from './OnboardingCompletePage.js'
 import { clearOnboardingDraft, readOnboardingDraft, wasOnboardingScanSkipped, writeOnboardingDraft } from '../lib/onboarding-draft.js'
 import { useUnsavedChanges } from '../hooks/use-unsaved-changes.js'
 import { asyncHandler } from '../lib/async-handler.js'
-import { summarizeRunError } from '../lib/format-helpers.js'
+import { formatSweepInstant, summarizeRunError } from '../lib/format-helpers.js'
 import {
   CDP_PROVIDER_NAME,
   normalizeProviderName,
@@ -91,9 +97,95 @@ const SETUP_STEPS = [
 ] as const
 
 const PROJECT_VISIBILITY_STEPS = [
-  { label: 'Queries' },
+  // The step opens on connecting an engine when none is ready.
+  { label: 'Engines and queries' },
   { label: 'First check' },
 ] as const
+
+/** Characters of the first saved answer shown before "Read full answer". */
+const FIRST_ANSWER_PREVIEW_LENGTH = 650
+
+/**
+ * What each provider is and what connecting it takes, as its adapter
+ * (`packages/provider-*`) and `docs/providers/` describe it.
+ */
+const PROVIDER_CONNECT_GUIDANCE: Readonly<Partial<Record<string, string>>> = {
+  [ProviderNames.gemini]: "Google's Gemini models, answering with Google Search. Needs an API key.",
+  [ProviderNames.openai]: "OpenAI's GPT models, answering with web search. Needs an API key.",
+  [ProviderNames.claude]: "Anthropic's Claude models, answering with web search. Needs an API key.",
+  [ProviderNames.perplexity]: 'Perplexity, answering with web search. Needs an API key.',
+  [ProviderNames.muse]: "Meta's Muse models, answering with web search. Needs a Meta Model API key.",
+  [ProviderNames.openrouter]: 'Models from several makers through one key. You choose which models to check. Needs an API key.',
+  [ProviderNames.local]: 'A model you run on an OpenAI-compatible server, without web search. Needs its base URL; an API key is optional.',
+}
+
+/**
+ * The queries in a one-per-line list, each once. Lines match as the server's
+ * query replace matches them (`normalizeQueryText`), keeping the first
+ * spelling, so a count read from this is the number Save stores.
+ */
+function uniqueQueryLines(text: string): string[] {
+  return uniqueQueryTexts(text.split('\n'))
+}
+
+/** Generated suggestions the list does not hold yet, and how many it already held. */
+function newQuerySuggestions(currentText: string, suggestions: readonly string[]): { added: string[]; skipped: number } {
+  const known = new Set(uniqueQueryLines(currentText).map(normalizeQueryText))
+  const added: string[] = []
+  let skipped = 0
+  for (const suggestion of suggestions) {
+    const query = suggestion.trim()
+    const key = normalizeQueryText(query)
+    if (!key) continue
+    if (known.has(key)) {
+      skipped += 1
+      continue
+    }
+    known.add(key)
+    added.push(query)
+  }
+  return { added, skipped }
+}
+
+/**
+ * The saved answer to show first: one that names the brand, else one that
+ * cites the site, else the first. Only an answer with text can be shown.
+ */
+function featuredSetupAnswer<T extends { queryId: string; answerText?: string | null; answerMentioned?: boolean | null; citationState: CitationState }>(
+  snapshots: readonly T[],
+  queryClassOf: (queryId: string) => QueryClass | null | undefined = () => undefined,
+): T | undefined {
+  const answered = snapshots.filter(snapshot => Boolean(snapshot.answerText?.trim()))
+  // A branded query hands the engine the brand's name, so its mention says
+  // little; a non-brand answer that names or cites the brand is the proof.
+  const nonBrand = answered.filter(snapshot => queryClassOf(snapshot.queryId) === QueryClasses['non-brand'])
+  return nonBrand.find(snapshot => snapshot.answerMentioned === true)
+    ?? nonBrand.find(snapshot => snapshot.citationState === CitationStates.cited)
+    ?? answered.find(snapshot => snapshot.answerMentioned === true)
+    ?? answered.find(snapshot => snapshot.citationState === CitationStates.cited)
+    ?? answered[0]
+}
+
+/** One figure in the first result's summary row. Its value names the query class for screen readers. */
+function ResultFigure({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="py-3 sm:px-4 sm:first:pl-0 sm:last:pr-0">
+      <dt className="text-label-14 text-secondary">{label}</dt>
+      <dd className="mt-1">{children}<span className="sr-only"> · all queries</span></dd>
+    </div>
+  )
+}
+
+/** "3 of 7 queries", or Unavailable when the run reports no query counts. */
+function QueryShare({ count, total }: { count: number | undefined; total: number | undefined }) {
+  if (count === undefined || total === undefined) return <span className="text-label-14 text-secondary">Unavailable</span>
+  return (
+    <>
+      <span className="text-heading-20 tabular-nums text-heading">{count}</span>{' '}
+      <span className="text-label-14 text-secondary">of {total} {total === 1 ? 'query' : 'queries'}</span>
+    </>
+  )
+}
 
 type SetupStep = 0 | 1 | 2 | 3 | 4
 // `surface` is stamped centrally in `emitOnboardingEvent`, so no call site
@@ -152,8 +244,9 @@ function SetupStepIndicator({ current, labels }: { current: number; labels: read
         const active = i === current
         return (
           <div key={s.label} className={`setup-step ${done ? 'setup-step-done' : ''} ${active ? 'setup-step-active' : ''}`} role="listitem" aria-current={active ? 'step' : undefined}>
-            <span className="setup-step-number">{done ? '\u2713' : i + 1}</span>
+            <span className="setup-step-number" aria-hidden="true">{done ? '\u2713' : i + 1}</span>
             <span>{s.label}</span>
+            {done ? <span className="sr-only">Complete</span> : null}
           </div>
         )
       })}
@@ -497,6 +590,11 @@ function ReadySetupPage({
   const [queriesError, setQueriesError] = useState<string | null>(null)
   const [queriesSaving, setQueriesSaving] = useState(false)
   const [queriesGenerated, setQueriesGenerated] = useState(false)
+  // Suggestions the last Generate left out because the list already held them.
+  const [generatedDuplicates, setGeneratedDuplicates] = useState(0)
+  // Generate appends after a provider round trip; read the list as it is then.
+  const latestQueriesText = useRef(queriesText)
+  useEffect(() => { latestQueriesText.current = queriesText }, [queriesText])
 
   const projectProviders = (setupEngineProject?.providers ?? resumeProject?.project.providers ?? []).map(normalizeProviderName)
   // OpenRouter routes are named from OpenRouter's catalog (the administrator
@@ -605,6 +703,7 @@ function ReadySetupPage({
   const providerToConfigure = configurableProviders.find(provider => provider.name === configuringProvider)
     ?? configurableProviders.find(provider => provider.state !== 'ready' && provider.state !== 'configured')
     ?? configurableProviders.at(0)
+  const providerGuidance = providerToConfigure ? PROVIDER_CONNECT_GUIDANCE[normalizeProviderName(providerToConfigure.name)] : undefined
   const researchPrompt = `Help me choose AI Visibility queries for Canonry project ${JSON.stringify(createdProjectName ?? projectName)} (${domain}).
 1. Read the project, its existing tracked queries, and Agent Readiness findings. Ask about my customers, services, and locations if needed, then propose relevant customer queries.
 2. Check the configured connection's capabilities, then use Canonry's Research flow to test a small approved batch. Retrieve saved answers and any available sources. Compare brand mentions separately from site citations; unavailable citation evidence is not a "not cited" result. Text-only routes can inform query research but cannot establish an AI Visibility baseline. Research does not add queries to tracking. If more candidates are needed, propose ICP Discovery separately.
@@ -680,6 +779,9 @@ function ReadySetupPage({
   )
   const triggerRunMutation = useTriggerRun()
   const runPreview = useRunPreview(createdProjectName, step === 4 && !isDashboardManagedSweeps())
+  // The provider requests the server previewed for the check launched here:
+  // one engine result each. A check resumed from an earlier visit has none.
+  const [launchedRunPlan, setLaunchedRunPlan] = useState<{ runId: string; requestCount: number } | null>(null)
 
   // Poll the newly-triggered run so Step 5 can show results inline instead
   // of the previous "queued — open project page" handoff. Refetches every
@@ -714,7 +816,7 @@ function ReadySetupPage({
   const [geminiError, setGeminiError] = useState<string | null>(null)
 
   const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
-  const parsedQueries = queriesText.split('\n').map(k => k.trim()).filter(Boolean)
+  const parsedQueries = uniqueQueryLines(queriesText)
   const parsedCompetitors = competitorsText.split('\n').map(c => c.trim()).filter(Boolean)
   const effectiveQueryCount = durableQueryCount
   const systemBlockReason = onboardingSystemBlockReason({
@@ -805,6 +907,8 @@ function ReadySetupPage({
   const polledRunStatus = launchedRun.data?.status
   const polledSnapshotCount = launchedRun.data?.snapshots?.length ?? 0
   const showingSuccessfulRun = step === 4 && runTriggered && Boolean(polledRunStatus && isSuccessfulSetupRun(polledRunStatus, polledSnapshotCount))
+  // A baseline saved before this visit, which launched no check of its own.
+  const persistedSetupComplete = hasExistingSuccessfulBaseline && !runTriggered
   useEffect(() => {
     if (!runTriggered || !polledRunStatus) return
     // Only a run this onboarding session actually launched.
@@ -955,15 +1059,16 @@ function ReadySetupPage({
     if (!createdProjectName || !selectedProvider) return
     setGeneratingQueries(true)
     setGenerateError(null)
+    setGeneratedDuplicates(0)
     try {
       const result = await apiGenerateQueries(createdProjectName, selectedProvider, generateCount)
-      if (result.queries.length > 0) {
-        const newText = queriesText
-          ? queriesText.trimEnd() + '\n' + result.queries.join('\n')
-          : result.queries.join('\n')
-        setQueriesText(newText)
+      const currentText = latestQueriesText.current
+      const { added, skipped } = newQuerySuggestions(currentText, result.queries)
+      if (added.length > 0) {
+        setQueriesText(currentText.trim() ? `${currentText.trimEnd()}\n${added.join('\n')}` : added.join('\n'))
         setQueriesGenerated(true)
       }
+      setGeneratedDuplicates(skipped)
     } catch (err) {
       setGenerateError(err instanceof Error ? err.message : 'Failed to generate queries')
       emitOnboardingEvent({
@@ -1092,12 +1197,15 @@ function ReadySetupPage({
     }
     setRunSaving(true)
     setRunError(null)
+    // The preview is the server's projection of exactly this launch, read fresh.
+    const plannedRequests = runPreview.data.requestCount
     try {
       const run = await triggerRunMutation.mutateAsync({
         projectName: createdProjectName,
         projectLabel: displayName || projectName || createdProjectName,
         sourceAction: 'setup-launch',
       })
+      setLaunchedRunPlan({ runId: run.id, requestCount: plannedRequests })
       setLaunchedRunId(run.id)
       setRunTriggered(true)
       markOnboardingRunLaunched(createdProjectName, run.id, RunKinds['answer-visibility'])
@@ -1293,6 +1401,7 @@ function ReadySetupPage({
                     ref={providerSelectorRef}
                     id="setup-provider"
                     className="setup-input"
+                    aria-describedby={providerGuidance ? 'setup-provider-guidance' : undefined}
                     value={providerToConfigure.name}
                     onChange={event => {
                       if (event.target.value === providerToConfigure.name) return
@@ -1308,6 +1417,7 @@ function ReadySetupPage({
                       <option key={provider.name} value={provider.name}>{provider.displayName ?? provider.name}</option>
                     ))}
                   </select>
+                  {providerGuidance ? <p id="setup-provider-guidance" className="text-copy-13 text-secondary">{providerGuidance}</p> : null}
                 </div>
               )}
               secondaryActions={providerRefreshAction}
@@ -1315,6 +1425,7 @@ function ReadySetupPage({
               providerName={providerToConfigure.name}
               keyUrl={providerToConfigure.keyUrl}
               modelHint={providerToConfigure.modelHint}
+              defaultModel={providerToConfigure.defaultModel}
               onSaved={() => {
                 setProviderDirty(false)
                 setShowProviderConfig(false)
@@ -1385,7 +1496,7 @@ function ReadySetupPage({
                             autoComplete="new-password"
                             value={geminiKey}
                             onChange={(e) => setGeminiKey(e.target.value)}
-                            placeholder="AI... (paste here)"
+                            placeholder="AI… (paste here)"
                             className="flex-1 rounded-md border border-base bg-bg px-2.5 py-1.5 text-label-14-mono text-heading placeholder:text-faint focus:border-mono-600 focus:outline-none"
                             disabled={geminiSaving}
                           />
@@ -1395,7 +1506,7 @@ function ReadySetupPage({
                             disabled={geminiSaving || !geminiKey.trim()}
                             onClick={asyncHandler(handleSaveGeminiKey)}
                           >
-                            {geminiSaving ? 'Saving...' : 'Save'}
+                            {geminiSaving ? 'Saving…' : 'Save'}
                           </Button>
                         </div>
                         {geminiError && (
@@ -1520,7 +1631,7 @@ function ReadySetupPage({
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
                   <Button type="button" disabled={!slug || !domain || projectSaving} onClick={asyncHandler(handleCreateProject)}>
-                    {projectSaving ? 'Creating...' : 'Create project'}
+                    {projectSaving ? 'Creating…' : 'Create project'}
                   </Button>
                 </div>
               </div>
@@ -1580,7 +1691,7 @@ function ReadySetupPage({
                     id="queries"
                     className="setup-textarea"
                     rows={6}
-                    placeholder={'emergency dentist brooklyn\nbest invisalign downtown brooklyn\npediatric dentist brooklyn heights'}
+                    placeholder="One query per line"
                     value={queriesText}
                     onChange={(e) => setQueriesText(e.target.value)}
                   />
@@ -1620,10 +1731,14 @@ function ReadySetupPage({
                         disabled={generatingQueries || !selectedProvider}
                         onClick={asyncHandler(handleGenerateQueries)}
                       >
-                        {generatingQueries ? 'Analyzing site...' : 'Generate'}
+                        {generatingQueries ? 'Analyzing site…' : 'Generate'}
                       </Button>
                     </div>
-                    {generateError ? <p className="text-negative-400 text-copy-14">{generateError}</p> : null}
+                    {generateError ? <p role="alert" className="text-negative-400 text-copy-14">{generateError}</p> : null}
+                    {/* Always mounted, so the count is announced when it appears. */}
+                    <p role="status" className={generatedDuplicates > 0 ? 'pt-2 text-copy-13 text-secondary' : undefined}>
+                      {generatedDuplicates > 0 ? `${generatedDuplicates} ${generatedDuplicates === 1 ? 'duplicate' : 'duplicates'} skipped` : ''}
+                    </p>
                   </details>
                 ) : null}
                 <details open={researchCopyError || undefined} className="space-y-2">
@@ -1634,14 +1749,14 @@ function ReadySetupPage({
                   </Button>
                   {researchCopyError ? <p role="alert" className="text-copy-14 text-negative">Could not copy. Select and copy the prompt above.</p> : null}
                 </details>
-                {queriesError ? <p className="text-negative-400 text-copy-14">{queriesError}</p> : null}
+                {queriesError ? <p role="alert" className="text-negative-400 text-copy-14">{queriesError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={isProjectScoped ? openProjectDashboard : goBack}>Back</Button>
                   <Button type="button" variant="ghost" onClick={skipQueries}>
                     {isProjectScoped ? 'Finish without AI Visibility' : 'Skip for now'}
                   </Button>
                   <Button type="button" disabled={parsedQueries.length === 0 || queriesSaving} onClick={asyncHandler(handleSaveQueries)}>
-                    {queriesSaving ? 'Saving...' : `Save ${parsedQueries.length} quer${parsedQueries.length !== 1 ? 'ies' : 'y'}`}
+                    {queriesSaving ? 'Saving…' : `Save ${parsedQueries.length} quer${parsedQueries.length !== 1 ? 'ies' : 'y'}`}
                   </Button>
                 </div>
               </div>
@@ -1699,7 +1814,7 @@ function ReadySetupPage({
                           Skip
                         </Button>
                         <Button type="button" disabled={competitorsSaving} onClick={asyncHandler(handleSaveCompetitors)}>
-                          {competitorsSaving ? 'Saving...' : `Save ${parsedCompetitors.length} competitor${parsedCompetitors.length !== 1 ? 's' : ''}`}
+                          {competitorsSaving ? 'Saving…' : `Save ${parsedCompetitors.length} competitor${parsedCompetitors.length !== 1 ? 's' : ''}`}
                         </Button>
                       </>
                     )}
@@ -1721,8 +1836,14 @@ function ReadySetupPage({
           || runStatus === 'cancelled'
         const snapshots = run?.snapshots ?? []
         const queryCounts = run?.queryCounts
+        const plannedResults = run && launchedRunPlan?.runId === run.id ? launchedRunPlan.requestCount : null
+        const featured = featuredSetupAnswer(snapshots, queryId => durableQueries.find(saved => saved.id === queryId)?.queryClass)
+        const featuredAnswer = featured?.answerText ?? ''
+        // AnswerMarkdown cuts its preview past this many parsed characters.
+        // Markdown syntax and link URLs only make the written text longer, so
+        // an answer within the limit always shows in full.
+        const answerPreviewTruncated = Array.from(featuredAnswer).length > FIRST_ANSWER_PREVIEW_LENGTH
         const successfulRun = runStatus ? isSuccessfulSetupRun(runStatus, snapshots.length) : false
-        const persistedSetupComplete = hasExistingSuccessfulBaseline && !runTriggered
         const runFailureDetail = runError
           ?? (run?.error
             ? summarizeRunError(run.error)
@@ -1777,11 +1898,16 @@ function ReadySetupPage({
               </div>
             ) : !runTriggered ? (
               <div className="compact-stack">
-                <RunPreviewSummary preview={runPreview.data} pending={runPreview.isFetching} failed={runPreview.isError} onRetry={() => { void runPreview.refetch() }} />
-                <dl className="definition-list text-copy-14">
-                  <div><dt>Website</dt><dd>{domain}</dd></div>
-                  <div><dt>Market</dt><dd>{country} · {language}</dd></div>
-                </dl>
+                <RunPreviewSummary
+                  preview={runPreview.data}
+                  pending={runPreview.isFetching}
+                  failed={runPreview.isError}
+                  onRetry={() => { void runPreview.refetch() }}
+                  details={[
+                    { label: 'Website', value: domain },
+                    { label: 'Market', value: formatLocaleLabel(country, language) },
+                  ]}
+                />
                 <details>
                   <summary className="cursor-pointer py-2 text-label-14 text-link">Review saved queries</summary>
                   <ul className="detail-list mt-2" aria-label="Queries in this check">
@@ -1833,8 +1959,10 @@ function ReadySetupPage({
                   Your check is running. You can leave this page and return to its progress.
                 </p>
                 {run ? <p className="text-copy-13 text-secondary" role="status">
-                  {snapshots.length} engine {snapshots.length === 1 ? 'result' : 'results'} saved · {run.startedAt ? 'Started' : 'Queued'}{' '}
-                  <time dateTime={run.startedAt ?? run.createdAt}>{formatZonedTimestamp(run.startedAt ?? run.createdAt)}</time>
+                  {plannedResults !== null && snapshots.length <= plannedResults
+                    ? `${snapshots.length} of ${plannedResults} engine ${plannedResults === 1 ? 'result' : 'results'} saved`
+                    : `${snapshots.length} engine ${snapshots.length === 1 ? 'result' : 'results'} saved`} · {run.startedAt ? 'Started' : 'Queued'}{' '}
+                  <time dateTime={run.startedAt ?? run.createdAt}>{formatSweepInstant(run.startedAt ?? run.createdAt)}</time>
                 </p> : null}
                 {launchedRun.isError && (
                   <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
@@ -1880,35 +2008,28 @@ function ReadySetupPage({
               </div>
             ) : (
               <div className="compact-stack">
-                <p className="text-neutral">{snapshots.length} engine {snapshots.length === 1 ? 'result' : 'results'} saved for <span className="text-heading text-label-14-strong">{displayName || createdProjectName}</span>.</p>
-                {snapshots[0]?.answerText && <section className="mt-4 border-t border-default pt-4" aria-label="Your first saved answer">
-                  <div className="mb-3 flex flex-wrap items-center gap-2"><ProviderBadge provider={snapshots[0].provider} displayName={providerDisplayName(snapshots[0].provider)} /><ToneBadge tone={snapshots[0].answerMentioned ? 'positive' : 'neutral'}>{snapshots[0].answerMentioned === true ? 'Mentioned' : snapshots[0].answerMentioned === false ? 'Not mentioned' : 'Mention not measured'}</ToneBadge><ToneBadge tone={snapshots[0].citationState === CitationStates.cited ? 'positive' : 'neutral'}>{snapshots[0].citationState === CitationStates.cited ? 'Cited' : 'Not cited'}</ToneBadge></div>
-                  <h3 className="text-heading-16 text-heading">{snapshots[0].query}</h3>
-                  <div className="mt-3 text-copy-14 text-secondary"><AnswerMarkdown previewLength={650}>{snapshots[0].answerText}</AnswerMarkdown></div>
-                  <details className="mt-3"><summary className="cursor-pointer text-label-14 text-link">Read full answer</summary><div className="mt-3 text-copy-14 text-secondary"><AnswerMarkdown copyable>{snapshots[0].answerText}</AnswerMarkdown></div></details>
-                </section>}
-                <details><summary className="cursor-pointer py-2 text-label-14 text-link">Result counts · all queries</summary><div className="grid grid-cols-3 gap-2 mt-1">
-                  <div className="material-base p-3">
-                    <p className="text-copy-13-strong text-secondary">Mentioned<span className="sr-only"> · all queries, counts only</span></p>
-                    <p className="text-copy-24-strong tabular-nums text-primary mt-1">
-                      {queryCounts?.mentionedQueries ?? 'Unavailable'}
-                    </p>
-                    <p className="mt-0.5 text-copy-14 text-secondary">queries naming your brand</p>
-                  </div>
-                  <div className="material-base p-3">
-                    <p className="text-copy-13-strong text-secondary">Cited<span className="sr-only"> · all queries, counts only</span></p>
-                    <p className="text-copy-24-strong tabular-nums text-primary mt-1">
-                      {queryCounts?.citedQueries ?? 'Unavailable'}
-                    </p>
-                    <p className="mt-0.5 text-copy-14 text-secondary">queries citing your site</p>
-                  </div>
-                  <div className="material-base p-3">
-                    <p className="text-copy-13-strong text-secondary">Results</p>
-                    <p className="text-copy-24-strong tabular-nums text-primary mt-1">{snapshots.length}</p>
-                    <p className="mt-0.5 text-copy-14 text-secondary">completed engine checks</p>
-                  </div>
-                </div>
-                </details>
+                {/* The run's own counts, branded and non-brand queries together: the class is named once here. */}
+                <p className="text-copy-14 text-secondary">
+                  <span className="text-label-14-strong text-heading">{displayName || createdProjectName}</span> · all queries
+                </p>
+                <dl className="grid grid-cols-1 divide-y divide-default sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                  <ResultFigure label="Mentioned">
+                    <QueryShare count={queryCounts?.mentionedQueries} total={queryCounts?.totalQueries} />
+                  </ResultFigure>
+                  <ResultFigure label="Cited">
+                    <QueryShare count={queryCounts?.citedQueries} total={queryCounts?.totalQueries} />
+                  </ResultFigure>
+                  <ResultFigure label="Engine results">
+                    <span className="text-heading-20 tabular-nums text-heading">{snapshots.length}</span>
+                  </ResultFigure>
+                </dl>
+                {featured ? <section className="mt-3 border-t border-default pt-4" aria-label="Your first saved answer">
+                  <div className="mb-3 flex flex-wrap items-center gap-2"><ProviderBadge provider={featured.provider} displayName={providerDisplayName(featured.provider)} /><ToneBadge tone={featured.answerMentioned ? 'positive' : 'neutral'}>{featured.answerMentioned === true ? 'Mentioned' : featured.answerMentioned === false ? 'Not mentioned' : 'Mention not measured'}</ToneBadge><ToneBadge tone={featured.citationState === CitationStates.cited ? 'positive' : 'neutral'}>{featured.citationState === CitationStates.cited ? 'Cited' : 'Not cited'}</ToneBadge></div>
+                  {featured.query ? <h3 className="text-heading-16 text-heading">{featured.query}</h3> : null}
+                  {/* A preview that shows the whole answer carries its copy action; a cut one leaves it to the full answer. */}
+                  <div className="mt-3 text-copy-14 text-secondary"><AnswerMarkdown previewLength={FIRST_ANSWER_PREVIEW_LENGTH} copyable={!answerPreviewTruncated}>{featuredAnswer}</AnswerMarkdown></div>
+                  {answerPreviewTruncated ? <details className="mt-3"><summary className="cursor-pointer text-label-14 text-link">Read full answer</summary><div className="mt-3 text-copy-14 text-secondary"><AnswerMarkdown copyable>{featuredAnswer}</AnswerMarkdown></div></details> : null}
+                </section> : null}
                 {!onboardingFinish && createdProjectName ? <details><summary className="cursor-pointer py-2 text-label-14 text-link">More setup options</summary><NextSteps projectName={createdProjectName} /></details> : null}
                 <div className="setup-nav">
                   <span />
@@ -1926,6 +2047,12 @@ function ReadySetupPage({
         return null
     }
   })()
+
+  const stepIndicatorLabels = isProjectScoped ? PROJECT_VISIBILITY_STEPS : SETUP_STEPS
+  // A first check that saved answers completes the last step as well.
+  const stepIndicatorCurrent = step === 4 && (showingSuccessfulRun || persistedSetupComplete)
+    ? stepIndicatorLabels.length
+    : isProjectScoped ? (step === 4 ? 1 : 0) : step
 
   return (
     <div className={isProjectScoped ? 'page-container visibility-setup' : 'page-container'}>
@@ -1959,10 +2086,7 @@ function ReadySetupPage({
         ) : null}
       </div>
 
-      {!siteHealthOnboarding ? <SetupStepIndicator
-        current={isProjectScoped ? (step === 4 ? 1 : 0) : step}
-        labels={isProjectScoped ? PROJECT_VISIBILITY_STEPS : SETUP_STEPS}
-      /> : null}
+      {!siteHealthOnboarding ? <SetupStepIndicator current={stepIndicatorCurrent} labels={stepIndicatorLabels} /> : null}
 
       <section className="setup-wizard">
         {providerSetup}

@@ -16,6 +16,7 @@ import {
   ApiError,
   createOnboardingProject,
   getOnboardingMode,
+  hasExplicitBrowserApiKey,
   heyClient,
   recordOnboardingEvent,
   shouldShowDashboardLocalAgentSetup,
@@ -29,6 +30,9 @@ import {
   RunStatuses,
   RunTriggers,
   SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
+  formatLocaleLabel,
+  normalizeProjectName,
+  suggestedBrandName,
   type OnboardingSurface as OnboardingTelemetrySurface,
   type OnboardingTelemetryEvent,
 } from '@canonry/canonry-contracts'
@@ -109,6 +113,11 @@ export function resolveOnboardingSurface(
 
 /** Compact for a mouse on a desktop; 44px tall for touch and narrow screens. */
 const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
+/**
+ * Every launchpad field, inputs and selects alike: the shared input style at
+ * 40px, with 16px text on narrow screens so a phone does not zoom on focus.
+ */
+const LAUNCHPAD_FIELD = `setup-input h-10 w-full max-md:text-label-16 ${TOUCH_TARGET}`
 /** Before any Canonry install could exist: the whole scan history. */
 const AUTO_RESUME_HISTORY_SINCE = '2000-01-01T00:00:00.000Z'
 /** The runs endpoint's own maximum. Newest-first, so older scans fall off last. */
@@ -176,6 +185,7 @@ export function resolveAutoResumeTarget(
 export interface LaunchpadIdentity {
   canonicalDomain: string
   projectName: string
+  /** The brand name suggested for the website, used when the field is left blank. */
   displayName: string
 }
 
@@ -208,18 +218,6 @@ export const LAUNCHPAD_LANGUAGES = [
   { value: 'nl', label: 'Dutch' },
   { value: 'ja', label: 'Japanese' },
 ] as const
-
-function launchpadLocaleLabel(country: string, language: string): string {
-  try {
-    const regionNames = new Intl.DisplayNames(['en'], { type: 'region' })
-    const languageNames = new Intl.DisplayNames(['en'], { type: 'language' })
-    const region = country.length === 2 ? regionNames.of(country.toUpperCase()) : undefined
-    const locale = language ? languageNames.of(language.toLowerCase()) : undefined
-    return `${region ?? (country || 'Country')} · ${locale ?? (language || 'Language')}`
-  } catch {
-    return `${country || 'Country'} · ${language || 'Language'}`
-  }
-}
 
 /** Keep project creation on the locale values the launchpad explicitly supports. */
 export function validateLaunchpadLocale(country: string, language: string): {
@@ -271,12 +269,10 @@ export function deriveLaunchpadIdentity(value: string): LaunchpadIdentity | null
     return null
   }
 
-  const projectName = canonicalDomain
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  const projectName = normalizeProjectName(canonicalDomain)
 
   return projectName
-    ? { canonicalDomain, projectName, displayName: canonicalDomain }
+    ? { canonicalDomain, projectName, displayName: suggestedBrandName(canonicalDomain) }
     : null
 }
 
@@ -792,8 +788,14 @@ function PlatformSetupPageBody({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const siteAuditMutation = useTriggerSiteAudit()
+  // Telemetry status is operator-only, and the server grants operator access
+  // only to a key sent as a bearer header, never to a session cookie. Without
+  // its own browser key this dashboard signs requests with the cookie, so the
+  // read could only be refused.
+  const telemetryReadable = hasExplicitBrowserApiKey()
   const telemetryQuery = useQuery({
     ...getApiV1TelemetryOptions({ client: heyClient }),
+    enabled: telemetryReadable,
     retry: false,
   })
   const telemetryMutation = useMutation(putApiV1TelemetryMutation())
@@ -808,13 +810,24 @@ function PlatformSetupPageBody({
   const [phase, setPhase] = useState<'idle' | 'creating' | 'dispatching' | 'recovery'>('idle')
   const [createdProject, setCreatedProject] = useState<ApiProject | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [createConflict, setCreateConflict] = useState(false)
+  /** The project name a create collided with, normalized as the server compares names. */
+  const [conflictName, setConflictName] = useState<string | null>(null)
   const [dispatchError, setDispatchError] = useState<string | null>(null)
   const [agentRequestCopied, setAgentRequestCopied] = useState(false)
   const showLocalAgentSetup = shouldShowDashboardLocalAgentSetup()
   const showResourceLinks = shouldShowDashboardResourceLinks()
+  // A legacy project can predate normalized names, so the recovery link uses
+  // the stored name that collided, not the one this form would have created.
+  const conflictProjectsQuery = useQuery({
+    ...getApiV1ProjectsOptions({ client: heyClient }),
+    enabled: conflictName !== null,
+    retry: false,
+  })
+  const existingProjectName = conflictName === null
+    ? null
+    : conflictProjectsQuery.data?.find(project => normalizeProjectName(project.name) === conflictName)?.name ?? conflictName
   // A denied refresh must not keep showing internal state from an older cache.
-  const telemetryStatus = telemetryQuery.isError ? undefined : telemetryQuery.data
+  const telemetryStatus = !telemetryReadable || telemetryQuery.isError ? undefined : telemetryQuery.data
   const telemetryEnabled = typeof telemetryStatus?.enabled === 'boolean'
     ? telemetryStatus.enabled
     : null
@@ -823,6 +836,8 @@ function PlatformSetupPageBody({
     : telemetryEnabled
   const [telemetryError, setTelemetryError] = useState<string | null>(null)
   const errorRef = useRef<HTMLDivElement>(null)
+  const projectDetailsRef = useRef<HTMLDetailsElement>(null)
+  const projectNameRef = useRef<HTMLInputElement>(null)
   const { onboardingSessionId, emit } = useOnboardingTelemetry('platform')
 
   useEffect(() => {
@@ -849,21 +864,33 @@ function PlatformSetupPageBody({
     setLanguage('en')
     setCrawlApproved(false)
     setCreateError(null)
-    setCreateConflict(false)
+    setConflictName(null)
   }
 
   const identity = deriveLaunchpadIdentity(domain)
-  const resolvedProjectName = projectName || identity?.projectName || ''
-  const resolvedDisplayName = displayName || identity?.displayName || ''
+  // The fields hold only what the operator typed; the names derived from the
+  // website are their placeholders and apply when a field is left blank. A
+  // derived value shown as text would be appended to by typing and come back
+  // after the field is cleared.
+  const resolvedProjectName = projectName.trim() || identity?.projectName || ''
+  const resolvedDisplayName = displayName.trim() || identity?.displayName || ''
   const busy = phase === 'creating' || phase === 'dispatching'
   const visibleError = createError ?? dispatchError
-  const localeLabel = launchpadLocaleLabel(country, language)
+  const localeLabel = formatLocaleLabel(country, language)
   const { countryValid, languageValid } = validateLaunchpadLocale(country, language)
   const localeValid = countryValid && languageValid
 
   useEffect(() => {
-    if (visibleError) errorRef.current?.focus()
-  }, [visibleError])
+    if (!visibleError) return
+    // A name collision is fixed in the Project name field, so open its section
+    // and move there; the alert below still says why.
+    if (conflictName !== null && projectNameRef.current) {
+      if (projectDetailsRef.current) projectDetailsRef.current.open = true
+      projectNameRef.current.focus()
+      return
+    }
+    errorRef.current?.focus()
+  }, [conflictName, visibleError])
 
   const openSiteHealthSetup = (project: ApiProject, runId?: string) => navigate({
     to: '/setup',
@@ -975,7 +1002,7 @@ function PlatformSetupPageBody({
 
     setPhase('creating')
     setCreateError(null)
-    setCreateConflict(false)
+    setConflictName(null)
     setDispatchError(null)
     try {
       const project = await createOnboardingProject({
@@ -1018,7 +1045,7 @@ function PlatformSetupPageBody({
     } catch (error) {
       setPhase('idle')
       const conflict = error instanceof ApiError && error.statusCode === 409
-      setCreateConflict(conflict)
+      setConflictName(conflict ? normalizeProjectName(resolvedProjectName) : null)
       setCreateError(onboardingError(error, 'Could not create the project. Try again.'))
       emit({
         flowVersion: ONBOARDING_FLOW_VERSION,
@@ -1043,11 +1070,6 @@ function PlatformSetupPageBody({
     if (createdProject && !busy) {
       void dispatchSiteHealth(createdProject)
     }
-  }
-
-  const cancel = () => {
-    if (busy) return
-    void navigate({ to: '/projects' })
   }
 
   const copyAgentSetupRequest = async () => {
@@ -1120,7 +1142,7 @@ function PlatformSetupPageBody({
           <label className="text-label-14-strong text-heading" htmlFor="launchpad-domain">Website URL</label>
           <input
             id="launchpad-domain"
-            className={`h-10 w-full rounded-md border border-strong bg-bg-elevated/50 px-3 text-label-16 text-heading outline-none transition placeholder:text-muted focus:border-mono-500 focus:ring-1 focus:ring-mono-500 md:h-9 md:text-label-14 ${TOUCH_TARGET}`}
+            className={LAUNCHPAD_FIELD}
             type="text"
             inputMode="url"
             autoComplete="url"
@@ -1134,7 +1156,7 @@ function PlatformSetupPageBody({
             onChange={(event) => {
               setDomain(event.target.value)
               setCreateError(null)
-              setCreateConflict(false)
+              setConflictName(null)
             }}
           />
           {domain && !identity ? <p id="launchpad-domain-error" className="text-copy-14 text-negative" role="alert">Enter a public domain, such as example.com.</p> : null}
@@ -1142,10 +1164,10 @@ function PlatformSetupPageBody({
 
         <div className="grid gap-2">
           <label className="text-label-14-strong text-heading" htmlFor="launchpad-display-name">Brand name</label>
-          <input id="launchpad-display-name" className={`setup-input w-full ${TOUCH_TARGET}`} type="text" autoComplete="organization" placeholder="Your brand" value={resolvedDisplayName} onChange={event => setDisplayName(event.target.value)} />
+          <input id="launchpad-display-name" className={LAUNCHPAD_FIELD} type="text" autoComplete="organization" placeholder={identity?.displayName ?? 'Your brand'} value={displayName} onChange={event => setDisplayName(event.target.value)} />
         </div>
 
-        <details className="group border-t border-default">
+        <details ref={projectDetailsRef} className="group border-t border-default">
           <summary className={`flex min-h-9 cursor-pointer list-none items-center justify-between gap-4 py-2 text-label-14 [&::-webkit-details-marker]:hidden ${TOUCH_TARGET}`}>
             <span className="text-label-14-strong text-heading">Project details</span>
             <span className="flex items-center gap-2 text-secondary">
@@ -1161,11 +1183,22 @@ function PlatformSetupPageBody({
                   <div className="grid gap-2">
                     <label className="text-label-14 text-secondary" htmlFor="launchpad-project-name">Project name</label>
                     <input
+                      ref={projectNameRef}
                       id="launchpad-project-name"
-                      className="setup-input h-10"
+                      className={LAUNCHPAD_FIELD}
                       type="text"
-                      value={resolvedProjectName}
-                      onChange={(event) => setProjectName(event.target.value)}
+                      placeholder={identity.projectName}
+                      aria-invalid={conflictName !== null}
+                      aria-describedby={conflictName !== null ? 'launchpad-create-error' : undefined}
+                      value={projectName}
+                      onChange={(event) => {
+                        setProjectName(event.target.value)
+                        // The collision was with the old name; a new one gets its own answer on submit.
+                        if (conflictName !== null) {
+                          setConflictName(null)
+                          setCreateError(null)
+                        }
+                      }}
                     />
                   </div>
                 </div>
@@ -1179,7 +1212,7 @@ function PlatformSetupPageBody({
                   <label className="text-label-14 text-secondary" htmlFor="launchpad-country">Country</label>
                   <select
                     id="launchpad-country"
-                    className="setup-input h-10"
+                    className={LAUNCHPAD_FIELD}
                     value={country}
                     onChange={(event) => setCountry(event.target.value)}
                   >
@@ -1192,7 +1225,7 @@ function PlatformSetupPageBody({
                   <label className="text-label-14 text-secondary" htmlFor="launchpad-language">Language</label>
                   <select
                     id="launchpad-language"
-                    className="setup-input h-10"
+                    className={LAUNCHPAD_FIELD}
                     value={language}
                     onChange={(event) => setLanguage(event.target.value)}
                   >
@@ -1225,9 +1258,11 @@ function PlatformSetupPageBody({
 
         {visibleError ? (
           <div ref={errorRef} className="rounded-md border border-negative bg-negative-soft p-3" role="alert" tabIndex={-1}>
-            <p className="text-copy-14-strong text-heading">{visibleError}</p>
-            {createConflict ? (
-              <Button type="button" variant="secondary" size="sm" className="mt-3" onClick={cancel}>View projects</Button>
+            <p id="launchpad-create-error" className="text-copy-14-strong text-heading">{visibleError}</p>
+            {existingProjectName !== null ? (
+              <Button asChild variant="secondary" size="sm" className="mt-3">
+                <Link to="/projects/$projectName" params={{ projectName: existingProjectName }}>Open {existingProjectName}</Link>
+              </Button>
             ) : null}
           </div>
         ) : null}

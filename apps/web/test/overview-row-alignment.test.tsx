@@ -11,12 +11,12 @@ import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 
-// Regression coverage for the "Mentioned" / "Pressure" stat-cell alignment
-// defect on the /projects overview rows: the two stat cells in a
+// Regression coverage for the "Mentioned" / "Competitor pressure" stat-cell
+// alignment defect on the Overview rows: the two stat cells in a
 // `.project-row` must expose the SAME label/value/caption structure so
 // `lg:items-center` can center them onto a shared baseline. Before the fix,
-// "Mentioned" carried an optional 4th providerCoverage line and "Pressure"
-// had no caption at all, so the two cells drifted to different heights.
+// "Mentioned" carried an optional 4th providerCoverage line and the pressure
+// cell had no caption at all, so the two cells drifted to different heights.
 //
 // Renders via `renderToStaticMarkup` + `DOMParser`, mirroring
 // `dashboard-class-baseline.test.tsx` and `app.test.tsx` — this suite is a
@@ -75,26 +75,41 @@ test('every project row has exactly two stat cells, each a three-slot label/valu
   }
 })
 
-test('the pressure label reads the single word "Pressure" and keeps its full meaning for screen readers', async () => {
+test('the competitor pressure label names its metric, the same for sight and screen readers', async () => {
   const doc = await renderOverview()
 
   const rows = [...doc.querySelectorAll('.project-row')]
-  expect(rows.length).toBeGreaterThan(0)
+  expect(rows.length).toBe(3)
 
   for (const row of rows) {
     const [, pressureBlock] = statBlocks(row)
     const label = pressureBlock!.querySelector('.metric-inline-label')!
 
-    // The VISIBLE token is one word so it can never wrap in the 9rem column.
-    // `aria-label` on a <p> is not a valid accessible name (role `paragraph`
-    // does not support naming), so the full meaning has to ride a
-    // visually-hidden span instead — assert both halves separately.
-    const visible = label.querySelector('[aria-hidden="true"]')!
-    expect(visible.textContent).toBe('Pressure')
-    expect(visible.textContent).not.toMatch(/\s/)
-    expect(label.querySelector('.sr-only')!.textContent).toBe('Competitor pressure')
-    expect(label.getAttribute('aria-label')).toBe(null)
+    // A bare "Pressure" left the figure undefined for sighted readers.
+    expect(label.textContent).toBe('Competitor pressure')
+    expect(label.querySelector('[aria-hidden="true"], .sr-only')).toBeNull()
   }
+})
+
+test('a project with no competitors reads "No competitors set", not the API\'s "None"', async () => {
+  const doc = await renderOverview(fixture => {
+    const commandCenter = (id: string) => fixture.dashboard.projects.find(entry => entry.project.id === id)!
+    const portfolioRow = (id: string) => fixture.dashboard.portfolioOverview.projects.find(entry => entry.project.id === id)!
+    // The API scores a project with no competitors "None", the same word as
+    // tracked competitors that never appear.
+    commandCenter('project_citypoint').competitors = []
+    portfolioRow('project_citypoint').competitorPressureLabel = 'None'
+    portfolioRow('project_harbor').competitorPressureLabel = 'None'
+    // Not yet measured outranks the missing competitors.
+    commandCenter('project_northstar').competitors = []
+    portfolioRow('project_northstar').hasMeasurement = false
+  })
+
+  const rows = [...doc.querySelectorAll('.project-row')]
+  expect(rows.map(row => row.querySelector('.project-name')!.textContent)).toEqual(['Citypoint Dental NYC', 'Harbor Legal Group', 'Northstar Orthopedics'])
+  expect(rows.map(row => statBlocks(row)[1]!.querySelector('.metric-inline-value')!.textContent)).toEqual([
+    'No competitors set', 'None', 'Not measured',
+  ])
 })
 
 test('a partial sweep keeps its data-validity caveat in the caution tone rather than as faint text', async () => {

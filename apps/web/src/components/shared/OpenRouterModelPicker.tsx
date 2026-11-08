@@ -162,7 +162,7 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
           {recommended.length > 0 && (
             <fieldset disabled={busy} className="divide-y divide-default">
               <legend className="mb-1 text-label-14-strong text-heading">Recommended</legend>
-              {recommended.map(model => modelRow(model.id, names.get(model.id) ?? model.id, `Maker of ${model.engine}`))}
+              {recommended.map(model => modelRow(model.id, names.get(model.id) ?? model.id, `From the maker of ${model.engine}`))}
             </fieldset>
           )}
           {recommended.length > 0 && (

@@ -571,6 +571,25 @@ test('useTriggerGscSync tracks queued work without making stored GSC evidence st
   expect(queryClient.getQueryData(gscCoverageKey)).toEqual({ stale: true })
 })
 
+test.each([
+  { status: 'queued', title: 'AI Visibility check queued' },
+  { status: 'running', title: 'AI Visibility check already running' },
+])('announces a triggered AI Visibility check as its response reports it ($status)', async ({ status, title }) => {
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(makeRun(status))))
+
+  render(
+    <QueryClientProvider client={createQueryClient()}>
+      <TriggerRunButton />
+    </QueryClientProvider>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Trigger run' }))
+
+  await waitFor(() => {
+    expect(getRunTrackerState().runs.run_1).toMatchObject({ kind: 'answer-visibility', sourceAction: 'project-run', lastAnnouncedStatus: status })
+  })
+  expect(getToasts().map(toast => [toast.title, toast.detail])).toEqual([[title, 'Citypoint Dental NYC will notify you when the run finishes.']])
+})
+
 test('maps RUN_IN_PROGRESS errors to one caution toast with an extended timer', async () => {
   const fetchMock = vi.fn(async () => new Response(JSON.stringify({
     error: {

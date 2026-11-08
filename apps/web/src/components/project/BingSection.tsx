@@ -417,7 +417,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
                     value={selectedSite}
                     onChange={(e) => setSelectedSite(e.target.value)}
                   >
-                    <option value="">Select a site...</option>
+                    <option value="">Select a site…</option>
                     {siteList.map((s) => (
                       <option key={s.url} value={s.url}>
                         {s.url}

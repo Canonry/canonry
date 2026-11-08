@@ -86,7 +86,7 @@ export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
       )}
       <div className="mt-3">
         <Button type="button" disabled={!yamlText.trim() || applying} onClick={asyncHandler(handleApply)}>
-          {applying ? 'Applying...' : 'Apply'}
+          {applying ? 'Applying…' : 'Apply'}
         </Button>
       </div>
     </section>

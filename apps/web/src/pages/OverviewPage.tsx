@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { formatPercent, RatioUnits } from '@canonry/canonry-contracts'
@@ -18,10 +19,17 @@ import type { PortfolioProjectVm } from '../view-models.js'
 function OverviewProjectCard({
   project,
   sentimentColumn,
+  competitorsSet,
 }: {
   project: PortfolioProjectVm
-  /** The list reserves the Sentiment column for every row when any row shows it, so Mentioned and Pressure line up across rows. */
+  /** The list reserves the Sentiment column for every row when any row shows it, so Mentioned and Competitor pressure line up across rows. */
   sentimentColumn: boolean
+  /**
+   * Whether the project tracks any competitors, from the same overview read as
+   * its pressure figure; undefined when unknown. With none, the API's "None"
+   * would read as no threat rather than nothing to compare.
+   */
+  competitorsSet: boolean | undefined
 }) {
   const coverage = project.mentionPopulations?.find(population => population.queryClass === 'non-brand')?.mentionCoverage
   const otherPopulations = project.mentionPopulations?.filter(population => population.queryClass !== 'non-brand' && population.answerCount > 0) ?? []
@@ -57,15 +65,12 @@ function OverviewProjectCard({
       </div>
       <div className="project-row-stat">
         <div className="metric-inline-block">
-          {/* `aria-label` does NOT work here: a bare <p> has role `paragraph`,
-              which does not support an accessible name, so screen readers are
-              free to ignore it and most do. The visually-hidden span is what
-              actually carries "competitor" to assistive tech. */}
-          <p className="metric-inline-label">
-            <span aria-hidden="true">Pressure</span>
-            <span className="sr-only">Competitor pressure</span>
-          </p>
-          <p className="metric-inline-value">{project.hasMeasurement === false ? 'Not measured' : project.competitorPressureLabel}</p>
+          <p className="metric-inline-label">Competitor pressure</p>
+          {/* A state, not a figure: the smaller label preset keeps it on one
+              line in the 9rem column. */}
+          {project.hasMeasurement !== false && competitorsSet === false
+            ? <p className="metric-inline-value text-label-14 text-secondary">No competitors set</p>
+            : <p className="metric-inline-value">{project.hasMeasurement === false ? 'Not measured' : project.competitorPressureLabel}</p>}
           {/* Empty caption slot, always rendered (not conditionally omitted) so
               this cell keeps the same three-row template as the "Mentioned"
               cell above — that's what keeps the two VALUES on a shared
@@ -97,13 +102,21 @@ export function OverviewPage() {
   // skeleton branch first and hit this on every cold load.
   const enableLiveStatus = !contextDashboard
   const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
+  // TanStack Query clears a failed read's error while it retries, so keep the
+  // failure on screen until data arrives. Otherwise each retry, the polling
+  // ones included, swaps it for the skeleton and drops focus from Retry.
+  const [loadFailed, setLoadFailed] = useState(false)
+  useEffect(() => {
+    if (safeDashboard) setLoadFailed(false)
+    else if (isError) setLoadFailed(true)
+  }, [isError, safeDashboard])
 
-  if (isError && !safeDashboard) {
+  if ((isError || loadFailed) && !safeDashboard) {
     return (
       <div className="page-container">
         <div className="page-header">
           <div className="page-header-left">
-            <h1 className="page-title">All projects unavailable</h1>
+            <h1 className="page-title">Overview unavailable</h1>
             <p className="page-subtitle">Canonry could not load the project list.</p>
           </div>
         </div>
@@ -145,6 +158,9 @@ export function OverviewPage() {
   const model = safeDashboard.portfolioOverview
   const awaitingBaseline = model.projects.length > 0 && model.projects.every(project => project.hasMeasurement === false)
   const sentimentColumn = model.projects.some(project => showsSentimentOverview(project.sentiment))
+  // Each project's tracked competitors come from the same overview read as
+  // its pressure figure, one row per competitor the project tracks.
+  const competitorsByProject = new Map(safeDashboard.projects.map(entry => [entry.project.id, entry.competitors]))
   const attentionItems = model.attentionItems.map(item => awaitingBaseline && item.id === 'attention_stable'
     ? { ...item, tone: 'neutral' as const, title: 'Awaiting first measurement', detail: 'Visibility results will appear after the first check.' }
     : item)
@@ -156,20 +172,24 @@ export function OverviewPage() {
     <div className="page-container">
       <div className="page-header">
         <div className="page-header-left">
-          <h1 className="page-title">All projects</h1>
+          <h1 className="page-title">Overview</h1>
           <p className="page-subtitle">Visibility across all projects.</p>
         </div>
       </div>
 
       {model.projects.length > 0 ? (
         <div className="project-list project-list-scrollable">
-          {model.projects.map((project) => (
-            <OverviewProjectCard
-              key={project.project.id}
-              project={project}
-              sentimentColumn={sentimentColumn}
-            />
-          ))}
+          {model.projects.map((project) => {
+            const competitors = competitorsByProject.get(project.project.id)
+            return (
+              <OverviewProjectCard
+                key={project.project.id}
+                project={project}
+                sentimentColumn={sentimentColumn}
+                competitorsSet={competitors ? competitors.length > 0 : undefined}
+              />
+            )
+          })}
         </div>
       ) : (
         <Card className="surface-card empty-card">

@@ -120,6 +120,14 @@ function changeRows(root: HTMLElement): string[][] {
   return [...root.querySelectorAll('.av-change-table tbody tr')].map(row => [...row.children].map(cell => (cell.textContent ?? '').replace(/\u00a0/g, ' ')))
 }
 
+/** The headline's label and figure as a screen reader reads them, in order, sr-only text included. */
+function headlineText(): string {
+  return [
+    document.querySelector('.visibility-trend-current-label')?.textContent,
+    document.querySelector('.visibility-trend-current-value')?.textContent,
+  ].join(' ')
+}
+
 /** The bullets of the Details list directly under `root`. */
 function detailsText(root: Element): string[] {
   const details = [...root.querySelectorAll(':scope > details.av-details, :scope .av-wc-body > details.av-details')][0]
@@ -198,7 +206,9 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   // set held still, so its change reads as none, with no caveat beside it.
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('no change')
   expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mentioned · all queries')
-  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('50.0% · all queries')
+  // The label already names the class, so the figure is heard with it once.
+  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('50.0%')
+  expect(headlineText()).toBe('Mentioned · all queries 50.0%')
   expect(document.querySelector('.visibility-trend-current .info-tooltip-trigger')).toBeNull()
   expect(screen.getByText('Mentioned rate across 2 checks. Latest 50.0%, no change over the period.')).toBeTruthy()
   expect(detailsText(document.querySelector('.visibility-trend')!)).toEqual([
@@ -335,7 +345,7 @@ test('renders mention-share as a metric view and hides the engine split', async 
   expect(mentionShare.getAttribute('aria-checked')).toBe('true')
   expect(screen.queryByRole('radiogroup', { name: 'Series' })).toBeNull()
   expect(screen.queryByRole('list', { name: 'Engines' })).toBeNull()
-  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('75.0% · non-brand answers')
+  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('75.0%')
   // 0.25 to 0.75 across the two plotted points, in words, over its base.
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('up 50.0 points')
   expect(trendDetails()[0]).toBe('Latest point: 3 of 4 tracked-brand mentions')
@@ -343,6 +353,7 @@ test('renders mention-share as a metric view and hides the engine split', async 
   // The headline names mention share's scope, as it did before the cleanup,
   // and assistive tech hears it with the name.
   expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share in non-brand answers')
+  expect(headlineText()).toBe('Mention share in non-brand answers 75.0%')
   expect(screen.getByRole('img', { name: /^Mention share in non-brand answers trend chart/ })).toBeTruthy()
   expect(screen.getByText(/75\.0% mention share in non-brand answers, 3 of 4 tracked-brand mentions were you/)).toBeTruthy()
 })
@@ -369,7 +380,7 @@ test('reads the head and legend from the API rates, so a rate near either end ne
 
   const legend = await screen.findByRole('list', { name: 'Engines' })
   // Head: the blended mentioned rate, 0.9996 then 0.0004.
-  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('<0.1% · all queries')
+  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('<0.1%')
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('down 99.9 points')
   expect(screen.getByText('Mentioned rate across 2 checks. Latest <0.1%, down 99.9 points over the period.')).toBeTruthy()
   // Legend: gemini's latest mentioned rate.
@@ -418,7 +429,7 @@ test('shows the latest rate with no change when the server has none to report', 
 
   // Two plotted buckets, but no server change: the head prints the latest
   // rate and no delta, rather than deriving one.
-  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('50.0% · all queries')
+  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('50.0%')
   expect(document.querySelector('.visibility-trend-current-delta')).toBeNull()
   expect(screen.getByText('Mentioned rate across 2 checks. Latest 50.0%.')).toBeTruthy()
 })
@@ -944,7 +955,10 @@ test('opens on non-brand answers with a class toggle, and reads each class from 
   expect(screen.queryByText(help)).toBeNull()
   expect(screen.getByRole('button', { name: help })).toBeTruthy()
   expect(requested).toEqual(['non-brand'])
+  // Beside the class control the label is the bare metric, so the figure carries the class for a screen reader.
   expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('15.9% · non-brand queries')
+  expect(document.querySelector('.visibility-trend-current-value .sr-only')?.textContent).toBe(' · non-brand queries')
+  expect(headlineText()).toBe('Mentioned 15.9% · non-brand queries')
   expect(trendDetails()[0]).toBe('Latest point: 21 of 132 answers')
   expect(screen.getByText(/^Mentioned rate in non-brand answers across 1 check\. Latest 15\.9%\.$/)).toBeTruthy()
 

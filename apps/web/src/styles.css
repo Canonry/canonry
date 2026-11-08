@@ -456,8 +456,9 @@
       0 8px 20px -10px var(--color-caution-glow),
       inset 0 0 0 1px var(--color-caution-glow-inset);
     transform-origin: 0 50%;
-    /* Delayed so the bird "speaks" first, then the bubble appears as the chirp. */
-    animation: brand-bubble-pop 540ms cubic-bezier(0.34, 1.56, 0.64, 1) 100ms both;
+    /* Delayed so the bird "speaks" first, then the bubble appears as the chirp.
+       An exponential ease-out that settles at full size without overshooting. */
+    animation: brand-bubble-pop 420ms cubic-bezier(0.16, 1, 0.3, 1) 100ms both;
   }
 
   .brand-update-bubble:hover {
@@ -519,18 +520,11 @@
   @keyframes brand-bubble-pop {
     0% {
       opacity: 0;
-      transform: scale(0.4) translateY(-6px);
-    }
-    55% {
-      opacity: 1;
-      transform: scale(1.08) translateY(0);
-    }
-    75% {
-      transform: scale(0.97);
+      transform: scale(0.92) translateY(-4px);
     }
     100% {
       opacity: 1;
-      transform: scale(1);
+      transform: scale(1) translateY(0);
     }
   }
 
@@ -2374,11 +2368,20 @@
   }
 
   .setup-input {
-    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 text-label-14;
+    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition text-label-14;
   }
 
   .setup-textarea {
-    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 resize-y text-copy-14-mono;
+    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition resize-y text-copy-14-mono;
+  }
+
+  /* Focus outranks rest and hover in both themes: gray-900 sits beyond the
+     gray-600 hover border against either background, and the 1px ring makes
+     the edge 2px. Forced colors drop the ring, so a transparent outline takes
+     the system focus color there. */
+  .setup-input:focus-visible,
+  .setup-textarea:focus-visible {
+    @apply border-mono-400 ring-1 ring-mono-400 outline-hidden;
   }
 
   .setup-input:disabled,

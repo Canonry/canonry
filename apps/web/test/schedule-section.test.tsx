@@ -134,7 +134,7 @@ test('refreshes a stale cached absence before schedule editing is available', as
     </QueryClientProvider>,
   )
 
-  expect(screen.getByText('Loading...')).toBeTruthy()
+  expect(screen.getByText('Loading…')).toBeTruthy()
   expect(screen.queryByRole('button', { name: '+ Set schedule' })).toBeNull()
   expect(screen.queryByText(/No schedule configured/)).toBeNull()
 
@@ -367,8 +367,8 @@ test('does not call its own successful save an external change while the respons
   fireEvent.click(screen.getByRole('button', { name: SCHEDULE_COPY.save }))
 
   await waitFor(() => expect(scheduleReads).toBe(3))
-  await waitFor(() => expect(screen.queryByText('Loading...')).toBeNull())
-  expect(screen.getByRole('button', { name: 'Saving...' })).toBeTruthy()
+  await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull())
+  expect(screen.getByRole('button', { name: 'Saving…' })).toBeTruthy()
   const prematureConflict = screen.queryByRole('alert')?.textContent ?? null
   await act(async () => { finishWrite?.() })
 

@@ -156,13 +156,13 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
               disabled={saving || !webhookUrl.trim() || selectedEvents.length === 0}
               onClick={asyncHandler(handleAdd)}
             >
-              {saving ? 'Adding...' : 'Add webhook'}
+              {saving ? 'Adding…' : 'Add webhook'}
             </Button>
           </div>
         </div>
       )}
 
-      {notifs === 'loading' && <p className="supporting-copy">Loading...</p>}
+      {notifs === 'loading' && <p className="supporting-copy">Loading…</p>}
 
       {notifs !== 'loading' && notifs.length === 0 && !adding && (
         <Card className="surface-card compact-card">

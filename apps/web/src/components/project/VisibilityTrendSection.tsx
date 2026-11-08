@@ -1876,11 +1876,15 @@ export function VisibilityTrendSection({
     ...buckets.filter(bucket => basketChangesInBucket(bucket, basketChanges).length > 0).map(bucket => bucket.startDate),
   ])].sort()
 
+  // The figure names its class once. Without the class control the label shows
+  // it ("Mentioned · all queries"), and mention share's label carries its scope;
+  // only beside the control, where the label is the bare metric, does the value
+  // add the class for a screen reader.
   const readout = latestRate !== null && latestPlotted && (
     <div className="visibility-trend-current">
       <span className="visibility-trend-current-dot" style={{ backgroundColor: headlineDotColor }} aria-hidden="true" />
       <span className="visibility-trend-current-label">{spokenLabel}{!showsClassControl && metric !== 'mentionShare' ? ` · ${requestedClass} queries` : ''}</span>
-      <span className="visibility-trend-current-value">{formatPercent(latestRate)}<span className="sr-only"> · {metric === 'mentionShare' ? mentionShareScopeLabel(mentionShareScope) : `${requestedClass === 'all' ? 'all' : requestedClass} queries`}</span></span>
+      <span className="visibility-trend-current-value">{formatPercent(latestRate)}{showsClassControl ? <span className="sr-only"> · {requestedClass} queries</span> : null}</span>
       {trend?.rows.length === 1 && <InfoTooltip text="This view has one measurement point. A trend needs at least two comparable points." placement="bottom" />}
       {pointChange !== null && (
         <span className={`visibility-trend-current-delta ${changeQualified ? 'text-muted' : POINT_CHANGE_TONE[pointChange.direction]}`}>

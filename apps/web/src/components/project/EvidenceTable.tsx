@@ -85,17 +85,17 @@ function statusLabelForMode(state: CitationState, mode: CoverageMode): string {
   if (mode === 'mentions') {
     switch (state) {
       case 'cited': return 'Mentioned'
-      case 'not-cited': return 'Not Mentioned'
+      case 'not-cited': return 'Not mentioned'
       case 'pending': return 'Pending'
       // 'emerging' / 'lost' are collapsed by deriveStateForMode in mentions mode,
       // but fall through here defensively if a caller passes them anyway.
-      case 'emerging': return 'Newly Mentioned'
-      case 'lost': return 'No Longer Mentioned'
+      case 'emerging': return 'Newly mentioned'
+      case 'lost': return 'No longer mentioned'
     }
   }
   switch (state) {
     case 'cited': return 'Cited'
-    case 'not-cited': return 'Not Cited'
+    case 'not-cited': return 'Not cited'
     case 'lost': return 'Lost'
     case 'emerging': return 'Emerging'
     case 'pending': return 'Pending'

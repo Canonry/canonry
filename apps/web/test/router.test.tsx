@@ -177,7 +177,9 @@ test('/projects/$id/search-console renders the search engines tab', async () => 
   const tabs = [...(nav?.querySelectorAll('.project-subnav-link') ?? [])]
     .filter(link => !link.closest('.project-subnav-measure'))
     .map(link => link.textContent?.trim())
-  expect(tabs.slice(0, 2)).toEqual(['AI Visibility', 'Search Engines'])
+  // Queries sits beside AI Visibility; Search engines follows it.
+  expect(tabs.slice(0, 3)).toEqual(['AI Visibility', 'Queries', 'Search engines'])
+  expect(container.querySelector('.project-subnav-current')?.textContent).toBe('Search engines')
 })
 
 test('/projects/$id/conversions renders the conversion integrity workspace', async () => {
@@ -261,7 +263,7 @@ test('/projects/$id/local renders the local presence tab', async () => {
   const { container } = await renderRoute('/projects/project_citypoint/local')
   // Route resolves to the project shell...
   expect(container.innerHTML).toMatch(/Citypoint Dental NYC/)
-  // ...and the Local Presence tab renders GbpSection. The fixture has no GBP
+  // ...and the Local presence tab renders GbpSection. The fixture has no GBP
   // connection, so its connect empty-state renders (heading shows in every state).
   await waitFor(() => expect(container.innerHTML).toMatch(/Google Business Profile/))
 })
@@ -395,9 +397,10 @@ test.each([false, true])('deleting a project updates the live portfolio before n
       expect(activity().queryByRole('button', { name: /Alpha/ })).toBeNull()
     })
     fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    // The phone navigation names projects the way the sidebar does.
     const navigation = within(await screen.findByRole('dialog', { name: 'Navigation' }))
-    expect(navigation.getByRole('link', { name: 'beta', exact: true })).toBeTruthy()
-    expect(navigation.queryByRole('link', { name: 'alpha', exact: true })).toBeNull()
+    expect(navigation.getByRole('link', { name: 'Beta', exact: true })).toBeTruthy()
+    expect(navigation.queryByRole('link', { name: 'Alpha', exact: true })).toBeNull()
   }
 })
 
@@ -475,9 +478,9 @@ test('run detail replaces stale queued status and shows independent answer signa
 })
 
 test.each([
-  [RunKinds['site-audit'], RunStatuses.running, 'Run is in progress...'],
+  [RunKinds['site-audit'], RunStatuses.running, 'Run is in progress…'],
   [RunKinds['backlink-extract'], RunStatuses.completed, 'Run completed.'],
-  [RunKinds['answer-visibility'], RunStatuses.running, 'Waiting for first query result...'],
+  [RunKinds['answer-visibility'], RunStatuses.running, 'Waiting for first query result…'],
   [RunKinds['answer-visibility'], RunStatuses.completed, 'No snapshot data available.'],
 ])('run drawer describes %s %s without query snapshots', async (kind, status, expected) => {
   const run = runDetailDtoSchema.parse({

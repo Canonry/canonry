@@ -57,8 +57,13 @@ afterEach(() => {
   }
 })
 
-async function renderRoute(pathname: string, options: Parameters<typeof createDashboardFixture>[0] = {}) {
+async function renderRoute(
+  pathname: string,
+  options: Parameters<typeof createDashboardFixture>[0] = {},
+  configure?: (fixture: ReturnType<typeof createDashboardFixture>) => void,
+) {
   const fixture = createDashboardFixture(options)
+  configure?.(fixture)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
@@ -151,10 +156,31 @@ test('navigation contains keyboard focus and restores the trigger after Escape, 
 
   fireEvent.click(trigger)
   const reopened = await findByRole('dialog', { name: 'Navigation' })
-  fireEvent.click(within(reopened).getByRole('link', { name: 'All projects', exact: true }))
+  fireEvent.click(within(reopened).getByRole('link', { name: 'Overview', exact: true }))
   await waitFor(() => expect(router.state.location.pathname).toBe('/'))
   await waitFor(() => expect(queryByRole('dialog', { name: 'Navigation' })).toBeNull())
   await waitFor(() => expect(document.activeElement).toBe(trigger))
+})
+
+// The sidebar's brand lockup carries the version, so its footer does not
+// repeat it. The phone navigation has no lockup, so its footer keeps it, and
+// it names each tracked project the way the sidebar does.
+test('the mobile navigation keeps one version and the sidebar project names', async () => {
+  const { getByRole, findByRole } = await renderRoute('/projects', {}, fixture => {
+    fixture.dashboard.projects[0]!.project.displayName = 'Citypoint Dental'
+  })
+
+  const sidebar = getByRole('complementary', { name: 'Primary navigation' })
+  expect(within(sidebar).getAllByText('vphase-1')).toHaveLength(1)
+  expect(within(sidebar).getByRole('link', { name: 'Changelog' })).toBeDefined()
+  expect(within(sidebar).getByRole('link', { name: 'Citypoint Dental', exact: true })).toBeDefined()
+
+  fireEvent.click(getByRole('button', { name: 'Open navigation' }))
+  const navigation = await findByRole('dialog', { name: 'Navigation' })
+  expect(within(navigation).getAllByText('vphase-1')).toHaveLength(1)
+  expect(within(navigation).getByRole('link', { name: 'Changelog' })).toBeDefined()
+  expect(within(navigation).getByRole('link', { name: 'Citypoint Dental', exact: true })).toBeDefined()
+  expect(within(navigation).queryByRole('link', { name: 'Citypoint Dental NYC', exact: true })).toBeNull()
 })
 
 test.each(['/projects/project_citypoint/report', '/setup'])('hidden sidebar preference survives a reload at %s', async pathname => {
@@ -220,7 +246,7 @@ test('still hides the sidebar when the preference cannot be written', async () =
 function expectSetupNavigation(navigation: HTMLElement) {
   const nav = within(navigation)
   expect(nav.getByRole('link', { name: 'Setup', exact: true }).getAttribute('aria-current')).toBe('page')
-  for (const name of ['All projects', 'Projects', 'Agent setup', 'Settings']) {
+  for (const name of ['Overview', 'Projects', 'Agent setup', 'Settings']) {
     expect(nav.getByRole('link', { name, exact: true })).toBeDefined()
   }
   for (const name of ['Runs', 'History', 'Traffic sources', 'Backlink data']) {

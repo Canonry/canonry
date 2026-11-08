@@ -7,6 +7,7 @@ import { CitationStates, RunKinds, RunStatuses, RunTriggers, visibilityReportRes
 import { createAppRouter } from '../src/router/router.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { ainycComparison, ainycMentionShare, ainycMovement } from './ainyc-visibility-fixture.js'
+import { COMPETITOR_COMPARISON_COPY } from '../src/pages/ProjectPage.js'
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()
@@ -254,7 +255,11 @@ test('a completed embed keeps competitor comparison optional and reads engine co
   expect(comparison.open).toBe(false)
   fireEvent.click(within(comparison).getByRole('heading', { name: 'Compare competitors' }).closest('summary')!)
   expect(comparison.open).toBe(true)
-  expect(within(comparison).getByText('Mention gaps')).toBeTruthy()
+  // The embed fixture tracks no competitors, so gap rows would always read 0:
+  // the empty state replaces them, and a read-only embed offers no add button.
+  expect(within(comparison).getByText(COMPETITOR_COMPARISON_COPY.emptyTitle)).toBeTruthy()
+  expect(within(comparison).queryByText('Mention gaps')).toBeNull()
+  expect(within(comparison).queryByRole('button', { name: COMPETITOR_COMPARISON_COPY.add })).toBeNull()
   const engines = await screen.findByRole('table', { name: 'By engine, non-brand queries' })
   expect(within(engines).getByText('Gemini')).toBeTruthy()
   expect(within(engines).getAllByText('1 of 1 answers')).toHaveLength(2)

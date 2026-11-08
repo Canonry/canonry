@@ -358,6 +358,14 @@ export function RootLayout() {
     includeOverviews: false,
     pauseProjectPolling: location.pathname === '/setup',
   })
+  // Once a page has rendered, keep it mounted. A project list that failed to
+  // load retries through `pending`, and swapping the page back for the shell
+  // skeleton remounted it, whose mount retried the read at once: a request
+  // loop that never let the page show its own error state.
+  const [pageShown, setPageShown] = useState(!isLoading)
+  useEffect(() => {
+    if (!isLoading) setPageShown(true)
+  }, [isLoading])
   const enableLiveStatus = !contextDashboard
   const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
@@ -538,7 +546,7 @@ export function RootLayout() {
   // Derive breadcrumb label from current location
   const breadcrumbLabel = (() => {
     const path = location.pathname
-    if (path === '/') return 'All projects'
+    if (path === '/') return 'Overview'
     if (path === '/projects') return 'Projects'
     if (path === '/runs') return 'Runs'
     if (path === '/history') return 'History'
@@ -592,11 +600,14 @@ export function RootLayout() {
     )
   }
 
-  const footer = (
+  // The sidebar's brand lockup already shows the version, so the sidebar
+  // footer carries only the product links. The mobile navigation has no
+  // lockup, so its footer keeps the version.
+  const footer = (showVersion: boolean) => (
     <footer className="footer">
       <span className="footer-brand">
         <span><a href='https://canonry.ai'>Canonry</a></span>
-        {healthSnapshot.apiStatus.version && healthSnapshot.apiStatus.version !== 'unknown' ? (
+        {showVersion && healthSnapshot.apiStatus.version && healthSnapshot.apiStatus.version !== 'unknown' ? (
           <span className="footer-version">v{healthSnapshot.apiStatus.version}</span>
         ) : null}
       </span>
@@ -648,7 +659,7 @@ export function RootLayout() {
             activeOptions={{ exact: true }}
           >
             <LayoutDashboard className="sidebar-icon" />
-            <span>All projects</span>
+            <span>Overview</span>
           </Link>
           <Link
             to="/projects"
@@ -802,7 +813,7 @@ export function RootLayout() {
           </div>
         )}
 
-        {footer}
+        {footer(false)}
       </aside>
       )}
 
@@ -833,10 +844,15 @@ export function RootLayout() {
               <BrandLockup compact />
             </div>
             <nav className="breadcrumb" aria-label="Breadcrumb">
-              <Link to="/">
-                Home
-              </Link>
-              <ChevronRight className="breadcrumb-sep size-3" />
+              {/* Overview is the root: on its own page the trail is that one crumb. */}
+              {location.pathname === '/' ? null : (
+                <>
+                  <Link to="/">
+                    Overview
+                  </Link>
+                  <ChevronRight className="breadcrumb-sep size-3" />
+                </>
+              )}
               <span className="breadcrumb-current">{breadcrumbLabel}</span>
             </nav>
           </div>
@@ -878,7 +894,7 @@ export function RootLayout() {
           </Dialog.Close>
           {isFocusedSetup && <Link to="/setup" search={location.search} className="mobile-nav-link mobile-nav-link-active" aria-current="page">Setup</Link>}
           <Link to="/" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
-            All projects
+            Overview
           </Link>
           <Link to="/projects" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: false }}>
             Projects
@@ -927,7 +943,7 @@ export function RootLayout() {
                   params={{ projectName: projectVm.project.name }}
                   className="mobile-nav-link"
                 >
-                  {projectVm.project.name}
+                  {projectVm.project.displayName || projectVm.project.name}
                 </Link>
               ))}
             </div>
@@ -962,7 +978,7 @@ export function RootLayout() {
               </div>
             </div>
           )}
-          {footer}
+          {footer(true)}
           </Dialog.Content>
           </Dialog.Portal>
         )}
@@ -972,7 +988,7 @@ export function RootLayout() {
           id="content"
           className="page-shell"
         >
-          {isLoading && !contextDashboard ? (
+          {isLoading && !contextDashboard && !pageShown ? (
             <div className="page-skeleton">
               <div className="page-skeleton-header">
                 <div className="skeleton-text h-6 w-40" />
@@ -1037,9 +1053,9 @@ export function RootLayout() {
 
           {/* Run activity log */}
           <div className="mt-4">
-            <p className="text-label-12-strong normal-case text-muted mb-2">Activity Log</p>
+            <p className="text-label-12-strong normal-case text-muted mb-2">Activity log</p>
             {runDetailLoading ? (
-              <p className="text-copy-14 text-muted">Loading run details...</p>
+              <p className="text-copy-14 text-muted">Loading run details…</p>
             ) : runDetail?.snapshots && runDetail.snapshots.length > 0 ? (
               <div className="space-y-2">
                 {runDetail.snapshots.map((snap) => (
@@ -1097,19 +1113,19 @@ export function RootLayout() {
                 {runDetail.status === RunStatuses.running && (
                   <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                     <span className="inline-block h-2 w-2 rounded-full bg-caution-500 animate-pulse" />
-                    Running remaining queries...
+                    Running remaining queries…
                   </div>
                 )}
               </div>
             ) : runDetail && runDetail.status === RunStatuses.running ? (
               <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                 <span className="inline-block h-2 w-2 rounded-full bg-caution-500 animate-pulse" />
-                {runDetail.kind === RunKinds['answer-visibility'] ? 'Waiting for first query result...' : 'Run is in progress...'}
+                {runDetail.kind === RunKinds['answer-visibility'] ? 'Waiting for first query result…' : 'Run is in progress…'}
               </div>
             ) : runDetail && runDetail.status === RunStatuses.queued ? (
               <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                 <span className="inline-block h-2 w-2 rounded-full bg-mono-500 animate-pulse" />
-                Run queued, waiting for execution slot...
+                Run queued, waiting for execution slot…
               </div>
             ) : runDetail && runDetail.error ? (
               <div className="rounded-md border border-negative-800/40 bg-negative-950/20 p-3">

@@ -139,6 +139,13 @@ test.each([true, false])('Projects renders server coverage (measured=%s) without
   expect(row.textContent).not.toContain('null')
   expect(row.textContent).not.toContain('99.9%')
   expect(screen.getByText('Branded queries').closest('details')!.textContent).toContain('100% · 2 of 2 answers')
+  // The rate is a figure in a column, set as tabular text, never a status pill.
+  const coverageCell = row.cells[2]!
+  const figure = coverageCell.firstElementChild!
+  expect(figure.textContent).toBe(measured ? '25.0% · non-brand queries' : '— · non-brand queries')
+  expect(figure.querySelector('.sr-only')!.textContent).toBe(' · non-brand queries')
+  expect(figure.classList.contains('tabular-nums')).toBe(true)
+  expect(coverageCell.querySelector('.border, .rounded-md, .rounded-full')).toBeNull()
 })
 
 /** jsdom has no keyboard activation: send the click a browser sends for Enter or Space unless a key handler cancelled it. */

@@ -463,8 +463,10 @@ test('distills the integrated view to a score and its actionable findings', asyn
   expect(screen.getByLabelText('Agent Readiness score 52 out of 100')).not.toBeNull()
   // The Score view names the feature's score once; its table says "Check".
   expect(screen.getByText('Agent Readiness score').tagName).toBe('P')
-  expect(screen.getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Check', 'Score', 'Status', 'Pages affected'])
-  expect(screen.getByText('2 pages checked')).not.toBeNull()
+  expect(screen.getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Check', 'Score', 'Worst page', 'Pages affected'])
+  // "Scored", because the scan counts above it say "Pages checked" for every page loaded.
+  expect(screen.getByText('2 pages scored')).not.toBeNull()
+  expect(screen.queryByText(/pages? checked/)).toBeNull()
   expect(screen.getByText('2 checks with pages below pass')).not.toBeNull()
   const findingsHeading = screen.getByRole('heading', { name: 'Findings' })
   expect(findingsHeading).not.toBeNull()
@@ -490,6 +492,53 @@ test('distills the integrated view to a score and its actionable findings', asyn
   expect(screen.queryByRole('heading', { name: 'Per-page breakdown' })).toBeNull()
 })
 
+test('lists integrated findings worst first and names the worst page beside each average', () => {
+  const queryClient = makeClient()
+  const factor = (id: string, name: string, avgScore: number, status: 'pass' | 'partial' | 'fail', pagesPartial: number, pagesFailing: number) => ({
+    id, name, weight: 6, avgScore, status, pagesPassing: 10 - pagesPartial - pagesFailing, pagesPartial, pagesFailing,
+  })
+  // The API's own order, which is not worst first.
+  queryClient.setQueryData(scoreKey, {
+    ...score('audit_old', 72),
+    pagesAudited: 10,
+    factors: [
+      factor('technical-seo', 'Technical SEO', 95, 'pass', 0, 0),
+      factor('schema-validity', 'Schema Validity', 95, 'pass', 0, 0),
+      factor('content-depth', 'Content Depth', 74, 'partial', 3, 0),
+      factor('ai-crawler-access', 'AI Crawler Access', 87, 'fail', 0, 2),
+      factor('faq-content', 'FAQ Content', 61, 'partial', 3, 0),
+      factor('structured-data', 'Structured Data', 72, 'fail', 0, 1),
+      factor('named-entities', 'Named Entities', 79, 'partial', 4, 0),
+    ],
+  })
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated />
+    </QueryClientProvider>,
+  )
+
+  const table = screen.getByRole('columnheader', { name: 'Worst page' }).closest('table')!
+  const rows = within(table).getAllByRole('row').slice(1)
+    .map(row => within(row).getAllByRole('cell').map(cell => cell.textContent))
+  // Fail, then Partial, then Pass, whatever the average. Within a band, more
+  // pages affected first (AI Crawler Access before the lower-scoring Structured
+  // Data), then the lower score (FAQ Content before Content Depth), and an exact
+  // tie keeps the API's order (Technical SEO before Schema Validity).
+  expect(rows).toEqual([
+    ['AI Crawler Access', '87/100', 'Fail', '2 of 10'],
+    ['Structured Data', '72/100', 'Fail', '1 of 10'],
+    ['Named Entities', '79/100', 'Partial', '4 of 10'],
+    ['FAQ Content', '61/100', 'Partial', '3 of 10'],
+    ['Content Depth', '74/100', 'Partial', '3 of 10'],
+    ['Technical SEO', '95/100', 'Pass', '0 of 10'],
+    ['Schema Validity', '95/100', 'Pass', '0 of 10'],
+  ])
+  expect(screen.getByRole('button', {
+    name: 'Score is the check\'s average across scored pages. Worst page is the band of its lowest-scoring page: Fail below 40, Partial 40 to 69, Pass 70 or more. Pages affected counts pages below 70. Checks are listed worst first.',
+  })).not.toBeNull()
+})
+
 test('keeps the integrated findings table readable while affected pages load', async () => {
   const queryClient = makeClient()
   queryClient.setQueryData(scoreKey, scoreWithFinding())
@@ -505,7 +554,7 @@ test('keeps the integrated findings table readable while affected pages load', a
   const factorButton = screen.getByRole('button', { name: 'AI Crawler Access' })
   expect(factorButton.getAttribute('aria-expanded')).toBe('false')
   fireEvent.click(factorButton)
-  expect(await screen.findByText('Loading affected pages...')).not.toBeNull()
+  expect(await screen.findByText('Loading affected pages…')).not.toBeNull()
   expect(screen.getByRole('table').className).toContain('min-w-[42rem]')
   expect(screen.queryByText('Page details are not available in the loaded page sample.')).toBeNull()
   expect(screen.queryByText(/Showing the worst 0 audited pages/)).toBeNull()

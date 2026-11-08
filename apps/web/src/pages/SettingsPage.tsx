@@ -196,7 +196,7 @@ function SettingsPageBody() {
                   setBingSaving(false)
                 }
               })}>
-                {bingSaving ? 'Saving...' : 'Save Bing API key'}
+                {bingSaving ? 'Saving…' : 'Save Bing API key'}
               </Button>
             </div>
           )}

@@ -564,6 +564,13 @@ function OverviewMetricRow({
   )
 }
 
+/** The competitor comparison's empty state, exported so tests assert the shipped strings. */
+export const COMPETITOR_COMPARISON_COPY = {
+  emptyTitle: 'No competitors set',
+  emptyDetail: 'Mention and citation gaps need at least one tracked competitor.',
+  add: 'Add competitors',
+} as const
+
 function OverviewDisclosure({
   id,
   title,
@@ -577,12 +584,16 @@ function OverviewDisclosure({
   defaultOpen?: boolean
   children: React.ReactNode
 }) {
+  const titleId = useId()
+  const metaId = useId()
   return (
     <details id={id} className="overview-disclosure page-section-divider scroll-mt-24" open={defaultOpen || undefined}>
-      <summary className="overview-disclosure-summary">
-        <h2 className="overview-disclosure-title">{title}</h2>
+      {/* The summary is the toggle, so it takes its name from the heading
+          alone; the meta line is its description. */}
+      <summary className="overview-disclosure-summary" aria-labelledby={titleId} aria-describedby={meta ? metaId : undefined}>
+        <h2 id={titleId} className="overview-disclosure-title">{title}</h2>
         <span className="overview-disclosure-meta">
-          {meta && <span>{meta}</span>}
+          {meta && <span id={metaId}>{meta}</span>}
           <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
         </span>
       </summary>
@@ -810,7 +821,38 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
   />
 }
 
-type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
+export type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
+
+/**
+ * The project sections in tab-row order. The row keeps the sections an
+ * operator returns to, AI Visibility and Queries first; the rest open from
+ * More, and a narrow panel moves the row's later sections into More too.
+ * `key` is a wire value for embed allowlists and saved URLs. Journeys reads
+ * private visitor evidence, so view-only accounts never get it, and it is
+ * absent from the embed allowlist, so embeds drop it too.
+ */
+export function projectSectionTabs(projectTabBase: string, { journeys }: { journeys: boolean }): { primary: ProjectTabItem[]; overflow: ProjectTabItem[] } {
+  return {
+    primary: [
+      { key: 'overview', label: 'AI Visibility', href: projectTabBase },
+      { key: 'queries', label: 'Queries', href: `${projectTabBase}/queries` },
+      { key: 'search-console', label: 'Search engines', href: `${projectTabBase}/search-console` },
+      { key: 'seo-data', label: 'SEO', href: `${projectTabBase}/seo-data` },
+      { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
+      // `agent-readiness` is the route and embed token; the retired `/technical-aeo`
+      // route redirects here, and embeds that still list `technical-aeo` keep the tab.
+      { key: 'agent-readiness', label: 'Agent Readiness', href: `${projectTabBase}/agent-readiness` },
+      ...(journeys ? [{ key: 'journeys' as const, label: 'Journeys', href: `${projectTabBase}/journeys` }] : []),
+      { key: 'traffic', label: 'Server traffic', href: `${projectTabBase}/traffic` },
+    ],
+    overflow: [
+      { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },
+      { key: 'local', label: 'Local presence', href: `${projectTabBase}/local` },
+      { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
+      { key: 'history', label: 'Change history', href: `${projectTabBase}/history` },
+    ],
+  }
+}
 
 export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }: {
   items: ProjectTabItem[]
@@ -1154,7 +1196,7 @@ function ProjectPageContent({
     () => Object.fromEntries(model.competitors.map(c => [c.domain, [...(c.aliases ?? []), ...(c.autoAliases ?? [])]])),
     [model.competitors],
   )
-  // "Local Presence" is always shown — GbpSection renders a setup guide when no
+  // "Local presence" is always shown — GbpSection renders a setup guide when no
   // Google Business Profile is connected, so the tab is the entry point to
   // connecting one rather than being hidden until after connection.
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -1474,6 +1516,18 @@ function ProjectPageContent({
     setCompetitorHistoryOpenForProject(null)
   }, [projectName])
   const competitorHistoryOpen = competitorHistoryOpenForProject === projectName
+  // "Add competitors" in the comparison's empty state opens Competitor history,
+  // where competitors are pinned and added, and moves focus to its toggle once
+  // it is open.
+  const competitorHistoryRef = useRef<HTMLDetailsElement>(null)
+  const [competitorHistoryFocusPending, setCompetitorHistoryFocusPending] = useState(false)
+  useEffect(() => {
+    if (!competitorHistoryFocusPending || !competitorHistoryOpen) return
+    setCompetitorHistoryFocusPending(false)
+    competitorHistoryRef.current?.querySelector<HTMLElement>(':scope > summary')?.focus()
+  }, [competitorHistoryFocusPending, competitorHistoryOpen])
+  const competitiveTitleId = useId()
+  const competitiveMetaId = useId()
   // Historical evidence is read when its disclosure opens.
   const competitorLandscapeReadEnabled = competitorLandscapeAvailable && competitorHistoryOpen
   const competitorLandscapeQuery = useQuery({
@@ -1998,40 +2052,21 @@ function ProjectPageContent({
     return updated
   }
 
-  // Quiet underline tabs. The bar keeps the sections an operator returns
-  // to; everything else is in More, and an open More section shows as a tab
-  // before it, so the bar always names the current page. Narrow widths can
-  // move primary sections into More, never the open one. Operators reach
-  // Settings from the sidebar; only embeds get a Settings tab, at the far
-  // right. `key` is a wire value for embed allowlists and saved URLs.
+  // Quiet underline tabs in `projectSectionTabs` order. The bar keeps the
+  // sections an operator returns to; everything else is in More, and an open
+  // More section shows as a tab before it, so the bar always names the current
+  // page. Narrow widths can move primary sections into More, never the open
+  // one. Operators reach Settings from the sidebar; only embeds get a Settings
+  // tab, at the far right.
   const projectTabBase = `/projects/${encodeURIComponent(model.project.name)}`
-  const projectTabItemsAll: ProjectTabItem[] = [
-    { key: 'overview', label: 'AI Visibility', href: projectTabBase },
-    { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
-    { key: 'seo-data', label: 'SEO', href: `${projectTabBase}/seo-data` },
-    { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
-    // `agent-readiness` is the route and embed token; the retired `/technical-aeo`
-    // route redirects here, and embeds that still list `technical-aeo` keep the tab.
-    { key: 'agent-readiness', label: 'Agent Readiness', href: `${projectTabBase}/agent-readiness` },
-    // Journeys reads private visitor evidence: never for view-only accounts, and
-    // absent from the embed allowlist, so embeds drop it automatically.
-    ...(account?.role !== UserRoles.viewer ? [{ key: 'journeys' as const, label: 'Journeys', href: `${projectTabBase}/journeys` }] : []),
-    { key: 'traffic', label: 'Server traffic', href: `${projectTabBase}/traffic` },
-  ]
-  const projectOverflowTabItemsAll: ProjectTabItem[] = [
-    { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },
-    { key: 'local', label: 'Local Presence', href: `${projectTabBase}/local` },
-    { key: 'queries', label: 'Queries', href: `${projectTabBase}/queries` },
-    { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
-    { key: 'history', label: 'Change History', href: `${projectTabBase}/history` },
-  ]
+  const sectionTabs = projectSectionTabs(projectTabBase, { journeys: account?.role !== UserRoles.viewer })
   // In embed mode the effective allowlist narrows the subnav to the curated
   // client-facing tabs. Settings also requires write access outside embed/demo.
   const projectTabItems = [
-    ...projectTabItemsAll.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs)),
+    ...sectionTabs.primary.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs)),
     ...(queryLimit !== undefined ? [{ key: 'client-queries' as const, label: 'Queries', href: `${projectTabBase}/client-queries` }] : []),
   ]
-  const projectOverflowTabItems = projectOverflowTabItemsAll.filter((item) =>
+  const projectOverflowTabItems = sectionTabs.overflow.filter((item) =>
     isEmbedProjectTabAllowed(item.key, embedProjectTabs),
   )
   const canViewProjectSettings = canWrite || isEmbed() || isPublicDemo()
@@ -2272,8 +2307,10 @@ function ProjectPageContent({
                     runs the sweep; this is the override for when you can't wait
                     for it. Deleting the project used to sit here too — an
                     irreversible action one misclick from the page's most-used
-                    button — and now lives at the bottom of the Settings tab. */}
-                <WriteButton
+                    button — and now lives at the bottom of the Settings tab.
+                    Agent Readiness leads with its own Run scan, so that tab
+                    offers no second check to start. */}
+                {tab !== 'agent-readiness' ? <WriteButton
                   type="button"
                   variant="outline"
                   disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending || (sweepsOnHold && !providerReadinessFailed && !sweepSetupRequired)}
@@ -2296,7 +2333,7 @@ function ProjectPageContent({
                           : sweepsOnHold
                             ? 'AI Visibility checks on hold'
                             : 'Run AI Visibility check'}
-                </WriteButton>
+                </WriteButton> : null}
               </>
             )}
           </div>
@@ -2417,10 +2454,12 @@ function ProjectPageContent({
           </section>
 
           {hasVisibilityBaseline && <><section className="mb-6"><details className="av-history" open={competitorDomains.length > 0}>
-            <summary className="av-card-head">
-              <h2 className="av-card-title">{competitorDomains.length > 0 ? 'Where competitors are winning' : 'Compare competitors'}</h2>
+            {/* The summary is the toggle, so it takes its name from the heading
+                alone; the check it reads is its description. */}
+            <summary className="av-card-head" aria-labelledby={competitiveTitleId} aria-describedby={competitiveMetaId}>
+              <h2 id={competitiveTitleId} className="av-card-title">{competitorDomains.length > 0 ? 'Where competitors are winning' : 'Compare competitors'}</h2>
               <span className="inline-flex items-center gap-2">
-                <span className="av-card-meta">Latest check</span>
+                <span id={competitiveMetaId} className="av-card-meta">Latest check</span>
                 <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
               </span>
             </summary>
@@ -2433,23 +2472,41 @@ function ProjectPageContent({
                   competitorDomains={competitorDomains}
                 />
 
-                <div className="competitive-gaps">
-                  <p className="competitive-gaps-scope">All queries</p>
-                  <div className="aeo-hero-rows">
-                    <OverviewMetricRow
-                      label="Mention gaps"
-                      summary={model.mentionGaps}
-                      displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
-                      tooltip="Across all queries, branded and non-brand: a competitor was mentioned in an answer and your brand was not mentioned by any engine. The mention-share query type does not filter these counts."
-                    />
-                    <OverviewMetricRow
-                      label="Citation gaps"
-                      summary={model.gapQueries}
-                      displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
-                      tooltip="Across all queries, branded and non-brand: a competitor was cited as a source and your domain was not cited by any engine. The mention-share query type does not filter these counts."
-                    />
+                {competitorDomains.length > 0 ? (
+                  <div className="competitive-gaps">
+                    <p className="competitive-gaps-scope">All queries</p>
+                    <div className="aeo-hero-rows">
+                      <OverviewMetricRow
+                        label="Mention gaps"
+                        summary={model.mentionGaps}
+                        displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
+                        tooltip="Across all queries, branded and non-brand: a competitor was mentioned in an answer and your brand was not mentioned by any engine. The mention-share query type does not filter these counts."
+                      />
+                      <OverviewMetricRow
+                        label="Citation gaps"
+                        summary={model.gapQueries}
+                        displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
+                        tooltip="Across all queries, branded and non-brand: a competitor was cited as a source and your domain was not cited by any engine. The mention-share query type does not filter these counts."
+                      />
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  // A gap counts only tracked competitors, so with none tracked
+                  // both counts are zero whatever the answers said. Zeros with
+                  // bars would read as winning; say what is missing instead.
+                  <div className="competitive-gaps">
+                    <p className="text-label-14-strong text-strong">{COMPETITOR_COMPARISON_COPY.emptyTitle}</p>
+                    <p className="mt-1 text-copy-14 text-secondary">{COMPETITOR_COMPARISON_COPY.emptyDetail}</p>
+                    {competitorLandscapeAvailable && canWrite && !isEmbed() ? (
+                      <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => {
+                        setCompetitorHistoryOpenForProject(projectName)
+                        setCompetitorHistoryFocusPending(true)
+                      }}>
+                        {COMPETITOR_COMPARISON_COPY.add}
+                      </Button>
+                    ) : null}
+                  </div>
+                )}
               </div>
           </details></section>
 
@@ -2590,7 +2647,7 @@ function ProjectPageContent({
             )}
           </details> : null}
           {competitorLandscapeCard !== null ? (
-            <details className={`visibility-disclosure${isSimpleOverview ? ' page-section-divider' : ''}`} open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
+            <details ref={competitorHistoryRef} className={`visibility-disclosure${isSimpleOverview ? ' page-section-divider' : ''}`} open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
               <summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Competitor history</span></summary>
               <div className="visibility-disclosure-panel">{competitorLandscapeCard}</div>
             </details>

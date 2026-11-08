@@ -10,6 +10,8 @@ import { AccountProvider, type ApiKeyAccess } from '../src/contexts/account-cont
 import { heyClient } from '../src/api.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { clearOnboardingRunLaunched, readOnboardingLaunchedRun } from '../src/lib/onboarding-telemetry.js'
+import { getToasts } from '../src/lib/toast-store.js'
+import { formatSweepInstant } from '../src/lib/format-helpers.js'
 import { SetupPage } from '../src/pages/SetupPage.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import { connectionFixture } from './provider-settings-fixtures.js'
@@ -67,9 +69,13 @@ function renderProjectSetup(options: {
   runResponse?: (init?: RequestInit) => Response | Promise<Response>
   previewResponse?: () => Response | Promise<Response>
   includeLocalProvider?: boolean
+  /** More connections that still need setup, as `/settings` lists them. */
+  extraProviders?: Array<{ name: string; displayName: string }>
   openRouter?: boolean
   /** Replaces the administrator settings read (the OpenRouter catalog source). */
   settingsResponse?: () => Response | Promise<Response>
+  /** Answers `POST /projects/:name/queries/generate`. */
+  generateResponse?: (init?: RequestInit) => Response | Promise<Response>
 }) {
   const fixture = createDashboardFixture()
   // Match the key destinations published by the provider adapter catalog.
@@ -102,7 +108,11 @@ function renderProjectSetup(options: {
     }))
   }
   if (options.includeLocalProvider) {
-    fixture.dashboard.settings.providerStatuses.push({ name: 'local', state: 'needs-config', detail: 'Base URL is missing.' })
+    // `/settings` names the model a blank model field runs (the Local adapter's default).
+    fixture.dashboard.settings.providerStatuses.push({ name: 'local', defaultModel: 'llama3', state: 'needs-config', detail: 'Base URL is missing.' })
+  }
+  for (const provider of options.extraProviders ?? []) {
+    fixture.dashboard.settings.providerStatuses.push({ ...provider, state: 'needs-config', detail: 'API key is missing.' })
   }
   if (options.openRouter) fixture.dashboard.settings.providerStatuses.push({ name: 'openrouter', displayName: 'OpenRouter', state: 'ready', detail: 'Connected.' })
 
@@ -129,6 +139,7 @@ function renderProjectSetup(options: {
     if (pathOf(url).endsWith('/measurement-setup')) return jsonResponse({ answerVisibilityProviderReady: options.providerReady !== false })
     if (pathOf(url) === '/api/v1/cdp/status') return options.cdpResponse?.() ?? jsonResponse(options.cdpStatus ?? {})
     if (pathOf(url).startsWith('/api/v1/settings/providers/')) return options.providerResponse?.() ?? jsonResponse(init?.method === 'GET' ? connectionFixture({ name: pathOf(url).split('/').at(-1) ?? 'gemini', displayName: 'Gemini' }) : { name: 'gemini', configured: true })
+    if (pathOf(url).endsWith('/queries/generate') && options.generateResponse) return options.generateResponse(init)
     if (pathOf(url).endsWith('/queries')) {
       const response = options.queryResponse ? await options.queryResponse(init) : jsonResponse(options.complete ? [{ id: 'query-1', query: 'best local dentist' }] : [])
       if (response.ok) canonicalQueryCount = (await response.clone().json() as unknown[]).length
@@ -321,7 +332,7 @@ test('allows a project-scoped write key to configure its exact project', async (
   expect(screen.queryByLabelText('Provider to connect')).toBeNull()
   expect(screen.queryByRole('link', { name: 'Open provider settings' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Connect Gemini' })).toBeNull()
-  expect(screen.queryByRole('link', { name: 'Get Gemini API key ↗' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Get a key in Google AI Studio ↗' })).toBeNull()
 })
 
 test('keeps Gemini onboarding guidance out of administrator-only setup for a read-only key', async () => {
@@ -332,7 +343,7 @@ test('keeps Gemini onboarding guidance out of administrator-only setup for a rea
   })
   expect(await screen.findByText('Set up AI Visibility is for administrators')).toBeTruthy()
   expect(screen.queryByRole('heading', { name: 'Connect Gemini' })).toBeNull()
-  expect(screen.queryByRole('link', { name: 'Get Gemini API key ↗' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Get a key in Google AI Studio ↗' })).toBeNull()
   expect(screen.queryByLabelText('API key')).toBeNull()
 })
 
@@ -341,11 +352,11 @@ test('introduces Gemini free-tier setup before the API key field with its limits
   const heading = await screen.findByRole('heading', { name: 'Connect Gemini' })
   const keyInput = screen.getByLabelText('API key')
   expect(heading.compareDocumentPosition(keyInput) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  const keyLink = screen.getByRole('link', { name: 'Get Gemini API key ↗' })
+  const keyLink = screen.getByRole('link', { name: 'Get a key in Google AI Studio ↗' })
   expect(keyLink.getAttribute('href')).toBe('https://aistudio.google.com/apikey')
   expect(keyLink.getAttribute('target')).toBe('_blank')
   expect(keyLink.getAttribute('rel')).toContain('noopener')
-  expect(screen.getByText('Get a key in Google AI Studio. Free usage depends on the model and your account.')).toBeTruthy()
+  expect(keyLink.closest('p')?.textContent).toBe('Get a key in Google AI Studio ↗. Free usage depends on the model and your account. Pricing and limits')
   const pricingLink = screen.getByRole('link', { name: 'Pricing and limits' })
   expect(pricingLink.getAttribute('href')).toBe('https://ai.google.dev/gemini-api/docs/pricing')
   expect(pricingLink.getAttribute('target')).toBe('_blank')
@@ -358,13 +369,13 @@ test('switches Gemini free-tier guidance with the selected provider and preserve
   const provider = screen.getByLabelText('Provider to connect')
   fireEvent.change(provider, { target: { value: 'Claude' } })
   expect(screen.queryByRole('heading', { name: 'Connect Gemini' })).toBeNull()
-  expect(screen.queryByRole('link', { name: 'Get Gemini API key ↗' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Get a key in Google AI Studio ↗' })).toBeNull()
   expect(screen.queryByRole('link', { name: 'Pricing and limits' })).toBeNull()
   expect(screen.getByRole('link', { name: 'Get API key ↗' }).getAttribute('href')).toBe('https://platform.claude.com/settings/keys')
 
   fireEvent.change(screen.getByLabelText('Provider to connect'), { target: { value: 'Gemini' } })
   expect(screen.getByRole('heading', { name: 'Connect Gemini' })).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'Get Gemini API key ↗' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Get a key in Google AI Studio ↗' })).toBeTruthy()
   expect(screen.queryByRole('link', { name: 'Get API key ↗' })).toBeNull()
   expect(requests.filter(request => request.method === 'PUT')).toEqual([])
 })
@@ -404,13 +415,13 @@ test('keeps provider-switch keyboard focus while resetting credentials and advan
   expect(requests.filter(request => request.method === 'PUT')).toEqual([])
 })
 
-function renderColdScopedSetup(readinessResponse: () => Response | Promise<Response>, existingRun?: Partial<RunDetailDto> & Pick<RunDetailDto, 'status'>, overviewResponse?: () => Response | Promise<Response>, runDetailsResponse?: () => Response | Promise<Response>) {
+function renderColdScopedSetup(readinessResponse: () => Response | Promise<Response>, existingRun?: Partial<RunDetailDto> & Pick<RunDetailDto, 'status'>, overviewResponse?: () => Response | Promise<Response>, runDetailsResponse?: () => Response | Promise<Response>, savedQueries?: Array<{ id: string; query: string; queryClass?: 'branded' | 'non-brand' | null }>) {
   const project = { ...createDashboardFixture().dashboard.projects[0]!.project, name: 'scoped-project', displayName: 'City Point Dental', providers: ['gemini'] }
   const requests: string[] = []
   const telemetryEvents: Array<{ event: string; step?: string }> = []
   const run = { id: 'scoped-run', projectId: project.id, projectName: project.name, kind: 'answer-visibility', status: 'queued', createdAt: '2026-09-05T12:00:00Z', ...existingRun }
   let hasRun = Boolean(existingRun)
-  let queries = [{ id: 'saved-query', query: 'best local dentist' }]
+  let queries: Array<{ id: string; query: string; queryClass?: 'branded' | 'non-brand' | null }> = savedQueries ?? [{ id: 'saved-query', query: 'best local dentist' }]
   const restore = mockFetch((url, init) => {
     const path = pathOf(url)
     requests.push(path)
@@ -488,8 +499,8 @@ test('waits for resumed check evidence before deciding whether a completed check
     createdAt: '2026-09-05T12:00:00Z', snapshots: [setupResultSnapshot({ answerText: 'A saved answer after resuming.' })],
   })))
   expect(await screen.findByRole('heading', { name: 'Saved answers' })).toBeTruthy()
-  // The preview and the full-answer disclosure both render the saved text.
-  expect(screen.getAllByText('A saved answer after resuming.').length).toBeGreaterThan(0)
+  // The saved answer shows once its details load.
+  expect(screen.getByText('A saved answer after resuming.')).toBeTruthy()
 })
 
 // Launched-run markers written before they recorded a run kind.
@@ -695,6 +706,8 @@ test('offers provider setup before queries and keeps the draft after saving and 
   fireEvent.click(screen.getByRole('button', { name: 'Save connection' }))
 
   expect(await screen.findByText('Provider updated.')).toBeTruthy()
+  // The notice names the provider as people know it, not by its internal id.
+  expect(getToasts().map(toast => toast.detail)).toContain('Gemini configuration saved.')
   expect(requests.find(request => request.path === '/api/v1/settings/providers/gemini')).toMatchObject({
     method: 'PUT', body: JSON.stringify({ apiKey: 'synthetic-test-key' }),
   })
@@ -736,8 +749,11 @@ test('requires the local endpoint, not an API key, when Local is selected', asyn
   const { requests } = renderProjectSetup({ onboarding: true, providerReady: false, projectProviders: ['local'], includeLocalProvider: true })
   const baseUrl = await screen.findByLabelText('Base URL')
   expect(screen.queryByRole('heading', { name: 'Connect Gemini' })).toBeNull()
-  expect(screen.queryByRole('link', { name: 'Get Gemini API key ↗' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Get a key in Google AI Studio ↗' })).toBeNull()
   expect(screen.getByLabelText('API key (optional)')).toBeTruthy()
+  // A blank model field names the model it runs, from the server's settings.
+  screen.getByText('Advanced provider settings', { selector: 'summary' }).closest('details')!.open = true
+  expect(screen.getByRole('textbox', { name: 'Model (optional)', description: 'Default model: llama3' })).toHaveProperty('value', '')
   expect((screen.getByRole('button', { name: 'Save connection' }) as HTMLButtonElement).disabled).toBe(true)
   fireEvent.change(baseUrl, { target: { value: 'http://localhost:11434/v1' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save connection' }))
@@ -819,7 +835,7 @@ test('blocks launch when the ready provider is outside the project allowlist', a
   expect((screen.getByLabelText('Provider to connect') as HTMLSelectElement).value).toBe('Claude')
   expect(within(screen.getByLabelText('Provider to connect')).queryByRole('option', { name: 'Gemini' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Connect Gemini' })).toBeNull()
-  expect(screen.queryByRole('link', { name: 'Get Gemini API key ↗' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Get a key in Google AI Studio ↗' })).toBeNull()
   expect((screen.getByRole('button', { name: 'Run check' }) as HTMLButtonElement).disabled).toBe(true)
 })
 
@@ -927,11 +943,12 @@ test.each(['queued', 'running', 'failed', 'completed'] as const)('managed setup 
   })
   await screen.findByRole('heading', { name: 'AI Visibility', exact: true })
   if (status === 'completed') {
-    fireEvent.click(await screen.findByText('Result counts · all queries', { selector: 'summary' }))
-    expect(screen.getByText('Mentioned')).toBeTruthy()
-    expect(screen.getByText('Cited')).toBeTruthy()
-    expect(screen.getByText('Results')).toBeTruthy()
-    expect(screen.getAllByText('Unavailable')).toHaveLength(2)
+    await screen.findByText('Mentioned', { selector: 'dt' })
+    expect(resultFigures()).toEqual([
+      ['Mentioned', 'Unavailable · all queries'],
+      ['Cited', 'Unavailable · all queries'],
+      ['Engine results', '1 · all queries'],
+    ])
   } else if (status === 'failed') {
     expect(await screen.findByText('Provider quota exceeded')).toBeTruthy()
   } else {
@@ -957,27 +974,34 @@ function setupResultSnapshot(overrides: Record<string, unknown>) {
   })
 }
 
+/** The first result's summary row as [label, value], including each value's screen-reader class text. */
+function resultFigures() {
+  const summary = screen.getByText('Mentioned', { selector: 'dt' }).closest('dl')!
+  const values = within(summary).getAllByRole('definition')
+  return within(summary).getAllByRole('term').map((term, index) => [term.textContent, values[index]!.textContent])
+}
+
 test.each([
   {
     scenario: 'one query across two positive providers',
     status: 'completed',
     snapshots: [setupResultSnapshot({}), setupResultSnapshot({ id: 'snapshot_two', provider: 'openai' })],
     queryCounts: { totalQueries: 1, citedQueries: 1, mentionedQueries: 1 },
-    mentioned: '1', cited: '1', checks: '2',
+    mentioned: '1 of 1 query', cited: '1 of 1 query', checks: '2',
   },
   {
     scenario: 'distinct query IDs with identical display text',
     status: 'completed',
     snapshots: [setupResultSnapshot({}), setupResultSnapshot({ id: 'snapshot_two', queryId: 'query_two' })],
     queryCounts: { totalQueries: 2, citedQueries: 2, mentionedQueries: 2 },
-    mentioned: '2', cited: '2', checks: '2',
+    mentioned: '2 of 2 queries', cited: '2 of 2 queries', checks: '2',
   },
   {
     scenario: 'an identified query without optional display text',
     status: 'completed',
     snapshots: [setupResultSnapshot({ query: undefined })],
     queryCounts: { totalQueries: 1, citedQueries: 1, mentionedQueries: 1 },
-    mentioned: '1', cited: '1', checks: '1',
+    mentioned: '1 of 1 query', cited: '1 of 1 query', checks: '1',
   },
   {
     scenario: 'independent citation and mention signals',
@@ -988,21 +1012,21 @@ test.each([
       setupResultSnapshot({ id: 'snapshot_three', queryId: 'query_two', query: 'another query', citationState: 'not-cited', answerMentioned: false }),
     ],
     queryCounts: { totalQueries: 2, citedQueries: 1, mentionedQueries: 1 },
-    mentioned: '1', cited: '1', checks: '3',
+    mentioned: '1 of 2 queries', cited: '1 of 2 queries', checks: '3',
   },
   {
     scenario: 'server summary values independent from snapshot positives',
     status: 'completed',
     snapshots: [setupResultSnapshot({})],
     queryCounts: { totalQueries: 7, citedQueries: 2, mentionedQueries: 3 },
-    mentioned: '3', cited: '2', checks: '1',
+    mentioned: '3 of 7 queries', cited: '2 of 7 queries', checks: '1',
   },
   {
     scenario: 'a successful partial run presents the server summary',
     status: 'partial',
     snapshots: [setupResultSnapshot({})],
     queryCounts: { totalQueries: 4, citedQueries: 1, mentionedQueries: 0 },
-    mentioned: '0', cited: '1', checks: '1',
+    mentioned: '0 of 4 queries', cited: '1 of 4 queries', checks: '1',
   },
   {
     scenario: 'an unavailable API summary keeps query metrics unavailable',
@@ -1017,26 +1041,102 @@ test.each([
     createdAt: '2026-09-05T12:00:00Z', snapshots, queryCounts,
   })
   const { requests } = renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), run)
-  fireEvent.click(await screen.findByText('Result counts · all queries', { selector: 'summary' }))
-  await screen.findByText('Results')
+  const resultHeading = await screen.findByRole('heading', { name: 'Saved answers', level: 2 })
 
-  for (const [caption, expected] of [
-    ['queries naming your brand', mentioned],
-    ['queries citing your site', cited],
-    ['completed engine checks', checks],
-  ] as const) {
-    const tile = screen.getByText(caption).parentElement!
-    expect(within(tile).getByText((_, element) => element?.tagName === 'P'
-      && element.textContent?.replace(/\s+/g, ' ').trim() === expected)).toBeTruthy()
-  }
-  const resultHeading = screen.getByRole('heading', { name: 'Saved answers', level: 2 })
-  const resultLabel = screen.getByText('Results')
+  // Branded and non-brand queries share these counts, so the class is named once beside the project.
+  expect(screen.getByText((_, element) => element?.tagName === 'P' && element.textContent === 'City Point Dental · all queries')).toBeTruthy()
+  expect(resultFigures()).toEqual([
+    ['Mentioned', `${mentioned} · all queries`],
+    ['Cited', `${cited} · all queries`],
+    ['Engine results', `${checks} · all queries`],
+  ])
+  // In view on arrival, not behind a disclosure.
+  const summary = screen.getByText('Mentioned', { selector: 'dt' }).closest('dl')!
+  expect(summary.closest('details')).toBeNull()
   let resultCard = resultHeading.parentElement!
-  while (!resultCard.contains(resultLabel)) resultCard = resultCard.parentElement!
+  while (!resultCard.contains(summary)) resultCard = resultCard.parentElement!
   expect(within(resultCard).getByText('Complete')).toBeTruthy()
   expect(screen.queryByText('Your check is running. You can leave this page and return to its progress.')).toBeNull()
   expect(requests).toContain('/api/v1/runs/scoped-run')
   expect(requests).not.toContain('/api/v1/projects/scoped-project/runs')
+})
+
+test('features a non-brand answer over a branded one that names the brand', async () => {
+  const snapshots = [
+    setupResultSnapshot({ id: 'snapshot_branded', queryId: 'query_branded', query: 'city point dental reviews', answerMentioned: true, citationState: 'not-cited', answerText: 'An answer to a branded query naming City Point Dental.' }),
+    setupResultSnapshot({ id: 'snapshot_nonbrand', queryId: 'query_nonbrand', query: 'best local dentist', answerMentioned: true, citationState: 'not-cited', answerText: 'A non-brand answer naming City Point Dental.' }),
+  ]
+  renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), { status: 'completed', snapshots }, undefined, undefined, [
+    { id: 'query_branded', query: 'city point dental reviews', queryClass: 'branded' },
+    { id: 'query_nonbrand', query: 'best local dentist', queryClass: 'non-brand' },
+  ])
+  const featured = await screen.findByRole('region', { name: 'Your first saved answer' })
+  // A branded query hands the engine the brand's name; the non-brand mention is the proof.
+  await waitFor(() => expect(within(featured).getByRole('heading', { level: 3 }).textContent).toBe('best local dentist'))
+  expect(within(featured).getByText('A non-brand answer naming City Point Dental.')).toBeTruthy()
+})
+
+test.each([
+  {
+    scenario: 'an answer that names the brand comes first',
+    snapshots: [
+      setupResultSnapshot({ id: 'snapshot_neither', queryId: 'query_neither', query: 'generic dental query', answerMentioned: false, citationState: 'not-cited', answerText: 'An answer naming neither.' }),
+      setupResultSnapshot({ id: 'snapshot_cited', queryId: 'query_cited', query: 'cited dental query', answerMentioned: false, citationState: 'cited', answerText: 'An answer citing the site.' }),
+      setupResultSnapshot({ id: 'snapshot_mentioned', queryId: 'query_mentioned', query: 'mentioned dental query', answerMentioned: true, citationState: 'not-cited', answerText: 'An answer naming City Point Dental.' }),
+    ],
+    query: 'mentioned dental query', answer: 'An answer naming City Point Dental.', signals: ['Mentioned', 'Not cited'],
+  },
+  {
+    scenario: 'with no mention, an answer that cites the site',
+    snapshots: [
+      setupResultSnapshot({ id: 'snapshot_neither', queryId: 'query_neither', query: 'generic dental query', answerMentioned: false, citationState: 'not-cited', answerText: 'An answer naming neither.' }),
+      setupResultSnapshot({ id: 'snapshot_cited', queryId: 'query_cited', query: 'cited dental query', answerMentioned: false, citationState: 'cited', answerText: 'An answer citing the site.' }),
+    ],
+    query: 'cited dental query', answer: 'An answer citing the site.', signals: ['Not mentioned', 'Cited'],
+  },
+  {
+    scenario: 'with neither signal, the first answer',
+    snapshots: [
+      setupResultSnapshot({ id: 'snapshot_first', queryId: 'query_first', query: 'first dental query', answerMentioned: false, citationState: 'not-cited', answerText: 'The first answer.' }),
+      setupResultSnapshot({ id: 'snapshot_second', queryId: 'query_second', query: 'second dental query', answerMentioned: false, citationState: 'not-cited', answerText: 'The second answer.' }),
+    ],
+    query: 'first dental query', answer: 'The first answer.', signals: ['Not mentioned', 'Not cited'],
+  },
+  {
+    scenario: 'a mention with no saved text gives way to an answer that can be read',
+    snapshots: [
+      setupResultSnapshot({ id: 'snapshot_textless', queryId: 'query_textless', query: 'textless dental query', answerMentioned: true, citationState: 'not-cited', answerText: null }),
+      setupResultSnapshot({ id: 'snapshot_cited', queryId: 'query_cited', query: 'cited dental query', answerMentioned: false, citationState: 'cited', answerText: 'An answer citing the site.' }),
+    ],
+    query: 'cited dental query', answer: 'An answer citing the site.', signals: ['Not mentioned', 'Cited'],
+  },
+])('features the most informative saved answer after the summary: $scenario', async ({ snapshots, query, answer, signals }) => {
+  renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), { status: 'completed', snapshots })
+  const featured = await screen.findByRole('region', { name: 'Your first saved answer' })
+  expect(within(featured).getByRole('heading', { level: 3 }).textContent).toBe(query)
+  expect(within(featured).getByText(answer)).toBeTruthy()
+  for (const signal of signals) expect(within(featured).getByText(signal, { exact: true })).toBeTruthy()
+  for (const other of snapshots.filter(snapshot => snapshot.answerText && snapshot.answerText !== answer)) {
+    expect(screen.queryByText(other.answerText!)).toBeNull()
+  }
+  const summary = screen.getByText('Mentioned', { selector: 'dt' }).closest('dl')!
+  expect(summary.compareDocumentPosition(featured) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test.each([
+  { length: 650, truncated: false },
+  { length: 651, truncated: true },
+])('offers the full answer only when its preview is cut ($length characters)', async ({ length, truncated }) => {
+  const answerText = 'a'.repeat(length)
+  renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), { status: 'completed', snapshots: [setupResultSnapshot({ answerText })] })
+  const featured = await screen.findByRole('region', { name: 'Your first saved answer' })
+  // The preview ends at 650 characters, as AnswerMarkdown cuts it.
+  expect(within(featured).getAllByText(truncated ? `${'a'.repeat(650)}…` : answerText)).toHaveLength(1)
+  expect(within(featured).queryByText('Read full answer', { selector: 'summary' }) !== null).toBe(truncated)
+  // One copy action either way: on a preview that shows everything, else on the full answer.
+  const copy = within(featured).getAllByRole('button', { name: 'Copy answer', hidden: true })
+  expect(copy).toHaveLength(1)
+  expect(copy[0]!.closest('details') !== null).toBe(truncated)
 })
 
 test.each([true, false])('AI-first setup records the direct project handoff once in its journey (skipped: %s)', async skipped => {
@@ -1121,7 +1221,7 @@ test('global setup reset preserves queries saved during this visit', async () =>
 })
 
 
-test('reviews the canonical saved queries after the server removes duplicate input', async () => {
+test('counts and saves a pasted repeat once, then reviews the canonical saved queries', async () => {
   let saved: Array<{ id: string; query: string }> = []
   const { requests } = renderProjectSetup({
     onboarding: true,
@@ -1130,9 +1230,12 @@ test('reviews the canonical saved queries after the server removes duplicate inp
       return jsonResponse(saved)
     },
   })
-  fireEvent.change(await screen.findByLabelText('Queries (one per line)'), { target: { value: 'best local dentist\nbest local dentist\nbest local dentist' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Save 3 queries' }))
+  // Repeats differ only in case and surrounding spaces, as the server's query replace treats them.
+  fireEvent.change(await screen.findByLabelText('Queries (one per line)'), { target: { value: 'best local dentist\n  Best Local Dentist  \nbest local dentist' } })
+  expect(within(screen.getByRole('region', { name: 'Add queries' })).getByText('1 query')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Save 1 query' }))
   await screen.findByRole('heading', { name: 'Run your first AI Visibility check' })
+  expect(requests.find(request => request.method === 'PUT' && request.path.endsWith('/queries'))?.body).toBe(JSON.stringify({ queries: ['best local dentist'] }))
   fireEvent.click(screen.getByText('Review saved queries', { selector: 'summary' }))
   expect(within(screen.getByRole('list', { name: 'Queries in this check' })).getAllByRole('listitem').map(item => item.textContent)).toEqual(['best local dentist'])
   const checkDetails = await screen.findByRole('region', { name: 'Check details' })
@@ -1194,6 +1297,10 @@ test('keeps the first saved answer mounted while a completed run refreshes the p
   expect(screen.queryByRole('region', { name: 'AI engines' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Run check' }))
   await screen.findByText('Your check is running. You can leave this page and return to its progress.')
+  // The start time reads in the viewer's zone, as the dashboard's "Last sweep" does.
+  const started = document.querySelector('p[role="status"] time')!
+  expect(started.textContent).toBe(formatSweepInstant(started.getAttribute('dateTime')!))
+  expect(started.textContent).not.toContain('UTC')
 
   completed = true
   updateRun({ status: 'completed', snapshots: [setupResultSnapshot({ provider: 'local', answerText: 'A saved answer from the engine.' })] })
@@ -1203,7 +1310,8 @@ test('keeps the first saved answer mounted while a completed run refreshes the p
   await waitFor(() => expect(resolveOverview).toBeTypeOf('function'))
   expect(screen.getByRole('heading', { name: 'Saved answers' })).toBeTruthy()
   expect(within(screen.getByRole('region', { name: 'Your first saved answer' })).getByText('Local')).toBeTruthy()
-  expect(screen.getByText((_, element) => element?.tagName === 'P' && element.textContent === '1 engine result saved for City Point Dental.')).toBeTruthy()
+  expect(screen.getByText((_, element) => element?.tagName === 'P' && element.textContent === 'City Point Dental · all queries')).toBeTruthy()
+  expect(resultFigures()).toContainEqual(['Engine results', '1 · all queries'])
   expect(screen.queryByRole('heading', { name: 'Add queries' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Reset unsaved fields' })).toBeNull()
   resolveOverview?.(jsonResponse(null))
@@ -1243,4 +1351,144 @@ test.each([false, true])('refuses a stale successful preview after a failed refr
   await waitFor(() => expect(screen.getByRole('button', { name: actionName })).toHaveProperty('disabled', false))
   fireEvent.click(screen.getByRole('button', { name: actionName }))
   await waitFor(() => expect(launches()).toHaveLength(retry ? 2 : 1))
+})
+
+
+test('names the engine step and marks the first check complete once it saves answers', async () => {
+  renderProjectSetup({
+    onboarding: false,
+    queryResponse: () => jsonResponse([{ id: 'saved-query', query: 'best local dentist' }]),
+    runResponse: () => jsonResponse(runDetailDtoSchema.parse({
+      id: 'first-check', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'completed', createdAt: '2026-09-05T12:00:00Z',
+      snapshots: [setupResultSnapshot({ runId: 'first-check', answerText: 'A saved answer.' })],
+    })),
+  })
+  const steps = () => within(screen.getByRole('list', { name: 'Setup progress' })).getAllByRole('listitem')
+    .map(step => ({ text: step.textContent, current: step.getAttribute('aria-current') }))
+  const proceed = await screen.findByRole('button', { name: 'Continue' })
+  // The step starts with connecting an engine when none is ready.
+  expect(steps()).toEqual([{ text: '1Engines and queries', current: 'step' }, { text: '2First check', current: null }])
+  fireEvent.click(proceed)
+  expect(steps()).toEqual([{ text: '✓Engines and queriesComplete', current: null }, { text: '2First check', current: 'step' }])
+
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Run check' })).toHaveProperty('disabled', false))
+  fireEvent.click(screen.getByRole('button', { name: 'Run check' }))
+  await screen.findByRole('heading', { name: 'Your first AI Visibility result' })
+  expect(steps()).toEqual([{ text: '✓Engines and queriesComplete', current: null }, { text: '✓First checkComplete', current: null }])
+})
+
+test('appends only new generated queries, says how many repeats it skipped, and saves each query once', async () => {
+  const generated = [
+    () => jsonResponse({ error: { code: 'PROVIDER_ERROR', message: 'The provider could not suggest queries.' } }, 502),
+    () => jsonResponse({ queries: ['Best Local Dentist', 'emergency dentist', 'emergency dentist', 'family dentist'], provider: 'gemini' }),
+    () => jsonResponse({ queries: [' kids dentist ', 'teeth whitening'], provider: 'gemini' }),
+  ]
+  let attempt = 0
+  const { requests } = renderProjectSetup({
+    onboarding: true,
+    queryResponse: init => jsonResponse(init?.method === 'PUT'
+      ? (JSON.parse(String(init.body)) as { queries: string[] }).queries.map((query, index) => ({ id: `query-${index}`, query }))
+      : []),
+    generateResponse: () => generated[attempt++]!(),
+  })
+  const input = await screen.findByLabelText('Queries (one per line)') as HTMLTextAreaElement
+  // Neutral guidance rather than one industry's example queries.
+  expect(input.placeholder).toBe('One query per line')
+  fireEvent.change(input, { target: { value: 'best local dentist\nkids dentist' } })
+  const panel = screen.getByText('Generate query suggestions', { selector: 'summary' }).closest('details')!
+  fireEvent.click(within(panel).getByText('Generate query suggestions', { selector: 'summary' }))
+
+  fireEvent.click(within(panel).getByRole('button', { name: 'Generate' }))
+  expect((await within(panel).findByRole('alert')).textContent).toBe('The provider could not suggest queries.')
+
+  fireEvent.click(await within(panel).findByRole('button', { name: 'Generate' }))
+  await waitFor(() => expect(input.value).toBe('best local dentist\nkids dentist\nemergency dentist\nfamily dentist'))
+  expect(within(panel).queryByRole('alert')).toBeNull()
+  expect(within(panel).getByRole('status').textContent).toBe('2 duplicates skipped')
+
+  fireEvent.click(await within(panel).findByRole('button', { name: 'Generate' }))
+  await waitFor(() => expect(input.value).toBe('best local dentist\nkids dentist\nemergency dentist\nfamily dentist\nteeth whitening'))
+  expect(within(panel).getByRole('status').textContent).toBe('1 duplicate skipped')
+
+  // A repeat typed or pasted by hand counts once as well.
+  fireEvent.change(input, { target: { value: `${input.value}\nFamily Dentist` } })
+  expect(within(screen.getByRole('region', { name: 'Add queries' })).getByText('5 queries')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Save 5 queries' }))
+  await screen.findByRole('heading', { name: 'Run your first AI Visibility check' })
+  expect(requests.find(request => request.method === 'PUT' && request.path.endsWith('/queries'))?.body).toBe(JSON.stringify({
+    queries: ['best local dentist', 'kids dentist', 'emergency dentist', 'family dentist', 'teeth whitening'],
+  }))
+})
+
+test('reviews the website, market and location as one list before the first check', async () => {
+  const { domain } = renderProjectSetup({ onboarding: false, queryResponse: () => jsonResponse([{ id: 'saved-query', query: 'best local dentist' }]) })
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  const details = await screen.findByRole('region', { name: 'Check details' })
+  const values = within(details).getAllByRole('definition')
+  expect(within(details).getAllByRole('term').map((term, index) => [term.textContent, values[index]!.textContent])).toEqual([
+    ['Website', domain],
+    ['Market', 'United States · English'],
+    ['Location', 'No location targeting'],
+  ])
+})
+
+test('counts saved engine results against the requests previewed for the check launched here', async () => {
+  let snapshots: RunDetailDto['snapshots'] = []
+  const startedAt = '2026-09-05T12:00:30Z'
+  const { queryClient } = renderProjectSetup({
+    onboarding: false,
+    queryResponse: () => jsonResponse([
+      { id: 'query-1', query: 'best local dentist' },
+      { id: 'query-2', query: 'emergency dentist' },
+      { id: 'query-3', query: 'family dentist' },
+    ]),
+    runResponse: init => jsonResponse(runDetailDtoSchema.parse(init?.method === 'POST'
+      ? { id: 'progress-run', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'queued', createdAt: '2026-09-05T12:00:00Z' }
+      : { id: 'progress-run', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'running', createdAt: '2026-09-05T12:00:00Z', startedAt, snapshots })),
+  })
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  // The preview counts 3 provider requests: three queries on one engine.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Run check' })).toHaveProperty('disabled', false))
+  fireEvent.click(screen.getByRole('button', { name: 'Run check' }))
+  const progress = (text: string) => (_: string, element: Element | null) => element?.getAttribute('role') === 'status' && element.textContent === text
+  expect(await screen.findByText(progress(`0 of 3 engine results saved · Started ${formatSweepInstant(startedAt)}`))).toBeTruthy()
+
+  snapshots = [setupResultSnapshot({ runId: 'progress-run' })]
+  await queryClient.invalidateQueries({ queryKey: getApiV1RunsByIdQueryKey({ client: heyClient, path: { id: 'progress-run' } }) })
+  expect(await screen.findByText(progress(`1 of 3 engine results saved · Started ${formatSweepInstant(startedAt)}`))).toBeTruthy()
+})
+
+test('a check resumed from an earlier visit shows its saved results without a planned total', async () => {
+  const startedAt = '2026-09-05T12:00:30Z'
+  renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), { status: 'running', startedAt, snapshots: [setupResultSnapshot({})] })
+  expect(await screen.findByText((_, element) => element?.getAttribute('role') === 'status'
+    && element.textContent === `1 engine result saved · Started ${formatSweepInstant(startedAt)}`)).toBeTruthy()
+})
+
+test('says what each provider to connect is and what connecting it takes', async () => {
+  renderProjectSetup({
+    onboarding: true,
+    providerReady: false,
+    includeLocalProvider: true,
+    extraProviders: [
+      { name: 'perplexity', displayName: 'Perplexity' },
+      { name: 'muse', displayName: 'Muse' },
+      { name: 'openrouter', displayName: 'OpenRouter' },
+    ],
+  })
+  const provider = () => screen.getByRole('combobox', { name: 'Provider to connect' }) as HTMLSelectElement
+  // Gemini stays the first choice.
+  expect((await screen.findByRole('combobox', { name: 'Provider to connect' }) as HTMLSelectElement).value).toBe('Gemini')
+  for (const [value, guidance] of [
+    ['Gemini', "Google's Gemini models, answering with Google Search. Needs an API key."],
+    ['OpenAI', "OpenAI's GPT models, answering with web search. Needs an API key."],
+    ['Claude', "Anthropic's Claude models, answering with web search. Needs an API key."],
+    ['local', 'A model you run on an OpenAI-compatible server, without web search. Needs its base URL; an API key is optional.'],
+    ['perplexity', 'Perplexity, answering with web search. Needs an API key.'],
+    ['muse', "Meta's Muse models, answering with web search. Needs a Meta Model API key."],
+    ['openrouter', 'Models from several makers through one key. You choose which models to check. Needs an API key.'],
+  ] as const) {
+    if (provider().value !== value) fireEvent.change(provider(), { target: { value } })
+    expect(screen.getByRole('combobox', { name: 'Provider to connect', description: guidance })).toHaveProperty('value', value)
+  }
 })

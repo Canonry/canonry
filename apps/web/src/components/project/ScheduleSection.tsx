@@ -318,7 +318,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         )}
       </div>
 
-      {scheduleLoading && <p className="supporting-copy">Loading...</p>}
+      {scheduleLoading && <p className="supporting-copy">Loading…</p>}
 
       {error && !editing && <p className="mt-2 text-copy-14 text-negative" role="alert">{error}</p>}
 
@@ -371,7 +371,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               )}
               {canManageSchedule && (
                 <Button type="button" variant="ghost" size="sm" disabled={removing} onClick={asyncHandler(handleRemove)}>
-                  {removing ? 'Removing...' : 'Remove'}
+                  {removing ? 'Removing…' : 'Remove'}
                 </Button>
               )}
             </div>
@@ -491,7 +491,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               disabled={saving || schedulesQuery.isFetching || loadFailed || scheduleChangedElsewhere || !previewReady}
               onClick={asyncHandler(handleSave)}
             >
-              {saving ? 'Saving...' : enableOnSave ? 'Enable schedule' : SCHEDULE_COPY.save}
+              {saving ? 'Saving…' : enableOnSave ? 'Enable schedule' : SCHEDULE_COPY.save}
             </Button>
           </div>
         </div>

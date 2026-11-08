@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 
-import { ProjectEngineSettingsSection } from '../src/components/project/ProjectEngineSettingsSection.js'
+import { ENGINE_SETTINGS_COPY, ProjectEngineSettingsSection } from '../src/components/project/ProjectEngineSettingsSection.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
@@ -147,9 +147,35 @@ test('adds several concrete OpenRouter models beside direct Gemini, without sele
   expect(saveEngines.className).toContain('bg-accent')
   fireEvent.click(saveEngines)
   await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['gemini', 'openrouter:google/gemini-model', 'openrouter:anthropic/claude-model'], providerModels: {} }))
-  await waitFor(() => expect(getToasts().map(toast => toast.title)).toContain('Saved for the next check'))
+  // The confirmation takes the "not saved" note's place beside the button, not a corner toast.
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe(ENGINE_SETTINGS_COPY.saved))
+  expect(getToasts()).toEqual([])
   expect(screen.queryByText(/not saved/)).toBeNull()
   expect(saveEngines.className).not.toContain('bg-accent')
+})
+
+test('Save engines confirms beside the button until the next edit', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: ['gemini'], providerModels: {} })
+  const model = await screen.findByLabelText('Model')
+  fireEvent.change(model, { target: { value: 'gemini-2.5-pro' } })
+  expect(screen.queryByRole('status')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['gemini'], providerModels: { gemini: 'gemini-2.5-pro' } }))
+  const saved = await screen.findByRole('status')
+  expect(saved.textContent).toBe(ENGINE_SETTINGS_COPY.saved)
+  expect(saved.className).toContain('text-positive')
+  // The next edit is unsaved again, so the confirmation goes.
+  fireEvent.change(screen.getByLabelText('Model'), { target: { value: '__inherit__' } })
+  expect(screen.queryByRole('status')).toBeNull()
+})
+
+test('a failed save shows the error and no confirmation', async () => {
+  const onSave = renderSection(vi.fn().mockRejectedValue(new Error('Project update refused')), { name: 'demo', providers: ['gemini'], providerModels: {} })
+  fireEvent.change(await screen.findByLabelText('Model'), { target: { value: 'gemini-2.5-pro' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  expect((await screen.findByRole('alert')).textContent).toBe('Project update refused')
+  expect(onSave).toHaveBeenCalledTimes(1)
+  expect(screen.queryByRole('status')).toBeNull()
 })
 
 test('manual OpenRouter models remain selectable after saving and classifier-only routes are refused', async () => {

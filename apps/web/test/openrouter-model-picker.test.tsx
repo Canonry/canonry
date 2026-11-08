@@ -75,9 +75,10 @@ test('recommended models come first and the full catalog waits behind Browse all
     { id: 'google/gemini-3.8-flash', displayName: 'Google: Gemini 3.8 Flash' },
   ] }} selected={['openrouter:google/gemini-3.8-flash']} onAdd={onAdd} />)
   const recommended = screen.getByRole('group', { name: 'Recommended' })
-  // Claude Sonnet 5.5 is not in this catalog, so it is not offered.
+  // Claude Sonnet 5.5 is not in this catalog, so it is not offered. The
+  // engine names a product, so the note credits its maker, not the model.
   expect([...recommended.querySelectorAll<HTMLElement>('label[data-model-id]')].map(row => row.textContent)).toEqual([
-    'GPT-6 LunaMaker of ChatGPT',
+    'GPT-6 LunaFrom the maker of ChatGPT',
     'Gemini 3.8 FlashAdded',
   ])
   expect(screen.queryByRole('searchbox', { name: 'Search OpenRouter models' })).toBeNull()

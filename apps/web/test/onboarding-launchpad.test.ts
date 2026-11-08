@@ -13,7 +13,7 @@ describe('platform onboarding launchpad', () => {
     expect(deriveLaunchpadIdentity('https://www.Example.co.uk/pricing?ref=home')).toEqual({
       canonicalDomain: 'example.co.uk',
       projectName: 'example-co-uk',
-      displayName: 'example.co.uk',
+      displayName: 'Example',
     })
   })
 

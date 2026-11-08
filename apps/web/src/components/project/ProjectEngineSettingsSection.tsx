@@ -7,7 +7,6 @@ import { useUnsavedChanges } from '../../hooks/use-unsaved-changes.js'
 
 import { fetchSettings, isDashboardManagedRunKind, isEmbed, isPublicDemo, type ApiProject } from '../../api.js'
 import { useAccount } from '../../contexts/account-context.js'
-import { addToast } from '../../lib/toast-store.js'
 import {
   FULL_SITE_PAGE_BUDGET_LABEL,
   PAGE_BUDGET_PRESETS,
@@ -36,6 +35,11 @@ function sameModels(left: Record<string, string>, right: Record<string, string>)
     return other?.[0] === provider && other[1] === model
   })
 }
+
+/** Visible copy for the Answer engines section, exported so tests assert the shipped strings. */
+export const ENGINE_SETTINGS_COPY = {
+  saved: 'Engines saved.',
+} as const
 
 /**
  * Project-scoped provider selection and model inheritance. Kept apart from
@@ -75,6 +79,8 @@ export function ProjectEngineSettingsSection({
   // `editing` guard.
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Said beside Save engines, where the "not saved" note was, until the next edit.
+  const [notice, setNotice] = useState<string | null>(null)
   const [engineSearch, setEngineSearch] = useState('')
   const [selectedOnly, setSelectedOnly] = useState(false)
   const customInput = useRef<HTMLInputElement>(null)
@@ -152,8 +158,13 @@ export function ProjectEngineSettingsSection({
     setModels(next.providerModels)
   }, [project])
 
-  function chooseEngines() {
+  function startEditing() {
     setEditing(true)
+    setNotice(null)
+  }
+
+  function chooseEngines() {
+    startEditing()
     setAutomatic(false)
     // Preserve a previous explicit draft during this edit session. First entry
     // materializes from the currently configured catalogue.
@@ -161,7 +172,7 @@ export function ProjectEngineSettingsSection({
   }
 
   function setModel(provider: string, value: string, currentIsKnown = false) {
-    setEditing(true)
+    startEditing()
     setModels(current => {
       const next = { ...current }
       if (value === '__inherit__') delete next[provider]
@@ -176,7 +187,7 @@ export function ProjectEngineSettingsSection({
   }
 
   function toggleProvider(provider: string, checked: boolean) {
-    setEditing(true)
+    startEditing()
     // With no direct engine, rows show before any mode is chosen, so a ticked
     // row is an explicit choice: automatic mode would save no engines.
     setAutomatic(false)
@@ -190,6 +201,7 @@ export function ProjectEngineSettingsSection({
     setAddedRoutes(saved.providers.filter(isOpenRouterRoute))
     setModels(copyModels(saved.providerModels))
     setError(null)
+    setNotice(null)
   }
 
   async function save() {
@@ -200,6 +212,7 @@ export function ProjectEngineSettingsSection({
     }
     setSaving(true)
     setError(null)
+    setNotice(null)
     try {
       // Only persist overrides the operator can actually manage: drop blank
       // custom drafts and (in choose mode) overrides for unselected engines, so a
@@ -212,7 +225,7 @@ export function ProjectEngineSettingsSection({
       await onSave(next)
       setSaved({ providers: [...next.providers], providerModels: copyModels(next.providerModels) })
       setEditing(false)
-      addToast('Saved for the next check', 'positive')
+      setNotice(ENGINE_SETTINGS_COPY.saved)
     } catch (cause) {
       setError(describeError(cause))
     } finally {
@@ -267,7 +280,7 @@ export function ProjectEngineSettingsSection({
     : null
 
   function addRoutes(routes: string[]) {
-    setEditing(true)
+    startEditing()
     setAutomatic(false)
     setAddedRoutes(current => [...new Set([...current, ...routes])])
     setSelected(current => [...new Set([...(automatic ? automaticEngines : current), ...routes])])
@@ -293,7 +306,7 @@ export function ProjectEngineSettingsSection({
               {provider.knownModels.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}
               <option value="__custom__">Custom model ID…</option>
             </select>
-            {selectValue === '__custom__' && <input ref={customInput} aria-label={`${provider.displayName} custom model ID`} value={model ?? ''} onChange={event => { setEditing(true); setModels(current => ({ ...current, [provider.name]: event.target.value })) }} aria-describedby={`project-model-hint-${provider.name}`} />}
+            {selectValue === '__custom__' && <input ref={customInput} aria-label={`${provider.displayName} custom model ID`} value={model ?? ''} onChange={event => { startEditing(); setModels(current => ({ ...current, [provider.name]: event.target.value })) }} aria-describedby={`project-model-hint-${provider.name}`} />}
             <p id={`project-model-hint-${provider.name}`} className="project-engine-help flex items-center gap-1.5">{model ? 'Project override' : 'Instance setting'} <InfoTooltip text={provider.modelValidationHint} /></p>
           </div>
         ) : null)}
@@ -342,7 +355,7 @@ export function ProjectEngineSettingsSection({
       ) : (
         <fieldset disabled={saving} className="project-engine-fieldset">
           <legend className="sr-only">Engines to run</legend>
-          <label><input type="radio" checked={automatic} onChange={() => { setEditing(true); setAutomatic(true) }} /> All connected engines</label>
+          <label><input type="radio" checked={automatic} onChange={() => { startEditing(); setAutomatic(true) }} /> All connected engines</label>
           <label><input type="radio" checked={!automatic} onChange={chooseEngines} /> Choose engines</label>
           {automatic && <div className="py-2 text-copy-14 text-secondary"><p>{automaticEngines.map(name => settings.data?.providers.find(provider => provider.name === name)?.displayName ?? name).join(' · ')}</p><p className="mt-1 text-label-12 text-muted">Future direct engine connections are included automatically.</p></div>}
           {!automatic && engineList}
@@ -356,6 +369,7 @@ export function ProjectEngineSettingsSection({
         {!noDirectEngine && !automatic && selected.length === 0 && <p role="alert" className="text-copy-14 text-negative-400">Choose at least one configured engine.</p>}
         {error && <p role="alert" className="text-copy-14 text-negative-400">{error}</p>}
         {unsavedModels > 0 && !saving && <p role="status" className="text-copy-14 text-secondary">{unsavedModels === 1 ? '1 model added, not saved' : `${unsavedModels} models added, not saved`}</p>}
+        {notice && <p role="status" className="text-copy-14 text-positive">{notice}</p>}
         {hasModelChange && <p className="flex items-center gap-1.5 text-copy-14 text-caution-400"><AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />Model changed <InfoTooltip text="Existing history remains visible. If the recorded model changes, month-to-month comparison may exclude that engine." /></p>}
         {showSave && (
           <div className="space-y-2">

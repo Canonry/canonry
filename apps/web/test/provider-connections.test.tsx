@@ -1,13 +1,15 @@
+import type { ReactElement } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, expect, onTestFinished, test } from 'vitest'
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Link, RouterProvider } from '@tanstack/react-router'
 import { ProviderConnectionsUnavailableReasons, ProviderConnectionUsageSources, type ProviderConnectionSettingsDto } from '@canonry/canonry-contracts'
 
-import { PROVIDER_CONNECTIONS_COPY, ProviderConnectionsSection } from '../src/components/settings/ProviderConfigForm.js'
+import { PROVIDER_CONNECTIONS_COPY, ProviderConfigForm, ProviderConnectionsSection } from '../src/components/settings/ProviderConfigForm.js'
 import { CdpConfigCard } from '../src/components/settings/CdpConfigCard.js'
 import { connectionFixture, settingsFixture } from './provider-settings-fixtures.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
+import { getToasts } from '../src/lib/toast-store.js'
 
 afterEach(cleanup)
 
@@ -249,9 +251,10 @@ test('an unreadable host configuration shows the server reason, keeps configured
   expect(within(configured).getByText('OpenAI')).toBeTruthy()
   expect(within(configured).getByText('saved-model')).toBeTruthy()
   expect(within(configured).getByText('Configured')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Reload from host' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Reload from config file' }))
   expect(await screen.findByRole('button', { name: 'Manage' })).toBeTruthy()
   expect(writes).toEqual(['/api/v1/settings/providers/reload'])
+  await waitFor(() => expect(getToasts().map(toast => toast.title)).toContain('Connections reloaded from the config file'))
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
@@ -269,8 +272,60 @@ test('hosts without lifecycle metadata keep the existing provider setup path', a
   onTestFinished(() => client.clear())
   render(<QueryClientProvider client={client}><ProviderConnectionsSection projects={[]} /></QueryClientProvider>)
   fireEvent.click(await screen.findByRole('button', { name: 'Configure' }))
+  // A blank model still runs one, so the form names it from the provider list.
+  expect(screen.getByRole('textbox', { name: 'Model (optional)', description: 'Default model: gpt-default' })).toBeTruthy()
   fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'legacy-host-test-key' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }))
   await waitFor(() => expect(writes).toEqual([{ apiKey: 'legacy-host-test-key' }]))
   expect(screen.queryByRole('button', { name: /Disconnect/ })).toBeNull()
+})
+
+function renderNewConnection(form: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => client.clear())
+  render(<QueryClientProvider client={client}>{form}</QueryClientProvider>)
+}
+
+test('a new local connection leads with its required Base URL and saves each quota under its own label', async () => {
+  const writes: unknown[] = []
+  onTestFinished(mockFetch((url, init) => {
+    if (pathOf(url) === '/api/v1/settings/providers/local' && init?.method === 'PUT') {
+      writes.push(JSON.parse(String(init.body)))
+      return jsonResponse({ name: 'local', configured: true })
+    }
+    throw new Error(`Unexpected fetch ${pathOf(url)}`)
+  }))
+  const onSaved = vi.fn()
+  renderNewConnection(<ProviderConfigForm
+    compact
+    providerName="local"
+    defaultModel="llama3"
+    leadingField={<div><label htmlFor="setup-provider">Provider to connect</label><select id="setup-provider" defaultValue="local"><option value="local">Local</option></select></div>}
+    onSaved={onSaved}
+  />)
+
+  // Reading and keyboard order reach the field a local server needs before the key it rarely does.
+  const provider = screen.getByRole('combobox', { name: 'Provider to connect' })
+  const baseUrl = screen.getByRole('textbox', { name: 'Base URL' })
+  const apiKey = screen.getByLabelText('API key (optional)')
+  expect(provider.compareDocumentPosition(baseUrl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(baseUrl.compareDocumentPosition(apiKey) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+  fireEvent.click(screen.getByText('Advanced provider settings'))
+  expect(screen.getByRole('textbox', { name: 'Model (optional)', description: 'Default model: llama3' })).toBeTruthy()
+  const quota = screen.getByRole('group', { name: 'Quota (optional)' })
+  fireEvent.change(baseUrl, { target: { value: 'http://localhost:11434/v1' } })
+  fireEvent.change(within(quota).getByRole('spinbutton', { name: 'Max concurrent' }), { target: { value: '2' } })
+  fireEvent.change(within(quota).getByRole('spinbutton', { name: 'Per minute' }), { target: { value: '30' } })
+  fireEvent.change(within(quota).getByRole('spinbutton', { name: 'Per day' }), { target: { value: '500' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save connection' }))
+
+  await waitFor(() => expect(writes).toEqual([{ baseUrl: 'http://localhost:11434/v1', quota: { maxConcurrency: 2, maxRequestsPerMinute: 30, maxRequestsPerDay: 500 } }]))
+  expect(onSaved).toHaveBeenCalledTimes(1)
+})
+
+test('a provider with no known default model says the provider default applies', () => {
+  renderNewConnection(<ProviderConfigForm compact providerName="perplexity" onSaved={vi.fn()} />)
+  fireEvent.click(screen.getByText('Advanced provider settings'))
+  expect(screen.getByRole('textbox', { name: 'Model (optional)', description: 'Leave blank to use the provider’s default model.' })).toBeTruthy()
 })

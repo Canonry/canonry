@@ -198,15 +198,43 @@ async function renderApp(
 test('overview route renders the premium portfolio dashboard', async () => {
   const html = await renderApp('/')
 
-  expect(html).toMatch(/All projects/)
-  expect(html).toContain('<span>All projects</span>')
-  expect(html).toContain('<span class="breadcrumb-current">All projects</span>')
   expect(html).toContain('Open navigation')
   expect(html).toMatch(/Visibility across all projects/)
   expect(html).toMatch(/Infrastructure/)
   expect(html).toMatch(/Citypoint Dental NYC/)
   expect(html).toMatch(/Harbor Legal Group/)
   expect(html).toMatch(/src="\.\/favicon\.svg"/)
+})
+
+// DESIGN.md: the sidebar label and the destination's page title match, and
+// one destination has one name wherever it is named.
+test('the root destination is named Overview in the sidebar, breadcrumb, page title and brand link', async () => {
+  const overview = new DOMParser().parseFromString(await renderApp('/'), 'text/html')
+  const sidebar = overview.querySelector('#desktop-sidebar')!
+  expect(sidebar.querySelector('a.sidebar-link[href="/"]')?.textContent).toBe('Overview')
+  expect(overview.querySelector('h1.page-title')?.textContent).toBe('Overview')
+  // On its own page the trail is the one crumb, never "Overview > Overview".
+  const ownTrail = overview.querySelector('nav[aria-label="Breadcrumb"]')!
+  expect(ownTrail.textContent).toBe('Overview')
+  expect(ownTrail.querySelector('a')).toBeNull()
+  expect(sidebar.querySelector('.brand-icon-link')?.getAttribute('aria-label')).toBe('Canonry overview')
+
+  const runs = new DOMParser().parseFromString(await renderApp('/runs'), 'text/html')
+  const trail = runs.querySelector('nav[aria-label="Breadcrumb"]')!
+  expect([...trail.querySelectorAll('a')].map(link => [link.textContent, link.getAttribute('href')])).toEqual([['Overview', '/']])
+  expect(trail.querySelector('.breadcrumb-current')?.textContent).toBe('Runs')
+  expect(runs.querySelector('.topbar')?.textContent).not.toMatch(/All projects|Home/)
+  expect(runs.querySelector('#desktop-sidebar a.sidebar-link[href="/"]')?.textContent).toBe('Overview')
+})
+
+test('the sidebar shows the version once, in the brand lockup, and keeps the product links', async () => {
+  const doc = new DOMParser().parseFromString(await renderApp('/'), 'text/html')
+  const sidebar = doc.querySelector('#desktop-sidebar')!
+
+  expect(sidebar.textContent?.match(/vphase-1/g)).toEqual(['vphase-1'])
+  expect(sidebar.querySelector('.brand-version')?.textContent).toBe('vphase-1')
+  expect(sidebar.querySelector('.footer-version')).toBeNull()
+  expect([...sidebar.querySelectorAll('.footer a')].map(link => link.getAttribute('aria-label') ?? link.textContent)).toEqual(['Canonry', 'GitHub', 'Docs', 'Changelog'])
 })
 
 test('project route renders a concise visibility summary with progressive detail', async () => {
@@ -229,7 +257,7 @@ test('project route renders a concise visibility summary with progressive detail
     .filter(link => !link.closest('.project-subnav-measure'))
     .map(link => link.textContent?.trim())
   expect(visibleTabs).toEqual([
-    'AI Visibility', 'Search Engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'More',
+    'AI Visibility', 'Queries', 'Search engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'More',
   ])
   const projectSettings = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('a.sidebar-link')]
     .find(link => link.textContent?.includes('Project settings'))
@@ -451,7 +479,7 @@ test('project route keeps server insights out of the Simple overview', async () 
   expect(html).not.toMatch(/What needs your attention/)
 })
 
-test('project search console route renders the Search Engines section', async () => {
+test('project search console route renders the Search engines section', async () => {
   const html = await renderApp('/projects/project_citypoint/search-console')
   const page = document.createElement('div')
   page.innerHTML = html
@@ -465,7 +493,7 @@ test('project search console route renders the Search Engines section', async ()
   expect(bing.tabIndex).toBe(-1)
   expect(within(page).getByRole('tabpanel', { name: 'Google' }).id).toBe(google.getAttribute('aria-controls'))
 
-  expect(html).toMatch(/Search Engines/)
+  expect(html).toMatch(/Search engines/)
   expect(html).toMatch(/Search engine workspaces/)
   expect(html).toMatch(/Google Search Console/)
   expect(html).toMatch(/>Google</)

@@ -104,7 +104,7 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
       {error && <p className="text-copy-14 text-negative-400">{error}</p>}
       {success && <p className="text-copy-14 text-positive-400">Google OAuth credentials updated.</p>}
       <Button type="button" size="sm" disabled={!canSave || saving} onClick={asyncHandler(handleSave)}>
-        {saving ? 'Saving...' : 'Save Google OAuth app'}
+        {saving ? 'Saving…' : 'Save Google OAuth app'}
       </Button>
     </div>
   )

@@ -288,6 +288,59 @@ test('update notification fits the sidebar and wraps long version strings', asyn
   expect(ruleFor(css, '.brand-update-bubble-to')).toContain('overflow-wrap: anywhere')
 })
 
+test('the update bubble settles at full size without overshooting and holds still under reduced motion', async () => {
+  const rules = parseCompiledCss(await compileAppStyles([]))
+  const animation = compiledDeclarations(rules, '.brand-update-bubble').animation ?? ''
+  const [, name, easing] = /^([\w-]+) \d+ms cubic-bezier\(([^)]*)\)/.exec(animation) ?? []
+  // A cubic-bezier passes its end value only when a y control point leaves 0..1.
+  const [, y1, , y2] = (easing ?? '').split(',').map(Number)
+  for (const y of [y1, y2]) expect(y !== undefined && y >= 0 && y <= 1, `easing y ${y} in ${animation}`).toBe(true)
+  const frames = rules.filter(rule => rule.context.includes(`@keyframes ${name}`))
+  const scales = frames.map(frame => Number(/scale\(([\d.]+)\)/.exec(Object.fromEntries(frame.declarations).transform ?? '')?.[1]))
+  expect(Math.max(...scales)).toBe(1)
+  expect(scales.at(-1)).toBe(1)
+  expect(Object.fromEntries(frames.at(-1)?.declarations ?? []).opacity).toBe('1')
+  expect(compiledDeclarations(rules, '.brand-update-bubble', '@media (prefers-reduced-motion: reduce)')).toMatchObject({ animation: 'none' })
+})
+
+// A setup field's own rule, not a scoped override such as `.visibility-setup .setup-input`.
+function ownRule(css: string, selector: string) {
+  const start = new RegExp(`\\n\\s*${escapeRegExp(selector)} \\{`).exec(css)?.index
+  if (start === undefined) throw new Error(`Could not find compiled rule for ${selector}`)
+  return ruleFor(css.slice(start), selector)
+}
+
+test('setup fields focus with an edge stronger than their resting and hover borders in both themes', async () => {
+  const css = await compileAppStyles([])
+  const rules = parseCompiledCss(css)
+  const dark = computedTokens(compiledDeclarations(rules, ':root'))
+  const light = computedTokens({ ...compiledDeclarations(rules, "[data-theme='light']"), ...compiledDeclarations(rules, '[data-theme]') }, dark)
+  const tokenOf = (value: string | undefined) => {
+    const name = value?.match(/^var\((--[\w-]+)\)$/)?.[1]
+    if (!name) throw new Error(`Expected one color token, got ${value}`)
+    return name
+  }
+  for (const field of ['.setup-input', '.setup-textarea']) {
+    const focus = compiledDeclarations(rules, `${field}:focus-visible`)
+    const edge = {
+      rest: tokenOf(compiledDeclarations(rules, field)['border-color']),
+      hover: tokenOf(/&:hover \{\s*@media \(hover: hover\) \{\s*border-color: ([^;]+);/.exec(ownRule(css, field))?.[1]),
+      focus: tokenOf(focus['border-color']),
+    }
+    // The ring continues the focus border, so the focused edge is at least 2px of one color.
+    expect(tokenOf(focus['--tw-ring-color'])).toBe(edge.focus)
+    expect(Number(/calc\(([\d.]+)px \+ var\(--tw-ring-offset-width\)\)/.exec(focus['--tw-ring-shadow'] ?? '')?.[1])).toBeGreaterThanOrEqual(1)
+    for (const [theme, tokens] of [['dark', dark], ['light', light]] as const) {
+      const againstPage = (token: string) => contrast(tokens[token]!, tokens['--color-bg']!)
+      expect(againstPage(edge.focus), `${theme} ${field}: focus beyond hover`).toBeGreaterThan(againstPage(edge.hover))
+      expect(againstPage(edge.hover), `${theme} ${field}: hover beyond rest`).toBeGreaterThan(againstPage(edge.rest))
+      expect(contrast(tokens[edge.focus]!, tokens[edge.rest]!), `${theme} ${field}: focus against rest`).toBeGreaterThanOrEqual(3)
+    }
+    // Forced colors drop the ring; a transparent outline takes the system focus color there.
+    expect(compiledDeclarations(rules, `${field}:focus-visible`, '@media (forced-colors: active)')).toMatchObject({ outline: '2px solid transparent', 'outline-offset': '2px' })
+  }
+})
+
 test('filter chips preserve a 44px touch target and visible keyboard focus', async () => {
   const css = await compileAppStyles([])
   const chip = ruleFor(css, '.filter-chip')

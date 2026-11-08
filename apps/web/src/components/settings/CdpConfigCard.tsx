@@ -46,10 +46,7 @@ export function CdpConfigCard() {
   return (
     <Card id="browser-connection" className="surface-card scroll-mt-24">
       <div className="section-head">
-        <div>
-          <p className="eyebrow eyebrow-soft">Browser provider</p>
-          <h2>ChatGPT (CDP)</h2>
-        </div>
+        <h2>ChatGPT (CDP)</h2>
         <ToneBadge tone={cdpStatus?.connected ? 'positive' : 'caution'}>
           {cdpStatus?.connected ? 'Connected' : 'Not connected'}
         </ToneBadge>

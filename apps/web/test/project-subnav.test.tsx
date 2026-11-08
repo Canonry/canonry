@@ -3,35 +3,17 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { compileAppStyles } from './compiled-app-css.js'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
-import { ProjectSubnav, type ProjectPageTab } from '../src/pages/ProjectPage.js'
+import { projectSectionTabs, ProjectSubnav, type ProjectPageTab } from '../src/pages/ProjectPage.js'
 
-const items = [
-  { key: 'overview', label: 'AI Visibility' },
-  { key: 'search-console', label: 'Search Engines' },
-  { key: 'seo-data', label: 'SEO' },
-  { key: 'activity', label: 'Activity' },
-  { key: 'agent-readiness', label: 'Agent Readiness' },
-  { key: 'journeys', label: 'Journeys' },
-  { key: 'traffic', label: 'Server traffic' },
-].map(item => ({
-  ...item,
-  key: item.key as ProjectPageTab,
-  // As in ProjectPage: AI Visibility is the project root, the parent of every other section.
-  href: item.key === 'overview' ? '/projects/demo' : `/projects/demo/${item.key}`,
-}))
-const overflowItems = [
-  { key: 'conversions' as const, label: 'Conversions', href: '/projects/demo/conversions' },
-  { key: 'local' as const, label: 'Local Presence', href: '/projects/demo/local' },
-  { key: 'queries' as const, label: 'Queries', href: '/projects/demo/queries' },
-  { key: 'backlinks' as const, label: 'Backlinks', href: '/projects/demo/backlinks' },
-  { key: 'history' as const, label: 'Change History', href: '/projects/demo/history' },
-]
+// The sections ProjectPage itself hands the subnav, for an account that sees Journeys.
+const { primary: items, overflow: overflowItems } = projectSectionTabs('/projects/demo', { journeys: true })
 const settingsItem = { key: 'settings' as const, label: 'Settings', href: '/projects/demo/settings' }
 const baseWidths: Record<string, number> = {
-  overview: 112, 'search-console': 132, 'seo-data': 56, activity: 84, 'agent-readiness': 108, journeys: 96, traffic: 132,
-  conversions: 104, local: 124, queries: 76, backlinks: 92, history: 128, more: 80, settings: 88,
+  overview: 112, queries: 76, 'search-console': 132, 'seo-data': 56, activity: 84, 'agent-readiness': 108, journeys: 96, traffic: 132,
+  conversions: 104, local: 124, backlinks: 92, history: 128, more: 80, settings: 88,
 }
-const moreLabels = ['Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Change History']
+const primaryLabels = ['AI Visibility', 'Queries', 'Search engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic']
+const moreLabels = ['Conversions', 'Local presence', 'Backlinks', 'Change history']
 let widths = { ...baseWidths }
 let containerWidth = 1600
 let resize: (() => void) | undefined
@@ -87,22 +69,42 @@ async function renderNav(activeTab: ProjectPageTab = 'overview', filtered = fals
   return { ...view, nav, router }
 }
 
+test('the section list leads with AI Visibility and Queries, in sentence case, and leaves Journeys out for view-only accounts', () => {
+  expect(items.map(item => [item.key, item.label, item.href])).toEqual([
+    ['overview', 'AI Visibility', '/projects/demo'],
+    ['queries', 'Queries', '/projects/demo/queries'],
+    ['search-console', 'Search engines', '/projects/demo/search-console'],
+    ['seo-data', 'SEO', '/projects/demo/seo-data'],
+    ['activity', 'Activity', '/projects/demo/activity'],
+    ['agent-readiness', 'Agent Readiness', '/projects/demo/agent-readiness'],
+    ['journeys', 'Journeys', '/projects/demo/journeys'],
+    ['traffic', 'Server traffic', '/projects/demo/traffic'],
+  ])
+  expect(overflowItems.map(item => [item.key, item.label, item.href])).toEqual([
+    ['conversions', 'Conversions', '/projects/demo/conversions'],
+    ['local', 'Local presence', '/projects/demo/local'],
+    ['backlinks', 'Backlinks', '/projects/demo/backlinks'],
+    ['history', 'Change history', '/projects/demo/history'],
+  ])
+  const viewer = projectSectionTabs('/projects/demo', { journeys: false })
+  expect(viewer.primary.map(item => item.label)).toEqual(primaryLabels.filter(label => label !== 'Journeys'))
+  expect(viewer.overflow.map(item => item.label)).toEqual(moreLabels)
+})
+
 test('wide navigation keeps the primary sections and Settings visible', async () => {
   const { nav } = await renderNav()
-  expect(within(nav).getAllByRole('link').map(item => item.textContent)).toEqual([
-    'AI Visibility', 'Search Engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'Settings',
-  ])
+  expect(within(nav).getAllByRole('link').map(item => item.textContent)).toEqual([...primaryLabels, 'Settings'])
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(moreLabels)
 })
 
-test('a narrow container moves excess primary sections into More without a viewport resize', async () => {
+test('a narrow container moves the later primary sections into More, keeping Queries in the row', async () => {
   const { nav } = await renderNav()
   const viewportWidth = window.innerWidth
-  act(() => { containerWidth = 500; resize?.() })
+  // 600px fits AI Visibility, Queries, Search engines and SEO beside More and Settings.
+  act(() => { containerWidth = 600; resize?.() })
   expect(window.innerWidth).toBe(viewportWidth)
-  expect(within(nav).queryByRole('link', { name: 'Activity' })).toBeNull()
-  expect(within(nav).getByRole('link', { name: 'SEO' })).toBeTruthy()
+  expect(within(nav).getAllByRole('link').map(item => item.textContent)).toEqual(['AI Visibility', 'Queries', 'Search engines', 'SEO', 'Settings'])
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
     'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', ...moreLabels,
@@ -128,7 +130,7 @@ test('the overflow menu supports keyboard navigation and restores focus on Escap
   fireEvent.keyDown(trigger, { key: 'ArrowDown' })
   await waitFor(() => expect(document.activeElement?.textContent).toBe('Conversions'))
   fireEvent.keyDown(document.activeElement!, { key: 'End' })
-  expect(document.activeElement?.textContent).toBe('Change History')
+  expect(document.activeElement?.textContent).toBe('Change history')
   fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
   expect(document.activeElement?.textContent).toBe('Conversions')
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
@@ -138,19 +140,24 @@ test('the overflow menu supports keyboard navigation and restores focus on Escap
 
 // The subnav's Settings tab exists only in embeds; operators reach Settings
 // through the sidebar's Project settings link (portfolio-route.test.tsx).
-test('overflow destinations and the embed Settings tab retain measurement and drawer URL state', async () => {
+test('row tabs, overflow destinations and the embed Settings tab retain measurement and drawer URL state', async () => {
   containerWidth = 650
   const { nav, router } = await renderNav()
   const settings = within(nav).getByRole('link', { name: 'Settings' }) as HTMLAnchorElement
   expect(settings.href).toContain('runId=drawer-run')
-  fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
-  const queries = within(nav).getByRole('menuitem', { name: 'Queries' }) as HTMLAnchorElement
+  const queries = within(nav).getByRole('link', { name: 'Queries' }) as HTMLAnchorElement
   expect(queries.href).toContain('measurementScope=market')
   expect(queries.href).toContain('measurementScopeKey=metro-alpha')
   expect(queries.href).toContain('runId=drawer-run')
   expect(queries.href).not.toContain('onboarding')
-  fireEvent.click(queries)
-  await waitFor(() => expect(router.state.location.pathname).toBe('/projects/demo/queries'))
+  fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
+  const backlinks = within(nav).getByRole('menuitem', { name: 'Backlinks' }) as HTMLAnchorElement
+  expect(backlinks.href).toContain('measurementScope=market')
+  expect(backlinks.href).toContain('measurementScopeKey=metro-alpha')
+  expect(backlinks.href).toContain('runId=drawer-run')
+  expect(backlinks.href).not.toContain('onboarding')
+  fireEvent.click(backlinks)
+  await waitFor(() => expect(router.state.location.pathname).toBe('/projects/demo/backlinks'))
   expect(within(nav).queryByRole('menu')).toBeNull()
 })
 
@@ -164,15 +171,13 @@ test('embed-filtered sections remain filtered when they overflow', async () => {
   expect(within(nav).queryByText('Queries')).toBeNull()
 })
 
-const primaryLabels = ['AI Visibility', 'Search Engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic']
-
 function currentPageLinks(nav: HTMLElement) {
   return within(nav).getAllByRole('link').filter(link => link.getAttribute('aria-current') === 'page').map(link => link.textContent)
 }
 
 test.each([
   { tab: 'activity', label: 'Activity', row: [...primaryLabels, 'Settings'] },
-  { tab: 'history', label: 'Change History', row: [...primaryLabels, 'Change History', 'Settings'] },
+  { tab: 'history', label: 'Change history', row: [...primaryLabels, 'Change history', 'Settings'] },
 ] as const)('the row names the open $label section as the current page', async ({ tab, label, row }) => {
   const { nav } = await renderNav(tab)
   expect(within(nav).getAllByRole('link').map(link => link.textContent)).toEqual(row)
@@ -184,7 +189,7 @@ test.each([
 })
 
 test.each([
-  { tab: 'history', label: 'Change History', width: 400 },
+  { tab: 'history', label: 'Change history', width: 400 },
   { tab: 'settings', label: 'Settings', width: 150 },
 ] as const)('the open $label section keeps its tab when the panel is too narrow for the rest', async ({ tab, label, width }) => {
   containerWidth = width
@@ -205,12 +210,12 @@ test('a long active tab remains reachable at narrow widths and other tabs return
   expect(within(nav).getAllByRole('link')).toHaveLength(1)
   expect(within(nav).getByRole('button', { name: 'More' })).toBeTruthy()
   act(() => { containerWidth = 1600; widths['agent-readiness'] = baseWidths['agent-readiness']!; resize?.() })
-  expect(within(nav).getAllByRole('link')).toHaveLength(8)
+  expect(within(nav).getAllByRole('link').map(link => link.textContent)).toEqual([...primaryLabels, 'Settings'])
   expect(within(nav).getByRole('link', { name: 'Agent Readiness' }).getAttribute('aria-current')).toBe('page')
 })
 
 test('font or label width changes remeasure the available tab budget', async () => {
-  containerWidth = 500
+  containerWidth = 600
   const { nav } = await renderNav()
   expect(within(nav).getByRole('link', { name: 'SEO' })).toBeTruthy()
   act(() => { widths['seo-data'] = 200; resize?.() })

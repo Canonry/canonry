@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import * as Dialog from '@radix-ui/react-dialog'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { RunKinds, RunStatuses, type RunKind, type RunStatus } from '@canonry/canonry-contracts'
@@ -7,6 +8,7 @@ import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@canonry/canonry-a
 import { MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
+import { WriteButton } from '../components/shared/AccessControls.js'
 import { RunDetailLink } from '../components/shared/RunDetailLink.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
@@ -36,6 +38,50 @@ const RUN_WINDOWS = {
 
 function runSince(window: keyof typeof RUN_WINDOWS): string {
   return new Date(Date.now() - RUN_WINDOWS[window].days * 24 * 60 * 60 * 1000).toISOString()
+}
+
+/**
+ * Run all queues a paid AI Visibility check for every project at once, so it
+ * gets the same review step as one project's check before anything is queued.
+ * The count is the project list this credential reads, which is the set the
+ * server queues; no API totals the work, so the dialog shows none.
+ */
+function RunAllConfirmation({ open, projectCount, pending, onOpenChange, onConfirm, onClosed }: {
+  open: boolean
+  projectCount: number
+  pending: boolean
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
+  onClosed: () => void
+}) {
+  const single = projectCount === 1
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-overlay-scrim/70 backdrop-blur-sm" />
+        <Dialog.Content
+          className="material-modal fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto p-5"
+          onCloseAutoFocus={(event) => { event.preventDefault(); onClosed() }}
+        >
+          <div className="space-y-2">
+            <Dialog.Title className="text-heading-20 text-heading">Review AI Visibility checks</Dialog.Title>
+            <Dialog.Description className="text-copy-14 text-secondary">
+              {single
+                ? 'Checks 1 project. It runs its saved queries on its selected engines. Provider charges apply.'
+                : `Checks all ${projectCount} projects. Each runs its saved queries on its selected engines. Provider charges apply.`}
+            </Dialog.Description>
+          </div>
+          <p className="mt-4 text-copy-13 text-secondary">Runs once. Schedules stay unchanged. Projects already running or not set up are skipped.</p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <WriteButton type="button" disabled={pending} onClick={onConfirm}>
+              {pending ? 'Queueing…' : `Run ${projectCount} ${single ? 'project' : 'projects'}`}
+            </WriteButton>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  )
 }
 
 export function RunsPage() {
@@ -71,6 +117,8 @@ export function RunsPage() {
     refetchInterval: (result) => result.state.data?.some((run) => run.status === RunStatuses.queued || run.status === RunStatuses.running) ? 3000 : RUNS_STALE_MS,
   })
   const triggerAllRunsMutation = useTriggerAllRuns()
+  const [runAllOpen, setRunAllOpen] = useState(false)
+  const runAllOpener = useRef<HTMLButtonElement | null>(null)
 
   const projectsById = useMemo(
     () => new Map((projectsQuery.data ?? []).map((project) => [project.id, project.displayName || project.name])),
@@ -123,11 +171,15 @@ export function RunsPage() {
     )
   }
 
+  // Run all queues every project this credential can read, which is this list.
+  const projectCount = projectsQuery.data?.length ?? 0
+
   const handleTriggerAll = async () => {
     try {
       await triggerAllRunsMutation.mutateAsync(undefined)
+      setRunAllOpen(false)
     } catch {
-      // Mutation hook surfaces the toast and error state.
+      // Mutation hook surfaces the toast; the review stays open to retry or cancel.
     }
   }
 
@@ -138,12 +190,30 @@ export function RunsPage() {
           <h1 className="page-title">Runs</h1>
           <p className="page-subtitle">Recent jobs across all projects.</p>
         </div>
-        {!isEmbed() && (isDashboardManagedSweeps() ? <p className="text-copy-14 text-secondary">{MANAGED_SWEEPS_COPY}</p> : (
-          <Button type="button" variant="outline" size="sm" disabled={triggerAllRunsMutation.isPending} onClick={() => void handleTriggerAll()}>
-            {triggerAllRunsMutation.isPending ? 'Queueing…' : 'Run all projects'}
-          </Button>
-        ))}
+        {/* The review's confirm button carries the pending state, so this
+            trigger stays enabled and takes focus back when the review closes. */}
+        {!isEmbed() && (isDashboardManagedSweeps() ? <p className="text-copy-14 text-secondary">{MANAGED_SWEEPS_COPY}</p> : projectCount > 0 ? (
+          <WriteButton
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-haspopup="dialog"
+            onClick={(event) => { runAllOpener.current = event.currentTarget; setRunAllOpen(true) }}
+          >
+            Run all projects
+          </WriteButton>
+        ) : null)}
       </div>
+      {!isEmbed() && !isDashboardManagedSweeps() ? (
+        <RunAllConfirmation
+          open={runAllOpen}
+          projectCount={projectCount}
+          pending={triggerAllRunsMutation.isPending}
+          onOpenChange={setRunAllOpen}
+          onConfirm={() => void handleTriggerAll()}
+          onClosed={() => runAllOpener.current?.focus()}
+        />
+      ) : null}
 
       <section>
         <div className="run-filters" role="group" aria-label="Run filters">

@@ -883,6 +883,56 @@ test('creates without a crawl and enters provider-free query setup for the exact
   expect(requests.some(request => request.path.endsWith('/agent-readiness/runs') && request.method === 'POST')).toBe(false)
 })
 
+test('suggests the brand and project names from the website without typing them into the fields', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
+  const requests: Array<{ path: string; method: string; body?: string }> = []
+  const restore = mockFetch((url, init) => {
+    const path = pathOf(url)
+    const method = init?.method ?? 'GET'
+    requests.push({ path, method, body: typeof init?.body === 'string' ? init.body : undefined })
+    if (path === '/api/v1/projects' && method === 'POST') {
+      return jsonResponse({
+        id: 'project-example',
+        name: 'example-com',
+        displayName: 'Example',
+        canonicalDomain: 'example.com',
+        ownedDomains: [], aliases: [], country: 'US', language: 'en', tags: [], labels: {},
+        providers: [], providerModels: {}, locations: [], defaultLocation: null,
+        measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
+        autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
+      }, 201)
+    }
+    if (path === '/api/v1/projects/example-com/queries') return jsonResponse([])
+    return jsonResponse({})
+  })
+  onTestFinished(restore)
+  await renderSetup('/setup', { mappedProjectName: 'example-com', providerReady: false })
+  expect(await screen.findByRole('heading', { name: 'Track your brand in AI answers' })).toBeTruthy()
+
+  fireEvent.change(screen.getByLabelText('Website URL'), { target: { value: 'https://www.example.com/pricing' } })
+  const brand = screen.getByLabelText('Brand name') as HTMLInputElement
+  // A suggestion shown as text would be appended to by typing.
+  expect(brand.value).toBe('')
+  // The brand people would say, not the domain.
+  expect(brand.placeholder).toBe('Example')
+  fireEvent.change(brand, { target: { value: 'Example' } })
+  expect(brand.value).toBe('Example')
+  // Clearing the field leaves it empty; the suggestion does not come back as text.
+  fireEvent.change(brand, { target: { value: '' } })
+  expect(brand.value).toBe('')
+  fireEvent.click(screen.getByText('Project details'))
+  const projectName = screen.getByLabelText('Project name') as HTMLInputElement
+  expect(projectName.value).toBe('')
+  expect(projectName.placeholder).toBe('example-com')
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+  expect(await screen.findByRole('heading', { name: 'Set up AI Visibility' })).toBeTruthy()
+  // Fields left blank use the names derived from the website.
+  const created = requests.filter(request => request.path === '/api/v1/projects' && request.method === 'POST')
+  expect(created).toHaveLength(1)
+  expect(JSON.parse(created[0]!.body!)).toMatchObject({ name: 'example-com', displayName: 'Example', canonicalDomain: 'example.com' })
+})
+
 test('keeps the auto launchpad in an accessible loading state until the project list resolves', async () => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
   let resolveProjects: ((response: Response) => void) | undefined
@@ -963,6 +1013,31 @@ test('the launchpad form stays compact beside a mouse and gives each control a 4
   expect(await minHeights(targets)).toEqual([[0, 44, 44], [36, 44, 44], [0, 44, 44]])
 })
 
+test('every launchpad field shares the one input style, with none set apart', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
+  onTestFinished(mockFetch(() => jsonResponse({})))
+  await renderSetup()
+
+  fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'example.com' } })
+  fireEvent.click(screen.getByText('Project details'))
+  const fields = ['Website URL', 'Brand name', 'Project name', 'Country', 'Language'].map(label => screen.getByLabelText(label))
+  const rules = parseCompiledCss(await compileAppStyles(fields.flatMap(field => [...field.classList])))
+  const looks = fields.map((field) => {
+    const property = (name: string, context?: string) => compiledElementProperty(rules, field, name, context)
+    return {
+      height: cssLengthPx(property('height') ?? '0', rules),
+      border: property('border-color'),
+      background: property('background-color'),
+      // 16px below md so a phone does not zoom into the field on focus.
+      text: [property('font-size'), property('font-size', BELOW_MD)],
+    }
+  })
+  // The shared field's resting edge; its stronger focus edge is pinned in design-tokens.test.ts.
+  const shared = { height: 40, border: 'var(--color-border-base)', background: 'var(--color-bg)', text: ['14px', '16px'] }
+  expect(looks).toEqual([shared, shared, shared, shared, shared])
+  expect(await minHeights(fields)).toEqual([[0, 44, 44], [0, 44, 44], [0, 44, 44], [0, 44, 44], [0, 44, 44]])
+})
+
 test('offers accessible supported locale selects with exact API codes', async () => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
   const restore = mockFetch(() => jsonResponse({}))
@@ -987,8 +1062,39 @@ test('offers accessible supported locale selects with exact API codes', async ()
   expect(screen.getByText('United Kingdom · French')).toBeTruthy()
 })
 
+/**
+ * A dashboard built with its own API key signs requests with that key, the
+ * only way a browser can present an operator credential; otherwise requests
+ * carry the session cookie, which the server never treats as an operator.
+ */
+function signWithBrowserKey() {
+  vi.stubEnv('VITE_API_KEY', 'test-browser-key')
+  onTestFinished(() => { vi.unstubAllEnvs() })
+}
+
+test('a session signed in by cookie never asks for operator-only telemetry', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
+  const paths: string[] = []
+  onTestFinished(mockFetch((url) => {
+    const path = pathOf(url)
+    paths.push(path)
+    // Answered as it would be for an operator, so only the session decides whether it is read.
+    if (path === '/api/v1/telemetry') return jsonResponse({ enabled: true, anonymousId: 'abcd1234...' })
+    if (path === '/api/v1/telemetry/onboarding') return jsonResponse({ accepted: true }, 202)
+    return jsonResponse({})
+  }))
+  const { queryClient } = await renderSetup()
+
+  expect(await screen.findByLabelText('Website URL')).toBeTruthy()
+  await waitFor(() => expect(paths).toContain('/api/v1/telemetry/onboarding'))
+  expect(queryClient.getQueryState(getApiV1TelemetryQueryKey({ client: heyClient }))).toMatchObject({ status: 'pending', fetchStatus: 'idle' })
+  expect(paths).not.toContain('/api/v1/telemetry')
+  expect(screen.queryByRole('checkbox', { name: /Share anonymous product telemetry/ })).toBeNull()
+})
+
 test.each([false, true])('hides internal telemetry after operator denial without blocking setup (cached: %s)', async cached => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
+  signWithBrowserKey()
   let allowed = cached
   const restore = mockFetch(async url => {
     const path = pathOf(url)
@@ -1013,6 +1119,7 @@ test.each([false, true])('hides internal telemetry after operator denial without
 
 function mockTelemetryPreferences(initialEnabled: boolean, update?: (enabled: boolean) => Response | Promise<Response>) {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
+  signWithBrowserKey()
   let serverEnabled = initialEnabled
   const updates: boolean[] = []
   const restore = mockFetch(async (url, init) => {
@@ -1544,8 +1651,42 @@ test('surfaces a create-only name collision and never starts a scan', async () =
   fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
 
   expect(await screen.findByText(/project with this name already exists/i)).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'View projects' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Open example-com' }).getAttribute('href')).toBe('/projects/example-com')
+  expect(screen.queryByRole('button', { name: 'View projects' })).toBeNull()
   expect(requests.some((request) => request.includes('agent-readiness/runs'))).toBe(false)
+})
+
+test('a name collision opens Project details on the name to change and links the project that holds it', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
+  // Stored before names were normalized; the server still compares it as example-com.
+  const legacyProject = { ...AUTO_RESUME_PROJECT, id: 'project-legacy', name: 'Example.com' }
+  onTestFinished(mockFetch((url, init) => {
+    const path = pathOf(url)
+    if (path === '/api/v1/projects' && init?.method === 'POST') {
+      return jsonResponse({ error: { message: "Project 'example-com' already exists", code: 'ALREADY_EXISTS' } }, 409)
+    }
+    if (path === '/api/v1/projects') return jsonResponse([legacyProject])
+    return jsonResponse([])
+  }))
+  await renderSetup('/setup')
+  fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'example.com' } })
+  const details = screen.getByText('Project details').closest('details')!
+  expect(details.open).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+  const message = 'A project with this name already exists. Change the project name, or open the existing project.'
+  expect((await screen.findByRole('alert')).textContent).toContain(message)
+  const projectName = screen.getByRole('textbox', { name: 'Project name', description: message })
+  expect(details.open).toBe(true)
+  expect(document.activeElement).toBe(projectName)
+  expect(projectName.getAttribute('aria-invalid')).toBe('true')
+  expect((await screen.findByRole('link', { name: 'Open Example.com' })).getAttribute('href')).toBe('/projects/Example.com')
+
+  // A new name gets its own answer on submit, so the stale collision clears.
+  fireEvent.change(projectName, { target: { value: 'example-two' } })
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.queryByRole('link', { name: /^Open / })).toBeNull()
+  expect(projectName.getAttribute('aria-invalid')).toBe('false')
 })
 
 test('keeps auto mode on actionable conflict recovery after the project list becomes non-empty', async () => {
@@ -1573,7 +1714,7 @@ test('keeps auto mode on actionable conflict recovery after the project list bec
   fireEvent.click(screen.getByRole('checkbox', { name: /Allow Canonry/i }))
   fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
 
-  expect(await screen.findByRole('button', { name: 'View projects' })).toBeTruthy()
+  expect((await screen.findByRole('link', { name: 'Open example-com' })).getAttribute('href')).toBe('/projects/example-com')
   expect(screen.queryByText('Step 2 of 5')).toBeNull()
 })
 

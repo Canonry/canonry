@@ -81,7 +81,7 @@ describe('By engine report', () => {
     expect(screen.getByText('Awaiting answers')).toBeTruthy()
     expect(screen.getByText('0 of 1 answers')).toBeTruthy()
     expect(screen.getByText('1 unchecked')).toBeTruthy()
-    expect(screen.getByText(/Last sweep .* · incomplete/)).toBeTruthy()
+    expect(screen.getByText(/^Latest check .* · incomplete$/)).toBeTruthy()
     expect(screen.queryByText('0 of 2 answers')).toBeNull()
   })
 
@@ -91,7 +91,7 @@ describe('By engine report', () => {
     report.populations[2] = { ...legacy, queryClass: 'unknown' }
     report.populations[1] = { ...legacy, summary: { ...legacy.summary, queryCount: 0, answerCount: 0 }, breakdown: { properties: [], groups: [], providers: [] } }
     renderCard(report)
-    expect(screen.getByText('No non-brand queries in this sweep.')).toBeTruthy()
+    expect(screen.getByText('No non-brand queries in this check.')).toBeTruthy()
     fireEvent.click(screen.getByRole('radio', { name: 'Unclassified' }))
     expect(screen.getByRole('table', { name: 'By engine, unclassified queries' })).toBeTruthy()
   })
@@ -101,7 +101,7 @@ describe('By engine report', () => {
     if (state === 'first-sweep') report.selection.run.id = null
     else delete report.populations[1]!.breakdown.providers
     renderCard(report)
-    expect(screen.getByText(state === 'first-sweep' ? 'Engine results appear after your first sweep.' : 'Engine breakdown unavailable for this report.')).toBeTruthy()
+    expect(screen.getByText(state === 'first-sweep' ? 'Engine results appear after your first check.' : 'Engine breakdown unavailable for this report.')).toBeTruthy()
     expect(screen.queryByRole('table')).toBeNull()
   })
 
@@ -112,13 +112,13 @@ describe('By engine report', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     onTestFinished(() => client.clear())
     const view = render(<QueryClientProvider client={client}><CitationVisibilitySection projectName="demo" revision="before" /></QueryClientProvider>)
-    await screen.findByText('Engine results appear after your first sweep.')
+    await screen.findByText('Engine results appear after your first check.')
     saved = reportFixture()
     if (refresh === 'run-revision') view.rerender(<QueryClientProvider client={client}><CitationVisibilitySection projectName="demo" revision="after" /></QueryClientProvider>)
     else invalidateQueriesForRunKind(client, RunKinds['answer-visibility'], 'demo')
     const table = await screen.findByRole('table', { name: 'By engine, non-brand queries' })
     expect(within(table).getByText('0 of 2 answers')).toBeTruthy()
-    expect(screen.queryByText('Engine results appear after your first sweep.')).toBeNull()
+    expect(screen.queryByText('Engine results appear after your first check.')).toBeNull()
   })
 
   test.each([

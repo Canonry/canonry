@@ -6,7 +6,6 @@ import { Button } from '../components/ui/button.js'
 import { shouldNavigateFromRowClick } from '../lib/row-navigation.js'
 import { Card } from '../components/ui/card.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
-import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { YamlApplyPanel } from '../components/project/YamlApplyPanel.js'
 import { useAccount } from '../contexts/account-context.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
@@ -40,7 +39,7 @@ export function ProjectsPage() {
                 <div className="skeleton-text-sm w-16" />
               </div>
               <div className="skeleton-text w-24" />
-              <div className="skeleton h-5 w-14 rounded-full" />
+              <div className="skeleton-text w-14" />
               <div className="skeleton h-5 w-16 rounded-full" />
               <div className="skeleton-text-sm w-8" />
             </div>
@@ -114,7 +113,7 @@ export function ProjectsPage() {
                     </td>
                     <td className="text-secondary">{p.project.canonicalDomain}</td>
                     <td>
-                      <ToneBadge tone="neutral">{coverage?.rate == null ? '—' : formatPercent(coverage.rate, 'fraction')}<span className="sr-only"> · non-brand queries</span></ToneBadge>
+                      <span className="tabular-nums text-strong">{coverage?.rate == null ? '—' : formatPercent(coverage.rate, 'fraction')}<span className="sr-only"> · non-brand queries</span></span>
                       <p className="mt-1 text-label-12 text-muted">{coverage?.numerator != null && coverage.denominator != null ? `${coverage.numerator} of ${coverage.denominator} answers` : 'Not measured'}</p>
                       {branded && branded.answerCount > 0 && <details className="mt-1 text-label-12 text-muted"><summary className="cursor-pointer">Branded queries</summary><p className="mt-1">{branded.mentionCoverage.rate == null ? 'Not measured' : formatPercent(branded.mentionCoverage.rate, 'fraction')}{branded.mentionCoverage.numerator != null && branded.mentionCoverage.denominator != null ? ` · ${branded.mentionCoverage.numerator} of ${branded.mentionCoverage.denominator} answers` : ''}</p></details>}
                     </td>

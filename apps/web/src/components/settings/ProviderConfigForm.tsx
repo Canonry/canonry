@@ -50,10 +50,13 @@ export function ProviderConfigForm(props: ComponentProps<typeof NewProviderConfi
   </div>
 }
 
-function NewProviderConfigForm({ providerName, keyUrl, modelHint, kind, compact = false, offerFreeTier = true, leadingField, secondaryActions, onSaved, onDirtyChange, onBusyChange }: {
+function NewProviderConfigForm({ providerName, keyUrl, modelHint, defaultModel, kind, compact = false, offerFreeTier = true, leadingField, secondaryActions, onSaved, onDirtyChange, onBusyChange }: {
   providerName: string
   keyUrl?: string
+  /** The server's example for the model field, shown only when the default model is unknown. */
   modelHint?: string
+  /** The model the provider runs when the model field is left blank. */
+  defaultModel?: string
   /** A routed connection (gateway or answer service) takes no connection model; projects pick routes. */
   kind?: 'answer-engine' | 'model-gateway' | 'answer-service'
   /** Keep optional tuning out of the first-run provider connection path. */
@@ -126,7 +129,7 @@ function NewProviderConfigForm({ providerName, keyUrl, modelHint, kind, compact 
       void queryClient.invalidateQueries({ queryKey: ['settings'] })
       addToast({
         title: 'Provider updated',
-        detail: `${providerName} configuration saved.`,
+        detail: `${providerDisplayName(providerName)} configuration saved.`,
         tone: 'positive',
         dedupeKey: `settings:provider:${providerName}`,
         dedupeMode: 'replace',
@@ -140,11 +143,14 @@ function NewProviderConfigForm({ providerName, keyUrl, modelHint, kind, compact 
     }
   }
 
-  const modelPlaceholder = modelHint ?? 'Use default model'
   const labelClassName = compact ? 'block text-label-14-strong text-secondary' : 'text-label-14 text-secondary'
-  const inputClassName = compact
-    ? 'setup-input min-h-11 w-full'
-    : 'mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none'
+  // The shared field style, so focus reads stronger than rest here as in every other form.
+  const inputClassName = compact ? 'setup-input min-h-11 w-full' : 'setup-input mt-0.5 w-full'
+  const quotaInputs = [
+    { id: `quota-concurrency-${providerName}`, label: 'Max concurrent', placeholder: 'Concurrent', value: maxConcurrency, onChange: setMaxConcurrency },
+    { id: `quota-per-minute-${providerName}`, label: 'Per minute', placeholder: '/min', value: maxPerMinute, onChange: setMaxPerMinute },
+    { id: `quota-per-day-${providerName}`, label: 'Per day', placeholder: '/day', value: maxPerDay, onChange: setMaxPerDay },
+  ]
 
   const optionalFields = (
     <>
@@ -154,64 +160,51 @@ function NewProviderConfigForm({ providerName, keyUrl, modelHint, kind, compact 
           id={`model-${providerName}`}
           type="text"
           className={inputClassName}
-          placeholder={modelPlaceholder}
+          placeholder={defaultModel ?? modelHint ?? 'Model ID'}
+          aria-describedby={`model-default-${providerName}`}
           value={model}
           onChange={(e) => setModel(e.target.value)}
         />
+        {/* A blank field still runs a model; name it rather than leave it to the placeholder. */}
+        <p id={`model-default-${providerName}`} className="mt-1 text-copy-14 text-secondary">
+          {defaultModel ? `Default model: ${defaultModel}` : 'Leave blank to use the provider’s default model.'}
+        </p>
       </div>}
-      <div>
-        <label className={labelClassName}>Quota (optional)</label>
+      <fieldset className="min-w-0">
+        <legend className={labelClassName}>Quota (optional)</legend>
         <div className="mt-0.5 grid grid-cols-3 gap-1.5">
-          <div>
-            <input
-              type="number"
-              min="1"
-              className={compact ? 'setup-input min-h-11 w-full' : 'w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none'}
-              placeholder="Concurrent"
-              value={maxConcurrency}
-              onChange={(e) => setMaxConcurrency(e.target.value)}
-            />
-            <p className="mt-1 text-copy-14 text-secondary">Max concurrent</p>
-          </div>
-          <div>
-            <input
-              type="number"
-              min="1"
-              className={compact ? 'setup-input min-h-11 w-full' : 'w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none'}
-              placeholder="/min"
-              value={maxPerMinute}
-              onChange={(e) => setMaxPerMinute(e.target.value)}
-            />
-            <p className="mt-1 text-copy-14 text-secondary">Per minute</p>
-          </div>
-          <div>
-            <input
-              type="number"
-              min="1"
-              className={compact ? 'setup-input min-h-11 w-full' : 'w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none'}
-              placeholder="/day"
-              value={maxPerDay}
-              onChange={(e) => setMaxPerDay(e.target.value)}
-            />
-            <p className="mt-1 text-copy-14 text-secondary">Per day</p>
-          </div>
+          {quotaInputs.map(field => (
+            <div key={field.id}>
+              <input
+                id={field.id}
+                type="number"
+                min="1"
+                className={compact ? inputClassName : 'setup-input w-full'}
+                placeholder={field.placeholder}
+                value={field.value}
+                onChange={(e) => field.onChange(e.target.value)}
+              />
+              <label htmlFor={field.id} className="mt-1 block text-copy-14 text-secondary">{field.label}</label>
+            </div>
+          ))}
         </div>
-      </div>
+      </fieldset>
     </>
   )
 
   const localEndpointField = isLocal ? (
-    <div className={compact ? 'space-y-1.5' : undefined}>
+    <div className={compact ? 'min-w-0 space-y-1.5' : undefined}>
       <label className={labelClassName} htmlFor={`base-url-${providerName}`}>Base URL</label>
       <input
         id={`base-url-${providerName}`}
         type="text"
         className={inputClassName}
         placeholder="http://localhost:11434/v1"
+        aria-describedby={`base-url-help-${providerName}`}
         value={baseUrl}
         onChange={(e) => setBaseUrl(e.target.value)}
       />
-      <p className="mt-1 text-copy-14 text-secondary">Use any OpenAI-compatible endpoint, such as Ollama or vLLM.</p>
+      <p id={`base-url-help-${providerName}`} className="mt-1 text-copy-14 text-secondary">Use any OpenAI-compatible endpoint, such as Ollama or vLLM.</p>
     </div>
   ) : null
   const apiKeyField = (
@@ -249,39 +242,39 @@ function NewProviderConfigForm({ providerName, keyUrl, modelHint, kind, compact 
   )
   const saveButton = (
     <Button type="button" size={compact ? 'default' : 'sm'} className={compact ? 'pointer-coarse:min-h-11' : undefined} disabled={!canSave || saving} onClick={asyncHandler(handleSave)}>
-      {saving ? 'Saving...' : compact ? 'Save connection' : 'Save'}
+      {saving ? 'Saving\u2026' : compact ? 'Save connection' : 'Save'}
     </Button>
   )
+  // A local server needs its endpoint and rarely a key, so the required field leads.
+  const firstField = isLocal ? localEndpointField : apiKeyField
+  const secondField = isLocal ? apiKeyField : null
 
   return (
     <div className={compact ? 'space-y-3' : 'mt-3 space-y-2'}>
       {showGeminiFreeTier && (
-        <div className="flex flex-wrap items-start gap-x-6 gap-y-3 pb-2">
-          <div className="min-w-0 flex-1 basis-72 space-y-1">
-            <h3 className="text-heading-16 text-heading">Connect Gemini</h3>
-            <p className="max-w-prose text-copy-14 text-secondary">
-              Get a key in Google AI Studio. Free usage depends on the model and your account.{' '}
-              <a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noopener noreferrer" className="text-link underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2">
-                Pricing and limits
-              </a>
-            </p>
-          </div>
-          <Button variant="outline" className="pointer-coarse:min-h-11" asChild>
-            <a href={keyUrl} target="_blank" rel="noopener noreferrer">
-              Get Gemini API key {'\u2197'}
+        <div className="space-y-1 pb-2">
+          <h3 className="text-heading-16 text-heading">Connect Gemini</h3>
+          {/* The key link stays in the sentence so pasting a key and saving remain the primary path. */}
+          <p className="max-w-prose text-copy-14 text-secondary">
+            <a href={keyUrl} target="_blank" rel="noopener noreferrer" className="text-link underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2">
+              Get a key in Google AI Studio {'\u2197'}
             </a>
-          </Button>
+            . Free usage depends on the model and your account.{' '}
+            <a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noopener noreferrer" className="text-link underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2">
+              Pricing and limits
+            </a>
+          </p>
         </div>
       )}
       {compact ? (
         <>
           <div className={leadingField ? 'grid items-start gap-3 sm:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]' : undefined}>
             {leadingField}
-            {apiKeyField}
+            {firstField}
           </div>
-          {localEndpointField}
+          {secondField}
         </>
-      ) : <>{localEndpointField}{apiKeyField}</>}
+      ) : <>{firstField}{secondField}</>}
       {compact ? (
         <details>
           <summary className="min-h-11 cursor-pointer text-label-14 text-secondary py-3">Advanced provider settings</summary>
@@ -432,7 +425,7 @@ export const PROVIDER_CONNECTIONS_COPY = {
 /** The server's reason decides the heading and whether re-reading can help; its message carries the instructions. */
 function unavailableView(reason: ProviderConnectionsUnavailableReason): { title: string; retry: boolean } {
   switch (reason) {
-    // Repairing the file is only half the fix; the message sends the operator to Reload from host.
+    // Repairing the file is only half the fix; the message sends the operator to Reload from config file.
     case ProviderConnectionsUnavailableReasons['config-unreadable']: return { title: PROVIDER_CONNECTIONS_COPY.configUnreadable, retry: false }
     case ProviderConnectionsUnavailableReasons['internal-error']: return { title: PROVIDER_CONNECTIONS_COPY.internalError, retry: true }
   }
@@ -530,7 +523,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
     try {
       await reloadProviderConnections()
       await refresh()
-      addToast('Connections reloaded from the host', 'positive')
+      addToast('Connections reloaded from the config file', 'positive')
     } catch (cause) { setError(describeError(cause)) }
     finally { setBusy(false) }
   }
@@ -590,7 +583,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
   return <section aria-labelledby="provider-connections-title" aria-busy={busy || settings.isLoading}>
     <div className="section-head">
       <h2 id="provider-connections-title">Provider connections</h2>
-      {(connections || unavailable) && <div className="flex flex-wrap gap-2">{(unavailable || connections?.some(connection => connection.capabilities.reload)) && <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => guard.request(() => void reload())}>Reload from host</Button>}{connections && <Button ref={addProviderAction} type="button" variant="outline" size="sm" disabled={busy} onClick={() => setAdding(current => !current)}>{adding ? 'Close catalog' : 'Add provider'}</Button>}</div>}
+      {(connections || unavailable) && <div className="flex flex-wrap gap-2">{(unavailable || connections?.some(connection => connection.capabilities.reload)) && <span className="inline-flex items-center"><Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => guard.request(() => void reload())}>Reload from config file</Button><InfoTooltip text="Re-read provider keys, models and quotas from this server's config file, for example after editing it. Makes no provider calls." /></span>}{connections && <Button ref={addProviderAction} type="button" variant="outline" size="sm" disabled={busy} onClick={() => setAdding(current => !current)}>{adding ? 'Close catalog' : 'Add provider'}</Button>}</div>}
     </div>
     <p className="mb-4 text-copy-14 text-secondary">Save credentials and defaults here. Each project chooses the answer engines it runs.</p>
     {settings.isLoading && <p role="status" className="text-copy-14 text-secondary">Loading connections…</p>}
@@ -624,7 +617,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
       <p className="py-4 text-copy-14 text-secondary">This host supports connection setup. Saved credential details, resets and disconnect are unavailable here.</p>
       {settings.data.providers.map(provider => <div key={provider.name} id={`provider-${provider.name}`} className="scroll-mt-24 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-copy-14-strong text-heading">{provider.displayName ?? provider.name}</p><p className="text-copy-14 text-secondary">{provider.model ?? provider.defaultModel}</p></div><div className="flex items-center gap-2"><ToneBadge tone={provider.configured ? 'neutral' : 'caution'}>{provider.configured ? 'Configured' : 'Not configured'}</ToneBadge><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => guard.request(() => { setFallbackEditing(current => current === provider.name ? null : provider.name); setDirty(false) })}>{fallbackEditing === provider.name ? 'Cancel' : provider.configured ? 'Update' : 'Configure'}</Button></div></div>
-        {fallbackEditing === provider.name && <ProviderConfigForm key={provider.name} providerName={provider.name} keyUrl={provider.keyUrl} modelHint={provider.modelHint} {...(provider.kind ? { kind: provider.kind } : {})} onDirtyChange={setDirty} onBusyChange={setBusy} onSaved={() => { setFallbackEditing(null); setDirty(false); void refresh() }} />}
+        {fallbackEditing === provider.name && <ProviderConfigForm key={provider.name} providerName={provider.name} keyUrl={provider.keyUrl} modelHint={provider.modelHint} defaultModel={provider.defaultModel} {...(provider.kind ? { kind: provider.kind } : {})} onDirtyChange={setDirty} onBusyChange={setBusy} onSaved={() => { setFallbackEditing(null); setDirty(false); void refresh() }} />}
         {provider.configured && (provider.name === 'openrouter' || provider.kind === ProviderKinds['model-gateway'] || provider.kind === ProviderKinds['answer-service']) && projectSelection(provider.name, provider.kind)}
       </div>)}
     </div>}

@@ -111,7 +111,8 @@ test('a demo project page offers the Aero preview to the read-only visitor', asy
     path: `/projects/${encodeURIComponent(project.name)}`,
     config: { demo: DEMO, dashboard: { showAgentBar: false } },
   })
-  const bar = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes(`Ask Aero about ${project.name}`))
+  // The bar names the project as people know it: its display name, not the slug.
+  const bar = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes(`Ask Aero about ${project.displayName || project.name}`))
   expect(bar).toBeTruthy()
   // The shell reserves room for the bar, so it never covers the page's end,
   // and the page scroller keeps the same lane clear when focus or

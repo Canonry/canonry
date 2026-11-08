@@ -75,6 +75,8 @@ interface ToolTrail {
 
 interface AeroBarProps {
   projectName: string
+  /** The project as people know it (its display name); defaults to `projectName`. */
+  projectLabel?: string
   context?: AgentViewContext
   /**
    * Scripted preview for the public demo: the bar plays the demo server's
@@ -89,6 +91,9 @@ const STARTER_PROMPTS: Array<{ id: AeroPreviewStarterId; label: string; prompt: 
   { id: 'gaps', label: 'Biggest gaps', prompt: 'Which tracked queries does no engine mention us on, and who gets named instead? Group them by topic or market.' },
   { id: 'insights', label: 'Top insights', prompt: 'Walk me through the 3 most severe active insights and what to do about each.' },
 ]
+
+/** Opens the help beside a bar that has no provider to answer with yet. */
+const AERO_INTRO = 'Aero is the built-in analyst for answer engine optimization (AEO).'
 
 const PREVIEW_SITE_URL = 'https://canonry.ai'
 const PREVIEW_FREE_TEXT_NOTICE = 'This demo plays sample answers only. Pick a starting point, or type / to choose one.'
@@ -206,7 +211,7 @@ function removePreference(key: string): void {
   }
 }
 
-export function AeroBar({ projectName, context, preview = isAeroPreview() }: AeroBarProps) {
+export function AeroBar({ projectName, projectLabel = projectName, context, preview = isAeroPreview() }: AeroBarProps) {
   const managedSweeps = isDashboardManagedSweeps()
   const { canWrite, account } = useAccount()
   const queryClient = useQueryClient()
@@ -730,6 +735,14 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   // answer-engine keys, so name the missing variable instead of linking there.
   const unkeyedDefault = activeProvider && !activeProvider.configured ? activeProvider : null
   if (checksProviders && (!activeProvider || unkeyedDefault)) {
+    // Name the connections Aero itself answers with, from the server's list:
+    // an engine connected only for checks (Local, Perplexity) does not make
+    // Aero ready, so a generic "answer engine" would contradict it.
+    const aeroConnections = new Intl.ListFormat('en', { style: 'long', type: 'disjunction' })
+      .format((providersQuery.data?.providers ?? []).map(provider => provider.label))
+    const setupHelp = aeroConnections
+      ? `${AERO_INTRO} Connect ${aeroConnections} to ask about these results. Other answer engines run AI Visibility checks only.`
+      : `${AERO_INTRO} Connect a provider Aero supports to ask about these results.`
     return (
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
         <div
@@ -746,7 +759,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
             <InfoTooltip
               text={unkeyedDefault
                 ? `Set ${envVarHint(unkeyedDefault.id)} on the server, or providers.${unkeyedDefault.id}.apiKey in its config.yaml.`
-                : 'Aero is the built-in AEO analyst. Connect a supported answer engine to ask about these results.'}
+                : setupHelp}
             />
           </span>
           {unkeyedDefault ? null : canWrite ? (
@@ -754,7 +767,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
               <Link to="/settings">Set up Aero</Link>
             </Button>
           ) : (
-            <span className="ml-auto text-secondary">Ask an administrator to configure one.</span>
+            <span className="ml-auto text-secondary">Ask an administrator to set up Aero.</span>
           )}
         </div>
       </div>
@@ -851,7 +864,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
             </div>
             {historyOpen ? (
               <div id="aero-history" className={transcriptClasses} aria-label="Conversation history">
-                <h3 className="mb-2 text-heading-14 text-heading">Conversations in {projectName}</h3>
+                <h3 className="mb-2 text-heading-14 text-heading">Conversations in {projectLabel}</h3>
                 {!history ? <p className="text-copy-14 text-secondary">{historyLoading ? 'Loading history…' : 'History could not be loaded. Close and reopen History to retry.'}</p> : history.conversations.length === 0 ? <p className="text-copy-14 text-secondary">No saved conversations yet. Your conversations will appear here.</p> : (
                   <ul className="divide-y divide-default">
                     {history.conversations.map(conversation => (
@@ -883,8 +896,8 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                 <div className="flex flex-col gap-3 py-2">
                   <p className="text-copy-14 text-secondary">
                     {preview
-                      ? <>See how Aero answers about <span className="text-strong">{projectName}</span>. Choose a starting point.</>
-                      : <>Ask about <span className="text-strong">{projectName}</span> or choose a starting point.</>}
+                      ? <>See how Aero answers about <span className="text-strong">{projectLabel}</span>. Choose a starting point.</>
+                      : <>Ask about <span className="text-strong">{projectLabel}</span> or choose a starting point.</>}
                   </p>
                   <StarterButtons onPick={(prompt) => { void send(prompt) }} />
                 </div>
@@ -1027,7 +1040,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
           >
             <span className="flex items-center gap-2">
               <Radio className="h-4 w-4 text-positive-400" aria-hidden="true" />
-              Ask Aero about {projectName}…
+              Ask Aero about {projectLabel}…
             </span>
           </button>
         )}
@@ -2224,5 +2237,5 @@ export function AeroBarHost() {
   const preview = isAeroPreview()
   const allowed = preview || aeroAllowedFor({ isAdmin, account })
   if (!urlSegment || !allowed || !resolved) return null
-  return <AeroBar key={resolved.name} projectName={resolved.name} context={viewContext} preview={preview} />
+  return <AeroBar key={resolved.name} projectName={resolved.name} projectLabel={resolved.displayName || resolved.name} context={viewContext} preview={preview} />
 }

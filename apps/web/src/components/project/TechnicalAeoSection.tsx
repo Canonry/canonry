@@ -81,7 +81,37 @@ const FACTOR_STATUS_LABELS: Record<SiteAuditFactorSummaryDto['status'], string> 
   [SiteAuditFactorStatuses.partial]: 'Partial',
   [SiteAuditFactorStatuses.fail]: 'Fail',
 }
-const FACTOR_STATUS_HELP = 'Score is the average across audited pages. Status reflects the worst page: fail if any page scores below 40, partial if any page scores 40–69, otherwise pass. Share is how much of the site score the factor controls; the shares add up to 100%, and a dash means the scan did not record them.'
+/**
+ * Help beside the Score view's findings table: what each column counts, then
+ * the row order. "Worst page" is the API's `status`, the band of the check's
+ * lowest-scoring page, which is why it can read Fail beside a passing average.
+ */
+const FACTOR_STATUS_HELP = 'Score is the check\'s average across scored pages. Worst page is the band of its lowest-scoring page: Fail below 40, Partial 40 to 69, Pass 70 or more. Pages affected counts pages below 70. Checks are listed worst first.'
+/** The standalone scorecard's columns (Avg, Status, Share), which the dashboard no longer renders. */
+const SCORECARD_STATUS_HELP = 'Score is the average across audited pages. Status reflects the worst page: fail if any page scores below 40, partial if any page scores 40–69, otherwise pass. Share is how much of the site score the factor controls; the shares add up to 100%, and a dash means the scan did not record them.'
+
+const FACTOR_STATUS_RANK: Record<SiteAuditFactorSummaryDto['status'], number> = {
+  [SiteAuditFactorStatuses.fail]: 0,
+  [SiteAuditFactorStatuses.partial]: 1,
+  [SiteAuditFactorStatuses.pass]: 2,
+}
+
+/** A check's "Pages affected": the pages scoring below pass (under 70) on it. */
+function factorPagesBelowPass(factor: SiteAuditFactorSummaryDto): number {
+  return factor.pagesPartial + factor.pagesFailing
+}
+
+/**
+ * The findings table reads worst first: Fail, then Partial, then Pass; within
+ * a band, more pages affected first, then the lower score. Presentation order
+ * only, over the API's own rows and counts; ties keep the API's order.
+ */
+function worstFirst(factors: readonly SiteAuditFactorSummaryDto[]): SiteAuditFactorSummaryDto[] {
+  return [...factors].sort((left, right) =>
+    FACTOR_STATUS_RANK[left.status] - FACTOR_STATUS_RANK[right.status]
+    || factorPagesBelowPass(right) - factorPagesBelowPass(left)
+    || left.avgScore - right.avgScore)
+}
 
 // The audit engine is gradeless (since v3); canonry bands the 0–100 score into pass/partial/fail.
 function statusLabel(score: number): string {
@@ -308,7 +338,7 @@ export function TechnicalAeoSection({
     return (
       <div className={`flex min-h-40 items-center justify-center gap-2 text-label-14 text-secondary ${integrated ? '' : 'mt-6'}`} role="status">
         <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
-        Loading score...
+        Loading score…
       </div>
     )
   }
@@ -340,7 +370,7 @@ export function TechnicalAeoSection({
             disabled={isManualRefreshing}
           >
             <RefreshCw className={`size-4 ${isManualRefreshing ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true" />
-            {isManualRefreshing ? 'Trying again...' : 'Try again'}
+            {isManualRefreshing ? 'Trying again…' : 'Try again'}
           </Button>
         </section>
         {unavailableFooter}
@@ -403,7 +433,7 @@ export function TechnicalAeoSection({
   const viewingHistorical = runId === undefined && selectedRunId !== null
   const successPages = allPages.filter((p) => p.status === 'success')
   const attentionFactorCount = score.factors.filter(
-    (factor) => factor.pagesPartial + factor.pagesFailing > 0,
+    (factor) => factorPagesBelowPass(factor) > 0,
   ).length
   // `partial` is what a run that hit any crawl budget lands as, which is the
   // normal outcome of a bounded first scan rather than an exceptional one.
@@ -454,12 +484,15 @@ export function TechnicalAeoSection({
             </div>
           </div>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-copy-14 tabular-nums text-secondary">
-            <span>{score.pagesAudited} page{score.pagesAudited === 1 ? '' : 's'} checked</span>
+            {/* "Scored", not "checked": the scan counts strip above already
+                says "Pages checked" for every page the scan loaded, which is a
+                different number. */}
+            <span>{score.pagesAudited} page{score.pagesAudited === 1 ? '' : 's'} scored</span>
             <span aria-hidden="true" className="text-faint">·</span>
-            {/* This counts checks with at least one page below pass, while the
-                Status column beside each check reports its AVERAGE. Both are
-                true, and "7 checks need attention" next to a table of Pass
-                badges reads as a contradiction unless the unit is named. */}
+            {/* This counts checks with at least one page below pass, while each
+                check's Score column is its AVERAGE. Both are true, and "7 checks
+                need attention" beside a passing average reads as a
+                contradiction unless the unit is named. */}
             <span>{attentionFactorCount} check{attentionFactorCount === 1 ? '' : 's'} with pages below pass</span>
             {score.pagesErrored > 0 ? (
               <>
@@ -665,7 +698,7 @@ export function TechnicalAeoSection({
             <p className="eyebrow eyebrow-soft">Scorecard</p>
             <h2 className="inline-flex items-center gap-1.5">
               Ranking factors
-              <InfoTooltip text={FACTOR_STATUS_HELP} />
+              <InfoTooltip text={SCORECARD_STATUS_HELP} />
             </h2>
           </div>
         )}
@@ -676,16 +709,18 @@ export function TechnicalAeoSection({
                 <th>{integrated ? 'Check' : 'Factor'}</th>
                 {!integrated ? <th className="text-right">Share</th> : null}
                 <th className="text-right">{integrated ? 'Score' : 'Avg'}</th>
-                <th>Status</th>
+                {/* The API's status is the band of the check's WORST page, not
+                    of the average beside it, so the column says whose it is. */}
+                <th>{integrated ? 'Worst page' : 'Status'}</th>
                 <th>{integrated ? 'Pages affected' : 'Pass / Partial / Fail'}</th>
               </tr>
             </thead>
             <tbody>
-              {score.factors.map((f) => {
+              {(integrated ? worstFirst(score.factors) : score.factors).map((f) => {
                 const expanded = expandedFactor === f.id
                 const issue = score.crossCuttingIssues.find((c) => c.factorId === f.id)
                 const belowPass = expanded ? pagesBelowPass(f.id) : []
-                const belowPassTotal = f.pagesPartial + f.pagesFailing
+                const belowPassTotal = factorPagesBelowPass(f)
                 const auditedFactorPages = f.pagesPassing + belowPassTotal
                 const hasRecommendations = Boolean(issue?.topRecommendations.length)
                 const hasTwoDetailColumns = hasRecommendations && belowPassTotal > 0
@@ -767,7 +802,7 @@ export function TechnicalAeoSection({
                                 {integrated && pagesQuery.isLoading ? (
                                   <div className="mt-3 flex items-center gap-2 text-label-14 text-secondary" role="status">
                                     <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
-                                    Loading affected pages...
+                                    Loading affected pages…
                                   </div>
                                 ) : integrated && pagesQuery.error ? (
                                   <div className="mt-3" role="alert">
@@ -786,7 +821,7 @@ export function TechnicalAeoSection({
                                       ) : (
                                         <RefreshCw className="size-4" aria-hidden="true" />
                                       )}
-                                      {pagesQuery.isFetching ? 'Retrying affected pages...' : 'Retry affected pages'}
+                                      {pagesQuery.isFetching ? 'Retrying affected pages…' : 'Retry affected pages'}
                                     </Button>
                                   </div>
                                 ) : belowPass.length > 0 ? (

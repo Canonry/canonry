@@ -83,9 +83,9 @@ export function CitationVisibilitySection({ projectName, revision }: { projectNa
   } else if (data.selection.availability.state !== 'available' || engines === undefined) {
     body = <p className="text-copy-14 text-secondary">Engine breakdown unavailable for this report.</p>
   } else if (!data.selection.run.id) {
-    body = <p className="text-copy-14 text-secondary">{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Engine results appear after your first sweep.'}</p>
+    body = <p className="text-copy-14 text-secondary">{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Engine results appear after your first check.'}</p>
   } else if (engines.length === 0) {
-    body = <p className="text-copy-14 text-secondary">No {CLASS_LABEL[active!.queryClass].toLowerCase()} queries in this sweep.</p>
+    body = <p className="text-copy-14 text-secondary">No {CLASS_LABEL[active!.queryClass].toLowerCase()} queries in this check.</p>
   } else if (active) {
     body = (
       <table className="engine-comparison" aria-label={`By engine, ${CLASS_LABEL[active.queryClass].toLowerCase()} queries`}>
@@ -114,11 +114,11 @@ export function CitationVisibilitySection({ projectName, revision }: { projectNa
       <div className="av-card-head">
         <div className="inline-flex flex-wrap items-center">
           <h2 id={titleId} className="av-card-title">By engine</h2>
-          <InfoTooltip text="Mentioned: the answer names you. Cited: its sources link to your site. Each rate uses this sweep’s answers in the selected query class. Missing answers are never counted as negative results." />
+          <InfoTooltip text="Mentioned: the answer names you. Cited: its sources link to your site. Each rate uses this check’s answers in the selected query class. Missing answers are never counted as negative results." />
           {active && <span className="ml-3 text-label-13 text-secondary">{CLASS_LABEL[active.queryClass]} queries</span>}
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          {latestAt ? <p className="av-card-meta">Last sweep {formatSweepInstant(latestAt)}{data?.selection.measurement.state === 'partial' ? ' · incomplete' : ''}</p> : null}
+          {latestAt ? <p className="av-card-meta">Latest check {formatSweepInstant(latestAt)}{data?.selection.measurement.state === 'partial' ? ' · incomplete' : ''}</p> : null}
           {classes.length > 1 ? (
             <SegmentedRadioGroup
               label="Query type"
