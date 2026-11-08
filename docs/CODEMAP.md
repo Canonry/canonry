@@ -26,7 +26,7 @@ Bundled via `packages/canonry/build-web.ts` → `packages/canonry/assets/`. Lowe
 | `src/router/routes.tsx` | TanStack Router tree (`/`, `/projects`, `/projects/$projectName`, `/runs`, `/traffic`, etc.) | Route = one lazy chunk |
 | `src/pages/SetupPage.tsx` | 1260 LOC wizard: `System check → Create project → Queries → Competitors → Launch` | Largest page — state machine `deriveSetupStep`, resume from `useDashboard` |
 | `src/pages/ProjectPage.tsx` | Project shell + tab router (`overview`, `portfolio`, `search-console`, `local`, `discovery`, `activity`, `backlinks`, `agent-readiness`, `history`, `settings`); the `agent-readiness` tab is labeled **Agent Readiness**, and the deprecated `/technical-aeo` route redirects to it | Extract before adding hooks |
-| `src/pages/OverviewPage.tsx` | Portfolio overview (project list, sparkline, health cards) | |
+| `src/pages/OverviewPage.tsx` | Portfolio overview (project list, sparkline, health cards) | "What changed" renders each project's server `whatChanged.items`; never derives them |
 | `src/pages/ProjectsPage.tsx` / `HistoryPage.tsx` / `RunsPage.tsx` / `SettingsPage.tsx` / `BacklinksPage.tsx` / `TrafficPage.tsx` | One file per route | |
 | `src/components/project/*` | Section components: `GscSection`, `BingSummaryMetric`, `SiteHealthSection`, `SiteGraphSigma`, `TechnicalAeoSection`, `DiscoverySection`, `CitationVisibilitySection`, `VisibilityTrendSection`, `ActivitySection`, `BacklinksSection`, `GbpSection`, etc. | The Agent Readiness map is Sigma v3 WebGL + Graphology; browser consumes published coordinates and never runs layout physics. |
 | `src/components/project/advanced-measurement/*` | Advanced measurement UI (`AdvancedMeasurementSection`, `SetupWizard`, adapters) | |
@@ -93,7 +93,8 @@ bundled into this one.
 | `src/queries.ts` / `src/query-replace.ts` | Query basket ops — `replaceProjectQueries` is only declarative replace (preserves FKs) |
 | `src/query-class-read.ts` | `readQueryClasses`: the branded / non-brand `queryClass` on every `/queries` row (text classifier for a simple project or a schema v1 plan, stored assignment class under an active schema v2 plan) |
 | `src/technical-aeo.ts` | Agent Readiness routes, served at `/agent-readiness/…` with deprecated `/technical-aeo/…` twins: exact-identity `POST /agent-readiness/runs`; legacy score/page/trend reads; bounded crawl summary, page inventory, hierarchy, links/neighbors, semantic subgraph/path, complete-run changes, opt-in dead-links, persisted `/agent-readiness/graph` visualization projection (with server-owned `rootNodeKey`), and `GET /agent-readiness/runs` scan history with per-scan `hasCrawlData`. Legacy score-only runs answer crawl-scoped reads with their no-crawl shape; only unknown run ids 404. All use `notProbeRun()`. |
-| `src/composites.ts` | Composite reads |
+| `src/composites.ts` | Composite reads (`/overview`, `/search`) |
+| `src/overview-what-changed.ts` | `/overview.whatChanged`: lost mentions and lost citations in the latest check, one per query, and runs in progress (Simple and Advanced rules) |
 | `src/analytics.ts` / `visibility-stats.ts` / `visibility-compare.ts` | Aggregated metrics, per-query rates, month compare |
 | `src/google.ts` / `src/bing.ts` / `src/bing-data.ts` / `src/ga.ts` / `src/traffic.ts` / `src/backlinks.ts` / `src/ads.ts` | Integration routes (`bing-data.ts`: Bing sync trigger, stored Bing reads, live Bing drill-downs) |
 | `src/doctor/*` | Health checks — `registry.ts`, `runner.ts`, `checks/*`. Cloudflare direct push skips pull lag. Both direct and Queue sources use `traffic.source.worker-version` to compare the generated version with the most recently ingested batch's Worker version. |

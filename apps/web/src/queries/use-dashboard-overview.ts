@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import { useQuery, useQueries } from '@tanstack/react-query'
+import { useQuery, useQueries, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import {
   fetchProjectOverview,
@@ -27,6 +27,23 @@ import { useInitialDashboard } from '../contexts/dashboard-context.js'
  * Overview attention items come from the server summary; this hook does not
  * fetch answer bodies or derive evidence-based alerts in the browser.
  */
+/**
+ * The project's most recently loaded overview, under whichever key it was
+ * read. `useQueries` gives a changed key a new observer with nothing of its
+ * own to keep, so `keepPreviousData` would show nothing; the cache still
+ * holds the earlier key's overview.
+ */
+function lastLoadedOverview(queryClient: QueryClient, projectId: string): ProjectData | undefined {
+  let latest: { updatedAt: number; data: ProjectData } | undefined
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: ['project-overview-slim', projectId] })) {
+    const data = query.state.data as ProjectData | undefined
+    if (data !== undefined && (latest === undefined || query.state.dataUpdatedAt > latest.updatedAt)) {
+      latest = { updatedAt: query.state.dataUpdatedAt, data }
+    }
+  }
+  return latest?.data
+}
+
 interface DashboardOverviewOptions {
   includeSettings?: boolean
   /** Keep project/run metadata available without starting per-project `/overview` reads. */
@@ -42,6 +59,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
   const includeOverviews = options.includeOverviews ?? true
   const pauseProjectPolling = options.pauseProjectPolling ?? false
   const { isAdmin } = useAccount()
+  const queryClient = useQueryClient()
   const loadActivity = !effectiveInitial && includeOverviews && !isEmbed()
 
   // Scope to answer-visibility so integration syncs don't fill the 500-row
@@ -110,9 +128,19 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
           && r.trigger !== 'probe')
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       const cacheBustKey = completedRuns.length > 0 ? completedRuns[0]!.id : 'no-run'
+      // The overview's "What changed" counts runs in progress, so starting or
+      // finishing one refetches it, not only a completed sweep. Probes never
+      // count there, so they never refetch.
+      const activeRunKey = projectRuns
+        .filter(r => (r.status === RunStatuses.queued || r.status === RunStatuses.running)
+          && r.kind === RunKinds['answer-visibility']
+          && r.trigger !== RunTriggers.probe)
+        .map(r => r.id)
+        .sort()
+        .join(',')
 
       return {
-        queryKey: ['project-overview-slim', project.id, cacheBustKey] as const,
+        queryKey: ['project-overview-slim', project.id, cacheBustKey, activeRunKey] as const,
         queryFn: async (): Promise<ProjectData> => {
           const overview = await fetchProjectOverview(project.name).catch(() => null)
           return {
@@ -131,6 +159,10 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
         },
         enabled: !effectiveInitial && includeOverviews && projectsQuery.isSuccess && runsQuery.isSuccess,
         staleTime: STATIC_VISIBILITY_STALE_MS,
+        // A run starting or finishing changes the key. Keep the project's last
+        // overview on screen until the new one lands, rather than blanking the
+        // page to its skeleton.
+        placeholderData: () => lastLoadedOverview(queryClient, project.id),
       }
     }),
   })

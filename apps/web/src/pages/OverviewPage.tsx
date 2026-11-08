@@ -156,14 +156,12 @@ export function OverviewPage() {
   }
 
   const model = safeDashboard.portfolioOverview
-  const awaitingBaseline = model.projects.length > 0 && model.projects.every(project => project.hasMeasurement === false)
   const sentimentColumn = model.projects.some(project => showsSentimentOverview(project.sentiment))
   // Each project's tracked competitors come from the same overview read as
   // its pressure figure, one row per competitor the project tracks.
   const competitorsByProject = new Map(safeDashboard.projects.map(entry => [entry.project.id, entry.competitors]))
-  const attentionItems = model.attentionItems.map(item => awaitingBaseline && item.id === 'attention_stable'
-    ? { ...item, tone: 'neutral' as const, title: 'Awaiting first measurement', detail: 'Visibility results will appear after the first check.' }
-    : item)
+  // "What changed" rows arrive built from each project's overview `whatChanged`.
+  const attentionItems = model.attentionItems
 
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }
   const systemHealth = buildSystemHealthCards(model.systemHealth.filter(card => isAdmin || card.id === 'api' || card.id === 'worker'), healthSnapshot, safeDashboard.settings)

@@ -7324,7 +7324,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/overview',
     summary: 'Get a composite overview of project health',
     description:
-      'Bundles project info, latest run, top undismissed insights, health, independent mention and citation coverage, query-basket comparability, and separate mention/citation movement over the shared query cohort. queryClassScope labels queryCounts, scores (except mentionShare), transitions and the movement fields as pooling branded and non-brand. Designed for the "how is project X doing?" question so agents can answer in one call.',
+      'Bundles project info, latest run, top undismissed insights, health, independent mention and citation coverage, query-basket comparability, and separate mention/citation movement over the shared query cohort. queryClassScope labels queryCounts, scores (except mentionShare), transitions and the movement fields as pooling branded and non-brand. whatChanged is the dashboard\'s "What changed": the queries that lost a mention and those that lost a citation in the latest check (each query once, the two signals counted apart), the AI Visibility runs in progress (probes excluded), and the rows the dashboard lists. Simple projects compare each engine\'s answer with its previous check of the same query and location; Advanced projects compare each Property\'s answer with the comparable previous sweep. Designed for the "how is project X doing?" question so agents can answer in one call.',
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {

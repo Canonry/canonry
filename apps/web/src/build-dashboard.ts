@@ -1,5 +1,5 @@
 import type { ProjectDto, InsightDto, MentionShareBreakdownDto, ProjectOverviewDto, QueryClassifier, RunErrorDto, RunKind } from '@canonry/canonry-contracts'
-import { RunKinds, RunStatuses, RunTriggers, CitationStates, MentionTransitions, compileQueryClassifier, effectiveBrandNames, formatRunErrorOneLine } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, CitationStates, compileQueryClassifier, effectiveBrandNames, formatRunErrorOneLine, portfolioWhatChangedItems } from '@canonry/canonry-contracts'
 import type {
   ApiCompetitor,
   ApiBingCoverageSummary,
@@ -812,8 +812,11 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
   return {
     portfolioOverview: {
       projects: portfolioProjects,
+      // Each project's rows come from its overview; the shared roll-up adds
+      // the one all-clear or awaiting row `canonry overview --all` prints too.
+      // A project whose overview failed to load has no rows and no check.
       attentionItems: hasProjects
-        ? buildAttentionItems(projectCenters)
+        ? portfolioWhatChangedItems(projectDataList.map(data => data.overview?.whatChanged ?? null))
         : [{
             id: 'attention_setup',
             tone: 'neutral',
@@ -891,80 +894,4 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
       bootstrapNote: 'Use the UI, CLI, or ~/.canonry/config.yaml to manage settings. Authentication credentials persist to local config.',
     },
   }
-}
-
-/**
- * True when the row's own latest check lost the mention, read as the row's
- * change label reads it: the transition on its snapshot's run, in its engine's
- * history. A row with no snapshot in that check, or with only query-wide
- * history, has no transition of its own, as with a lost citation.
- */
-function lostMentionInLatestCheck(row: CitationInsightVm): boolean {
-  if (!row.sourceRunId || row.historyScope === 'query') return false
-  const own = row.runHistory.find(point => point.runId === row.sourceRunId)
-  return (own?.mentionTransition ?? own?.visibilityTransition) === MentionTransitions.lost
-}
-
-/** Evidence rows are one per engine and location, so a query lost on two engines counts once. */
-function distinctQueryCount(rows: readonly CitationInsightVm[]): number {
-  return new Set(rows.map(row => row.query)).size
-}
-
-function buildAttentionItems(projectCenters: ProjectCommandCenterVm[]) {
-  const items: DashboardVm['portfolioOverview']['attentionItems'] = []
-
-  for (const pc of projectCenters) {
-    const projectLabel = pc.project.displayName || pc.project.name
-    const projectHref = `/projects/${encodeURIComponent(pc.project.name)}`
-    // Mentions first, then citations: the two signals are counted apart.
-    const lostMentions = distinctQueryCount(pc.visibilityEvidence.filter(lostMentionInLatestCheck))
-    if (lostMentions > 0) {
-      items.push({
-        id: `attention_${pc.project.id}_lost_mentions`,
-        tone: 'negative',
-        title: `${projectLabel} lost mentions`,
-        detail: `${lostMentions} ${lostMentions === 1 ? 'query' : 'queries'} lost a mention in the latest check.`,
-        actionLabel: 'Open project',
-        href: projectHref,
-      })
-    }
-
-    const lostCitations = distinctQueryCount(pc.visibilityEvidence.filter(e => e.citationState === 'lost'))
-    if (lostCitations > 0) {
-      items.push({
-        id: `attention_${pc.project.id}_lost`,
-        tone: 'negative',
-        title: `${projectLabel} lost citations`,
-        detail: `${lostCitations} ${lostCitations === 1 ? 'query' : 'queries'} lost a citation in the latest check.`,
-        actionLabel: 'Open project',
-        href: projectHref,
-      })
-    }
-
-    const activeRuns = pc.recentRuns.filter(r => r.status === RunStatuses.running || r.status === RunStatuses.queued)
-    if (activeRuns.length > 0) {
-      items.push({
-        id: `attention_${pc.project.id}_active`,
-        tone: 'neutral',
-        title: `${projectLabel} has active runs`,
-        detail: `${activeRuns.length} run${activeRuns.length > 1 ? 's' : ''} in progress.`,
-        actionLabel: 'View runs',
-        href: '/runs',
-      })
-    }
-  }
-
-  if (items.length === 0) {
-    // Non-actionable positive status: nothing to navigate to (the portfolio
-    // is this very page). Omit href/actionLabel so the renderer shows a
-    // static "all clear" row rather than a link that goes nowhere.
-    items.push({
-      id: 'attention_stable',
-      tone: 'positive',
-      title: 'All projects stable',
-      detail: 'No lost mentions or citations, and no runs in progress.',
-    })
-  }
-
-  return items
 }

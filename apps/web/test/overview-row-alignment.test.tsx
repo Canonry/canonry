@@ -189,14 +189,13 @@ test('shows non-brand server rates, names, and counts without mixing branded or 
   expect(doc.querySelector('.project-row .sparkline')).toBeNull()
 })
 
-test('shows an awaiting-baseline state rather than zero performance or stable results', async () => {
+// "What changed" says awaiting rather than all clear through the shared
+// roll-up (`portfolioWhatChangedItems`), which owns that choice.
+test('shows an awaiting-baseline state rather than zero performance', async () => {
   const doc = await renderOverview(fixture => {
     fixture.dashboard.portfolioOverview.projects.forEach(project => { project.hasMeasurement = false; project.mentionPopulations = undefined })
-    fixture.dashboard.portfolioOverview.attentionItems = [{ id: 'attention_stable', tone: 'positive', title: 'All projects stable', detail: 'No changes' }]
   }, true)
   expect([...doc.querySelectorAll('.metric-inline-value')].map(node => node.textContent)).toEqual(Array.from({ length: 3 }, () => ['Not measured · non-brand queries', 'Not measured']).flat())
-  expect(doc.body.textContent).toContain('Awaiting first measurement')
-  expect(doc.body.textContent).not.toContain('All projects stable')
 })
 
 

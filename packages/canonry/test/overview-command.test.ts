@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectOverviewDto } from '@canonry/canonry-contracts'
+import type { ProjectOverviewDto, ProjectOverviewWhatChangedDto } from '@canonry/canonry-contracts'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
@@ -7,6 +7,7 @@ import { showOverview } from '../src/commands/overview.js'
 import * as clientModule from '../src/client.js'
 import { createCanonryMcpServerWithCatalog } from '../src/mcp/server.js'
 import { invokeCliRead, prepareCliReadFixture } from './cli-read-fixture.js'
+import { invokeCli } from './cli-test-utils.js'
 
 function makeSentiment() {
   const { state, reason, provisional, coverage, score, selection } = sentimentFixtureSummary
@@ -199,11 +200,11 @@ describe('canonry overview — human output', () => {
     expect(output).not.toContain('favorable / ')
   })
 
-  it.each(['simple', 'advanced'] as const)('preserves %s overall and class headlines through generated HTTP, CLI JSON and MCP transport', async mode => {
+  it.each(['simple', 'advanced'] as const)('preserves %s overall and class headlines and What changed through generated HTTP, CLI JSON and MCP transport', async mode => {
     const sentiment = makeSentiment()
     sentiment.branded.selection = { ...sentiment.branded.selection, mode, revision: mode === 'advanced' ? 4 : null }
     sentiment.nonBrand.selection = { ...sentiment.nonBrand.selection, mode, revision: mode === 'advanced' ? 4 : null }
-    const overview = makeOverview({ sentiment })
+    const overview = makeOverview({ sentiment, whatChanged: makeWhatChanged({ mode }) })
     overview.mentionCoverage!.selection = {
       ...overview.mentionCoverage!.selection,
       mode,
@@ -509,5 +510,133 @@ describe('canonry overview — human output', () => {
     output = await captureOutput(makeOverview())
     expect(output).toContain('Movement: first sweep; no comparison yet')
     expect(output).not.toContain('Query basket:')
+  })
+
+  it('lists the dashboard\'s What changed rows, then the queries behind each count with where they were lost', async () => {
+    const lines = (await captureOutput(makeOverview({ whatChanged: makeWhatChanged() }))).split('\n')
+    const at = lines.indexOf('  What changed:')
+    expect(at).toBeGreaterThan(-1)
+    expect(lines.slice(at, at + 10)).toEqual([
+      '  What changed:',
+      '    Demo lost mentions: 2 queries lost a mention in the latest check.',
+      '    Demo lost citations: 1 query lost a citation in the latest check.',
+      '    Demo has active runs: 1 run in progress.',
+      '    Lost mentions:',
+      '      - best polyurea roof coating (non-brand) — gemini, openai',
+      '      - homes near harbor (non-brand) — openai · at Harbor · Properties: Harbor Homes · markets: Harbor metro',
+      '      … 1 more not listed',
+      '    Lost citations:',
+      '      - demo reviews (branded) — openai · at florida',
+    ])
+  })
+
+  it('says all clear when the latest check lost nothing, and why nothing was compared when it could not be', async () => {
+    const clear = makeWhatChanged({ lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: { count: 0, runIds: [] }, items: [] })
+    expect((await captureOutput(makeOverview({ whatChanged: clear }))).split('\n'))
+      .toContain('  What changed: No lost mentions or citations, and no runs in progress.')
+
+    const modelChanged = makeWhatChanged({
+      comparison: { state: 'unavailable', reason: 'model-changed' },
+      lostMentions: NOTHING_LOST,
+      lostCitations: NOTHING_LOST,
+      items: [ACTIVE_ROW],
+    })
+    output = await captureOutput(makeOverview({ whatChanged: modelChanged }))
+    const lines = output.split('\n')
+    const at = lines.indexOf('  What changed: not compared: the previous sweep asked other engines or models.')
+    expect(at).toBeGreaterThan(-1)
+    expect(lines[at + 1]).toBe('    Demo has active runs: 1 run in progress.')
+    // Nothing was compared, so it must not read as all clear.
+    expect(output).not.toContain('No lost mentions or citations')
+  })
+
+  it('prints no What changed section from a server that predates it', async () => {
+    output = await captureOutput(makeOverview())
+    expect(output).not.toContain('What changed')
+  })
+})
+
+const NOTHING_LOST = { queryCount: 0, queries: [], truncated: false }
+const ACTIVE_ROW = { id: 'attention_p-1_active', tone: 'neutral' as const, title: 'Demo has active runs', detail: '1 run in progress.', actionLabel: 'View runs', href: '/runs' }
+
+function makeWhatChanged(overrides: Partial<ProjectOverviewWhatChangedDto> = {}): ProjectOverviewWhatChangedDto {
+  return {
+    mode: 'advanced',
+    latestCheck: { runIds: ['run_latest'], createdAt: '2026-09-08T00:00:00.000Z' },
+    comparison: { state: 'available', previousRunIds: ['run_previous'] },
+    lostMentions: {
+      queryCount: 3,
+      queries: [
+        { queryId: 'q_best', query: 'best polyurea roof coating', queryClass: 'non-brand', providers: ['gemini', 'openai'], locations: [null], properties: [], markets: [] },
+        { queryId: 'q-nearby', query: 'homes near harbor', queryClass: 'non-brand', providers: ['openai'], locations: ['Harbor'], properties: [{ key: 'harbor', label: 'Harbor Homes' }], markets: [{ key: 'harbor-metro', label: 'Harbor metro' }] },
+      ],
+      truncated: true,
+    },
+    lostCitations: {
+      queryCount: 1,
+      queries: [{ queryId: 'q_brand', query: 'demo reviews', queryClass: 'branded', providers: ['openai'], locations: ['florida'], properties: [], markets: [] }],
+      truncated: false,
+    },
+    activeRuns: { count: 1, runIds: ['run_live'] },
+    items: [
+      { id: 'attention_p-1_lost_mentions', tone: 'negative', title: 'Demo lost mentions', detail: '2 queries lost a mention in the latest check.', actionLabel: 'Open project', href: '/projects/demo' },
+      { id: 'attention_p-1_lost', tone: 'negative', title: 'Demo lost citations', detail: '1 query lost a citation in the latest check.', actionLabel: 'Open project', href: '/projects/demo' },
+      ACTIVE_ROW,
+    ],
+    ...overrides,
+  }
+}
+
+describe('canonry overview --all — What changed', () => {
+  let cleanup = () => {}
+
+  beforeEach(() => {
+    cleanup = prepareCliReadFixture()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    cleanup()
+  })
+
+  /** Serves the project list and each project's overview, as the server would. */
+  async function captureAll(overviews: ProjectOverviewDto[]): Promise<string[]> {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(input instanceof Request ? input.url : String(input))
+      if (url.pathname === '/prefix/api/v1/projects') return Response.json(overviews.map(overview => overview.project))
+      const overview = overviews.find(candidate => url.pathname === `/prefix/api/v1/projects/${candidate.project.name}/overview`)
+      return overview ? Response.json(overview) : Response.json({ error: { code: 'NOT_FOUND', message: url.pathname } }, { status: 404 })
+    }))
+    const result = await invokeCli(['overview', '--all'])
+    expect(result.stderr).toBe('')
+    return result.stdout.split('\n')
+  }
+
+  function projectOverview(name: string, whatChanged: ProjectOverviewWhatChangedDto | undefined): ProjectOverviewDto {
+    const base = makeOverview()
+    return { ...base, project: { ...base.project, id: `id-${name}`, name, displayName: name }, ...(whatChanged ? { whatChanged } : {}) }
+  }
+
+  it('lists every project\'s rows under the table, in project order', async () => {
+    const quiet = makeWhatChanged({ lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: { count: 0, runIds: [] }, items: [] })
+    const lines = await captureAll([projectOverview('alpha', makeWhatChanged()), projectOverview('beta', quiet)])
+    const at = lines.indexOf('What changed:')
+    expect(at).toBeGreaterThan(-1)
+    expect(lines.slice(at + 1, at + 4)).toEqual([
+      '  Demo lost mentions: 2 queries lost a mention in the latest check.',
+      '  Demo lost citations: 1 query lost a citation in the latest check.',
+      '  Demo has active runs: 1 run in progress.',
+    ])
+  })
+
+  it('prints the one fallback row the dashboard shows when no project has a row', async () => {
+    const quiet = makeWhatChanged({ lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: { count: 0, runIds: [] }, items: [] })
+    const lines = await captureAll([projectOverview('alpha', quiet), projectOverview('beta', { ...quiet, latestCheck: null })])
+    expect(lines[lines.indexOf('What changed:') + 1]).toBe('  All projects stable: No lost mentions or citations, and no runs in progress.')
+  })
+
+  it('prints no What changed section when no project\'s server reports it', async () => {
+    const lines = await captureAll([projectOverview('alpha', undefined)])
+    expect(lines).not.toContain('What changed:')
   })
 })

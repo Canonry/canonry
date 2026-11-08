@@ -1,4 +1,16 @@
-import { formatPercent, RatioUnits, type MentionShareDto, type ProjectOverviewDto, type ScoreSummaryDto, type VisibilityReportRate } from '@canonry/canonry-contracts'
+import {
+  formatPercent,
+  portfolioWhatChangedItems,
+  RatioUnits,
+  WHAT_CHANGED_ALL_CLEAR_DETAIL,
+  type MentionShareDto,
+  type OverviewWhatChangedQueryDto,
+  type OverviewWhatChangedSignalDto,
+  type ProjectOverviewDto,
+  type ProjectOverviewWhatChangedDto,
+  type ScoreSummaryDto,
+  type VisibilityReportRate,
+} from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { runAdmissionLines } from './run.js'
@@ -80,7 +92,56 @@ export async function showAllOverviews(opts: ShowOverviewOpts): Promise<void> {
       + `${latest}`,
     )
   }
+
+  // The dashboard's "What changed": every project's rows, or the one fallback
+  // row. A server too old to report it has nothing to list.
+  if (overviews.some(ov => ov.whatChanged !== undefined)) {
+    console.log('\nWhat changed:')
+    for (const item of portfolioWhatChangedItems(overviews.map(ov => ov.whatChanged ?? null))) {
+      console.log(`  ${item.title}: ${item.detail}`)
+    }
+  }
   console.log()
+}
+
+const COMPARISON_UNAVAILABLE_TEXT: Record<Extract<ProjectOverviewWhatChangedDto['comparison'], { state: 'unavailable' }>['reason'], string> = {
+  'not-measured': 'not measured yet.',
+  'no-previous-check': 'nothing earlier to compare the latest check with.',
+  'definition-changed': 'not compared: the previous sweep measured another plan definition.',
+  'model-changed': 'not compared: the previous sweep asked other engines or models.',
+  'partial-run': 'not compared: the latest or previous sweep is partial.',
+  'legacy-plan': 'not compared: a schema v1 plan freezes no Property definition. Republish setup.',
+  'unreadable': 'not compared: the previous sweep could not be read.',
+}
+
+/** One lost query: its class, then where it was lost (engines, locations, and for Advanced the Properties and markets). */
+function lostQueryLine(row: OverviewWhatChangedQueryDto): string {
+  const where = [row.providers.join(', ')]
+  const locations = row.locations.filter((location): location is string => location !== null)
+  if (locations.length > 0) where.push(`at ${locations.join(', ')}`)
+  if (row.properties.length > 0) where.push(`Properties: ${row.properties.map(property => property.label).join(', ')}`)
+  if (row.markets.length > 0) where.push(`markets: ${row.markets.map(market => market.label).join(', ')}`)
+  const queryClass = row.queryClass === null ? '' : ` (${row.queryClass})`
+  return `      - ${row.query}${queryClass} — ${where.join(' · ')}`
+}
+
+function printLostQueries(label: string, signal: OverviewWhatChangedSignalDto): void {
+  if (signal.queryCount === 0) return
+  console.log(`    ${label}:`)
+  for (const row of signal.queries) console.log(lostQueryLine(row))
+  if (signal.truncated) console.log(`      … ${signal.queryCount - signal.queries.length} more not listed`)
+}
+
+/** The project's "What changed" rows as the dashboard lists them, then the queries behind each count. */
+function printWhatChanged(whatChanged: ProjectOverviewWhatChangedDto): void {
+  const { comparison, items } = whatChanged
+  const status = comparison.state === 'unavailable'
+    ? COMPARISON_UNAVAILABLE_TEXT[comparison.reason]
+    : items.length === 0 ? WHAT_CHANGED_ALL_CLEAR_DETAIL : null
+  console.log(status === null ? '\n  What changed:' : `\n  What changed: ${status}`)
+  for (const item of items) console.log(`    ${item.title}: ${item.detail}`)
+  printLostQueries('Lost mentions', whatChanged.lostMentions)
+  printLostQueries('Lost citations', whatChanged.lostCitations)
 }
 
 /** Pad-or-truncate a cell to fit its column without bleeding. Leaves at
@@ -132,6 +193,7 @@ function renderHuman(overview: ProjectOverviewDto): void {
   }
   const admission = runAdmissionLines(meta.name, latestRun.admission, latestRun.manualAdmission)
   if (admission.length > 0) console.log(`\n${admission.map(line => `  ${line}`).join('\n')}`)
+  if (overview.whatChanged) printWhatChanged(overview.whatChanged)
 
   console.log('\nScores:')
   const coverage = overview.mentionCoverage

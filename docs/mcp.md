@@ -612,7 +612,7 @@ Core tier (always loaded):
 - `canonry_help` — compact intent route, approval boundaries, and analyst playbooks to read; use `includeCatalog: true` for toolkit details and `playbook` for a playbook's full text
 - `canonry_load_toolkit` — register a toolkit's tools for the rest of the session
 - `canonry_projects_list`, `canonry_project_get`
-- `canonry_project_overview` — composite read for "how is project X doing?"
+- `canonry_project_overview` — composite read for "how is project X doing?"; its `whatChanged` is the dashboard's "What changed" (lost mentions and lost citations in the latest check, one per query, and runs in progress)
 - `canonry_search` — composite text search across snapshots and insights
 - `canonry_doctor` — run health checks (Google/GA auth, redirect URI, scopes, providers); filter by check id or wildcard
 - `canonry_settings_get`
