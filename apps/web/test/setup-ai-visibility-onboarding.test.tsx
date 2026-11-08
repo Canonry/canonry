@@ -9,7 +9,7 @@ import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { AccountProvider, type ApiKeyAccess } from '../src/contexts/account-context.js'
 import { heyClient } from '../src/api.js'
 import { createDashboardFixture } from '../src/mock-data.js'
-import { clearOnboardingRunLaunched } from '../src/lib/onboarding-telemetry.js'
+import { clearOnboardingRunLaunched, readOnboardingLaunchedRun } from '../src/lib/onboarding-telemetry.js'
 import { SetupPage } from '../src/pages/SetupPage.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import { connectionFixture } from './provider-settings-fixtures.js'
@@ -407,7 +407,7 @@ test('keeps provider-switch keyboard focus while resetting credentials and advan
 function renderColdScopedSetup(readinessResponse: () => Response | Promise<Response>, existingRun?: Partial<RunDetailDto> & Pick<RunDetailDto, 'status'>, overviewResponse?: () => Response | Promise<Response>, runDetailsResponse?: () => Response | Promise<Response>) {
   const project = { ...createDashboardFixture().dashboard.projects[0]!.project, name: 'scoped-project', displayName: 'City Point Dental', providers: ['gemini'] }
   const requests: string[] = []
-  const telemetryEvents: Array<{ event: string }> = []
+  const telemetryEvents: Array<{ event: string; step?: string }> = []
   const run = { id: 'scoped-run', projectId: project.id, projectName: project.name, kind: 'answer-visibility', status: 'queued', createdAt: '2026-09-05T12:00:00Z', ...existingRun }
   let hasRun = Boolean(existingRun)
   let queries = [{ id: 'saved-query', query: 'best local dentist' }]
@@ -434,7 +434,7 @@ function renderColdScopedSetup(readinessResponse: () => Response | Promise<Respo
     }
     if (path === '/health') return jsonResponse({ version: 'test', databaseUrlConfigured: true })
     if (path.endsWith('/telemetry/onboarding')) {
-      telemetryEvents.push(JSON.parse(String(init?.body)) as { event: string })
+      telemetryEvents.push(JSON.parse(String(init?.body)) as { event: string; step?: string })
       return jsonResponse({ accepted: true })
     }
     return jsonResponse({ error: { code: 'NOT_FOUND', message: 'No stored overview' } }, 404)
@@ -490,6 +490,34 @@ test('waits for resumed check evidence before deciding whether a completed check
   expect(await screen.findByRole('heading', { name: 'Saved answers' })).toBeTruthy()
   // The preview and the full-answer disclosure both render the saved text.
   expect(screen.getAllByText('A saved answer after resuming.').length).toBeGreaterThan(0)
+})
+
+// Launched-run markers written before they recorded a run kind.
+function writeLegacyLaunchedRun(runId: string) {
+  window.sessionStorage.setItem('canonry.onboarding-launched-run.v1', JSON.stringify({ projectName: 'scoped-project', runId, handled: false }))
+}
+
+test('opens on the queries when a marker without a kind holds a run outside the AI Visibility list', async () => {
+  // The onboarding Agent Readiness scan shared this marker.
+  writeLegacyLaunchedRun('onboarding-scan')
+  const { requests } = renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }))
+
+  expect(await screen.findByRole('heading', { name: 'Add queries' })).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Run your first AI Visibility check' })).toBeNull()
+  await waitFor(() => expect(requests).toContain('/api/v1/projects/scoped-project/queries'))
+  expect(requests).not.toContain('/api/v1/runs/onboarding-scan')
+})
+
+test('still resumes and reports a listed AI Visibility check from a marker without a kind', async () => {
+  writeLegacyLaunchedRun('scoped-run')
+  const { telemetryEvents } = renderColdScopedSetup(
+    () => jsonResponse({ answerVisibilityProviderReady: true }),
+    { status: 'completed', snapshots: [setupResultSnapshot({ answerText: 'A saved answer from before the upgrade.' })] },
+  )
+
+  expect(await screen.findByRole('heading', { name: 'Saved answers' })).toBeTruthy()
+  await waitFor(() => expect(readOnboardingLaunchedRun('scoped-project', true)).toEqual({ projectName: 'scoped-project', runId: 'scoped-run', handled: true }))
+  expect(telemetryEvents.filter(event => event.event === 'onboarding.step_completed' && event.step === 'run')).toHaveLength(1)
 })
 
 test('keeps scoped-writer launch blocked while project provider readiness loads', async () => {

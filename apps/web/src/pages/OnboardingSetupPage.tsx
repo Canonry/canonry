@@ -457,7 +457,7 @@ function SiteHealthOnboardingPageBody({
   useEffect(() => {
     if (!projectName || !initialRunId) return
     if (readOnboardingLaunchedRun(projectName, true)?.runId === initialRunId) return
-    markOnboardingRunLaunched(projectName, initialRunId)
+    markOnboardingRunLaunched(projectName, initialRunId, RunKinds['site-audit'])
   }, [initialRunId, projectName])
 
   // The scan's lifecycle lives inside SiteHealthSection, which is also rendered

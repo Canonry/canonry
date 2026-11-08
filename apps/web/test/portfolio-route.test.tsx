@@ -3334,9 +3334,11 @@ test('a viewer on Advanced tracked Queries gets exactly one scope trigger, in th
   expect(observed.filter(url => url.pathname.endsWith('/query-tracking'))).toHaveLength(1)
   expect(observed.some(url => url.pathname.endsWith('/measurement-setup') || url.pathname.endsWith('/measurement-plan'))).toBe(false)
   const nav = page.getByRole('navigation', { name: 'Project sections' })
+  // The open section is the current tab, not an entry inside More.
+  expect(within(nav).getByRole('link', { name: 'Queries' }).getAttribute('aria-current')).toBe('page')
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-    'Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Change History',
+    'Conversions', 'Local Presence', 'Backlinks', 'Change History',
   ])
 })
 
@@ -3375,9 +3377,11 @@ test('Simple tracked Queries have no scope trigger', async () => {
   expect(page.container.querySelector('.visibility-scope-trigger')).toBeNull()
   expect(contextRow(page.container).querySelector('.project-context-scope')).toBeNull()
   const nav = page.getByRole('navigation', { name: 'Project sections' })
+  // The open section is the current tab, not an entry inside More.
+  expect(within(nav).getByRole('link', { name: 'Queries' }).getAttribute('aria-current')).toBe('page')
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-    'Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Change History',
+    'Conversions', 'Local Presence', 'Backlinks', 'Change History',
   ])
 })
 
@@ -4032,16 +4036,35 @@ test.each(['simple', 'advanced'] as const)('%s Settings shows the saved Agent Re
   }
 })
 
-test.each(['simple', 'advanced'] as const)('%s project hides Settings navigation and configuration from a viewer', async mode => {
-  const { page, router, observed, projectName } = await renderScopeRoute('/projects/project_citypoint/settings', url => {
+function projectSettingsReads(mode: 'simple' | 'advanced') {
+  return (url: URL) => {
     if (url.pathname.endsWith('/measurement-plan')) return jsonResponse(mode === 'advanced' ? measurementPlanV2Response(2) : { active: null })
     if (url.pathname.endsWith('/measurement-setup')) return jsonResponse(mode === 'advanced' ? activeMeasurementSetupResponse(2) : simpleMeasurementSetupResponse())
     if (url.pathname.endsWith('/schedules') || url.pathname.endsWith('/notifications')) return jsonResponse([])
     return undefined
-  }, { accountRole: 'viewer' })
+  }
+}
+
+test.each(['simple', 'advanced'] as const)('%s project gives a writer a sidebar Project settings link that keeps the dashboard URL state', async mode => {
+  const dashboardState = { queryClass: 'branded', measurementScope: 'market', measurementScopeKey: 'metro-alpha' }
+  const { page, router, projectName } = await renderScopeRoute(
+    `/projects/project_citypoint?${new URLSearchParams({ ...dashboardState, onboarding: 'first-run' })}`,
+    projectSettingsReads(mode),
+    { accountRole: 'admin' },
+  )
+
+  fireEvent.click(await page.findByRole('link', { name: 'Project settings', exact: true }))
+  await waitFor(() => expect(decodeURIComponent(router.state.location.pathname)).toBe(`/projects/${projectName}/settings`))
+  expect(router.state.location.search).toMatchObject(dashboardState)
+  // A one-shot onboarding trigger is not dashboard state.
+  expect(router.state.location.search.onboarding).toBeUndefined()
+})
+
+test.each(['simple', 'advanced'] as const)('%s project hides Settings navigation and configuration from a viewer', async mode => {
+  const { page, router, observed, projectName } = await renderScopeRoute('/projects/project_citypoint/settings', projectSettingsReads(mode), { accountRole: 'viewer' })
 
   expect(await page.findByRole('heading', { name: 'Project settings unavailable' })).toBeTruthy()
-  expect(page.queryByRole('link', { name: 'Settings', exact: true })).toBeNull()
+  expect(page.queryByRole('link', { name: 'Project settings', exact: true })).toBeNull()
   expect(page.getByText('Your account has view-only access to this project.')).toBeTruthy()
   expect(page.queryByRole('heading', { name: 'Project settings', exact: true })).toBeNull()
   expect(page.queryByRole('region', { name: 'Agent Readiness scans' })).toBeNull()
@@ -4051,7 +4074,7 @@ test.each(['simple', 'advanced'] as const)('%s project hides Settings navigation
 
   fireEvent.click(page.getByRole('link', { name: 'Return to overview' }))
   await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${projectName}`))
-  expect(page.queryByRole('link', { name: 'Settings', exact: true })).toBeNull()
+  expect(page.queryByRole('link', { name: 'Project settings', exact: true })).toBeNull()
 })
 
 test.each(['simple', 'advanced'] as const)('%s Settings shows the saved page budget read-only to a managed project writer and an embed', async mode => {

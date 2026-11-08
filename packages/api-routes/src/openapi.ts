@@ -3271,6 +3271,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/settings',
     summary: 'Get provider settings summary',
+    description: 'Install administrators also receive providerConnections, the credential-free connection list with project usage. When the host cannot build that list (for example config.yaml cannot be read), the response omits it and carries providerConnectionsUnavailable with a typed reason and message instead; provider status, the catalog, Google and Bing are still returned. A project whose saved measurement plan or draft cannot be read is reported under each connection\'s usage.unknown.',
     tags: ['settings'],
     responses: {
       200: jsonResponse('Settings returned.', 'SettingsDto'),
@@ -3280,11 +3281,12 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/settings/providers/{name}',
     summary: 'Inspect saved provider connection settings and usage',
-    description: 'Requires install administrator authority. Returns credential-free current settings, inherited defaults, host-managed options, mutation capabilities and saved Simple/Advanced project references. A stored-only read: no model discovery, provider check or spend. impactRevision guards a subsequent disconnect against changed configuration or references.',
+    description: 'Requires install administrator authority. Returns credential-free current settings, inherited defaults, host-managed options, mutation capabilities and saved Simple/Advanced project references. A stored-only read: no model discovery, provider check or spend. impactRevision guards a subsequent disconnect against changed configuration or references. usage.unknown lists projects whose saved measurement plan or draft could not be read, so their references are unknown.',
     tags: ['settings'],
     parameters: [providerNameParameter],
     responses: {
       200: jsonResponse('Provider connection settings and usage returned.', 'ProviderConnectionSettingsDto'),
+      400: errorResponse('The host could not read its saved provider configuration (error.details.reason config-unreadable).'),
       403: errorResponse('Install administrator authority is required.'),
       404: errorResponse('Unknown provider connection.'),
       501: errorResponse('Provider connection details are not supported.'),

@@ -107,10 +107,8 @@ test('does not offer project creation in a read-only empty state', async () => {
 })
 
 
-test.each([true, false])('Projects renders server coverage (measured=%s) without pooling branded evidence or using a legacy score', async measured => {
-  const restore = mockFetch(() => jsonResponse({}))
-  onTestFinished(restore)
-  const { fixture } = await renderProjects(undefined, false, fixture => {
+function withMentionCoverage(measured: boolean) {
+  return (fixture: ReturnType<typeof createDashboardFixture>) => {
     fixture.dashboard.projects = [fixture.dashboard.projects[0]!]
     fixture.dashboard.projects[0]!.mentionSummary.value = '99.9%'
     fixture.dashboard.projects[0]!.mentionCoverage = {
@@ -126,7 +124,13 @@ test.each([true, false])('Projects renders server coverage (measured=%s) without
         { queryClass: 'branded', queryCount: 1, answerCount: 2, mentionCoverage: { numerator: 2, denominator: 2, rate: 1 }, citationCoverage: { numerator: 0, denominator: 2, rate: 0 } },
       ],
     }
-  })
+  }
+}
+
+test.each([true, false])('Projects renders server coverage (measured=%s) without pooling branded evidence or using a legacy score', async measured => {
+  const restore = mockFetch(() => jsonResponse({}))
+  onTestFinished(restore)
+  const { fixture } = await renderProjects(undefined, false, withMentionCoverage(measured))
   expect(await screen.findByRole('columnheader', { name: 'Mentions · non-brand' })).toBeTruthy()
   const project = fixture.dashboard.projects[0]!.project
   const row = within(screen.getByRole('table')).getByRole('link', { name: project.displayName || project.name }).closest('tr')!
@@ -134,8 +138,35 @@ test.each([true, false])('Projects renders server coverage (measured=%s) without
   if (measured) expect(row.textContent).toContain('1 of 4 answers')
   expect(row.textContent).not.toContain('null')
   expect(row.textContent).not.toContain('99.9%')
-  const branded = screen.getByText('Branded queries').closest('details')!
-  expect(branded.open).toBe(false)
-  fireEvent.click(screen.getByText('Branded queries'))
-  expect(branded.textContent).toContain('100% · 2 of 2 answers')
+  expect(screen.getByText('Branded queries').closest('details')!.textContent).toContain('100% · 2 of 2 answers')
+})
+
+/** jsdom has no keyboard activation: send the click a browser sends for Enter or Space unless a key handler cancelled it. */
+function activateWithKey(element: HTMLElement, key: 'Enter' | ' ') {
+  element.focus()
+  const keyDownProceeds = fireEvent.keyDown(element, { key })
+  const keyUpProceeds = fireEvent.keyUp(element, { key })
+  if (keyDownProceeds && (key === 'Enter' || keyUpProceeds)) fireEvent.click(element, { detail: 0 })
+}
+
+test.each(['click', 'Enter', 'Space'] as const)('Branded queries opens in place on %s instead of opening the project', async activation => {
+  const restore = mockFetch(() => jsonResponse({}))
+  onTestFinished(restore)
+  const { fixture, router } = await renderProjects(undefined, false, withMentionCoverage(true))
+  const summary = await screen.findByText('Branded queries')
+  const disclosure = summary.closest('details')!
+  expect(disclosure.open).toBe(false)
+
+  if (activation === 'click') fireEvent.click(summary)
+  else activateWithKey(summary, activation === 'Enter' ? 'Enter' : ' ')
+  expect(disclosure.open).toBe(true)
+  // Clicking the figure it reveals keeps the page too. A row navigation
+  // pushes the history entry synchronously, before the route settles.
+  fireEvent.click(within(disclosure).getByText('100% · 2 of 2 answers'))
+  expect(router.history.location.pathname).toBe('/projects')
+
+  // The rest of the row still opens the project.
+  const project = fixture.dashboard.projects[0]!.project
+  fireEvent.click(within(summary.closest('tr')!).getByText(project.canonicalDomain))
+  expect(decodeURIComponent(router.history.location.pathname)).toBe(`/projects/${project.name}`)
 })

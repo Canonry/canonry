@@ -223,7 +223,7 @@ interface CursorEnvelope {
 
 const ALL_CLASSES: readonly VisibilityReportPopulationClass[] = ['branded', 'non-brand', 'unknown']
 
-function locationMatches(location: string | null, selected: VisibilityReportLocationSelection): boolean {
+export function locationMatches(location: string | null, selected: VisibilityReportLocationSelection): boolean {
   if (selected.kind === 'all') return true
   if (selected.kind === 'none') return location === null
   return location !== null && normalizeText(location) === normalizeText(selected.value)

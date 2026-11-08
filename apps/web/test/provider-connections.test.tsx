@@ -2,9 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, onTestFinished, test } from 'vitest'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Link, RouterProvider } from '@tanstack/react-router'
-import type { ProviderConnectionSettingsDto } from '@canonry/canonry-contracts'
+import { ProviderConnectionsUnavailableReasons, ProviderConnectionUsageSources, type ProviderConnectionSettingsDto } from '@canonry/canonry-contracts'
 
-import { ProviderConnectionsSection } from '../src/components/settings/ProviderConfigForm.js'
+import { PROVIDER_CONNECTIONS_COPY, ProviderConnectionsSection } from '../src/components/settings/ProviderConfigForm.js'
 import { CdpConfigCard } from '../src/components/settings/CdpConfigCard.js'
 import { connectionFixture, settingsFixture } from './provider-settings-fixtures.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
@@ -149,13 +149,21 @@ test('browser settings stays on the Settings route when the document has a base 
   expect(link.getAttribute('href')).toBe('/settings#browser-connection')
 })
 
-test('disconnect previews project impact and sends its reviewed revision', async () => {
-  const connection = connectionFixture({ usage: { projectCount: 1, projects: [{ name: 'example', displayName: 'Example project', providers: ['openai'], sources: ['project', 'measurement-plan'] }] } })
+test('disconnect previews project impact, including unreadable projects, and sends its reviewed revision', async () => {
+  const connection = connectionFixture({ usage: {
+    projectCount: 1,
+    projects: [{ name: 'example', displayName: 'Example project', providers: ['openai'], sources: ['project', 'measurement-plan'] }],
+    unknown: { projectCount: 1, projects: [{ name: 'drafted', displayName: 'Drafted project', sources: [ProviderConnectionUsageSources['measurement-draft']] }] },
+  } })
   const writes = renderConnections([connection])
+  expect(await screen.findByText(`Used by 1 project · ${PROVIDER_CONNECTIONS_COPY.usageUnknown(1)}`)).toBeTruthy()
   await manage()
   fireEvent.click(screen.getByRole('button', { name: 'Disconnect OpenAI' }))
   const dialog = await screen.findByRole('dialog')
   expect(within(dialog).getByText('Example project')).toBeTruthy()
+  expect(within(dialog).getByText(PROVIDER_CONNECTIONS_COPY.usageUnknownDetail(1))).toBeTruthy()
+  expect(within(dialog).getByText('Drafted project')).toBeTruthy()
+  expect(within(dialog).getByText('Unreadable: measurement-draft')).toBeTruthy()
   expect(within(dialog).getByText(/Project selections and recorded history remain/)).toBeTruthy()
   fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect', exact: true }))
   await waitFor(() => expect(writes).toEqual([{ path: '/api/v1/settings/providers/openai', method: 'DELETE', body: { expectedImpactRevision: 'impact-revision' } }]))
@@ -203,6 +211,48 @@ test('browser endpoint updates begin with the saved host and port', async () => 
   fireEvent.change(screen.getByLabelText('CDP port'), { target: { value: '9444' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save endpoint' }))
   await waitFor(() => expect(writes).toEqual([{ host: 'browser.internal', port: 9444 }]))
+})
+
+test('an unreadable host configuration shows the server reason, keeps configured providers visible and reloads from the host', async () => {
+  const unreadable = {
+    reason: ProviderConnectionsUnavailableReasons['config-unreadable'],
+    message: 'Saved provider settings could not be read from config.yaml. Repair the file on the host, then reload provider connections.',
+  }
+  const connection = connectionFixture({ model: 'saved-model', effectiveModel: 'saved-model' })
+  let settings = settingsFixture([connection])
+  delete settings.providerConnections
+  settings.providerConnectionsUnavailable = unreadable
+  const writes: string[] = []
+  const restore = mockFetch((url, init) => {
+    const path = pathOf(url)
+    if (path === '/api/v1/settings') return jsonResponse(settings)
+    if (path === '/api/v1/settings/providers/reload' && init?.method === 'POST') {
+      writes.push(path)
+      settings = settingsFixture([connection])
+      return jsonResponse({ reloaded: true, providers: settings.providers })
+    }
+    throw new Error(`Unexpected fetch ${path}`)
+  })
+  onTestFinished(restore)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => client.clear())
+  render(<QueryClientProvider client={client}><ProviderConnectionsSection projects={[]} /></QueryClientProvider>)
+  const alert = await screen.findByRole('alert')
+  expect(within(alert).getByText(PROVIDER_CONNECTIONS_COPY.configUnreadable)).toBeTruthy()
+  expect(within(alert).getByText(unreadable.message)).toBeTruthy()
+  // Nothing claims the host has no connections, or that it lacks lifecycle support.
+  expect(screen.queryByText(/No provider connections configured/)).toBeNull()
+  expect(screen.queryByText(/This host supports connection setup/)).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Add provider' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+  const configured = screen.getByRole('heading', { name: PROVIDER_CONNECTIONS_COPY.configuredOnServer }).parentElement!
+  expect(within(configured).getByText('OpenAI')).toBeTruthy()
+  expect(within(configured).getByText('saved-model')).toBeTruthy()
+  expect(within(configured).getByText('Configured')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Reload from host' }))
+  expect(await screen.findByRole('button', { name: 'Manage' })).toBeTruthy()
+  expect(writes).toEqual(['/api/v1/settings/providers/reload'])
+  expect(screen.queryByRole('alert')).toBeNull()
 })
 
 test('hosts without lifecycle metadata keep the existing provider setup path', async () => {

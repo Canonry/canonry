@@ -11,6 +11,7 @@ import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
+  getApiV1ProjectsQueryKey,
   getApiV1RunsByIdQueryKey,
 } from '@canonry/canonry-api-client/react-query'
 import { fetchHealthCheck, fetchServiceStatus, heyClient } from '../src/api.js'
@@ -54,6 +55,11 @@ function seedNoMeasurementPlan(queryClient: QueryClient, fixture: ReturnType<typ
       { active: null },
     )
   }
+}
+
+/** Pages that read the project list directly mount their content once it resolves. */
+function seedProjectList(queryClient: QueryClient, fixture: ReturnType<typeof createDashboardFixture>): void {
+  queryClient.setQueryData(getApiV1ProjectsQueryKey({ client: heyClient }), fixture.dashboard.projects.map(entry => entry.project))
 }
 
 function visibilityReportQuery(projectName: string, selection: VisibilitySelectionState) {
@@ -285,7 +291,7 @@ test('settings route loads connection details while retaining integration and se
 })
 
 test('traffic route offers a source-agnostic connect entry point', async () => {
-  const html = await renderApp('/traffic')
+  const html = await renderApp('/traffic', {}, undefined, {}, seedProjectList)
 
   expect(html).toMatch(/Traffic sources/)
   expect(html).toMatch(/Connect a source/)

@@ -2016,10 +2016,6 @@
     @apply rounded px-3 py-2 text-secondary transition-colors hover:bg-surface-inset hover:text-heading focus-visible:outline-none focus-visible:bg-surface-inset focus-visible:text-heading text-label-14-strong;
   }
 
-  .project-subnav-menu-item-active {
-    @apply bg-surface-inset text-primary;
-  }
-
   /* ── Overview secondary grid (attention + activity) ── */
 
   .overview-secondary-grid {

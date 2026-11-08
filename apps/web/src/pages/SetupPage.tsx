@@ -68,6 +68,7 @@ import {
 import {
   createOnboardingEventId,
   getOrCreateOnboardingSessionId,
+  isAiVisibilityLaunchedRun,
   isOnboardingHealthSettled,
   markOnboardingRunHandled,
   markOnboardingRunLaunched,
@@ -388,11 +389,16 @@ function ReadySetupPage({
   const hasExistingSuccessfulBaseline = !!resumeProject
     && projectHasSuccessfulBaseline(resumeProject)
   const resumeLoading = !!resumeProject && resumeQueriesQuery.isPending
+  const answerVisibilityRunIds = new Set(resumeProjectRuns
+    .filter(run => run.kind === RunKinds['answer-visibility'])
+    .map(run => run.id))
   const sessionLaunchedRun = useRef(readOnboardingLaunchedRun(resumeProjectName, true)).current
-  // Handled means the outcome was reported, not that its result was dismissed.
-  // A handled Agent Readiness marker must not resume as an AI Visibility run.
+  // The Agent Readiness scan shares the launched-run marker, so only an AI
+  // Visibility check resumes here. Handled means the outcome was reported, not
+  // that its result was dismissed, so a handled check resumes while it is listed.
   const resumableLaunchedRunId = sessionLaunchedRun
-    && (!sessionLaunchedRun.handled || resumeProjectRuns.some(run => run.id === sessionLaunchedRun.runId))
+    && isAiVisibilityLaunchedRun(sessionLaunchedRun, answerVisibilityRunIds)
+    && (!sessionLaunchedRun.handled || answerVisibilityRunIds.has(sessionLaunchedRun.runId))
     ? sessionLaunchedRun.runId
     : null
   // Project-scoped AI Visibility setup starts with the measurement input, not
@@ -653,7 +659,10 @@ function ReadySetupPage({
   // permanently loses the run-step completion. Failures land in under a second
   // and always emitted; the funnel could record a failure but not a success.
   const pendingLaunchedRun = useRef(readOnboardingLaunchedRun(resumeProjectName)).current
-  const pendingLaunchedRunId = pendingLaunchedRun?.runId ?? null
+  // A pending Agent Readiness scan's outcome belongs to the Agent Readiness surface.
+  const pendingLaunchedRunId = pendingLaunchedRun && isAiVisibilityLaunchedRun(pendingLaunchedRun, answerVisibilityRunIds)
+    ? pendingLaunchedRun.runId
+    : null
   // The run whose outcome this onboarding session is entitled to report: one it
   // launched, in this mount or an earlier one. `latestPersistedRun` also drives
   // the poll so the UI can show an in-flight sweep, but a run the user never
@@ -1091,7 +1100,7 @@ function ReadySetupPage({
       })
       setLaunchedRunId(run.id)
       setRunTriggered(true)
-      markOnboardingRunLaunched(createdProjectName, run.id)
+      markOnboardingRunLaunched(createdProjectName, run.id, RunKinds['answer-visibility'])
       launchedThisSessionRunId.current = run.id
       if (!usesProjectProviderReadiness) {
         emitOnboardingEvent({

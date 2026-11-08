@@ -3729,6 +3729,8 @@ export const getApiV1SettingsQueryKey = (options?: Options<GetApiV1SettingsData>
 
 /**
  * Get provider settings summary
+ *
+ * Install administrators also receive providerConnections, the credential-free connection list with project usage. When the host cannot build that list (for example config.yaml cannot be read), the response omits it and carries providerConnectionsUnavailable with a typed reason and message instead; provider status, the catalog, Google and Bing are still returned. A project whose saved measurement plan or draft cannot be read is reported under each connection's usage.unknown.
  */
 export const getApiV1SettingsOptions = (options?: Options<GetApiV1SettingsData>) => queryOptions<GetApiV1SettingsResponse, DefaultError, GetApiV1SettingsResponse, ReturnType<typeof getApiV1SettingsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -3767,7 +3769,7 @@ export const getApiV1SettingsProvidersByNameQueryKey = (options: Options<GetApiV
 /**
  * Inspect saved provider connection settings and usage
  *
- * Requires install administrator authority. Returns credential-free current settings, inherited defaults, host-managed options, mutation capabilities and saved Simple/Advanced project references. A stored-only read: no model discovery, provider check or spend. impactRevision guards a subsequent disconnect against changed configuration or references.
+ * Requires install administrator authority. Returns credential-free current settings, inherited defaults, host-managed options, mutation capabilities and saved Simple/Advanced project references. A stored-only read: no model discovery, provider check or spend. impactRevision guards a subsequent disconnect against changed configuration or references. usage.unknown lists projects whose saved measurement plan or draft could not be read, so their references are unknown.
  */
 export const getApiV1SettingsProvidersByNameOptions = (options: Options<GetApiV1SettingsProvidersByNameData>) => queryOptions<GetApiV1SettingsProvidersByNameResponse, GetApiV1SettingsProvidersByNameError, GetApiV1SettingsProvidersByNameResponse, ReturnType<typeof getApiV1SettingsProvidersByNameQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type {
   AnswerServiceProfileSummary,
   ProviderCapabilities,
@@ -14,6 +14,7 @@ import type {
   ProviderConnectionSettingsDto,
   ProviderDisconnectRequest,
   ProviderSettingsUpdateRequest,
+  SettingsDto,
 } from '@canonry/canonry-contracts'
 import {
   AppError,
@@ -31,6 +32,8 @@ import {
   operationInProgress,
   providerConnectionConfigDtoSchema,
   providerConnectionSettingsDtoSchema,
+  ProviderConnectionsUnavailableReasons,
+  providerConnectionsUnavailableReasonSchema,
   providerDisconnectRequestSchema,
   providerSettingsUpdateRequestSchema,
   providerSummaryEntryDtoSchema,
@@ -154,6 +157,27 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     if (!found) throw notFound('Provider connection', name)
     return found
   }
+  // The connection list reads the host's saved configuration and every
+  // project's saved selections. When it cannot be built, the rest of the
+  // settings (provider status, catalog, Google, Bing) must still answer.
+  const connectionState = (request: FastifyRequest): Pick<SettingsDto, 'providerConnections' | 'providerConnectionsUnavailable'> => {
+    if (!opts.getProviderConnections || !isInstanceAdministrator(request)) return {}
+    try {
+      return { providerConnections: connections() }
+    } catch (error) {
+      // A host refusal names its reason and a message written without secrets or paths.
+      if (error instanceof AppError) {
+        const reason = providerConnectionsUnavailableReasonSchema.safeParse(error.details?.reason)
+        if (reason.success) return { providerConnectionsUnavailable: { reason: reason.data, message: error.message } }
+      }
+      // Anything else may quote stored values, so only the server log sees it.
+      request.log.error({ err: error }, 'Provider connections could not be listed')
+      return { providerConnectionsUnavailable: {
+        reason: ProviderConnectionsUnavailableReasons['internal-error'],
+        message: 'Provider connections could not be loaded. Check the server log, then retry.',
+      } }
+    }
+  }
   // Settings describe which credentials this install holds and where its
   // providers point. That is administrator territory even to read, so a
   // view-only account is refused here at the server rather than merely being
@@ -162,7 +186,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     requireAdminSession(request)
     return {
       providers: opts.providerSummary ?? [],
-      ...(opts.getProviderConnections && isInstanceAdministrator(request) ? { providerConnections: connections() } : {}),
+      ...connectionState(request),
       providerCatalog: (await Promise.all((opts.providerAdapters ?? []).map(async adapter => {
         const configured = opts.providerSummary?.some(provider => provider.name === adapter.name && provider.configured)
         const discovered = configured && opts.getProviderModels ? await opts.getProviderModels(adapter.name) : []

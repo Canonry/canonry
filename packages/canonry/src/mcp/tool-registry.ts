@@ -2464,7 +2464,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_provider_disconnect',
     title: 'Disconnect provider',
-    description: 'With explicit operator approval, remove a saved provider connection. First inspect canonry_provider_settings_get and show affected projects, host uses and blockers; pass its impactRevision. Requires install administrator authority and settings.write. Preserves project engine selections and historical results. Does not revoke the vendor key. Stale impact or active work blocks the change.',
+    description: 'With explicit operator approval, remove a saved provider connection. First inspect canonry_provider_settings_get and show affected projects, any projects whose usage could not be read (usage.unknown: they may also use this connection), host uses and blockers; pass its impactRevision. Requires install administrator authority and settings.write. Preserves project engine selections and historical results. Does not revoke the vendor key. Stale impact or active work blocks the change.',
     access: 'write',
     requiredScope: 'settings.write',
     tier: 'setup',

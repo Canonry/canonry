@@ -39,6 +39,12 @@ function printConnection(connection: ProviderConnectionSettingsDto): void {
   }
   console.log(`  Used by ${connection.usage.projectCount} projects:`)
   for (const project of connection.usage.projects) console.log(`    ${project.displayName} (${project.name}): ${project.providers.join(', ')} · ${project.sources.join(', ')}`)
+  const unknown = connection.usage.unknown
+  if (unknown) {
+    // An unreadable plan or draft may also use this connection; never count it as unused.
+    console.log(`  Usage unknown for ${unknown.projectCount} ${unknown.projectCount === 1 ? 'project' : 'projects'} (saved settings could not be read):`)
+    for (const project of unknown.projects) console.log(`    ${project.displayName} (${project.name}): ${project.sources.join(', ')}`)
+  }
   for (const use of connection.hostUses) console.log(`  Host use: ${use}`)
   for (const blocker of connection.blockers) console.log(`  Blocked: ${blocker.message}`)
   if (connection.hostManaged.vertex) console.log(`  Vertex AI (host managed): ${connection.hostManaged.vertex.project} · ${connection.hostManaged.vertex.region ?? 'default region'}`)

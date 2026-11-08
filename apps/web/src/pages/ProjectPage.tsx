@@ -821,6 +821,15 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
   const navRef = useRef<HTMLElement>(null)
   const measurementRef = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState<{ visibleKeys: ProjectPageTab[]; settingsInMore: boolean } | null>(null)
+  // An open section that normally lives in More is shown as a tab before More,
+  // so the row always names the current page.
+  const { rowItems, menuOverflowItems } = useMemo(() => {
+    const activeOverflowItem = overflowItems.find(item => item.key === activeTab)
+    return {
+      rowItems: activeOverflowItem ? [...items, activeOverflowItem] : items,
+      menuOverflowItems: overflowItems.filter(item => item !== activeOverflowItem),
+    }
+  }, [items, overflowItems, activeTab])
 
   useLayoutEffect(() => {
     const nav = navRef.current
@@ -834,22 +843,24 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
         .map(element => [element.dataset.projectTab!, element.getBoundingClientRect().width]))
       const widthOf = (key: string) => widths.get(key) ?? 0
       const totalWidth = (keys: string[]) => keys.reduce((total, key) => total + widthOf(key), 0) + Math.max(0, keys.length - 1) * gap
-      const allKeys = [...items.map(item => item.key), ...(overflowItems.length ? ['more'] : []), ...(settingsItem ? [settingsItem.key] : [])]
-      let visibleKeys = items.map(item => item.key)
+      const allKeys = [...rowItems.map(item => item.key), ...(menuOverflowItems.length ? ['more'] : []), ...(settingsItem ? [settingsItem.key] : [])]
+      let visibleKeys = rowItems.map(item => item.key)
       let settingsInMore = false
       if (totalWidth(allKeys) > available) {
-        // Keep the selected primary section in view, even when it is near the
-        // end of the tab list. Settings joins More only on very narrow panels.
-        const active = items.find(item => item.key === activeTab)
+        // Keep the selected section in view, even when it is near the end of
+        // the tab list. Settings joins More only on very narrow panels, and
+        // never while it is the open section.
+        const active = rowItems.find(item => item.key === activeTab)
         const selected = active ? [active.key] : []
-        settingsInMore = Boolean(settingsItem && totalWidth([...selected, 'more', settingsItem.key]) > available)
+        settingsInMore = Boolean(settingsItem && settingsItem.key !== activeTab
+          && totalWidth([...selected, 'more', settingsItem.key]) > available)
         const trailing = ['more', ...(settingsItem && !settingsInMore ? [settingsItem.key] : [])]
-        for (const item of items) {
+        for (const item of rowItems) {
           if (item.key === active?.key) continue
           if (totalWidth([...selected, item.key, ...trailing]) > available) break
           selected.push(item.key)
         }
-        visibleKeys = items.filter(item => selected.includes(item.key)).map(item => item.key)
+        visibleKeys = rowItems.filter(item => selected.includes(item.key)).map(item => item.key)
       }
       setLayout(previous => previous?.settingsInMore === settingsInMore && previous.visibleKeys.join() === visibleKeys.join()
         ? previous
@@ -864,20 +875,24 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
     observer.observe(nav)
     observer.observe(measurements) // Font loading or changed labels can alter item widths.
     return () => observer.disconnect()
-  }, [items, overflowItems, settingsItem, activeTab])
+  }, [rowItems, menuOverflowItems, settingsItem, activeTab])
 
-  const visibleItems = layout ? items.filter(item => layout.visibleKeys.includes(item.key)) : items
+  // The open section stays in the row even before a new active tab is measured.
+  const settingsInMore = Boolean(layout?.settingsInMore) && settingsItem?.key !== activeTab
+  const visibleItems = layout
+    ? rowItems.filter(item => item.key === activeTab || layout.visibleKeys.includes(item.key))
+    : rowItems
   const menuItems = [
-    ...items.filter(item => !visibleItems.includes(item)),
-    ...overflowItems,
-    ...(layout?.settingsInMore && settingsItem ? [settingsItem] : []),
+    ...rowItems.filter(item => !visibleItems.includes(item)),
+    ...menuOverflowItems,
+    ...(settingsInMore && settingsItem ? [settingsItem] : []),
   ]
 
   return (
     <nav className="project-subnav" aria-label="Project sections" ref={navRef}>
       <div className="project-subnav-measure" aria-hidden="true">
         <div className="project-subnav-measure-row" ref={measurementRef}>
-          {[...items, ...(settingsItem ? [settingsItem] : [])].map(item => (
+          {[...rowItems, ...(settingsItem ? [settingsItem] : [])].map(item => (
             <span className="project-subnav-link" key={item.key} data-project-tab={item.key}>{item.label}</span>
           ))}
           <span className="project-subnav-link project-subnav-more-trigger" data-project-tab="more">
@@ -890,6 +905,11 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
           key={item.key}
           to={item.href}
           search={previous => ({ ...previous, onboarding: undefined })}
+          // AI Visibility is the project root, the parent of every other
+          // section. The router's default prefix match would mark it current
+          // on every section too, so only an exact match counts; `activeTab`
+          // decides the current page.
+          activeOptions={{ exact: true }}
           className={`project-subnav-link ${item.key === activeTab ? 'project-subnav-link-active project-subnav-current' : ''}`}
           aria-current={item.key === activeTab ? 'page' : undefined}
         >
@@ -897,8 +917,8 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
         </Link>
       ))}
       <div className="project-subnav-trailing">
-        <ProjectSubnavMore items={menuItems} activeTab={activeTab} />
-        {settingsItem && !layout?.settingsInMore && (
+        <ProjectSubnavMore items={menuItems} />
+        {settingsItem && !settingsInMore && (
           <Link
             to={settingsItem.href}
             search={previous => ({ ...previous, onboarding: undefined })}
@@ -920,7 +940,7 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
  * sit below ProjectPageContent's early returns. Lives here (not in its own
  * file) because it's a one-off for this subnav.
  */
-function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; activeTab: ProjectPageTab }) {
+function ProjectSubnavMore({ items }: { items: ProjectTabItem[] }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -954,14 +974,13 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
   }, [open])
 
   if (items.length === 0) return null
-  const hasActive = items.some((item) => item.key === activeTab)
 
   return (
     <div className="project-subnav-more" ref={ref}>
       <button
         type="button"
         ref={triggerRef}
-        className={`project-subnav-link project-subnav-more-trigger ${hasActive ? 'project-subnav-link-active' : ''}`}
+        className="project-subnav-link project-subnav-more-trigger"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -1001,8 +1020,7 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
               search={previous => ({ ...previous, onboarding: undefined })}
               role="menuitem"
               tabIndex={-1}
-              className={`project-subnav-menu-item ${item.key === activeTab ? 'project-subnav-menu-item-active' : ''}`}
-              aria-current={item.key === activeTab ? 'page' : undefined}
+              className="project-subnav-menu-item"
               onClick={() => setOpen(false)}
             >
               {item.label}
@@ -1981,9 +1999,11 @@ function ProjectPageContent({
   }
 
   // Quiet underline tabs. The bar keeps the sections an operator returns
-  // to; everything else is in More. Settings stays at the far right. Narrow
-  // widths can still move a primary section into More, and the active one
-  // stays visible. `key` is a wire value for embed allowlists and saved URLs.
+  // to; everything else is in More, and an open More section shows as a tab
+  // before it, so the bar always names the current page. Narrow widths can
+  // move primary sections into More, never the open one. Operators reach
+  // Settings from the sidebar; only embeds get a Settings tab, at the far
+  // right. `key` is a wire value for embed allowlists and saved URLs.
   const projectTabBase = `/projects/${encodeURIComponent(model.project.name)}`
   const projectTabItemsAll: ProjectTabItem[] = [
     { key: 'overview', label: 'AI Visibility', href: projectTabBase },

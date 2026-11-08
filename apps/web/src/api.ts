@@ -1,6 +1,6 @@
 import { postApiV1ProjectsByNameSchedulePreview } from '@canonry/canonry-api-client'
 import type { SchedulePreviewRequest, SchedulePreviewDto } from '@canonry/canonry-contracts'
-import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto, ProviderConnectionSettingsDto, ProviderSettingsUpdateRequest, ProviderReloadResponseDto } from '@canonry/canonry-contracts'
+import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto, ProviderConnectionSettingsDto, ProviderConnectionsUnavailableDto, ProviderSettingsUpdateRequest, ProviderReloadResponseDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@canonry/canonry-contracts'
 import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
@@ -1031,6 +1031,8 @@ export interface ApiProviderSummary {
 export interface ApiSettings {
   providers: ApiProviderSummary[]
   providerConnections?: ProviderConnectionSettingsDto[]
+  /** Present instead of `providerConnections` when the server could not build the list (for example an unreadable config.yaml). */
+  providerConnectionsUnavailable?: ProviderConnectionsUnavailableDto
   /** Credential-free adapter metadata, including routed connections and answer-service profiles. */
   providerCatalog: ProviderCatalogEntryDto[]
   google: {

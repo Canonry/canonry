@@ -15,6 +15,7 @@ import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.j
 import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
+  getApiV1ProjectsQueryKey,
 } from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 
@@ -37,6 +38,7 @@ async function renderAt(
   embed?: EmbedBlock,
   dashboard?: DashboardBlock,
   withUpdateNotification = false,
+  seedProjectList = false,
 ): Promise<string> {
   if (embed || dashboard) {
     window.__CANONRY_CONFIG__ = {
@@ -71,6 +73,10 @@ async function renderAt(
       getApiV1ProjectsByNameVisibilityReportQueryKey(visibilityReportQuery(entry.project.name, selection)),
       visibilityReportResponse(selection),
     )
+  }
+  // Pages that read the project list directly mount their content once it resolves.
+  if (seedProjectList) {
+    queryClient.setQueryData(getApiV1ProjectsQueryKey({ client: heyClient }), fixture.dashboard.projects.map(entry => entry.project))
   }
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
@@ -407,9 +413,10 @@ test('embed hides the operator write controls on the top-level admin pages (defa
   expect(runsEmbed).not.toContain('Run all projects')
   expect(runsEmbed).toContain('Runs') // the read-only page still renders
 
-  // /traffic — "Connect a source" opens the write drawer.
-  const trafficEmbed = await renderAt('/traffic', { enabled: true })
-  const trafficOperator = await renderAt('/traffic')
+  // /traffic — "Connect a source" opens the write drawer. The source panel
+  // that holds it mounts once the project list resolves.
+  const trafficEmbed = await renderAt('/traffic', { enabled: true }, undefined, false, true)
+  const trafficOperator = await renderAt('/traffic', undefined, undefined, false, true)
   expect(trafficOperator).toContain('Connect a source')
   expect(trafficEmbed).not.toContain('Connect a source')
   expect(trafficEmbed).toContain('Traffic sources') // the read-only page still renders

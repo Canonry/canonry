@@ -721,6 +721,9 @@ export function RootLayout() {
             <Link
               to="/projects/$projectName/settings"
               params={{ projectName: currentProjectName }}
+              // Keep the dashboard's URL state (class, scope, market, open run)
+              // for the way back, like the project tab links.
+              search={previous => ({ ...previous, onboarding: undefined })}
               className="sidebar-link"
               activeProps={{ className: 'sidebar-link sidebar-link-active' }}
               activeOptions={{ exact: true }}
@@ -906,6 +909,7 @@ export function RootLayout() {
             <Link
               to="/projects/$projectName/settings"
               params={{ projectName: currentProjectName }}
+              search={previous => ({ ...previous, onboarding: undefined })}
               className="mobile-nav-link"
               activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }}
               activeOptions={{ exact: true }}

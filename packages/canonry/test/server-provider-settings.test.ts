@@ -8,8 +8,8 @@ import {
   projects, providerBatches, querySnapshots, runs, type DatabaseClient,
 } from '@canonry/canonry-db'
 import {
-  CitationStates, ProviderBatchStatuses, RunKinds, RunStatuses,
-  type ProviderConnectionSettingsDto,
+  CitationStates, ProviderBatchStatuses, ProviderConnectionsUnavailableReasons, RunKinds, RunStatuses,
+  type ProviderConnectionSettingsDto, type SettingsDto,
 } from '@canonry/canonry-contracts'
 import { createServer } from '../src/server.js'
 import { loadConfig, type CanonryConfig } from '../src/config.js'
@@ -164,6 +164,42 @@ describe('provider settings lifecycle through the running host', () => {
     expect(db.select().from(auditLog).all()).toEqual(audit)
     expect((await request('PUT', 'openai', { apiKey: 'fixture-openai-key' })).statusCode).toBe(200)
     expect((await connection('local')).effectiveModel).toBe('local-custom')
+  })
+
+  it('keeps settings readable with a typed reason while config.yaml cannot be read, then lists connections once repaired', async () => {
+    await start()
+    const settings = () => app!.inject({ method: 'GET', url: '/api/v1/settings', headers: { authorization: `Bearer ${config.apiKey}` } })
+    const unreadable = {
+      reason: ProviderConnectionsUnavailableReasons['config-unreadable'],
+      message: 'Saved provider settings could not be read from config.yaml. Repair the file on the host, then reload provider connections.',
+    }
+    for (const contents of [
+      // A hand edit that breaks the YAML on a credential-bearing line.
+      `${stringify(config)}broken: { apiKey: private-local-key\n`,
+      // Valid YAML the loader refuses, with the file's path in its message.
+      stringify({ ...config, dashboard: { managedSweeps: 'sometimes' } }),
+    ]) {
+      fs.writeFileSync(configPath, contents)
+      const response = await settings()
+      expect(response.statusCode).toBe(200)
+      expect(response.body).not.toContain('private-local-key')
+      expect(response.body).not.toContain(directory)
+      const body = response.json<SettingsDto>()
+      expect(body.providerConnections).toBeUndefined()
+      expect(body.providerConnectionsUnavailable).toEqual(unreadable)
+      expect(body.providers.find(provider => provider.name === 'local')).toMatchObject({ configured: true, model: 'local-custom' })
+      expect(body.providerCatalog.some(entry => entry.name === 'local')).toBe(true)
+      expect(body.google).toEqual({ configured: false })
+      expect(body.bing).toEqual({ configured: false })
+      // The editor's own read refuses with the same typed reason.
+      const single = await request('GET', 'local')
+      expect(single.statusCode).toBe(400)
+      expect(single.json()).toEqual({ error: { code: 'VALIDATION_ERROR', message: unreadable.message, details: { reason: unreadable.reason } } })
+    }
+    fs.writeFileSync(configPath, stringify(config))
+    const repaired = (await settings()).json<SettingsDto>()
+    expect(repaired.providerConnectionsUnavailable).toBeUndefined()
+    expect(repaired.providerConnections?.find(connection => connection.name === 'local')).toMatchObject({ configured: true, apiKeyConfigured: true, model: 'local-custom' })
   })
 
   it('protects host-managed credentials and hides private endpoint and credential-file values', async () => {

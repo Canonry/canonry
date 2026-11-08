@@ -7,13 +7,13 @@ import { eq } from 'drizzle-orm'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import {
   canonicalMeasurementPlanV2Json, parseMeasurementRunManifestV1, runPreviewDtoSchema,
-  RunKinds, type RunPreviewDto,
+  RunKinds, RunTriggers, type RunPreviewDto,
 } from '@canonry/canonry-contracts'
 import {
   apiKeys, auditLog, createClient, measurementPlanDrafts, measurementPlans, measurementPlanVersions,
   migrate, projects, queries, runs,
 } from '@canonry/canonry-db'
-import { apiRoutes } from '../src/index.js'
+import { apiRoutes, queueRunIfProjectIdle } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from '../src/measurement-plan.js'
 import { HARBOR_CONTEXT, measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
@@ -130,10 +130,11 @@ describe('stored manual sweep preview', () => {
     expect(row.location).toBeNull()
   })
 
-  it('blocks an unpublished Advanced draft in both the preview and launch instead of running the Simple library', async () => {
+  it('blocks an edited, unpublished Advanced draft in both the preview and launch instead of running the Simple library', async () => {
     const { app, db, preview, launch, dispatched } = await harness()
+    // ETag version 2: an operator has edited the seeded draft at least once.
     db.insert(measurementPlanDrafts).values({
-      id: 'draft', projectId: 'northstar', authoringJson: EMPTY_DRAFT, createdBy: 'test', updatedBy: 'test', createdAt: AT, updatedAt: AT,
+      id: 'draft', projectId: 'northstar', authoringJson: EMPTY_DRAFT, etagVersion: 2, createdBy: 'test', updatedBy: 'test', createdAt: AT, updatedAt: AT,
     }).run()
     const setup = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/measurement-setup', headers: { authorization: `Bearer ${READ}` } })
     expect(setup.json()).toMatchObject({ mode: 'draft-only', requiresPublication: true })
@@ -143,6 +144,38 @@ describe('stored manual sweep preview', () => {
     expect(started.json()).toMatchObject({ error: { message: 'Publish the Advanced Measurement draft before starting a sweep.' } })
     expect(db.select().from(runs).all()).toEqual([])
     expect(dispatched).toEqual([])
+  })
+
+  it('keeps measuring as Simple when Advanced setup was only opened', async () => {
+    const { app, db, preview, launch, dispatched } = await harness()
+    // Opening Advanced setup creates a seeded draft at ETag version 1; nothing has been set up yet.
+    db.insert(measurementPlanDrafts).values({
+      id: 'opened', projectId: 'northstar', authoringJson: EMPTY_DRAFT, createdBy: 'test', updatedBy: 'test', createdAt: AT, updatedAt: AT,
+    }).run()
+    const setup = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/measurement-setup', headers: { authorization: `Bearer ${READ}` } })
+    expect(setup.json()).toMatchObject({ mode: 'draft-only', requiresPublication: false })
+    expect((await preview()).json()).toMatchObject({ mode: 'simple', revision: null, queryCount: 3, requestCount: 6, canStart: true, blockedReason: null })
+    const started = await launch()
+    expect(started.statusCode, started.body).toBe(201)
+    expect(db.select().from(runs).where(eq(runs.id, started.json().id)).get()?.measurementPlanVersionId).toBeNull()
+    expect(dispatched).toEqual([started.json().id])
+  })
+
+  it('lets a schedule keep measuring while an edited draft holds manual sweeps', async () => {
+    const { db, launch } = await harness()
+    db.insert(measurementPlanDrafts).values({
+      id: 'draft', projectId: 'northstar', authoringJson: EMPTY_DRAFT, etagVersion: 3, createdBy: 'test', updatedBy: 'test', createdAt: AT, updatedAt: AT,
+    }).run()
+    expect((await launch()).statusCode).toBe(400)
+    const scheduled = queueRunIfProjectIdle(db, {
+      projectId: 'northstar', kind: RunKinds['answer-visibility'], trigger: RunTriggers.scheduled, createdAt: AT,
+      runnableProviders: ['openai', 'gemini'], providerModels: { openai: 'gpt-5', gemini: 'gemini-2.5-flash' },
+    })
+    expect(scheduled.conflict).toBe(false)
+    if (scheduled.conflict || scheduled.refused) throw new Error('scheduled sweep was not queued')
+    const row = db.select().from(runs).where(eq(runs.id, scheduled.runId)).get()
+    expect(row).toMatchObject({ trigger: RunTriggers.scheduled, kind: RunKinds['answer-visibility'], measurementPlanVersionId: null })
+    expect(db.select().from(runs).all()).toHaveLength(1)
   })
 
   it('returns to Simple after deactivation while keeping an unfinished Advanced edit', async () => {
