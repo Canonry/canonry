@@ -9,7 +9,7 @@ type EvidenceJsonEntry = TimelineDto & {
 
 /** The latest run's citation for one query; false with no runs at all. */
 function latestCited(entry: TimelineDto): boolean | null {
-  const latest = entry.runs[entry.runs.length - 1]
+  const latest = entry.runs.at(-1)
   return latest ? citationStateToCited(latest.citationState) : false
 }
 

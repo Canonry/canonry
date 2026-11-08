@@ -117,7 +117,7 @@ describe('GET /runs/:id observed query counts', () => {
     expect(response.statusCode).toBe(200)
     const body = response.json<RunDetailDto>()
     expect(body.id).toBe('requested')
-    expect(body.queryCounts).toEqual({ totalQueries: 3, citedQueries: 2, mentionedQueries: 2 })
+    expect(body.queryCounts).toEqual({ totalQueries: 3, citedQueries: 2, mentionedQueries: 2, citationNotMeasuredQueries: 0 })
     expect(body.snapshots?.map(snapshot => snapshot.id).sort()).toEqual(['first-citation', 'first-mention', 'first-repeat', 'second-both', 'third-neither'])
     expect(body.snapshots?.find(snapshot => snapshot.id === 'first-mention')).toMatchObject({ queryId: 'first', answerMentioned: true, requestedContext: NORTH, supportedContext: null })
     expect(body.snapshots?.find(snapshot => snapshot.id === 'first-citation')).toMatchObject({ queryId: 'first', answerMentioned: false, requestedContext: NORTH, supportedContext: { status: 'applied', resolved: NORTH } })

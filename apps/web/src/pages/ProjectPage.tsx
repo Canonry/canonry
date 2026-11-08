@@ -2415,7 +2415,7 @@ function ProjectPageContent({
                       summary={model.gapQueries}
                       displayValue={citationGapBase(model.queryCounts) === 0
                         // No answer carries sources, so there is no base to count gaps out of.
-                        ? <><span className="text-secondary">{CITATION_NOT_MEASURED.label}</span><span className="sr-only">, all queries</span></>
+                        ? <><span className="whitespace-nowrap text-label-13 text-secondary">{CITATION_NOT_MEASURED.label}</span><span className="sr-only">, all queries</span></>
                         : <><span className="text-primary">{model.gapQueries.value}</span><span className="text-secondary"> / {citationGapBase(model.queryCounts)}</span><span className="sr-only"> queries, all queries</span></>}
                       tooltip="Across all queries, branded and non-brand: a competitor was cited as a source and your domain was not cited by any engine. The mention-share query type does not filter these counts."
                     />
