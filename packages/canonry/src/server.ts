@@ -3728,14 +3728,15 @@ export async function createServer(opts: {
     getBatchEligibleProviderNames: () => batchEligibleProviderNames(registry),
     // The active registration's own healthcheck: the settings a sweep would
     // use right now. Its result is kept for exactly those settings.
-    onProviderTest: (name: string) => {
+    onProviderTest: (name: string, signal: AbortSignal) => {
       const provider = registry.get(name);
       if (!provider) return undefined;
       // Taken now: settings saved while the check runs are not what it checked.
       const tested = connectionTests.fingerprint(provider.config);
       return {
+        // Once the route stops waiting, the check stops retrying and spending.
         // A vendor error can quote the key it was sent; it never leaves in a test result.
-        check: provider.adapter.healthcheck(provider.config)
+        check: provider.adapter.healthcheck(provider.config, signal)
           .then(result => ({ ...result, message: redactKnownSecrets(result.message, [provider.config.apiKey]) })),
         record: result => connectionTests.record(name, tested, result),
       };

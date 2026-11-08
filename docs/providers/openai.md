@@ -10,7 +10,7 @@
 
 Validates that the config has a non-empty API key. Returns the model name that will be used.
 
-### `healthcheck(config: OpenAIConfig): Promise<OpenAIHealthcheckResult>`
+### `healthcheck(config: OpenAIConfig, signal?: AbortSignal): Promise<OpenAIHealthcheckResult>`
 
 Makes a lightweight OpenAI API call to verify the key works. Returns ok/error with a message.
 

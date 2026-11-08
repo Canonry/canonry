@@ -21,7 +21,11 @@ export type ProviderConnectionTestResultRecord = Extract<ProviderConnectionTestR
 
 export interface ProviderConnectionTestTarget {
   name: string
-  /** The saved connection revision on screen, when known. A record from another revision is out of date. */
+  /**
+   * The saved connection revision on screen, when known. Only a record of this
+   * revision is shown; one from another revision, or one recorded without a
+   * revision, may describe settings changed since (from the CLI or another tab).
+   */
   revision?: string
   /** The server's latest test of the connection's active settings, when the page has it. */
   lastTest?: ProviderConnectionLastTestDto | null
@@ -62,8 +66,8 @@ export function useProviderConnectionTestRecords(targets: readonly ProviderConne
   const records: (ProviderConnectionTestRecord | undefined)[] = []
   targets.forEach((target, index) => {
     const cached = stored[index]?.data
-    // A test of earlier saved settings says nothing about the current ones.
-    const tab = cached && (target.revision === undefined || cached.revision === null || cached.revision === target.revision) ? cached : undefined
+    // A test of other saved settings, or of settings it cannot name, says nothing about these.
+    const tab = cached && (target.revision === undefined || cached.revision === target.revision) ? cached : undefined
     const server: ProviderConnectionTestResultRecord | undefined = target.lastTest
       ? { kind: 'result', result: target.lastTest, revision: target.revision ?? null }
       : undefined

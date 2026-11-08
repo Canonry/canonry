@@ -10,7 +10,7 @@
 
 Validates that the config has a non-empty API key. Returns the model name that will be used.
 
-### `healthcheck(config: GeminiConfig): Promise<GeminiHealthcheckResult>`
+### `healthcheck(config: GeminiConfig, signal?: AbortSignal): Promise<GeminiHealthcheckResult>`
 
 Makes a lightweight Gemini API call to verify the key works. Returns ok/error with a message.
 

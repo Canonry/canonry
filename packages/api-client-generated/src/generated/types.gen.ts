@@ -27242,9 +27242,13 @@ export type PostApiV1SettingsProvidersByNameTestErrors = {
      */
     400: ErrorEnvelope;
     /**
-     * The credential lacks settings.write, or the account has view-only access.
+     * Install administrator authority and settings.write are required.
      */
     403: ErrorEnvelope;
+    /**
+     * A test of this connection is already running (error.details.reason provider-test-in-progress).
+     */
+    409: ErrorEnvelope;
     /**
      * Provider connection tests are not supported.
      */

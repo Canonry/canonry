@@ -385,6 +385,21 @@ test.each([
   expect(within(row).getByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
 })
 
+test.each([
+  { case: 'an answer engine names the request it sends', connection: connectionFixture(), notice: 'Sends one short request to OpenAI, using your provider account.' },
+  { case: 'a search answer service, whose check is free or sends nothing, states no request', connection: connectionFixture({ name: 'exa', displayName: 'Exa', kind: 'answer-service' }), notice: null },
+])('before a test, $case', async ({ connection, notice }) => {
+  const tested = vi.fn((_name: string) => jsonResponse(testResult()))
+  // Routed connections link to project settings, so they render inside a router.
+  renderConnections([connection], { test: tested, router: true })
+  const form = await manage()
+  const button = within(form).getByRole('button', { name: PROVIDER_CONNECTION_TEST_COPY.testOne })
+  // The button is described by the notice and by the (still empty) result line after it.
+  if (notice) expect(within(form).getByRole('button', { name: PROVIDER_CONNECTION_TEST_COPY.testOne, description: text => text.trim() === notice })).toBe(button)
+  else expect(within(form).queryByText(/^Sends one short request/)).toBeNull()
+  expect(tested).not.toHaveBeenCalled()
+})
+
 test('tests only saved settings: an unsaved edit disables the test until it is saved', async () => {
   const tested = vi.fn((_name: string) => jsonResponse(testResult()))
   renderConnections([connectionFixture()], { test: tested })

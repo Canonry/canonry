@@ -69,6 +69,12 @@ export interface RetryOptions extends BackoffOptions {
   onRetry?: (info: { attempt: number; err: unknown; delayMs: number }) => void
   /** Sleep implementation. Default `setTimeout`. Inject for tests. */
   sleep?: (ms: number) => Promise<void>
+  /**
+   * Stops the retries once aborted: no further attempt starts, and a pending
+   * wait ends at once with the signal's reason. Pass the same signal to the
+   * call itself to cancel the request in flight.
+   */
+  signal?: AbortSignal
 }
 
 const DEFAULT_MAX_RETRIES = 3
@@ -77,28 +83,49 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/** Wait `ms`, or reject with the signal's reason as soon as it aborts. */
+async function waitUnlessAborted(ms: number, sleep: ((ms: number) => Promise<void>) | undefined, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason)))
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+  const waited = sleep ? sleep(ms) : new Promise<void>(resolve => { timer = setTimeout(resolve, ms) })
+  try {
+    await Promise.race([waited, aborted])
+  } finally {
+    clearTimeout(timer)
+    if (onAbort) signal.removeEventListener('abort', onAbort)
+  }
+}
+
 /**
  * Generic exponential-backoff retry wrapper. The function `fn` is invoked
  * up to `maxRetries + 1` times; between attempts, `withRetry` sleeps for
  * `computeDelayMs(attempt) ?? backoffDelayMs(attempt)` ms. Caller decides
- * which errors are retryable via `isRetryable`.
+ * which errors are retryable via `isRetryable`. An aborted `signal` ends the
+ * retries.
  */
 export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}): Promise<T> {
   const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES
   const isRetryable = opts.isRetryable ?? (() => true)
-  const sleep = opts.sleep ?? defaultSleep
+  const signal = opts.signal
 
   let lastErr: unknown
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    signal?.throwIfAborted()
     try {
       return await fn()
     } catch (err) {
       lastErr = err
-      if (attempt >= maxRetries || !isRetryable(err)) throw err
+      if (attempt >= maxRetries || signal?.aborted || !isRetryable(err)) throw err
       const defaultMs = backoffDelayMs(attempt, opts)
       const delayMs = opts.computeDelayMs?.(attempt, err, defaultMs) ?? defaultMs
       opts.onRetry?.({ attempt, err, delayMs })
-      await sleep(delayMs)
+      if (signal) await waitUnlessAborted(delayMs, opts.sleep, signal)
+      else await (opts.sleep ?? defaultSleep)(delayMs)
     }
   }
   // Unreachable in practice — the loop either returns or throws.

@@ -813,12 +813,13 @@ key; a search answer service with no free key check makes no request. `status` i
 `connected`, `failed` (with the provider's redacted reason; no answer within 30
 seconds also fails) or `not-verified` (saved, but the first real request is the
 first proof). Exit 0 for `connected` and `not-verified`, 2 for `failed` after the
-result is printed, 1 for an unknown or unconfigured provider. It requires
-`settings.write` and refuses read-only and `--stored-only` use. A passing test
-proves the key and endpoint, not the account's quota. The server keeps the latest
-result as the connection's `lastTest`, shown by `settings` and `provider-info`
-(JSON and text), until the key, endpoint or model changes; read it before testing
-again.
+result is printed, 1 for an unknown or unconfigured provider, or one whose
+previous test is still running. It requires install administrator authority and
+`settings.write` (a project-scoped or narrower key is refused) and refuses
+read-only and `--stored-only` use. A passing test proves the key and endpoint,
+not the account's quota. The server keeps the latest result as the connection's
+`lastTest`, shown by `settings` and `provider-info` (JSON and text), until the
+key, endpoint or model changes; read it before testing again.
 
 `reload-providers` rereads the connected server's config file: provider keys,
 models, Vertex AI settings, batch settings, pricing, quotas, and CDP. Any config

@@ -163,8 +163,11 @@ failed check is a normal result with `ok: false`, not a tool error. The result i
 kept as `lastTest` on the connection (`canonry_provider_settings_get`, and
 `providerConnections` in `canonry_settings_get`) until its key, endpoint or model
 changes, so read it before testing again. It accepts no credentials, changes no
-saved settings, requires `settings.write`, and is excluded from native Aero and
-read-only or stored-only catalogs.
+saved settings, requires install administrator authority plus `settings.write`
+(project, narrow, viewer and read-only credentials are refused), and is excluded
+from native Aero and read-only or stored-only catalogs. A check the server stops
+waiting for also stops retrying, and a second test of a connection whose test is
+still running returns `OPERATION_IN_PROGRESS`.
 `canonry_providers_reload` mirrors `canonry settings reload-providers`: after
 explicit operator approval it reloads the connected host's saved provider
 credentials, models, quotas and batch settings without restarting the server.

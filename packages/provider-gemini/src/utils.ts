@@ -49,10 +49,11 @@ export function isGeminiRetryable(err: unknown): boolean {
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
-  options: { maxRetries?: number; initialDelay?: number; sleep?: (ms: number) => Promise<void> } = {},
+  options: { maxRetries?: number; initialDelay?: number; sleep?: (ms: number) => Promise<void>; signal?: AbortSignal } = {},
 ): Promise<T> {
   return sharedWithRetry(fn, {
     maxRetries: options.maxRetries ?? 3,
+    signal: options.signal,
     baseDelayMs: options.initialDelay ?? 1000,
     // Jitter off preserves the historical deterministic backoff that every
     // provider has shipped to date (1000, 2000, 4000ms). Enable per-caller

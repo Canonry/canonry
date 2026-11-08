@@ -178,7 +178,7 @@ export function createAnswerServiceAdapter(definition: AnswerServiceDefinition, 
     }
   }
 
-  async function healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult> {
+  async function healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult> {
     const problem = configProblem(descriptor, config)
     if (problem) return { ok: false, provider: config.provider, message: problem }
     const keyCheck = descriptor.settings.keyCheck
@@ -191,6 +191,7 @@ export function createAnswerServiceAdapter(definition: AnswerServiceDefinition, 
         timeoutMs: 15_000,
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
         ...(options.sleep ? { sleep: options.sleep } : {}),
+        ...(signal ? { signal } : {}),
       })
       return { ok: true, provider: config.provider, message: `${descriptor.displayName} connected` }
     } catch (error) {

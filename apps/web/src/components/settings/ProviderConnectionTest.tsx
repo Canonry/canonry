@@ -3,6 +3,7 @@ import { ProviderConnectionTestStatuses } from '@canonry/canonry-contracts'
 import type { MetricTone } from '../../view-models.js'
 import { formatSweepInstant } from '../../lib/format-helpers.js'
 import { isConnectedRecord, isFailedRecord, type ProviderConnectionTestRecord } from '../../queries/provider-connection-tests.js'
+import { joinWithAnd } from '../../lib/visibility-trend-helpers.js'
 
 /** A provider's own message as a sentence, so a following sentence reads cleanly. */
 function asSentence(text: string): string {
@@ -17,6 +18,10 @@ export const PROVIDER_CONNECTION_TEST_COPY = {
   testMany: 'Test connections',
   testing: 'Testing…',
   saveFirst: 'Save your changes, then test the connection.',
+  /** What one click sends, said before it is sent: each test is a live request on the operator's account. */
+  sends: (labels: readonly string[]) => labels.length === 1
+    ? `Sends one short request to ${labels[0]}, using your provider account.`
+    : `Sends one short request each to ${joinWithAnd(labels)}, using your provider accounts.`,
   results: 'Connection test results',
   connectedLine: 'Connected.',
   failed: (message: string) => `Test failed: ${asSentence(message)}`,

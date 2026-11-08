@@ -6,6 +6,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { stringify } from 'yaml'
 import { createClient, migrate, type DatabaseClient } from '@canonry/canonry-db'
+import { localAdapter } from '@canonry/canonry-provider-local'
 import { createServer } from '../src/server.js'
 import { loadConfig, type CanonryConfig } from '../src/config.js'
 
@@ -136,6 +137,21 @@ describe('local server provider connection test', () => {
     expect((await request('DELETE', '/api/v1/settings/providers/local', {})).statusCode).toBe(200)
     expect((await request('PUT', '/api/v1/settings/providers/local', { baseUrl: endpoint.baseUrl, apiKey: LOCAL_KEY, model: 'llama3' })).statusCode).toBe(200)
     expect(await lastTest('local')).toBeNull()
+  })
+
+  it('hands the check the route\'s signal, which ends once the route answers', async () => {
+    const endpoint = await startEndpoint(() => ({ status: 200, body: { object: 'list', data: [{ id: 'llama3', object: 'model' }] } }))
+    await start({ local: { baseUrl: endpoint.baseUrl } })
+    const signals: Array<AbortSignal | undefined> = []
+    const healthcheck = localAdapter.healthcheck.bind(localAdapter)
+    vi.spyOn(localAdapter, 'healthcheck').mockImplementation((config, signal) => {
+      signals.push(signal)
+      return healthcheck(config, signal)
+    })
+    expect((await testConnection('local')).json()).toMatchObject({ status: 'connected' })
+    // Without it, a check the route stopped waiting for would keep retrying, and spending, unseen.
+    expect(signals).toHaveLength(1)
+    expect(signals[0]?.aborted).toBe(true)
   })
 
   it('refuses a known provider with nothing saved before any provider call', async () => {

@@ -124,8 +124,8 @@ export const geminiAdapter: ProviderAdapter = {
     }
   },
 
-  async healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult> {
-    const result = await geminiHealthcheck(toGeminiConfig(config))
+  async healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult> {
+    const result = await geminiHealthcheck(toGeminiConfig(config), signal)
     return {
       ok: result.ok,
       provider: 'gemini',

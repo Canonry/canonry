@@ -59,8 +59,9 @@ async function fetchOnce(config: ProviderConfig, resource: string, body?: Record
 
 function request(config: ProviderConfig, resource: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
   return withRetry(() => fetchOnce(config, resource, body, signal), {
-    isRetryable: error => !signal?.aborted && isRetryableHttpError(error),
+    isRetryable: isRetryableHttpError,
     computeDelayMs: (_attempt, error, delay) => retryAfterDelayMs(error) ?? delay,
+    signal,
   })
 }
 
@@ -187,10 +188,10 @@ export const openrouterAdapter: ProviderAdapter = {
     }
     return { ok: true, provider: config.provider, message: 'Configuration valid', model: config.model }
   },
-  async healthcheck(config) {
+  async healthcheck(config, signal) {
     const valid = this.validateConfig(config)
     if (!valid.ok) return valid
-    try { await request(config, 'auth/key'); return { ...valid, message: 'OpenRouter connected' } }
+    try { await request(config, 'auth/key', undefined, signal); return { ...valid, message: 'OpenRouter connected' } }
     catch (error) { return { ok: false, provider: config.provider, message: describeError(error) } }
   },
   async listModels(config, signal): Promise<ModelDefinition[]> {
