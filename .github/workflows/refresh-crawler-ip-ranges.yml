@@ -80,7 +80,7 @@ jobs:
           # records workspace links as `link:` targets, so `--frozen-lockfile`
           # is a no-op resolution that only rewrites the state file. Keep this
           # between the bump and the first pnpm script, matching the
-          # bump → install → gates order in bump-aeo-audit.yml.
+          # bump → install → gates order in bump-agent-readiness.yml.
           pnpm install --frozen-lockfile
           pnpm plugin:sync
           echo "from=$current" >> "$GITHUB_OUTPUT"

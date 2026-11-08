@@ -43,7 +43,7 @@ export function generateInsights(input: GenerateInsightsInput): Insight[] {
       recommendation: {
         action: 'audit',
         target: reg.previousCitationUrl,
-        reason: `Page was previously cited at position ${reg.previousPosition ?? 'unknown'}. Run aeo-audit to check for content or schema issues.`,
+        reason: `Page was previously cited at position ${reg.previousPosition ?? 'unknown'}. Run agent-readiness to check for content or schema issues.`,
       },
       cause,
       createdAt: now,

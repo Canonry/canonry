@@ -693,7 +693,7 @@ No DB migration is required for V1 because the draft and discovery provenance ar
 
 Automatic first-run scanning must not ship until the public-fetch boundary is verified end to end.
 
-Current main uses `@canonry/aeo-audit@4.6.2`. The Canonry wrapper visibly resolves and rejects private addresses for the homepage and optional sitemap before delegating to the crawl engine. That does not by itself prove every redirect, nested sitemap, DNS answer, and page fetch is revalidated and pinned.
+Current main uses the published `@canonry/agent-readiness` engine. The Canonry wrapper visibly resolves and rejects private addresses for the homepage and optional sitemap before delegating to the crawl engine. That does not by itself prove every redirect, nested sitemap, DNS answer, and page fetch is revalidated and pinned.
 
 Complete a blocking spike against the pinned audit package and add or upstream the missing fetch seam. The automatic first-run scan path must enforce:
 
@@ -1228,7 +1228,7 @@ Existing gcloud authentication does not automatically become a durable Canonry G
 ## Remaining questions and blocking spikes
 
 - What active-plane and freshness threshold lets the UI label a multi-plane brief “connected”?
-- Does `@canonry/aeo-audit@4.6.2` expose and prove enough fetch control to enforce redirect, DNS-rebinding, size, domain, and abort guarantees for every page and nested sitemap, or is an upstream change required?
+- Does `@canonry/agent-readiness` expose and prove enough fetch control to enforce redirect, DNS-rebinding, size, domain, and abort guarantees for every page and nested sitemap, or is an upstream change required?
 - What terminal-time target and progress stages are realistic on the first-run site corpus without shrinking the map into a misleading sample?
 - Should a configured proactive Aero analyze the first canonical scan automatically with explicit disclosure, or should onboarding offer a scan-only completion mode?
 - Which page/path selection rules create useful proposed Properties without treating arbitrary URL folders as business entities?

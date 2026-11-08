@@ -14,17 +14,17 @@ import { ProviderRegistry } from '../src/provider-registry.js'
 import { SnapshotService } from '../src/snapshot-service.js'
 import { formatAuditFactorScore } from '../src/snapshot-format.js'
 
-const { fetchSiteTextMock, runAeoAuditMock } = vi.hoisted(() => ({
+const { fetchSiteTextMock, runAgentReadinessAuditMock } = vi.hoisted(() => ({
   fetchSiteTextMock: vi.fn(),
-  runAeoAuditMock: vi.fn(),
+  runAgentReadinessAuditMock: vi.fn(),
 }))
 
 vi.mock('../src/site-fetch.js', () => ({
   fetchSiteText: fetchSiteTextMock,
 }))
 
-vi.mock('@canonry/aeo-audit', () => ({
-  runAeoAudit: runAeoAuditMock,
+vi.mock('@canonry/agent-readiness', () => ({
+  runAgentReadinessAudit: runAgentReadinessAuditMock,
 }))
 
 type TestProviderOptions = {
@@ -123,7 +123,7 @@ describe('SnapshotService', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     fetchSiteTextMock.mockResolvedValue('Acme Corp builds enterprise widgets and provides support.')
-    runAeoAuditMock.mockResolvedValue({
+    runAgentReadinessAuditMock.mockResolvedValue({
       url: 'https://acme.example.com',
       finalUrl: 'https://acme.example.com',
       auditedAt: '2026-03-29T12:00:00.000Z',
@@ -254,7 +254,7 @@ describe('SnapshotService', () => {
       companyName: 'Acme', domain: 'acme.example.com', queries: ['widgets'], ...selection,
     }))).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 })
     expect(fetchSiteTextMock).not.toHaveBeenCalled()
-    expect(runAeoAuditMock).not.toHaveBeenCalled()
+    expect(runAgentReadinessAuditMock).not.toHaveBeenCalled()
     expect(generate).not.toHaveBeenCalled()
     expect(execute).not.toHaveBeenCalled()
   })
@@ -269,7 +269,7 @@ describe('SnapshotService', () => {
       companyName: 'Acme', domain: 'acme.example.com', providerMode: 'browser',
     }))).rejects.toThrow('pass manual queries')
     expect(fetchSiteTextMock).not.toHaveBeenCalled()
-    expect(runAeoAuditMock).not.toHaveBeenCalled()
+    expect(runAgentReadinessAuditMock).not.toHaveBeenCalled()
   })
 
   it('uses only the selected API provider to generate queries and analyze answers', async () => {

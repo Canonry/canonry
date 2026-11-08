@@ -18,7 +18,7 @@ Aero should use the corresponding exposed tool, not invent shell access.
 
 Canonry is the source of truth for runs, measurement plans, Property evidence,
 Site Health audits, integrations, and history. Read stored page audits before
-proposing fresh `aeo-audit` work. New crawls and provider work require approval
+proposing fresh `agent-readiness` work. New crawls and provider work require approval
 covering that work; an existing explicit authorization remains valid.
 
 ## Choose the evidence scope

@@ -24,9 +24,9 @@ import { SnapshotService } from '../src/snapshot-service.js'
 import { formatSnapshotMarkdown, formatSnapshotText } from '../src/commands/snapshot.js'
 import { getSharedProviderExecutionGate, resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
 
-const { fetchSiteTextMock, runAeoAuditMock } = vi.hoisted(() => ({ fetchSiteTextMock: vi.fn(), runAeoAuditMock: vi.fn() }))
+const { fetchSiteTextMock, runAgentReadinessAuditMock } = vi.hoisted(() => ({ fetchSiteTextMock: vi.fn(), runAgentReadinessAuditMock: vi.fn() }))
 vi.mock('../src/site-fetch.js', () => ({ fetchSiteText: fetchSiteTextMock }))
-vi.mock('@canonry/aeo-audit', () => ({ runAeoAudit: runAeoAuditMock }))
+vi.mock('@canonry/agent-readiness', () => ({ runAgentReadinessAudit: runAgentReadinessAuditMock }))
 vi.mock('../src/telemetry.js', () => ({ trackEvent: vi.fn() }))
 
 const CITED = `${FAKE_SERVICE_ID}:cited`
@@ -315,7 +315,7 @@ describe('research waiting on an upstream job', () => {
 describe('snapshots with an answer service', () => {
   beforeEach(() => {
     fetchSiteTextMock.mockResolvedValue('Acme Roofing repairs roofs.')
-    runAeoAuditMock.mockResolvedValue({ url: 'https://acme-roofing.example', finalUrl: 'https://acme-roofing.example', auditedAt: '2026-10-01T00:00:00.000Z', overallScore: 50, overallGrade: 'C', summary: 'Audit summary.', factors: [] })
+    runAgentReadinessAuditMock.mockResolvedValue({ url: 'https://acme-roofing.example', finalUrl: 'https://acme-roofing.example', auditedAt: '2026-10-01T00:00:00.000Z', overallScore: 50, overallGrade: 'C', summary: 'Audit summary.', factors: [] })
   })
 
   it('leaves the service out when no provider is named', async () => {
