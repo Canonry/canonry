@@ -41,6 +41,12 @@ export const providerMetricSchema = z.object({
   total: z.number().int(),
   /** Answers whose engine returns no sources; outside every cited figure. */
   citationNotMeasured: z.number().int().nonnegative(),
+  /**
+   * The answers whose sources were checked: the base of `citationRate`, sent
+   * so a reader prints it rather than subtracting. Absent from servers before
+   * it existed, whose citation base was `total`.
+   */
+  citedTotal: z.number().int().nonnegative().optional(),
   mentionRate: fraction(),
   mentionedCount: z.number().int(),
 })
@@ -261,6 +267,8 @@ export const timeBucketSchema = z.object({
   total: z.number().int(),
   /** Answers whose engine returns no sources; outside every cited figure. */
   citationNotMeasured: z.number().int().nonnegative(),
+  /** The answers whose sources were checked: the base of `citationRate`. Absent from servers before it existed. */
+  citedTotal: z.number().int().nonnegative().optional(),
   queryCount: z.number().int(),
   mentionRate: fraction(),
   mentionedCount: z.number().int(),
@@ -474,15 +482,24 @@ export interface GapQuery {
   competitorsMentioned: string[]
   /**
    * Distinct sweep time-points in the window. `citedRuns` counts those where an
-   * answer cited the project, out of `totalRuns - citationNotMeasuredRuns`;
-   * `mentionedRuns` is out of `totalRuns`.
+   * answer cited the project, out of `citedTotalRuns`; `mentionedRuns` is out
+   * of `totalRuns`.
    */
   consistency: {
     citedRuns: number
     totalRuns: number
     mentionedRuns: number
-    /** Time-points where no answer to the query carried sources, so its citation was not measured. */
-    citationNotMeasuredRuns: number
+    /**
+     * Time-points where no answer to the query carried sources, so its
+     * citation was not measured. Absent from servers before it existed.
+     */
+    citationNotMeasuredRuns?: number
+    /**
+     * Time-points where an answer's sources were checked: the base of
+     * `citedRuns`. Absent from servers before it existed, whose base was
+     * `totalRuns`.
+     */
+    citedTotalRuns?: number
   }
 }
 
@@ -493,9 +510,10 @@ export interface GapAnalysisDto {
   /**
    * Queries whose every latest answer carries no sources (a local model has no
    * web access): whether they are cited was never measured, so they are in none
-   * of `cited`, `gap` or `uncited`. Their mention lanes are unaffected.
+   * of `cited`, `gap` or `uncited`. Their mention lanes are unaffected. Absent
+   * from servers before it existed.
    */
-  citationNotMeasured: GapQuery[]
+  citationNotMeasured?: GapQuery[]
   mentionedQueries: GapQuery[]
   mentionGap: GapQuery[]
   notMentioned: GapQuery[]

@@ -18,6 +18,7 @@ import { useDrawer } from '../../hooks/use-drawer.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { competitorHighlightTerms, type HighlightTermGroup } from '../../lib/highlight.js'
 import { CITATION_NOT_MEASURED } from '../../lib/citation-not-measured-copy.js'
+import { queryCitationState } from '../../lib/query-citation-state.js'
 import type { CitationInsightVm, CitationState, RunHistoryPoint } from '../../view-models.js'
 
 export type CoverageMode = 'citations' | 'mentions'
@@ -416,15 +417,9 @@ export function EvidenceTable({
                   const groupIndex = visibleGroupKeys.indexOf(groupKey)
                   const metadataId = `${panelId}-query-${groupIndex}`
                   const isNewQuery = added.has(normalizeQueryText(phrase))
-                  const states = items.map(i => i.citationState)
-                  // Not measured only when no engine's answer carries sources;
-                  // otherwise those engines say nothing about the query.
-                  const aggState: CitationState =
-                    states.includes('cited') ? 'cited' :
-                    states.includes('emerging') ? 'emerging' :
-                    states.includes('lost') ? 'lost' :
-                    states.every(s => s === 'pending') ? 'pending' :
-                    states.every(s => s === 'not-measured' || s === 'pending') ? 'not-measured' : 'not-cited'
+                  // The API's rule over the engine rows in view: not measured
+                  // only when no engine's answer carries sources.
+                  const aggState = queryCitationState(items.map(i => i.citationState))
 
                   const queryIds = [...new Set(rawItems.map(item => item.queryId).filter((id): id is string => Boolean(id)))]
                   const sourceSnapshotIds = rawItems.map(item => item.sourceSnapshotId).filter((id): id is string => Boolean(id))

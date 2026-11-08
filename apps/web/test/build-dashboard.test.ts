@@ -1653,7 +1653,7 @@ test('an engine without sources keeps its answers not measured, never not cited 
     ],
     competitors: [],
     timeline: [{
-      // A row stored before retrieval was recorded reads not cited; later ones are not measured.
+      // The UI shows each run's state as the API sends it: a measured miss, then answers without sources.
       query: 'best crm',
       runs: [
         { runId: 'run_1', createdAt: '2026-10-01T00:00:00Z', citationState: 'not-cited', transition: 'new' },

@@ -541,7 +541,7 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
           : snapshot.location !== null && normalizeText(snapshot.location) === locationKey)))
         // Retrieval status is read only to tell an engine without sources
         // apart; this frame has never applied the no-search exclusion.
-        .map(({ retrievalStatus, ...snapshot }) => ({ ...snapshot, citationState: readCitationState({ citationState: snapshot.citationState, retrievalStatus }) })),
+        .map(({ retrievalStatus, ...snapshot }) => ({ ...snapshot, citationState: readCitationState({ provider: snapshot.provider, citationState: snapshot.citationState, retrievalStatus }) })),
     }
   }
 

@@ -3136,7 +3136,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/analytics/metrics',
     summary: 'Get citation trend analytics',
     description:
-      'Citation and mention rates over time, overall and per provider. Mention reads every answer (total). Citation reads only the answers whose sources were checked: an answer from an engine that returns no sources (a local model) is counted in citationNotMeasured and left out, and citationRate is null where no answer had sources, never 0.',
+      'Citation and mention rates over time, overall and per provider. Mention reads every answer (total). Citation reads only the answers whose sources were checked: an answer from an engine that returns no sources (a local model) is counted in citationNotMeasured and left out, citedTotal carries that base (the answers whose sources were checked), and citationRate is null where no answer had sources, never 0.',
     tags: ['analytics'],
     parameters: [nameParameter, analyticsWindowParameter, metricsQueryClassParameter],
     responses: {

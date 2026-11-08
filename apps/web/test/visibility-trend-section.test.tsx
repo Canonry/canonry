@@ -381,11 +381,11 @@ test('reads the head and legend from the API rates, so a rate near either end ne
 function mixedEngineBucket(start: string, sweptAt: string, geminiCited: number) {
   return {
     startDate: start, endDate: start, dataStartDate: sweptAt, dataEndDate: sweptAt, sweepCount: 1,
-    citationRate: geminiCited / 2, cited: geminiCited, total: 4, citationNotMeasured: 2, queryCount: 2, mentionRate: 0.5, mentionedCount: 2,
+    citationRate: geminiCited / 2, cited: geminiCited, total: 4, citationNotMeasured: 2, citedTotal: 2, queryCount: 2, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { scope: 'non-brand', rate: null, projectMentionSnapshots: 2, competitorMentionSnapshots: 0 },
     byProvider: {
-      gemini: { citationRate: geminiCited / 2, cited: geminiCited, total: 2, citationNotMeasured: 0, mentionRate: 0.5, mentionedCount: 1 },
-      local: { citationRate: null, cited: 0, total: 2, citationNotMeasured: 2, mentionRate: 0.5, mentionedCount: 1 },
+      gemini: { citationRate: geminiCited / 2, cited: geminiCited, total: 2, citationNotMeasured: 0, citedTotal: 2, mentionRate: 0.5, mentionedCount: 1 },
+      local: { citationRate: null, cited: 0, total: 2, citationNotMeasured: 2, citedTotal: 0, mentionRate: 0.5, mentionedCount: 1 },
     },
     modelEvidenceByProvider: {},
   }

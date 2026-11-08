@@ -371,7 +371,7 @@ describe('By engine with an engine that returns no sources', () => {
 
   test('names how many of an engine\'s answers carried no sources when only some did', () => {
     const data = localBesideGemini()
-    // One stored Local answer predates retrieval status, so it reads as checked.
+    // When only some of an engine's answers carry no sources, the others still count.
     data.byQuery[0]!.providers[1] = { ...data.byQuery[0]!.providers[1]!, citationState: 'not-cited', cited: false }
     const { container } = renderCard(data, { classify: allNonBrand })
 
@@ -385,7 +385,7 @@ describe('By engine with an engine that returns no sources', () => {
       providerScores: [
         { provider: 'gemini', model: 'gemini-3.5-flash', score: 50, cited: 1, total: 2, citationNotMeasured: 0 },
         { provider: 'local', model: 'llama3', score: null, cited: 0, total: 3, citationNotMeasured: 3 },
-        // One answer stored before retrieval status reads as checked; the other two are not measured.
+        // One answer's sources were checked; the other two carried none.
         { provider: 'local', model: 'llama3:8b', score: 0, cited: 0, total: 3, citationNotMeasured: 2 },
       ],
     })

@@ -98,7 +98,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         mentionShareScope,
         queryClass,
         buckets: [],
-        overall: { citationRate: 0, cited: 0, total: 0, citationNotMeasured: 0, mentionRate: 0, mentionedCount: 0 },
+        overall: { citationRate: 0, cited: 0, total: 0, citationNotMeasured: 0, citedTotal: 0, mentionRate: 0, mentionedCount: 0 },
         byProvider: {},
         trend: 'stable',
         mentionTrend: 'stable',
@@ -598,6 +598,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         .select({
           queryId: querySnapshots.queryId,
           runId: querySnapshots.runId,
+          provider: querySnapshots.provider,
           citationState: querySnapshots.citationState,
           retrievalStatus: querySnapshots.retrievalStatus,
           answerMentioned: querySnapshots.answerMentioned,
@@ -702,6 +703,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         totalRuns: cons?.totalRuns.size ?? 0,
         mentionedRuns: cons?.mentionedRuns.size ?? 0,
         citationNotMeasuredRuns: (cons?.totalRuns.size ?? 0) - (cons?.citationMeasuredRuns.size ?? 0),
+        citedTotalRuns: cons?.citationMeasuredRuns.size ?? 0,
       }
 
       // Citation-based classification. A query none of whose latest answers
@@ -1181,6 +1183,7 @@ function computeProviderMetric(snapshots: SnapshotLike[]): ProviderMetric {
     cited,
     total,
     citationNotMeasured,
+    citedTotal: total - citationNotMeasured,
     mentionRate: total > 0 ? Math.round((mentionedCount / total) * 10000) / 10000 : 0,
     mentionedCount,
   }
@@ -1297,6 +1300,7 @@ function computeBuckets(
         cited: metric.cited,
         total: metric.total,
         citationNotMeasured: metric.citationNotMeasured,
+        citedTotal: metric.citedTotal,
         queryCount,
         mentionRate: metric.mentionRate,
         mentionedCount: metric.mentionedCount,

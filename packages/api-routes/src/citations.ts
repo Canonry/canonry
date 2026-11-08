@@ -93,7 +93,7 @@ export async function citationRoutes(app: FastifyInstance) {
       .map(({ retrievalStatus, ...s }) => ({
         ...s,
         queryId: s.queryId as string,
-        citationState: readCitationState({ citationState: s.citationState, retrievalStatus }),
+        citationState: readCitationState({ provider: s.provider, citationState: s.citationState, retrievalStatus }),
         runCreatedAt: runCreatedAt.get(s.runId) ?? s.createdAt,
       }))
 

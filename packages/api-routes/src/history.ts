@@ -505,6 +505,7 @@ export async function historyRoutes(app: FastifyInstance) {
         .select({
           queryId: querySnapshots.queryId,
           query: queries.query,
+          provider: querySnapshots.provider,
           citationState: querySnapshots.citationState,
           retrievalStatus: querySnapshots.retrievalStatus,
           answerMentioned: querySnapshots.answerMentioned,

@@ -1897,7 +1897,7 @@ export const getApiV1ProjectsByNameTimeline = <ThrowOnError extends boolean = fa
 /**
  * Get citation trend analytics
  *
- * Citation and mention rates over time, overall and per provider. Mention reads every answer (total). Citation reads only the answers whose sources were checked: an answer from an engine that returns no sources (a local model) is counted in citationNotMeasured and left out, and citationRate is null where no answer had sources, never 0.
+ * Citation and mention rates over time, overall and per provider. Mention reads every answer (total). Citation reads only the answers whose sources were checked: an answer from an engine that returns no sources (a local model) is counted in citationNotMeasured and left out, citedTotal carries that base (the answers whose sources were checked), and citationRate is null where no answer had sources, never 0.
  */
 export const getApiV1ProjectsByNameAnalyticsMetrics = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameAnalyticsMetricsData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameAnalyticsMetricsResponses, GetApiV1ProjectsByNameAnalyticsMetricsErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameAnalyticsMetricsResponses, GetApiV1ProjectsByNameAnalyticsMetricsErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

@@ -3596,7 +3596,7 @@ export const getApiV1ProjectsByNameAnalyticsMetricsQueryKey = (options: Options<
 /**
  * Get citation trend analytics
  *
- * Citation and mention rates over time, overall and per provider. Mention reads every answer (total). Citation reads only the answers whose sources were checked: an answer from an engine that returns no sources (a local model) is counted in citationNotMeasured and left out, and citationRate is null where no answer had sources, never 0.
+ * Citation and mention rates over time, overall and per provider. Mention reads every answer (total). Citation reads only the answers whose sources were checked: an answer from an engine that returns no sources (a local model) is counted in citationNotMeasured and left out, citedTotal carries that base (the answers whose sources were checked), and citationRate is null where no answer had sources, never 0.
  */
 export const getApiV1ProjectsByNameAnalyticsMetricsOptions = (options: Options<GetApiV1ProjectsByNameAnalyticsMetricsData>) => queryOptions<GetApiV1ProjectsByNameAnalyticsMetricsResponse, GetApiV1ProjectsByNameAnalyticsMetricsError, GetApiV1ProjectsByNameAnalyticsMetricsResponse, ReturnType<typeof getApiV1ProjectsByNameAnalyticsMetricsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

@@ -1177,17 +1177,17 @@ export const CITATION_NOT_MEASURED_TREND_COPY = {
 
 /**
  * One point's rate with its count and base, as the API sent them. Cited reads
- * over the answers whose sources were checked (`total - citationNotMeasured`),
- * so its rate is null when every answer came from an engine without sources.
+ * over the answers whose sources were checked (`citedTotal`), so its rate is
+ * null when every answer came from an engine without sources.
  */
 interface PointMetric { count: number; total: number; rate: number | null }
 
 function metricCounts(
-  row: Pick<MetricsBucket, 'cited' | 'total' | 'citationNotMeasured' | 'citationRate' | 'mentionedCount' | 'mentionRate'>,
+  row: Pick<MetricsBucket, 'cited' | 'total' | 'citedTotal' | 'citationRate' | 'mentionedCount' | 'mentionRate'>,
   metric: Exclude<MetricChoice, 'mentionShare'>,
 ): PointMetric {
   return metric === 'cited'
-    ? { count: row.cited, total: row.total - row.citationNotMeasured, rate: row.citationRate }
+    ? { count: row.cited, total: row.citedTotal ?? row.total, rate: row.citationRate }
     : { count: row.mentionedCount, total: row.total, rate: row.mentionRate }
 }
 

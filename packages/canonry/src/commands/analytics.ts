@@ -1,4 +1,4 @@
-import { buildModelChangeNotice, formatPercent, formatSignedPointDelta, queryClassFilterSchema, type ModelPointerChangeDisclosure, type QueryClassFilter, type WindowRateChange } from '@canonry/canonry-contracts'
+import { buildModelChangeNotice, formatPercent, formatSignedPointDelta, queryClassFilterSchema, type ModelPointerChangeDisclosure, type ProviderMetric, type QueryClassFilter, type WindowRateChange } from '@canonry/canonry-contracts'
 import { createApiClient, type BrandMetricsDto, type GapAnalysisDto, type SourceBreakdownDto } from '../client.js'
 import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 
@@ -211,29 +211,22 @@ function printMetrics(data: BrandMetricsDto): void {
 }
 
 /** The citation figure inputs; an older server omits `citationNotMeasured` and sends a numeric rate. */
-interface CitedMetric {
-  citationRate: number | null
-  cited: number
-  total: number
-  citationNotMeasured?: number
-}
-
 /**
- * A cited rate with its base: the answers whose sources were checked. An
- * engine that returns no sources has no rate, so it reads "not measured",
- * never 0%.
+ * A cited rate with its base, both as the server sent them: the base is the
+ * answers whose sources were checked (`citedTotal`). An engine that returns no
+ * sources has no rate, so it reads "not measured", never 0%. An older server
+ * sends no `citedTotal`; its base was every answer.
  */
-function citedFigure(metric: CitedMetric, rateWidth = 0): string {
-  const notMeasured = metric.citationNotMeasured ?? 0
+function citedFigure(metric: ProviderMetric, rateWidth = 0): string {
   if (metric.citationRate === null) {
     return `not measured (${metric.total} ${metric.total === 1 ? 'answer' : 'answers'} without sources)`
   }
-  const excluded = notMeasured > 0 ? `, ${notMeasured} not measured` : ''
-  return `${formatPercent(metric.citationRate).padStart(rateWidth)} (${metric.cited}/${metric.total - notMeasured}${excluded})`
+  const excluded = metric.citationNotMeasured > 0 ? `, ${metric.citationNotMeasured} not measured` : ''
+  return `${formatPercent(metric.citationRate).padStart(rateWidth)} (${metric.cited}/${metric.citedTotal ?? metric.total}${excluded})`
 }
 
 /** One timeline row's rate and bar; a point with no checked answer has neither. */
-function citedBar(metric: CitedMetric): string {
+function citedBar(metric: ProviderMetric): string {
   if (metric.citationRate === null) return `${'n/m'.padStart(6)}  not measured`
   const bar = metric.total > 0 ? '█'.repeat(Math.round(metric.citationRate * 20)) : ''
   return `${formatPercent(metric.citationRate).padStart(6)}  ${bar}`
@@ -310,16 +303,17 @@ function formatModelEvidence(state: BrandMetricsDto['modelAttribution'][string][
 }
 
 /**
- * The runs a query's citation consistency is out of: those where an answer's
- * sources were checked. An older server omits the not-measured count.
+ * The runs a query's citation consistency is out of, as the server sent it:
+ * those where an answer's sources were checked. An older server sends no
+ * `citedTotalRuns`; its base was every run.
  */
 function citedRunBase(consistency: GapAnalysisDto['cited'][number]['consistency']): number {
-  return consistency.totalRuns - ((consistency as { citationNotMeasuredRuns?: number }).citationNotMeasuredRuns ?? 0)
+  return consistency.citedTotalRuns ?? consistency.totalRuns
 }
 
 function printGaps(data: GapAnalysisDto): void {
   // An older server omits the lane; none of its queries was set apart.
-  const notMeasured = (data as { citationNotMeasured?: GapAnalysisDto['citationNotMeasured'] }).citationNotMeasured ?? []
+  const notMeasured = data.citationNotMeasured ?? []
   console.log(`\nBrand Gap Analysis`)
   console.log('─'.repeat(50))
   console.log(`  Cited: ${data.cited.length}  |  Gap: ${data.gap.length}  |  Uncited: ${data.uncited.length}${notMeasured.length > 0 ? `  |  Not measured: ${notMeasured.length}` : ''}`)

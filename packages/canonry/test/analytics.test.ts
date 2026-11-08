@@ -749,21 +749,21 @@ describe('analytics command', () => {
   })
 
   it('prints an engine without sources as not measured, and cited rates over the answers with sources', async () => {
-    const local = { citationRate: null, cited: 0, total: 4, citationNotMeasured: 4, mentionRate: 0.5, mentionedCount: 2 }
+    const local = { citationRate: null, cited: 0, total: 4, citationNotMeasured: 4, citedTotal: 0, mentionRate: 0.5, mentionedCount: 2 }
     const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
       ...metricsWith(),
       buckets: [{
         startDate: '2026-07-10T00:00:00.000Z', endDate: '2026-07-11T00:00:00.000Z',
         dataStartDate: '2026-07-10T09:00:00.000Z', dataEndDate: '2026-07-10T09:00:00.000Z', sweepCount: 1,
-        citationRate: null, cited: 0, total: 4, citationNotMeasured: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+        citationRate: null, cited: 0, total: 4, citationNotMeasured: 4, citedTotal: 0, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
         mentionShare: { scope: 'non-brand', rate: null, projectMentionSnapshots: 2, competitorMentionSnapshots: 0 },
         byProvider: { local },
         modelEvidenceByProvider: {},
         basketRevision: null,
       }],
-      overall: { citationRate: 0.25, cited: 1, total: 8, citationNotMeasured: 4, mentionRate: 0.5, mentionedCount: 4 },
+      overall: { citationRate: 0.25, cited: 1, total: 8, citationNotMeasured: 4, citedTotal: 4, mentionRate: 0.5, mentionedCount: 4 },
       byProvider: {
-        gemini: { citationRate: 0.25, cited: 1, total: 4, citationNotMeasured: 0, mentionRate: 0.5, mentionedCount: 2 },
+        gemini: { citationRate: 0.25, cited: 1, total: 4, citationNotMeasured: 0, citedTotal: 4, mentionRate: 0.5, mentionedCount: 2 },
         local,
       },
       windowChange: { citationRate: null, mentionRate: null, mentionShare: null },
@@ -771,9 +771,10 @@ describe('analytics command', () => {
     })
     const gapsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsGaps').mockResolvedValue({
       cited: [],
-      gap: [],
-      uncited: [{ query: 'crm for agencies', queryId: 'q1', category: 'uncited', providers: [], competitorsCiting: [], competitorsMentioned: [], consistency: { citedRuns: 1, totalRuns: 3, mentionedRuns: 2, citationNotMeasuredRuns: 1 } }],
-      citationNotMeasured: [{ query: 'crm pricing', queryId: 'q2', category: 'not-measured', providers: [], competitorsCiting: [], competitorsMentioned: [], consistency: { citedRuns: 0, totalRuns: 2, mentionedRuns: 0, citationNotMeasuredRuns: 2 } }],
+      // Cited in 1 of the 2 sweeps whose sources were checked; the third had none.
+      gap: [{ query: 'crm for agencies', queryId: 'q1', category: 'gap', providers: [], competitorsCiting: ['rival.example'], competitorsMentioned: [], consistency: { citedRuns: 1, totalRuns: 3, mentionedRuns: 2, citationNotMeasuredRuns: 1, citedTotalRuns: 2 } }],
+      uncited: [],
+      citationNotMeasured: [{ query: 'crm pricing', queryId: 'q2', category: 'not-measured', providers: [], competitorsCiting: [], competitorsMentioned: [], consistency: { citedRuns: 0, totalRuns: 2, mentionedRuns: 0, citationNotMeasuredRuns: 2, citedTotalRuns: 0 } }],
       mentionedQueries: [],
       mentionGap: [],
       notMentioned: [],
@@ -792,7 +793,9 @@ describe('analytics command', () => {
       expect(metrics.join('\n')).not.toMatch(/local\s+0%/)
 
       const gaps = (await captureOutput(() => showAnalytics('test-proj', { feature: 'gaps' }))).stdout.split('\n')
-      expect(gaps).toContain('  Cited: 0  |  Gap: 0  |  Uncited: 1  |  Not measured: 1')
+      expect(gaps).toContain('  Cited: 0  |  Gap: 1  |  Uncited: 0  |  Not measured: 1')
+      // The base is the server's citedTotalRuns, never every sweep.
+      expect(gaps).toContain('    • crm for agencies [cited 1/2 runs]')
       expect(gaps).toContain('    · crm pricing')
     } finally {
       metricsSpy.mockRestore()

@@ -49,7 +49,13 @@ Extracts analyst-relevant fields:
 
 A local model cannot search the web, so its answers have no source links and a citation can never be observed. The sweep stores `citation_state = 'not-measured'` for every local answer (`determineCitationState` in `packages/canonry/src/citation-utils.ts` reads the adapter's `citationMeasurable: false`). Every citation figure leaves these answers out of both the cited count and its denominator, and the API, CLI, MCP and dashboard show them as "Not measured", never "not cited".
 
-Answers recorded before `not-measured` existed hold `citation_state = 'not-cited'`. They are not rewritten. Their `retrieval_status` is `not-applicable` (recorded since migration 112), so `readCitationState` (`packages/contracts/src/citation-measurement.ts`) reads them as not measured too. Rows from before migration 112 have no retrieval status and keep their stored state, because nothing on them says they could not cite.
+Answers recorded before `not-measured` existed are not rewritten, and `readCitationState` (`packages/contracts/src/citation-measurement.ts`) reads every stored Local row as not measured, whatever it holds. The adapter has never returned a source link, and its older rows were stored three ways:
+
+- Until #871 (2026-07-28) it filled `citedDomains` with domains written in the answer text, so a row could hold `cited`. A domain written in prose is a mention, never a source link.
+- Until migration 112 (2026-07-30) rows held `not-cited` with no retrieval status.
+- After that, `not-cited` with `retrieval_status = 'not-applicable'`.
+
+Reading all of them the same way keeps one method across a Local series, so a trend, comparison or run diff that spans the upgrade never mixes rows that counted as misses with rows that are not measured.
 
 The answer text is still checked for the brand and the project's domains, so local answers count toward mention rates like any other engine. The system prompt asks the model to write domain names, which helps that match. A local model answers from its training data, not a live search, so treat its mentions as a rough signal.
 

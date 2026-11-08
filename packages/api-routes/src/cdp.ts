@@ -174,7 +174,7 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
         .from(querySnapshots)
         .where(eq(querySnapshots.runId, runId))
         .all())
-        .map(({ retrievalStatus, ...snapshot }) => ({ ...snapshot, citationState: readCitationState({ citationState: snapshot.citationState, retrievalStatus }) }))
+        .map(({ retrievalStatus, ...snapshot }) => ({ ...snapshot, citationState: readCitationState({ provider: snapshot.provider, citationState: snapshot.citationState, retrievalStatus }) }))
 
       // Get query texts
       const queryRows = app.db

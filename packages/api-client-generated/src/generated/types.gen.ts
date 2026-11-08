@@ -4755,6 +4755,7 @@ export type BrandMetricsDto = {
         cited: number;
         total: number;
         citationNotMeasured: number;
+        citedTotal?: number;
         queryCount: number;
         mentionRate: number;
         mentionedCount: number;
@@ -4770,6 +4771,7 @@ export type BrandMetricsDto = {
                 cited: number;
                 total: number;
                 citationNotMeasured: number;
+                citedTotal?: number;
                 mentionRate: number;
                 mentionedCount: number;
             };
@@ -4793,6 +4795,7 @@ export type BrandMetricsDto = {
         cited: number;
         total: number;
         citationNotMeasured: number;
+        citedTotal?: number;
         mentionRate: number;
         mentionedCount: number;
     };
@@ -4802,6 +4805,7 @@ export type BrandMetricsDto = {
             cited: number;
             total: number;
             citationNotMeasured: number;
+            citedTotal?: number;
             mentionRate: number;
             mentionedCount: number;
         };
