@@ -24,6 +24,12 @@ portable specification.
   closed to `$schema` + `mcpServers`. Client-only metadata stays in the adapter
   manifests. Bundled `SKILL.md` frontmatter follows Agent Skills, including
   string-valued `metadata` entries.
+- Root `plugin.json` declares every `mcp.json` server `untrusted` under
+  `extensions["com.nousresearch.hermes"].servers`, so Hermes asks before each
+  tool not annotated `readOnlyHint: true`. Hermes rejects the package when that
+  map names a server `mcp.json` lacks. `pnpm plugin:check` enforces both.
+- The README's `npm install -g @canonry/canonry@<version>` pins the package
+  version; `pnpm plugin:sync` rewrites it and `pnpm plugin:check` fails on drift.
 - Canonical skill edits happen only under `skills/`. Run `pnpm plugin:sync`
   afterward and commit the mirrors; CI runs `pnpm plugin:check`.
 - Native-plugin setup uses `canonry init --skip-skills --skip-mcp`; those flags
