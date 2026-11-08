@@ -482,9 +482,9 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       trend: [84, 84, 83, 82, 82],
     },
     providerScores: [
-      { provider: 'gemini', model: 'gemini-2.5-flash', score: 55.56, cited: 5, total: 9 },
-      { provider: 'openai', model: 'gpt-5.4', score: 66.666667, cited: 6, total: 9 },
-      { provider: 'claude', model: 'claude-sonnet-4-6', score: 44.44, cited: 4, total: 9 },
+      { provider: 'gemini', model: 'gemini-2.5-flash', score: 55.56, cited: 5, total: 9, citationNotMeasured: 0 },
+      { provider: 'openai', model: 'gpt-5.4', score: 66.666667, cited: 6, total: 9, citationNotMeasured: 0 },
+      { provider: 'claude', model: 'claude-sonnet-4-6', score: 44.44, cited: 4, total: 9, citationNotMeasured: 0 },
     ],
     queryCounts: { cited: 6, total: 9 },
     movementComparison: {
@@ -691,8 +691,8 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       trend: [88, 89, 89, 90, 91],
     },
     providerScores: [
-      { provider: 'gemini', model: 'gemini-2.5-flash', score: 75, cited: 3, total: 4 },
-      { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4 },
+      { provider: 'gemini', model: 'gemini-2.5-flash', score: 75, cited: 3, total: 4, citationNotMeasured: 0 },
+      { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4, citationNotMeasured: 0 },
     ],
     queryCounts: { cited: 3, total: 4 },
     movementComparison: {
@@ -877,7 +877,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       trend: [68, 69, 70, 71, 71],
     },
     providerScores: [
-      { provider: 'openai', model: 'gpt-5.4', score: 57.14, cited: 4, total: 7 },
+      { provider: 'openai', model: 'gpt-5.4', score: 57.14, cited: 4, total: 7, citationNotMeasured: 0 },
     ],
     queryCounts: { cited: 4, total: 7 },
     movementComparison: {

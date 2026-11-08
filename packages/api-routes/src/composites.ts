@@ -21,6 +21,8 @@ import { SentimentService, type SentimentServiceOptions } from './sentiment-serv
 import { buildMentionShareInputs } from './mention-share-inputs.js'
 import {
   CitationStates,
+  isCitationStateMeasured,
+  readCitationState,
   competitorAutoAliasNames,
   formatPercent,
   PROJECT_OVERVIEW_QUERY_CLASS_SCOPE,
@@ -567,6 +569,7 @@ function loadSnapshotsByRunIds(
       provider: querySnapshots.provider,
       model: querySnapshots.model,
       citationState: querySnapshots.citationState,
+      retrievalStatus: querySnapshots.retrievalStatus,
       answerMentioned: querySnapshots.answerMentioned,
       mentionIdentity: querySnapshots.mentionIdentity,
       answerText: querySnapshots.answerText,
@@ -609,7 +612,7 @@ function loadSnapshotsByRunIds(
       archived,
       provider: row.provider,
       model: row.model,
-      citationState: row.citationState as CitationState,
+      citationState: readCitationState(row),
       answerMentioned: row.answerMentioned,
       mentionIdentity: row.mentionIdentity,
       answerText: row.answerText,
@@ -642,6 +645,7 @@ function summarizeFromSnapshots(
       citedQueries: 0,
       notCitedQueries: 0,
       citedRate: 0,
+      citationNotMeasuredQueries: 0,
       mentionedQueries: 0,
       notMentionedQueries: 0,
       mentionRate: 0,
@@ -650,28 +654,34 @@ function summarizeFromSnapshots(
   }
   if (snapshots.length === 0) return empty
 
-  const { totalQueries, citedQueries, mentionedQueries } = summarizeObservedQueryCounts(snapshots)
-  const perProvider = new Map<string, { cited: number; total: number }>()
+  const { totalQueries, citedQueries, mentionedQueries, citationNotMeasuredQueries = 0 } = summarizeObservedQueryCounts(snapshots)
+  const perProvider = new Map<string, { cited: number; total: number; citationNotMeasured: number }>()
   for (const snap of snapshots) {
     const cited = snap.citationState === CitationStates.cited
-    const bucket = perProvider.get(snap.provider) ?? { cited: 0, total: 0 }
+    const bucket = perProvider.get(snap.provider) ?? { cited: 0, total: 0, citationNotMeasured: 0 }
     bucket.total += 1
     if (cited) bucket.cited += 1
+    if (!isCitationStateMeasured(snap.citationState)) bucket.citationNotMeasured += 1
     perProvider.set(snap.provider, bucket)
   }
 
-  const notCitedQueries = totalQueries - citedQueries
-  const citedRate = totalQueries === 0 ? 0 : Number((citedQueries / totalQueries).toFixed(4))
+  // A query none of whose answers carries sources is neither cited nor not cited.
+  const citationMeasuredQueries = totalQueries - citationNotMeasuredQueries
+  const notCitedQueries = citationMeasuredQueries - citedQueries
+  const citedRate = citationMeasuredQueries === 0
+    ? (totalQueries === 0 ? 0 : null)
+    : Number((citedQueries / citationMeasuredQueries).toFixed(4))
 
   const notMentionedQueries = totalQueries - mentionedQueries
   const mentionRate = totalQueries === 0 ? 0 : Number((mentionedQueries / totalQueries).toFixed(4))
 
   const providers: ProjectOverviewProviderEntryDto[] = [...perProvider.entries()]
-    .map(([provider, { cited, total }]) => ({
+    .map(([provider, { cited, total, citationNotMeasured }]) => ({
       provider,
       cited,
       total,
-      citedRate: total === 0 ? 0 : Number((cited / total).toFixed(4)),
+      citationNotMeasured,
+      citedRate: total === citationNotMeasured ? null : Number((cited / (total - citationNotMeasured)).toFixed(4)),
     }))
     .sort((a, b) => a.provider.localeCompare(b.provider))
 
@@ -681,6 +691,7 @@ function summarizeFromSnapshots(
       citedQueries,
       notCitedQueries,
       citedRate,
+      citationNotMeasuredQueries,
       mentionedQueries,
       notMentionedQueries,
       mentionRate,
@@ -700,6 +711,9 @@ function summarizeTransitionsFromSnapshots(
   const buildMap = (snaps: readonly OverviewSnapshot[]): Map<string, boolean> => {
     const m = new Map<string, boolean>()
     for (const s of snaps) {
+      // An answer without sources observed nothing about citation, so it can
+      // neither gain nor lose one; a query only it answered is absent here.
+      if (!isCitationStateMeasured(s.citationState)) continue
       const cited = s.citationState === CitationStates.cited
       if (!m.has(s.queryId) || cited) m.set(s.queryId, cited)
     }

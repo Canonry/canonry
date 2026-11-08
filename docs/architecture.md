@@ -55,7 +55,7 @@ flowchart LR
 1. Analyst runs `canonry run <project>` with the project default location, an explicit `--location`, `--all-locations`, or no location context
 2. API creates a run record and enqueues a job
 3. Job runner resolves the run location, fans out `executeTrackedQuery` for each query across all configured providers via the provider registry, and passes the location hint to providers
-4. Raw observation snapshots (`cited` / `not-cited`) are persisted per query per run, tagged with the run's location label when present
+4. Raw observation snapshots (`cited` / `not-cited`, or `not-measured` for an engine that returns no sources) are persisted per query per run, tagged with the run's location label when present
 5. Transitions (`lost`, `emerging`) are computed at query time by comparing consecutive snapshots
 6. Dashboard polls API for results and renders visibility data
 

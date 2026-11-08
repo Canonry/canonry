@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import {
+  CitationStates,
   buildSimpleMeasurementDefinition,
   buildMeasurementExecutionIdentity,
   canonicalMeasurementExecutionIdentityJson,
@@ -274,7 +275,7 @@ export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void
         return {
           id: `${portfolioRunId}-${node.stableKey}-${identity.provider}`, runId: portfolioRunId, queryId: node.queryId, queryText: node.queryText,
           provider: identity.provider, model: identity.requestedModel, servedModel: identity.servedModel,
-          citationState: cited ? 'cited' : 'not-cited', answerMentioned: cited,
+          citationState: cited ? CitationStates.cited : CitationStates['not-cited'], answerMentioned: cited,
           answerText: cited ? `Fictional answer: ${target.label} is a Harbor Resorts option for this stay.` : `Fictional answer: ${providerIndex === 1 ? 'Coastal Stays' : 'Seaside Collection'} is recommended instead.`,
           citedDomains: cited ? [context.portfolio.domain] : [competitor],
           citedUrls: cited ? [`https://${context.portfolio.domain}${target.urlMatchers[0]!.kind === 'prefix' ? target.urlMatchers[0].pathPrefix : '/'}`] : [`https://${competitor}/guides/luxury-stays`],

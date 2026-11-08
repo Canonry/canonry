@@ -72,7 +72,18 @@ export const runTriggerSchema = z.enum(['manual', 'scheduled', 'config-apply', '
 export type RunTrigger = z.infer<typeof runTriggerSchema>
 export const RunTriggers = runTriggerSchema.enum
 
-export const citationStateSchema = z.enum(['cited', 'not-cited'])
+/**
+ * Whether the project's domain is among an answer's source links.
+ *
+ * - `cited`         a source link belongs to the project
+ * - `not-cited`     the answer's sources were checked and none belongs to the project
+ * - `not-measured`  the engine returned no sources tied to the answer (a local
+ *                   model has no web access), so a citation was never observed.
+ *                   It is not a miss: it leaves every cited numerator and
+ *                   denominator. Read stored rows through `readCitationState`,
+ *                   which also reads older rows of such engines this way.
+ */
+export const citationStateSchema = z.enum(['cited', 'not-cited', 'not-measured'])
 export type CitationState = z.infer<typeof citationStateSchema>
 export const CitationStates = citationStateSchema.enum
 
@@ -630,6 +641,12 @@ export const observedQueryCountsSchema = z.object({
   totalQueries: z.number().int().nonnegative(),
   citedQueries: z.number().int().nonnegative(),
   mentionedQueries: z.number().int().nonnegative(),
+  /**
+   * Queries none of whose answers carries sources (an engine without web
+   * access), so their citation was never measured. `citedQueries` is out of
+   * `totalQueries` minus these. Omitted by servers before it existed.
+   */
+  citationNotMeasuredQueries: z.number().int().nonnegative().optional(),
 })
 export type ObservedQueryCounts = z.infer<typeof observedQueryCountsSchema>
 

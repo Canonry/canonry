@@ -106,4 +106,7 @@ describe('citationStateToCited', () => {
   it('maps not-cited to false', () => {
     expect(citationStateToCited('not-cited')).toBe(false)
   })
+  it('maps not-measured to null, never a miss', () => {
+    expect(citationStateToCited('not-measured')).toBeNull()
+  })
 })

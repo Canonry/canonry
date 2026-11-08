@@ -99,7 +99,7 @@ When proposing work, requesting feedback, or showcasing changes:
 - All internal packages use `@canonry/canonry-*` naming convention.
 - Keep environment parsing in `packages/config`, provider logic in `packages/provider-*/`, and route plugins in `packages/api-routes` (no app-level concerns; thin handlers).
 - Keep the canonry app independent from the audit package repo except for the published npm dependency.
-- Store raw observation snapshots only (`cited` / `not-cited`); compute transitions at query time.
+- Store raw observation snapshots only (`cited` / `not-cited`, or `not-measured` when the engine returns no sources); compute transitions at query time.
 
 ## Vocabulary (Critical)
 
@@ -108,7 +108,7 @@ Every (query × provider) snapshot carries two independent signals — a model c
 | Term | Meaning | Source field |
 |------|---------|--------------|
 | **mention / mentioned** | The project's brand or domain appears in the LLM's answer prose. Citation links written into the text (chips such as `([domain](url))`, links labelled with a URL or a lowercase host, `[1]` markers, bare `http(s)://` URLs) are citations and never count; match through `answerProseForMentions`. | `query_snapshots.answer_mentioned` (boolean) |
-| **cited** | The project's domain appears in the answer's source links / grounding. | `query_snapshots.citation_state` = `'cited'` |
+| **cited** | The project's domain appears in the answer's source links / grounding. An engine that returns no sources (Local) records `'not-measured'`, which is never a miss. | `query_snapshots.citation_state` = `'cited'`, read through `readCitationState` |
 
 1. Say `mention` / `mentioned` for answer-text presence. `answer`, `visible`, and `visibility` are legacy terms (`visibility_state`, run kind `answer-visibility`, `visibilityStateFromAnswerMentioned`); new APIs, fields, flags, and UI labels say `mentioned` (`mentionRate`, never `answerRate`).
 2. Say `cited` for source-list presence; never use `citation` as an umbrella for both.

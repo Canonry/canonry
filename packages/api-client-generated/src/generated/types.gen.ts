@@ -5026,11 +5026,13 @@ export type CitationVisibilityResponse = {
         providersConfigured: number;
         providersCiting: number;
         providersMentioning: number;
+        providersCitationNotMeasured: number;
         totalQueries: number;
         queriesCitedAndMentioned: number;
         queriesCitedOnly: number;
         queriesMentionedOnly: number;
         queriesInvisible: number;
+        queriesCitationNotMeasured: number;
         latestRunId: string | null;
         latestRunAt: string | null;
     };
@@ -5039,8 +5041,8 @@ export type CitationVisibilityResponse = {
         query: string;
         providers: Array<{
             provider: string;
-            citationState: 'cited' | 'not-cited';
-            cited: boolean;
+            citationState: 'cited' | 'not-cited' | 'not-measured';
+            cited: boolean | null;
             mentioned: boolean;
             runId: string;
             runCreatedAt: string;
@@ -5048,6 +5050,7 @@ export type CitationVisibilityResponse = {
         citedCount: number;
         mentionedCount: number;
         totalProviders: number;
+        citationNotMeasured: number;
     }>;
     competitorGaps: Array<{
         queryId: string;
@@ -6069,7 +6072,7 @@ export type DiscoverySessionDetailDto = {
         projectId: string;
         query: string;
         bucket: 'cited' | 'aspirational' | 'wasted-surface' | null;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         citedDomains: Array<string>;
         answerMentioned: boolean | null;
         createdAt: string;
@@ -6228,7 +6231,7 @@ export type ResearchBatchDto = {
             namedCompetitors: Array<string>;
             citedCompetitorDomains: Array<string>;
             answerMentioned: boolean | null;
-            citationState: 'cited' | 'not-cited' | null;
+            citationState: 'cited' | 'not-cited' | 'not-measured' | null;
             error: string | null;
             startedAt: string | null;
             finishedAt: string | null;
@@ -6433,7 +6436,7 @@ export type ResearchRunDetailDto = {
         namedCompetitors: Array<string>;
         citedCompetitorDomains: Array<string>;
         answerMentioned: boolean | null;
-        citationState: 'cited' | 'not-cited' | null;
+        citationState: 'cited' | 'not-cited' | 'not-measured' | null;
         error: string | null;
         startedAt: string | null;
         finishedAt: string | null;
@@ -9592,7 +9595,7 @@ export type LatestProjectRunDto = {
             queryId: string;
             query?: string;
             provider: string;
-            citationState: 'cited' | 'not-cited';
+            citationState: 'cited' | 'not-cited' | 'not-measured';
             answerMentioned?: boolean;
             visibilityState?: 'visible' | 'not-visible';
             mentionState?: 'mentioned' | 'not-mentioned';
@@ -9758,6 +9761,7 @@ export type LatestProjectRunDto = {
             totalQueries: number;
             citedQueries: number;
             mentionedQueries: number;
+            citationNotMeasuredQueries?: number;
         } | null;
         providerBatches?: Array<{
             id: string;
@@ -14671,7 +14675,7 @@ export type ProjectOverviewDto = {
                 queryId: string;
                 query?: string;
                 provider: string;
-                citationState: 'cited' | 'not-cited';
+                citationState: 'cited' | 'not-cited' | 'not-measured';
                 answerMentioned?: boolean;
                 visibilityState?: 'visible' | 'not-visible';
                 mentionState?: 'mentioned' | 'not-mentioned';
@@ -14837,6 +14841,7 @@ export type ProjectOverviewDto = {
                 totalQueries: number;
                 citedQueries: number;
                 mentionedQueries: number;
+                citationNotMeasuredQueries?: number;
             } | null;
             providerBatches?: Array<{
                 id: string;
@@ -14944,16 +14949,18 @@ export type ProjectOverviewDto = {
         totalQueries: number;
         citedQueries: number;
         notCitedQueries: number;
-        citedRate: number;
+        citedRate: number | null;
+        citationNotMeasuredQueries: number;
         mentionedQueries: number;
         notMentionedQueries: number;
         mentionRate: number;
     };
     providers: Array<{
         provider: string;
-        citedRate: number;
+        citedRate: number | null;
         cited: number;
         total: number;
+        citationNotMeasured: number;
     }>;
     transitions: {
         since: string | null;
@@ -15140,9 +15147,10 @@ export type ProjectOverviewDto = {
     providerScores: Array<{
         provider: string;
         model: string | null;
-        score: number;
+        score: number | null;
         cited: number;
         total: number;
+        citationNotMeasured: number;
         trend?: Array<number>;
     }>;
     attentionItems: Array<{
@@ -15273,7 +15281,7 @@ export type ProjectSearchResponseDto = {
         query: string;
         provider: string;
         model: string | null;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         matchedField: 'answerText' | 'citedDomains' | 'citedUrls' | 'searchQueries' | 'query';
         snippet: string;
         createdAt: string;
@@ -15469,7 +15477,7 @@ export type ResultsExportDto = {
         provider: string;
         model: string | null;
         location: string | null;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         cited: boolean;
         answerMentioned: boolean | null;
         mentionState: 'mentioned' | 'not-mentioned' | null;
@@ -15693,7 +15701,7 @@ export type RunDetailDto = {
         queryId: string;
         query?: string;
         provider: string;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         answerMentioned?: boolean;
         visibilityState?: 'visible' | 'not-visible';
         mentionState?: 'mentioned' | 'not-mentioned';
@@ -15859,6 +15867,7 @@ export type RunDetailDto = {
         totalQueries: number;
         citedQueries: number;
         mentionedQueries: number;
+        citationNotMeasuredQueries?: number;
     } | null;
     providerBatches?: Array<{
         id: string;
@@ -17352,8 +17361,8 @@ export type SnapshotDiffResponse = {
     diff: Array<{
         queryId: string | null;
         query: string | null;
-        run1State: 'cited' | 'not-cited' | null;
-        run2State: 'cited' | 'not-cited' | null;
+        run1State: 'cited' | 'not-cited' | 'not-measured' | null;
+        run2State: 'cited' | 'not-cited' | 'not-measured' | null;
         run1AnswerMentioned: boolean | null;
         run2AnswerMentioned: boolean | null;
         run1VisibilityState: 'visible' | 'not-visible' | null;
@@ -17372,7 +17381,7 @@ export type SnapshotListResponse = {
         queryId: string;
         query?: string;
         provider: string;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         answerMentioned?: boolean;
         visibilityState?: 'visible' | 'not-visible';
         mentionState?: 'mentioned' | 'not-mentioned';

@@ -1,6 +1,6 @@
 import React, { useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { formatPercent, RatioUnits, type CitationVisibilityResponse } from '@canonry/canonry-contracts'
+import { CitationStates, formatPercent, RatioUnits, type CitationVisibilityResponse } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameCitationsVisibilityOptions } from '@canonry/canonry-api-client/react-query'
 import { heyClient, isDashboardManagedSweeps } from '../../api.js'
 import type { ProjectCommandCenterVm } from '../../view-models.js'
@@ -28,6 +28,8 @@ export interface ByEngineCounts {
   answered: number
   mentioned: number
   cited: number
+  /** Answers whose sources were checked: the base for `cited`. An engine that returns no sources has none. */
+  citationMeasured: number
 }
 
 /** One query class of the By engine card, from each query's latest answer per engine. */
@@ -52,6 +54,8 @@ export interface ByEngineClass {
   namedNotCited: number
   /** Queries no engine cites you on or names you on. */
   neither: number
+  /** Queries whose every answer carries no sources, so no bucket above can claim a citation either way. */
+  citationNotMeasured: number
 }
 
 /**
@@ -72,7 +76,7 @@ export function byEngineClasses(data: CitationVisibilityResponse, classify: Quer
         key,
         queries: 0,
         unanswered: 0,
-        engines: providers.map(provider => ({ provider, answered: 0, mentioned: 0, cited: 0 })),
+        engines: providers.map(provider => ({ provider, answered: 0, mentioned: 0, cited: 0, citationMeasured: 0 })),
         answers: 0,
         competitorCited: 0,
         competitorGaps: [],
@@ -80,6 +84,7 @@ export function byEngineClasses(data: CitationVisibilityResponse, classify: Quer
         citedNotNamed: 0,
         namedNotCited: 0,
         neither: 0,
+        citationNotMeasured: 0,
       }
       classes.set(key, entry)
     }
@@ -102,11 +107,15 @@ export function byEngineClasses(data: CitationVisibilityResponse, classify: Quer
       engine.answered++
       if (answer.mentioned) engine.mentioned++
       if (answer.cited) engine.cited++
+      if (answer.citationState !== CitationStates['not-measured']) engine.citationMeasured++
       entry.answers++
     }
     const anyCited = row.providers.some(answer => answer.cited)
     const anyMentioned = row.providers.some(answer => answer.mentioned)
-    if (anyCited && anyMentioned) entry.citedAndNamed++
+    // The server's bucket rule: with no answer's sources checked, "named but
+    // not cited" or "neither" would assert an absence nothing measured.
+    if (row.providers.every(answer => answer.citationState === CitationStates['not-measured'])) entry.citationNotMeasured++
+    else if (anyCited && anyMentioned) entry.citedAndNamed++
     else if (anyCited) entry.citedNotNamed++
     else if (anyMentioned) entry.namedNotCited++
     else entry.neither++
@@ -159,7 +168,14 @@ const SPOKEN_CLASS: Record<VisibilityRowKey, string> = {
   unclassified: 'unclassified queries',
 }
 
-const BY_ENGINE_TOOLTIP = 'Each engine\'s latest answer to each query, spot checks left out. Mentioned: the answer names you. Cited: its sources link to your site. Competitor cited instead of you: answers that cite a tracked competitor\'s site and not yours.'
+const BY_ENGINE_TOOLTIP = 'Each engine\'s latest answer to each query, spot checks left out. Mentioned: the answer names you. Cited: its sources link to your site. Not measured: the engine returns no sources, so whether it cites you cannot be checked. Competitor cited instead of you: answers that cite a tracked competitor\'s site and not yours.'
+
+/** The Cited cell and Details copy for an engine whose answers carry no sources. */
+export const CITATION_NOT_MEASURED_COPY = {
+  cell: 'Not measured',
+  engine: (engine: string) => `${engine}: citations not measured, the engine returns no sources`,
+  someAnswers: (engine: string, count: number, answered: number) => `${engine}: citations not measured on ${count} of ${answered} ${plural(answered, 'answer', 'answers')}, which carry no sources`,
+} as const
 
 function plural(count: number, one: string, many: string): string {
   return count === 1 ? one : many
@@ -229,20 +245,37 @@ export function CitationVisibilitySection({
     details.push(<>Cited but not named: <strong>{active.citedNotNamed} of {active.queries}</strong> {queries}</>)
     details.push(<>Named but not cited: <strong>{active.namedNotCited} of {active.queries}</strong> {queries}</>)
     details.push(<>Not cited or named: <strong>{active.neither} of {active.queries}</strong> {queries}</>)
+    if (active.citationNotMeasured > 0) {
+      details.push(<>Citations not measured: <strong>{active.citationNotMeasured} of {active.queries}</strong> {queries}, no answer carries sources</>)
+    }
     for (const engine of active.engines) {
       if (engine.answered < active.queries) {
         details.push(<>{providerDisplayName(engine.provider)}: answered <strong>{engine.answered} of {active.queries}</strong> {queries}</>)
       }
+      if (engine.answered > 0 && engine.citationMeasured === 0) {
+        details.push(CITATION_NOT_MEASURED_COPY.engine(providerDisplayName(engine.provider)))
+      } else if (engine.citationMeasured < engine.answered) {
+        details.push(CITATION_NOT_MEASURED_COPY.someAnswers(providerDisplayName(engine.provider), engine.answered - engine.citationMeasured, engine.answered))
+      }
     }
     if (active.unanswered > 0) details.push(<>No answers yet: <strong>{active.unanswered}</strong> {plural(active.unanswered, 'query', 'queries')}</>)
-    // The server's engine counts span every query, so they say so.
-    const { providersCiting, providersMentioning, providersConfigured } = data.summary
-    details.push(<>All queries: cited by <strong>{providersCiting} of {providersConfigured}</strong> {plural(providersConfigured, 'engine', 'engines')}, named by <strong>{providersMentioning} of {providersConfigured}</strong></>)
+    // The server's engine counts span every query, so they say so. An engine
+    // whose answers carry no sources is out of the cited base.
+    const { providersCiting, providersMentioning, providersConfigured, providersCitationNotMeasured } = data.summary
+    const citationEngines = providersConfigured - providersCitationNotMeasured
+    details.push(
+      <>
+        All queries: cited by <strong>{providersCiting} of {citationEngines}</strong> {plural(citationEngines, 'engine', 'engines')}
+        {providersCitationNotMeasured > 0 ? <> ({providersCitationNotMeasured} not measured)</> : null}, named by <strong>{providersMentioning} of {providersConfigured}</strong>
+      </>,
+    )
     for (const score of providerScores) {
       details.push(
         <>
           {providerDisplayName(score.provider)}{score.model ? ` (${score.model})` : ''} citation rate:{' '}
-          <strong>{formatPercent(score.score, RatioUnits.percent)}</strong>, <strong>{score.cited} of {score.total}</strong> {plural(score.total, 'answer', 'answers')}, all queries
+          {score.score === null
+            ? <><strong>{CITATION_NOT_MEASURED_COPY.cell}</strong>, {score.total} {plural(score.total, 'answer', 'answers')} without sources, all queries</>
+            : <><strong>{formatPercent(score.score, RatioUnits.percent)}</strong>, <strong>{score.cited} of {score.total - score.citationNotMeasured}</strong> {plural(score.total - score.citationNotMeasured, 'answer', 'answers')}, all queries</>}
         </>,
       )
     }
@@ -308,7 +341,11 @@ export function CitationVisibilitySection({
                 <tr>
                   <th scope="row" className="av-row-label">Cited</th>
                   {active.engines.map(engine => (
-                    <td key={engine.provider}><span className={`av-n-sm ${toneClass(engine.cited, engine.answered)}`}>{engine.cited}</span></td>
+                    <td key={engine.provider}>
+                      {engine.answered > 0 && engine.citationMeasured === 0
+                        ? <span className="text-label-13 text-secondary">{CITATION_NOT_MEASURED_COPY.cell}</span>
+                        : <span className={`av-n-sm ${toneClass(engine.cited, engine.citationMeasured)}`}>{engine.cited}</span>}
+                    </td>
                   ))}
                 </tr>
               </tbody>

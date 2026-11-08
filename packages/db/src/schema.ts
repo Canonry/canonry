@@ -467,7 +467,10 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   // rows and providers that disclose no model identity (CDP scrapes the web
   // UI) legitimately have none.
   servedModel: text('served_model'),
-  citationState: text('citation_state').notNull(),
+  // `cited`, `not-cited`, or `not-measured` (the engine returned no sources).
+  // Rows written before `not-measured` existed hold `not-cited` for those
+  // answers; read every row through `readCitationState` (contracts).
+  citationState: text('citation_state').$type<import('@canonry/canonry-contracts').CitationState>().notNull(),
   answerMentioned: integer('answer_mentioned', { mode: 'boolean' }),
   // Sentiment's identity verdict on a Simple answer, kept by
   // `refreshSnapshotMentionIdentity` (api-routes) when a verdict is stored:

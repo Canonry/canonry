@@ -2,10 +2,13 @@ import { and, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { competitors, queries, querySnapshots, runs } from '@canonry/canonry-db'
 import {
+  CitationStates,
   emptyCitationVisibility,
   citationStateToCited,
   hostMatchesDomain,
   hostOf,
+  isCitationStateMeasured,
+  readCitationState,
   type CitationCoverageProvider,
   type CitationCoverageRow,
   type CitationVisibilityResponse,
@@ -20,7 +23,8 @@ interface SnapshotRow {
   runId: string
   queryId: string
   provider: string
-  citationState: string
+  /** As read through `readCitationState`. */
+  citationState: CitationState
   citedDomains: string[]
   competitorOverlap: string[]
   answerMentioned: boolean | null
@@ -67,6 +71,7 @@ export async function citationRoutes(app: FastifyInstance) {
         queryId: querySnapshots.queryId,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
         citedDomains: querySnapshots.citedDomains,
         competitorOverlap: querySnapshots.competitorOverlap,
         answerMentioned: querySnapshots.answerMentioned,
@@ -85,9 +90,10 @@ export async function citationRoutes(app: FastifyInstance) {
     // with every other orphan under a null key.
     const snapshots: SnapshotRow[] = rawSnapshots
       .filter(s => s.queryId !== null)
-      .map(s => ({
+      .map(({ retrievalStatus, ...s }) => ({
         ...s,
         queryId: s.queryId as string,
+        citationState: readCitationState({ citationState: s.citationState, retrievalStatus }),
         runCreatedAt: runCreatedAt.get(s.runId) ?? s.createdAt,
       }))
 
@@ -149,15 +155,20 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
 
   const providersCitingTracker = new Set<string>()
   const providersMentioningTracker = new Set<string>()
+  // Engines with a latest answer, and those with one whose citation was measured.
+  const providersAnswering = new Set<string>()
+  const providersCitationMeasured = new Set<string>()
 
   // Cross-tab buckets at the query level. A query lands in exactly one
-  // bucket: cited+mentioned > cited-only > mentioned-only > invisible.
+  // bucket: cited+mentioned > cited-only > mentioned-only > invisible, or
+  // citation-not-measured when none of its answers carries sources.
   // Queries with zero snapshots fall through and are not counted in any
   // bucket — total - sum(buckets) = "no data yet".
   let queriesCitedAndMentioned = 0
   let queriesCitedOnly = 0
   let queriesMentionedOnly = 0
   let queriesInvisible = 0
+  let queriesCitationNotMeasured = 0
 
   const byQuery: CitationCoverageRow[] = []
 
@@ -165,15 +176,19 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
     const providers: CitationCoverageProvider[] = []
     let citedCount = 0
     let mentionedCount = 0
+    let citationNotMeasured = 0
 
     for (const provider of providerUniverse) {
       const snap = latestByPair.get(`${q.id}::${provider}`)
       if (!snap) continue
-      const state = snap.citationState as CitationState
+      const state = snap.citationState
       const cited = citationStateToCited(state)
       // null answer_mentioned (legacy snapshot before the column existed) is
       // treated as "not mentioned" — we only credit explicit positives.
       const mentioned = snap.answerMentioned === true
+      providersAnswering.add(provider)
+      if (isCitationStateMeasured(state)) providersCitationMeasured.add(provider)
+      else citationNotMeasured++
       if (cited) {
         citedCount++
         providersCitingTracker.add(provider)
@@ -195,7 +210,8 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
     if (providers.length > 0) {
       const anyCited = citedCount > 0
       const anyMentioned = mentionedCount > 0
-      if (anyCited && anyMentioned) queriesCitedAndMentioned++
+      if (citationNotMeasured === providers.length) queriesCitationNotMeasured++
+      else if (anyCited && anyMentioned) queriesCitedAndMentioned++
       else if (anyCited) queriesCitedOnly++
       else if (anyMentioned) queriesMentionedOnly++
       else queriesInvisible++
@@ -208,6 +224,7 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
       citedCount,
       mentionedCount,
       totalProviders: providers.length,
+      citationNotMeasured,
     })
   }
 
@@ -219,7 +236,8 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
   const queryById = new Map(qs.map(q => [q.id, q.query]))
 
   for (const snap of latestByPair.values()) {
-    if (citationStateToCited(snap.citationState as CitationState)) continue
+    // A gap is a measured miss: the project's sources were checked and absent.
+    if (snap.citationState !== CitationStates['not-cited']) continue
     if (competitorDomains.length === 0) continue
     // The engine's source list only. `competitor_overlap` is not read here:
     // the run writer unions cited domains, grounding sources AND answer-text
@@ -261,11 +279,13 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
     providersConfigured: providerUniverse.length,
     providersCiting: providersCitingTracker.size,
     providersMentioning: providersMentioningTracker.size,
+    providersCitationNotMeasured: [...providersAnswering].filter(provider => !providersCitationMeasured.has(provider)).length,
     totalQueries: qs.length,
     queriesCitedAndMentioned,
     queriesCitedOnly,
     queriesMentionedOnly,
     queriesInvisible,
+    queriesCitationNotMeasured,
     latestRunId,
     latestRunAt,
   }
