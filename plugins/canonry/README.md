@@ -38,10 +38,12 @@ Install Node.js in a supported range: `>=22.23.4 <23`, `>=24.22.1 <25`, or
 `>=26.12.1 <27`. Check `node --version` before installing and upgrade Node first
 if it is outside these ranges. Install the global Canonry runtime before you
 enable the plugin. The global install keeps `canonry-mcp` on `PATH`. A one-off
-`npx` invocation is not sufficient. Bootstrap the local runtime after installation:
+`npx` invocation is not sufficient. Install the Canonry release that matches
+this plugin version, so the bundled skills describe the tools `canonry-mcp`
+serves, then bootstrap the local runtime:
 
 ```bash
-npm install -g @canonry/canonry
+npm install -g @canonry/canonry@7.97.3
 cnry bootstrap
 ```
 
@@ -83,6 +85,17 @@ Keep `canonry-mcp` on Hermes's `PATH` and the Canonry daemon running. Hermes
 loads both bundled skills and the stdio MCP declaration. Direct GitHub installs
 are unreviewed sources in Hermes; a catalog listing requires a separate reviewed
 commit pin.
+
+The plugin declares its `canonry` MCP server `untrusted` to Hermes, so Hermes
+asks before every tool call that is not annotated read-only: writes,
+publishing, schedule and settings changes, and ad actions. Hermes's YOLO mode
+and `approvals.mode: off` skip these prompts. Read-only tools run without a
+prompt. A few of them read connected services live (for example Search
+Console, Bing, Business Profile, and ad accounts, or `doctor`) and can count
+against those services' quotas; Canonry's guidance tells the agent to ask
+first, but Hermes does not enforce it. A `canonry` entry in your own Hermes
+`mcp_servers` configuration replaces the plugin's server, trust level
+included, so set `trust: untrusted` on it to keep the prompts.
 
 ## Safety boundary
 

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -79,6 +79,103 @@ function readSkillFrontmatter(skillDir: string): Record<string, unknown> {
   return parse(match![1]!) as Record<string, unknown>
 }
 
+const hermesUntrusted = { 'com.nousresearch.hermes': { servers: { canonry: { trust: 'untrusted' } } } }
+const scratchPackageManifests = ['package.json', 'packages/canonry/package.json']
+const scratchRemoteManifests = ['plugins/canonry-remote/plugin.json', 'plugins/canonry-remote/.claude-plugin/plugin.json']
+
+interface PluginScratch {
+  root: string
+  scriptPath: string
+  /** Runs the copied sync script; pass `--check` to verify instead of write. */
+  run: (...args: string[]) => SpawnSyncReturns<string>
+}
+
+/** A minimal repository holding a copy of the sync script, already synced at version 1.0.0. */
+function createPluginScratch(): PluginScratch {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-plugin-sync-'))
+  const scriptPath = path.join(root, 'scripts', 'sync-canonry-plugin.mjs')
+  const run = (...args: string[]) => spawnSync(process.execPath, [scriptPath, ...args], { cwd: root, encoding: 'utf8' })
+  try {
+    fs.mkdirSync(path.dirname(scriptPath), { recursive: true })
+    fs.copyFileSync(path.join(repoRoot, 'scripts', 'sync-canonry-plugin.mjs'), scriptPath)
+    fs.copyFileSync(path.join(repoRoot, 'scripts', 'sync-agent-operations.mjs'), path.join(root, 'scripts', 'sync-agent-operations.mjs'))
+    fs.symlinkSync(path.join(repoRoot, 'node_modules'), path.join(root, 'node_modules'), 'dir')
+    fs.writeFileSync(path.join(root, '.gitignore'), 'node_modules\n')
+    const guidePath = path.join(root, 'docs/agent-operations/v1.md')
+    fs.mkdirSync(path.dirname(guidePath), { recursive: true })
+    fs.copyFileSync(path.join(repoRoot, 'docs/agent-operations/v1.md'), guidePath)
+    // The sync also mirrors these Canonry references into Aero's folder.
+    for (const { source } of AERO_MIRRORED_REFERENCES) {
+      fs.mkdirSync(path.dirname(path.join(root, source)), { recursive: true })
+      fs.copyFileSync(path.join(repoRoot, source), path.join(root, source))
+    }
+
+    const sharedPluginMetadata = {
+      name: 'canonry',
+      version: '1.0.0',
+      description: 'Canonry test plugin',
+      author: { name: 'Canonry' },
+      homepage: 'https://canonry.ai',
+      repository: 'https://github.com/Canonry/canonry',
+      license: 'MIT',
+      keywords: ['aeo'],
+    }
+    for (const relativePath of scratchPackageManifests) writeJson(path.join(root, relativePath), { version: '1.0.0' })
+    writeJson(path.join(root, 'plugins/canonry/plugin.json'), {
+      $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
+      ...sharedPluginMetadata,
+      extensions: hermesUntrusted,
+    })
+    for (const client of ['.codex-plugin', '.claude-plugin']) {
+      writeJson(path.join(root, 'plugins/canonry', client, 'plugin.json'), sharedPluginMetadata)
+    }
+    fs.writeFileSync(path.join(root, 'plugins/canonry/README.md'), '```bash\nnpm install -g @canonry/canonry@1.0.0\n```\n')
+    writeJson(path.join(root, 'plugins/canonry/mcp.json'), {
+      $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json',
+      mcpServers: {
+        canonry: { type: 'stdio', command: 'canonry-mcp', args: [] },
+      },
+    })
+    writeJson(path.join(root, 'plugins/canonry/.mcp.json'), {
+      mcpServers: {
+        canonry: { command: 'canonry-mcp', args: [] },
+      },
+    })
+    for (const skill of managedSkills) {
+      const content = `${skill} skill\n`
+      const relativePath = path.join('skills', skill, 'SKILL.md')
+      fs.mkdirSync(path.join(root, path.dirname(relativePath)), { recursive: true })
+      fs.writeFileSync(path.join(root, relativePath), content)
+      fs.mkdirSync(path.join(root, 'plugins', 'canonry', path.dirname(relativePath)), { recursive: true })
+      fs.writeFileSync(path.join(root, 'plugins', 'canonry', relativePath), content)
+    }
+    for (const file of [
+      'packages/api-routes/src/visibility-attribution.ts',
+      'packages/canonry/src/gsc-sitemap-submission.ts',
+      'docs/GUARDS.md',
+      'docs/DOC_UPDATE.md',
+    ]) {
+      const full = path.join(root, file)
+      fs.mkdirSync(path.dirname(full), { recursive: true })
+      fs.writeFileSync(full, `// ${path.basename(file)}\n`)
+    }
+    fs.writeFileSync(
+      path.join(root, 'docs', 'CODEMAP.md'),
+      '# CODEMAP\nvisibility-attribution\ngsc-sitemap-submission\nGUARDS.md\nDOC_UPDATE.md\nfind apps packages -type f -name\n',
+    )
+
+    for (const relativePath of scratchRemoteManifests) writeJson(path.join(root, relativePath), { name: 'canonry-remote', version: '1.0.0' })
+    writeJson(path.join(root, 'plugins/canonry-remote/mcp.json'), { mcpServers: { canonry: { type: 'streamable-http', url: 'https://mcp.example/mcp' } } })
+
+    // Generates the guide-derived skill files, leaving every plugin input in sync.
+    execFileSync(process.execPath, [scriptPath], { cwd: root })
+    return { root, scriptPath, run }
+  } catch (error) {
+    fs.rmSync(root, { recursive: true, force: true })
+    throw error
+  }
+}
+
 describe('native Canonry plugin bundle', () => {
   it('keeps the portable and client manifests on the published Canonry version', () => {
     const rootPackage = readJson<VersionManifest>(path.join(repoRoot, 'package.json'))
@@ -97,6 +194,7 @@ describe('native Canonry plugin bundle', () => {
       '$schema',
       'author',
       'description',
+      'extensions',
       'homepage',
       'keywords',
       'license',
@@ -244,93 +342,11 @@ describe('native Canonry plugin bundle', () => {
   })
 
   it('requires a version advancement for plugin changes only when a base ref is supplied', () => {
-    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-plugin-version-'))
-    const scriptPath = path.join(scratch, 'scripts', 'sync-canonry-plugin.mjs')
-    const versionedFiles = [
-      'package.json',
-      'packages/canonry/package.json',
-      'plugins/canonry/plugin.json',
-      'plugins/canonry/.codex-plugin/plugin.json',
-      'plugins/canonry/.claude-plugin/plugin.json',
-    ]
+    const { root: scratch, scriptPath } = createPluginScratch()
+    const guidePath = path.join(scratch, 'docs/agent-operations/v1.md')
+    const remoteMcpPath = path.join(scratch, 'plugins/canonry-remote/mcp.json')
 
     try {
-      fs.mkdirSync(path.dirname(scriptPath), { recursive: true })
-      fs.copyFileSync(path.join(repoRoot, 'scripts', 'sync-canonry-plugin.mjs'), scriptPath)
-      fs.copyFileSync(path.join(repoRoot, 'scripts', 'sync-agent-operations.mjs'), path.join(scratch, 'scripts', 'sync-agent-operations.mjs'))
-      fs.symlinkSync(path.join(repoRoot, 'node_modules'), path.join(scratch, 'node_modules'), 'dir')
-      fs.writeFileSync(path.join(scratch, '.gitignore'), 'node_modules\n')
-      const guidePath = path.join(scratch, 'docs/agent-operations/v1.md')
-      fs.mkdirSync(path.dirname(guidePath), { recursive: true })
-      fs.copyFileSync(path.join(repoRoot, 'docs/agent-operations/v1.md'), guidePath)
-      // The sync also mirrors these Canonry references into Aero's folder.
-      for (const { source } of AERO_MIRRORED_REFERENCES) {
-        fs.mkdirSync(path.dirname(path.join(scratch, source)), { recursive: true })
-        fs.copyFileSync(path.join(repoRoot, source), path.join(scratch, source))
-      }
-
-      const sharedPluginMetadata = {
-        name: 'canonry',
-        version: '1.0.0',
-        description: 'Canonry test plugin',
-        author: { name: 'Canonry' },
-        homepage: 'https://canonry.ai',
-        repository: 'https://github.com/Canonry/canonry',
-        license: 'MIT',
-        keywords: ['aeo'],
-      }
-      for (const relativePath of versionedFiles) {
-        const value = relativePath === 'package.json' || relativePath === 'packages/canonry/package.json'
-          ? { version: '1.0.0' }
-          : relativePath === 'plugins/canonry/plugin.json'
-            ? {
-                $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
-                ...sharedPluginMetadata,
-              }
-            : sharedPluginMetadata
-        writeJson(path.join(scratch, relativePath), value)
-      }
-      writeJson(path.join(scratch, 'plugins/canonry/mcp.json'), {
-        $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json',
-        mcpServers: {
-          canonry: { type: 'stdio', command: 'canonry-mcp', args: [] },
-        },
-      })
-      writeJson(path.join(scratch, 'plugins/canonry/.mcp.json'), {
-        mcpServers: {
-          canonry: { command: 'canonry-mcp', args: [] },
-        },
-      })
-      for (const skill of managedSkills) {
-        const content = `${skill} skill\n`
-        const relativePath = path.join('skills', skill, 'SKILL.md')
-        fs.mkdirSync(path.join(scratch, path.dirname(relativePath)), { recursive: true })
-        fs.writeFileSync(path.join(scratch, relativePath), content)
-        fs.mkdirSync(path.join(scratch, 'plugins', 'canonry', path.dirname(relativePath)), { recursive: true })
-        fs.writeFileSync(path.join(scratch, 'plugins', 'canonry', relativePath), content)
-      }
-      for (const file of [
-        'packages/api-routes/src/visibility-attribution.ts',
-        'packages/canonry/src/gsc-sitemap-submission.ts',
-        'docs/GUARDS.md',
-        'docs/DOC_UPDATE.md',
-      ]) {
-        const full = path.join(scratch, file)
-        fs.mkdirSync(path.dirname(full), { recursive: true })
-        fs.writeFileSync(full, `// ${path.basename(file)}\n`)
-      }
-      fs.mkdirSync(path.join(scratch, 'docs'), { recursive: true })
-      fs.writeFileSync(
-        path.join(scratch, 'docs', 'CODEMAP.md'),
-        '# CODEMAP\nvisibility-attribution\ngsc-sitemap-submission\nGUARDS.md\nDOC_UPDATE.md\nfind apps packages -type f -name\n',
-      )
-
-      const remoteManifests = ['plugins/canonry-remote/plugin.json', 'plugins/canonry-remote/.claude-plugin/plugin.json']
-      for (const relativePath of remoteManifests) writeJson(path.join(scratch, relativePath), { name: 'canonry-remote', version: '1.0.0' })
-      const remoteMcpPath = path.join(scratch, 'plugins/canonry-remote/mcp.json')
-      writeJson(remoteMcpPath, { mcpServers: { canonry: { type: 'streamable-http', url: 'https://mcp.example/mcp' } } })
-
-      execFileSync(process.execPath, [scriptPath], { cwd: scratch })
       execFileSync('git', ['init', '--quiet'], { cwd: scratch })
       execFileSync('git', ['config', 'user.email', 'plugin-test@canonry.invalid'], { cwd: scratch })
       execFileSync('git', ['config', 'user.name', 'Canonry plugin test'], { cwd: scratch })
@@ -355,10 +371,13 @@ describe('native Canonry plugin bundle', () => {
       expect(historyCheck.status).toBe(1)
       expect(historyCheck.stderr).toContain('version must advance beyond 1.0.0')
 
-      for (const relativePath of versionedFiles) {
+      // A release bumps both package manifests; the sync carries the version
+      // into the plugin manifests and the README's runtime install.
+      for (const relativePath of scratchPackageManifests) {
         const manifestPath = path.join(scratch, relativePath)
         writeJson(manifestPath, { ...readJson<Record<string, unknown>>(manifestPath), version: '1.0.1' })
       }
+      execFileSync(process.execPath, [scriptPath], { cwd: scratch })
       const advancedCheck = spawnSync(process.execPath, [scriptPath, '--check', '--base-ref', baseRef], {
         cwd: scratch,
         encoding: 'utf8',
@@ -376,9 +395,70 @@ describe('native Canonry plugin bundle', () => {
       expect(remoteCheck.stderr).toContain('plugins/canonry-remote/plugin.json version must advance beyond 1.0.0 because the remote plugin changed')
       expect(remoteCheck.stderr).toContain('plugins/canonry-remote/.claude-plugin/plugin.json version must advance beyond 1.0.0')
       expect(remoteCheck.stderr).not.toContain('plugins/canonry/plugin.json version must advance')
-      for (const relativePath of remoteManifests) writeJson(path.join(scratch, relativePath), { name: 'canonry-remote', version: '1.1.0' })
+      for (const relativePath of scratchRemoteManifests) writeJson(path.join(scratch, relativePath), { name: 'canonry-remote', version: '1.1.0' })
       const remoteAdvanced = spawnSync(process.execPath, [scriptPath, '--check', '--base-ref', releaseRef], { cwd: scratch, encoding: 'utf8' })
       expect(remoteAdvanced.status).toBe(0)
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a manifest that would let Hermes run write-capable Canonry tools without asking', () => {
+    const { root: scratch, run } = createPluginScratch()
+    const manifestPath = path.join(scratch, 'plugins/canonry/plugin.json')
+    const { extensions: _synced, ...withoutExtensions } = readJson<Record<string, unknown>>(manifestPath)
+    const notGated = 'must set extensions["com.nousresearch.hermes"].servers.canonry.trust to "untrusted"'
+    // Hermes refuses the whole package when a declaration names a server mcp.json lacks.
+    const unknownServer = 'declares Hermes server "canonry-remote", which mcp.json does not define'
+    const cases: Array<{ label: string; extensions?: unknown; failure?: string }> = [
+      { label: 'no Hermes extension', failure: notGated },
+      { label: 'servers without the canonry entry', extensions: { 'com.nousresearch.hermes': { servers: {} } }, failure: notGated },
+      { label: 'full trust', extensions: { 'com.nousresearch.hermes': { servers: { canonry: { trust: 'full' } } } }, failure: notGated },
+      {
+        label: 'a server mcp.json does not define',
+        extensions: { 'com.nousresearch.hermes': { servers: { ...hermesUntrusted['com.nousresearch.hermes'].servers, 'canonry-remote': { trust: 'untrusted' } } } },
+        failure: unknownServer,
+      },
+      { label: 'untrusted canonry server', extensions: hermesUntrusted },
+    ]
+
+    try {
+      for (const { label, extensions, failure } of cases) {
+        writeJson(manifestPath, extensions === undefined ? withoutExtensions : { ...withoutExtensions, extensions })
+        const result = run('--check')
+        if (failure === undefined) {
+          expect(result.status, `${label}: ${result.stderr}`).toBe(0)
+        } else {
+          expect(result.status, label).toBe(1)
+          expect(result.stderr, label).toContain(failure)
+        }
+      }
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true })
+    }
+  })
+
+  it('pins the README runtime install to the Canonry package version', () => {
+    const { root: scratch, run } = createPluginScratch()
+    const readmePath = path.join(scratch, 'plugins/canonry/README.md')
+
+    try {
+      // An unpinned and a stale install both drift; another @canonry package is left alone.
+      fs.writeFileSync(readmePath, 'npm install -g @canonry/canonry\nnpm install -g @canonry/canonry@0.9.0\nnpm install -g @canonry/canonry-contracts@0.1.0\n')
+      const drifted = run('--check')
+      expect(drifted.status).toBe(1)
+      expect(drifted.stderr).toContain('plugins/canonry/README.md runtime install must pin @canonry/canonry@1.0.0')
+      expect(fs.readFileSync(readmePath, 'utf8')).toContain('npm install -g @canonry/canonry\n')
+
+      const synced = run()
+      expect(synced.status, synced.stderr).toBe(0)
+      expect(fs.readFileSync(readmePath, 'utf8')).toBe('npm install -g @canonry/canonry@1.0.0\nnpm install -g @canonry/canonry@1.0.0\nnpm install -g @canonry/canonry-contracts@0.1.0\n')
+      expect(run('--check').status).toBe(0)
+
+      fs.writeFileSync(readmePath, 'Install the Canonry runtime first.\n')
+      const missing = run('--check')
+      expect(missing.status).toBe(1)
+      expect(missing.stderr).toContain('plugins/canonry/README.md must install the runtime with "npm install -g @canonry/canonry@1.0.0"')
     } finally {
       fs.rmSync(scratch, { recursive: true, force: true })
     }
