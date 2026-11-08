@@ -13,11 +13,7 @@ const rootManifestPath = path.join(repoRoot, 'package.json')
 const portablePluginManifestPath = path.join(pluginRoot, 'plugin.json')
 const portableMcpPath = path.join(pluginRoot, 'mcp.json')
 const legacyMcpPath = path.join(pluginRoot, '.mcp.json')
-const pluginReadmePath = path.join(pluginRoot, 'README.md')
 const hermesExtension = 'com.nousresearch.hermes'
-// Matches the README's global runtime install, with or without a version, but
-// not a differently named package such as @canonry/canonry-contracts.
-const runtimeInstallPattern = /npm install -g @canonry\/canonry(?![\w-])(?:@[^\s`'"]*)?/g
 const clientPluginManifestPaths = [
   path.join(pluginRoot, '.codex-plugin', 'plugin.json'),
   path.join(pluginRoot, '.claude-plugin', 'plugin.json'),
@@ -283,27 +279,6 @@ function validateHermesServerTrust(manifest, mcpServers, failures) {
   }
 }
 
-// The README installs the Canonry release this plugin version ships with, so a
-// pinned plugin commit and the canonry-mcp binary on PATH describe the same tools.
-function syncRuntimeInstallPin(failures) {
-  const expected = `npm install -g @canonry/canonry@${packageVersion}`
-  if (!fs.existsSync(pluginReadmePath)) {
-    failures.push('plugins/canonry/README.md is missing')
-    return
-  }
-  const readme = fs.readFileSync(pluginReadmePath, 'utf8')
-  const installs = readme.match(runtimeInstallPattern) ?? []
-  if (installs.length === 0) {
-    failures.push(`plugins/canonry/README.md must install the runtime with "${expected}"`)
-  } else if (installs.some((install) => install !== expected)) {
-    if (checkOnly) {
-      failures.push(`plugins/canonry/README.md runtime install must pin @canonry/canonry@${packageVersion}`)
-    } else {
-      fs.writeFileSync(pluginReadmePath, readme.replace(runtimeInstallPattern, expected), 'utf8')
-    }
-  }
-}
-
 function syncClientAdapters(failures) {
   const portableManifest = readJson(portablePluginManifestPath)
   if (!isPlainObject(portableManifest)) return
@@ -446,7 +421,6 @@ for (const manifestPath of pluginManifestPaths) {
 }
 
 syncClientAdapters(failures)
-syncRuntimeInstallPin(failures)
 
 for (const skill of managedSkills) {
   const source = path.join(repoRoot, 'skills', skill)

@@ -28,8 +28,9 @@ portable specification.
   `extensions["com.nousresearch.hermes"].servers`, so Hermes asks before each
   tool not annotated `readOnlyHint: true`. Hermes rejects the package when that
   map names a server `mcp.json` lacks. `pnpm plugin:check` enforces both.
-- The README's `npm install -g @canonry/canonry@<version>` pins the package
-  version; `pnpm plugin:sync` rewrites it and `pnpm plugin:check` fails on drift.
+- Keep the README's runtime install unpinned (`npm install -g @canonry/canonry`).
+  A pinned plugin commit would send users to an old runtime; the runtime's own
+  help describes its tools, and `cnry doctor` reports plugin/runtime drift.
 - Canonical skill edits happen only under `skills/`. Run `pnpm plugin:sync`
   afterward and commit the mirrors; CI runs `pnpm plugin:check`.
 - Native-plugin setup uses `canonry init --skip-skills --skip-mcp`; those flags
