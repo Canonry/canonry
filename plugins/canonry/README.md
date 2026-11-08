@@ -84,6 +84,17 @@ loads both bundled skills and the stdio MCP declaration. Direct GitHub installs
 are unreviewed sources in Hermes; a catalog listing requires a separate reviewed
 commit pin.
 
+The plugin declares its `canonry` MCP server `untrusted` to Hermes, so Hermes
+asks before every tool call that is not annotated read-only: writes,
+publishing, schedule and settings changes, and ad actions. Hermes's YOLO mode
+and `approvals.mode: off` skip these prompts. Read-only tools run without a
+prompt. A few of them read connected services live (for example Search
+Console, Bing, Business Profile, and ad accounts, or `doctor`) and can count
+against those services' quotas; Canonry's guidance tells the agent to ask
+first, but Hermes does not enforce it. A `canonry` entry in your own Hermes
+`mcp_servers` configuration replaces the plugin's server, trust level
+included, so set `trust: untrusted` on it to keep the prompts.
+
 ## Safety boundary
 
 - The plugin contains no API keys and does not read or edit
