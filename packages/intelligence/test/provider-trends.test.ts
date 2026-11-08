@@ -11,8 +11,9 @@ function snap(
   model: string | null,
   queryId: string,
   citationState: 'cited' | 'not-cited' = 'not-cited',
+  retrievalStatus?: ProviderTrendSnapshot['retrievalStatus'],
 ): ProviderTrendSnapshot {
-  return { provider, model, queryId, citationState }
+  return { provider, model, queryId, citationState, retrievalStatus }
 }
 
 function run(id: string, createdAt: string): ProviderTrendRun {
@@ -103,5 +104,46 @@ describe('buildProviderTrends', () => {
       new Map([['r1', [snap('gemini', null, 'q1', 'cited')]]]),
     )
     expect([...result.keys()]).toEqual(['gemini::unknown'])
+  })
+
+  it('excludes answers written with no web search from each run rate (#1161)', () => {
+    const runs = [run('r1', '2026-05-10'), run('r2', '2026-05-11')]
+    const snapshotsByRun = new Map([
+      ['r1', [
+        snap('gemini', 'flash', 'q1', 'cited'),
+        snap('gemini', 'flash', 'q2', 'not-cited'),
+        snap('gemini', 'flash', 'q3', 'not-cited', 'not-used'),
+      ]],
+      ['r2', [
+        snap('gemini', 'flash', 'q1', 'cited'),
+        snap('gemini', 'flash', 'q2', 'not-cited', 'not-used'),
+      ]],
+    ])
+    const result = buildProviderTrends(runs, snapshotsByRun)
+    // r1: 1 of 2 searched queries cited; r2: 1 of 1. The unsearched answers
+    // are not searched misses, so neither run's rate is dragged down by them.
+    expect(result.get(providerKey('gemini', 'flash'))?.map(p => p.rate)).toEqual([50, 100])
+  })
+
+  it('emits a 0-rate point when a run measured no searched citation for a key', () => {
+    const runs = [run('r1', '2026-05-10'), run('r2', '2026-05-11')]
+    const snapshotsByRun = new Map([
+      ['r1', [snap('gemini', 'flash', 'q1', 'cited')]],
+      ['r2', [snap('gemini', 'flash', 'q1', 'not-cited', 'not-used')]],
+    ])
+    const result = buildProviderTrends(runs, snapshotsByRun)
+    expect(result.get(providerKey('gemini', 'flash'))?.map(p => p.rate)).toEqual([100, 0])
+  })
+
+  it('keeps legacy rows with no recorded retrieval status in the rate', () => {
+    const runs = [run('r1', '2026-05-10')]
+    const snapshotsByRun = new Map([
+      ['r1', [
+        snap('gemini', 'flash', 'q1', 'cited', null),
+        snap('gemini', 'flash', 'q2', 'not-cited'),
+      ]],
+    ])
+    const result = buildProviderTrends(runs, snapshotsByRun)
+    expect(result.get(providerKey('gemini', 'flash'))?.map(p => p.rate)).toEqual([50])
   })
 })

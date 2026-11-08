@@ -94,4 +94,38 @@ describe('buildProviderScores', () => {
     expect(result[0]?.cited).toBe(0)
     expect(result[0]?.total).toBe(2)
   })
+
+  it('excludes answers written with no web search from the cited rate and counts them (#1161)', () => {
+    const snapshots = [
+      snap({ citationState: 'cited', retrievalStatus: 'used' }),
+      snap({ citationState: 'not-cited', retrievalStatus: 'used' }),
+      snap({ citationState: 'not-cited', retrievalStatus: 'not-used' }),
+    ]
+    const result = buildProviderScores(snapshots)
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ cited: 1, total: 2, score: 50, excludedNoRetrieval: 1 })
+  })
+
+  it('never credits a no-search snapshot as cited, even when it claims cited', () => {
+    // Contradictory stored data: a `not-used` row cannot have cited anything.
+    // It leaves both sides of the rate rather than counting as a citation.
+    const snapshots = [snap({ citationState: 'cited', retrievalStatus: 'not-used' })]
+    const result = buildProviderScores(snapshots)
+    expect(result[0]).toMatchObject({ cited: 0, total: 0, score: 0, excludedNoRetrieval: 1 })
+  })
+
+  it('keeps legacy rows with no recorded retrieval status in the denominator', () => {
+    const snapshots = [
+      snap({ citationState: 'cited', retrievalStatus: null }),
+      snap({ citationState: 'not-cited' }),
+    ]
+    const result = buildProviderScores(snapshots)
+    expect(result[0]).toMatchObject({ cited: 1, total: 2, score: 50 })
+    expect(result[0]).not.toHaveProperty('excludedNoRetrieval')
+  })
+
+  it('omits excludedNoRetrieval when nothing was excluded', () => {
+    const result = buildProviderScores([snap({ citationState: 'cited' })])
+    expect(result[0]).not.toHaveProperty('excludedNoRetrieval')
+  })
 })

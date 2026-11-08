@@ -348,6 +348,135 @@ describe('GET /api/v1/projects/:name/overview', () => {
     })
   })
 
+  it('excludes answers written with no web search from every cited figure (#1161)', async () => {
+    // B was cited last run and answered with no search this run: it must
+    // not read as a citation loss, and it leaves every cited denominator
+    // while staying in the mention figures (it still named the brand).
+    const { app, db, tmpDir } = buildApp()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const projectId = crypto.randomUUID()
+    const previousRunId = crypto.randomUUID()
+    const latestRunId = crypto.randomUUID()
+    const queryA = crypto.randomUUID()
+    const queryB = crypto.randomUUID()
+    const queryC = crypto.randomUUID()
+
+    db.insert(projects).values({
+      id: projectId,
+      name: 'demo-unsearched',
+      displayName: 'Demo Unsearched',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      ownedDomains: [],
+      tags: [],
+      providers: [],
+      createdAt: '2026-04-18T14:00:00.000Z',
+      updatedAt: '2026-04-18T14:00:00.000Z',
+    }).run()
+    db.insert(queries).values([
+      { id: queryA, projectId, query: 'answer engine optimization', createdAt: '2026-04-18T14:05:00.000Z' },
+      { id: queryB, projectId, query: 'aeo monitoring', createdAt: '2026-04-18T14:05:00.000Z' },
+      { id: queryC, projectId, query: 'ai search tracking', createdAt: '2026-04-18T14:05:00.000Z' },
+    ]).run()
+    db.insert(runs).values([
+      { id: previousRunId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: '2026-04-18T14:10:00.000Z', finishedAt: '2026-04-18T14:11:00.000Z' },
+      { id: latestRunId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: '2026-04-18T14:20:00.000Z', finishedAt: '2026-04-18T14:21:00.000Z' },
+    ]).run()
+    // previous run: A and B cited, C not cited — all searched.
+    db.insert(querySnapshots).values([
+      { id: crypto.randomUUID(), runId: previousRunId, queryId: queryA, provider: 'gemini', citationState: 'cited', retrievalStatus: 'used', answerMentioned: true, citedDomains: ['example.com'], competitorOverlap: [], recommendedCompetitors: [], answerText: 'Example.com leads answer engine optimization.', createdAt: '2026-04-18T14:10:30.000Z' },
+      { id: crypto.randomUUID(), runId: previousRunId, queryId: queryB, provider: 'gemini', citationState: 'cited', retrievalStatus: 'used', answerMentioned: true, citedDomains: ['example.com'], competitorOverlap: [], recommendedCompetitors: [], answerText: 'Example.com offers AEO monitoring tools.', createdAt: '2026-04-18T14:10:30.000Z' },
+      { id: crypto.randomUUID(), runId: previousRunId, queryId: queryC, provider: 'gemini', citationState: 'not-cited', retrievalStatus: 'used', answerMentioned: false, citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: '2026-04-18T14:10:30.000Z' },
+    ]).run()
+    // latest run: A still cited, B answered with no search (still mentions
+    // the brand), C newly cited, plus an unsearched openai answer for A.
+    db.insert(querySnapshots).values([
+      { id: crypto.randomUUID(), runId: latestRunId, queryId: queryA, provider: 'gemini', citationState: 'cited', retrievalStatus: 'used', answerMentioned: true, citedDomains: ['example.com'], competitorOverlap: [], recommendedCompetitors: [], answerText: 'Example.com leads answer engine optimization.', createdAt: '2026-04-18T14:20:30.000Z' },
+      { id: crypto.randomUUID(), runId: latestRunId, queryId: queryB, provider: 'gemini', citationState: 'not-cited', retrievalStatus: 'not-used', answerMentioned: true, citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], answerText: 'Example.com offers AEO monitoring tools.', createdAt: '2026-04-18T14:20:30.000Z' },
+      { id: crypto.randomUUID(), runId: latestRunId, queryId: queryC, provider: 'gemini', citationState: 'cited', retrievalStatus: 'used', answerMentioned: false, citedDomains: ['example.com'], competitorOverlap: [], recommendedCompetitors: [], answerText: 'Example.com tracks AI search.', createdAt: '2026-04-18T14:20:30.000Z' },
+      { id: crypto.randomUUID(), runId: latestRunId, queryId: queryA, provider: 'openai', citationState: 'not-cited', retrievalStatus: 'not-used', answerMentioned: false, citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: '2026-04-18T14:20:30.000Z' },
+    ]).run()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo-unsearched/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+    expect(() => projectOverviewDtoSchema.parse(body)).not.toThrow()
+
+    // Cited figures read the searched population only (A, C); B is neither
+    // cited nor a miss. Mention figures still read all three queries.
+    expect(body.queryCounts).toEqual({
+      totalQueries: 3,
+      citedQueries: 2,
+      notCitedQueries: 0,
+      citedRate: 1,
+      citedTotalQueries: 2,
+      excludedNoRetrieval: 1,
+      mentionedQueries: 2,
+      notMentionedQueries: 1,
+      mentionRate: 0.6667,
+    })
+    expect(body.providers).toEqual([
+      { provider: 'gemini', cited: 2, total: 2, citedRate: 1, excludedNoRetrieval: 1 },
+      { provider: 'openai', cited: 0, total: 0, citedRate: 0, excludedNoRetrieval: 1 },
+    ])
+
+    expect(body.scores.visibility.value).toBe('100%')
+    expect(body.scores.visibility.delta).toBe('2 of 2 queries cited')
+    expect(body.scores.visibility.progress).toBe(100)
+    expect(body.scores.visibility.excludedNoRetrieval).toBe(1)
+    expect(body.scores.mention.value).toBe('66.7%')
+    expect(body.scores.mention.delta).toBe('2 of 3 queries mentioned')
+    expect(body.scores.mention).not.toHaveProperty('excludedNoRetrieval')
+
+    // B's unsearched latest answer is not a citation loss; C gained.
+    expect(body.citationMovement).toMatchObject({
+      gained: 1,
+      lost: 0,
+      tone: 'positive',
+      hasPreviousRun: true,
+      excludedNoRetrieval: 1,
+    })
+    expect(body.mentionMovement).toMatchObject({ gained: 0, lost: 0 })
+    expect(body.mentionMovement).not.toHaveProperty('excludedNoRetrieval')
+    expect(body.transitions).toMatchObject({ gained: 1, lost: 0, emerging: 0 })
+
+    expect(body.providerScores).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ provider: 'gemini', model: null, score: 100, cited: 2, total: 2, excludedNoRetrieval: 1, trend: [66.666667, 100] }),
+        expect.objectContaining({ provider: 'openai', model: null, score: 0, cited: 0, total: 0, excludedNoRetrieval: 1 }),
+      ]),
+    )
+
+    expect(body.runHistory).toHaveLength(2)
+    // Previous run: all searched, so no exclusion fields at all.
+    expect(body.runHistory[0]).toEqual({
+      runId: previousRunId,
+      createdAt: '2026-04-18T14:10:00.000Z',
+      citedCount: 2,
+      totalCount: 3,
+      citationRate: 66.666667,
+      mentionedCount: 2,
+      mentionRate: 66.666667,
+      status: 'completed',
+    })
+    expect(body.runHistory[1]).toMatchObject({
+      runId: latestRunId,
+      citedCount: 2,
+      totalCount: 3,
+      citedTotalCount: 2,
+      citationRate: 100,
+      mentionedCount: 2,
+      mentionRate: 66.666667,
+      excludedNoRetrieval: 1,
+    })
+    expect(body.scores.visibility.trend).toEqual([66.666667, 100])
+    expect(body.scores.mention.trend).toEqual([66.666667, 66.666667])
+
+    await app.close()
+  })
+
   it('labels the query-level scores and movement as pooling both query classes', async () => {
     const { app } = seedProjectWithRuns()
     await app.ready()

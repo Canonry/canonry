@@ -1,10 +1,12 @@
-import { CitationStates, formatPercent, percentOf, type ScoreSummaryDto } from '@canonry/canonry-contracts'
+import { CitationStates, formatPercent, percentOf, RetrievalStatuses, type RetrievalStatus, type ScoreSummaryDto } from '@canonry/canonry-contracts'
 import { scoreTone } from './score-tones.js'
 
 export interface VisibilityScoreSnapshot {
   queryId: string
   provider: string
   citationState: string
+  /** Absent / null for rows written before retrieval was recorded: they stay in the cited denominator. */
+  retrievalStatus?: RetrievalStatus | null
 }
 
 export interface VisibilityScoreOptions {
@@ -32,6 +34,15 @@ export interface VisibilityScoreOptions {
  * When the run only covers a subset of configured providers, tone shifts to
  * caution and a providerCoverage label is set, even if the score is high. The
  * dashboard renders that label inside the gauge.
+ *
+ * An answer the provider wrote with no retrieval step at all
+ * (`retrievalStatus = 'not-used'`) cites nothing by construction, so its
+ * query leaves the cited population rather than counting as a searched miss
+ * when every snapshot for that query is unsearched; the count rides in
+ * `excludedNoRetrieval`. Rows that predate retrieval recording
+ * (`retrievalStatus` null / absent) are NOT excluded — an unobserved
+ * absence is not an observed one. A query with at least one searched
+ * snapshot stays in, cited when any searched snapshot is cited.
  */
 export function buildVisibilityScore(
   snapshots: readonly VisibilityScoreSnapshot[],
@@ -52,12 +63,36 @@ export function buildVisibilityScore(
   }
 
   const queryCited = new Map<string, boolean>()
+  const queryChecked = new Set<string>()
   for (const snap of snapshots) {
+    // A no-search answer never had a chance to cite; it must not mark its
+    // query either way. Only searched snapshots decide the query.
+    if (snap.retrievalStatus === RetrievalStatuses['not-used']) continue
+    queryChecked.add(snap.queryId)
     if (!queryCited.has(snap.queryId)) queryCited.set(snap.queryId, false)
     if (snap.citationState === CitationStates.cited) queryCited.set(snap.queryId, true)
   }
+  const allQueryIds = new Set(snapshots.map(s => s.queryId))
+  const excludedNoRetrieval = allQueryIds.size - queryChecked.size
   const totalCount = queryCited.size
   const citedCount = [...queryCited.values()].filter(Boolean).length
+
+  if (totalCount === 0) {
+    // Every answer in the run was written without a web search: there is no
+    // searched citation to score, so the gauge reads "No data" rather than a
+    // 0% that would claim a measured miss.
+    return {
+      label: 'Citation Coverage',
+      value: 'No data',
+      delta: 'No searched answers to score',
+      tone: 'neutral',
+      description: 'Every answer in the latest run was written without a web search, so no searched citation was measured.',
+      tooltip,
+      trend: [],
+      ...(excludedNoRetrieval > 0 ? { excludedNoRetrieval } : {}),
+    }
+  }
+
   const score = percentOf(citedCount, totalCount) ?? 0
 
   const runProviders = new Set(snapshots.map(s => s.provider))
@@ -78,5 +113,8 @@ export function buildVisibilityScore(
     providerCoverage: isPartialProviderRun
       ? `${runApiProviderCount} of ${options.configuredApiProviders.length} engines`
       : undefined,
+    // Present only when nonzero, so a smaller cited denominator is always
+    // visible next to the rate it shrank.
+    ...(excludedNoRetrieval > 0 ? { excludedNoRetrieval } : {}),
   }
 }

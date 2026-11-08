@@ -239,6 +239,28 @@ describe('canonry overview — human output', () => {
     expect(output).toContain('6 of 10 brand mentions')
   })
 
+  it('names the answers excluded from the cited rates when the API reports them (#1161)', async () => {
+    const overview = makeOverview({
+      queryCounts: { totalQueries: 3, citedQueries: 2, notCitedQueries: 0, citedRate: 1, citedTotalQueries: 2, excludedNoRetrieval: 1, mentionedQueries: 2, notMentionedQueries: 1, mentionRate: 0.6667 },
+      providers: [{ provider: 'gemini', cited: 2, total: 2, citedRate: 1, excludedNoRetrieval: 1 }],
+      providerScores: [{ provider: 'gemini', model: 'gemini-2.5-flash', score: 100, cited: 2, total: 2, excludedNoRetrieval: 1 }],
+      runHistory: [{ runId: 'r1', createdAt: '2026-05-10T00:00:00.000Z', citedCount: 2, totalCount: 3, citedTotalCount: 2, citationRate: 100, mentionedCount: 2, mentionRate: 66.666667, status: 'completed', excludedNoRetrieval: 1 }],
+    })
+    output = await captureOutput(overview)
+    // The cited line reads the searched denominator (2), not the basket (3).
+    expect(output).toContain('Queries cited:     2/2 (100%)')
+    expect(output).toContain('Excluded from the cited rates: 1 query written without a web search')
+    expect(output).toMatch(/gemini\s+2\/2 \(100%\) · 1 not searched/)
+    expect(output).toMatch(/gemini\/gemini-2\.5-flash\s+2\/2 \(100%\) · 1 not searched/)
+    expect(output).toMatch(/2026-05-10\s+100%.*· 1 not searched/)
+  })
+
+  it('stays silent about exclusions when none were excluded', async () => {
+    output = await captureOutput(makeOverview())
+    expect(output).not.toContain('Excluded from the cited rates')
+    expect(output).not.toContain('not searched')
+  })
+
   it('breakdown shows project and competitor mention counts with combined-total %', async () => {
     output = await captureOutput(makeOverview())
     // Project: 6 of 10 combined = 60.0% (matches headline value 60)

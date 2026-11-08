@@ -1,14 +1,18 @@
 import {
   CitationStates,
+  RetrievalStatuses,
   type MetricTone,
   type MovementComparisonDto,
   type MovementSummaryDto,
+  type RetrievalStatus,
 } from '@canonry/canonry-contracts'
 
 export interface MovementSummarySnapshot {
   queryId: string
   citationState: string
   answerMentioned?: boolean | null
+  /** Absent / null for rows written before retrieval was recorded: they stay in the cited denominator. */
+  retrievalStatus?: RetrievalStatus | null
 }
 
 export interface MovementSummaryOptions {
@@ -30,18 +34,30 @@ type SignalPredicate = (snapshot: MovementSummarySnapshot) => boolean
  * When both sweeps exist, only query IDs present in both baskets participate.
  * Added or removed queries belong to `buildMovementComparison`; they must not
  * masquerade as citation gains or losses.
+ *
+ * An answer the provider wrote with no retrieval step at all
+ * (`retrievalStatus = 'not-used'`) cites nothing by construction, so a query
+ * whose snapshots in a run are all unsearched cannot be judged to have
+ * gained or lost citation in that run: it leaves the comparable cohort
+ * rather than reporting a false `lost` (a query cited last run and
+ * unsearched this run is not a regression), and is counted in
+ * `excludedNoRetrieval`. Rows that predate retrieval recording stay in —
+ * an unobserved absence is not an observed one.
  */
 export function buildMovementSummary(
   currentSnapshots: readonly MovementSummarySnapshot[],
   previousSnapshots: readonly MovementSummarySnapshot[],
   options: MovementSummaryOptions = {},
 ): MovementSummaryDto {
-  return buildSignalMovementSummary(
+  const result = buildSignalMovementSummary(
     currentSnapshots,
     previousSnapshots,
     snapshot => snapshot.citationState === CitationStates.cited,
     options,
+    snapshot => snapshot.retrievalStatus !== RetrievalStatuses['not-used'],
   )
+  const excludedNoRetrieval = countUnjudgeableComparable(currentSnapshots, previousSnapshots)
+  return excludedNoRetrieval > 0 ? { ...result, excludedNoRetrieval } : result
 }
 
 export function buildCitationMovementSummary(
@@ -120,9 +136,10 @@ function buildSignalMovementSummary(
   previousSnapshots: readonly MovementSummarySnapshot[],
   isActive: SignalPredicate,
   options: MovementSummaryOptions,
+  isObservable: SignalPredicate = () => true,
 ): MovementSummaryDto {
   if (previousSnapshots.length === 0) {
-    const activeIds = collectActiveQueryIds(currentSnapshots, isActive)
+    const activeIds = collectActiveQueryIds(currentSnapshots, isActive, isObservable)
     return withQueryLists(
       {
         gained: activeIds.size,
@@ -137,11 +154,11 @@ function buildSignalMovementSummary(
   }
 
   const comparableIds = intersection(
-    collectQueryIds(currentSnapshots),
-    collectQueryIds(previousSnapshots),
+    collectQueryIds(currentSnapshots, isObservable),
+    collectQueryIds(previousSnapshots, isObservable),
   )
-  const currentActive = intersection(collectActiveQueryIds(currentSnapshots, isActive), comparableIds)
-  const previousActive = intersection(collectActiveQueryIds(previousSnapshots, isActive), comparableIds)
+  const currentActive = intersection(collectActiveQueryIds(currentSnapshots, isActive, isObservable), comparableIds)
+  const previousActive = intersection(collectActiveQueryIds(previousSnapshots, isActive, isObservable), comparableIds)
   const gainedIds = difference(currentActive, previousActive)
   const lostIds = difference(previousActive, currentActive)
 
@@ -156,6 +173,35 @@ function buildSignalMovementSummary(
     lostIds,
     options.queryLookup,
   )
+}
+
+/**
+ * Comparable queries the citation signal cannot judge: they sit in both
+ * baskets, but at least one run holds no searched snapshot for them (every
+ * snapshot `retrievalStatus = 'not-used'`). On a first run, the queries in
+ * the current run with no searched snapshot. Mention movement never calls
+ * this — brand recall does not need search.
+ */
+function countUnjudgeableComparable(
+  currentSnapshots: readonly MovementSummarySnapshot[],
+  previousSnapshots: readonly MovementSummarySnapshot[],
+): number {
+  const isObservable = (snapshot: MovementSummarySnapshot): boolean =>
+    snapshot.retrievalStatus !== RetrievalStatuses['not-used']
+  if (previousSnapshots.length === 0) {
+    const all = collectQueryIds(currentSnapshots)
+    const checked = collectQueryIds(currentSnapshots, isObservable)
+    return all.size - checked.size
+  }
+  const comparableRaw = intersection(
+    collectQueryIds(currentSnapshots),
+    collectQueryIds(previousSnapshots),
+  )
+  const comparableChecked = intersection(
+    collectQueryIds(currentSnapshots, isObservable),
+    collectQueryIds(previousSnapshots, isObservable),
+  )
+  return comparableRaw.size - comparableChecked.size
 }
 
 function movementTone(gained: number, lost: number): MetricTone {
@@ -191,10 +237,13 @@ function resolveQueryTexts(
   return out.sort()
 }
 
-function collectQueryIds(snapshots: readonly MovementSummarySnapshot[]): Set<string> {
+function collectQueryIds(
+  snapshots: readonly MovementSummarySnapshot[],
+  isObservable: SignalPredicate = () => true,
+): Set<string> {
   const ids = new Set<string>()
   for (const snapshot of snapshots) {
-    if (snapshot.queryId) ids.add(snapshot.queryId)
+    if (snapshot.queryId && isObservable(snapshot)) ids.add(snapshot.queryId)
   }
   return ids
 }
@@ -202,10 +251,11 @@ function collectQueryIds(snapshots: readonly MovementSummarySnapshot[]): Set<str
 function collectActiveQueryIds(
   snapshots: readonly MovementSummarySnapshot[],
   isActive: SignalPredicate,
+  isObservable: SignalPredicate = () => true,
 ): Set<string> {
   const active = new Set<string>()
   for (const snapshot of snapshots) {
-    if (snapshot.queryId && isActive(snapshot)) active.add(snapshot.queryId)
+    if (snapshot.queryId && isObservable(snapshot) && isActive(snapshot)) active.add(snapshot.queryId)
   }
   return active
 }

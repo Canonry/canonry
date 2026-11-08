@@ -10,8 +10,9 @@ function snap(
   queryId: string,
   citationState: 'cited' | 'not-cited' | 'pending' = 'cited',
   answerMentioned = false,
+  retrievalStatus?: MovementSummarySnapshot['retrievalStatus'],
 ): MovementSummarySnapshot {
-  return { queryId, citationState, answerMentioned }
+  return { queryId, citationState, answerMentioned, retrievalStatus }
 }
 
 describe('buildMovementSummary', () => {
@@ -73,6 +74,43 @@ describe('buildMovementSummary', () => {
   it('ignores snapshots with empty queryId', () => {
     const result = buildMovementSummary([snap(''), snap('q1')], [])
     expect(result.gained).toBe(1)
+  })
+
+  it('does not report a false citation loss when the latest answer went unsearched (#1161)', () => {
+    const latest = [snap('q1', 'not-cited', false, 'not-used'), snap('q2', 'cited')]
+    const previous = [snap('q1'), snap('q2', 'not-cited')]
+    const result = buildMovementSummary(latest, previous)
+    // q1 was cited last run and unsearched this run: no judged transition.
+    // q2 gained. The unjudgeable query rides beside the counts.
+    expect(result).toMatchObject({ gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true, excludedNoRetrieval: 1 })
+  })
+
+  it('does not count an unsearched latest answer as a citation gain', () => {
+    const latest = [snap('q1', 'not-cited', false, 'not-used')]
+    const previous = [snap('q1', 'not-cited')]
+    const result = buildMovementSummary(latest, previous)
+    expect(result).toMatchObject({ gained: 0, lost: 0, excludedNoRetrieval: 1 })
+  })
+
+  it('keeps legacy rows with no recorded retrieval status in the comparison', () => {
+    const latest = [snap('q1', 'not-cited', false, null)]
+    const previous = [snap('q1')]
+    const result = buildMovementSummary(latest, previous)
+    expect(result).toMatchObject({ gained: 0, lost: 1, tone: 'negative' })
+    expect(result).not.toHaveProperty('excludedNoRetrieval')
+  })
+
+  it('counts first-run queries with no searched answer as excluded, not gained', () => {
+    const result = buildMovementSummary(
+      [snap('q1'), snap('q2', 'not-cited', false, 'not-used')],
+      [],
+    )
+    expect(result).toMatchObject({ gained: 1, lost: 0, hasPreviousRun: false, excludedNoRetrieval: 1 })
+  })
+
+  it('omits excludedNoRetrieval when every comparable query was judged', () => {
+    const result = buildMovementSummary([snap('q1')], [snap('q1', 'not-cited')])
+    expect(result).not.toHaveProperty('excludedNoRetrieval')
   })
 
   describe('with queryLookup option', () => {
@@ -146,6 +184,17 @@ describe('buildMentionMovementSummary', () => {
       [snap('shared', 'not-cited', false)],
     )
     expect(result).toMatchObject({ gained: 0, lost: 0 })
+  })
+
+  it('still counts a mention gain when the latest answer went unsearched (#1161)', () => {
+    // Mention reads answer text, which exists whether or not the provider
+    // searched — so a no-search answer can still gain a mention, and the
+    // movement carries no citation exclusion.
+    const latest = [snap('q1', 'not-cited', true, 'not-used'), snap('q2', 'not-cited', false)]
+    const previous = [snap('q1', 'not-cited', false), snap('q2', 'not-cited', false)]
+    const result = buildMentionMovementSummary(latest, previous)
+    expect(result).toMatchObject({ gained: 1, lost: 0, tone: 'positive' })
+    expect(result).not.toHaveProperty('excludedNoRetrieval')
   })
 })
 

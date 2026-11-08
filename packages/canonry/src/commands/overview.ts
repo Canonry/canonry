@@ -148,8 +148,16 @@ function renderHuman(overview: ProjectOverviewDto): void {
     console.log(`    ${brandedSentiment.coverage.counts.favorable} favorable / ${brandedSentiment.coverage.judged} judged${brandedSentiment.provisional ? ' · provisional' : ''}`)
   }
 
-  console.log(`\n  Queries cited:     ${queryCounts.citedQueries}/${queryCounts.totalQueries} (${formatPercent(queryCounts.citedRate)})`)
+  // The cited rate reads the searched population only (#1161): answers
+  // written with no web search leave the denominator, counted beside the
+  // rate as `excludedNoRetrieval`. The mention rate still reads every query.
+  const citedTotal = queryCounts.citedTotalQueries ?? queryCounts.totalQueries
+  console.log(`\n  Queries cited:     ${queryCounts.citedQueries}/${citedTotal} (${formatPercent(queryCounts.citedRate)})`)
   console.log(`  Queries mentioned: ${queryCounts.mentionedQueries}/${queryCounts.totalQueries} (${formatPercent(queryCounts.mentionRate)})`)
+  const excludedNoRetrieval = queryCounts.excludedNoRetrieval ?? 0
+  if (excludedNoRetrieval > 0) {
+    console.log(`  Excluded from the cited rates: ${excludedNoRetrieval} ${excludedNoRetrieval === 1 ? 'query' : 'queries'} written without a web search`)
+  }
 
   if (movementComparison.hasPreviousRun) {
     const comparisonLabel = movementComparison.querySetChanged
@@ -165,7 +173,8 @@ function renderHuman(overview: ProjectOverviewDto): void {
   if (providers.length > 0) {
     console.log('\n  Providers:')
     for (const p of providers) {
-      console.log(`    ${p.provider.padEnd(12)} ${p.cited}/${p.total} (${formatPercent(p.citedRate)})`)
+      const excluded = p.excludedNoRetrieval ? ` · ${p.excludedNoRetrieval} not searched` : ''
+      console.log(`    ${p.provider.padEnd(12)} ${p.cited}/${p.total} (${formatPercent(p.citedRate)})${excluded}`)
     }
   }
 
@@ -173,7 +182,8 @@ function renderHuman(overview: ProjectOverviewDto): void {
     console.log('\n  Models:')
     for (const m of providerScores) {
       const label = `${m.provider}/${m.model ?? 'unknown'}`.padEnd(28)
-      console.log(`    ${label} ${m.cited}/${m.total} (${formatPercent(m.score, 'percent')})`)
+      const excluded = m.excludedNoRetrieval ? ` · ${m.excludedNoRetrieval} not searched` : ''
+      console.log(`    ${label} ${m.cited}/${m.total} (${formatPercent(m.score, 'percent')})${excluded}`)
     }
   }
 
@@ -211,7 +221,8 @@ function renderHuman(overview: ProjectOverviewDto): void {
     console.log(`\n  Run history (last ${runHistory.length}):`)
     for (const point of runHistory) {
       const bar = '█'.repeat(Math.round(point.citationRate / 10))
-      console.log(`    ${point.createdAt.slice(0, 10)} ${formatPercent(point.citationRate, 'percent').padStart(6)} ${bar}`)
+      const excluded = point.excludedNoRetrieval ? ` · ${point.excludedNoRetrieval} not searched` : ''
+      console.log(`    ${point.createdAt.slice(0, 10)} ${formatPercent(point.citationRate, 'percent').padStart(6)} ${bar}${excluded}`)
     }
   }
 
