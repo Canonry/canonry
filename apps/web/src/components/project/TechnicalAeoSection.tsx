@@ -83,7 +83,7 @@ const FACTOR_STATUS_LABELS: Record<SiteAuditFactorSummaryDto['status'], string> 
 }
 const FACTOR_STATUS_HELP = 'Score is the average across audited pages. Status reflects the worst page: fail if any page scores below 40, partial if any page scores 40–69, otherwise pass. Share is how much of the site score the factor controls; the shares add up to 100%, and a dash means the scan did not record them.'
 
-// aeo-audit v3 is gradeless; canonry bands the 0–100 score into pass/partial/fail.
+// The audit engine is gradeless (since v3); canonry bands the 0–100 score into pass/partial/fail.
 function statusLabel(score: number): string {
   return score >= 70 ? 'Pass' : score >= 40 ? 'Partial' : 'Fail'
 }

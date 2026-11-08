@@ -13,7 +13,7 @@ import { providerNameSchema } from './provider.js'
  *   window is published, run the workspace-level release sync (which auto-extracts per-project backlinks for
  *   projects with `autoExtractBacklinks`). Workspace-global: no `sourceId`, no `providers`.
  * - `site-audit` — Agent Readiness: crawl the project's sitemap and audit every reachable page across the
- *   aeo-audit ranking factors, persisting a site-level score + per-page breakdown. No `sourceId`, no `providers`.
+ *   audit engine ranking factors, persisting a site-level score + per-page breakdown. No `sourceId`, no `providers`.
  * - `ads-sync` — OpenAI Advertiser API (ChatGPT ads) pull: entity snapshots + daily paid-performance
  *   rollups for the project's connected ad account. No `sourceId`, no `providers`.
  * - `seo-sync`: paid SEO data refresh, one refresh per saved SEO profile, admitted under the host's SEO

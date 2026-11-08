@@ -13,7 +13,7 @@ import {
 import type { DemoSeedProject } from './types.js'
 
 /**
- * Factor ids, names, and weights exactly as @canonry/aeo-audit reports them.
+ * Factor ids, names, and weights exactly as @canonry/agent-readiness reports them.
  * `bias` shifts a factor across the whole example site so the scorecard has a
  * realistic spread; the page score stays the weighted mean.
  */

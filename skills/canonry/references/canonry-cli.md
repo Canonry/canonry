@@ -501,7 +501,7 @@ cnry visibility-compare <project> --from 2026-05 --to 2026-06 --scope property -
 
 ## Agent Readiness
 
-Site-wide Agent Readiness scan (structured data, AI-readable content, AI-crawler access, content depth/freshness/extractability, agent integrations, …) powered by `@canonry/aeo-audit`'s `runSiteCrawl`. Runs as the `site-audit` run kind — discovers in-scope URLs from the project root, sitemaps, and internal links; stores the URL/link graph; audits eligible HTML pages; and rolls the results into one 0–100 Agent Readiness score. Pure HTTP, no LLM cost; a large site can take minutes, so it runs in the background. The API serves the same data under `/api/v1/projects/<name>/agent-readiness/…`, and the MCP tools are `canonry_agent_readiness_*`.
+Site-wide Agent Readiness scan (structured data, AI-readable content, AI-crawler access, content depth/freshness/extractability, agent integrations, …) powered by `@canonry/agent-readiness`'s `runSiteCrawl`. Runs as the `site-audit` run kind — discovers in-scope URLs from the project root, sitemaps, and internal links; stores the URL/link graph; audits eligible HTML pages; and rolls the results into one 0–100 Agent Readiness score. Pure HTTP, no LLM cost; a large site can take minutes, so it runs in the background. The API serves the same data under `/api/v1/projects/<name>/agent-readiness/…`, and the MCP tools are `canonry_agent_readiness_*`.
 
 ```bash
 # Scan

@@ -207,7 +207,7 @@ function summary(runId: string, pagesDiscovered: number, complete = true): SiteC
     linkScoreVersion: '1',
     effectiveOptions: { checkDeadLinks: false },
     complete,
-    // A real `CrawlTerminationReason` from @canonry/aeo-audit, not an invented
+    // A real `CrawlTerminationReason` from @canonry/agent-readiness, not an invented
     // token: the plain-word copy is a closed map over that exact vocabulary.
     termination: complete ? null : 'max-pages',
     detailsAvailable: true,

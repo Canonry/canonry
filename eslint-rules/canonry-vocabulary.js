@@ -102,7 +102,7 @@ const noQuestionUiCopyRule = {
 // Page health; those names are retired from UI copy so the product shows one
 // name. Machine tokens (`technical-aeo`, `site-health`, `site-audit`) carry no
 // space and stay legal, as do identifiers and comments. Audit factor names
-// from @canonry/aeo-audit ("Technical SEO") are not retired names.
+// from @canonry/agent-readiness ("Technical SEO") are not retired names.
 const RETIRED_FEATURE_NAME_RE = /\b(?:site\s+health|technical\s+aeo|technical\s+audits?|page\s+health)\b/i
 
 export function isRetiredFeatureNameCopy(text) {
