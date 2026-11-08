@@ -201,8 +201,11 @@ resets for inheritance. Keys stay in component state only; a saved key is not a
 successful network check. Test connection (setup's engine step and this editor)
 calls `POST /settings/providers/:name/test` and keeps each result in the tab's query
 cache (`queries/provider-connection-tests.ts`), bound to the connection revision on
-screen and forgotten on save, disconnect, reload or a new CDP endpoint. A connection
-reads "Connected" only after a passing test, otherwise "Saved, not verified". The
+screen and forgotten on save, disconnect, reload or a new CDP endpoint. The server's
+`lastTest` on the connection (and on setup's provider statuses, from the same
+settings read) covers reloads and other tabs; the newer of the two results wins, and
+a refused test request is shown but never replaces a result. A connection reads
+"Connected" only when its latest result passed, otherwise "Saved, not verified". The
 browser row keeps "Configured": its card checks Chrome live. Disconnect reads fresh impact and sends that
 `impactRevision`; project selections and history remain available. Batch blockers
 lock identity fields while quota-only edits remain possible. Host-managed Vertex,

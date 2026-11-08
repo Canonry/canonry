@@ -148,16 +148,27 @@ export interface SettingsRoutesOptions {
   /** Reload only this host's captured provider configuration; never select caller paths. */
   onProviderReload?: (input: ProviderReloadRequest, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry[] | Promise<ProviderSummaryEntry[]>
   /**
-   * Run one saved connection's own healthcheck now, a live provider call.
-   * Resolves undefined when the connection is not configured on this host.
+   * Start one saved connection's own healthcheck now, a live provider call.
+   * Returns undefined when the connection is not configured on this host.
    */
-  onProviderTest?: (name: string) => Promise<ProviderHealthcheckResult | undefined>
+  onProviderTest?: (name: string) => ProviderTestRun | undefined
   /** How long a connection test waits for the host's check. Defaults to `PROVIDER_TEST_TIMEOUT_MS`. */
   providerTestTimeoutMs?: number
   google?: GoogleSettingsSummary
   onGoogleUpdate?: (clientId: string, clientSecret: string) => GoogleSettingsSummary | null
   bing?: BingSettingsSummary
   onBingUpdate?: (apiKey: string) => BingSettingsSummary | null
+}
+
+/** One connection test a host started. */
+export interface ProviderTestRun {
+  /** The saved connection's own healthcheck, already running. */
+  check: Promise<ProviderHealthcheckResult>
+  /**
+   * Keep the result the caller was given, for the settings this run checked
+   * (the host fixes those when the run starts). Absent: the host keeps no history.
+   */
+  record?: (result: ProviderConnectionTestResultDto) => void
 }
 
 /**
@@ -167,27 +178,36 @@ export interface SettingsRoutesOptions {
  */
 export const PROVIDER_TEST_TIMEOUT_MS = 30_000
 
-type ProviderTestCheck =
-  | { kind: 'checked'; check: ProviderHealthcheckResult }
+type ProviderTestOutcome =
+  | { kind: 'checked'; check: ProviderHealthcheckResult; record?: ProviderTestRun['record'] }
+  | { kind: 'timed-out'; record?: ProviderTestRun['record'] }
   | { kind: 'not-configured' }
-  | { kind: 'timed-out' }
 
-/** The host's check, bounded by `timeoutMs`. A late answer is dropped: a check changes nothing on the server. */
-async function runProviderTest(test: NonNullable<SettingsRoutesOptions['onProviderTest']>, name: string, timeoutMs: number): Promise<ProviderTestCheck> {
+/** The host's check, bounded by `timeoutMs`. A late answer is dropped: the result returned is the one kept. */
+async function runProviderTest(start: NonNullable<SettingsRoutesOptions['onProviderTest']>, name: string, timeoutMs: number): Promise<ProviderTestOutcome> {
+  // A deliberate refusal from the host keeps its status; anything else is this provider's failure.
+  const failure = (error: unknown): ProviderHealthcheckResult => {
+    if (error instanceof AppError) throw error
+    return { ok: false, provider: name, message: describeError(error) }
+  }
+  let run: ProviderTestRun | undefined
+  try {
+    run = start(name)
+  } catch (error) {
+    return { kind: 'checked', check: failure(error) }
+  }
+  if (!run) return { kind: 'not-configured' }
+  const record = run.record
   let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<ProviderTestCheck>(resolve => {
-    timer = setTimeout(() => resolve({ kind: 'timed-out' }), timeoutMs)
+  const timeout = new Promise<'timed-out'>(resolve => {
+    timer = setTimeout(() => resolve('timed-out'), timeoutMs)
     timer.unref()
   })
-  const check = Promise.resolve().then(() => test(name)).then((result): ProviderTestCheck => (
-    result ? { kind: 'checked', check: result } : { kind: 'not-configured' }
-  ))
   try {
-    return await Promise.race([check, timeout])
+    const result = await Promise.race([run.check, timeout])
+    return result === 'timed-out' ? { kind: 'timed-out', record } : { kind: 'checked', check: result, record }
   } catch (error) {
-    // A deliberate refusal from the host keeps its status; anything else is this provider's failure.
-    if (error instanceof AppError) throw error
-    return { kind: 'checked', check: { ok: false, provider: name, message: describeError(error) } }
+    return { kind: 'checked', check: failure(error), record }
   } finally {
     clearTimeout(timer)
   }
@@ -475,7 +495,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
         return _exhaustive
       }
     }
-    return providerConnectionTestResultDtoSchema.parse({
+    const result = providerConnectionTestResultDtoSchema.parse({
       provider: name,
       displayName: adapter.displayName,
       status,
@@ -486,6 +506,13 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       checkedAt: new Date().toISOString(),
       durationMs: Math.max(0, Date.now() - startedAt),
     })
+    try {
+      outcome.record?.(result)
+    } catch (error) {
+      // The caller still gets the result; only its history is missing.
+      request.log.error({ err: error }, 'Provider connection test result could not be kept')
+    }
+    return result
   }, err => (err instanceof AppError && err.code === 'NOT_IMPLEMENTED' ? OutcomeReasonCodes.UNSUPPORTED : undefined)))
 
   app.put<{

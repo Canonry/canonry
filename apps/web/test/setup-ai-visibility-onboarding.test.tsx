@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameQueriesQueryKey, getApiV1ProjectsByNameRunPreviewQueryKey, getApiV1RunsByIdQueryKey, getApiV1RunsQueryKey } from '@canonry/canonry-api-client/react-query'
 import type { ReactNode } from 'react'
-import { onboardingTelemetryEventSchema, querySnapshotDtoSchema, runDetailDtoSchema, type RunDetailDto } from '@canonry/canonry-contracts'
+import { onboardingTelemetryEventSchema, querySnapshotDtoSchema, runDetailDtoSchema, type ProviderConnectionLastTestDto, type RunDetailDto } from '@canonry/canonry-contracts'
 
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { AccountProvider, type ApiKeyAccess } from '../src/contexts/account-context.js'
@@ -79,6 +79,8 @@ function renderProjectSetup(options: {
   generateResponse?: (init?: RequestInit) => Response | Promise<Response>
   /** Answers `POST /settings/providers/:name/test`. */
   providerTestResponse?: (name: string) => Response | Promise<Response>
+  /** The stored last test an administrator's settings read carries, by provider name. */
+  providerLastTests?: Record<string, ProviderConnectionLastTestDto | null>
 }) {
   const fixture = createDashboardFixture()
   // Match the key destinations published by the provider adapter catalog.
@@ -118,6 +120,11 @@ function renderProjectSetup(options: {
     fixture.dashboard.settings.providerStatuses.push({ ...provider, state: 'needs-config', detail: 'API key is missing.' })
   }
   if (options.openRouter) fixture.dashboard.settings.providerStatuses.push({ name: 'openrouter', displayName: 'OpenRouter', state: 'ready', detail: 'Connected.' })
+  for (const [name, lastTest] of Object.entries(options.providerLastTests ?? {})) {
+    fixture.dashboard.settings.providerStatuses = fixture.dashboard.settings.providerStatuses.map(provider => (
+      provider.name.toLowerCase() === name ? { ...provider, revision: `${name}-revision`, lastTest } : provider
+    ))
+  }
 
   const requests: Array<{ path: string; method?: string; body?: RequestInit['body'] }> = []
   let canonicalQueryCount = options.complete ? 1 : 0
@@ -735,13 +742,13 @@ test.each([
     outcome: 'passes',
     result: { status: 'connected', ok: true, message: 'gemini api key verified' },
     badge: PROVIDER_CONNECTION_TEST_COPY.connected,
-    line: `Gemini: ${PROVIDER_CONNECTION_TEST_COPY.connectedLine}`,
+    line: `Gemini: ${PROVIDER_CONNECTION_TEST_COPY.connectedLine} ${PROVIDER_CONNECTION_TEST_COPY.checkedAt('2026-11-08T10:00:00.000Z')}`,
   },
   {
     outcome: 'fails',
     result: { status: 'failed', ok: false, message: '400 API key not valid.' },
     badge: PROVIDER_CONNECTION_TEST_COPY.savedNotVerified,
-    line: `Gemini: ${PROVIDER_CONNECTION_TEST_COPY.failed('400 API key not valid.')}`,
+    line: `Gemini: ${PROVIDER_CONNECTION_TEST_COPY.failed('400 API key not valid.')} ${PROVIDER_CONNECTION_TEST_COPY.checkedAt('2026-11-08T10:00:00.000Z')}`,
   },
 ])('the engine step tests the saved connection and reads $badge when the test $outcome', async ({ result, badge, line }) => {
   const tested: string[] = []
@@ -761,6 +768,24 @@ test.each([
   expect(within(results).getAllByRole('listitem').map(item => item.textContent)).toEqual([line])
   expect(within(engines).getByText(badge)).toBeTruthy()
   expect(tested).toEqual(['gemini'])
+})
+
+test('the engine step reads a stored passing test as Connected without testing again', async () => {
+  const tested: string[] = []
+  const checkedAt = '2026-01-05T09:30:00.000Z'
+  renderProjectSetup({
+    onboarding: true,
+    readyProviderNames: ['gemini'],
+    providerLastTests: { gemini: { status: 'connected', ok: true, message: 'gemini api key verified', model: 'gemini-2.5-flash', checkedAt, durationMs: 800 } },
+    providerTestResponse: name => { tested.push(name); return jsonResponse({}) },
+  })
+  const engines = await screen.findByRole('region', { name: 'AI engines' })
+  expect(within(engines).getByText(PROVIDER_CONNECTION_TEST_COPY.connected)).toBeTruthy()
+  const results = within(engines).getByRole('list', { name: PROVIDER_CONNECTION_TEST_COPY.results })
+  expect(within(results).getAllByRole('listitem').map(item => item.textContent)).toEqual([
+    `Gemini: ${PROVIDER_CONNECTION_TEST_COPY.connectedLine} ${PROVIDER_CONNECTION_TEST_COPY.checkedAt(checkedAt)}`,
+  ])
+  expect(tested).toEqual([])
 })
 
 test('keeps failed provider setup retryable without losing queries', async () => {

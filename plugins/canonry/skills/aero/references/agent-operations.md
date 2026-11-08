@@ -83,7 +83,9 @@ their own terminal; never ask for it in chat. A saved key is not a verified one:
 with approval, `canonry settings provider test <name>` or `canonry_provider_test`
 checks the saved connection with the provider now (usually one tiny prompt on
 the operator's account) and reports `connected`, `failed` with the provider's
-reason, or `not-verified`.
+reason, or `not-verified`. The latest result is kept as the connection's `lastTest`
+(`canonry settings provider-info <name>` or `canonry_provider_settings_get`) until
+its key, endpoint or model changes; read it before testing again.
 Rerunning `canonry bootstrap` after a provider change reloads saved provider
 settings on a matching running local server and reports whether they became
 active. If the server is offline, start it to apply the saved settings. For an

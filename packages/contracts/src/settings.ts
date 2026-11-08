@@ -41,6 +41,42 @@ export type ProviderSettingsUpdateRequest = z.infer<typeof providerSettingsUpdat
 export const providerDisconnectRequestSchema = z.object({ expectedImpactRevision: z.string().min(1).optional() }).strict()
 export type ProviderDisconnectRequest = z.infer<typeof providerDisconnectRequestSchema>
 
+/**
+ * What testing a saved provider connection showed. `connected`: a live request
+ * reached the provider with the saved settings and succeeded. `failed`: the
+ * provider refused the settings, could not be reached, or did not answer in
+ * time; `message` says why. `not-verified`: the settings are saved, but the
+ * provider documents no free check, so the first real request is the first proof.
+ */
+export const providerConnectionTestStatusSchema = z.enum(['connected', 'failed', 'not-verified'])
+export const ProviderConnectionTestStatuses = providerConnectionTestStatusSchema.enum
+export type ProviderConnectionTestStatus = z.infer<typeof providerConnectionTestStatusSchema>
+
+/** What one connection test returned, shared by the test response and the connection's stored last test. */
+const providerConnectionTestOutcomeShape = {
+  status: providerConnectionTestStatusSchema,
+  ok: z.boolean().describe('False only when status is failed. A not-verified connection is ok but unproven, so read status.'),
+  message: z.string().describe('The provider\'s own result or refusal, with credentials redacted.'),
+  model: z.string().nullable().describe('The model this connection runs, as its check reported it, or null when the check names none.'),
+  checkedAt: z.string().describe('When the check finished (ISO 8601).'),
+  durationMs: z.number().int().nonnegative(),
+}
+const okMatchesStatus = (result: { ok: boolean; status: ProviderConnectionTestStatus }): boolean =>
+  result.ok === (result.status !== ProviderConnectionTestStatuses.failed)
+const OK_MATCHES_STATUS = 'ok is false exactly when status is failed'
+
+/** `POST /settings/providers/{name}/test`. Credential-free: the server redacts `message` before it is returned. */
+export const providerConnectionTestResultDtoSchema = z.object({
+  provider: z.string(),
+  displayName: z.string(),
+  ...providerConnectionTestOutcomeShape,
+}).refine(okMatchesStatus, OK_MATCHES_STATUS)
+export type ProviderConnectionTestResultDto = z.infer<typeof providerConnectionTestResultDtoSchema>
+
+/** The latest test of a connection, kept only while the connection's active settings are the ones it checked. */
+export const providerConnectionLastTestDtoSchema = z.object(providerConnectionTestOutcomeShape).refine(okMatchesStatus, OK_MATCHES_STATUS)
+export type ProviderConnectionLastTestDto = z.infer<typeof providerConnectionLastTestDtoSchema>
+
 /** Host-owned, credential-free configuration. Secrets and credential-file paths never enter this DTO. */
 export const providerConnectionConfigDtoSchema = z.object({
   name: z.string(),
@@ -66,6 +102,8 @@ export const providerConnectionConfigDtoSchema = z.object({
   }),
   hostUses: z.array(z.string()),
   blockers: z.array(z.object({ code: z.string(), message: z.string(), runIds: z.array(z.string()), batchIds: z.array(z.string()) })),
+  lastTest: providerConnectionLastTestDtoSchema.nullable().optional()
+    .describe('The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model or Vertex setting hides an earlier test). Absent from hosts that keep no test history.'),
 })
 export type ProviderConnectionConfigDto = z.infer<typeof providerConnectionConfigDtoSchema>
 
@@ -142,29 +180,6 @@ export const providerReloadResponseDtoSchema = z.object({
 })
 export type ProviderReloadResponseDto = z.infer<typeof providerReloadResponseDtoSchema>
 
-/**
- * What testing a saved provider connection showed. `connected`: a live request
- * reached the provider with the saved settings and succeeded. `failed`: the
- * provider refused the settings, could not be reached, or did not answer in
- * time; `message` says why. `not-verified`: the settings are saved, but the
- * provider documents no free check, so the first real request is the first proof.
- */
-export const providerConnectionTestStatusSchema = z.enum(['connected', 'failed', 'not-verified'])
-export const ProviderConnectionTestStatuses = providerConnectionTestStatusSchema.enum
-export type ProviderConnectionTestStatus = z.infer<typeof providerConnectionTestStatusSchema>
-
-/** `POST /settings/providers/{name}/test`. Credential-free: the server redacts `message` before it is returned. */
-export const providerConnectionTestResultDtoSchema = z.object({
-  provider: z.string(),
-  displayName: z.string(),
-  status: providerConnectionTestStatusSchema,
-  ok: z.boolean().describe('False only when status is failed. A not-verified connection is ok but unproven, so read status.'),
-  message: z.string().describe('The provider\'s own result or refusal, with credentials redacted.'),
-  model: z.string().nullable().describe('The model this connection runs, as its check reported it, or null when the check names none.'),
-  checkedAt: z.string().describe('When the check finished (ISO 8601).'),
-  durationMs: z.number().int().nonnegative(),
-}).refine(result => result.ok === (result.status !== ProviderConnectionTestStatuses.failed), 'ok is false exactly when status is failed')
-export type ProviderConnectionTestResultDto = z.infer<typeof providerConnectionTestResultDtoSchema>
 
 /**
  * `error.details.reason` when a connection test is refused before any provider

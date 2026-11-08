@@ -1,4 +1,4 @@
-import type { InsightActionGroup, McpHealth, MentionIdentity, ProjectDto, ProjectOverviewDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@canonry/canonry-contracts'
+import type { InsightActionGroup, McpHealth, MentionIdentity, ProjectDto, ProjectOverviewDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview, ProviderConnectionLastTestDto } from '@canonry/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 /** `disabled` is a service switched off on purpose, such as the public demo's worker. */
@@ -309,6 +309,10 @@ export interface ProviderStatusVm {
     maxRequestsPerMinute: number
     maxRequestsPerDay: number
   }
+  /** The saved connection revision, when the settings read lists connection details. */
+  revision?: string
+  /** The server's latest test of the connection's active settings, when the settings read lists connection details. */
+  lastTest?: ProviderConnectionLastTestDto | null
 }
 
 export interface GoogleSettingsVm {

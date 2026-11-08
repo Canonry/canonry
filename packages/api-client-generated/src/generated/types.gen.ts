@@ -15519,6 +15519,29 @@ export type ProviderConnectionSettingsDto = {
         runIds: Array<string>;
         batchIds: Array<string>;
     }>;
+    /**
+     * The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model or Vertex setting hides an earlier test). Absent from hosts that keep no test history.
+     */
+    lastTest?: {
+        status: 'connected' | 'failed' | 'not-verified';
+        /**
+         * False only when status is failed. A not-verified connection is ok but unproven, so read status.
+         */
+        ok: boolean;
+        /**
+         * The provider's own result or refusal, with credentials redacted.
+         */
+        message: string;
+        /**
+         * The model this connection runs, as its check reported it, or null when the check names none.
+         */
+        model: string | null;
+        /**
+         * When the check finished (ISO 8601).
+         */
+        checkedAt: string;
+        durationMs: number;
+    } | null;
     usage: {
         projectCount: number;
         projects: Array<{
@@ -16499,6 +16522,29 @@ export type SettingsDto = {
             runIds: Array<string>;
             batchIds: Array<string>;
         }>;
+        /**
+         * The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model or Vertex setting hides an earlier test). Absent from hosts that keep no test history.
+         */
+        lastTest?: {
+            status: 'connected' | 'failed' | 'not-verified';
+            /**
+             * False only when status is failed. A not-verified connection is ok but unproven, so read status.
+             */
+            ok: boolean;
+            /**
+             * The provider's own result or refusal, with credentials redacted.
+             */
+            message: string;
+            /**
+             * The model this connection runs, as its check reported it, or null when the check names none.
+             */
+            model: string | null;
+            /**
+             * When the check finished (ISO 8601).
+             */
+            checkedAt: string;
+            durationMs: number;
+        } | null;
         usage: {
             projectCount: number;
             projects: Array<{

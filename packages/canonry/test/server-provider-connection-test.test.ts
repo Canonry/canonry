@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { stringify } from 'yaml'
 import { createClient, migrate, type DatabaseClient } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
-import type { CanonryConfig } from '../src/config.js'
+import { loadConfig, type CanonryConfig } from '../src/config.js'
 
 const LOCAL_KEY = 'local-fixture-key-9f2c'
 
@@ -45,6 +45,22 @@ function testConnection(name: string) {
   })
 }
 
+function request(method: 'GET' | 'PUT' | 'DELETE', url: string, payload?: unknown) {
+  return app!.inject({ method, url, headers: { authorization: `Bearer ${config.apiKey}` }, ...(payload === undefined ? {} : { payload }) })
+}
+
+async function lastTest(name: string) {
+  const response = await request('GET', `/api/v1/settings/providers/${name}`)
+  expect(response.statusCode).toBe(200)
+  return response.json().lastTest
+}
+
+/** The test response without the fields only the response carries. */
+function asLastTest(result: Record<string, unknown>) {
+  const { provider: _provider, displayName: _displayName, ...stored } = result
+  return stored
+}
+
 beforeEach(() => {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-provider-connection-test-'))
   vi.stubEnv('CANONRY_CONFIG_DIR', directory)
@@ -78,7 +94,7 @@ describe('local server provider connection test', () => {
     expect(endpoint.requests).toContainEqual({ method: 'GET', url: '/v1/models', authorization: `Bearer ${LOCAL_KEY}` })
   })
 
-  it('reports a refusing endpoint as failed without returning the saved key it quoted', async () => {
+  it('reports a refusing endpoint as failed without returning or keeping the saved key it quoted', async () => {
     const endpoint = await startEndpoint(() => ({ status: 401, body: { error: { message: `Unknown token ${LOCAL_KEY} for this server`, type: 'invalid_request_error' } } }))
     await start({ local: { baseUrl: endpoint.baseUrl, apiKey: LOCAL_KEY } })
     const response = await testConnection('local')
@@ -87,7 +103,39 @@ describe('local server provider connection test', () => {
     expect(result).toMatchObject({ provider: 'local', status: 'failed', ok: false })
     expect(result.message).toContain('Unknown token [REDACTED] for this server')
     expect(response.body).not.toContain(LOCAL_KEY)
-    expect(endpoint.requests.some(request => request.url === '/v1/models')).toBe(true)
+    expect(endpoint.requests.some(entry => entry.url === '/v1/models')).toBe(true)
+    // A failed test is kept too, as returned.
+    expect(await lastTest('local')).toEqual(asLastTest(result))
+    expect(JSON.stringify(db.$client.prepare('SELECT * FROM provider_connection_tests').all())).not.toContain(LOCAL_KEY)
+  })
+
+  it('keeps the latest result with the connection until the settings it tested change', async () => {
+    const endpoint = await startEndpoint(() => ({ status: 200, body: { object: 'list', data: [{ id: 'qwen3', object: 'model' }] } }))
+    await start({ local: { baseUrl: endpoint.baseUrl, apiKey: LOCAL_KEY, model: 'qwen3' } })
+    expect(await lastTest('local')).toBeNull()
+    const kept = asLastTest((await testConnection('local')).json())
+    expect(kept).toMatchObject({ status: 'connected', ok: true, model: 'qwen3' })
+    expect(await lastTest('local')).toEqual(kept)
+    const settings = (await request('GET', '/api/v1/settings')).json()
+    expect(settings.providerConnections.find((connection: { name: string }) => connection.name === 'local').lastTest).toEqual(kept)
+
+    // Request limits change nothing about reaching the provider, and a restart forgets nothing.
+    expect((await request('PUT', '/api/v1/settings/providers/local', { quota: { maxConcurrency: 3 } })).statusCode).toBe(200)
+    expect(await lastTest('local')).toEqual(kept)
+    await app!.close()
+    app = await createServer({ config: loadConfig(path.join(directory, 'config.yaml')), db, logger: false })
+    expect(await lastTest('local')).toEqual(kept)
+
+    // A different model is different settings, so the earlier test no longer describes them.
+    expect((await request('PUT', '/api/v1/settings/providers/local', { model: 'llama3' })).statusCode).toBe(200)
+    expect(await lastTest('local')).toBeNull()
+
+    // Reconnecting after a disconnect starts unproven, even with the same settings.
+    await testConnection('local')
+    expect(await lastTest('local')).toMatchObject({ status: 'connected', model: 'llama3' })
+    expect((await request('DELETE', '/api/v1/settings/providers/local', {})).statusCode).toBe(200)
+    expect((await request('PUT', '/api/v1/settings/providers/local', { baseUrl: endpoint.baseUrl, apiKey: LOCAL_KEY, model: 'llama3' })).statusCode).toBe(200)
+    expect(await lastTest('local')).toBeNull()
   })
 
   it('refuses a known provider with nothing saved before any provider call', async () => {

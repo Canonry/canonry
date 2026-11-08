@@ -2453,7 +2453,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_provider_settings_get',
     title: 'Inspect provider connection',
-    description: 'Read credential-free saved provider configuration, inherited defaults, edit capabilities, host-managed settings, blockers and affected projects (Simple and Advanced). Requires install administrator authority. Makes no provider calls. Use impactRevision when approving a disconnect, and revision when updating settings.',
+    description: 'Read credential-free saved provider configuration, inherited defaults, edit capabilities, host-managed settings, blockers, affected projects (Simple and Advanced) and lastTest, the stored result of the latest connection test of the active settings (null when none has run since they changed). Requires install administrator authority. Makes no provider calls. Use impactRevision when approving a disconnect, and revision when updating settings.',
     access: 'read',
     tier: 'setup',
     inputSchema: z.object({ provider: z.string().min(1) }).strict(),
@@ -2491,7 +2491,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_provider_test',
     title: 'Test a saved provider connection',
-    description: 'With explicit operator approval, check one saved provider connection against the provider now. Most answer engines answer one tiny prompt on the provider account, Local lists its models, OpenRouter reads its key, and a search answer service with no free key check makes no request. Requires settings.write. Accepts no credentials and changes no settings. Returns status connected, failed (with the provider\'s redacted reason) or not-verified, and the model checked. A failed check is a result with ok false, not a tool error. Unsupported deployments return NOT_IMPLEMENTED.',
+    description: 'With explicit operator approval, check one saved provider connection against the provider now. Most answer engines answer one tiny prompt on the provider account, Local lists its models, OpenRouter reads its key, and a search answer service with no free key check makes no request. Requires settings.write. Accepts no credentials and changes no settings. Returns status connected, failed (with the provider\'s redacted reason) or not-verified, and the model checked. A failed check is a result with ok false, not a tool error. The result is kept as lastTest on canonry_provider_settings_get until the key, endpoint or model changes, so read that before testing again. Unsupported deployments return NOT_IMPLEMENTED.',
     access: 'write',
     requiredScope: 'settings.write',
     tier: 'setup',

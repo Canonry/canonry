@@ -1,7 +1,14 @@
 import { ProviderConnectionTestStatuses } from '@canonry/canonry-contracts'
 
 import type { MetricTone } from '../../view-models.js'
+import { formatSweepInstant } from '../../lib/format-helpers.js'
 import { isConnectedRecord, isFailedRecord, type ProviderConnectionTestRecord } from '../../queries/provider-connection-tests.js'
+
+/** A provider's own message as a sentence, so a following sentence reads cleanly. */
+function asSentence(text: string): string {
+  const trimmed = text.trim()
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`
+}
 
 export const PROVIDER_CONNECTION_TEST_COPY = {
   connected: 'Connected',
@@ -12,14 +19,16 @@ export const PROVIDER_CONNECTION_TEST_COPY = {
   saveFirst: 'Save your changes, then test the connection.',
   results: 'Connection test results',
   connectedLine: 'Connected.',
-  failed: (message: string) => `Test failed: ${message}`,
-  notRun: (message: string) => `Could not run the test: ${message}`,
+  failed: (message: string) => `Test failed: ${asSentence(message)}`,
+  notRun: (message: string) => `Could not run the test: ${asSentence(message)}`,
+  /** When a result was checked, in the viewer's zone: the time alone today, the day too before that. */
+  checkedAt: (checkedAt: string, now: Date = new Date()) => `Checked ${formatSweepInstant(checkedAt, now.toISOString(), now)}.`,
 } as const
 
-/** One status for one or more connections: Connected only when every one passed its latest test. */
-export function providerConnectionStatus(records: readonly (ProviderConnectionTestRecord | undefined)[]): { label: string; tone: MetricTone } {
-  if (records.length > 0 && records.every(isConnectedRecord)) return { label: PROVIDER_CONNECTION_TEST_COPY.connected, tone: 'positive' }
-  return { label: PROVIDER_CONNECTION_TEST_COPY.savedNotVerified, tone: records.some(isFailedRecord) ? 'caution' : 'neutral' }
+/** One status for one or more connections: Connected only when every one's latest test passed. */
+export function providerConnectionStatus(results: readonly (ProviderConnectionTestRecord | undefined)[]): { label: string; tone: MetricTone } {
+  if (results.length > 0 && results.every(isConnectedRecord)) return { label: PROVIDER_CONNECTION_TEST_COPY.connected, tone: 'positive' }
+  return { label: PROVIDER_CONNECTION_TEST_COPY.savedNotVerified, tone: results.some(isFailedRecord) ? 'caution' : 'neutral' }
 }
 
 /** What one test showed, as a sentence. The provider's own words explain a failure or an unverifiable key. */
@@ -28,7 +37,7 @@ export function providerConnectionTestSummary(record: ProviderConnectionTestReco
   switch (record.result.status) {
     case ProviderConnectionTestStatuses.connected: return PROVIDER_CONNECTION_TEST_COPY.connectedLine
     case ProviderConnectionTestStatuses.failed: return PROVIDER_CONNECTION_TEST_COPY.failed(record.result.message)
-    case ProviderConnectionTestStatuses['not-verified']: return record.result.message
+    case ProviderConnectionTestStatuses['not-verified']: return asSentence(record.result.message)
   }
 }
 
@@ -38,6 +47,7 @@ export function ProviderConnectionTestLine({ record, label }: { record: Provider
     <p className={`break-words text-copy-14 ${tone}`}>
       {label ? <span className="text-heading">{label}: </span> : null}
       {providerConnectionTestSummary(record)}
+      {record.kind === 'result' ? <span className="text-secondary"> {PROVIDER_CONNECTION_TEST_COPY.checkedAt(record.result.checkedAt)}</span> : null}
     </p>
   )
 }

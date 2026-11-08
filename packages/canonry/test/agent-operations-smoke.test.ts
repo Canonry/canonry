@@ -53,7 +53,7 @@ async function harness(lifecycle = false) {
     providers[0]!.model = model ?? providers[0]!.model
     return { ...providers[0]! }
   })
-  const providerTest = vi.fn<NonNullable<ApiRoutesOptions['onProviderTest']>>(async () => ({ ok: true, provider: 'openai', message: 'openai api key verified', model: 'gpt-old' }))
+  const providerTest = vi.fn<NonNullable<ApiRoutesOptions['onProviderTest']>>(() => ({ check: Promise.resolve({ ok: true, provider: 'openai', message: 'openai api key verified', model: 'gpt-old' }) }))
   const connection = structuredClone(providerConnectionFixture)
   const providerDisconnect = vi.fn(() => { connection.configured = false; connection.apiKeyConfigured = false; connection.revision = 'connection-v2' })
   const options: McpHttpOptions = { db, selfApiUrl: '' }
@@ -138,7 +138,7 @@ describe('agent operations cross-surface smoke', () => {
     expect(viaMcp.structuredContent).toEqual(connected)
 
     // A provider refusal is a result everywhere; only the CLI turns it into exit 2, after printing it.
-    providerTest.mockResolvedValue({ ok: false, provider: 'openai', message: '401 Incorrect API key provided', model: 'gpt-old' })
+    providerTest.mockImplementation(() => ({ check: Promise.resolve({ ok: false, provider: 'openai', message: '401 Incorrect API key provided', model: 'gpt-old' }) }))
     const failed = { ...connected, status: 'failed', ok: false, message: '401 Incorrect API key provided' }
     await expect(run(['openai', '--format', 'json'])).rejects.toMatchObject({ code: 'PROVIDER_TEST_FAILED', exitCode: 2 })
     expect(JSON.parse(out.mock.calls.at(-1)![0])).toEqual(failed)
@@ -147,7 +147,7 @@ describe('agent operations cross-surface smoke', () => {
     expect(failedViaMcp.structuredContent).toEqual(failed)
 
     // Nothing saved is the caller's mistake (exit 1), on every surface.
-    providerTest.mockResolvedValue(undefined)
+    providerTest.mockReturnValue(undefined)
     await expect(run(['openai', '--format', 'json'])).rejects.toMatchObject({ exitCode: 1, details: { httpStatus: 400 } })
     expect((await mcp.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })).isError).toBe(true)
     expect(providerTest).toHaveBeenCalledTimes(7)

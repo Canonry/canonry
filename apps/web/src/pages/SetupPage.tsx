@@ -681,14 +681,23 @@ function ReadySetupPage({
     ...runnableApiProviders.map(provider => isOpenRouterRoute(provider.name) ? ProviderNames.openrouter : normalizeProviderName(provider.name)),
     ...(runnableApiProviders.length === 0 && cdpConfigured === true ? [CDP_PROVIDER_NAME] : []),
   ])]
-  const engineConnectionTests = useProviderConnectionTests(engineConnectionNames.map(name => ({ name })))
+  const engineConnectionStatusOf = (name: string) => settings.providerStatuses.find(provider => normalizeProviderName(provider.name) === name)
+  // An administrator's settings read carries each connection's revision and stored last test.
+  const engineConnectionTests = useProviderConnectionTests(engineConnectionNames.map(name => {
+    const status = engineConnectionStatusOf(name)
+    return {
+      name,
+      ...(status?.revision !== undefined ? { revision: status.revision } : {}),
+      ...(status?.lastTest !== undefined ? { lastTest: status.lastTest } : {}),
+    }
+  }))
   const engineConnectionLabel = (name: string): string => {
     if (name === CDP_PROVIDER_NAME) return 'ChatGPT in Chrome'
-    const status = settings.providerStatuses.find(provider => normalizeProviderName(provider.name) === name)
+    const status = engineConnectionStatusOf(name)
     return status?.displayName ?? status?.name ?? name
   }
   // Connected only after a passing test of every listed connection; saved settings alone prove nothing.
-  const engineConnectionStatus = providerConnectionStatus(engineConnectionTests.records)
+  const engineConnectionStatus = providerConnectionStatus(engineConnectionTests.results)
   const [selectedProvider, setSelectedProvider] = useState(runnableApiProviders[0]?.name ?? '')
   const [generateCount, setGenerateCount] = useState(5)
   const [generatingQueries, setGeneratingQueries] = useState(false)

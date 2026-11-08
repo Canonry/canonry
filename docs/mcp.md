@@ -159,9 +159,12 @@ updates, disconnect and reload are excluded from native Aero.
 one saved connection's own healthcheck against the provider (usually one tiny
 prompt on the operator's account) and returns `status` `connected`, `failed` or
 `not-verified`, with the provider's redacted message and the model checked. A
-failed check is a normal result with `ok: false`, not a tool error. It accepts no
-credentials, changes no settings, requires `settings.write`, and is excluded from
-native Aero and read-only or stored-only catalogs.
+failed check is a normal result with `ok: false`, not a tool error. The result is
+kept as `lastTest` on the connection (`canonry_provider_settings_get`, and
+`providerConnections` in `canonry_settings_get`) until its key, endpoint or model
+changes, so read it before testing again. It accepts no credentials, changes no
+saved settings, requires `settings.write`, and is excluded from native Aero and
+read-only or stored-only catalogs.
 `canonry_providers_reload` mirrors `canonry settings reload-providers`: after
 explicit operator approval it reloads the connected host's saved provider
 credentials, models, quotas and batch settings without restarting the server.

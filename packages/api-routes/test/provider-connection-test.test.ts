@@ -5,10 +5,15 @@ import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apiKeys, createClient, migrate, projects, users } from '@canonry/canonry-db'
 import { notImplemented, type ProviderHealthcheckResult } from '@canonry/canonry-contracts'
-import { apiRoutes, hashApiKey, type ApiRoutesOptions, type OutcomeTelemetryEvent } from '../src/index.js'
+import { apiRoutes, hashApiKey, type ApiRoutesOptions, type OutcomeTelemetryEvent, type ProviderTestRun } from '../src/index.js'
 import { featureOutcomes } from './feature-outcome-capture.js'
 
 type ProviderTestHook = NonNullable<ApiRoutesOptions['onProviderTest']>
+
+/** A host run of one check; `record` captures what the host is asked to keep. */
+function run(check: () => Promise<ProviderHealthcheckResult>, record: ProviderTestRun['record'] = vi.fn()): ProviderTestRun {
+  return { check: check(), record }
+}
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => {
@@ -101,8 +106,9 @@ describe('POST /settings/providers/:name/test', () => {
       check: async () => { throw new Error('socket hang up') },
       expected: { status: 'failed', ok: false, message: 'socket hang up', model: null },
     },
-  ])('$case', async ({ name, check, expected }) => {
-    const onProviderTest = vi.fn(check)
+  ])('$case, and the host keeps exactly that result', async ({ name, check, expected }) => {
+    const record = vi.fn()
+    const onProviderTest = vi.fn<ProviderTestHook>(() => run(check, record))
     const { test } = await harness({ onProviderTest })
     const response = await test(name)
     expect(response.statusCode).toBe(200)
@@ -115,10 +121,12 @@ describe('POST /settings/providers/:name/test', () => {
       durationMs: expect.any(Number),
     })
     expect(onProviderTest).toHaveBeenCalledWith(name)
+    expect(record).toHaveBeenCalledExactlyOnceWith(response.json())
   })
 
-  it('reports a check that never answers as failed once the wait ends', async () => {
-    const { test } = await harness({ onProviderTest: () => new Promise(() => {}), timeoutMs: 20 })
+  it('reports and keeps a check that never answers as failed once the wait ends', async () => {
+    const record = vi.fn()
+    const { test } = await harness({ onProviderTest: () => ({ check: new Promise(() => {}), record }), timeoutMs: 20 })
     const response = await test('gemini')
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({
@@ -127,6 +135,14 @@ describe('POST /settings/providers/:name/test', () => {
       model: null,
       message: 'Gemini did not answer within 1 second. Check the endpoint and network, then test again.',
     })
+    expect(record).toHaveBeenCalledExactlyOnceWith(response.json())
+  })
+
+  it('still answers when the host cannot keep the result', async () => {
+    const { test } = await harness({ onProviderTest: () => run(async () => ({ ok: true, provider: 'gemini', message: 'gemini api key verified' }), () => { throw new Error('database is locked') }) })
+    const response = await test('gemini')
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ status: 'connected', ok: true })
   })
 
   it.each([
@@ -155,7 +171,7 @@ describe('POST /settings/providers/:name/test', () => {
       called: false,
     },
   ])('refuses $case', async ({ name, hook, status, error, called }) => {
-    const onProviderTest = vi.fn<ProviderTestHook>(async () => undefined)
+    const onProviderTest = vi.fn<ProviderTestHook>(() => undefined)
     const { test } = await harness(hook ? { onProviderTest } : {})
     const response = await test(name)
     expect(response.statusCode).toBe(status)
@@ -164,14 +180,14 @@ describe('POST /settings/providers/:name/test', () => {
   })
 
   it('keeps a host refusal as that refusal instead of a failed provider result', async () => {
-    const { test } = await harness({ onProviderTest: async () => { throw notImplemented('Connection tests are paused on this host') } })
+    const { test } = await harness({ onProviderTest: () => { throw notImplemented('Connection tests are paused on this host') } })
     const response = await test('gemini')
     expect(response.statusCode).toBe(501)
     expect(response.json()).toMatchObject({ error: { code: 'NOT_IMPLEMENTED', message: 'Connection tests are paused on this host' } })
   })
 
   it.each(['root', 'settings', 'project'])('lets a %s credential that can save provider keys run the test', async (key) => {
-    const onProviderTest = vi.fn<ProviderTestHook>(async () => ({ ok: true, provider: 'gemini', message: 'gemini api key verified' }))
+    const onProviderTest = vi.fn<ProviderTestHook>(() => run(async () => ({ ok: true, provider: 'gemini', message: 'gemini api key verified' })))
     const { test } = await harness({ onProviderTest })
     expect((await test('gemini', key)).statusCode).toBe(200)
     expect(onProviderTest).toHaveBeenCalledTimes(1)
@@ -180,7 +196,7 @@ describe('POST /settings/providers/:name/test', () => {
   // `write` reaches this route's own scope check; `read` and `viewer` are refused earlier for any POST,
   // which this keeps true should the route ever be marked as a read.
   it.each(['read', 'write', 'viewer'])('refuses a %s credential before any provider call, since the test spends on the provider account', async (key) => {
-    const onProviderTest = vi.fn<ProviderTestHook>(async () => ({ ok: true, provider: 'gemini', message: 'gemini api key verified' }))
+    const onProviderTest = vi.fn<ProviderTestHook>(() => run(async () => ({ ok: true, provider: 'gemini', message: 'gemini api key verified' })))
     const { test } = await harness({ onProviderTest })
     const response = await test('gemini', key)
     expect(response.statusCode).toBe(403)
@@ -189,7 +205,7 @@ describe('POST /settings/providers/:name/test', () => {
   })
 
   it('is refused in stored-only mode before any provider call', async () => {
-    const onProviderTest = vi.fn<ProviderTestHook>(async () => ({ ok: true, provider: 'gemini', message: 'gemini api key verified' }))
+    const onProviderTest = vi.fn<ProviderTestHook>(() => run(async () => ({ ok: true, provider: 'gemini', message: 'gemini api key verified' })))
     const { test } = await harness({ onProviderTest })
     const response = await test('gemini', 'root', { 'x-canonry-stored-only': '1' })
     expect(response.statusCode).toBe(403)
@@ -198,12 +214,12 @@ describe('POST /settings/providers/:name/test', () => {
   })
 
   it('reports each test outcome, naming only providers the telemetry catalog knows', async () => {
-    const results: Array<() => Promise<ProviderHealthcheckResult | undefined>> = [
-      async () => ({ ok: true, provider: 'gemini', message: 'gemini api key verified' }),
-      async () => ({ ok: false, provider: 'gemini', message: '401 Unauthorized' }),
-      async () => ({ ok: true, verified: false, provider: 'exa', message: 'Exa key saved, not verified' }),
-      () => new Promise(() => {}),
-      async () => undefined,
+    const results: Array<() => ProviderTestRun | undefined> = [
+      () => run(async () => ({ ok: true, provider: 'gemini', message: 'gemini api key verified' })),
+      () => run(async () => ({ ok: false, provider: 'gemini', message: '401 Unauthorized' })),
+      () => run(async () => ({ ok: true, verified: false, provider: 'exa', message: 'Exa key saved, not verified' })),
+      () => ({ check: new Promise(() => {}) }),
+      () => undefined,
     ]
     const { test, outcomes } = await harness({ onProviderTest: () => results.shift()!(), timeoutMs: 20 })
     for (const name of ['gemini', 'gemini', 'exa', 'gemini', 'gemini']) await test(name)

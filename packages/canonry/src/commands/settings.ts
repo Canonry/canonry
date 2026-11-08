@@ -3,7 +3,7 @@ import { createApiClient } from '../client.js'
 import { CliError, EXIT_SYSTEM_ERROR, isMachineFormat } from '../cli-error.js'
 import { setGoogleAuthConfig } from '../google-config.js'
 import { formatDurationSeconds, ProviderConnectionTestStatuses } from '@canonry/canonry-contracts'
-import type { ProviderConnectionSettingsDto, ProviderConnectionTestStatus, ProviderSettingsUpdateRequest } from '@canonry/canonry-contracts'
+import type { ProviderConnectionLastTestDto, ProviderConnectionSettingsDto, ProviderConnectionTestStatus, ProviderSettingsUpdateRequest } from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -33,6 +33,7 @@ function printConnection(connection: ProviderConnectionSettingsDto): void {
   if (connection.baseUrl) console.log(`  Endpoint: ${connection.baseUrl}`)
   console.log(`  API key: ${connection.apiKeyConfigured ? 'saved' : 'not saved'}`)
   if (connection.effectiveModel) console.log(`  Model: ${connection.effectiveModel}${connection.model ? ' (custom)' : ' (inherited)'}`)
+  if (connection.configured && connection.lastTest !== undefined) console.log(`  Last test: ${lastTestLine(connection.name, connection.lastTest)}`)
   if (connection.capabilities.quota) {
     for (const [key, value] of Object.entries(connection.quota.effective)) {
       console.log(`  ${key}: ${value} (${Object.hasOwn(connection.quota.overrides, key) ? 'custom' : 'inherited'})`)
@@ -102,6 +103,8 @@ export async function showSettings(format?: string): Promise<void> {
       if (provider.quota) {
         console.log(`    Quota:     ${provider.quota.maxConcurrency} concurrent · ${provider.quota.maxRequestsPerMinute}/min · ${provider.quota.maxRequestsPerDay}/day`)
       }
+      const lastTest = settings.providerConnections?.find(connection => connection.name === provider.name)?.lastTest
+      if (lastTest !== undefined) console.log(`    Last test: ${lastTestLine(provider.name, lastTest)}`)
     }
   }
 
@@ -141,6 +144,13 @@ function testStatusLabel(status: ProviderConnectionTestStatus): string {
     case ProviderConnectionTestStatuses.failed: return 'failed'
     case ProviderConnectionTestStatuses['not-verified']: return 'saved, not verified'
   }
+}
+
+/** The latest test of the active settings, or that none has run since they changed. */
+function lastTestLine(name: string, lastTest: ProviderConnectionLastTestDto | null): string {
+  if (!lastTest) return `none since these settings changed; run "canonry settings provider test ${name}"`
+  const detail = lastTest.status === ProviderConnectionTestStatuses.connected ? '' : ` (${lastTest.message})`
+  return `${testStatusLabel(lastTest.status)} at ${lastTest.checkedAt}${detail}`
 }
 
 export async function testProvider(name: string, format?: string): Promise<void> {

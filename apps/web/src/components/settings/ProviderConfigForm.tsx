@@ -321,7 +321,7 @@ function ProviderConnectionEditor({ connection, catalog, compact = false, onDirt
   const capabilities = connection.capabilities
   const batchPending = connection.blockers.some(blocker => blocker.code === 'outstanding-batches')
   // Only saved settings can be tested, at the revision this editor shows.
-  const connectionTest = useProviderConnectionTests([{ name: connection.name, revision: connection.revision }])
+  const connectionTest = useProviderConnectionTests([{ name: connection.name, revision: connection.revision, lastTest: connection.lastTest }])
   const testRecord = connectionTest.records[0]
   const dirty = apiKey.trim() !== '' || clearKey
     || (inheritEndpoint ? connection.baseUrl !== null : baseUrl.trim() !== (connection.baseUrl ?? ''))
@@ -455,8 +455,8 @@ function usageSummary(usage: ProviderConnectionSettingsDto['usage']): string {
   ].filter(part => part !== '').join(' · ')
 }
 
-function ConnectionStatusBadge({ record }: { record: ProviderConnectionTestRecord | undefined }) {
-  const status = providerConnectionStatus([record])
+function ConnectionStatusBadge({ result }: { result: ProviderConnectionTestRecord | undefined }) {
+  const status = providerConnectionStatus([result])
   return <ToneBadge tone={status.tone}>{status.label}</ToneBadge>
 }
 
@@ -480,13 +480,16 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
   const guard = useUnsavedChanges(dirty, busy)
   const connections = settings.data?.providerConnections
   const unavailable = settings.data?.providerConnectionsUnavailable
-  // Rows show the latest test of the settings they list; without revisions, the latest test this tab ran.
-  // The browser connection's live status belongs to its own card, which checks Chrome on open.
+  // Rows show the latest test of the settings they list, the server's or this tab's; without
+  // connection details, only this tab's. The browser connection's live status belongs to its
+  // own card, which checks Chrome on open.
   const testTargets: ProviderConnectionTestTarget[] = connections
-    ? connections.filter(connection => connection.configured && connection.mode !== 'browser').map(connection => ({ name: connection.name, revision: connection.revision }))
+    ? connections.filter(connection => connection.configured && connection.mode !== 'browser').map(connection => ({ name: connection.name, revision: connection.revision, lastTest: connection.lastTest }))
     : (settings.data?.providers ?? []).filter(provider => provider.configured).map(provider => ({ name: provider.name }))
-  const testRecords = useProviderConnectionTestRecords(testTargets)
-  const testRecord = (name: string) => testRecords[testTargets.findIndex(target => target.name === name)]
+  const tested = useProviderConnectionTestRecords(testTargets)
+  const testIndex = (name: string) => testTargets.findIndex(target => target.name === name)
+  const testResult = (name: string) => tested.results[testIndex(name)]
+  const testRecord = (name: string) => tested.records[testIndex(name)]
   const selectedProject = projectName || projects[0]?.name
   const selectedModels = projects.find(project => project.name === selectedProject)?.providers.filter(isOpenRouterRoute) ?? []
 
@@ -575,7 +578,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
     const usage = usageSummary(connection.usage)
     const browser = connection.mode === 'browser'
     const record = connection.configured && !browser ? testRecord(connection.name) : undefined
-    const status = browser ? { label: 'Configured', tone: 'neutral' as const } : providerConnectionStatus([record])
+    const status = browser ? { label: 'Configured', tone: 'neutral' as const } : providerConnectionStatus([connection.configured ? testResult(connection.name) : undefined])
     return <div key={connection.name} id={`provider-${connection.name}`} className="scroll-mt-24 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
@@ -636,7 +639,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
         <h3 className="text-label-12 text-secondary">{PROVIDER_CONNECTIONS_COPY.configuredOnServer}</h3>
         <div className="mt-1 divide-y divide-default">{configuredOnServer.map(provider => <div key={provider.name} className="flex flex-wrap items-center justify-between gap-3 py-3">
           <div className="min-w-0"><p className="text-copy-14-strong text-heading">{provider.displayName ?? provider.name}</p>{(provider.model ?? provider.defaultModel) && <p className="break-words text-copy-14 text-secondary">{provider.model ?? provider.defaultModel}</p>}</div>
-          <ConnectionStatusBadge record={testRecord(provider.name)} />
+          <ConnectionStatusBadge result={testResult(provider.name)} />
         </div>)}</div>
       </div>}
     </div> : connections ? <>
@@ -652,7 +655,7 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
     </> : settings.data && <div className="divide-y divide-default">
       <p className="py-4 text-copy-14 text-secondary">This host supports connection setup. Saved credential details, resets and disconnect are unavailable here.</p>
       {settings.data.providers.map(provider => <div key={provider.name} id={`provider-${provider.name}`} className="scroll-mt-24 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-copy-14-strong text-heading">{provider.displayName ?? provider.name}</p><p className="text-copy-14 text-secondary">{provider.model ?? provider.defaultModel}</p></div><div className="flex items-center gap-2">{provider.configured ? <ConnectionStatusBadge record={testRecord(provider.name)} /> : <ToneBadge tone="caution">Not configured</ToneBadge>}<Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => guard.request(() => { setFallbackEditing(current => current === provider.name ? null : provider.name); setDirty(false) })}>{fallbackEditing === provider.name ? 'Cancel' : provider.configured ? 'Update' : 'Configure'}</Button></div></div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-copy-14-strong text-heading">{provider.displayName ?? provider.name}</p><p className="text-copy-14 text-secondary">{provider.model ?? provider.defaultModel}</p></div><div className="flex items-center gap-2">{provider.configured ? <ConnectionStatusBadge result={testResult(provider.name)} /> : <ToneBadge tone="caution">Not configured</ToneBadge>}<Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => guard.request(() => { setFallbackEditing(current => current === provider.name ? null : provider.name); setDirty(false) })}>{fallbackEditing === provider.name ? 'Cancel' : provider.configured ? 'Update' : 'Configure'}</Button></div></div>
         {fallbackEditing === provider.name && <ProviderConfigForm key={provider.name} providerName={provider.name} keyUrl={provider.keyUrl} modelHint={provider.modelHint} defaultModel={provider.defaultModel} {...(provider.kind ? { kind: provider.kind } : {})} onDirtyChange={setDirty} onBusyChange={setBusy} onSaved={() => { setFallbackEditing(null); setDirty(false); void refresh() }} />}
         {provider.configured && (provider.name === 'openrouter' || provider.kind === ProviderKinds['model-gateway'] || provider.kind === ProviderKinds['answer-service']) && projectSelection(provider.name, provider.kind)}
       </div>)}

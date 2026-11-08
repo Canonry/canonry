@@ -397,3 +397,38 @@ test('tests only saved settings: an unsaved edit disables the test until it is s
   expect(tested).not.toHaveBeenCalled()
 })
 
+test('reads a stored passing test as Connected on load, without testing again', async () => {
+  const tested = vi.fn((_name: string) => jsonResponse(testResult()))
+  const stored = { status: 'connected' as const, ok: true, message: 'openai api key verified', model: 'gpt-default', checkedAt: '2026-01-05T09:30:00.000Z', durationMs: 700 }
+  renderConnections([connectionFixture({ lastTest: stored })], { test: tested })
+  const row = await connectionRow('openai')
+  await waitFor(() => expect(within(row).getByText(PROVIDER_CONNECTION_TEST_COPY.connected)).toBeTruthy())
+  const form = await manage()
+  expect(within(form).getByText(PROVIDER_CONNECTION_TEST_COPY.connectedLine)).toBeTruthy()
+  expect(within(form).getByText(PROVIDER_CONNECTION_TEST_COPY.checkedAt(stored.checkedAt))).toBeTruthy()
+  expect(tested).not.toHaveBeenCalled()
+})
+
+test('a newer test in this tab replaces an older stored failure', async () => {
+  const stored = { status: 'failed' as const, ok: false, message: '401 Incorrect API key provided', model: 'gpt-default', checkedAt: '2026-01-05T09:30:00.000Z', durationMs: 120 }
+  renderConnections([connectionFixture({ lastTest: stored })], { test: () => jsonResponse(testResult({ checkedAt: '2026-01-05T10:00:00.000Z' })) })
+  const row = await connectionRow('openai')
+  await waitFor(() => expect(within(row).getByText(PROVIDER_CONNECTION_TEST_COPY.failed(stored.message))).toBeTruthy())
+  expect(within(row).getByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
+  const form = await manage()
+  fireEvent.click(within(form).getByRole('button', { name: PROVIDER_CONNECTION_TEST_COPY.testOne }))
+  expect(await within(form).findByText(PROVIDER_CONNECTION_TEST_COPY.connectedLine)).toBeTruthy()
+  expect(within(row).getByText(PROVIDER_CONNECTION_TEST_COPY.connected)).toBeTruthy()
+})
+
+test('a refused test request is shown but never hides a stored pass', async () => {
+  const stored = { status: 'connected' as const, ok: true, message: 'openai api key verified', model: 'gpt-default', checkedAt: '2026-01-05T09:30:00.000Z', durationMs: 700 }
+  const refused = 'Provider connection tests are not supported in this deployment'
+  renderConnections([connectionFixture({ lastTest: stored })], { test: () => jsonResponse({ error: { code: 'NOT_IMPLEMENTED', message: refused } }, 501) })
+  const form = await manage()
+  fireEvent.click(within(form).getByRole('button', { name: PROVIDER_CONNECTION_TEST_COPY.testOne }))
+  expect(await within(form).findByText(PROVIDER_CONNECTION_TEST_COPY.notRun(refused))).toBeTruthy()
+  const row = await connectionRow('openai')
+  expect(within(row).getByText(PROVIDER_CONNECTION_TEST_COPY.connected)).toBeTruthy()
+})
+

@@ -5445,6 +5445,24 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_run ON ga_search_landing_pages(sync_run_id)`,
     ],
   },
+  {
+    version: 214,
+    name: 'provider-connection-tests',
+    // One row per connection: the latest test result and a keyed hash of the
+    // registration it checked. No status CHECK, so a status a later release
+    // adds needs no table rebuild; readers validate rows against the contract.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS provider_connection_tests (
+        provider     TEXT PRIMARY KEY NOT NULL,
+        fingerprint  TEXT NOT NULL,
+        status       TEXT NOT NULL,
+        message      TEXT NOT NULL,
+        model        TEXT,
+        checked_at   TEXT NOT NULL,
+        duration_ms  INTEGER NOT NULL
+      )`,
+    ],
+  },
 ]
 
 /**
