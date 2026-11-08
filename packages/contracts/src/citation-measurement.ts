@@ -44,11 +44,20 @@ const ENGINES_WITHOUT_SOURCES: ReadonlySet<string> = new Set([ProviderNames.loca
  */
 export function readCitationState(row: StoredCitationObservation): CitationState {
   if (row.citationState === CitationStates['not-measured']) return row.citationState
-  if (ENGINES_WITHOUT_SOURCES.has(row.provider)) return CitationStates['not-measured']
+  if (!engineReturnsSources(row.provider)) return CitationStates['not-measured']
   if (row.citationState === CitationStates['not-cited'] && row.retrievalStatus === RetrievalStatuses['not-applicable']) {
     return CitationStates['not-measured']
   }
   return row.citationState
+}
+
+/**
+ * Whether an engine can return source links at all. No answer from one that
+ * cannot (Local) is measured for citation, on any surface: sweep rows read
+ * through `readCitationState`, research answers through their route.
+ */
+export function engineReturnsSources(provider: string): boolean {
+  return !ENGINES_WITHOUT_SOURCES.has(provider)
 }
 
 /** Whether a citation state was observed (cited or not cited), so it belongs in a cited denominator. */

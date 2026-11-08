@@ -57,6 +57,8 @@ Answers recorded before `not-measured` existed are not rewritten, and `readCitat
 
 Reading all of them the same way keeps one method across a Local series, so a trend, comparison or run diff that spans the upgrade never mixes rows that counted as misses with rows that are not measured.
 
+Research runs on Local follow the same rule. Each answer reads `citationState: null` with `citationMeasured: false`, whatever its row stored. The CLI prints `n/m` and the dashboard shows "Not measured".
+
 The answer text is still checked for the brand and the project's domains, so local answers count toward mention rates like any other engine. The system prompt asks the model to write domain names, which helps that match. A local model answers from its training data, not a live search, so treat its mentions as a rough signal.
 
 ## Model
