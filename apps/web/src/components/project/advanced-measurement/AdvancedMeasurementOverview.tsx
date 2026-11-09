@@ -846,10 +846,10 @@ export function AdvancedMeasurementOverview({
 
       {!isViewLoading ? <section aria-labelledby="advanced-measurement-properties-title">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 id="advanced-measurement-properties-title" className="text-heading-16 text-heading">
-            Properties
+          <div className="flex items-center">
+            <h2 id="advanced-measurement-properties-title" className="text-heading-16 text-heading">Properties</h2>
             <InfoTooltip text={ADVANCED_PROPERTIES_SIGNAL_HELP} />
-          </h2>
+          </div>
           <span className="text-label-14 text-secondary">{report.currentView?.propertyTotal ?? filteredProperties.length} {(report.currentView?.propertyTotal ?? filteredProperties.length) === 1 ? 'property' : 'properties'}</span>
         </div>
         {/* Directly under the count it partitions, so the unit is stated once

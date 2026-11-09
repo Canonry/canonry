@@ -279,11 +279,9 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
     <section className="page-section">
       <div>
         <div className="section-head section-head-inline">
-          <div>
-            <h2 className="flex items-center gap-2">
-              Google Business Profile
-              <InfoTooltip text="How AI answer engines and Maps surface this business: performance, search terms, and how your public listing compares to the profile you control." />
-            </h2>
+          <div className="flex items-center gap-2">
+            <h2>Google Business Profile</h2>
+            <InfoTooltip text="How AI answer engines and Maps surface this business: performance, search terms, and how your public listing compares to the profile you control." />
           </div>
           <div className="flex items-center gap-2">
             <ToneBadge tone="positive">Connected</ToneBadge>

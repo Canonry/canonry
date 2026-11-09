@@ -1,6 +1,7 @@
 import { useAccount } from '../../contexts/account-context.js'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
+import { WorkspaceTabs } from '../shared/WorkspaceTabs.js'
 import { Link } from '@tanstack/react-router'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { GscPerformanceDailyDto, MetricsWindow } from '@canonry/canonry-contracts'
@@ -326,6 +327,7 @@ export function GscSection({
   const [setupExpanded, setSetupExpanded] = useState(false)
   const [coverageHistoryExpanded, setCoverageHistoryExpanded] = useState(false)
   const [coverageTab, setCoverageTab] = useState<'indexed' | 'notIndexed' | 'deindexed'>('indexed')
+  const coverageTabsId = useId()
   const [perfSort, setPerfSort] = useState<{ key: SearchMetric; dir: 'asc' | 'desc' } | null>(null)
 
   // Expanded mode: when any filter or sort is active, fetch up to EXPANDED_PERFORMANCE_LIMIT
@@ -1605,32 +1607,23 @@ export function GscSection({
                     </div>
 
 
-                    <div className="mt-3 flex border-b border-default" role="tablist" aria-label="Coverage status">
-                      {(['indexed', 'notIndexed', 'deindexed'] as const).map((tab) => {
-                        const count = tab === 'indexed' ? coverage.indexed.length
-                          : tab === 'notIndexed' ? coverage.notIndexed.length
-                          : coverage.deindexed.length
-                        const label = tab === 'indexed' ? 'Indexed' : tab === 'notIndexed' ? 'Not Indexed' : 'Deindexed'
-                        return (
-                          <button
-                            key={tab}
-                            type="button"
-                            role="tab"
-                            aria-selected={coverageTab === tab}
-                            className={`border-b-2 px-3 py-2 text-button-14 transition-colors ${
-                              coverageTab === tab
-                                ? 'border-accent text-heading'
-                                : 'border-transparent text-secondary hover:border-mono-600 hover:text-strong'
-                            }`}
-                            onClick={() => { setCoverageTab(tab); setSelectedReason(null) }}
-                          >
-                            {label} ({count})
-                          </button>
-                        )
-                      })}
-                    </div>
+                    <WorkspaceTabs
+                      id={coverageTabsId}
+                      label="Coverage status"
+                      value={coverageTab}
+                      onChange={(tab) => { setCoverageTab(tab); setSelectedReason(null) }}
+                      className="mt-3 flex border-b border-default"
+                      tabClassName="border-b-2 px-3 py-2 text-button-14 transition-colors"
+                      activeTabClassName="border-accent text-heading"
+                      inactiveTabClassName="border-transparent text-secondary hover:border-mono-600 hover:text-strong"
+                      options={[
+                        ['indexed', `Indexed (${coverage.indexed.length})`],
+                        ['notIndexed', `Not Indexed (${coverage.notIndexed.length})`],
+                        ['deindexed', `Deindexed (${coverage.deindexed.length})`],
+                      ]}
+                    />
 
-                    <div className="mt-3 overflow-x-auto">
+                    <div id={`${coverageTabsId}-panel`} role="tabpanel" aria-labelledby={`${coverageTabsId}-${coverageTab}`} tabIndex={0} className="mt-3 overflow-x-auto">
                       {/* Indexed URL table */}
                       {coverageTab === 'indexed' && coverage.indexed.length > 0 && (
                         <table className="data-table w-full text-label-14">

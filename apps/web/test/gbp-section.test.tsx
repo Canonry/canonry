@@ -262,7 +262,11 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
 
   // Wait on a summary-dependent label (the profile-action totals row).
   await waitFor(() => expect(screen.getByText('Website clicks')).toBeTruthy())
-  expect(screen.getByText('Google Business Profile')).toBeTruthy()
+  // The help sits beside the heading, not inside it, where browsers would
+  // read its label as part of the heading's name.
+  const heading = screen.getByRole('heading', { name: 'Google Business Profile' })
+  const help = screen.getByRole('button', { name: 'How AI answer engines and Maps surface this business: performance, search terms, and how your public listing compares to the profile you control.' })
+  expect(heading.contains(help)).toBe(false)
   expect(screen.getByText('Connected')).toBeTruthy()
   // Graph-first: exact profile-action totals render with human labels (no raw BUSINESS_* keys).
   expect(screen.getByText('Profile actions · daily')).toBeTruthy()

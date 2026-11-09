@@ -1553,3 +1553,41 @@ test('unassigned legacy records remain accessible without promising a future por
   expect(within(row).queryByText('Awaiting check')).toBeNull()
   expect(screen.queryByText('Best AEO platform')).toBeNull()
 })
+
+test('the Query and Research workspace tabs each take one tab stop and switch from the keyboard', async () => {
+  installWorkspaceApi((path, _body, method) => {
+    if (method === 'GET' && path === '/api/v1/projects/demo/discover/sessions') return jsonResponse([])
+    if (method === 'GET' && path === '/api/v1/projects/demo/research/runs') return jsonResponse({ runs: [] })
+    if (method === 'GET' && path === '/api/v1/projects/demo') return jsonResponse({ name: 'demo', locations: [context.location], providers: [], providerModels: {}, defaultLocation: null })
+    if (method === 'GET' && path === '/api/v1/settings') return jsonResponse({ providers: [], providerCatalog: [] })
+    throw new Error(`Unexpected ${method}: ${path}`)
+  })
+  renderWorkspace({ queryWorkspace: undefined, researchMode: undefined })
+
+  const tracked = await screen.findByRole('tab', { name: 'Tracked' })
+  const research = screen.getByRole('tab', { name: 'Research' })
+  expect([tracked.tabIndex, research.tabIndex]).toEqual([0, -1])
+  expect(await within(screen.getByRole('tabpanel', { name: 'Tracked' })).findByText('Acme pricing')).toBeTruthy()
+
+  tracked.focus()
+  fireEvent.keyDown(tracked, { key: 'End' })
+  expect(document.activeElement).toBe(research)
+  expect([tracked.tabIndex, research.tabIndex]).toEqual([-1, 0])
+  const researchPanel = screen.getByRole('tabpanel', { name: 'Research' })
+  const find = within(researchPanel).getByRole('tab', { name: 'Find queries' })
+  const testQueries = within(researchPanel).getByRole('tab', { name: 'Test queries' })
+  expect([find.tabIndex, testQueries.tabIndex]).toEqual([0, -1])
+  expect(within(researchPanel).getByRole('tabpanel', { name: 'Find queries' })).toBeTruthy()
+
+  find.focus()
+  fireEvent.keyDown(find, { key: 'ArrowRight' })
+  expect(document.activeElement).toBe(testQueries)
+  expect([find.tabIndex, testQueries.tabIndex]).toEqual([-1, 0])
+  expect(within(researchPanel).getByRole('tabpanel', { name: 'Test queries' })).toBeTruthy()
+  fireEvent.keyDown(testQueries, { key: 'Home' })
+  expect(document.activeElement).toBe(find)
+
+  fireEvent.keyDown(research, { key: 'ArrowLeft' })
+  expect(document.activeElement).toBe(tracked)
+  expect(await within(screen.getByRole('tabpanel', { name: 'Tracked' })).findByText('Acme pricing')).toBeTruthy()
+})

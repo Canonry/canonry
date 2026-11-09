@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, RefreshCw, Zap } from 'lucide-react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -39,6 +39,7 @@ import { WriteButton } from '../shared/AccessControls.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
+import { WorkspaceTabs } from '../shared/WorkspaceTabs.js'
 import { DataTablePagination, DataTableSearch, MiddleTruncatedText, useClientTable } from '../shared/DataTableControls.js'
 import { CHART_SERIES_COLORS, CHART_TONE, MultiAxisTrendChart, formatChartDateLabel, formatChartDateTick, type TrendChartSeries } from '../shared/ChartPrimitives.js'
 import { TrendCard, levelTrendChange, sharedLevelBasis, type TrendCardChange, type TrendCardFigure, type TrendCardGroup } from '../shared/TrendCard.js'
@@ -891,6 +892,7 @@ type SearchTab = 'queries' | 'pages'
 
 function BingSearchTable({ projectName, siteUrl, range }: { projectName: string; siteUrl: string; range: MetricsWindow }) {
   const [tab, setTab] = useState<SearchTab>('queries')
+  const tabsId = useId()
   const [search, setSearch] = useState('')
   // The filter settles once typing pauses, so each keystroke is not a read.
   const [filter, setFilter] = useState<string | undefined>(undefined)
@@ -956,20 +958,20 @@ function BingSearchTable({ projectName, siteUrl, range }: { projectName: string;
   return (
     <div className="mt-4">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-base">
-        <div className="flex gap-1" role="tablist" aria-label="Bing search rows">
-          {(['queries', 'pages'] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={tab === key}
-              className={`border-b-2 px-3 py-1.5 text-button-14 transition-colors ${tab === key ? 'border-mono-200 text-strong' : 'border-transparent text-muted hover:text-neutral'}`}
-              onClick={() => setTab(key)}
-            >
-              {key === 'queries' ? 'Queries' : 'Pages'}
-            </button>
-          ))}
-        </div>
+        <WorkspaceTabs
+          id={tabsId}
+          label="Bing search rows"
+          value={tab}
+          onChange={setTab}
+          className="flex gap-1"
+          tabClassName="border-b-2 px-3 py-1.5 text-button-14 transition-colors"
+          activeTabClassName="border-mono-200 text-strong"
+          inactiveTabClassName="border-transparent text-muted hover:text-neutral"
+          options={[
+            ['queries', 'Queries'],
+            ['pages', 'Pages'],
+          ]}
+        />
         <DataTableSearch
           className="mb-1.5 w-full sm:w-64"
           value={search}
@@ -978,6 +980,7 @@ function BingSearchTable({ projectName, siteUrl, range }: { projectName: string;
           placeholder={tab === 'queries' ? 'Contains query…' : 'Contains page URL…'}
         />
       </div>
+      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${tab}`} tabIndex={0}>
       {read.isError ? (
         <p className="mt-3 text-copy-14 text-negative">
           Could not load Bing {tab}: {extractErrorMessage(read.error)}
@@ -1060,6 +1063,7 @@ function BingSearchTable({ projectName, siteUrl, range }: { projectName: string;
           itemLabel={tab}
           onPageChange={setPage}
         />
+      </div>
       </div>
     </div>
   )
@@ -1363,6 +1367,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
     enabled: !demo,
   })
   const [tab, setTab] = useState<IndexTab>('not-indexed')
+  const tabsId = useId()
   const [submitting, setSubmitting] = useState(false)
   const [inspectionUrl, setInspectionUrl] = useState('')
   const [inspectionResult, setInspectionResult] = useState<ApiBingInspection | null>(null)
@@ -1475,23 +1480,20 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
       </div>
 
       <div className="mt-4 flex flex-wrap items-end justify-between gap-3 border-b border-base">
-        <div className="flex flex-wrap gap-1" role="tablist" aria-label="Bing index and crawl lists">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              aria-selected={tab === t.key}
-              className={`border-b-2 px-3 py-1.5 text-button-14 transition-colors ${tab === t.key ? 'border-mono-200 text-strong' : 'border-transparent text-muted hover:text-neutral'}`}
-              onClick={() => {
-                setTab(t.key)
-                listTable.setPage(1)
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <WorkspaceTabs
+          id={tabsId}
+          label="Bing index and crawl lists"
+          value={tab}
+          onChange={(key) => {
+            setTab(key)
+            listTable.setPage(1)
+          }}
+          className="flex flex-wrap gap-1"
+          tabClassName="border-b-2 px-3 py-1.5 text-button-14 transition-colors"
+          activeTabClassName="border-mono-200 text-strong"
+          inactiveTabClassName="border-transparent text-muted hover:text-neutral"
+          options={tabs.map((t) => [t.key, t.label] as const)}
+        />
         {showSubmit && (
           <div className="mb-1.5 flex flex-wrap items-center gap-2">
             {quota && <span className="text-label-13 text-secondary">{quota.dailyQuota.toLocaleString()} submissions left today</span>}
@@ -1503,7 +1505,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
       </div>
       {error && <p className="mt-2 text-copy-13 text-negative">{error}</p>}
 
-      <div className="mt-2 overflow-x-auto">
+      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${tab}`} tabIndex={0} className="mt-2 overflow-x-auto">
         {(tab === 'not-indexed' || tab === 'unknown' || tab === 'indexed') &&
           (() => {
             const canSubmit = tab !== 'indexed' && !isEmbed() && !demo
