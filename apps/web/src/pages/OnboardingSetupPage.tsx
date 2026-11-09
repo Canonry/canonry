@@ -37,6 +37,7 @@ import {
   type OnboardingTelemetryEvent,
 } from '@canonry/canonry-contracts'
 import { clearOnboardingDraft, markOnboardingScanSkipped, readOnboardingDraft, writeOnboardingDraft } from '../lib/onboarding-draft.js'
+import { agentSetupRequest } from '../lib/agent-setup-request.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { addToast } from '../lib/toast-store.js'
 import {
@@ -68,24 +69,6 @@ const CRAWL_CONSENT_HELP = `Public pages only, crawled from this computer and st
 
 export const SITE_HEALTH_DISPATCH_BOUNDARY_MS = 1_800
 export const AGENT_SETUP_GUIDE_URL = 'https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent'
-const AGENT_SETUP_RESOURCES = `Use the official Canonry docs:
-- Agent quickstart: https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent
-- CLI reference: https://github.com/Canonry/canonry/blob/main/skills/canonry/references/canonry-cli.md
-- Plugin setup: https://github.com/Canonry/canonry/blob/main/docs/plugins.md
-- MCP setup: https://github.com/Canonry/canonry/blob/main/docs/mcp.md
-
-`
-export const AGENT_SETUP_REQUEST = `Help me set up Canonry for my public site.
-
-${AGENT_SETUP_RESOURCES}Pick one path and stay on it. Use connected Canonry tools (plugin or MCP) only if you have them and I have not pointed you at a specific install. A connected tool runs in its own process and never sees \`CANONRY_CONFIG_DIR\`, \`CANONRY_PORT\`, or anything else you export in a shell, so it always acts on my default install. If I named a config directory, a port, or a sandbox, that is the shell path: use \`cnry\` and tell me which path you chose. Never mix the two in one run, and never create a duplicate project. The \`cnry\` and \`canonry\` commands are interchangeable.
-
-1. Ask for my public domain, country, and language. Do not create or scan anything yet. Country and language are only applied when a project is created, so if you reuse an existing project, report its country and language instead of changing them.
-2. Shell path only: confirm \`cnry\` is on PATH, then run \`cnry --version\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. Then run \`cnry doctor --format json\`, which is the command that says whether config, database, and server are in place. \`cnry --version\` does not read config and succeeds on a completely unconfigured install, so it cannot answer this. If config is missing, run \`cnry bootstrap\` yourself: it is not interactive, takes about a second, and is safe to rerun. Do not hand it to me and wait. The interactive command is \`cnry init\`, which is optional provider and OAuth setup that Agent Readiness does not need. Bootstrap prints an API key, so do not repeat its output back to me, and never ask me to paste passwords, API keys, OAuth credentials, or command output.
-3. Confirm the API is reachable. \`cnry doctor --format json\` reports it, and any project read exits non-zero with \`CONNECTION_ERROR\` when it is not. If it is unreachable, propose \`cnry start\` and wait for approval. Use \`cnry start\`, which is the background daemon, and not \`cnry serve\`, which runs in the foreground and will block you until I stop it, even though some error messages suggest it. Stop anything you started with \`cnry stop\`.
-4. List projects with the connected project tool or \`cnry project list --format json\`, and reuse one whose domain matches. Confirm the proposed name is not already assigned to a different domain. To find out whether a project has already been scanned, run \`cnry agent-readiness score <project> --format json\` with no \`--run-id\`, which reports the latest run. Read the \`hasData\` field, not the score: this command exits 0 and reports \`aggregateScore: 0\` for a project that has never been scanned, so reading the score alone would have you tell me my site scored zero. If \`hasData\` is true and \`runStatus\` is \`completed\` or \`partial\`, read that scan instead of starting a new one. If no project matches, show the exact create operation and wait for approval.
-5. Propose a bounded Agent Readiness audit scan: \`--max-pages 100\` for a first look, plus whether dead-link checking is on (it is off unless you pass \`--check-dead-links\`). Show the connected operation or the exact \`cnry agent-readiness run <project> --max-pages 100 --wait --format json\` command with the project name filled in, and wait for separate approval before scanning. \`--wait\` polls for up to 15 minutes and returns only the run id and status. If the status it returns is still \`queued\` or \`running\`, the scan has not finished: do not rerun it or report results, poll \`cnry agent-readiness progress <project> --run-id <run-id> --format json\` until it is terminal. If \`--wait\` outruns your own tool timeout first, recover the run id with \`cnry runs <project> --kind site-audit --limit 1 --format json\`, which returns the newest scan whatever its status, and poll the same way.
-6. When the run is \`completed\` or \`partial\`, read \`cnry agent-readiness overview <project> --run-id <run-id> --format json\` first. It is the only one of these commands that carries \`termination\` and \`complete\`; the score and page-scores commands do not. Then read \`cnry agent-readiness score <project> --run-id <run-id> --format json\` and \`cnry agent-readiness page-scores <project> --run-id <run-id> --sort score-asc --limit 10 --format jsonl\`. Tell me the termination reason in plain words and whether the scan covered the whole site or stopped at a page, link, depth, or time limit. A \`partial\` run scored the pages it reached and not my site, so never present it as a full-site result. If it stopped early, the fix depends on the reason, so say which: a page or depth limit needs a larger budget, a time limit needs a smaller scan (a lower \`--max-pages\` or \`--max-depth\`). If the run failed or was cancelled, inspect the run error and stop.
-7. Summarize only completed evidence, then propose AI Visibility setup. Ask before you add queries, connect providers, start a provider-backed or quota-consuming run, edit files, or publish.`
 
 export type OnboardingProjectListState =
   | { state: 'idle' | 'loading' | 'error' }
@@ -1074,7 +1057,7 @@ function PlatformSetupPageBody({
 
   const copyAgentSetupRequest = async () => {
     try {
-      await navigator.clipboard.writeText(showResourceLinks ? AGENT_SETUP_REQUEST : AGENT_SETUP_REQUEST.replace(AGENT_SETUP_RESOURCES, ''))
+      await navigator.clipboard.writeText(agentSetupRequest(showResourceLinks))
       setAgentRequestCopied(true)
     } catch {
       addToast({

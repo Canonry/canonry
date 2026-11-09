@@ -463,7 +463,8 @@ export function getPublicBase(): string {
   return ''
 }
 
-function isLoopbackHostname(hostname: string): boolean {
+/** True for localhost, 127.x.x.x and ::1: the dashboard is open on the computer running it. */
+export function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '')
   if (normalized === 'localhost' || normalized === '::1') return true
   return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)

@@ -159,8 +159,12 @@ The environment value overrides YAML; `1` restores local instructions. Blank or
 unrecognized environment values fall back to YAML, then the default `true`.
 
 This setting changes only Agent Setup presentation. CLI, API, MCP, permissions,
-and hosted connector readiness stay the same. The page does not infer the
-audience from public URL, readiness, or user role. Both views include hosted
+and hosted connector readiness stay the same. Whether local instructions appear
+depends only on this setting, not on public URL, readiness, or user role. With
+them on, a dashboard opened on the computer running Canonry (localhost) leads
+with the agent setup request and plugin commands until hosted setup is ready;
+any other dashboard leads with hosted setup and keeps local instructions
+collapsed. Both views include hosted
 connection steps when configured; the client view never falls back to local
 commands if hosted setup needs attention. `showResourceLinks: false` hides
 repository documentation links while retaining the ChatGPT and Claude help

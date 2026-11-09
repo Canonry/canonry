@@ -18,7 +18,8 @@ import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { getRunTrackerState, resetRunTracker } from '../src/lib/run-tracker-store.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
-import { AGENT_SETUP_GUIDE_URL, AGENT_SETUP_REQUEST, resolveAutoResumeTarget } from '../src/pages/OnboardingSetupPage.js'
+import { AGENT_SETUP_GUIDE_URL, resolveAutoResumeTarget } from '../src/pages/OnboardingSetupPage.js'
+import { AGENT_SETUP_REQUEST } from '../src/lib/agent-setup-request.js'
 import { runOutcome, visibilityOutcome } from '../src/pages/OnboardingCompletePage.js'
 import { isOnboardingHandoff, markOnboardingHandoff, readOnboardingLaunchedRun } from '../src/lib/onboarding-telemetry.js'
 import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
@@ -428,10 +429,15 @@ test('the finish step opens agent setup and keeps commands available without cli
   await renderSetup('/setup?onboarding=complete&setupProject=example-com')
   fireEvent.click(await screen.findByRole('link', { name: 'Connect your agent' }))
   await screen.findByRole('heading', { name: 'Agent setup', level: 1 })
-  fireEvent.click(screen.getByText('Local plugins and other MCP clients'))
-  fireEvent.click(screen.getByRole('button', { name: 'Copy install commands' }))
+  // On this computer the agent setup leads, open, so nothing needs expanding first.
+  expect(screen.queryByText('Local plugins and other MCP clients')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Copy setup request' }))
+  const request = await screen.findByRole('textbox', { name: 'Copy setup request text' }) as HTMLTextAreaElement
+  expect(request.closest('details')?.open).toBe(true)
+  expect(request.value.startsWith('Help me set up Canonry for my public site.')).toBe(true)
 
-  const command = await screen.findByRole('textbox', { name: 'Copy install commands text' }) as HTMLTextAreaElement
+  fireEvent.click(screen.getByRole('button', { name: 'Copy Codex commands' }))
+  const command = await screen.findByRole('textbox', { name: 'Copy Codex commands text' }) as HTMLTextAreaElement
   expect(command.closest('details')?.open).toBe(true)
   expect(command.value).toBe('codex plugin marketplace add Canonry/canonry\ncodex plugin add canonry@canonry')
 })
