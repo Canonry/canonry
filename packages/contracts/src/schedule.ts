@@ -41,7 +41,7 @@ export const calendarRecurrenceSchema = z.object({
 export type CalendarRecurrence = z.infer<typeof calendarRecurrenceSchema>
 
 /**
- * The checks a scheduled Agent Readiness scan runs on top of the full-site crawl.
+ * The checks a scheduled Agent Readiness audit scan runs on top of the full-site crawl.
  * The defaults match a manual scan run without flags: no dead-link check, no
  * location checks, agent integration checks on. A weekly deep scan turns the
  * first two on.

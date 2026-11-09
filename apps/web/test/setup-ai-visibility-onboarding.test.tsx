@@ -529,7 +529,7 @@ function writeLegacyLaunchedRun(runId: string) {
 }
 
 test('opens on the queries when a marker without a kind holds a run outside the AI Visibility list', async () => {
-  // The onboarding Agent Readiness scan shared this marker.
+  // The onboarding Agent Readiness audit scan shared this marker.
   writeLegacyLaunchedRun('onboarding-scan')
   const { requests } = renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }))
 

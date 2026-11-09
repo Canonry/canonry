@@ -184,7 +184,7 @@ export class SnapshotService {
         finalUrl: homepageUrl,
         auditedAt: new Date().toISOString(),
         overallScore: 0,
-        summary: `Agent Readiness scan unavailable: ${message}`,
+        summary: `Agent Readiness audit scan unavailable: ${message}`,
         factors: [],
       }
     }

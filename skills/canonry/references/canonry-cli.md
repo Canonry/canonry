@@ -447,7 +447,7 @@ cnry bing submit-sitemap <project> <url>   # ask Bing to read a sitemap (adds a 
 cnry google submit-sitemap <project> <url> # the same for Google
 ```
 
-Canonry compares three stored lists: the sitemap files the latest Agent Readiness scan read pages from (`site.sitemaps`), Search Console's list (stored by every Google sync, files inside each index included) and Bing's (stored by `bing sync`). For each engine, `missing` holds sitemaps the site declares, or someone submitted to the other engine, that this engine lacks (not offered from the other engine: a sitemap it only found by itself, one it reports errors for, or an index on a host where this engine already has every sitemap the site declares); a file inside a missing index is left out, since adding the index covers it. Google is offered only sitemaps inside the connected property, Bing only its site's host and subdomains. An engine is `null` until its list has been read once; after that an empty list means it has none. `submittedAt: null` on a top-level row means the engine found the sitemap itself; on a file inside an index it came through the index. A new submission shows in the stored list after that engine's next sync.
+Canonry compares three stored lists: the sitemap files the latest Agent Readiness audit scan read pages from (`site.sitemaps`), Search Console's list (stored by every Google sync, files inside each index included) and Bing's (stored by `bing sync`). For each engine, `missing` holds sitemaps the site declares, or someone submitted to the other engine, that this engine lacks (not offered from the other engine: a sitemap it only found by itself, one it reports errors for, or an index on a host where this engine already has every sitemap the site declares); a file inside a missing index is left out, since adding the index covers it. Google is offered only sitemaps inside the connected property, Bing only its site's host and subdomains. An engine is `null` until its list has been read once; after that an empty list means it has none. `submittedAt: null` on a top-level row means the engine found the sitemap itself; on a file inside an index it came through the index. A new submission shows in the stored list after that engine's next sync.
 
 ### Stored trend figures (`cnry trends`)
 
@@ -501,7 +501,7 @@ cnry visibility-compare <project> --from 2026-05 --to 2026-06 --scope property -
 
 ## Agent Readiness
 
-Site-wide Agent Readiness scan (structured data, AI-readable content, AI-crawler access, content depth/freshness/extractability, agent integrations, …) powered by `@canonry/agent-readiness`'s `runSiteCrawl`. Runs as the `site-audit` run kind — discovers in-scope URLs from the project root, sitemaps, and internal links; stores the URL/link graph; audits eligible HTML pages; and rolls the results into one 0–100 Agent Readiness score. Pure HTTP, no LLM cost; a large site can take minutes, so it runs in the background. The API serves the same data under `/api/v1/projects/<name>/agent-readiness/…`, and the MCP tools are `canonry_agent_readiness_*`.
+Site-wide Agent Readiness audit scan (structured data, AI-readable content, AI-crawler access, content depth/freshness/extractability, agent integrations, …) powered by `@canonry/agent-readiness`'s `runSiteCrawl`. Runs as the `site-audit` run kind — discovers in-scope URLs from the project root, sitemaps, and internal links; stores the URL/link graph; audits eligible HTML pages; and rolls the results into one 0–100 Agent Readiness score. Pure HTTP, no LLM cost; a large site can take minutes, so it runs in the background. The API serves the same data under `/api/v1/projects/<name>/agent-readiness/…`, and the MCP tools are `canonry_agent_readiness_*`.
 
 ```bash
 # Scan
@@ -733,7 +733,7 @@ cnry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
 cnry schedule set <project> --kind data-refresh --preset daily   # refresh all connected GSC/Bing (coverage + full data sync)/GA/GBP integrations (no --source)
 cnry schedule set <project> --kind backlinks-sync --preset weekly # re-probe Common Crawl; sync only when a newer rolling window is published (no --source/--provider)
 cnry doctor --project <project> --check site.reachability   # probe the homepage now; the server also probes every 10 min and pages health.degraded after two failed passes
-cnry schedule set <project> --kind site-audit --preset weekly     # Agent Readiness scan: bounded full-site crawl and audit (no --source/--provider)
+cnry schedule set <project> --kind site-audit --preset weekly     # Agent Readiness audit scan: bounded full-site crawl and audit (no --source/--provider)
 cnry schedule set <project> --kind site-audit --check-dead-links --include-geo   # weekly deep scan: dead links + location checks on every scheduled scan
 cnry schedule set <project> --kind seo-sync --cron '0 7 2 * *'  # paid SEO refresh of every saved profile, monthly (needs seo.run; no --source/--provider)
 cnry schedule show <project>

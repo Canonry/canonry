@@ -146,7 +146,7 @@ describe('deprecated names run the canonical command', () => {
     client.getTechnicalAeoScore.mockResolvedValue({ ...SCORE, hasData: false })
     const empty = await invoke(['technical-aeo', 'score', 'acme'], 'text')
     expect(empty).toEqual(await invoke(['agent-readiness', 'score', 'acme'], 'text'))
-    expect(empty.output).toBe('No Agent Readiness scan yet for "acme". Run `canonry agent-readiness run acme` to start one.')
+    expect(empty.output).toBe('No Agent Readiness audit scan yet for "acme". Run `canonry agent-readiness run acme` to start one.')
   })
 
   it('starts the same scan with the same request and output under both names', async () => {
@@ -159,7 +159,7 @@ describe('deprecated names run the canonical command', () => {
       expect(deprecated).toEqual(canonical)
     }
     expect((await invoke(['agent-readiness', 'run', ...flags], 'text')).output)
-      .toBe('Agent Readiness scan started (run run-9, status queued). Use `canonry agent-readiness progress acme --run-id run-9` to check status, or pass --wait.')
+      .toBe('Agent Readiness audit scan started (run run-9, status queued). Use `canonry agent-readiness progress acme --run-id run-9` to check status, or pass --wait.')
     const request = {
       sitemapUrl: undefined, limit: undefined, maxPages: 25, maxEdges: undefined, maxDepth: undefined,
       checkDeadLinks: true, includeGeo: false, includeAgentSkills: false,

@@ -448,7 +448,7 @@ function terminationRemedy(termination: string | null, onboarding = false): stri
   // Onboarding hides Scan settings because its first-look budget is fixed, so
   // point at where the setting lives once setup is done.
   return remedy && onboarding
-    ? `${remedy.replace(/ in Scan settings\.$/, '')} in Agent Readiness Scan settings after setup.`
+    ? `${remedy.replace(/ in Scan settings\.$/, '')} in Scan settings on the Agent Readiness tab after setup.`
     : remedy
 }
 
@@ -1448,7 +1448,7 @@ function OnboardingContinuationActions({
   return (
     <section aria-labelledby="site-health-continuation-heading" className="mt-5 flex flex-col gap-3 border-t border-default pt-5 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <h3 id="site-health-continuation-heading" className="text-heading-16 text-heading">Continue while the Agent Readiness scan finishes</h3>
+        <h3 id="site-health-continuation-heading" className="text-heading-16 text-heading">Continue while the Agent Readiness audit scan finishes</h3>
         <p className="mt-1 text-copy-14 text-secondary">Canonry will finish this scan locally. Saved results will appear in Agent Readiness.</p>
       </div>
       <div className="flex shrink-0 flex-wrap gap-2">
@@ -1842,7 +1842,7 @@ export function SiteHealthSection({
     setSelectedNodeKey(null)
   }, [initialRunId])
 
-  // The Agent Readiness scan history, not the generic run list: it already excludes
+  // The Agent Readiness audit scan history, not the generic run list: it already excludes
   // probes and says which scans kept a crawl.
   const auditRunsQuery = useQuery({
     ...getApiV1ProjectsByNameAgentReadinessRunsOptions({
@@ -1895,7 +1895,7 @@ export function SiteHealthSection({
     // Same reason as the live page-health preview beside it: react-query
     // suspends interval refetches while the window is unfocused or occluded,
     // and onboarding explicitly invites the operator to go and do something
-    // else ("Continue while the Agent Readiness scan finishes"). Without this the counters
+    // else ("Continue while the Agent Readiness audit scan finishes"). Without this the counters
     // freeze on whatever they read at mount, which is zero, while the findings
     // line beside them keeps counting up from a query that does set it.
     refetchIntervalInBackground: true,
@@ -2346,7 +2346,7 @@ export function SiteHealthSection({
               </div>
               <select
                 id={scanHistoryId}
-                aria-label="View an Agent Readiness scan"
+                aria-label="View an Agent Readiness audit scan"
                 value={selectedRunId ?? finishedRescanRunId ?? ''}
                 onChange={(event) => selectRun(event.target.value)}
                 className="h-9 min-w-48 rounded-md border border-base bg-bg px-3 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
@@ -2633,7 +2633,7 @@ export function SiteHealthSection({
                     startScan()
                   }}
                 >
-                  Run Agent Readiness scan again
+                  Run Agent Readiness audit scan again
                 </Button>
               </section>
             ) : undefined}

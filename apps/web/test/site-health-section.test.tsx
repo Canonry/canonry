@@ -600,7 +600,7 @@ test('managed scans hide the plain recovery button on a cold failed-run handoff 
   expect(mutationMock.mutate).not.toHaveBeenCalled()
 })
 
-test('public demo hides Agent Readiness scan controls and skips the unavailable schedule read', async () => {
+test('public demo hides Agent Readiness audit scan controls and skips the unavailable schedule read', async () => {
   window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
   const request = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ code: 'NOT_FOUND' }), { status: 404, headers: { 'content-type': 'application/json' } }))
   vi.stubGlobal('fetch', request)
@@ -896,7 +896,7 @@ test('offers Scan history only once there is a scan to choose', async () => {
     })
     renderSection(queryClient)
     expect(screen.queryByText('Scan history')).toBeNull()
-    expect(screen.queryByRole('combobox', { name: 'View an Agent Readiness scan' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'View an Agent Readiness audit scan' })).toBeNull()
     expect(screen.queryByRole('button', { name: historyHelp })).toBeNull()
     // With no label row above it to line up with, the scan actions sit flush.
     const actions = scanActions()
@@ -907,7 +907,7 @@ test('offers Scan history only once there is a scan to choose', async () => {
 
   renderSection()
   expect(screen.getByText('Scan history')).not.toBeNull()
-  expect(screen.getByRole('combobox', { name: 'View an Agent Readiness scan' })).not.toBeNull()
+  expect(screen.getByRole('combobox', { name: 'View an Agent Readiness audit scan' })).not.toBeNull()
   expect(screen.getByRole('button', { name: historyHelp })).not.toBeNull()
   const actions = scanActions()
   const css = await renderedCss(actions)
@@ -1159,7 +1159,7 @@ test('keeps every detail read pinned to the selected historical run', async () =
   queryClient.removeQueries({ predicate: query => JSON.stringify(query.queryKey).includes('run_old') })
   const reads = installSiteReads(receipts)
   renderSection(queryClient)
-  fireEvent.change(screen.getByRole('combobox', { name: 'View an Agent Readiness scan' }), { target: { value: 'run_old' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'View an Agent Readiness audit scan' }), { target: { value: 'run_old' } })
   await screen.findByText('Partial scan')
   expect(await screen.findByText('18')).not.toBeNull()
   await screen.findByText('Broken links: 2 found so far, 1 unchecked')
@@ -1192,7 +1192,7 @@ test('uses the API preferred scan by default and preserves an explicitly selecte
   expect(screen.queryByText('Partial scan')).toBeNull()
   fireEvent.click(screen.getByRole('tab', { name: 'Score' }))
   expect(screen.getByText('Score view for run_1')).not.toBeNull()
-  fireEvent.change(screen.getByRole('combobox', { name: 'View an Agent Readiness scan' }), { target: { value: 'run_partial' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'View an Agent Readiness audit scan' }), { target: { value: 'run_partial' } })
   expect(await screen.findByText('Score view for run_partial')).not.toBeNull()
   expect(screen.getByText('Partial scan')).not.toBeNull()
   fireEvent.click(screen.getByRole('tab', { name: 'Map' }))
@@ -1212,7 +1212,7 @@ test('shows a finished rescan started here even when the preferred scan is an ea
   seedRun(queryClient, 'run_manual', summary('run_manual', 500))
   mutationMock.mutate.mockImplementation(() => { mutationMock.data = { runId: 'run_manual', status: 'queued' } })
   renderSection(queryClient)
-  const history = screen.getByRole('combobox', { name: 'View an Agent Readiness scan' }) as HTMLSelectElement
+  const history = screen.getByRole('combobox', { name: 'View an Agent Readiness audit scan' }) as HTMLSelectElement
   expect(screen.getByText('502')).not.toBeNull()
   expect(history.value).toBe('')
 
@@ -1253,7 +1253,7 @@ test('keeps the preferred scan when a rescan started here fails', async () => {
   })
 
   expect(await screen.findByText(/the latest scan failed/i)).not.toBeNull()
-  expect((screen.getByRole('combobox', { name: 'View an Agent Readiness scan' }) as HTMLSelectElement).value).toBe('')
+  expect((screen.getByRole('combobox', { name: 'View an Agent Readiness audit scan' }) as HTMLSelectElement).value).toBe('')
   fireEvent.click(screen.getByRole('tab', { name: 'Score' }))
   expect(screen.getByText('Score view for run_1')).not.toBeNull()
 })
@@ -1340,7 +1340,7 @@ test('releases a pinned onboarding scan before the header starts its replacement
   })
 
   renderSection(queryClient, { initialRunId: 'run_1', onReleaseInitialRun })
-  const history = screen.getByRole('combobox', { name: 'View an Agent Readiness scan' }) as HTMLSelectElement
+  const history = screen.getByRole('combobox', { name: 'View an Agent Readiness audit scan' }) as HTMLSelectElement
   expect(history.value).toBe('run_1')
 
   fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
@@ -1591,13 +1591,13 @@ test('offers the onboarding continuation only after the selected active scan rea
     onSkipOnboarding,
   })
 
-  expect(screen.queryByRole('heading', { name: 'Continue while the Agent Readiness scan finishes' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Continue while the Agent Readiness audit scan finishes' })).toBeNull()
 
   act(() => {
     vi.advanceTimersByTime(1)
   })
 
-  expect(screen.getByRole('heading', { name: 'Continue while the Agent Readiness scan finishes' })).not.toBeNull()
+  expect(screen.getByRole('heading', { name: 'Continue while the Agent Readiness audit scan finishes' })).not.toBeNull()
   expect(screen.getByText('Canonry will finish this scan locally. Saved results will appear in Agent Readiness.')).not.toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Set up AI Visibility' }))
   fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }))
@@ -1633,7 +1633,7 @@ test('uses the persisted selected-run timestamp after reload instead of restarti
     onSkipOnboarding: vi.fn(),
   })
 
-  expect(screen.getByRole('heading', { name: 'Continue while the Agent Readiness scan finishes' })).not.toBeNull()
+  expect(screen.getByRole('heading', { name: 'Continue while the Agent Readiness audit scan finishes' })).not.toBeNull()
 })
 
 test('resets the continuation threshold when the selected active run changes', async () => {
@@ -1662,7 +1662,7 @@ test('resets the continuation threshold when the selected active run changes', a
     onContinueOnboarding: vi.fn(),
     onSkipOnboarding: vi.fn(),
   })
-  expect(screen.queryByRole('heading', { name: 'Continue while the Agent Readiness scan finishes' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Continue while the Agent Readiness audit scan finishes' })).toBeNull()
 
   queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
     client: heyClient,
@@ -1687,7 +1687,7 @@ test('resets the continuation threshold when the selected active run changes', a
   act(() => {
     vi.advanceTimersByTime(1_000)
   })
-  expect(screen.queryByRole('heading', { name: 'Continue while the Agent Readiness scan finishes' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Continue while the Agent Readiness audit scan finishes' })).toBeNull()
 })
 
 test('defers the terminal-only crawl read for an active exact run and keeps progress visible', async () => {
@@ -1804,11 +1804,11 @@ test('releases local exact-run selection when durable handoff state is cleared',
     </QueryClientProvider>
   )
   const { rerender } = render(view('run_1'))
-  expect((screen.getByRole('combobox', { name: 'View an Agent Readiness scan' }) as HTMLSelectElement).value).toBe('run_1')
+  expect((screen.getByRole('combobox', { name: 'View an Agent Readiness audit scan' }) as HTMLSelectElement).value).toBe('run_1')
 
   rerender(view(undefined))
 
-  expect((screen.getByRole('combobox', { name: 'View an Agent Readiness scan' }) as HTMLSelectElement).value).toBe('')
+  expect((screen.getByRole('combobox', { name: 'View an Agent Readiness audit scan' }) as HTMLSelectElement).value).toBe('')
 })
 
 test('pins an onboarding handoff to its exact active scan after reload', () => {
@@ -1832,7 +1832,7 @@ test('pins an onboarding handoff to its exact active scan after reload', () => {
   renderSection(queryClient, { initialRunId: 'run_handoff' })
 
   expect(screen.getByRole('region', { name: 'Current scan progress' }).textContent).toContain('Scanning site')
-  expect((screen.getByRole('combobox', { name: 'View an Agent Readiness scan' }) as HTMLSelectElement).value).toBe('run_handoff')
+  expect((screen.getByRole('combobox', { name: 'View an Agent Readiness audit scan' }) as HTMLSelectElement).value).toBe('run_handoff')
   expect(screen.queryByRole('img', { name: 'Interactive site map' })).toBeNull()
 })
 
@@ -2241,7 +2241,7 @@ test('moves explicit onboarding into the score before the optional AI Visibility
   const onboardingProgress = screen.getByRole('list', { name: 'Onboarding progress' })
   expect(onboardingProgress.querySelector('[aria-current="step"]')?.textContent).toBe('2Score')
   expect(within(onboardingProgress).getByText('AI Visibility').closest('li')?.getAttribute('aria-current')).toBeNull()
-  expect(screen.queryByRole('combobox', { name: 'View an Agent Readiness scan' })).toBeNull()
+  expect(screen.queryByRole('combobox', { name: 'View an Agent Readiness audit scan' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Agent Readiness' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Site audit complete' })).toBeNull()
   expect(screen.queryByRole('tablist', { name: 'Agent Readiness views' })).toBeNull()
@@ -2292,7 +2292,7 @@ test('labels a usable partial onboarding audit without claiming full completion'
   // Naming the limit without naming the remedy leaves nothing to act on.
   // Onboarding hides Scan settings (its first-look budget is fixed), so the
   // remedy points at where the setting lives after setup.
-  expect(stoppedBanner.textContent).toContain('Raise the page budget in Agent Readiness Scan settings after setup.')
+  expect(stoppedBanner.textContent).toContain('Raise the page budget in Scan settings on the Agent Readiness tab after setup.')
   expect(screen.queryByText('Scan settings', { selector: 'summary' })).toBeNull()
   expect(screen.queryByRole('combobox', { name: 'Page budget' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Site audit finished with partial coverage' })).toBeNull()
@@ -2320,7 +2320,7 @@ test('keeps a partial crawl recoverable when it publishes no score', () => {
   expect(onContinueOnboarding).not.toHaveBeenCalled()
   expect(onSkipOnboarding).not.toHaveBeenCalled()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Run Agent Readiness scan again' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Run Agent Readiness audit scan again' }))
   expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
     projectName,
     projectId,
@@ -2950,7 +2950,7 @@ test('marks a score-only scan in the history and renders its legacy state, not a
   const crawlOption = screen.getByRole('option', { name: /Completed$/ }) as HTMLOptionElement
   expect(crawlOption.value).toBe('run_1')
 
-  fireEvent.change(screen.getByRole('combobox', { name: 'View an Agent Readiness scan' }), {
+  fireEvent.change(screen.getByRole('combobox', { name: 'View an Agent Readiness audit scan' }), {
     target: { value: 'run_legacy' },
   })
 
@@ -3881,7 +3881,7 @@ test.each(['failed', 'cancelled'] as const)('managed scans hide %s recovery in r
     seedExactProgress(queryClient, phase)
     renderSection(queryClient, { initialRunId: 'run_selected', showOnboardingActions: surface === 'onboarding' }, 'viewer')
     expect(screen.getByRole('alert', { name: 'Site scan recovery' }).textContent).toContain(phase === 'failed' ? 'Scan failed' : 'Scan cancelled')
-    expect(screen.queryByRole('button', { name: /Run scan|Run Agent Readiness scan/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Run scan|Run Agent Readiness audit scan/ })).toBeNull()
     cleanup()
     queryClient.clear()
   }
@@ -3919,7 +3919,7 @@ test.each(['header', 'failed', 'no crawl', 'no score', 'no details'] as const)('
       }
     }
     renderSection(queryClient, props, role)
-    const buttons = screen.queryAllByRole('button', { name: /Run scan|Run Agent Readiness scan/ })
+    const buttons = screen.queryAllByRole('button', { name: /Run scan|Run Agent Readiness audit scan/ })
     if (role === 'viewer') {
       expect(buttons).toHaveLength(0)
       expect(screen.queryByText('Scan settings')).toBeNull()

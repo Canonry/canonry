@@ -147,7 +147,7 @@ const AGENT_READINESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['agent-readiness', 'run'],
     usage: 'canonry agent-readiness run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--check-dead-links] [--include-geo] [--no-agent-skills] [--wait] [--format json]',
-    help: 'Start an Agent Readiness scan. No answer-engine provider is required. Without --max-pages the scan uses the project\'s saved page budget (canonry project update <project> --site-audit-max-pages <n|full>), else the full site, up to 50,000 pages. --wait polls for up to 15 minutes, so a large full-site scan can outlast it; follow it with canonry agent-readiness progress <project> --run-id <id>. Dead-link checking is off unless --check-dead-links is set. Add --include-geo for location and service-area checks. Agent integration checks are on by default; use --no-agent-skills to disable them.',
+    help: 'Start an Agent Readiness audit scan. No answer-engine provider is required. Without --max-pages the scan uses the project\'s saved page budget (canonry project update <project> --site-audit-max-pages <n|full>), else the full site, up to 50,000 pages. --wait polls for up to 15 minutes, so a large full-site scan can outlast it; follow it with canonry agent-readiness progress <project> --run-id <id>. Dead-link checking is off unless --check-dead-links is set. Add --include-geo for location and service-area checks. Agent integration checks are on by default; use --no-agent-skills to disable them.',
     options: {
       'sitemap-url': stringOption(),
       limit: stringOption(),

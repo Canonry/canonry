@@ -27,7 +27,7 @@ export const PROJECT_QUERY_DOMAINS = {
   technicalAeo: 'getApiV1ProjectsByNameAgentReadiness',
   seo: 'getApiV1ProjectsByNameSeo',
   trends: 'getApiV1ProjectsByNameTrends',
-  /** The site vs Google vs Bing sitemap comparison: changes with either sync and with an Agent Readiness scan. */
+  /** The site vs Google vs Bing sitemap comparison: changes with either sync and with an Agent Readiness audit scan. */
   sitemaps: 'getApiV1ProjectsByNameSitemaps',
   runs: 'getApiV1ProjectsByNameRuns',
   runAdmission: 'getApiV1ProjectsByNameRunAdmission',

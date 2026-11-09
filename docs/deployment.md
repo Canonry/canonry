@@ -245,7 +245,7 @@ neither setting, the injected client config is byte-identical;
 When `answer-visibility` is managed, Aero does not get the tools that start
 or fill a run, write or delete a schedule, or apply a project config (an
 applied spec replaces the schedule). Its cancel tool refuses answer-visibility
-sweeps but still stops the Agent Readiness scans and syncs Aero can start. This holds in
+sweeps but still stops the Agent Readiness audit scans and syncs Aero can start. This holds in
 every tool scope, so a write-scope Aero turn from the API or
 `canonry agent ask` cannot start a sweep either. Aero can still read runs and
 schedules. The operator's own `canonry run` and `canonry schedule` commands are

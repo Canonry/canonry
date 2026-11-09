@@ -115,7 +115,7 @@ describe('ui telemetry', () => {
     expect(actions(sent)).toEqual([['sweep.launch', undefined], ['integration.connect', 'ga']])
   })
 
-  it('counts an Agent Readiness scan launch on the route the dashboard calls', () => {
+  it('counts an Agent Readiness audit scan launch on the route the dashboard calls', () => {
     const { sent } = capture()
     setUiPageFromRoute('/projects/$projectName/agent-readiness')
     recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/agent-readiness/runs', status: 202 })

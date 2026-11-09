@@ -234,7 +234,7 @@ test('loads the scorecard and pages for a selected historical audit', async () =
     </QueryClientProvider>,
   )
 
-  fireEvent.change(screen.getByRole('combobox', { name: 'View an Agent Readiness scan' }), {
+  fireEvent.change(screen.getByRole('combobox', { name: 'View an Agent Readiness audit scan' }), {
     target: { value: 'audit_old' },
   })
 

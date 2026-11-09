@@ -389,9 +389,9 @@ function routeHelp(provider: { name: string; kind?: string; defaultModel: string
   return isOpenRouterRoute(provider.name) ? provider.defaultModel : 'Model is detected/fixed for this browser engine.'
 }
 
-/** Visible copy for the Agent Readiness scans section, exported so tests assert the shipped strings. */
+/** Visible copy for the Agent Readiness audit scans section, exported so tests assert the shipped strings. */
 export const SITE_HEALTH_SCAN_SETTINGS_COPY = {
-  heading: 'Agent Readiness scans',
+  heading: 'Agent Readiness audit scans',
   help: `Used by every scan that sets no budget, scheduled or manual. Onboarding's first look always checks ${pageCountLabel(SITE_AUDIT_ONBOARDING_PAGE_LIMIT)}.`,
   pageBudget: 'Page budget',
   customOption: 'Custom number...',

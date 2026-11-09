@@ -378,7 +378,7 @@ test.each([false, true])('deleting a project updates the live portfolio before n
   onTestFinished(unmount)
 
   const activity = () => within(screen.getByRole('heading', { name: 'Activity', exact: true }).closest('section')!)
-  await waitFor(() => expect(activity().getByRole('button', { name: /Alpha.*Agent Readiness scan completed/ })).toBeTruthy())
+  await waitFor(() => expect(activity().getByRole('button', { name: /Alpha.*Agent Readiness audit scan completed/ })).toBeTruthy())
   await act(async () => { await router.navigate({ to: '/projects/$projectName/settings', params: { projectName: 'alpha' } }) })
   const deleteButton = await screen.findByRole('button', { name: 'Delete project', exact: true })
   await waitFor(() => expect(queryClient.isFetching()).toBe(0))

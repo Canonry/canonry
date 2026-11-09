@@ -132,7 +132,7 @@ export function buildSetupModel(base: SetupWizardVm, healthSnapshot: HealthSnaps
   model.launchState.enabled = blockedReason === undefined
   model.launchState.blockedReason = blockedReason
   model.launchState.summary =
-    blockedReason ?? 'Queue an AI Visibility check first, then follow with an Agent Readiness scan to explain movement.'
+    blockedReason ?? 'Queue an AI Visibility check first, then follow with an Agent Readiness audit scan to explain movement.'
 
   return model
 }

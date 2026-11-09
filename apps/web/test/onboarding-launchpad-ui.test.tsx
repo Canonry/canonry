@@ -1593,7 +1593,7 @@ test('preserves a created project with retry and setup recovery when dispatch fa
   fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
 
   expect(await screen.findByRole('heading', { name: 'Project created' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Retry Agent Readiness scan' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Retry Agent Readiness audit scan' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Continue setup' })).toBeTruthy()
   expect(getToasts().filter((toast) => toast.tone === 'negative')).toHaveLength(0)
 })

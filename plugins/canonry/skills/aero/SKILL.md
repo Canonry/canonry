@@ -1,6 +1,6 @@
 ---
 name: aero
-description: "Diagnose AEO regressions and interpret Canonry AI visibility, SEO data, Advanced multi-property portfolios, and Agent Readiness evidence. Use when prioritizing keyword or organic ranking opportunities, explaining mention or citation changes, comparing Properties or markets, diagnosing page findings, preparing reports, or analyzing a completed `cnry` sweep or Agent Readiness scan. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations."
+description: "Diagnose AEO regressions and interpret Canonry AI visibility, SEO data, Advanced multi-property portfolios, and Agent Readiness evidence. Use when prioritizing keyword or organic ranking opportunities, explaining mention or citation changes, comparing Properties or markets, diagnosing page findings, preparing reports, or analyzing a completed `cnry` sweep or Agent Readiness audit scan. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations."
 metadata:
   homepage: https://canonry.ai
   repository: https://github.com/AINYC/aero
@@ -17,8 +17,8 @@ json`. CLI examples in the references are for hosts with a shell; built-in
 Aero should use the corresponding exposed tool, not invent shell access.
 
 Canonry is the source of truth for runs, measurement plans, Property evidence,
-Agent Readiness scans, integrations, and history. Read stored page audits before
-proposing a new Agent Readiness scan. New crawls and provider work require approval
+Agent Readiness audit scans, integrations, and history. Read stored page audits before
+proposing a new Agent Readiness audit scan. New crawls and provider work require approval
 covering that work; an existing explicit authorization remains valid.
 
 ## Choose the evidence scope
@@ -206,7 +206,7 @@ Mention is the primary gauge (see "Two signals, not one" above); citation is the
 ### What NOT to Do
 - Don't promise fixes will appear in the next sweep (AEO changes take weeks/months)
 - Ground AI visibility recommendations in mention and citation evidence. Ground Agent Readiness recommendations in persisted audit and crawl findings.
-- Don't run sweeps, probes, syncs, Agent Readiness scans, discovery sessions, or any other write or quota-consuming operation without explicit user approval
+- Don't run sweeps, probes, syncs, Agent Readiness audit scans, discovery sessions, or any other write or quota-consuming operation without explicit user approval
 - Don't edit client's code without showing diffs and getting approval
 - Don't conflate "not mentioned" with "page doesn't exist" — and don't conflate "not cited" with "not mentioned" either; check first. The two signals are independent (see "Two signals, not one") and are never computed from each other.
 - Don't coerce `answerMentioned` null → false. Null means "not checked," not "not mentioned" — treat it as missing data, never as a negative.

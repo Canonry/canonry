@@ -21,12 +21,15 @@ describe('isRetiredFeatureNameCopy', () => {
       'Page health could not load',
       '\n        Site Health\n      ',
       ' Site  Health finished',
+      'Agent Readiness scan queued',
+      'Run an Agent Readiness scan',
+      'Agent Readiness  scans',
     ]) {
       expect(isRetiredFeatureNameCopy(text), text).toBe(true)
     }
   })
 
-  it('leaves machine tokens, the new name and audit factor names alone', () => {
+  it('leaves machine tokens, the new names and audit factor names alone', () => {
     for (const text of [
       'technical-aeo',
       'site-health',
@@ -36,7 +39,10 @@ describe('isRetiredFeatureNameCopy', () => {
       'TechnicalAeoSection',
       'Agent Readiness',
       'Agent Readiness score',
-      'Agent Readiness scan queued',
+      'Agent Readiness audit scan queued',
+      'Run an Agent Readiness audit scan',
+      'Scan settings',
+      'This scan stopped at the page limit, so some pages were not checked.',
       'Technical SEO',
       'Health',
       'page state',
