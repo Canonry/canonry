@@ -76,12 +76,13 @@ test('resets model, endpoint and quota overrides rather than pinning current def
   await waitFor(() => expect(writes[0]?.body).toEqual({ expectedRevision: 'saved-revision', reset: { model: true, baseUrl: true, quota: ['maxConcurrency'] } }))
 })
 
-test('adding a local connection saves endpoint and an optional key', async () => {
+test('with nothing connected the catalog is open, and adding a local connection saves endpoint and an optional key', async () => {
   const local = connectionFixture({ name: 'local', displayName: 'Local', configured: false, apiKeyConfigured: false })
   local.capabilities.resetBaseUrl = false
   local.capabilities.clearApiKey = true
   const writes = renderConnections([local])
-  fireEvent.click(await screen.findByRole('button', { name: 'Add provider' }))
+  expect(await screen.findByText(PROVIDER_CONNECTIONS_COPY.noneConnected)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Add provider' })).toBeNull()
   fireEvent.change(screen.getByRole('searchbox', { name: 'Add provider' }), { target: { value: 'local' } })
   fireEvent.click(screen.getByRole('button', { name: 'Configure' }))
   const form = await screen.findByRole('form')
@@ -173,7 +174,9 @@ test('disconnect previews project impact, including unreadable projects, and sen
   fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect', exact: true }))
   await waitFor(() => expect(writes).toEqual([{ path: '/api/v1/settings/providers/openai', method: 'DELETE', body: { expectedImpactRevision: 'impact-revision' } }]))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-  expect(await screen.findByText(/No provider connections configured/)).toBeTruthy()
+  // Disconnecting the last connection leaves choosing a provider as the next step.
+  expect(await screen.findByText(PROVIDER_CONNECTIONS_COPY.noneConnected)).toBeTruthy()
+  expect(screen.getByRole('searchbox', { name: 'Add provider' })).toBeTruthy()
 })
 
 test('a stale disconnect preview stays open and requires a refreshed impact', async () => {
@@ -246,7 +249,8 @@ test('an unreadable host configuration shows the server reason, keeps configured
   expect(within(alert).getByText(PROVIDER_CONNECTIONS_COPY.configUnreadable)).toBeTruthy()
   expect(within(alert).getByText(unreadable.message)).toBeTruthy()
   // Nothing claims the host has no connections, or that it lacks lifecycle support.
-  expect(screen.queryByText(/No provider connections configured/)).toBeNull()
+  expect(screen.queryByText(PROVIDER_CONNECTIONS_COPY.noneConnected)).toBeNull()
+  expect(screen.queryByRole('searchbox', { name: 'Add provider' })).toBeNull()
   expect(screen.queryByText(/This host supports connection setup/)).toBeNull()
   expect(screen.queryByRole('button', { name: 'Add provider' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()

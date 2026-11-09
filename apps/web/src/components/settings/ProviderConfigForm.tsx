@@ -439,6 +439,7 @@ export const PROVIDER_CONNECTIONS_COPY = {
   configUnreadable: 'Saved connection settings could not be read',
   internalError: 'Connection details could not be loaded',
   configuredOnServer: 'Configured on this server',
+  noneConnected: 'No answer engines are connected yet.',
   usageUnknown: (count: number) => `Usage unknown for ${count} ${count === 1 ? 'project' : 'projects'}`,
   usageUnknownDetail: (count: number) => count === 1
     ? 'Saved measurement settings could not be read for 1 project, so whether it uses this connection is unknown.'
@@ -585,16 +586,20 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
     const browser = connection.mode === 'browser'
     const record = connection.configured && !browser ? testRecord(connection.name) : undefined
     const status = browser ? { label: 'Configured', tone: 'neutral' as const } : providerConnectionStatus([connection.configured ? testResult(connection.name) : undefined])
-    return <div key={connection.name} id={`provider-${connection.name}`} className="scroll-mt-24 py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+    // A catalog row sits under a heading that already names its kind, so it repeats only a saved endpoint.
+    const inCatalog = !connection.configured && !active
+    const kindLine = browser ? 'Browser connection' : connection.kind === ProviderKinds['model-gateway'] ? 'Model gateway' : connection.kind === ProviderKinds['answer-service'] ? 'Search answer service · choose profiles in each project' : connection.effectiveModel ?? 'Direct answer engine'
+    const detail = inCatalog ? connection.baseUrl : `${kindLine}${connection.baseUrl ? ` · ${connection.baseUrl}` : ''}`
+    return <div key={connection.name} id={`provider-${connection.name}`} className={`scroll-mt-24 ${inCatalog ? 'py-3' : 'py-4'}`}>
+      <div className={`flex flex-wrap justify-between gap-x-4 gap-y-2 ${detail || usage ? 'items-start' : 'items-center'}`}>
+        <div className="min-w-0 grow basis-64">
           <p className="text-copy-14-strong text-heading">{connection.displayName}</p>
-          <p className="mt-1 break-words text-copy-14 text-secondary">{connection.mode === 'browser' ? 'Browser connection' : connection.kind === ProviderKinds['model-gateway'] ? 'Model gateway' : connection.kind === ProviderKinds['answer-service'] ? 'Search answer service · choose profiles in each project' : connection.effectiveModel ?? 'Direct answer engine'}{connection.baseUrl ? ` · ${connection.baseUrl}` : ''}</p>
+          {detail && <p className="mt-1 break-words text-copy-14 text-secondary">{detail}</p>}
           {usage && <p className="mt-1 text-label-12 text-secondary">{usage}</p>}
           {!active && record && !isConnectedRecord(record) && <div className="mt-1"><ProviderConnectionTestLine record={record} /></div>}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <ToneBadge tone={connection.configured ? status.tone : 'caution'}>{connection.configured ? status.label : 'Not configured'}</ToneBadge>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {(connection.configured || active) && <ToneBadge tone={connection.configured ? status.tone : 'caution'}>{connection.configured ? status.label : 'Not configured'}</ToneBadge>}
           {managed && connection.mode !== 'browser' && <span className="text-label-12 text-secondary">Host managed</span>}
           {connection.mode === 'browser' ? <Button type="button" variant="outline" size="sm" asChild><Link to="/settings" hash="browser-connection">Browser settings</Link></Button> : <Button ref={node => { if (node) connectionActions.current.set(connection.name, node); else connectionActions.current.delete(connection.name) }} type="button" variant="outline" size="sm" disabled={busy} onClick={() => guard.request(() => { if (active) closeEditor(); else void openEditor(connection.name) })}>{active ? 'Close' : connection.configured ? 'Manage' : 'Configure'}</Button>}
         </div>
@@ -623,14 +628,19 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
   ]
 
   const unavailableState = unavailable ? { ...unavailableView(unavailable.reason), message: unavailable.message } : null
+  // With nothing connected, choosing a provider is the only next step, so the catalog is open.
+  const noneConfigured = connections !== undefined && !connections.some(connection => connection.configured)
+  const catalogOpen = adding || (noneConfigured && !editing)
   const configuredOnServer = settings.data?.providers.filter(provider => provider.configured) ?? []
 
   return <section aria-labelledby="provider-connections-title" aria-busy={busy || settings.isLoading}>
-    <div className="section-head">
-      <h2 id="provider-connections-title">Provider connections</h2>
-      {(connections || unavailable) && <div className="flex flex-wrap gap-2">{(unavailable || connections?.some(connection => connection.capabilities.reload)) && <span className="inline-flex items-center"><Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => guard.request(() => void reload())}>Reload from config file</Button><InfoTooltip text="Re-read provider keys, models and quotas from this server's config file, for example after editing it. Makes no provider calls." /></span>}{connections && <Button ref={addProviderAction} type="button" variant="outline" size="sm" disabled={busy} onClick={() => setAdding(current => !current)}>{adding ? 'Close catalog' : 'Add provider'}</Button>}</div>}
+    <div className="section-head flex-wrap">
+      <div className="flex items-center gap-1">
+        <h2 id="provider-connections-title" className="text-heading-16 text-heading">Provider connections</h2>
+        <InfoTooltip text="Save credentials and defaults here. Each project chooses the answer engines it runs." />
+      </div>
+      {(connections || unavailable) && <div className="flex flex-wrap gap-2">{(unavailable || connections?.some(connection => connection.capabilities.reload)) && <span className="inline-flex items-center"><Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => guard.request(() => void reload())}>Reload from config file</Button><InfoTooltip text="Re-read provider keys, models and quotas from this server's config file, for example after editing it. Makes no provider calls." /></span>}{connections && !noneConfigured && <Button ref={addProviderAction} type="button" variant="outline" size="sm" disabled={busy} onClick={() => setAdding(current => !current)}>{adding ? 'Close catalog' : 'Add provider'}</Button>}</div>}
     </div>
-    <p className="mb-4 text-copy-14 text-secondary">Save credentials and defaults here. Each project chooses the answer engines it runs.</p>
     {settings.isLoading && <p role="status" className="text-copy-14 text-secondary">Loading connections…</p>}
     {(settings.isError || error) && <div className="mb-4 space-y-2"><p role="alert" className="text-copy-14 text-negative-400">{error ?? 'Could not load provider connections.'}</p><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { setError(null); void settings.refetch() }}>Retry</Button></div>}
     {unavailableState ? <div className="space-y-4">
@@ -650,8 +660,8 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
       </div>}
     </div> : connections ? <>
       <div className="divide-y divide-default">{connections.filter(connection => connection.configured || connection.name === editing?.name).map(connectionRow)}</div>
-      {!connections.some(connection => connection.configured) && !editing && <p className="py-4 text-copy-14 text-secondary">No provider connections configured. Add a provider to start choosing answer engines.</p>}
-      {adding && <div className="mt-5 border-t border-default pt-4">
+      {noneConfigured && !editing && <p className="mt-2 text-copy-14 text-secondary">{PROVIDER_CONNECTIONS_COPY.noneConnected}</p>}
+      {catalogOpen && <div className={noneConfigured && !editing ? 'mt-4' : 'mt-5 border-t border-default pt-4'}>
         <label htmlFor="provider-catalog-search" className="text-label-14 text-heading">Add provider</label>
         <input id="provider-catalog-search" type="search" className="setup-input mt-2 w-full" placeholder="Search providers" value={search} onChange={event => setSearch(event.target.value)} />
         {existingMatches.length > 0 && <div className="mt-4"><h3 className="text-label-12 text-secondary">Already connected</h3><div className="mt-1 space-y-2">{existingMatches.map(connection => <div key={connection.name} className="flex items-center justify-between gap-3"><span className="text-copy-14 text-heading">{connection.displayName}</span><Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => guard.request(() => { setAdding(false); void openEditor(connection.name) })}>Manage {connection.displayName}</Button></div>)}</div></div>}

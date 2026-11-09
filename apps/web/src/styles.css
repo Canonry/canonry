@@ -2254,7 +2254,6 @@
 
   .insight-grid,
   .health-grid,
-  .settings-grid,
   .finding-grid,
   .competitor-grid {
     @apply grid gap-3 lg:grid-cols-3;

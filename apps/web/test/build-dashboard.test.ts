@@ -371,7 +371,6 @@ test('buildDashboard maps Google settings into the dashboard view model', () => 
   const dashboard = buildDashboard([], apiSettings)
 
   expect(dashboard.settings.google.state).toBe('ready')
-  expect(dashboard.settings.google.detail).toMatch(/configured/i)
   expect(
     dashboard.settings.selfHostNotes.some((note) => note.includes('source of truth for authentication credentials')),
   ).toBeTruthy()
@@ -454,7 +453,6 @@ test('buildDashboard marks Google settings as needing config when OAuth is not c
   const dashboard = buildDashboard([], apiSettings)
 
   expect(dashboard.settings.google.state).toBe('needs-config')
-  expect(dashboard.settings.google.detail).toMatch(/not configured yet/i)
 })
 
 test('buildProjectCommandCenter preserves provider continuity while marking mixed-model history', () => {

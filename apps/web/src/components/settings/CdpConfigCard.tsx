@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { Button } from '../ui/button.js'
-import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { SettingsConnectionRow } from './SettingsConnectionRow.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { fetchCdpStatus, configureCdp, type ApiCdpStatus } from '../../api.js'
@@ -44,30 +44,48 @@ export function CdpConfigCard() {
     return () => { active = false }
   }, [])
 
+  const configureButton = (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      disabled={cdpSaving}
+      onClick={() => guard.request(() => {
+        if (configuringCdp) { setConfiguringCdp(false); setCdpDirty(false); return }
+        if (cdpStatus?.endpoint) {
+          try { const url = new URL(cdpStatus.endpoint); setCdpHost(url.hostname); setCdpPort(url.port || '9222') }
+          catch { setCdpStatusError('The saved browser endpoint could not be read. Enter its host and port.') }
+        }
+        setConfiguringCdp(true)
+      })}
+    >
+      {configuringCdp ? 'Cancel' : cdpStatus?.connected ? 'Update endpoint' : 'Configure'}
+    </Button>
+  )
+
   return (
-    <Card id="browser-connection" className="surface-card scroll-mt-24">
-      <div className="section-head">
-        <h2>ChatGPT (CDP)</h2>
+    <SettingsConnectionRow
+      id="browser-connection"
+      title="ChatGPT in Chrome"
+      purpose="Runs AI Visibility checks on ChatGPT through a Chrome browser you connect."
+      status={(
         <ToneBadge tone={cdpStatus?.connected ? 'positive' : 'caution'}>
           {cdpStatus?.connected ? 'Connected' : 'Not connected'}
         </ToneBadge>
-      </div>
-      <p
-        className={`mt-2 text-copy-14 ${cdpStatusError ? 'text-negative' : 'text-secondary'}`}
-        role={cdpStatusError ? 'alert' : undefined}
-      >
-        {cdpStatusError ? (
-          <>
-            Could not check Chrome: {shortCdpError(cdpStatusError)}. Check that Chrome is running with remote debugging, then configure the endpoint.
-          </>
-        ) : cdpStatus?.connected ? 'Chrome is available for this provider.' : 'Connect Chrome to enable this provider.'}
-      </p>
+      )}
+      action={configureButton}
+    >
+      {cdpStatusError ? (
+        <p role="alert" className="mt-2 max-w-prose text-copy-14 text-negative">
+          Could not check Chrome: {shortCdpError(cdpStatusError)}. Check that Chrome is running with remote debugging, then configure the endpoint.
+        </p>
+      ) : null}
       {!cdpStatus?.connected && <details className="mt-3">
         <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">How to connect Chrome</summary>
         <ol className="mt-2 ml-5 list-decimal space-y-2 text-copy-14 text-secondary">
           <li>On the machine running Canonry, launch Chrome with remote debugging on port 9222 and a separate browser profile.</li>
           <li>In that browser, open ChatGPT and sign in.</li>
-          <li>Choose Configure below and save the host and port.</li>
+          <li>Choose Configure and save the host and port.</li>
         </ol>
         <p className="mt-2 text-copy-14 text-secondary">Chrome requires <code>--remote-debugging-port=9222</code> and <code>--user-data-dir</code> pointing to a separate profile. <a className="text-link underline" href="https://developer.chrome.com/docs/devtools/agents/get-started/configuration" target="_blank" rel="noopener noreferrer">Launch commands for your operating system</a></p>
       </details>}
@@ -100,24 +118,6 @@ export function CdpConfigCard() {
           )}
         </dl>
       </details>}
-      <div className="mt-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={cdpSaving}
-          onClick={() => guard.request(() => {
-            if (configuringCdp) { setConfiguringCdp(false); setCdpDirty(false); return }
-            if (cdpStatus?.endpoint) {
-              try { const url = new URL(cdpStatus.endpoint); setCdpHost(url.hostname); setCdpPort(url.port || '9222') }
-              catch { setCdpStatusError('The saved browser endpoint could not be read. Enter its host and port.') }
-            }
-            setConfiguringCdp(true)
-          })}
-        >
-          {configuringCdp ? 'Cancel' : cdpStatus?.connected ? 'Update endpoint' : 'Configure'}
-        </Button>
-      </div>
       {configuringCdp && (
         <form
           className="mt-3 flex flex-col gap-2"
@@ -179,6 +179,6 @@ export function CdpConfigCard() {
         </form>
       )}
       {guard.dialog}
-    </Card>
+    </SettingsConnectionRow>
   )
 }

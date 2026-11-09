@@ -43,7 +43,8 @@ test('saving the OpenRouter key offers project model selection without choosing 
   })
   onTestFinished(restore)
   await renderSettings(fixture)
-  fireEvent.click(await screen.findByRole('button', { name: 'Add provider' }))
+  // Nothing is connected, so the provider catalog is already open.
+  await screen.findByRole('searchbox', { name: 'Add provider' })
   const provider = screen.getByText('OpenRouter').closest('#provider-openrouter') as HTMLElement
   fireEvent.click(within(provider).getByRole('button', { name: 'Configure' }))
   expect(screen.queryByRole('textbox', { name: 'Model (optional)' })).toBeNull()
@@ -89,7 +90,7 @@ test.each([true, false])('shows saved models for the selected project with conne
   expect(screen.queryByText('Gemini 2.5 Flash via OpenRouter')).toBeNull()
 })
 
-test.each(['ok', 'error'] as const)('keeps optional connections collapsed, exposes a browser deep link, and shows %s service health appropriately', async state => {
+test.each(['ok', 'error'] as const)('shows every connection and %s service health without opening anything, and links browser connections to the Chrome row', async state => {
   const fixture = createDashboardFixture()
   fixture.health.workerStatus = { label: 'Worker', state, detail: state === 'ok' ? 'Worker is healthy.' : 'Worker heartbeat has stopped.' }
   const browser = connectionFixture({ name: 'cdp:chatgpt', displayName: 'ChatGPT (Browser)', mode: 'browser' })
@@ -101,22 +102,22 @@ test.each(['ok', 'error'] as const)('keeps optional connections collapsed, expos
   })
   onTestFinished(restore)
   const router = await renderSettings(fixture)
-  const connections = screen.getByText('Search and browser connections', { selector: 'summary' }).closest('details')!
-  const health = screen.getByText('Service health', { selector: 'summary' }).closest('details')!
-  expect(connections.open).toBe(false)
-  expect(health.open).toBe(state !== 'ok')
-  expect(connections.contains(screen.getByRole('heading', { name: 'ChatGPT (CDP)', hidden: true }))).toBe(true)
+  const connections = screen.getByRole('region', { name: 'Search and browser connections' })
+  const health = screen.getByRole('region', { name: 'Service health' })
+  expect(screen.queryByText('Search and browser connections', { selector: 'summary' })).toBeNull()
+  expect(screen.queryByText('Service health', { selector: 'summary' })).toBeNull()
+  expect(within(connections).getByRole('heading', { name: 'Google OAuth' })).toBeTruthy()
+  expect(within(connections).getByRole('heading', { name: 'Bing Webmaster Tools' })).toBeTruthy()
+  const chrome = within(connections).getByRole('heading', { name: 'ChatGPT in Chrome' }).closest('#browser-connection') as HTMLElement
+  expect(within(chrome).getByRole('button', { name: 'Configure' })).toBeTruthy()
   if (state === 'error') expect(within(health).getByText('Worker heartbeat has stopped.')).toBeTruthy()
   else {
-    fireEvent.click(screen.getByText('Service health', { selector: 'summary' }))
     expect(within(health).getAllByText('Healthy')).toHaveLength(2)
+    // A healthy service needs no explanation line under its name.
+    expect(within(health).queryByText('Worker is healthy.')).toBeNull()
   }
 
   fireEvent.click(await screen.findByRole('link', { name: 'Browser settings' }))
   await waitFor(() => expect(router.state.location.hash).toBe('browser-connection'))
-  await waitFor(() => expect(connections.open).toBe(true))
-  expect(screen.getByRole('heading', { name: 'ChatGPT (CDP)' })).toBeTruthy()
-  expect(within(connections).getByRole('heading', { name: 'Google OAuth' })).toBeTruthy()
-  const card = screen.getByRole('heading', { name: 'ChatGPT (CDP)' }).closest('#browser-connection')!
-  expect(within(card as HTMLElement).getByRole('button', { name: 'Configure' })).toBeTruthy()
+  expect(document.getElementById('browser-connection')).toBe(chrome)
 })

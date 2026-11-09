@@ -323,12 +323,10 @@ export interface ProviderStatusVm {
 
 export interface GoogleSettingsVm {
   state: 'ready' | 'needs-config'
-  detail: string
 }
 
 export interface BingSettingsVm {
   state: 'ready' | 'needs-config'
-  detail: string
 }
 
 export interface SettingsVm {
