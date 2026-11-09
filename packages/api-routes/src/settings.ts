@@ -479,7 +479,8 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
   // for that result instead of stacking another check on the same quota.
   const testsInFlight = new Set<string>()
 
-  // A POST because it calls the provider now; it reads and changes no saved state.
+  // A POST because it calls the provider now. It changes no settings; the host
+  // keeps the result as the connection's `lastTest`.
   // Reported as an `integration.connection` test, beside the connection's save
   // and disconnect, as the webhook and CDP tests are.
   app.post<{ Params: { name: string } }>('/settings/providers/:name/test', connectionRoute(app, (request) => (

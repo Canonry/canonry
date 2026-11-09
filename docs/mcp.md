@@ -161,8 +161,10 @@ prompt on the operator's account) and returns `status` `connected`, `failed` or
 `not-verified`, with the provider's redacted message and the model checked. A
 failed check is a normal result with `ok: false`, not a tool error. The result is
 kept as `lastTest` on the connection (`canonry_provider_settings_get`, and
-`providerConnections` in `canonry_settings_get`) until its key, endpoint or model
-changes, so read it before testing again. It accepts no credentials, changes no
+`providerConnections` in `canonry_settings_get`) until its key, endpoint, model,
+Vertex project, region or credentials, or CDP endpoint changes, or the
+connection is disconnected, so read it before testing again. Request-limit,
+batch and pricing edits keep it. It accepts no credentials, changes no
 saved settings, requires install administrator authority plus `settings.write`
 (project, narrow, viewer and read-only credentials are refused), and is excluded
 from native Aero and read-only or stored-only catalogs. A check the server stops

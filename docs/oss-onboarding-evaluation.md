@@ -611,7 +611,7 @@ Answer-visibility readiness must reuse the same preflight and measurement materi
 
 The endpoint must not run Doctor, refresh OAuth, call an answer provider, crawl a URL, or perform any external request. Doctor and the provider connection test (`POST /settings/providers/{name}/test`, `canonry settings provider test`) remain the explicit live-verification surfaces.
 
-Connection and provider facts are therefore “configured” or “stored evidence available,” not live-verified credential claims. When in-flight Aero state is required, the host must supply an explicit `getAgentRuntimeState(projectId)` callback from `SessionRegistry`; otherwise the composite reports only session existence and last activity.
+Connection and provider facts are therefore “configured” or “stored evidence available,” not live-verified credential claims. A provider connection's stored `lastTest` is evidence of an earlier live test of its current settings, not a new check. When in-flight Aero state is required, the host must supply an explicit `getAgentRuntimeState(projectId)` callback from `SessionRegistry`; otherwise the composite reports only session existence and last activity.
 
 Performance target for the local composite:
 

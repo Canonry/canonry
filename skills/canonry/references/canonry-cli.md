@@ -807,7 +807,7 @@ project impact. Resets and disconnect require install administrator authority an
 `settings.write`; host-managed credentials must be changed on the host.
 
 `provider test <name>` checks a saved connection with the provider now, using
-the server's active settings, and changes nothing. Most answer engines answer one
+the server's active settings, and changes no settings. Most answer engines answer one
 tiny prompt on the provider account; Local lists its models; OpenRouter reads its
 key; a search answer service with no free key check makes no request. `status` is
 `connected`, `failed` (with the provider's redacted reason; no answer within 30
@@ -819,7 +819,9 @@ previous test is still running. It requires install administrator authority and
 read-only and `--stored-only` use. A passing test proves the key and endpoint,
 not the account's quota. The server keeps the latest result as the connection's
 `lastTest`, shown by `settings` and `provider-info` (JSON and text), until the
-key, endpoint or model changes; read it before testing again.
+key, endpoint, model, Vertex project, region or credentials, or CDP endpoint
+changes, or the connection is disconnected; request-limit, batch and pricing
+edits keep it. Read it before testing again.
 
 `reload-providers` rereads the connected server's config file: provider keys,
 models, Vertex AI settings, batch settings, pricing, quotas, and CDP. Any config

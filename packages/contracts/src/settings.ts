@@ -103,7 +103,7 @@ export const providerConnectionConfigDtoSchema = z.object({
   hostUses: z.array(z.string()),
   blockers: z.array(z.object({ code: z.string(), message: z.string(), runIds: z.array(z.string()), batchIds: z.array(z.string()) })),
   lastTest: providerConnectionLastTestDtoSchema.nullable().optional()
-    .describe('The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model or Vertex setting hides an earlier test). Absent from hosts that keep no test history.'),
+    .describe('The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model, Vertex setting or CDP endpoint, or a disconnect, hides an earlier test). Absent from hosts that keep no test history.'),
 })
 export type ProviderConnectionConfigDto = z.infer<typeof providerConnectionConfigDtoSchema>
 

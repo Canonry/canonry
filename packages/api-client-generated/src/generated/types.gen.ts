@@ -15520,7 +15520,7 @@ export type ProviderConnectionSettingsDto = {
         batchIds: Array<string>;
     }>;
     /**
-     * The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model or Vertex setting hides an earlier test). Absent from hosts that keep no test history.
+     * The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model, Vertex setting or CDP endpoint, or a disconnect, hides an earlier test). Absent from hosts that keep no test history.
      */
     lastTest?: {
         status: 'connected' | 'failed' | 'not-verified';
@@ -16523,7 +16523,7 @@ export type SettingsDto = {
             batchIds: Array<string>;
         }>;
         /**
-         * The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model or Vertex setting hides an earlier test). Absent from hosts that keep no test history.
+         * The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model, Vertex setting or CDP endpoint, or a disconnect, hides an earlier test). Absent from hosts that keep no test history.
          */
         lastTest?: {
             status: 'connected' | 'failed' | 'not-verified';
