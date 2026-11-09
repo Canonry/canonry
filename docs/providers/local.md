@@ -24,8 +24,6 @@ Sends a chat completion request to the local server with a system prompt instruc
 - `groundingSources` — always `[]` (local LLMs have no structured grounding)
 - `searchQueries` — always `[]`
 - `model` — the model name used
-- `retrievalStatus` — `not-applicable`: there is no retrieval step to report
-- `citationMeasurable` — `false`: with no sources, whether the answer cites a domain is never observed
 
 ### `normalizeResult(raw: LocalRawResult): LocalNormalizedResult`
 
@@ -35,7 +33,13 @@ Extracts analyst-relevant fields:
 - `citedDomains` — always `[]`: a domain written in the answer text is a mention, never a citation
 - `groundingSources` — pass-through of `[]`
 - `searchQueries` — pass-through of `[]`
-- `citationMeasurable` — `false`, as above
+
+### Adapter (`adapter.ts`)
+
+`localAdapter` wraps these functions in the shared provider contract: it takes a `TrackedQueryInput` and returns a `RawQueryResult` and a `NormalizedQueryResult`. The functions above set neither of these fields; the wrapper adds both to each result:
+
+- `retrievalStatus` — `not-applicable`: there is no retrieval step to report
+- `citationMeasurable` — `false`: with no sources, whether the answer cites a domain is never observed
 
 ## Configuration
 

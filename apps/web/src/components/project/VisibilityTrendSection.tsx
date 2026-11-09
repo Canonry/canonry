@@ -16,6 +16,7 @@ import { Check, ChevronRight, Minus, X } from 'lucide-react'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../shared/AnswerMarkdown.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { SourceLink } from '../shared/SourceLink.js'
+import { CITATION_NOT_MEASURED } from '../../lib/citation-not-measured-copy.js'
 import {
   CartesianGrid,
   CHART_AXIS_STROKE,
@@ -846,7 +847,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
             <span className="text-label-13 text-secondary">{answer.location === null ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(answer.location)}</span>
             <span className="text-label-13 text-secondary">{new Date(answer.createdAt).toLocaleDateString()}</span>
             <ToneBadge tone="neutral">{answer.mentioned === null ? answer.mentionUnavailableReason === 'identity-ambiguous' ? VISIBILITY_DISPLAY_COPY.ambiguous : 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge>
-            <ToneBadge tone="neutral">{answer.cited === null ? 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge>
+            <ToneBadge tone="neutral">{answer.cited === null ? answer.citationUnavailableReason === 'citation-not-measured' ? CITATION_NOT_MEASURED.label : 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge>
           </div>
           <div className="mt-4"><AnswerMarkdown headingLevel={4} copyable={Boolean(answer.answerText?.trim())}>{answer.answerText ?? 'Answer text unavailable.'}</AnswerMarkdown></div>
           {answer.sources.length > 0 ? <details className="mt-2" data-answer-sources>

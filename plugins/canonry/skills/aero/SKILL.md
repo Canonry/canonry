@@ -210,7 +210,7 @@ Mention is the primary gauge (see "Two signals, not one" above); citation is the
 - Don't edit client's code without showing diffs and getting approval
 - Don't conflate "not mentioned" with "page doesn't exist" — and don't conflate "not cited" with "not mentioned" either; check first. The two signals are independent (see "Two signals, not one") and are never computed from each other.
 - Don't coerce `answerMentioned` null → false. Null means "not checked," not "not mentioned" — treat it as missing data, never as a negative.
-- Don't read `citationState: not-measured` as not cited. The engine returns no sources (a local model), so its citations were never observed; cited rates already leave it out. Never call it a citation gap or a lost citation.
+- Don't read `citationState: not-measured` as not cited. The engine returns no sources (a local model), so its citations were never observed; cited rates already leave it out. Never call it a citation gap or a lost citation. Other reads carry the same state in their own shape: `citationUnavailableReason: citation-not-measured` (visibility report), `{state: unavailable, reason: citation_not_measured}` (Advanced metrics), `citationMeasured: false` (research, snapshot), the `citationNotMeasured*` counts (overview, analytics), the gaps bucket `citationNotMeasured[]`, and `excludedNotMeasured` (compare). `references/agent-operations.md` lists them.
 
 ### When to use `--probe` runs
 When a verification would help, propose the exact probe and get explicit

@@ -420,6 +420,27 @@ Saved answer source lists use `SourceLink` to show the title and full, wrapping
 URL. Only HTTP(S) destinations are clickable. Keep source classification and
 counted disclosures in Advanced and Research views.
 
+### Citation not measured
+
+An engine that returns no sources (a local model) never shows whether it cites
+the project. Its answers are neither cited nor not cited; their mention is
+still measured.
+
+- Say so with the shared copy in `lib/citation-not-measured-copy.ts`
+  (`CITATION_NOT_MEASURED`): `label` for a badge, `signal` for a latest-run
+  line, `timeline` for one run on a citation timeline, and `sources` (contracts
+  `CITATION_NOT_MEASURED_REASON`) where the answer's sources would be listed.
+  `ANSWER_CITATION_LABEL` in `lib/format-helpers.ts` maps the `not-measured`
+  state to the badge label. Its users include the evidence table and its
+  timelines, the answer modal, `CitationBadge`, By engine, project history,
+  Citation gaps, the setup result's Cited figure and the visibility report's
+  saved answers (`citationUnavailableReason`).
+- The trend card has its own copy, `CITATION_NOT_MEASURED_TREND_COPY` in
+  `VisibilityTrendSection.tsx`, for a point or a window with no measured answer.
+- Simple cited rates leave these answers out of both the count and the base.
+  Show the server's rate, and its base where it sends one (`citedTotal`); a
+  null rate reads "Not measured", never 0%.
+
 ### Activity tab
 
 `ActivitySection` orders Server activity, Site traffic (GA4's overview), AI

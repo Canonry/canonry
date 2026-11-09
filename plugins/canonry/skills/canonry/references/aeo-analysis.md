@@ -41,19 +41,20 @@ A "not-measured" citation means the engine returns no sources at all (a local mo
 
 ## Reading Evidence Output
 
-`cnry evidence` renders a two-glyph cell per (query × provider): `[C/c][M/m]` — uppercase = present, lowercase = absent, `·` = citation not measured (the engine returns no sources), `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). Always print the legend before the table; never collapse the two signals into one cell. Lead your interpretation with the mention glyph.
+`cnry citations visibility <project>` renders a two-glyph cell per (query × engine): citation first, mention second. Uppercase = present, lowercase = absent, `·` = citation not measured (the engine returns no sources), `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). The legend prints above the table; keep it when you quote the table, and never collapse the two signals into one cell. Lead your interpretation with the mention glyph.
 
 ```
-Legend: [C/c/·][M/m]  C=cited c=not-cited ·=not measured  M=mentioned m=not-mentioned  –=no snapshot
-
-[C][M]  AEO Agency NYC             ← mentioned AND cited: branded/direct match, fully visible
-[c][M]  best plumber brooklyn      ← mentioned but NOT cited: named in the answer, domain not in sources (mention win, citation gap)
-[C][m]  ai seo tools               ← cited but NOT mentioned: domain grounded, brand never named (citation without share of voice)
-[c][m]  how to fix a leaky faucet  ← neither: informational gap, no page for this topic
-[c][m]  emergency plumber near me  ← neither: competitive gap, others mentioned/cited instead
+(cell = [citation][mention];  C=cited c=not ·=not measured, M=mentioned m=not, –=no data)
+Query                      gemini  local  openai  Cite  Ment
+AEO Agency NYC             CM      ·M     CM      2/2   3/3   ← mentioned AND cited: branded/direct match, fully visible
+best plumber brooklyn      cM      ·M     cM      0/2   3/3   ← mentioned but NOT cited: named in the answer, domain not in sources (mention win, citation gap)
+ai seo tools               Cm      ·m     cm      1/2   0/3   ← cited but NOT mentioned: domain grounded, brand never named (citation without share of voice)
+how to fix a leaky faucet  cm      ·m     cm      0/2   0/3   ← neither: informational gap, no page for this topic
 ```
 
-The summary line reports each signal independently: `Mentioned: X / Y` (primary) and `Cited: X / Y` (secondary) — a query can be one, both, or neither.
+`Cite` counts the engines that cited the query out of those whose sources were checked (`·` when none were); `Ment` counts the engines that mentioned it. Above the table, `Cited in sources: X/Y engines` and `Mentioned in answers: X/Y engines` report each signal independently — a query can be one, both, or neither.
+
+`cnry evidence <project>` is the per-query citation history instead: one line per query with its latest citation (`✓ cited`, `✗ not-cited` or `· not measured (no sources)`, plus a transition such as `(lost)`), then `Cited: X / Y` over the queries whose latest answers carried sources and `Not measured: N`. It prints no mention line; read mention from its `--format json` (each run's `mentionState` and `mentionTransition`) or from `cnry citations visibility`.
 
 ### Query Categories
 
@@ -80,7 +81,7 @@ The summary line reports each signal independently: `Mentioned: X / Y` (primary)
 **Query normalization:** When new queries are added to a project mid-history, canonry automatically normalizes each time bucket to only include queries that existed before that bucket started. This prevents newly-added (typically not-yet-mentioned/uncited) queries from creating a false drop in the rate trend. The chart displays dashed vertical annotation lines at points where queries were added (e.g. "+3 q"), and each bucket's tooltip shows the query count ("q") used for that bucket's calculation.
 
 ### Gap Analysis (`--feature gaps`)
-`GapAnalysisDto` returns mention buckets — `mentionedQueries[]`, `mentionGap[]` (a competitor is mentioned but you're not), `notMentioned[]` (nobody named) — alongside the cited buckets (`cited[]`, `gap[]`, `uncited[]`). Read the mention buckets first. Priorities:
+`GapAnalysisDto` returns mention buckets — `mentionedQueries[]`, `mentionGap[]` (a competitor is mentioned but you're not), `notMentioned[]` (nobody named) — alongside the cited buckets (`cited[]`, `gap[]`, `uncited[]`, and `citationNotMeasured[]` for queries whose engines return no sources, which are in none of the other three). Read the mention buckets first. Priorities:
 - **`mentionGap[]` queries** are highest priority — competitors are taking mention share (AI share-of-voice) you're not winning
 - **`notMentioned[]` queries** may need content or may be too broad
 - The cited `gap[]` / `uncited[]` buckets are the secondary lens on the same queries
@@ -137,7 +138,7 @@ For competitive queries, if others are mentioned/cited and the client isn't (che
 - Do they have stronger schema/structured data?
 - Are they more established in the index?
 
-Run `cnry evidence <project> --format json`. Use `citedDomains` and grounding-source hosts for citation evidence; use answer text with Canonry's shared matcher for mention evidence. `competitorOverlap` is a legacy mixed field and must not be treated as either metric by itself.
+Take a `runId` from `cnry evidence <project> --format json` (it lists each query's runs and their citation states) and run `cnry run show <run-id> --format json`. Its snapshots carry the evidence: use `citedDomains` and `citedUrls` for citation evidence, and the answer text with Canonry's shared matcher for mention evidence. `competitorOverlap` is a legacy mixed field and must not be treated as either metric by itself.
 
 ### Step 4: Check across providers
 Gemini, OpenAI, Claude, and Perplexity may behave differently. One citing a domain while another doesn't is normal — each has its own knowledge base and update schedule.

@@ -489,7 +489,7 @@ Several text columns store serialized JSON. Always use `parseJsonColumn()` from 
 | `query_snapshots.wrongSubjectTargetKeys` | `string[]` or null (Advanced Properties sentiment judged `wrong-subject` for the answer) |
 | `insights.recommendation` | `{ action: string; detail?: string }` |
 | `insights.cause` | `{ category: string; detail?: string }` |
-| `health_snapshots.providerBreakdown` | `Record<string, { total: number; cited: number; rate: number }>` |
+| `health_snapshots.providerBreakdown` | `Record<string, { citedRate: number \| null; mentionRate: number; cited: number; mentioned: number; total: number; citationNotMeasured?: number }>`. `citedRate` is `cited / (total - citationNotMeasured)`, null when none of the engine's pairs carried sources. Older snapshots lack the mention fields and `citationNotMeasured`; the API reads them as 0. |
 | `discovery_sessions.competitorMap` | `Array<{ domain: string; hits: number; competitorType: DiscoveryCompetitorType }>` |
 | `discovery_probes.citedDomains` | `string[]` |
 | `research_run_queries.namedCompetitors` | `string[]` |
