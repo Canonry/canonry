@@ -3,7 +3,11 @@ import type { InsightActionGroup, McpHealth, MentionIdentity, ProjectDto, Projec
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 /** `disabled` is a service switched off on purpose, such as the public demo's worker. */
 export type HealthState = 'checking' | 'ok' | 'disabled' | 'error'
-export type CitationState = 'cited' | 'lost' | 'emerging' | 'not-cited' | 'pending'
+/**
+ * `not-measured`: the engine returns no sources (a local model), so whether it
+ * cites the project was never observed. Never a miss, never lost or new.
+ */
+export type CitationState = 'cited' | 'lost' | 'emerging' | 'not-cited' | 'not-measured' | 'pending'
 export type VisibilityState = 'visible' | 'not-visible' | 'pending'
 /** Canonical-vocabulary equivalent of `VisibilityState`. New consumers prefer this. */
 export type MentionState = 'mentioned' | 'not-mentioned' | 'pending'
@@ -216,6 +220,8 @@ export type MovementComparisonVm = MovementComparisonDto
 export interface QueryCountsVm {
   cited: number
   total: number
+  /** Queries none of whose answers carries sources; outside every citation figure's base. */
+  citationNotMeasured: number
 }
 
 export interface ProjectCommandCenterVm {

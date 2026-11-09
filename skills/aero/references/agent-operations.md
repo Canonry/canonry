@@ -66,6 +66,22 @@ guide plus links to host-native references. It does not replace runtime help.
   compute one signal from the other.
 - `answerMentioned: null` means not checked, not false. Missing runs and empty
   populations mean no measurement, not zero visibility.
+- `citationState: not-measured` (with `cited: null`) means the engine returns no
+  sources, such as a local model without web access, so whether it cites the
+  domain was never observed. It is never a miss: cited rates leave it out and
+  count it as `citationNotMeasured`, and a cited rate with nothing measured is
+  null, not 0. Mention is still measured on those answers. Other reads show the
+  same state in their own shape:
+  - visibility report: an answer's `citationUnavailableReason:
+    citation-not-measured`, or a rate's `reason: citation-not-measured`;
+  - Advanced metrics: `{state: unavailable, reason: citation_not_measured}`;
+  - research and snapshot answers: `citationMeasured: false` (research also
+    sends `citationState: null`);
+  - overview: `citationNotMeasuredQueries`, `citationNotMeasuredPairs` and
+    `citationNotMeasuredCount`;
+  - analytics: the gaps bucket `citationNotMeasured[]` and sources'
+    `citationNotMeasuredAnswers`;
+  - visibility compare: `excludedNotMeasured`.
 - Preserve project, time window, provider, requested/served model, location,
   sample size, and query class when comparing evidence. Use server-returned
   metrics; do not invent a score from incompatible populations.

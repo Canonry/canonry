@@ -14,14 +14,17 @@ import {
   RunKinds,
   RunStatuses,
   answerProseForMentions,
+  CitationStates,
   compileBrandAliases,
   countsAsMention,
   effectiveBrandNames,
+  isCitationStateMeasured,
   matcherMatchesText,
   measurementV2UsageEdgeKey,
   normalizeMeasurementHost,
   parseStoredMeasurementPlanAnyVersion,
   prepareBrandMatchText,
+  readCitationState,
   validationError,
   visibilityReportQuerySchema,
   visibilityReportResponseSchema,
@@ -321,6 +324,8 @@ function v2Observations(
       unknownMentionTargetKeys: attribution?.unknownMentionTargetIds ?? [],
       citedTargetKeys: attribution?.citedTargetIds ?? [],
       citationComplete: attribution?.sourceComplete ?? false,
+      // The kernel's flag: an engine that returns no sources is never "partly saved".
+      citationMeasured: attribution?.citationMeasured ?? true,
       retrievalStatus: raw.retrievalStatus ?? null,
       competitorMentionDomains: signals.mentioned,
       competitorCitationDomains: signals.cited,
@@ -467,6 +472,7 @@ function frozenSimpleRun(
     const competitorSignalsForSnapshot = !includeEvidence || competitors === null
       ? { mentioned: [], cited: [] }
       : competitorSignals(snapshot, competitors, preparedAnswerText)
+    const citationState = readCitationState(snapshot)
     observations.push({
       slotId,
       answerId: snapshot.id,
@@ -474,10 +480,11 @@ function frozenSimpleRun(
       answerText: includeEvidence ? snapshot.answerText : null,
       mentionComplete: snapshot.answerText !== null || snapshot.answerMentioned !== null,
       mentionedTargetKeys: mentioned ? ['project'] : [],
-      citedTargetKeys: snapshot.citationState === 'cited' ? ['project'] : [],
+      citedTargetKeys: citationState === CitationStates.cited ? ['project'] : [],
       // Simple citation state comes from the stored cited domains, not from
       // source-URL capture, so a saved Simple answer is never `unchecked`.
       citationComplete: true,
+      citationMeasured: isCitationStateMeasured(citationState),
       retrievalStatus: snapshot.retrievalStatus ?? null,
       competitorMentionDomains: competitorSignalsForSnapshot.mentioned,
       competitorCitationDomains: competitorSignalsForSnapshot.cited,
@@ -567,9 +574,10 @@ function legacySimpleRun(
       // the stored boolean is a frozen mention fact; null stays incomplete.
       mentionComplete: snapshot.answerMentioned !== null,
       mentionedTargetKeys: snapshot.answerMentioned === true ? ['project'] : [],
-      citedTargetKeys: snapshot.citationState === 'cited' ? ['project'] : [],
+      citedTargetKeys: readCitationState(snapshot) === CitationStates.cited ? ['project'] : [],
       // Legacy rows carry only the stored citation state (see the frozen-simple note).
       citationComplete: true,
+      citationMeasured: isCitationStateMeasured(readCitationState(snapshot)),
       retrievalStatus: snapshot.retrievalStatus ?? null,
       competitorMentionDomains: [],
       competitorCitationDomains: [],

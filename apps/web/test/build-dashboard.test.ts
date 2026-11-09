@@ -739,7 +739,7 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
       latestRun: { totalRuns: 0, run: null },
       health: null,
       topInsights: [],
-      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, mentionedQueries: 3, notMentionedQueries: 1, mentionRate: 0.75 },
+      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, citationNotMeasuredQueries: 0, mentionedQueries: 3, notMentionedQueries: 1, mentionRate: 0.75 },
       providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
@@ -770,7 +770,7 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
   const vm = buildProjectCommandCenter(data)
   expect(vm.visibilitySummary.value).toBe('75.0%')
   expect(vm.visibilitySummary.tone).toBe('positive')
-  expect(vm.queryCounts).toEqual({ cited: 3, total: 4 })
+  expect(vm.queryCounts).toEqual({ cited: 3, total: 4, citationNotMeasured: 0 })
   expect(vm.movementComparison).toMatchObject({ hasPreviousRun: false, comparable: false })
   expect(vm.contextLabel).toBe('US / EN')
   // The per-model citation rates the By engine card lists (restored after the cleanup).
@@ -831,7 +831,7 @@ test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale
       latestRun: { totalRuns: 0, run: null },
       health: null,
       topInsights: [],
-      queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
+      queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, citationNotMeasuredQueries: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
       providers: [],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
@@ -1288,7 +1288,7 @@ test('buildPortfolioProject preserves separate server mention populations and ig
       latestRun: { totalRuns: 0, run: null },
       health: null,
       topInsights: [],
-      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, mentionedQueries: 3, notMentionedQueries: 1, mentionRate: 0.75 },
+      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, citationNotMeasuredQueries: 0, mentionedQueries: 3, notMentionedQueries: 1, mentionRate: 0.75 },
       providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
@@ -1641,4 +1641,66 @@ test('a completed site scan never claims query execution', () => {
   const run = { id: 'scan-copy', projectId: 'project', status: 'completed', trigger: 'manual', createdAt: '2026-11-06T12:00:00Z' } as const
   expect(toRunListItem({ ...run, kind: 'site-audit' }, 'Example').statusDetail).toBe('Scan completed.')
   expect(toRunListItem({ ...run, kind: 'answer-visibility' }, 'Example').statusDetail).toBe('All queries checked.')
+})
+
+test('an engine without sources keeps its answers not measured, never not cited or lost', () => {
+  const run = (id: string, createdAt: string) => ({
+    id, projectId: 'proj_local', kind: 'answer-visibility' as const, status: 'completed' as const, trigger: 'manual' as const,
+    startedAt: createdAt, finishedAt: createdAt, error: null, createdAt,
+  })
+  const snapshot = (id: string, query: string, runId: string, createdAt: string) => ({
+    id, runId, queryId: query, query, provider: 'local', model: 'llama3', citationState: 'not-measured' as const,
+    answerMentioned: true, answerText: 'Acme is a common pick.', citedDomains: [], competitorOverlap: [], groundingSources: [], searchQueries: [],
+    location: null, createdAt,
+  })
+  const data: ProjectData = {
+    project: {
+      id: 'proj_local', name: 'local-demo', displayName: 'Acme', canonicalDomain: 'acme.example', ownedDomains: [], country: 'US', language: 'en',
+      tags: [], labels: {}, providers: ['local'], configSource: 'api', configRevision: 1,
+      createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+    },
+    runs: [run('run_1', '2026-10-01T00:00:00Z'), run('run_2', '2026-10-02T00:00:00Z'), run('run_3', '2026-10-03T00:00:00Z')],
+    queries: [
+      { id: 'best crm', query: 'best crm', createdAt: '2026-10-01T00:00:00Z' },
+      { id: 'crm pricing', query: 'crm pricing', createdAt: '2026-10-01T00:00:00Z' },
+    ],
+    competitors: [],
+    timeline: [{
+      // The UI shows each run's state as the API sends it: a measured miss, then answers without sources.
+      query: 'best crm',
+      runs: [
+        { runId: 'run_1', createdAt: '2026-10-01T00:00:00Z', citationState: 'not-cited', transition: 'new' },
+        { runId: 'run_2', createdAt: '2026-10-02T00:00:00Z', citationState: 'not-measured', transition: 'not-measured' },
+        { runId: 'run_3', createdAt: '2026-10-03T00:00:00Z', citationState: 'not-measured', transition: 'not-measured' },
+      ],
+      providerRuns: {
+        local: [
+          { runId: 'run_1', createdAt: '2026-10-01T00:00:00Z', citationState: 'not-cited', transition: 'new' },
+          { runId: 'run_2', createdAt: '2026-10-02T00:00:00Z', citationState: 'not-measured', transition: 'not-measured' },
+          { runId: 'run_3', createdAt: '2026-10-03T00:00:00Z', citationState: 'not-measured', transition: 'not-measured' },
+        ],
+      },
+      modelRuns: {},
+    }, {
+      // Answered in the latest sweep, outside the capped timeline: the snapshot is all there is.
+      query: 'crm pricing',
+      runs: [],
+    }],
+    latestRunDetails: [{
+      ...run('run_3', '2026-10-03T00:00:00Z'),
+      snapshots: [
+        snapshot('snap_best', 'best crm', 'run_3', '2026-10-03T00:00:00Z'),
+        snapshot('snap_pricing', 'crm pricing', 'run_3', '2026-10-03T00:00:00Z'),
+      ],
+    }],
+    previousRunDetails: [],
+  }
+
+  const evidence = buildProjectCommandCenter(data).visibilityEvidence
+  const best = evidence.find(item => item.query === 'best crm')!
+  const pricing = evidence.find(item => item.query === 'crm pricing')!
+
+  expect(best).toMatchObject({ citationState: 'not-measured', changeLabel: 'Citation not measured in the last 2 checks', answerMentioned: true })
+  expect(best.runHistory.map(point => point.citationState)).toEqual(['not-cited', 'not-measured', 'not-measured'])
+  expect(pricing).toMatchObject({ citationState: 'not-measured', changeLabel: 'Citation not measured in the latest check' })
 })

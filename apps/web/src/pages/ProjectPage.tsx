@@ -69,6 +69,7 @@ import {
 } from '../components/project/advanced-measurement/v2-overview-adapter.js'
 import { formatTimestamp, siteCitationLabel, splitPercentSign } from '../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
+import { CITATION_NOT_MEASURED } from '../lib/citation-not-measured-copy.js'
 import type { QueryClassLookup } from '../lib/answer-movement.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
@@ -520,6 +521,14 @@ function SearchConsoleSection({
       </div>
     </div>
   )
+}
+
+/**
+ * The queries Citation gaps counts out of: those with an answer whose sources
+ * were checked. The API's gap score uses the same population.
+ */
+function citationGapBase(queryCounts: ProjectCommandCenterVm['queryCounts']): number {
+  return queryCounts.total - queryCounts.citationNotMeasured
 }
 
 function OverviewMetricRow({
@@ -2485,7 +2494,10 @@ function ProjectPageContent({
                       <OverviewMetricRow
                         label="Citation gaps"
                         summary={model.gapQueries}
-                        displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
+                        displayValue={citationGapBase(model.queryCounts) === 0
+                          // No answer carries sources, so there is no base to count gaps out of.
+                          ? <><span className="whitespace-nowrap text-label-13 text-secondary">{CITATION_NOT_MEASURED.label}</span><span className="sr-only">, all queries</span></>
+                          : <><span className="text-primary">{model.gapQueries.value}</span><span className="text-secondary"> / {citationGapBase(model.queryCounts)}</span><span className="sr-only"> queries, all queries</span></>}
                         tooltip="Across all queries, branded and non-brand: a competitor was cited as a source and your domain was not cited by any engine. The mention-share query type does not filter these counts."
                       />
                     </div>

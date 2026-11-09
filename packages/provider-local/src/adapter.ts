@@ -52,6 +52,8 @@ function toRawQueryResult(raw: LocalRawResult): RawQueryResult {
     retrievalContract: 'native-auto-v1' as const,
     usage: raw.usage,
     stopReason: raw.stopReason,
+    // No sources, so whether an answer cites a domain is never observed.
+    citationMeasurable: false,
   }
 }
 
@@ -120,6 +122,7 @@ export const localAdapter: ProviderAdapter = {
       groundingSources: normalized.groundingSources,
       searchQueries: normalized.searchQueries,
       retrievalStatus: 'not-applicable' as const,
+      citationMeasurable: false,
     }
   },
 

@@ -188,7 +188,7 @@ describe('headline strip', () => {
     expect(REPORT_HEADLINE_HELP.simpleMention).toBe('Mentioned counts answers naming your brand in the answer text, not in the source links.')
     expect(REPORT_HEADLINE_HELP.simpleCitation).toBe('Cited counts answers linking to your site in the sources behind the answer, not in the answer text.')
     expect(REPORT_HEADLINE_HELP.advancedMention).toBe('An answer counts when it mentions any assigned property. This does not mean every property was mentioned. An answer that could not be tied to one property is left out of the rate, never counted as not mentioned.')
-    expect(REPORT_HEADLINE_HELP.advancedCitation).toBe('An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line.')
+    expect(REPORT_HEADLINE_HELP.advancedCitation).toBe('An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line. So is an answer from an engine that returns no sources.')
     // Server truth: eligible = the property has a name to match (`mentionEligible`),
     // reach counts a property once across its answers, and one unknown property
     // makes the whole rate unavailable rather than partial.

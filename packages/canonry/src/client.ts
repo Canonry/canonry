@@ -2,7 +2,7 @@ import { getApiV1ProjectsByNameRunPreview } from '@canonry/canonry-api-client'
 import { postApiV1ProjectsByNameSchedulePreview } from '@canonry/canonry-api-client'
 import type { BingSubmitSitemapResponseDto, SitemapCoverageResponseDto, BingCrawlStatsResponseDto, BingFetchedUrlsResponseDto, BingKeywordDemandResponseDto, BingKeywordResearchResponseDto, BingLinksResponseDto, BingPageQueriesResponseDto, BingPageTotalsResponseDto, BingQueryHistoryResponseDto, BingQueryPagesResponseDto, BingQueryTotalsResponseDto, BingSiteResponseDto, BingSitemapsResponseDto, BingTrafficResponseDto, BingUrlChildrenResponseDto, BingUrlTrafficResponseDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameBingCrawlStats, getApiV1ProjectsByNameBingFetchedUrls, getApiV1ProjectsByNameBingKeywordDemand, getApiV1ProjectsByNameBingKeywords, getApiV1ProjectsByNameBingLinks, getApiV1ProjectsByNameBingPageQueries, getApiV1ProjectsByNameBingPages, getApiV1ProjectsByNameBingQueries, getApiV1ProjectsByNameBingQueryHistory, getApiV1ProjectsByNameBingQueryPages, getApiV1ProjectsByNameBingSite, getApiV1ProjectsByNameBingSitemaps, getApiV1ProjectsByNameBingTraffic, getApiV1ProjectsByNameBingUrlChildren, getApiV1ProjectsByNameBingUrlTraffic, getApiV1ProjectsByNameSitemaps, postApiV1ProjectsByNameBingSitemaps, postApiV1ProjectsByNameBingSync } from '@canonry/canonry-api-client'
-import type { McpProfileDto } from '@canonry/canonry-contracts'
+import type { CitationState, ComputedTransition, McpProfileDto } from '@canonry/canonry-contracts'
 import { getApiV1McpProfile } from '@canonry/canonry-api-client'
 import type { MetricsWindow, TrendSurface, TrendsResponse } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameTrends } from '@canonry/canonry-api-client'
@@ -839,8 +839,10 @@ export interface TimelineDto {
   runs: {
     runId: string
     createdAt: string
-    citationState: string
-    transition: string
+    /** The query's state across the run's answers; `not-measured` only when none carries sources. */
+    citationState: CitationState
+    /** `not-measured` for such a run; `lost`/`emerging` compare measured runs only. */
+    transition: ComputedTransition
   }[]
 }
 

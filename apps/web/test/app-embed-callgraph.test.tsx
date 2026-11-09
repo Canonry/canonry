@@ -57,7 +57,7 @@ const project = {
 const emptyMetrics = {
   window: 'all',
   buckets: [],
-  overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
+  overall: { citationRate: 0, cited: 0, total: 0, citationNotMeasured: 0, mentionRate: 0, mentionedCount: 0 },
   byProvider: {},
   trend: 'stable',
   mentionTrend: 'stable',

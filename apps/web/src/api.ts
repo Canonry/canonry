@@ -763,7 +763,9 @@ export type ApiCompetitor = CompetitorDto
 export interface ApiTimelineRunEntry {
   runId: string
   createdAt: string
+  /** `not-measured` when the engine returns no sources (never a miss). */
   citationState: string
+  /** `not-measured` for such an answer: it never reads as lost or new. */
   transition: string
   answerMentioned?: boolean
   /** @deprecated legacy alias for `mentionState`. */

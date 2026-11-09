@@ -2,7 +2,7 @@ import { formatModelName, openRouterRouteModel } from '@canonry/canonry-contract
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Search, X } from 'lucide-react'
-import { brandKeyFromText, effectiveDomains, MentionStates, MentionTransitions, normalizeProjectDomain, VisibilityStates, type MentionIdentity, type MentionState } from '@canonry/canonry-contracts'
+import { brandKeyFromText, CitationStates, effectiveDomains, MentionStates, MentionTransitions, normalizeProjectDomain, VisibilityStates, type MentionIdentity, type MentionState } from '@canonry/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { DIFFERENT_SUBJECT_COPY } from '../../lib/mention-identity-copy.js'
@@ -12,6 +12,7 @@ import { competitorHighlightTerms, type HighlightTermGroup } from '../../lib/hig
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
 import type { CitationInsightVm, ProjectCommandCenterVm } from '../../view-models.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
+import { CITATION_NOT_MEASURED } from '../../lib/citation-not-measured-copy.js'
 import { formatSweepDay, formatSweepInstant } from '../../lib/format-helpers.js'
 
 /** Shape of snapshot data used for display — works for both current evidence and fetched historical snapshots. */
@@ -222,6 +223,9 @@ export function EvidenceDetailModal({
     || display.citedCompetitorDomains.length > 0
     || display.groundingSources.length > 0
     || display.evidenceUrls.length > 0
+  // The engine returns no sources, so the Sources tab explains why it is empty.
+  const sourcesNotMeasured = display.citationState === CitationStates['not-measured']
+    && display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0
   // A recorded answer without links has no sources; with no answer recorded,
   // nothing says whether it would have had any.
   const noSourcesCopy = isPending
@@ -749,7 +753,11 @@ export function EvidenceDetailModal({
                         </div>
                       )}
 
-                      {display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
+                      {sourcesNotMeasured && (
+                        <p className="text-copy-14 text-secondary">{CITATION_NOT_MEASURED.sources}</p>
+                      )}
+
+                      {!sourcesNotMeasured && display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
                         <p className="flex items-center justify-center h-24 text-center text-copy-14 text-secondary">
                           {noSourcesCopy}
                         </p>

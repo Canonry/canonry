@@ -15,8 +15,15 @@ import { visibilityReportPopulationClassSchema, visibilityReportRateSchema, visi
 export interface ProjectOverviewQueryCountsDto {
   totalQueries: number
   citedQueries: number
+  /** Queries whose sources were checked and none cited the project. */
   notCitedQueries: number
-  citedRate: number
+  /**
+   * `citedQueries` over the queries whose sources were checked (`totalQueries
+   * - citationNotMeasuredQueries`). Null when no answer carried sources.
+   */
+  citedRate: number | null
+  /** Queries none of whose answers carries sources; neither cited nor not cited. */
+  citationNotMeasuredQueries: number
   // Mention is a distinct signal from cited (see AGENTS.md "Vocabulary"): a
   // query is `mentioned` when its brand/domain appears in the AI answer text
   // (`answerMentioned`) on at least one snapshot — computed independently of
@@ -28,9 +35,12 @@ export interface ProjectOverviewQueryCountsDto {
 
 export interface ProjectOverviewProviderEntryDto {
   provider: string
-  citedRate: number
+  /** `cited / (total - citationNotMeasured)`; null when none of the engine's answers carries sources. */
+  citedRate: number | null
   cited: number
   total: number
+  /** Answers whose engine returns no sources, left out of `citedRate`. */
+  citationNotMeasured: number
 }
 
 // `since` is the createdAt of the run before `latestRun`, so callers can render
@@ -206,10 +216,17 @@ export interface ProjectOverviewCompetitorDto {
 export interface ProjectOverviewProviderScoreDto {
   provider: string
   model: string | null
-  /** `cited / total` snapshots in the latest run as 0..100 at wire precision. */
-  score: number
+  /**
+   * `cited` over the latest run's answers whose sources were checked
+   * (`total - citationNotMeasured`), as 0..100 at wire precision. Null when
+   * none was: the engine returns no sources, so its citations were not measured.
+   */
+  score: number | null
   cited: number
+  /** Every answer in the latest run, measured for citation or not. */
   total: number
+  /** Answers whose engine returns no sources; out of `score` entirely. */
+  citationNotMeasured: number
   /** Per-recent-run citation rate (0-100, at wire precision) for this (provider, model), oldest first. Up to 12 points. Omitted when only a single run exists. */
   trend?: number[]
 }
@@ -236,8 +253,16 @@ export interface RunHistoryPointDto {
   runId: string
   createdAt: string
   citedCount: number
+  /** Queries the run answered: the base for `mentionRate`. */
   totalCount: number
-  citationRate: number
+  /** Queries none of whose answers carries sources; out of `citationRate`. */
+  citationNotMeasuredCount: number
+  /**
+   * `citedCount` over `totalCount - citationNotMeasuredCount` (0..100). Null
+   * when the run answered queries but none carried sources; 0 for a run with
+   * no answers.
+   */
+  citationRate: number | null
   mentionedCount: number
   mentionRate: number
   status: string
@@ -465,17 +490,19 @@ const projectOverviewHealthSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   runId: z.string().nullable(),
-  overallCitedRate: fraction(),
+  overallCitedRate: fraction().nullable(),
   overallMentionRate: fraction(),
   totalPairs: z.number().int().nonnegative(),
   citedPairs: z.number().int().nonnegative(),
+  citationNotMeasuredPairs: z.number().int().nonnegative(),
   mentionedPairs: z.number().int().nonnegative(),
   providerBreakdown: z.record(z.string(), z.object({
-    citedRate: fraction(),
+    citedRate: fraction().nullable(),
     mentionRate: fraction(),
     cited: z.number().int().nonnegative(),
     mentioned: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+    citationNotMeasured: z.number().int().nonnegative(),
   })),
   createdAt: z.string(),
   status: z.enum(['ready', 'no-data']),
@@ -598,16 +625,18 @@ export const projectOverviewDtoSchema = z.object({
     totalQueries: z.number().int().nonnegative(),
     citedQueries: z.number().int().nonnegative(),
     notCitedQueries: z.number().int().nonnegative(),
-    citedRate: fraction(),
+    citedRate: fraction().nullable(),
+    citationNotMeasuredQueries: z.number().int().nonnegative(),
     mentionedQueries: z.number().int().nonnegative(),
     notMentionedQueries: z.number().int().nonnegative(),
     mentionRate: fraction(),
   }),
   providers: z.array(z.object({
     provider: z.string(),
-    citedRate: fraction(),
+    citedRate: fraction().nullable(),
     cited: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+    citationNotMeasured: z.number().int().nonnegative(),
   })),
   transitions: z.object({
     since: z.string().nullable(),
@@ -642,9 +671,10 @@ export const projectOverviewDtoSchema = z.object({
   providerScores: z.array(z.object({
     provider: z.string(),
     model: z.string().nullable(),
-    score: percent(),
+    score: percent().nullable(),
     cited: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+    citationNotMeasured: z.number().int().nonnegative(),
     trend: z.array(percent()).optional(),
   })),
   attentionItems: z.array(attentionItemSchema),
@@ -654,7 +684,8 @@ export const projectOverviewDtoSchema = z.object({
     createdAt: z.string(),
     citedCount: z.number().int().nonnegative(),
     totalCount: z.number().int().nonnegative(),
-    citationRate: percent(),
+    citationNotMeasuredCount: z.number().int().nonnegative(),
+    citationRate: percent().nullable(),
     mentionedCount: z.number().int().nonnegative(),
     mentionRate: percent(),
     status: z.string(),

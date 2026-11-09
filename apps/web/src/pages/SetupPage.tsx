@@ -69,7 +69,8 @@ import { useOnboardingRunOutcome } from './OnboardingCompletePage.js'
 import { clearOnboardingDraft, clearOnboardingScanSkipped, readOnboardingDraft, wasOnboardingScanSkipped, writeOnboardingDraft } from '../lib/onboarding-draft.js'
 import { useUnsavedChanges } from '../hooks/use-unsaved-changes.js'
 import { asyncHandler } from '../lib/async-handler.js'
-import { formatSweepInstant, summarizeRunError } from '../lib/format-helpers.js'
+import { ANSWER_CITATION_LABEL, formatSweepInstant, summarizeRunError } from '../lib/format-helpers.js'
+import { CITATION_NOT_MEASURED } from '../lib/citation-not-measured-copy.js'
 import {
   CDP_PROVIDER_NAME,
   normalizeProviderName,
@@ -2118,14 +2119,17 @@ function ReadySetupPage({
                     <QueryShare count={queryCounts?.mentionedQueries} total={queryCounts?.totalQueries} />
                   </ResultFigure>
                   <ResultFigure label="Cited">
-                    <QueryShare count={queryCounts?.citedQueries} total={queryCounts?.totalQueries} />
+                    {/* Out of the queries some answer's sources were checked for: an engine that returns no sources is not measured, never 0. */}
+                    {queryCounts && queryCounts.totalQueries > 0 && (queryCounts.citationNotMeasuredQueries ?? 0) === queryCounts.totalQueries
+                      ? <><span className="text-heading-20 text-secondary">{CITATION_NOT_MEASURED.label}</span>{' '}<span className="block text-label-14 text-secondary">this engine returns no sources</span></>
+                      : <QueryShare count={queryCounts?.citedQueries} total={queryCounts ? queryCounts.totalQueries - (queryCounts.citationNotMeasuredQueries ?? 0) : undefined} />}
                   </ResultFigure>
                   <ResultFigure label="Engine results">
                     <span className="text-heading-20 tabular-nums text-heading">{snapshots.length}</span>
                   </ResultFigure>
                 </dl>
                 {featured ? <section className="mt-3 border-t border-default pt-4" aria-label="Your first saved answer">
-                  <div className="mb-3 flex flex-wrap items-center gap-2"><ProviderBadge provider={featured.provider} displayName={providerDisplayName(featured.provider)} /><ToneBadge tone={featured.answerMentioned ? 'positive' : 'neutral'}>{featured.answerMentioned === true ? 'Mentioned' : featured.answerMentioned === false ? 'Not mentioned' : 'Mention not measured'}</ToneBadge><ToneBadge tone={featured.citationState === CitationStates.cited ? 'positive' : 'neutral'}>{featured.citationState === CitationStates.cited ? 'Cited' : 'Not cited'}</ToneBadge></div>
+                  <div className="mb-3 flex flex-wrap items-center gap-2"><ProviderBadge provider={featured.provider} displayName={providerDisplayName(featured.provider)} /><ToneBadge tone={featured.answerMentioned ? 'positive' : 'neutral'}>{featured.answerMentioned === true ? 'Mentioned' : featured.answerMentioned === false ? 'Not mentioned' : 'Mention not measured'}</ToneBadge><ToneBadge tone={featured.citationState === CitationStates.cited ? 'positive' : 'neutral'}>{ANSWER_CITATION_LABEL[featured.citationState]}</ToneBadge></div>
                   {featured.query ? <h3 className="text-heading-16 text-heading">{featured.query}</h3> : null}
                   {/* A preview that shows the whole answer carries its copy action; a cut one leaves it to the full answer. */}
                   <div className="mt-3 text-copy-14 text-secondary"><AnswerMarkdown previewLength={FIRST_ANSWER_PREVIEW_LENGTH} copyable={!answerPreviewTruncated}>{featuredAnswer}</AnswerMarkdown></div>

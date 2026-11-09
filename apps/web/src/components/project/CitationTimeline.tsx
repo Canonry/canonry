@@ -1,5 +1,6 @@
 import { formatModelName } from '@canonry/canonry-contracts'
 import type { CitationInsightVm, RunHistoryPoint } from '../../view-models.js'
+import { CITATION_NOT_MEASURED } from '../../lib/citation-not-measured-copy.js'
 
 export function CitationTimeline({ history, maxDots = 12, signal = 'citations' }: {
   history: RunHistoryPoint[]
@@ -13,17 +14,20 @@ export function CitationTimeline({ history, maxDots = 12, signal = 'citations' }
   const signalLabel = signal === 'mentions' ? 'Mention' : 'Citation'
   const stateLabels: Record<string, string> = signal === 'mentions'
     ? { cited: 'mentioned', 'not-cited': 'not mentioned', lost: 'mention lost', emerging: 'new mention', pending: 'mention pending' }
-    : { cited: 'cited', 'not-cited': 'not cited', lost: 'citation lost', emerging: 'new citation', pending: 'citation pending' }
+    : { cited: 'cited', 'not-cited': 'not cited', 'not-measured': CITATION_NOT_MEASURED.timeline, lost: 'citation lost', emerging: 'new citation', pending: 'citation pending' }
 
   const colorMap: Record<string, string> = {
     cited: 'bg-positive-400',
     'not-cited': 'bg-mono-600',
+    // Hollow: the run observed nothing about citation, unlike a filled miss.
+    'not-measured': 'border border-mono-500 bg-transparent',
     lost: 'bg-negative-400',
     emerging: 'bg-caution-400 ring-1 ring-caution-300/60',
   }
   const shapeMap: Record<string, string> = {
     cited: 'rounded-full',
     'not-cited': 'rounded-sm',
+    'not-measured': 'rounded-full',
     lost: 'rotate-45 rounded-[1px]',
     emerging: 'rounded-full',
   }
@@ -85,13 +89,16 @@ export function mergeProviderHistories(items: CitationInsightVm[]): RunHistoryPo
       else byRun.set(h.createdAt, { states: [h.citationState], runId: h.runId })
     }
   }
-  // For each run, pick the best state: cited > emerging > not-cited
+  // For each run, pick the best state: cited > emerging > not-cited. A run is
+  // not measured only when no engine's answer carried sources; otherwise the
+  // engines without sources say nothing about it.
   const sorted = [...byRun.entries()].sort(([a], [b]) => a.localeCompare(b))
   return sorted.map(([createdAt, { states, runId }]) => ({
     runId,
     createdAt,
     citationState: states.includes('cited') ? 'cited'
       : states.includes('emerging') ? 'emerging'
+      : states.every(state => state === 'not-measured') ? 'not-measured'
       : 'not-cited',
   }))
 }

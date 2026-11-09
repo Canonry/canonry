@@ -67,7 +67,7 @@ test('labels aggregate answer coverage separately from property reach and explai
  * The whole explanation, asserted verbatim. It is the accessible name of the
  * trigger, so a screen reader user and a sighted user read the same sentence.
  */
-const OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
+const OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured, including one whose answers all came from engines that return no sources: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
 
 function outcomesDisclosure() {
   return screen.getByText('Property outcomes', { selector: 'summary > span' }).closest('details')!

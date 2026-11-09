@@ -134,7 +134,7 @@ export function formatSnapshotMarkdown(report: SnapshotReportDto): string {
         continue
       }
       const mentioned = result.mentioned ? 'Yes' : 'No'
-      // Sources not tied to the answer: citation was not measured, which is not "No".
+      // No sources tied to the answer (none at all, or search results only): citation was not measured, which is not "No".
       const cited = result.citationMeasured === false ? 'Not measured' : result.cited ? 'Yes' : 'No'
       const accuracy = result.describedAccurately === 'not-mentioned' ? '-' : result.describedAccurately
       const competitors = result.recommendedCompetitors.length > 0

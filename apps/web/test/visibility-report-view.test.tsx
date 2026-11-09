@@ -10,6 +10,7 @@ import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/m
 import { REPORT_TREND_UNCHECKED_NOTE, UNCHECKED_SOURCES_COPY, VisibilityOverview, VisibilityReportView, VisibilityResultsToolbar, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL, VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
 import { formatObservedInstantLabel, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
+import { CITATION_NOT_MEASURED } from '../src/lib/citation-not-measured-copy.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { SENTIMENT_COPY, SentimentScopeProvider } from '../src/components/project/SentimentSection.js'
@@ -1354,6 +1355,16 @@ it('ambiguous property identity remains unverified in rates and saved answer evi
   population.evidence.items[0] = { ...population.evidence.items[0]!, mentioned: null, mentionUnavailableReason: 'identity-ambiguous' }
   render(<VisibilityReportView report={report} onSelectionChange={() => {}} evidenceReport={report} queryKey="query-context" />)
   expect(within(screen.getByRole('region', { name: VISIBILITY_ANSWERS_LABEL })).getByText(VISIBILITY_DISPLAY_COPY.ambiguous)).toBeTruthy()
+})
+
+it('a saved answer from an engine that returns no sources reads its citation as not measured, never as not checked', () => {
+  const report = reportWithAnswer('query-context', 'Northstar Alpha is a common pick.')
+  const population = report.populations[0]!
+  population.evidence.items[0] = { ...population.evidence.items[0]!, provider: 'local', cited: null, citationUnavailableReason: 'citation-not-measured' }
+  render(<VisibilityReportView report={report} onSelectionChange={() => {}} evidenceReport={report} queryKey="query-context" />)
+  const answers = within(screen.getByRole('region', { name: VISIBILITY_ANSWERS_LABEL }))
+  expect(answers.getByText(CITATION_NOT_MEASURED.label)).toBeTruthy()
+  expect(answers.queryByText('Citation not checked')).toBeNull()
 })
 
 

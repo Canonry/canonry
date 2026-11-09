@@ -130,3 +130,25 @@ describe('By engine report', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   })
 })
+
+describe('By engine with an engine that returns no sources', () => {
+  test('shows Not measured in the Cited cell and keeps the engine\'s mention rate', () => {
+    const report = reportFixture()
+    // The server reads a Local answer's citation as not measured, never as not cited.
+    report.populations[1]!.breakdown.providers!.push({
+      provider: 'local', queryCount: 2, answerCount: 2,
+      mentionCoverage: { numerator: 1, denominator: 2, rate: 0.5 },
+      citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'citation-not-measured' },
+    })
+    renderCard(report)
+
+    const nonBrand = screen.getByRole('table', { name: 'By engine, non-brand queries' })
+    const row = within(nonBrand).getByRole('rowheader', { name: 'Local' }).closest('tr')!
+    const [mentioned, cited] = within(row).getAllByRole('cell')
+    expect(within(mentioned!).getByText('50.0%', { exact: false })).toBeTruthy()
+    expect(within(mentioned!).getByText('1 of 2 answers')).toBeTruthy()
+    expect(within(cited!).getByText('Not measured')).toBeTruthy()
+    // No rate and no answer count: nothing was measured, so nothing reads as a 0.
+    expect(cited!.textContent).not.toMatch(/%|answers/)
+  })
+})

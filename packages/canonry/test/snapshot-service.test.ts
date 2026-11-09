@@ -10,9 +10,12 @@ import type {
   SnapshotRequestInput,
 } from '@canonry/canonry-contracts'
 import { snapshotRequestSchema } from '@canonry/canonry-contracts'
+import { localAdapter } from '@canonry/canonry-provider-local'
+import { formatSnapshotMarkdown, formatSnapshotText } from '../src/commands/snapshot.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { SnapshotService } from '../src/snapshot-service.js'
 import { formatAuditFactorScore } from '../src/snapshot-format.js'
+import { startLocalRuntime } from './local-runtime-fixture.js'
 
 const { fetchSiteTextMock, runAgentReadinessAuditMock } = vi.hoisted(() => ({
   fetchSiteTextMock: vi.fn(),
@@ -290,6 +293,22 @@ describe('SnapshotService', () => {
     expect(report.summary.totalProviders).toBe(1)
     expect(generate).not.toHaveBeenCalled()
     expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('reads an engine that returns no sources as not measured, never as a miss', async () => {
+    // A local model has no web access: its answer carries no sources and records no evidence.
+    const registry = new ProviderRegistry()
+    registry.register(localAdapter, { ...makeConfig('local'), baseUrl: await startLocalRuntime('Acme Corp is a common pick for enterprise widgets.'), model: 'llama3' })
+    const report = await new SnapshotService(registry).createReport(snapshotRequestSchema.parse({
+      companyName: 'Acme Corp', domain: 'acme.example.com', queries: ['best widget vendor'], providers: ['local'],
+    }))
+
+    expect(report.queryResults[0]!.providerResults[0]).toMatchObject({ provider: 'local', mentioned: true, cited: false, citationMeasured: false, error: null })
+    // In the mention denominator only, never counted as not cited.
+    expect(report.summary).toMatchObject({ totalComparisons: 1, mentionCount: 1, citationCount: 0, citationComparisons: 0 })
+    expect(report.summary.visibilityGap).toBe('Acme Corp was mentioned in 1/1 successful provider response. Citation was not measured, because that provider returns no sources tied to the answer.')
+    expect(formatSnapshotMarkdown(report)).toContain('| Local | Yes | Not measured |')
+    expect(formatSnapshotText(report)).toContain('citation not measured')
   })
 
   it('formats audit factor scores with a 100-point denominator and explicit weight', () => {

@@ -62,7 +62,7 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
     },
     health: null,
     topInsights: [],
-    queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
+    queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, citationNotMeasuredQueries: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
     providers: [],
     transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
     scores: {
@@ -408,7 +408,7 @@ describe('canonry overview — human output', () => {
 
   it('renders cited and mentioned query-count lines from their own fields', async () => {
     const overview = makeOverview({
-      queryCounts: { totalQueries: 8, citedQueries: 4, notCitedQueries: 4, citedRate: 0.5, mentionedQueries: 6, notMentionedQueries: 2, mentionRate: 0.75 },
+      queryCounts: { totalQueries: 8, citedQueries: 4, notCitedQueries: 4, citedRate: 0.5, citationNotMeasuredQueries: 0, mentionedQueries: 6, notMentionedQueries: 2, mentionRate: 0.75 },
     })
     output = await captureOutput(overview)
     // Two independent lines — the mentioned line (6/8) must not borrow the cited count (4/8).
@@ -426,7 +426,7 @@ describe('canonry overview — human output', () => {
         expect(json.exitCode).toBeUndefined()
         expect(json.stderr).toBe('')
         expect(JSON.parse(json.stdout)).toEqual(wireOverview)
-        expect(JSON.parse(json.stdout).queryCounts).toEqual({ totalQueries: 8, citedQueries: 4, notCitedQueries: 4, citedRate: 0.5, mentionedQueries: 6, notMentionedQueries: 2, mentionRate: 0.75 })
+        expect(JSON.parse(json.stdout).queryCounts).toEqual({ totalQueries: 8, citedQueries: 4, notCitedQueries: 4, citedRate: 0.5, citationNotMeasuredQueries: 0, mentionedQueries: 6, notMentionedQueries: 2, mentionRate: 0.75 })
       }
     }
   })
@@ -437,16 +437,16 @@ describe('canonry overview — human output', () => {
    */
   it('prints each rate through formatPercent in the unit its field carries', async () => {
     const overview = makeOverview({
-      providers: [{ provider: 'gemini', citedRate: 0.0004, cited: 1, total: 2500 }],
-      providerScores: [{ provider: 'openai', model: 'gpt-5', score: 75, cited: 3, total: 4 }],
+      providers: [{ provider: 'gemini', citedRate: 0.0004, cited: 1, total: 2500, citationNotMeasured: 0 }],
+      providerScores: [{ provider: 'openai', model: 'gpt-5', score: 75, cited: 3, total: 4, citationNotMeasured: 0 }],
       health: {
         id: 'h-1', projectId: 'p-1', runId: 'r-2',
-        overallCitedRate: 1, overallMentionRate: 1, totalPairs: 12, citedPairs: 12, mentionedPairs: 12,
+        overallCitedRate: 1, overallMentionRate: 1, totalPairs: 12, citedPairs: 12, citationNotMeasuredPairs: 0, mentionedPairs: 12,
         providerBreakdown: {}, createdAt: '2026-05-02T00:00:00.000Z', status: 'ready',
       },
       runHistory: [
-        { runId: 'r-1', createdAt: '2026-05-01T00:00:00.000Z', citedCount: 1, totalCount: 2, citationRate: 50, mentionedCount: 1, mentionRate: 50, status: 'completed' },
-        { runId: 'r-2', createdAt: '2026-05-02T00:00:00.000Z', citedCount: 2, totalCount: 2, citationRate: 100, mentionedCount: 2, mentionRate: 100, status: 'completed' },
+        { runId: 'r-1', createdAt: '2026-05-01T00:00:00.000Z', citedCount: 1, totalCount: 2, citationNotMeasuredCount: 0, citationRate: 50, mentionedCount: 1, mentionRate: 50, status: 'completed' },
+        { runId: 'r-2', createdAt: '2026-05-02T00:00:00.000Z', citedCount: 2, totalCount: 2, citationNotMeasuredCount: 0, citationRate: 100, mentionedCount: 2, mentionRate: 100, status: 'completed' },
       ],
     })
     const lines = (await captureOutput(overview)).split('\n')
@@ -455,6 +455,70 @@ describe('canonry overview — human output', () => {
     expect(lines).toContain('  Health: 100% cited (12/12 pairs)')
     expect(lines).toContain(`    2026-05-01  50.0% ${'█'.repeat(5)}`)
     expect(lines).toContain(`    2026-05-02   100% ${'█'.repeat(10)}`)
+  })
+
+  // Local (no web access) returns no sources: its answers leave every cited
+  // figure and print "not measured", never 0%, beside a measured engine.
+  it('prints citation figures over checked answers and not measured for an engine without sources', async () => {
+    const overview = makeOverview({
+      queryCounts: { totalQueries: 3, citedQueries: 1, notCitedQueries: 1, citedRate: 0.5, citationNotMeasuredQueries: 1, mentionedQueries: 2, notMentionedQueries: 1, mentionRate: 0.6667 },
+      providers: [
+        { provider: 'gemini', citedRate: 0.5, cited: 1, total: 2, citationNotMeasured: 0 },
+        { provider: 'local', citedRate: null, cited: 0, total: 3, citationNotMeasured: 3 },
+      ],
+      providerScores: [{ provider: 'local', model: 'llama3', score: null, cited: 0, total: 3, citationNotMeasured: 3 }],
+      health: {
+        id: 'h-1', projectId: 'p-1', runId: 'r-2',
+        overallCitedRate: 0.5, overallMentionRate: 0.4, totalPairs: 5, citedPairs: 1, citationNotMeasuredPairs: 3, mentionedPairs: 2,
+        providerBreakdown: {}, createdAt: '2026-05-02T00:00:00.000Z', status: 'ready',
+      },
+      runHistory: [
+        { runId: 'r-1', createdAt: '2026-05-01T00:00:00.000Z', citedCount: 0, totalCount: 2, citationNotMeasuredCount: 2, citationRate: null, mentionedCount: 1, mentionRate: 50, status: 'completed' },
+      ],
+    })
+    const lines = (await captureOutput(overview)).split('\n')
+    expect(lines).toContain('  Queries cited:     1/2 (50.0%), 1 not measured (no sources)')
+    expect(lines).toContain('  Queries mentioned: 2/3 (66.7%)')
+    expect(lines).toContain('    gemini       1/2 (50.0%)')
+    expect(lines).toContain('    local        not measured (3 answers without sources)')
+    expect(lines).toContain(`    ${'local/llama3'.padEnd(28)} not measured (3 answers without sources)`)
+    expect(lines).toContain('  Health: 50.0% cited (1/2 pairs)')
+    expect(lines).toContain('    2026-05-01 citations not measured (no answer carries sources)')
+  })
+
+  it('reads every answer as checked from a server that predates the not-measured counts', async () => {
+    const current = makeOverview({
+      queryCounts: { totalQueries: 3, citedQueries: 1, notCitedQueries: 2, citedRate: 0.3333, citationNotMeasuredQueries: 0, mentionedQueries: 2, notMentionedQueries: 1, mentionRate: 0.6667 },
+      providers: [{ provider: 'gemini', citedRate: 0.5, cited: 1, total: 2, citationNotMeasured: 0 }],
+      providerScores: [{ provider: 'gemini', model: 'gemini-2.5-flash', score: 50, cited: 1, total: 2, citationNotMeasured: 0 }],
+      health: {
+        id: 'h-1', projectId: 'p-1', runId: 'r-2',
+        overallCitedRate: 0.2, overallMentionRate: 0.4, totalPairs: 5, citedPairs: 1, citationNotMeasuredPairs: 0, mentionedPairs: 2,
+        providerBreakdown: {}, createdAt: '2026-05-02T00:00:00.000Z', status: 'ready',
+      },
+    })
+    // An older server sends none of the not-measured counts: it counted every answer as checked.
+    const { citationNotMeasuredQueries: _queries, ...queryCounts } = current.queryCounts
+    const { citationNotMeasuredPairs: _pairs, ...health } = current.health!
+    const older = {
+      ...current, queryCounts, health,
+      providers: current.providers.map(({ citationNotMeasured: _answers, ...provider }) => provider),
+      providerScores: current.providerScores.map(({ citationNotMeasured: _answers, ...score }) => score),
+    } as ProjectOverviewDto
+    const lines = (await captureOutput(older)).split('\n')
+    expect(lines).toContain('  Queries cited:     1/3 (33.3%)')
+    expect(lines).toContain('    gemini       1/2 (50.0%)')
+    expect(lines).toContain(`    ${'gemini/gemini-2.5-flash'.padEnd(28)} 1/2 (50.0%)`)
+    expect(lines).toContain('  Health: 20.0% cited (1/5 pairs)')
+    expect(lines.join('\n')).not.toContain('NaN')
+
+    // `overview --all` prints the same base in its table.
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const { pathname } = new URL((input instanceof Request ? input : new Request(input, init)).url)
+      return Response.json(pathname === '/prefix/api/v1/projects' ? [older.project] : older)
+    }))
+    const all = await invokeCli(['overview', '--all'])
+    expect(all.stdout.split('\n')).toContain(`  ${'Demo'.padEnd(20)}${'75.0%'.padEnd(10)}${'50.0%'.padEnd(13)}${'60.0% · non-brand queries'.padEnd(42)}${'1/3'.padEnd(10)}—`)
   })
 
   it('renders citation and mention movement separately with query-basket comparability', async () => {

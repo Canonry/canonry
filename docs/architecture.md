@@ -2,7 +2,7 @@
 
 ## Overview
 
-Canonry is a self-hosted agent-first AEO operating platform. It tracks how AI answer engines (Gemini, OpenAI, Muse, Claude, Perplexity, and local LLMs) cite or omit a domain for tracked queries, and acts on that signal through the content engine and integrations.
+Canonry is a self-hosted agent-first AEO operating platform. It tracks how AI answer engines (Gemini, OpenAI, Muse, Claude, Perplexity, and local LLMs) mention or cite a domain for tracked queries, and acts on that signal through the content engine and integrations. A local LLM returns no sources, so only its mentions are measured.
 
 Locations are modeled as project-scoped run context. A project can define named locations and an optional default location, while queries remain project-wide.
 
@@ -55,8 +55,8 @@ flowchart LR
 1. Analyst runs `canonry run <project>` with the project default location, an explicit `--location`, `--all-locations`, or no location context
 2. API creates a run record and enqueues a job
 3. Job runner resolves the run location, fans out `executeTrackedQuery` for each query across all configured providers via the provider registry, and passes the location hint to providers
-4. Raw observation snapshots (`cited` / `not-cited`) are persisted per query per run, tagged with the run's location label when present
-5. Transitions (`lost`, `emerging`) are computed at query time by comparing consecutive snapshots
+4. Raw observation snapshots (`cited` / `not-cited`, or `not-measured` for an engine that returns no sources) are persisted per query per run, tagged with the run's location label when present
+5. Transitions (`lost`, `emerging`) are computed at query time by comparing each measured snapshot with the last measured one before it. A `not-measured` snapshot is skipped, so it never gains or loses a citation
 6. Dashboard polls API for results and renders visibility data
 
 ## Module Dependency Graph
@@ -203,7 +203,7 @@ Canonry ships as a **self-hosted single-process install** — that is the only s
 
 ## Score Families
 
-- **Answer visibility**: multi-provider query tracking and citation outcomes across all providers
+- **Answer visibility**: multi-provider query tracking, with mention outcomes across all providers and citation outcomes across every provider that returns sources (local LLMs return none)
 - **Agent Readiness**: local `@canonry/agent-readiness` full crawls
 
 These remain separate to avoid mixing Agent Readiness with live-answer visibility.

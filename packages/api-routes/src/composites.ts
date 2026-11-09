@@ -21,6 +21,8 @@ import { SentimentService, type SentimentServiceOptions } from './sentiment-serv
 import { buildMentionShareInputs } from './mention-share-inputs.js'
 import {
   CitationStates,
+  isCitationStateMeasured,
+  readCitationState,
   competitorAutoAliasNames,
   formatPercent,
   PROJECT_OVERVIEW_QUERY_CLASS_SCOPE,
@@ -33,6 +35,7 @@ import {
   type AttentionItemDto,
   type CitationState,
   type MentionIdentity,
+  type RetrievalStatus,
   type RunKind,
   type HealthSnapshotDto,
   type InsightDto,
@@ -83,7 +86,7 @@ import {
   type SuggestedQueryGscRow,
 } from '@canonry/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
-import { compareInsightsForTriage } from './intelligence.js'
+import { compareInsightsForTriage, mapHealthSnapshotRow } from './intelligence.js'
 import { buildOverviewWhatChanged } from './overview-what-changed.js'
 import { runAdmissionState } from './run-queue.js'
 import { readOverviewVisibility } from './visibility-report.js'
@@ -193,7 +196,7 @@ export async function compositeRoutes(app: FastifyInstance, options: {
       .orderBy(desc(healthSnapshots.createdAt))
       .limit(1)
       .get()
-    const health: HealthSnapshotDto | null = healthRow ? mapHealthRow(healthRow) : null
+    const health: HealthSnapshotDto | null = healthRow ? mapHealthSnapshotRow(healthRow) : null
 
     const insightRows = app.db
       .select()
@@ -329,7 +332,10 @@ export async function compositeRoutes(app: FastifyInstance, options: {
     )
     const providerScores: ProjectOverviewProviderScoreDto[] = providerScoresBase.map(score => {
       const trend = providerTrends.get(providerKey(score.provider, score.model)) ?? []
-      return trend.length > 1 ? { ...score, trend: trend.map(p => p.rate) } : score
+      // A run whose answers from this engine carried no sources measured
+      // nothing; it is left out of the sparkline rather than drawn as 0.
+      const rates = trend.flatMap(p => p.rate === null ? [] : [p.rate])
+      return rates.length > 1 ? { ...score, trend: rates } : score
     })
     const overviewCompetitors: ProjectOverviewCompetitorDto[] = buildOverviewCompetitors(
       trackedLatest,
@@ -348,7 +354,8 @@ export async function compositeRoutes(app: FastifyInstance, options: {
     // the cross-run trends are assembled here at the composite — each tracking
     // its own signal (mention = answer-text, visibility = cited source).
     scores.mention.trend = runHistory.map(p => p.mentionRate)
-    scores.visibility.trend = runHistory.map(p => p.citationRate)
+    // Runs with no answer carrying sources have no citation rate to plot.
+    scores.visibility.trend = runHistory.flatMap(p => p.citationRate === null ? [] : [p.citationRate])
     const suggestedQueries: SuggestedQueriesSummaryDto = buildSuggestedQueriesFromGsc(
       app,
       project.id,
@@ -441,6 +448,7 @@ export async function compositeRoutes(app: FastifyInstance, options: {
         provider: querySnapshots.provider,
         model: querySnapshots.model,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
         citedUrls: querySnapshots.citedUrls,
@@ -598,6 +606,7 @@ function loadSnapshotsByRunIds(
       provider: querySnapshots.provider,
       model: querySnapshots.model,
       citationState: querySnapshots.citationState,
+      retrievalStatus: querySnapshots.retrievalStatus,
       answerMentioned: querySnapshots.answerMentioned,
       mentionIdentity: querySnapshots.mentionIdentity,
       answerText: querySnapshots.answerText,
@@ -640,7 +649,7 @@ function loadSnapshotsByRunIds(
       archived,
       provider: row.provider,
       model: row.model,
-      citationState: row.citationState as CitationState,
+      citationState: readCitationState(row),
       answerMentioned: row.answerMentioned,
       mentionIdentity: row.mentionIdentity,
       answerText: row.answerText,
@@ -673,6 +682,7 @@ function summarizeFromSnapshots(
       citedQueries: 0,
       notCitedQueries: 0,
       citedRate: 0,
+      citationNotMeasuredQueries: 0,
       mentionedQueries: 0,
       notMentionedQueries: 0,
       mentionRate: 0,
@@ -681,28 +691,34 @@ function summarizeFromSnapshots(
   }
   if (snapshots.length === 0) return empty
 
-  const { totalQueries, citedQueries, mentionedQueries } = summarizeObservedQueryCounts(snapshots)
-  const perProvider = new Map<string, { cited: number; total: number }>()
+  const { totalQueries, citedQueries, mentionedQueries, citationNotMeasuredQueries = 0 } = summarizeObservedQueryCounts(snapshots)
+  const perProvider = new Map<string, { cited: number; total: number; citationNotMeasured: number }>()
   for (const snap of snapshots) {
     const cited = snap.citationState === CitationStates.cited
-    const bucket = perProvider.get(snap.provider) ?? { cited: 0, total: 0 }
+    const bucket = perProvider.get(snap.provider) ?? { cited: 0, total: 0, citationNotMeasured: 0 }
     bucket.total += 1
     if (cited) bucket.cited += 1
+    if (!isCitationStateMeasured(snap.citationState)) bucket.citationNotMeasured += 1
     perProvider.set(snap.provider, bucket)
   }
 
-  const notCitedQueries = totalQueries - citedQueries
-  const citedRate = totalQueries === 0 ? 0 : Number((citedQueries / totalQueries).toFixed(4))
+  // A query none of whose answers carries sources is neither cited nor not cited.
+  const citationMeasuredQueries = totalQueries - citationNotMeasuredQueries
+  const notCitedQueries = citationMeasuredQueries - citedQueries
+  const citedRate = citationMeasuredQueries === 0
+    ? (totalQueries === 0 ? 0 : null)
+    : Number((citedQueries / citationMeasuredQueries).toFixed(4))
 
   const notMentionedQueries = totalQueries - mentionedQueries
   const mentionRate = totalQueries === 0 ? 0 : Number((mentionedQueries / totalQueries).toFixed(4))
 
   const providers: ProjectOverviewProviderEntryDto[] = [...perProvider.entries()]
-    .map(([provider, { cited, total }]) => ({
+    .map(([provider, { cited, total, citationNotMeasured }]) => ({
       provider,
       cited,
       total,
-      citedRate: total === 0 ? 0 : Number((cited / total).toFixed(4)),
+      citationNotMeasured,
+      citedRate: total === citationNotMeasured ? null : Number((cited / (total - citationNotMeasured)).toFixed(4)),
     }))
     .sort((a, b) => a.provider.localeCompare(b.provider))
 
@@ -712,6 +728,7 @@ function summarizeFromSnapshots(
       citedQueries,
       notCitedQueries,
       citedRate,
+      citationNotMeasuredQueries,
       mentionedQueries,
       notMentionedQueries,
       mentionRate,
@@ -731,6 +748,9 @@ function summarizeTransitionsFromSnapshots(
   const buildMap = (snaps: readonly OverviewSnapshot[]): Map<string, boolean> => {
     const m = new Map<string, boolean>()
     for (const s of snaps) {
+      // An answer without sources observed nothing about citation, so it can
+      // neither gain nor lose one; a query only it answered is absent here.
+      if (!isCitationStateMeasured(s.citationState)) continue
       const cited = s.citationState === CitationStates.cited
       if (!m.has(s.queryId) || cited) m.set(s.queryId, cited)
     }
@@ -1051,34 +1071,6 @@ function mapInsightRow(r: typeof insights.$inferSelect): InsightDto {
   }
 }
 
-function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto {
-  // Coalesce legacy provider entries (written before v80, no mention keys) to 0.
-  const providerBreakdown: HealthSnapshotDto['providerBreakdown'] = {}
-  for (const [provider, entry] of Object.entries(r.providerBreakdown)) {
-    providerBreakdown[provider] = {
-      citedRate: entry.citedRate,
-      mentionRate: entry.mentionRate ?? 0,
-      cited: entry.cited,
-      mentioned: entry.mentioned ?? 0,
-      total: entry.total,
-    }
-  }
-  return {
-    id: r.id,
-    projectId: r.projectId,
-    runId: r.runId ?? null,
-    overallCitedRate: Number(r.overallCitedRate),
-    // Legacy rows (persisted before v80) have NULL mention columns → 0.
-    overallMentionRate: r.overallMentionRate == null ? 0 : Number(r.overallMentionRate),
-    totalPairs: r.totalPairs,
-    citedPairs: r.citedPairs,
-    mentionedPairs: r.mentionedPairs ?? 0,
-    providerBreakdown,
-    createdAt: r.createdAt,
-    status: 'ready',
-  }
-}
-
 function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars: number | null): ProjectDto {
   return {
     id: row.id,
@@ -1117,7 +1109,8 @@ function buildSnapshotHit(
     queryText: string | null
     provider: string
     model: string | null
-    citationState: string
+    citationState: CitationState
+    retrievalStatus: RetrievalStatus | null
     answerText: string | null
     citedDomains: string[]
     citedUrls: string[] | null
@@ -1157,7 +1150,7 @@ function buildSnapshotHit(
     query,
     provider: row.provider,
     model: row.model,
-    citationState: row.citationState as CitationState,
+    citationState: readCitationState(row),
     matchedField,
     snippet,
     createdAt: row.createdAt,

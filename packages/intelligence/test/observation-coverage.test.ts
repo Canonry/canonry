@@ -4,13 +4,15 @@ import { detectFirstCitations } from '../src/first-citations.js'
 import { detectProviderPickups } from '../src/provider-pickups.js'
 import { detectCompetitorGains, detectCompetitorLosses } from '../src/competitor-changes.js'
 import { detectRegressions } from '../src/regressions.js'
+import { detectPersistentGaps } from '../src/persistent-gaps.js'
 import { observedKeys } from '../src/observation-coverage.js'
 import type { RunData, Snapshot } from '../src/types.js'
 
 function run(runId: string, snapshots: Snapshot[]): RunData {
   return { runId, projectId: 'p', completedAt: '2026-01-01T00:00:00Z', snapshots }
 }
-function snap(query: string, provider: string, cited: boolean, competitors?: string[]): Snapshot {
+/** `cited: null` is an answer whose engine returns no sources: citation not measured. */
+function snap(query: string, provider: string, cited: boolean | null, competitors?: string[]): Snapshot {
   return { query, provider, cited, citedCompetitorDomains: competitors ?? [] }
 }
 
@@ -134,5 +136,92 @@ describe('absence of an observation is not a negative observation', () => {
     it('is empty for a run that measured nothing', () => {
       expect(observedKeys(run('r1', []), s => s.query).size).toBe(0)
     })
+
+    it('leaves out a row whose citation was not measured', () => {
+      const r = run('r1', [snap('q1', 'local', null), snap('q2', 'local', null), snap('q2', 'gemini', false)])
+      expect(observedKeys(r, s => s.query)).toEqual(new Set(['q2']))
+    })
+  })
+})
+
+// An answer whose engine returns no sources (a local model, `cited: null`)
+// observed the answer but nothing about citation. It must behave like a
+// missing row for every citation detector, while a measured answer beside it
+// still drives the real transition.
+describe('an answer whose citation was not measured is not a negative observation', () => {
+  it('detectFirstCitations: a query only an engine without sources answered was never measured uncited', () => {
+    // The baseline asked only Local; Gemini is added and cites q1.
+    const previous = run('r1', [snap('q1', 'local', null)])
+    const current = run('r2', [snap('q1', 'local', null), snap('q1', 'gemini', true)])
+
+    expect(detectFirstCitations(current, previous)).toHaveLength(0)
+  })
+
+  it('detectFirstCitations: still reports one when a measured engine beside it found the query uncited', () => {
+    const previous = run('r1', [snap('q1', 'local', null), snap('q1', 'gemini', false)])
+    const current = run('r2', [snap('q1', 'local', null), snap('q1', 'gemini', true)])
+
+    expect(detectFirstCitations(current, previous).map(c => `${c.query}:${c.provider}`)).toEqual(['q1:gemini'])
+  })
+
+  it('detectGains: a pair not measured in the baseline was never told no', () => {
+    const previous = run('r1', [snap('q1', 'openai', null)])
+    const current = run('r2', [snap('q1', 'openai', true)])
+
+    expect(detectGains(current, previous)).toHaveLength(0)
+  })
+
+  it('detectProviderPickups: a provider not measured in the baseline did not pick the query up', () => {
+    const previous = run('r1', [snap('q1', 'gemini', true), snap('q1', 'openai', null)])
+    const current = run('r2', [snap('q1', 'gemini', true), snap('q1', 'openai', true)])
+
+    expect(detectProviderPickups(current, previous)).toHaveLength(0)
+  })
+
+  it('detectRegressions: a cited pair now not measured has not lost its citation', () => {
+    const previous = run('r1', [snap('q1', 'openai', true)])
+    const current = run('r2', [snap('q1', 'openai', null)])
+
+    expect(detectRegressions(current, previous)).toHaveLength(0)
+  })
+
+  it('detectCompetitorGains: a query only an engine without sources answered never showed the rival absent', () => {
+    const tracked = { trackedCompetitors: ['rival.com'] }
+    const previous = run('r1', [snap('q1', 'local', null)])
+    const current = run('r2', [snap('q1', 'local', null), snap('q1', 'gemini', false, ['rival.com'])])
+
+    expect(detectCompetitorGains(current, previous, tracked)).toHaveLength(0)
+  })
+
+  it('detectCompetitorLosses: a rival does not drop off a query only an engine without sources answered now', () => {
+    const tracked = { trackedCompetitors: ['rival.com'] }
+    const previous = run('r1', [snap('q1', 'gemini', false, ['rival.com'])])
+    const current = run('r2', [snap('q1', 'local', null)])
+
+    expect(detectCompetitorLosses(current, previous, tracked)).toHaveLength(0)
+  })
+
+  it('detectCompetitorGains / Losses: still fire for measured answers beside one without sources', () => {
+    const tracked = { trackedCompetitors: ['rival.com'] }
+    const previous = run('r1', [snap('q1', 'local', null), snap('q1', 'gemini', false), snap('q2', 'local', null), snap('q2', 'gemini', false, ['rival.com'])])
+    const current = run('r2', [snap('q1', 'local', null), snap('q1', 'gemini', false, ['rival.com']), snap('q2', 'local', null), snap('q2', 'gemini', false)])
+
+    expect(detectCompetitorGains(current, previous, tracked)).toEqual([{ query: 'q1', competitorDomain: 'rival.com' }])
+    expect(detectCompetitorLosses(current, previous, tracked)).toEqual([{ query: 'q2', competitorDomain: 'rival.com' }])
+  })
+
+  it('detectPersistentGaps: runs where only an engine without sources answered are never an uncited streak', () => {
+    const runs = [1, 2, 3].map(n => run(`r${n}`, [snap('q1', 'local', null)]))
+
+    expect(detectPersistentGaps(runs, 3)).toEqual([])
+  })
+
+  it('detectPersistentGaps: a run with no measured answer breaks the streak; measured misses beside Local still count', () => {
+    const measuredMiss = (id: string) => run(id, [snap('q1', 'local', null), snap('q1', 'gemini', false)])
+    // r2 measured nothing for q1, so only r3..r5 count: a streak of 3.
+    const runs = [measuredMiss('r1'), run('r2', [snap('q1', 'local', null)]), measuredMiss('r3'), measuredMiss('r4'), measuredMiss('r5')]
+
+    expect(detectPersistentGaps(runs, 3)).toEqual([{ query: 'q1', streak: 3, threshold: 3 }])
+    expect(detectPersistentGaps(runs, 4)).toEqual([])
   })
 })

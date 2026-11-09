@@ -26,7 +26,7 @@ import {
 import { CitationStates, formatModelName, openRouterRouteModel, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 
 import { asyncHandler } from './lib/async-handler.js'
-import { formatErrorLog } from './lib/format-helpers.js'
+import { ANSWER_CITATION_LABEL, formatErrorLog } from './lib/format-helpers.js'
 import { viewerRoleLabel,
   getEmbedConfig,
   isAeroPreview,
@@ -1065,7 +1065,7 @@ export function RootLayout() {
                       <div className="flex flex-wrap items-center gap-1.5">
                         <ProviderBadge provider={snap.provider} />
                         <Badge variant={snap.citationState === CitationStates.cited ? 'success' : 'neutral'}>
-                          {snap.citationState === CitationStates.cited ? 'Cited' : 'Not cited'}
+                          {ANSWER_CITATION_LABEL[snap.citationState]}
                         </Badge>
                         <Badge variant={snap.answerMentioned === true ? 'success' : 'neutral'}>
                           {snap.answerMentioned === true ? 'Mentioned' : snap.answerMentioned === false ? 'Not mentioned' : 'Mention not measured'}

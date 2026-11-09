@@ -104,7 +104,7 @@ function renderProjectSetup(options: {
     : []
 
   if (!options.complete) {
-    project.queryCounts = { cited: 0, total: 0 }
+    project.queryCounts = { cited: 0, total: 0, citationNotMeasured: 0 }
     project.competitors = []
   }
   if (options.providerReady === false) {
@@ -1159,7 +1159,24 @@ test.each([
     queryCounts: null,
     mentioned: 'Unavailable', cited: 'Unavailable', checks: '1',
   },
-])('setup results render the per-run API summary: $scenario', async ({ status, snapshots, queryCounts, mentioned, cited, checks }) => {
+  // Local (no web access) returns no sources: its citation is never measured.
+  {
+    scenario: 'a first run whose engine returns no sources reads cited as not measured, never 0',
+    status: 'completed',
+    snapshots: [setupResultSnapshot({ provider: 'local', citationState: 'not-measured', answerText: 'City Point Dental is a common pick.' })],
+    queryCounts: { totalQueries: 1, citedQueries: 0, mentionedQueries: 1, citationNotMeasuredQueries: 1 },
+    mentioned: '1 of 1 query', cited: 'Not measured this engine returns no sources', checks: '1',
+    featuredCitation: 'Not measured',
+  },
+  {
+    scenario: 'queries only an engine without sources answered leave the cited base',
+    status: 'completed',
+    snapshots: [setupResultSnapshot({}), setupResultSnapshot({ id: 'snapshot_two', provider: 'local', citationState: 'not-measured' })],
+    queryCounts: { totalQueries: 3, citedQueries: 1, mentionedQueries: 2, citationNotMeasuredQueries: 1 },
+    mentioned: '2 of 3 queries', cited: '1 of 2 queries', checks: '2',
+  },
+])('setup results render the per-run API summary: $scenario', async (row) => {
+  const { status, snapshots, queryCounts, mentioned, cited, checks } = row
   const run = runDetailDtoSchema.parse({
     id: 'scoped-run', projectId: 'project_citypoint', kind: 'answer-visibility', status,
     createdAt: '2026-09-05T12:00:00Z', snapshots, queryCounts,
@@ -1181,6 +1198,12 @@ test.each([
   while (!resultCard.contains(summary)) resultCard = resultCard.parentElement!
   expect(within(resultCard).getByText('Complete')).toBeTruthy()
   expect(screen.queryByText('Your check is running. You can leave this page and return to its progress.')).toBeNull()
+  if ('featuredCitation' in row) {
+    // The first saved answer says the same as the Cited figure: an engine without sources is never "Not cited".
+    const featured = await screen.findByRole('region', { name: 'Your first saved answer' })
+    expect(within(featured).getByText(row.featuredCitation)).toBeTruthy()
+    expect(within(featured).queryByText('Not cited')).toBeNull()
+  }
   expect(requests).toContain('/api/v1/runs/scoped-run')
   expect(requests).not.toContain('/api/v1/projects/scoped-project/runs')
 })

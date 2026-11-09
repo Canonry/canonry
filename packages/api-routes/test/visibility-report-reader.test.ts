@@ -239,20 +239,22 @@ describe('mention coverage over attributable answers', () => {
   })
 })
 
-type CitationAnswer = 'cited' | 'not-cited' | 'unchecked' | 'unchecked-cited' | 'missing'
+type CitationAnswer = 'cited' | 'not-cited' | 'unchecked' | 'unchecked-cited' | 'missing' | 'no-sources'
 
 /**
  * One non-brand population for North, one answer per slot, stored the way
  * `v2Observations` maps a snapshot: `citationComplete` is false for an answer
  * that was saved with incomplete source-link capture. A captured positive may
  * still be on such an answer (`unchecked-cited`). `missing` has no saved answer.
- * The tracked competitor is cited exactly where North is.
+ * `no-sources` is a local model's answer: no sources at all, flagged
+ * `citationMeasured: false` as the kernel marks it. The tracked competitor is
+ * cited exactly where North is.
  */
 function citationRun(answers: readonly CitationAnswer[], id = 'run-2', createdAt = AT) {
   const base = definition(2)
   const slots = answers.map((_, index) => ({
     id: `cite-slot-${index}`, executionId: `cite-exec-${index}`, queryKey: `nearby:${index % 3}`, queryId: `nearby-${index % 3}`,
-    query: `Best service nearby? (${index % 3})`, provider: index % 2 === 0 ? 'openai' : 'gemini', location: 'Alpha',
+    query: `Best service nearby? (${index % 3})`, provider: answers[index] === 'no-sources' ? 'local' : index % 2 === 0 ? 'openai' : 'gemini', location: 'Alpha',
   }))
   const edges = slots.map((slot, index) => ({
     id: `north-cite-${index}`, executionId: slot.executionId, targetKey: 'north', queryId: slot.queryId, queryClass: 'non-brand' as const,
@@ -265,6 +267,7 @@ function citationRun(answers: readonly CitationAnswer[], id = 'run-2', createdAt
       slotId: slots[index]!.id, answerId: `cite-answer-${index}`, model: 'gpt-5', answerText: 'North and Rival are options.',
       mentionedTargetKeys: ['north'], citedTargetKeys: cited ? ['north'] : [],
       citationComplete: answer === 'cited' || answer === 'not-cited',
+      ...(answer === 'no-sources' ? { citationMeasured: false } : {}),
       competitorMentionDomains: ['rival.example'], competitorCitationDomains: cited ? ['rival.example'] : [], observedCompetitorNames: [],
       sources: cited ? ['https://north.example/alpha', 'https://rival.example/alpha'] : [], createdAt,
     }]
@@ -372,6 +375,62 @@ describe('citation coverage over checked answers', () => {
       queryClass: 'all', scope: 'project', location: { kind: 'all' }, limit: 50,
     }).snapshots
     expect(snapshots.map(snapshot => snapshot.citation)).toEqual([true, true, true, false, false, false, false, false, false, null])
+  })
+})
+
+describe('citation coverage beside engines that return no sources', () => {
+  /** TEN plus two local-model answers whose citation was never measured. */
+  const TWELVE: readonly CitationAnswer[] = [...TEN, 'no-sources', 'no-sources']
+
+  it('leaves those answers out of both sides and counts them apart from unchecked ones', () => {
+    const population = citationReport(TWELVE)
+    const expected = { numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1, citationNotMeasured: 2 }
+    expect(population.summary.answerCount).toBe(12)
+    expect(population.summary.citationCoverage).toEqual(expected)
+    expect(population.trend.at(-1)!.citationCoverage).toEqual(expected)
+    expect(population.breakdown.properties.find(row => row.id === 'north')!.citationCoverage).toEqual(expected)
+    expect(population.competitors[0]!.citationCoverage).toEqual(expected)
+    // Their mention is measured like any other answer's.
+    expect(population.summary.mentionCoverage).toEqual({ numerator: 12, denominator: 12, rate: 1 })
+    // The local engine's own row has nothing to read, for its own reason.
+    expect(population.queries.items.filter(row => row.provider === 'local').map(row => row.citationCoverage)).toEqual([
+      { numerator: null, denominator: null, rate: null, reason: 'citation-not-measured' },
+      { numerator: null, denominator: null, rate: null, reason: 'citation-not-measured' },
+    ])
+    expect(population.queries.items.filter(row => row.provider === 'local').some(row => row.uncheckedSources !== undefined)).toBe(false)
+  })
+
+  it('lets one checked answer decide the outcome beside an engine without sources', () => {
+    // North is mentioned in both answers and not cited in the one that could cite.
+    const population = citationReport(['not-cited', 'no-sources'])
+    expect(population.summary.citationCoverage).toEqual({ numerator: 0, denominator: 1, rate: 0, citationNotMeasured: 1 })
+    // Unlike a partly saved answer, it cannot hide a citation: North is mentioned
+    // only. South has no assignment in this population, so it is not measured.
+    expect(population.summary.outcomes).toEqual({ bothSignals: 0, mentionedOnly: 1, citedOnly: 0, neither: 0, notMeasured: 1, total: 2 })
+    expect(population.summary).not.toHaveProperty('notMeasuredUnchecked')
+    expect(population.summary).not.toHaveProperty('notMeasuredNoSources')
+  })
+
+  it('reads a Property answered only by engines without sources as not measured, never "sources partly saved"', () => {
+    const population = citationReport(['no-sources', 'no-sources'], { queryKey: 'nearby:0' })
+    expect(population.summary.citationCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'citation-not-measured' })
+    expect(population.competitors[0]!.citationCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'citation-not-measured' })
+    expect(population.summary.outcomes).toEqual({ bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 2, total: 2 })
+    // North is the one not measured for this reason; South has no answer at all.
+    expect(population.summary.notMeasuredNoSources).toBe(1)
+    expect(population.summary).not.toHaveProperty('notMeasuredUnchecked')
+    expect(population.evidence.items.map(row => [row.answerId, row.mentioned, row.cited, row.citationUnavailableReason]))
+      .toEqual([['cite-answer-0', true, null, 'citation-not-measured']])
+  })
+
+  it('flags those answers in the monthly comparison population instead of leaving an unknown', () => {
+    const snapshots = visibilityComparisonPopulation(citationRun(['cited', 'no-sources']), {
+      queryClass: 'all', scope: 'project', location: { kind: 'all' }, limit: 50,
+    }).snapshots
+    expect(snapshots.map(snapshot => [snapshot.provider, snapshot.citation, snapshot.citationNotMeasured])).toEqual([
+      ['openai', true, false],
+      ['local', null, true],
+    ])
   })
 })
 

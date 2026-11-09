@@ -13,11 +13,16 @@ import { runFillInProgress,
   type ResultsClearResponse,
   mentionStateFromAnswerMentioned,
   notFound,
+  readCitationState,
   RunKinds,
   validationError,
   visibilityStateFromAnswerMentioned,
   type CitationState,
+  type ComputedTransition,
   type SnapshotDiffRow,
+  combineCitationStates,
+  ComputedTransitions,
+  isCitationStateMeasured,
 } from '@canonry/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { writeAuditLog, notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState } from './helpers.js'
@@ -149,6 +154,7 @@ export async function historyRoutes(app: FastifyInstance) {
         provider: querySnapshots.provider,
         model: querySnapshots.model,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
         answerMentioned: querySnapshots.answerMentioned,
         mentionIdentity: querySnapshots.mentionIdentity,
         answerText: querySnapshots.answerText,
@@ -204,7 +210,7 @@ export async function historyRoutes(app: FastifyInstance) {
           query: s.query,
           provider: s.provider,
           model: s.model,
-          citationState: s.citationState,
+          citationState: readCitationState(s),
           answerMentioned: resolveSnapshotAnswerMentioned(s, project),
           visibilityState: resolveSnapshotVisibilityState(s, project),
           mentionState: resolveSnapshotMentionState(s, project),
@@ -297,6 +303,7 @@ export async function historyRoutes(app: FastifyInstance) {
       : rawSnapshots
     const allSnapshots = filteredSnapshots.map(snapshot => ({
       ...snapshot,
+      citationState: readCitationState(snapshot),
       answerMentioned: resolveSnapshotAnswerMentioned(snapshot, project),
     }))
 
@@ -332,8 +339,13 @@ export async function historyRoutes(app: FastifyInstance) {
 
     // Deduplicate to one entry per (runId, queryId) before building transitions so that
     // multi-provider runs don't produce spurious transition events within a single run.
-    // Prefer 'cited' when providers disagree within the same run.
+    // Citation and mention are combined independently across the run's answers:
+    // the entry is mentioned when any answer names the project, and its citation
+    // state is `combineCitationStates` (cited when any answer cites it, not
+    // measured only when no answer carries sources), so an engine without
+    // sources never stands for a query another engine checked.
     const deduped = new Map<string, typeof allSnapshotsResolved[number]>()
+    const runQueryStates = new Map<string, CitationState[]>()
     for (const snap of allSnapshotsResolved) {
       // Skip snapshots that can't be attributed to a current query — they
       // have no query_id and their query_text doesn't match any current
@@ -341,16 +353,18 @@ export async function historyRoutes(app: FastifyInstance) {
       // these by populating query_text from the audit log.
       if (!snap.resolvedQueryId) continue
       const key = `${snap.runId}:${snap.resolvedQueryId}`
+      const states = runQueryStates.get(key)
+      if (states) states.push(snap.citationState)
+      else runQueryStates.set(key, [snap.citationState])
       const existing = deduped.get(key)
-      if (
-        !existing ||
-        (!existing.answerMentioned && snap.answerMentioned) ||
-        (existing.answerMentioned === snap.answerMentioned && snap.citationState === CitationStates.cited)
-      ) {
+      if (!existing || (!existing.answerMentioned && snap.answerMentioned)) {
         deduped.set(key, snap)
       }
     }
-    const dedupedSnapshots = [...deduped.values()]
+    const dedupedSnapshots = [...deduped].map(([key, snap]) => ({
+      ...snap,
+      citationState: combineCitationStates(runQueryStates.get(key)!)!,
+    }))
 
     // Index raw (un-deduplicated) snapshots by query+provider for per-provider timelines
     const rawByQueryProvider = new Map<string, typeof allSnapshotsResolved[number][]>()
@@ -373,23 +387,22 @@ export async function historyRoutes(app: FastifyInstance) {
     }
 
     function computeTransitions(snaps: typeof allSnapshots) {
+      // The last measured citation state. An answer without sources neither
+      // gains nor loses a citation, so a measured answer after one compares
+      // with the measured answer before it.
+      let lastMeasured: CitationState | null = null
       return snaps.map((snap, idx) => {
         const run = projectRuns.find(r => r.id === snap.runId)
-        let transition: string = snap.citationState === CitationStates.cited ? 'cited' : 'not-cited'
+        const transition = citationTransition(lastMeasured, snap.citationState)
+        if (isCitationStateMeasured(snap.citationState)) lastMeasured = snap.citationState
         let visibilityTransition: string = snap.answerMentioned ? 'visible' : 'not-visible'
         let mentionTransition: string = snap.answerMentioned ? 'mentioned' : 'not-mentioned'
 
         if (idx === 0) {
-          transition = 'new'
           visibilityTransition = 'new'
           mentionTransition = 'new'
         } else {
           const prev = snaps[idx - 1]!
-          if (prev.citationState === CitationStates['not-cited'] && snap.citationState === CitationStates.cited) {
-            transition = 'emerging'
-          } else if (prev.citationState === CitationStates.cited && snap.citationState === CitationStates['not-cited']) {
-            transition = 'lost'
-          }
 
           if (!prev.answerMentioned && snap.answerMentioned) {
             visibilityTransition = 'emerging'
@@ -482,68 +495,40 @@ export async function historyRoutes(app: FastifyInstance) {
       }
     }
 
-    // Get snapshots for both runs
-    const snaps1 = app.db
-      .select({
-        queryId: querySnapshots.queryId,
-        query: queries.query,
-        citationState: querySnapshots.citationState,
-        answerMentioned: querySnapshots.answerMentioned,
-        mentionIdentity: querySnapshots.mentionIdentity,
-        answerText: querySnapshots.answerText,
-      })
-      .from(querySnapshots)
-      .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
-      .where(eq(querySnapshots.runId, run1))
-      .all()
-
-    const snaps2 = app.db
-      .select({
-        queryId: querySnapshots.queryId,
-        query: queries.query,
-        citationState: querySnapshots.citationState,
-        answerMentioned: querySnapshots.answerMentioned,
-        mentionIdentity: querySnapshots.mentionIdentity,
-        answerText: querySnapshots.answerText,
-      })
-      .from(querySnapshots)
-      .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
-      .where(eq(querySnapshots.runId, run2))
-      .all()
-
     // Build a query-level lookup across providers. Citation and answer mention
     // are aggregated independently: a query may be cited by one engine and
-    // mentioned by another, and neither signal may erase the other.
-    const map1 = new Map<string | null, Omit<typeof snaps1[number], 'citationState'> & {
-      citationState: CitationState
-      resolvedAnswerMentioned: boolean
-    }>()
-    for (const s of snaps1) {
-      const existing = map1.get(s.queryId)
-      map1.set(s.queryId, {
-        ...s,
-        query: existing?.query ?? s.query,
-        citationState: existing?.citationState === CitationStates.cited || s.citationState === CitationStates.cited
-          ? CitationStates.cited
-          : CitationStates['not-cited'],
-        resolvedAnswerMentioned: (existing?.resolvedAnswerMentioned ?? false) || resolveSnapshotAnswerMentioned(s, project),
-      })
+    // mentioned by another, and neither signal may erase the other. An answer
+    // without sources makes the query `not-measured` only when no other answer
+    // in the run checked its sources (`combineCitationStates`).
+    const diffSide = (runId: string) => {
+      const rows = app.db
+        .select({
+          queryId: querySnapshots.queryId,
+          query: queries.query,
+          provider: querySnapshots.provider,
+          citationState: querySnapshots.citationState,
+          retrievalStatus: querySnapshots.retrievalStatus,
+          answerMentioned: querySnapshots.answerMentioned,
+          mentionIdentity: querySnapshots.mentionIdentity,
+          answerText: querySnapshots.answerText,
+        })
+        .from(querySnapshots)
+        .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
+        .where(eq(querySnapshots.runId, runId))
+        .all()
+      const byQuery = new Map<string | null, { query: string | null; citationState: CitationState; resolvedAnswerMentioned: boolean }>()
+      for (const s of rows) {
+        const existing = byQuery.get(s.queryId)
+        byQuery.set(s.queryId, {
+          query: existing?.query ?? s.query,
+          citationState: combineCitationStates([...(existing ? [existing.citationState] : []), readCitationState(s)])!,
+          resolvedAnswerMentioned: (existing?.resolvedAnswerMentioned ?? false) || resolveSnapshotAnswerMentioned(s, project),
+        })
+      }
+      return byQuery
     }
-    const map2 = new Map<string | null, Omit<typeof snaps2[number], 'citationState'> & {
-      citationState: CitationState
-      resolvedAnswerMentioned: boolean
-    }>()
-    for (const s of snaps2) {
-      const existing = map2.get(s.queryId)
-      map2.set(s.queryId, {
-        ...s,
-        query: existing?.query ?? s.query,
-        citationState: existing?.citationState === CitationStates.cited || s.citationState === CitationStates.cited
-          ? CitationStates.cited
-          : CitationStates['not-cited'],
-        resolvedAnswerMentioned: (existing?.resolvedAnswerMentioned ?? false) || resolveSnapshotAnswerMentioned(s, project),
-      })
-    }
+    const map1 = diffSide(run1)
+    const map2 = diffSide(run2)
 
     // Compute diff for all queries present in either run
     const allQueryIds = new Set([...map1.keys(), ...map2.keys()])
@@ -562,13 +547,29 @@ export async function historyRoutes(app: FastifyInstance) {
         run2VisibilityState: s2 ? visibilityStateFromAnswerMentioned(s2.resolvedAnswerMentioned) : null,
         run1MentionState: s1 ? mentionStateFromAnswerMentioned(s1.resolvedAnswerMentioned) : null,
         run2MentionState: s2 ? mentionStateFromAnswerMentioned(s2.resolvedAnswerMentioned) : null,
-        changed: (s1?.citationState ?? null) !== (s2?.citationState ?? null),
+        // A side without sources observed nothing, so it is never a change.
+        changed: s1?.citationState !== CitationStates['not-measured']
+          && s2?.citationState !== CitationStates['not-measured']
+          && (s1?.citationState ?? null) !== (s2?.citationState ?? null),
         visibilityChanged: (s1?.resolvedAnswerMentioned ?? null) !== (s2?.resolvedAnswerMentioned ?? null),
       }
     })
 
     return reply.send({ run1, run2, diff })
   })
+}
+
+/**
+ * One answer's citation transition given the last measured state before it.
+ * The first measured answer is `new`; an answer without sources is
+ * `not-measured` and leaves the last measured state for the next one.
+ */
+function citationTransition(lastMeasured: CitationState | null, state: CitationState): ComputedTransition {
+  if (!isCitationStateMeasured(state)) return ComputedTransitions['not-measured']
+  if (lastMeasured === null) return ComputedTransitions.new
+  if (lastMeasured === CitationStates['not-cited'] && state === CitationStates.cited) return ComputedTransitions.emerging
+  if (lastMeasured === CitationStates.cited && state === CitationStates['not-cited']) return ComputedTransitions.lost
+  return state === CitationStates.cited ? ComputedTransitions.cited : ComputedTransitions['not-cited']
 }
 
 function formatAuditEntry(row: {

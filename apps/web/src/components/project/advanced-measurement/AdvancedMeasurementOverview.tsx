@@ -40,11 +40,12 @@ export type AdvancedMeasurementEvidenceKind =
 /**
  * A measured rate may carry the answers the server left out of both sides of
  * `numerator of denominator`: `unattributed` on a mention rate (not tied to one
- * property), `unchecked` on a citation rate (source capture incomplete).
+ * property), `unchecked` (source capture incomplete) and `citationNotMeasured`
+ * (the engine returns no sources) on a citation rate.
  */
 export type AdvancedMeasurementMetric =
-  | { numerator: number; denominator: number; reason?: never; unattributed?: number; unchecked?: number }
-  | { numerator: null; denominator: null; reason: string; unattributed?: never; unchecked?: never }
+  | { numerator: number; denominator: number; reason?: never; unattributed?: number; unchecked?: number; citationNotMeasured?: number }
+  | { numerator: null; denominator: null; reason: string; unattributed?: never; unchecked?: never; citationNotMeasured?: never }
 
 export interface AdvancedMeasurementPropertyProvider {
   provider: string
@@ -253,6 +254,8 @@ const metricReasons: Record<string, string> = {
   not_applicable: 'Not applicable.',
   incomplete: 'The latest measurement is incomplete.',
   'evidence-incomplete': 'Some source evidence is incomplete.',
+  citation_not_measured: 'The engines return no sources.',
+  'citation-not-measured': 'The engines return no sources.',
   'no-population': 'No measurements are available for this selection.',
   unavailable: 'This measurement is unavailable.',
 }

@@ -282,7 +282,7 @@ function buildEvidenceFromTimeline(
           const effectiveTransition = stateHistory
             ? stateHistory.at(-1)!.transition
             : ownStateOnly
-              ? (snap.citationState === CitationStates.cited ? 'cited' : 'not-cited')
+              ? steadyCitationState(snap.citationState)
               : transition
           const effectiveVisibilityTransition = stateHistory
             ? (stateHistory.at(-1)!.visibilityTransition ?? (stateHistory.at(-1)!.visibilityState === 'visible' ? 'visible' : 'not-visible'))
@@ -295,11 +295,13 @@ function buildEvidenceFromTimeline(
           // transition from another provider into this synthetic badge row.
           const latestProviderState = effectiveHistory?.at(-1)?.citationState
           const latestProviderVisibilityState = effectiveHistory?.at(-1)?.visibilityState
+          // An answer without sources is never lost or new: its citation was not measured.
           const snapState: CitationState = snap
-            ? effectiveTransition === 'lost' ? 'lost'
+            ? snap.citationState === CitationStates['not-measured'] ? 'not-measured'
+              : effectiveTransition === 'lost' ? 'lost'
               : effectiveTransition === 'emerging' ? 'emerging'
-              : snap.citationState === CitationStates.cited ? 'cited' : 'not-cited'
-            : latestProviderState === CitationStates.cited ? 'cited' : 'not-cited'
+              : steadyCitationState(snap.citationState)
+            : steadyCitationState(latestProviderState)
           const snapVisibilityState = (snap?.visibilityState as CitationInsightVm['visibilityState'] | undefined)
             ?? (latestProviderVisibilityState === 'visible' ? 'visible' : latestProviderVisibilityState === 'pending' ? 'pending' : 'not-visible')
 
@@ -465,6 +467,17 @@ function computeModelTransitions(history: RunHistoryPoint[]): ModelTransitionVm[
   return transitions
 }
 
+/**
+ * An answer's own citation state with no change attached. `not-measured` stays
+ * itself (the engine returns no sources); anything else that is not cited reads
+ * not cited, as the timeline's steady states do.
+ */
+function steadyCitationState(state: string | undefined): 'cited' | 'not-cited' | 'not-measured' {
+  if (state === CitationStates.cited) return 'cited'
+  if (state === CitationStates['not-measured']) return 'not-measured'
+  return 'not-cited'
+}
+
 /** Count consecutive checks from the end that share the same citationState as the latest one. */
 function computeStreak(runs: { citationState: string }[]): number {
   if (runs.length === 0) return 0
@@ -508,6 +521,9 @@ function changeLabel(
     case 'not-cited':
     case 'not-visible':
       return streak <= 1 ? `${capitalizeLabel(resolved.negative)} in the latest check` : `${capitalizeLabel(resolved.negative)} in the last ${streak} checks`
+    // The engine returns no sources: neither cited nor not cited.
+    case 'not-measured':
+      return streak <= 1 ? 'Citation not measured in the latest check' : `Citation not measured in the last ${streak} checks`
     default: return transition
   }
 }
@@ -628,7 +644,7 @@ function adaptOverviewToCommandCenter(
     mentionCoverage: overview.mentionCoverage,
     visibilitySummary: overview.scores.visibility as ScoreSummaryVm,
     mentionShareSummary: overview.scores.mentionShare,
-    queryCounts: { cited: overview.queryCounts.citedQueries, total: overview.queryCounts.totalQueries },
+    queryCounts: { cited: overview.queryCounts.citedQueries, total: overview.queryCounts.totalQueries, citationNotMeasured: overview.queryCounts.citationNotMeasuredQueries },
     gapQueries: overview.scores.gapQueries as ScoreSummaryVm,
     mentionGaps: overview.scores.mentionGaps as ScoreSummaryVm,
     indexCoverage: overview.scores.indexCoverage as ScoreSummaryVm,
@@ -701,7 +717,7 @@ function emptyCommandCenter(
       breakdown: emptyMentionShareBreakdown(),
       branded: emptyMentionShareBreakdown(),
     },
-    queryCounts: { cited: 0, total: 0 },
+    queryCounts: { cited: 0, total: 0, citationNotMeasured: 0 },
     gapQueries: { ...placeholder, label: 'Citation Gaps' },
     mentionGaps: { ...placeholder, label: 'Mention Gaps' },
     indexCoverage: { ...placeholder, label: 'Index Coverage' },

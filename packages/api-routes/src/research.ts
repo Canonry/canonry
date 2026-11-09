@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { measurementQueryTemplates, projects, researchRunQueries, researchRuns } from '@canonry/canonry-db'
 import { alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchBatchCreateSchema, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchBatchCreate, type ResearchBatchDto, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto, type ResearchRunScope, type ResearchScopeSelection, deduplicateResearchQueries, compileQueryClassifier, expandResearchTemplate, effectiveBrandNames, type QueryTrackingTemplateProvenance, type ResearchTemplateSelection, type ResearchRunCreate } from '@canonry/canonry-contracts'
 import { canRunResearch, requireResearchGrant } from './auth.js'
-import { RESEARCH_RUN_SCOPE, WILDCARD_SCOPE, resolveProviderModel } from '@canonry/canonry-contracts'
+import { RESEARCH_RUN_SCOPE, WILDCARD_SCOPE, engineReturnsSources, resolveProviderModel } from '@canonry/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { activeMeasurementPlan, type ActiveMeasurementPlan } from './measurement-overview.js'
 import type { ProviderAdapterInfo } from './settings.js'
@@ -441,17 +441,31 @@ function classifyResearchQueries(
 function getDetail(app: FastifyInstance, projectId: string, id: string): ResearchRunDetailDto {
   const row = app.db.select().from(researchRuns).where(and(eq(researchRuns.id, id), eq(researchRuns.projectId, projectId))).get()
   if (!row) throw notFound('Research run', id)
-  const queries = app.db.select().from(researchRunQueries).where(eq(researchRunQueries.researchRunId, id)).orderBy(researchRunQueries.position).all().map(serializeQuery)
+  const queries = app.db.select().from(researchRunQueries).where(eq(researchRunQueries.researchRunId, id)).orderBy(researchRunQueries.position).all().map(query => serializeQuery(query, row.provider))
   return { ...serializeRun(row), queries }
 }
 function serializeRun(row: typeof researchRuns.$inferSelect): ResearchRunSummaryDto {
   return { id: row.id, projectId: row.projectId, status: row.status as ResearchRunSummaryDto['status'], provider: row.provider, requestedModel: row.requestedModel, resolvedModel: row.resolvedModel, location: row.location ?? null, scope: row.scope ?? null, template: row.template ?? null, totalQueries: row.totalQueries, completedQueries: row.completedQueries, failedQueries: row.failedQueries, error: row.error, initiatedBy: row.initiatedBy ?? null, startedAt: row.startedAt, finishedAt: row.finishedAt, createdAt: row.createdAt }
 }
-function serializeQuery(row: typeof researchRunQueries.$inferSelect): ResearchRunQueryDto {
-  return { id: row.id, position: row.position, query: row.queryText, queryClass: row.queryClass ?? null, status: row.status as ResearchRunQueryDto['status'], requestedModel: row.requestedModel, resolvedModel: row.resolvedModel, servedModel: row.servedModel, answerText: row.answerText, groundingSources: row.groundingSources, citedDomains: row.citedDomains, searchQueries: row.searchQueries, retrievedSources: row.retrievedSources ?? null, namedCompetitors: row.namedCompetitors, citedCompetitorDomains: row.citedCompetitorDomains, answerMentioned: row.answerMentioned, citationState: row.citationState as ResearchRunQueryDto['citationState'], error: row.error, startedAt: row.startedAt, finishedAt: row.finishedAt, createdAt: row.createdAt,
-    // Only answer services record evidence; every other row keeps its exact shape.
-    ...(row.answerEvidence ? { evidence: row.answerEvidence, citationMeasured: row.status === ResearchQueryStatuses.completed && row.answerEvidence.citationMeasurable } : {}),
+function serializeQuery(row: typeof researchRunQueries.$inferSelect, provider: string): ResearchRunQueryDto {
+  const citationMeasurable = researchCitationMeasurable(row, provider)
+  return { id: row.id, position: row.position, query: row.queryText, queryClass: row.queryClass ?? null, status: row.status as ResearchRunQueryDto['status'], requestedModel: row.requestedModel, resolvedModel: row.resolvedModel, servedModel: row.servedModel, answerText: row.answerText, groundingSources: row.groundingSources, citedDomains: row.citedDomains, searchQueries: row.searchQueries, retrievedSources: row.retrievedSources ?? null, namedCompetitors: row.namedCompetitors, citedCompetitorDomains: row.citedCompetitorDomains, answerMentioned: row.answerMentioned, citationState: citationMeasurable === false ? null : row.citationState as ResearchRunQueryDto['citationState'], error: row.error, startedAt: row.startedAt, finishedAt: row.finishedAt, createdAt: row.createdAt,
+    // Only answer services record evidence.
+    ...(row.answerEvidence ? { evidence: row.answerEvidence } : {}),
+    ...(citationMeasurable === null ? {} : { citationMeasured: row.status === ResearchQueryStatuses.completed && citationMeasurable }),
     ...(row.upstreamJobId ? { upstreamJobId: row.upstreamJobId } : {}) }
+}
+
+/**
+ * Whether a research answer's citation could be checked, or null when the row
+ * says nothing either way, so it keeps its exact shape. Answer services record
+ * it in their evidence. An engine that returns no sources (Local) never
+ * measured one, whatever its older rows stored, so they read as the sweep's do
+ * (`readCitationState`): no citation state, `citationMeasured: false`.
+ */
+function researchCitationMeasurable(row: typeof researchRunQueries.$inferSelect, provider: string): boolean | null {
+  if (row.answerEvidence) return row.answerEvidence.citationMeasurable
+  return engineReturnsSources(provider) ? null : false
 }
 
 function researchPrincipal(request: FastifyRequest): ResearchRunPrincipal | null {

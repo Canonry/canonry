@@ -1,5 +1,5 @@
 import { SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, useSentimentResolvedSource } from './SentimentSection.js'
-import { VISIBILITY_DISPLAY_COPY } from '@canonry/canonry-contracts'
+import { CITATION_NOT_MEASURED_REASON, VISIBILITY_DISPLAY_COPY } from '@canonry/canonry-contracts'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -16,6 +16,7 @@ import { Check, ChevronRight, Minus, X } from 'lucide-react'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../shared/AnswerMarkdown.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { SourceLink } from '../shared/SourceLink.js'
+import { CITATION_NOT_MEASURED } from '../../lib/citation-not-measured-copy.js'
 import {
   CartesianGrid,
   CHART_AXIS_STROKE,
@@ -52,6 +53,7 @@ import { DEFAULT_QUERY_STALE_MS, STATIC_VISIBILITY_STALE_MS } from '../../querie
 import {
   basketChangesInBucket,
   buildSelectedTrendRows,
+  citationMeasuredInWindow,
   competitorFrameKey,
   CITED_KEY,
   formatBucketDateLabel,
@@ -71,6 +73,7 @@ import {
   partitionModelAttributionEvents,
   plottedMetricRates,
   pointQuerySetShift,
+  providerCitationNotMeasured,
   providerDisplayName,
   querySetChanges,
   querySetMovePhrase,
@@ -139,7 +142,7 @@ export const REPORT_HEADLINE_HELP = {
   simpleMention: 'Mentioned counts answers naming your brand in the answer text, not in the source links.',
   simpleCitation: 'Cited counts answers linking to your site in the sources behind the answer, not in the answer text.',
   advancedMention: 'An answer counts when it mentions any assigned property. This does not mean every property was mentioned. An answer that could not be tied to one property is left out of the rate, never counted as not mentioned.',
-  advancedCitation: 'An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line.',
+  advancedCitation: 'An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line. So is an answer from an engine that returns no sources.',
   propertyReach: 'Selected properties named in at least one measured answer, out of the selected properties that have a name to match on. It counts properties, not answers, and shows no rate while any of those properties is unmeasured.',
 } as const
 /**
@@ -153,7 +156,7 @@ export const REPORT_HEADLINE_HELP = {
  * this property's own two signals, never a competitor's, so the copy cannot say
  * a rival was recommended instead without asserting a finding nothing measured.
  */
-const REPORT_OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
+const REPORT_OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured, including one whose answers all came from engines that return no sources: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
 const REPORT_CONTROL = 'min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 
 function reportScopeLabel(scope: VisibilityReportResponse['selection']['scope']): string {
@@ -171,6 +174,9 @@ function reportRateReason(value: VisibilityReportRate): string {
  * under Mentioned, answers whose sources could not be checked under Cited.
  */
 function ReportRate({ value, signal }: { value: VisibilityReportRate; signal: CoverageSignal }) {
+  if (value.rate === null && value.reason === 'citation-not-measured') {
+    return <span className="inline-flex items-center text-label-14 text-secondary">{reportRateReason(value)}<InfoTooltip text={CITATION_NOT_MEASURED_REASON} /></span>
+  }
   if (value.rate === null) return <span className="text-label-14 text-secondary">{reportRateReason(value)}</span>
   const excluded = excludedAnswersFlag(value, signal)
   return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{formatPercent(value.rate)}</strong><span className="text-label-14 tabular-nums text-secondary">{value.numerator} of {value.denominator}</span>{excluded ? <span className="-ml-2 flex"><InfoTooltip tone="caution" placement="bottom" label={excluded.label} text={excluded.text} /></span> : null}</span>
@@ -341,6 +347,8 @@ export const UNCHECKED_SOURCES_COPY = {
     : `Saved links in ${citedAnswers} of ${answers} answers cite ${names}`,
   savedCiteNone: (name: string | null) => name === null ? 'No saved link cites an assigned property' : `No saved link cites ${name}`,
   outcomes: (count: number) => `${count} not measured only because an answer's sources were partly saved. Query results shows which answer.`,
+  /** Properties whose every answer came from an engine without sources: the server's `notMeasuredNoSources`. */
+  outcomesNoSources: (count: number) => `${count} not measured for citation because ${count === 1 ? 'its' : 'their'} answers came only from engines that return no sources.`,
 } as const
 
 function UncheckedSourcesLines({ row, targetLabels, showCount }: {
@@ -473,6 +481,10 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
     ...(population.trend.some(point => point.citationCoverage.reason === 'evidence-incomplete') ? ['Missing citation results mean the saved evidence is incomplete.'] : []),
     // A plotted Cited point may leave out answers whose sources could not be checked; the chart says so, the table counts them.
     ...(population.trend.some(point => point.citationCoverage.unchecked !== undefined) ? [REPORT_TREND_UNCHECKED_NOTE] : []),
+    // Engines without sources (a local model) are out of every Cited point.
+    ...(population.trend.some(point => point.citationCoverage.citationNotMeasured !== undefined || point.citationCoverage.reason === 'citation-not-measured')
+      ? ['Cited leaves out answers from engines that return no sources.']
+      : []),
   ]
   if (points.length === 0) return population.summary.mentionCoverage.rate !== null || population.summary.citationCoverage.rate !== null
     ? null
@@ -818,6 +830,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         <div className="space-y-3">
           <div className="flex flex-wrap gap-x-8 gap-y-3">{([['bothSignals', 'mentioned and cited'], ['mentionedOnly', 'mentioned only'], ['citedOnly', 'cited only'], ['neither', 'neither signal'], ['notMeasured', 'not measured']] as const).map(([key, label]) => <div key={key}><strong className="block tabular-nums text-heading">{population.summary.outcomes[key]}</strong><span className="text-label-14 text-secondary">{label}</span></div>)}</div>
           {population.summary.notMeasuredUnchecked ? <p className="text-copy-14 text-secondary">{UNCHECKED_SOURCES_COPY.outcomes(population.summary.notMeasuredUnchecked)}</p> : null}
+          {population.summary.notMeasuredNoSources ? <p className="text-copy-14 text-secondary">{UNCHECKED_SOURCES_COPY.outcomesNoSources(population.summary.notMeasuredNoSources)}</p> : null}
         </div>
         <InfoTooltip text={REPORT_OUTCOMES_HELP} />
       </div></details> : null}
@@ -842,7 +855,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
             <span className="text-label-13 text-secondary">{answer.location === null ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(answer.location)}</span>
             <span className="text-label-13 text-secondary">{new Date(answer.createdAt).toLocaleDateString()}</span>
             <ToneBadge tone="neutral">{answer.mentioned === null ? answer.mentionUnavailableReason === 'identity-ambiguous' ? VISIBILITY_DISPLAY_COPY.ambiguous : 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge>
-            <ToneBadge tone="neutral">{answer.cited === null ? 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge>
+            <ToneBadge tone="neutral">{answer.cited === null ? answer.citationUnavailableReason === 'citation-not-measured' ? CITATION_NOT_MEASURED.label : 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge>
           </div>
           <div className="mt-4"><AnswerMarkdown headingLevel={4} copyable={Boolean(answer.answerText?.trim())}>{answer.answerText ?? 'Answer text unavailable.'}</AnswerMarkdown></div>
           {answer.sources.length > 0 ? <details className="mt-2" data-answer-sources>
@@ -1161,26 +1174,52 @@ function trendTitleHelp(scope: MentionShareScope): string {
     + `Mention share = your share of tracked-brand mentions in ${scope === 'non-brand' ? 'non-brand answers' : 'all answers'}.`
 }
 
-function metricField(metric: Exclude<MetricChoice, 'mentionShare'>): 'citationRate' | 'mentionRate' {
-  return metric === 'cited' ? 'citationRate' : 'mentionRate'
-}
+/**
+ * Cited where no answer carries sources (an engine without web access, such
+ * as a local model): the point has no rate, the engine reads "Not measured".
+ */
+export const CITATION_NOT_MEASURED_TREND_COPY = {
+  value: 'Not measured',
+  point: 'not measured, no answer has sources',
+  window: 'Not measured: the engines in this window return no sources, so whether they cite you is not measured.',
+} as const
 
-function metricCount(bucket: MetricsBucket, metric: Exclude<MetricChoice, 'mentionShare'>): number {
-  return metric === 'cited' ? bucket.cited : bucket.mentionedCount
+/**
+ * One point's rate with its count and base, as the API sent them. Cited reads
+ * over the answers whose sources were checked (`citedTotal`), so its rate is
+ * null when every answer came from an engine without sources.
+ */
+interface PointMetric { count: number; total: number; rate: number | null }
+
+function metricCounts(
+  row: Pick<MetricsBucket, 'cited' | 'total' | 'citedTotal' | 'citationRate' | 'mentionedCount' | 'mentionRate'>,
+  metric: Exclude<MetricChoice, 'mentionShare'>,
+): PointMetric {
+  return metric === 'cited'
+    ? { count: row.cited, total: row.citedTotal ?? row.total, rate: row.citationRate }
+    : { count: row.mentionedCount, total: row.total, rate: row.mentionRate }
 }
 
 function providerMetricCount(
   bucket: MetricsBucket,
   provider: string,
   metric: Exclude<MetricChoice, 'mentionShare'>,
-): { count: number; total: number; rate: number } | null {
+): PointMetric | null {
   const row = (bucket.byProvider as Record<string, ProviderMetricBucket | undefined>)[provider]
-  if (!row) return null
-  return {
-    count: metric === 'cited' ? row.cited : row.mentionedCount,
-    total: row.total,
-    rate: metric === 'cited' ? row.citationRate : row.mentionRate,
-  }
+  return row ? metricCounts(row, metric) : null
+}
+
+/** A point's figure in words: its count of its base, or why it has no rate. */
+function pointCountText(point: PointMetric): string {
+  return point.rate === null ? CITATION_NOT_MEASURED_TREND_COPY.point : `${point.count} of ${point.total}`
+}
+
+/** A point read aloud: its rate and base, or that its citation was not measured. */
+function spokenPoint(point: PointMetric, metric: Exclude<MetricChoice, 'mentionShare'>): string {
+  const label = metricLabel(metric).toLowerCase()
+  return point.rate === null
+    ? `${label} ${CITATION_NOT_MEASURED_TREND_COPY.point}`
+    : `${formatPercent(point.rate)} ${label}, ${point.count} of ${point.total} answers`
 }
 
 /** A point's base in words: the answers, or the tracked-brand mentions, behind its rate. */
@@ -1189,7 +1228,8 @@ function bucketBase(bucket: MetricsBucket, metric: MetricChoice): string {
     const { projectMentionSnapshots: you, competitorMentionSnapshots: competitors } = bucket.mentionShare
     return `${you} of ${you + competitors} tracked-brand mentions`
   }
-  return `${metricCount(bucket, metric)} of ${bucket.total} answers`
+  const point = metricCounts(bucket, metric)
+  return point.rate === null ? CITATION_NOT_MEASURED_TREND_COPY.point : `${point.count} of ${point.total} answers`
 }
 
 function findBucket(buckets: readonly MetricsBucket[], label: string | number | undefined): MetricsBucket | null {
@@ -1613,19 +1653,16 @@ function TrendTooltip({
       {head}
       {items.map((item, index) => {
         const key = String(item.dataKey ?? item.name ?? '')
-        const providerCounts = mode === 'byProvider' ? providerMetricCount(bucket, key, metric) : null
-        const count = providerCounts?.count ?? metricCount(bucket, metric)
-        const total = providerCounts?.total ?? bucket.total
         // The API's rate for this point, not the chart row, which is rounded to the axis.
-        const rate = providerCounts ? providerCounts.rate : bucket[metricField(metric)]
+        const point = (mode === 'byProvider' ? providerMetricCount(bucket, key, metric) : null) ?? metricCounts(bucket, metric)
         const color = item.color ?? seriesColor(key, index)
         return (
           <div key={`${key}-${index}`} className="trend-tooltip-block">
             <div className="trend-tooltip-row">
               <span className="trend-tooltip-swatch" style={{ backgroundColor: color }} aria-hidden="true" />
               <span className="trend-tooltip-name">{seriesLabel(key)}</span>
-              <span className="trend-tooltip-value">{formatPercent(rate)}</span>
-              <span className="trend-tooltip-count">{count} of {total}</span>
+              <span className="trend-tooltip-value">{point.rate === null ? CITATION_NOT_MEASURED_TREND_COPY.value : formatPercent(point.rate)}</span>
+              <span className="trend-tooltip-count">{pointCountText(point)}</span>
             </div>
           </div>
         )
@@ -1676,10 +1713,10 @@ function TrendDataSummary({
               valueText = series.map(provider => {
                 const counts = providerMetricCount(bucket, provider, metric)
                 if (!counts) return `${providerDisplayName(provider)} no data`
-                return `${providerDisplayName(provider)} ${formatPercent(counts.rate)} ${metricLabel(metric).toLowerCase()}, ${counts.count} of ${counts.total} answers`
+                return `${providerDisplayName(provider)} ${spokenPoint(counts, metric)}`
               }).join('; ')
             } else {
-              valueText = `${formatPercent(bucket[metricField(metric)])} ${metricLabel(metric).toLowerCase()}, ${metricCount(bucket, metric)} of ${bucket.total} answers`
+              valueText = spokenPoint(metricCounts(bucket, metric), metric)
             }
             const models = bucketModels(bucket)
             if (models.length > 0) valueText += `; models: ${models.join('; ')}`
@@ -1830,10 +1867,11 @@ export function VisibilityTrendSection({
     return (value: string) => labels.get(String(value)) ?? ''
   }, [buckets])
   // The points the selected metric plots: mention share skips a point with no
-  // tracked-brand mentions, as the chart and the server's change do.
+  // tracked-brand mentions, and Cited a point with no answer whose sources were
+  // checked, as the chart and the server's change do.
   const plottedBuckets = metric === 'mentionShare'
     ? buckets.filter(b => typeof b.mentionShare.rate === 'number' && Number.isFinite(b.mentionShare.rate))
-    : buckets
+    : metric === 'cited' ? buckets.filter(b => b.citationRate !== null) : buckets
   const latestPlotted = plottedBuckets.at(-1)
   // The API's rates behind the plotted points, since the chart rows are rounded
   // to the axis: the head formats these, so a rate under a tenth reads <0.1%.
@@ -1867,7 +1905,11 @@ export function VisibilityTrendSection({
     const base = formatBucketDayRange(plottedBuckets[0])
     if (base) trendDetails.push(<>Base: <strong>{base}</strong> point</>)
   }
-  if (byProviderMode && latestRate !== null) trendDetails.push(<><strong>{formatPercent(latestRate)}</strong> pools all answers; not an average of engines</>)
+  if (byProviderMode && latestRate !== null) {
+    // Cited pools only the answers whose sources were checked.
+    const pooled = metric === 'cited' && latestPlotted && latestPlotted.citationNotMeasured > 0 ? 'all answers with sources' : 'all answers'
+    trendDetails.push(<><strong>{formatPercent(latestRate)}</strong> pools {pooled}; not an average of engines</>)
+  }
 
   // One marker per point where the setup changed: an in-window model change,
   // or a query-set change first measured inside that point.
@@ -1926,6 +1968,10 @@ export function VisibilityTrendSection({
               : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run a check to start tracking citations and mentions over time.'}
         </p>
       )
+    } else if (metric === 'cited' && !citationMeasuredInWindow(data)) {
+      // Answers exist, but every one came from an engine without sources:
+      // there is no cited point to draw, and a line at 0% would be a miss.
+      body = <p className="text-copy-14 text-secondary">{CITATION_NOT_MEASURED_TREND_COPY.window}</p>
     } else if (byProviderMode && series.length === 0) {
       body = (
         <p className="text-copy-14 text-secondary">
@@ -1955,7 +2001,9 @@ export function VisibilityTrendSection({
                       aria-hidden="true"
                     />
                     <span className="trend-legend-name">{seriesLabel(key)}</span>
-                    {rate !== null && <span className="trend-legend-value">{formatPercent(rate)}</span>}
+                    {rate !== null
+                      ? <span className="trend-legend-value">{formatPercent(rate)}</span>
+                      : metric === 'cited' && providerCitationNotMeasured(data, key) && <span className="trend-legend-value">{CITATION_NOT_MEASURED_TREND_COPY.value}</span>}
                   </li>
                 )
               })}

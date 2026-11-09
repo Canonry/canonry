@@ -12,6 +12,7 @@ import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 import { AuditHistoryPanel } from '../shared/AuditHistoryPanel.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { CITATION_NOT_MEASURED } from '../../lib/citation-not-measured-copy.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { WorkspaceTabs } from '../shared/WorkspaceTabs.js'
 
@@ -103,8 +104,9 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
                       <td className="whitespace-nowrap tabular-nums text-secondary">{new Date(snapshot.createdAt).toLocaleString()}</td>
                       <td className="text-right tabular-nums text-secondary">{snapshot.mentionedPairs}/{snapshot.totalPairs}</td>
                       <td className="text-right tabular-nums text-strong">{formatPercent(snapshot.overallMentionRate)}</td>
-                      <td className="text-right tabular-nums text-secondary">{snapshot.citedPairs}/{snapshot.totalPairs}</td>
-                      <td className="text-right tabular-nums text-strong">{formatPercent(snapshot.overallCitedRate)}</td>
+                      {/* Cited is out of the pairs whose sources were checked; an engine that returns no sources is not measured. */}
+                      <td className="text-right tabular-nums text-secondary">{snapshot.citedPairs}/{snapshot.totalPairs - snapshot.citationNotMeasuredPairs}</td>
+                      <td className="text-right tabular-nums text-strong">{snapshot.overallCitedRate === null ? <span className="text-secondary">{CITATION_NOT_MEASURED.label}</span> : formatPercent(snapshot.overallCitedRate)}</td>
                     </tr>
                   ))}
                 </tbody>

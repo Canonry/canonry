@@ -42,7 +42,7 @@ import { AINYC_SWEEP_TIMES, ainycMetrics } from './ainyc-visibility-fixture.js'
 import { cancelledSweepBetweenMetrics, removedAndReAddedMetrics, roundTripInsidePointMetrics } from './basket-scenarios-fixture.js'
 
 function provider(citationRate: number, mentionRate: number) {
-  return { citationRate, cited: 0, total: 4, mentionRate, mentionedCount: 0 }
+  return { citationRate, cited: 0, total: 4, citationNotMeasured: 0, mentionRate, mentionedCount: 0 }
 }
 
 function bucket(date: string, byProvider: BrandMetricsDto['buckets'][number]['byProvider'], rates = { citationRate: 0.5, mentionRate: 0.25 }) {
@@ -52,6 +52,7 @@ function bucket(date: string, byProvider: BrandMetricsDto['buckets'][number]['by
     citationRate: rates.citationRate,
     cited: 2,
     total: 4,
+    citationNotMeasured: 0,
     queryCount: 4,
     mentionRate: rates.mentionRate,
     mentionedCount: 1,
@@ -129,7 +130,7 @@ describe('buildTrendRows — byProvider mode', () => {
     const legacy = {
       window: 'all' as const,
       buckets: [
-        { startDate: '2026-04-01', endDate: '2026-04-08', citationRate: 0.2, cited: 1, total: 5, queryCount: 5, mentionRate: 0.4, mentionedCount: 2 },
+        { startDate: '2026-04-01', endDate: '2026-04-08', citationRate: 0.2, cited: 1, total: 5, citationNotMeasured: 0, queryCount: 5, mentionRate: 0.4, mentionedCount: 2 },
       ],
       overall: provider(0.2, 0.4),
       byProvider: {},
@@ -142,6 +143,20 @@ describe('buildTrendRows — byProvider mode', () => {
     expect(res.series).toEqual([])
     expect(res.hasData).toBe(true)
     expect(res.rows).toEqual([{ date: '2026-04-01' }])
+  })
+})
+
+describe('buildTrendRows — cited rates that were not measured', () => {
+  it('plots a gap where no answer carried sources, never a point at 0', () => {
+    // Local has no web access: its cited rate is null while its mention rate is real.
+    const local = { citationRate: null, cited: 0, total: 4, citationNotMeasured: 4, mentionRate: 0.5, mentionedCount: 2 }
+    const d = dto([
+      bucket('2026-04-01', { gemini: provider(0.5, 0.5), local }),
+      { ...bucket('2026-04-08', { local }), citationRate: null },
+    ])
+    expect(buildTrendRows(d, 'cited', 'overall').rows.map(row => row[CITED_KEY])).toEqual([50, null])
+    expect(buildTrendRows(d, 'cited', 'byProvider').rows.map(row => row.local)).toEqual([null, null])
+    expect(buildTrendRows(d, 'mentioned', 'byProvider').rows.map(row => row.local)).toEqual([50, 50])
   })
 })
 
@@ -503,9 +518,9 @@ function partialSweepAfterAdd(): BrandMetricsDto {
   const point = (day: string, revision: number) => ({
     startDate: `2026-09-${day}T00:00:00.000Z`, endDate: `2026-09-${day}T23:59:59.999Z`,
     dataStartDate: `2026-09-${day}T12:00:00.000Z`, dataEndDate: `2026-09-${day}T12:00:00.000Z`, sweepCount: 1,
-    citationRate: 0.5, cited: 2, total: 4, queryCount: 2, mentionRate: 0.5, mentionedCount: 2,
+    citationRate: 0.5, cited: 2, total: 4, citationNotMeasured: 0, queryCount: 2, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { scope: 'non-brand' as const, rate: null, projectMentionSnapshots: 2, competitorMentionSnapshots: 0 },
-    byProvider: { gemini: { citationRate: 0.5, cited: 1, total: 2, mentionRate: 0.5, mentionedCount: 1 }, openai: { citationRate: 0.5, cited: 1, total: 2, mentionRate: 0.5, mentionedCount: 1 } },
+    byProvider: { gemini: { citationRate: 0.5, cited: 1, total: 2, citationNotMeasured: 0, mentionRate: 0.5, mentionedCount: 1 }, openai: { citationRate: 0.5, cited: 1, total: 2, citationNotMeasured: 0, mentionRate: 0.5, mentionedCount: 1 } },
     modelEvidenceByProvider: {}, basketRevision: revision,
   })
   return {
@@ -720,9 +735,9 @@ function removalMetrics(): BrandMetricsDto {
   const point = (day: string, revision: number, rate: 0 | 1) => ({
     startDate: `2026-07-${day}T00:00:00.000Z`, endDate: `2026-07-${day}T23:59:59.999Z`,
     dataStartDate: `2026-07-${day}T09:00:00.000Z`, dataEndDate: `2026-07-${day}T09:00:00.000Z`, sweepCount: 1,
-    citationRate: rate, cited: 3 * rate, total: 3, queryCount: 1, mentionRate: rate, mentionedCount: 3 * rate,
+    citationRate: rate, cited: 3 * rate, total: 3, citationNotMeasured: 0, queryCount: 1, mentionRate: rate, mentionedCount: 3 * rate,
     mentionShare: { scope: 'non-brand' as const, rate: null, projectMentionSnapshots: 3 * rate, competitorMentionSnapshots: 0 },
-    byProvider: Object.fromEntries(['claude', 'gemini', 'openai'].map(p => [p, { citationRate: rate, cited: rate, total: 1, mentionRate: rate, mentionedCount: rate }])),
+    byProvider: Object.fromEntries(['claude', 'gemini', 'openai'].map(p => [p, { citationRate: rate, cited: rate, total: 1, citationNotMeasured: 0, mentionRate: rate, mentionedCount: rate }])),
     modelEvidenceByProvider: {}, basketRevision: revision,
   })
   return {

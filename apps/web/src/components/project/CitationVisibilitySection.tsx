@@ -6,6 +6,7 @@ import { heyClient, isDashboardManagedSweeps } from '../../api.js'
 import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import { extractErrorMessage } from '../../lib/extract-error-message.js'
+import { CITATION_NOT_MEASURED } from '../../lib/citation-not-measured-copy.js'
 import { formatSweepInstant } from '../../lib/format-helpers.js'
 import { AnswerEngineLabel } from '../shared/AnswerEngineLabel.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
@@ -24,6 +25,7 @@ const RATE_REASON: Record<NonNullable<VisibilityReportRate['reason']>, string> =
   'evidence-incomplete': 'Incomplete evidence',
   'identity-ambiguous': 'Brand identity unavailable',
   'not-applicable': 'Not measured',
+  'citation-not-measured': CITATION_NOT_MEASURED.label,
 }
 
 function EngineMetric({ value, queryClass }: { value: VisibilityReportRate; queryClass: VisibilityReportPopulationClass }) {
@@ -114,7 +116,7 @@ export function CitationVisibilitySection({ projectName, revision }: { projectNa
       <div className="av-card-head">
         <div className="inline-flex flex-wrap items-center">
           <h2 id={titleId} className="av-card-title">By engine</h2>
-          <InfoTooltip text="Mentioned: the answer names you. Cited: its sources link to your site. Each rate uses this check’s answers in the selected query class. Missing answers are never counted as negative results." />
+          <InfoTooltip text="Mentioned: the answer names you. Cited: its sources link to your site. Each rate uses this check’s answers in the selected query class. Missing answers are never counted as negative results. Not measured: the engine returns no sources, so its citations cannot be checked." />
           {active && <span className="ml-3 text-label-13 text-secondary">{CLASS_LABEL[active.queryClass]} queries</span>}
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">

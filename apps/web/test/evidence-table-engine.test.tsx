@@ -159,3 +159,42 @@ test('pending queries without an engine do not create a duplicate All engines op
   selectEngine('')
   expect(screen.getByText('Pending query')).toBeTruthy()
 })
+
+test('an engine that returns no sources reads Not measured and stays out of the cited count', () => {
+  const run = { runId: 'run-1', createdAt: '2026-09-01T12:00:00Z' }
+  render(<EvidenceTable evidence={[
+    evidence('Best widgets', 'local', {
+      citationState: 'not-measured', answerMentioned: true, visibilityState: 'visible',
+      runHistory: [{ ...run, citationState: 'not-measured', answerMentioned: true }],
+    }),
+    evidence('Best widgets', 'gemini', {
+      citationState: 'cited', answerMentioned: false, visibilityState: 'not-visible',
+      runHistory: [{ ...run, citationState: 'cited', answerMentioned: false }],
+    }),
+    evidence('Local only', 'local', {
+      citationState: 'not-measured', answerMentioned: false, visibilityState: 'not-visible',
+      runHistory: [{ ...run, citationState: 'not-measured', answerMentioned: false }],
+    }),
+  ]} />)
+  const mixed = screen.getByText('Best widgets').closest('tr')!
+  const localOnly = screen.getByText('Local only').closest('tr')!
+  // Mentions keep every engine in their base.
+  expect(within(mixed).getByTitle('1 of 2 engines mentioned').textContent).toBe('1/2')
+  expect(within(localOnly).getByTitle('0 of 1 engines mentioned').textContent).toBe('0/1')
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Citations' }))
+  expect(within(mixed).getByText('Cited')).toBeTruthy()
+  expect(within(mixed).getByTitle('1 of 1 engines cited, 1 not measured').textContent).toBe('1/1')
+  // No engine's answer had sources: no base to count over, never "0/1 Not Cited",
+  // and the badge is not toned as a miss.
+  const badge = within(localOnly).getByText('Not measured')
+  expect(badge.className).toContain('text-neutral')
+  expect(badge.className).not.toContain('text-caution')
+  expect(within(localOnly).queryByTitle(/engines cited/)).toBeNull()
+  expect(within(localOnly).getByText('Citation not measured')).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Best widgets', exact: true }))
+  const localRow = [...document.querySelectorAll<HTMLElement>('tr.query-evidence-engine-row')].find(row => within(row).queryByText('Local'))!
+  expect(within(localRow).getByText('Not measured')).toBeTruthy()
+  expect(within(localRow).getByText('Citation not measured')).toBeTruthy()
+})

@@ -46,6 +46,34 @@ describe('buildVisibilityScore', () => {
     expect(result.delta).toBe('2 of 3 queries cited')
   })
 
+  // Local returns no sources: its answers are neither cited nor not cited.
+  it('rates over queries with a checked answer, leaving Local-only queries out (mixed engines)', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', provider: 'gemini', citationState: 'cited' }),
+      snap({ queryId: 'q1', provider: 'local', citationState: 'not-measured' }),
+      snap({ queryId: 'q2', provider: 'gemini', citationState: 'not-cited' }),
+      snap({ queryId: 'q2', provider: 'local', citationState: 'not-measured' }),
+      snap({ queryId: 'q3', provider: 'local', citationState: 'not-measured' }),
+    ]
+    const result = buildVisibilityScore(snapshots, { configuredApiProviders: ['gemini', 'local'] })
+    expect(result.value).toBe('50.0%')
+    expect(result.progress).toBe(50)
+    expect(result.delta).toBe('1 of 2 queries cited')
+    expect(result.description).toContain('1 more query has only answers without sources')
+  })
+
+  it('reads "Not measured" with no progress when no answer carries sources', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', provider: 'local', citationState: 'not-measured' }),
+      snap({ queryId: 'q2', provider: 'local', citationState: 'not-measured' }),
+    ]
+    const result = buildVisibilityScore(snapshots, { configuredApiProviders: ['local'] })
+    expect(result.value).toBe('Not measured')
+    expect(result.tone).toBe('neutral')
+    expect(result.progress).toBeUndefined()
+    expect(result.delta).toBe('2 queries without sources')
+  })
+
   it('treats a query as cited when ANY provider snapshot is cited', () => {
     const snapshots = [
       snap({ queryId: 'q1', provider: 'gemini', citationState: 'not-cited' }),
