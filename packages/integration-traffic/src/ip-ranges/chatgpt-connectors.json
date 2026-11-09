@@ -1,6 +1,6 @@
 {
   "_source": "https://openai.com/chatgpt-connectors.json",
-  "creationTime": "2026-10-27T18:18:51.926871",
+  "creationTime": "2026-11-06T18:26:55.215535",
   "prefixes": [
     {
       "ipv4Prefix": "100.31.168.162/32"
@@ -634,6 +634,9 @@
     },
     {
       "ipv4Prefix": "51.57.0.96/28"
+    },
+    {
+      "ipv4Prefix": "51.57.158.112/28"
     },
     {
       "ipv4Prefix": "51.59.24.64/28"
