@@ -39834,7 +39834,7 @@ export type GetApiV1ProjectsByNameAgentReadinessRunsError = GetApiV1ProjectsByNa
 
 export type GetApiV1ProjectsByNameAgentReadinessRunsResponses = {
     /**
-     * Agent Readiness scan history returned.
+     * Agent Readiness audit scan history returned.
      */
     200: SiteHealthScansResponseDto;
 };
@@ -39944,7 +39944,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsError = GetApiV1ProjectsByName
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsResponses = {
     /**
-     * Agent Readiness scan history returned.
+     * Agent Readiness audit scan history returned.
      */
     200: SiteHealthScansResponseDto;
 };
@@ -40053,7 +40053,7 @@ export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressError = GetAp
 
 export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponses = {
     /**
-     * Exact stored Agent Readiness scan progress returned.
+     * Exact stored Agent Readiness audit scan progress returned.
      */
     200: SiteAuditRunProgressDto;
 };
@@ -40087,7 +40087,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressError = GetApiV
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponses = {
     /**
-     * Exact stored Agent Readiness scan progress returned.
+     * Exact stored Agent Readiness audit scan progress returned.
      */
     200: SiteAuditRunProgressDto;
 };

@@ -1995,7 +1995,7 @@ export const siteAuditRunResponseSchema = z.object({
 export type SiteAuditRunResponseDto = z.infer<typeof siteAuditRunResponseSchema>
 
 /**
- * One entry in the Agent Readiness scan history. `hasCrawlData` separates a scan
+ * One entry in the Agent Readiness audit scan history. `hasCrawlData` separates a scan
  * that published a page and internal-link graph from a legacy score-only scan
  * that predates crawl persistence: both are real, selectable history, but only
  * the first can open the map, inventory, or structure views.

@@ -108,7 +108,7 @@ export async function showStatus(project: string | undefined, format?: string, o
     const projectArg = /^[\w.-]+$/.test(project)
       ? project
       : `'${project.replaceAll("'", `'\\''`)}'`
-    console.log(`\n  No runs yet. Run an Agent Readiness scan with "canonry agent-readiness run ${projectArg}", or run an AI Visibility sweep after adding a provider.`)
+    console.log(`\n  No runs yet. Run an Agent Readiness audit scan with "canonry agent-readiness run ${projectArg}", or run an AI Visibility sweep after adding a provider.`)
   }
 
   const admission = runAdmissionLines(project, latest.admission, latest.manualAdmission)

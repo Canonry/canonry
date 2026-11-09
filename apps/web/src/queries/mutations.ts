@@ -34,7 +34,7 @@ function useWriteGuard(): () => void {
 function queuedTitleForRun(run: Pick<ApiRun, 'kind' | 'status'>) {
   if (run.kind === RunKinds['gsc-sync']) return 'GSC sync queued'
   if (run.kind === RunKinds['inspect-sitemap']) return 'Sitemap inspection queued'
-  // As the Agent Readiness scan toast does: a run the response reports as
+  // As the Agent Readiness audit scan toast does: a run the response reports as
   // already underway is not announced as queued.
   return run.status === RunStatuses.running ? 'AI Visibility check already running' : 'AI Visibility check queued'
 }
@@ -235,7 +235,7 @@ export function useTriggerSiteAudit() {
         lastAnnouncedStatus: result.status,
       })
       addToast({
-        title: result.status === 'running' ? 'Agent Readiness scan already running' : 'Agent Readiness scan queued',
+        title: result.status === 'running' ? 'Agent Readiness audit scan already running' : 'Agent Readiness audit scan queued',
         detail: `${variables.projectLabel ?? variables.projectName} will refresh automatically when the scan finishes.`,
         tone: 'neutral',
         dedupeKey: `run:${result.runId}`,

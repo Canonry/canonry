@@ -2597,7 +2597,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
   })
 
-  // GET /projects/:name/agent-readiness/runs — Agent Readiness scan history. Every
+  // GET /projects/:name/agent-readiness/runs — Agent Readiness audit scan history. Every
   // non-probe site-audit run is listed, including the legacy score-only ones,
   // so selecting a scan never depends on guessing which runs kept a crawl.
   for (const path of agentReadinessRoutes('/runs')) app.get<{
@@ -2808,7 +2808,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       throw validationError(parsed.error.issues[0]?.message ?? 'Invalid site-audit request')
     }
     if (!opts.onSiteAuditRequested) {
-      throw missingDependency('Agent Readiness scans are not available on this deployment.', {
+      throw missingDependency('Agent Readiness audit scans are not available on this deployment.', {
         reason: 'no-site-audit-handler',
       })
     }
@@ -2840,7 +2840,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
           return { runId: existing.id, status: existing.status as RunStatus, created: false }
         }
         throw operationInProgress(
-          `An Agent Readiness scan is already ${existing.status} with different request options.`,
+          `An Agent Readiness audit scan is already ${existing.status} with different request options.`,
           {
             activeRunId: existing.id,
             activeStatus: existing.status,

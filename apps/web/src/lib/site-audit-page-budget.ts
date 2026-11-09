@@ -8,7 +8,7 @@ import {
 
 /**
  * Agent Readiness page budgets in words, shared by Project Settings (where a
- * project's budget is saved) and Agent Readiness Scan settings (where one scan
+ * project's budget is saved) and the Agent Readiness tab's Scan settings (where one scan
  * may set its own). Copy only: the server resolves which budget a scan uses.
  */
 

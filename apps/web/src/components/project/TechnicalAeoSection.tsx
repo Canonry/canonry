@@ -147,7 +147,7 @@ export function TechnicalAeoSection({
 }: {
   projectName: string
   projectId: string
-  /** When supplied, keep every scorecard read pinned to the parent Agent Readiness scan. */
+  /** When supplied, keep every scorecard read pinned to the parent Agent Readiness audit scan. */
   runId?: string | null
   /** Hide duplicate history and run controls when rendered inside Agent Readiness. */
   integrated?: boolean
@@ -387,7 +387,7 @@ export function TechnicalAeoSection({
             <ScanSearch className="mx-auto size-7 text-muted" aria-hidden="true" />
             <h2 className="mt-3 text-heading-16 text-heading">Score unavailable</h2>
             <p className="mx-auto mt-2 max-w-md text-copy-14 text-secondary">
-              {managedScanForViewer ? MANAGED_SCANS_COPY : 'Run a new Agent Readiness scan to calculate page-level findings.'}
+              {managedScanForViewer ? MANAGED_SCANS_COPY : 'Run a new Agent Readiness audit scan to calculate page-level findings.'}
             </p>
           </section>
           {unavailableFooter}
@@ -397,9 +397,9 @@ export function TechnicalAeoSection({
     return (
       <Card className="surface-card mt-6 p-8 text-center">
         <ScanSearch className="mx-auto mb-3 h-8 w-8 text-muted" aria-hidden="true" />
-        <h2 className="text-heading-16 text-heading">No Agent Readiness scan yet</h2>
+        <h2 className="text-heading-16 text-heading">No Agent Readiness audit scan yet</h2>
         <p className="supporting-copy mx-auto mt-2 max-w-md">
-          An Agent Readiness scan crawls your sitemap and scores every page for structured data, AI-readable content,
+          An Agent Readiness audit scan crawls your sitemap and scores every page for structured data, AI-readable content,
           crawler access, freshness, and more, then rolls it up into one Agent Readiness score.
         </p>
         {!isEmbed() && !managedScanForViewer && (
@@ -542,12 +542,12 @@ export function TechnicalAeoSection({
         <div className="flex flex-wrap items-center justify-end gap-2">
           {runId === undefined && trendPoints.length > 1 ? (
             <select
-              aria-label="View an Agent Readiness scan"
+              aria-label="View an Agent Readiness audit scan"
               value={selectedRunId ?? ''}
               onChange={(event) => setSelectedRunId(event.target.value || null)}
               className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
             >
-              <option value="">Latest Agent Readiness scan</option>
+              <option value="">Latest Agent Readiness audit scan</option>
               {[...trendPoints].reverse().slice(1).map((point) => (
                 <option key={point.runId} value={point.runId}>
                   {new Date(point.auditedAt).toLocaleDateString()} · {point.aggregateScore}/100

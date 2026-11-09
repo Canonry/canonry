@@ -122,7 +122,7 @@ async function renderAt(
     readiness?: boolean
     configureFixture?: (dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) => void
     /**
-     * The status of this project's most recent readable Agent Readiness scan, or
+     * The status of this project's most recent readable Agent Readiness audit scan, or
      * undefined for a project that has never been scanned (what the
      * fresh-project fixtures mean).
      */
@@ -3912,7 +3912,7 @@ test.each(['simple', 'advanced'] as const)('managed %s settings exposes schedule
   expect(within(section).queryByRole('button', { name: /Set schedule|Edit schedule|Pause|Resume|Remove|Save schedule/ })).toBeNull()
 })
 
-test('managed header does not label an active Agent Readiness scan as a sweep', async () => {
+test('managed header does not label an active Agent Readiness audit scan as a sweep', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     managedSweeps: true, configureFixture(dashboard) {
       const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
@@ -3932,7 +3932,7 @@ test('managed sweeps removes Simple empty-state launch instructions', async () =
   expect(html).not.toMatch(/Run another check|Complete your first AI Visibility check|Run a check|Engine results appear after the first AI Visibility check/)
 })
 
-test('legacy managedSweeps alone still leaves Agent Readiness scan controls available', async () => {
+test('legacy managedSweeps alone still leaves Agent Readiness audit scan controls available', async () => {
   const html = await renderAt('/projects/project_citypoint/agent-readiness', undefined, undefined, { managedSweeps: true })
   expect(html).toMatch(/Run scan|Checking scan/)
   expect(projectActions(html).textContent).toContain(MANAGED_SWEEPS_RUNNING_COPY)
@@ -4012,10 +4012,10 @@ test.each(['', '/agent-readiness', '/settings', '/history'])('unset managed run 
   }
 })
 
-// Project Settings' "Agent Readiness scans" section: the saved page budget every
+// Project Settings' "Agent Readiness audit scans" section: the saved page budget every
 // scan without its own budget uses. Simple and Advanced share the section.
 function siteHealthScansSection(html: string) {
-  return within(renderedPage(html)).getByRole('heading', { level: 2, name: 'Agent Readiness scans' }).closest('section')!
+  return within(renderedPage(html)).getByRole('heading', { level: 2, name: 'Agent Readiness audit scans' }).closest('section')!
 }
 
 function advancedSettings(mode: 'simple' | 'advanced') {
@@ -4077,7 +4077,7 @@ test.each(['simple', 'advanced'] as const)('%s project hides Settings navigation
   expect(page.queryByRole('link', { name: 'Project settings', exact: true })).toBeNull()
   expect(page.getByText('Your account has view-only access to this project.')).toBeTruthy()
   expect(page.queryByRole('heading', { name: 'Project settings', exact: true })).toBeNull()
-  expect(page.queryByRole('region', { name: 'Agent Readiness scans' })).toBeNull()
+  expect(page.queryByRole('region', { name: 'Agent Readiness audit scans' })).toBeNull()
   expect(page.queryByRole('heading', { name: 'Scheduled runs' })).toBeNull()
   expect(page.queryByRole('heading', { name: 'Notifications' })).toBeNull()
   expect(observed.some(url => url.pathname.endsWith('/notifications'))).toBe(false)
@@ -4101,13 +4101,13 @@ test.each(['simple', 'advanced'] as const)('%s Settings shows the saved page bud
       },
     })
     const section = siteHealthScansSection(html)
-    expect(section.textContent, label).toBe('Agent Readiness scansPage budget: 2,500 pages')
+    expect(section.textContent, label).toBe('Agent Readiness audit scansPage budget: 2,500 pages')
     expect(within(section).queryByRole('combobox'), label).toBeNull()
     expect(within(section).queryByRole('button', { name: /Save|Cancel/ }), label).toBeNull()
   }
 })
 
-test.each(['simple', 'advanced'] as const)('%s Settings lets a project writer edit the page budget when Agent Readiness scans are not managed', async mode => {
+test.each(['simple', 'advanced'] as const)('%s Settings lets a project writer edit the page budget when Agent Readiness audit scans are not managed', async mode => {
   const html = await renderAt('/projects/project_citypoint/settings', undefined, advancedSettings(mode), {
     apiKey: { id: 'key-project-writer', scopes: ['*'], projectId: 'project_citypoint', readOnly: false },
     managedRunKinds: ['answer-visibility'],
@@ -4160,7 +4160,7 @@ test.each(['simple', 'advanced'] as const)('%s Settings saves the page budget th
     </QueryClientProvider>,
   )
 
-  const section = await page.findByRole('region', { name: 'Agent Readiness scans' })
+  const section = await page.findByRole('region', { name: 'Agent Readiness audit scans' })
   const select = within(section).getByRole('combobox', { name: 'Page budget' }) as HTMLSelectElement
   expect(select.value).toBe('2500')
 
@@ -4172,7 +4172,7 @@ test.each(['simple', 'advanced'] as const)('%s Settings saves the page budget th
   // The rest of the project is the stored project, unchanged.
   expect(puts[0]!.aliases).toEqual(['A1 Citypoint'])
   expect(puts[0]!.displayName).toBe(project.project.displayName ?? project.project.name)
-  // The project page's cached project now carries the new budget, which Agent Readiness Scan settings reads.
+  // The project page's cached project now carries the new budget, which the Agent Readiness tab's Scan settings reads.
   const cached = queryClient.getQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: project.project.name } })) as { siteAuditMaxPages?: number | null } | undefined
   expect(cached?.siteAuditMaxPages).toBe(10_000)
 

@@ -31,7 +31,7 @@
     "websiteURL": "https://canonry.ai",
     "defaultPrompt": [
       "Check my Canonry project and explain what changed.",
-      "Run an Agent Readiness scan and help fix the highest-impact issues.",
+      "Run an Agent Readiness audit scan and help fix the highest-impact issues.",
       "Review citation and mention coverage and recommend the next action."
     ],
     "brandColor": "#940000",

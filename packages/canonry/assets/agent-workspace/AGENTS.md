@@ -68,7 +68,7 @@ npx @canonry/agent-readiness@8 <url> --format json
 1. Identify affected queries from insights
 2. Pull evidence: `canonry evidence <project> --format json`
 3. Check each query's history across sweeps: the `runs` in that evidence
-4. If structural issues are suspected, read the latest Agent Readiness scan: `canonry agent-readiness overview <project> --format json`
+4. If structural issues are suspected, read the latest Agent Readiness audit scan: `canonry agent-readiness overview <project> --format json`
 5. Compile findings with evidence and recommended actions
 
 ## Quota Awareness
