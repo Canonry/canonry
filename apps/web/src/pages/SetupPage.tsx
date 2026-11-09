@@ -62,7 +62,7 @@ import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useAccount } from '../contexts/account-context.js'
 import { buildSetupModel, serviceStatusTooltip } from '../lib/health-helpers.js'
 import { useOnboardingRunOutcome } from './OnboardingCompletePage.js'
-import { clearOnboardingDraft, readOnboardingDraft, wasOnboardingScanSkipped, writeOnboardingDraft } from '../lib/onboarding-draft.js'
+import { clearOnboardingDraft, clearOnboardingScanSkipped, readOnboardingDraft, wasOnboardingScanSkipped, writeOnboardingDraft } from '../lib/onboarding-draft.js'
 import { useUnsavedChanges } from '../hooks/use-unsaved-changes.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { formatSweepInstant, summarizeRunError } from '../lib/format-helpers.js'
@@ -606,6 +606,8 @@ function ReadySetupPage({
   const scanFollowsSkip = onboardingFinish && !siteHealthOnboarding && Boolean(createdProjectName)
   const openSiteScan = () => {
     if (!createdProjectName) return
+    // Choosing AI Visibility first noted the scan as skipped; scanning now undoes that.
+    clearOnboardingScanSkipped(createdProjectName)
     void navigate({
       to: '/setup',
       search: { onboarding: 'site-health', setupProject: createdProjectName },

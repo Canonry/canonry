@@ -13,6 +13,7 @@ import { clearOnboardingRunLaunched, readOnboardingLaunchedRun } from '../src/li
 import { getToasts } from '../src/lib/toast-store.js'
 import { formatSweepInstant } from '../src/lib/format-helpers.js'
 import { SetupPage } from '../src/pages/SetupPage.js'
+import { markOnboardingScanSkipped, wasOnboardingScanSkipped } from '../src/lib/onboarding-draft.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import { connectionFixture } from './provider-settings-fixtures.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
@@ -1172,7 +1173,10 @@ test('AI-first setup hands a skipped AI Visibility step to the Agent Readiness a
   const { projectName, requests } = renderProjectSetup({ onboarding: false, onboardingFinish: true, complete: false })
   const scanInstead = await screen.findByRole('button', { name: 'Scan site instead' })
   expect(screen.queryByRole('button', { name: 'Finish without AI Visibility' })).toBeNull()
+  // Choosing AI Visibility first noted the scan as skipped; the walkthrough must not say so now.
+  markOnboardingScanSkipped(projectName)
   fireEvent.click(scanInstead)
+  expect(wasOnboardingScanSkipped(projectName)).toBe(false)
 
   // The scan walkthrough for this same project, where Run first scan approves the crawl.
   expect(navigate).toHaveBeenCalledTimes(1)

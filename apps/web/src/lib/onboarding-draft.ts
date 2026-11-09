@@ -62,6 +62,15 @@ export function markOnboardingScanSkipped(projectName: string): void {
   }
 }
 
+/** Undo the skip when the operator goes on to scan after all. */
+export function clearOnboardingScanSkipped(projectName: string): void {
+  try {
+    window.sessionStorage.removeItem(storageKey(`scan-skipped:${projectName}`))
+  } catch {
+    // Without storage there was no saved skip to undo.
+  }
+}
+
 export function wasOnboardingScanSkipped(projectName: string): boolean {
   try {
     return window.sessionStorage.getItem(storageKey(`scan-skipped:${projectName}`)) === 'true'
