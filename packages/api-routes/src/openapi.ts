@@ -2134,7 +2134,7 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post', path: '/api/v1/projects/{name}/results/clear', summary: 'Preview or clear selected saved visibility and research results', tags: ['runs'],
-    description: 'Administrator or runs.write key only. Exact run IDs are required; confirm defaults to false for a non-mutating preview. Refuses active visibility or research work and any selected non-visibility run. Keeps queries, measurement plans, Agent Readiness scans, backlinks, schedules, audit history, and usage accounting. Back up stored evidence before confirming deletion.',
+    description: 'Administrator or runs.write key only. Exact run IDs are required; confirm defaults to false for a non-mutating preview. Refuses active visibility or research work and any selected non-visibility run. Keeps queries, measurement plans, Agent Readiness audit scans, backlinks, schedules, audit history, and usage accounting. Back up stored evidence before confirming deletion.',
     parameters: [nameParameter],
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ResultsClearRequest' } } } },
     responses: { 200: jsonResponse('Selected history previewed or cleared.', 'ResultsClearResponse'), 400: errorResponse('Invalid selection or unsupported run kind.'), 403: errorResponse('Administrator or runs.write scope required.'), 404: errorResponse('Project or selected run not found.'), 409: errorResponse('Visibility or research work is active.') },
@@ -6070,7 +6070,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/sitemaps',
     summary: 'Compare the site\'s sitemaps with what Google and Bing list',
-    description: 'Stored data only. `site.sitemaps` are the sitemap files the latest Agent Readiness scan read pages from. `google` and `bing` hold each engine\'s stored list (null when the engine is not connected or its list was never read) and `missing`: sitemaps the site declares, or someone submitted to the other engine, that this engine lacks. A file inside a missing index is left out; Google lists only sitemaps inside the connected property.',
+    description: 'Stored data only. `site.sitemaps` are the sitemap files the latest Agent Readiness audit scan read pages from. `google` and `bing` hold each engine\'s stored list (null when the engine is not connected or its list was never read) and `missing`: sitemaps the site declares, or someone submitted to the other engine, that this engine lacks. A file inside a missing index is left out; Google lists only sitemaps inside the connected property.',
     tags: ['sitemaps'],
     parameters: [nameParameter],
     responses: {
@@ -8604,7 +8604,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/agent-readiness/runs',
-    summary: 'List Agent Readiness scan history',
+    summary: 'List Agent Readiness audit scan history',
     description: 'Returns every non-probe `site-audit` run for the project, newest first, including runs still queued or running and runs that failed. `hasCrawlData` says whether that scan published a page and internal-link crawl: a legacy score-only scan is listed with `hasCrawlData=false` rather than hidden, and the crawl-scoped reads answer it with their no-crawl state instead of a 404. `preferredRunId` identifies the default persisted scan shared by score/crawl reads, independently of the history page limit; an explicit selected run stays authoritative.',
     tags: ['agent-readiness'],
     parameters: [
@@ -8612,14 +8612,14 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'limit', in: 'query', description: 'Max scans returned (most recent first). Defaults to 20; max 100.', schema: { type: 'integer', minimum: 1, maximum: 100 } },
     ],
     responses: {
-      200: jsonResponse('Agent Readiness scan history returned.', 'SiteHealthScansResponseDto'),
+      200: jsonResponse('Agent Readiness audit scan history returned.', 'SiteHealthScansResponseDto'),
       404: errorResponse('Project not found.'),
     },
   },
   {
     method: 'get',
     path: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/progress',
-    summary: 'Get exact stored Agent Readiness scan progress',
+    summary: 'Get exact stored Agent Readiness audit scan progress',
     description:
       'Returns durable run, crawl-attempt, and terminal graph-layout state for one exact non-probe site-audit run. It performs no network work and intentionally returns raw counters instead of a completion percentage.',
     tags: ['agent-readiness'],
@@ -8628,7 +8628,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'runId', in: 'path', required: true, description: 'Exact site-audit run ID.', schema: stringSchema },
     ],
     responses: {
-      200: jsonResponse('Exact stored Agent Readiness scan progress returned.', 'SiteAuditRunProgressDto'),
+      200: jsonResponse('Exact stored Agent Readiness audit scan progress returned.', 'SiteAuditRunProgressDto'),
       404: errorResponse('Project or non-probe site-audit run not found.'),
     },
   },
@@ -8651,7 +8651,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'post',
     path: '/api/v1/projects/{name}/agent-readiness/runs',
-    summary: 'Start an Agent Readiness scan (a site-audit run)',
+    summary: 'Start an Agent Readiness audit scan (a site-audit run)',
     description:
       'Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, and optional factor selections match exactly; a semantic mismatch returns 409.',
     tags: ['agent-readiness'],

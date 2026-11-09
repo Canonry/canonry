@@ -96,7 +96,7 @@ describe('Agent Readiness full-crawl CLI', () => {
       await dispatchRegisteredCommand(['agent-readiness', 'run', '--help'], 'text', TECHNICAL_AEO_CLI_COMMANDS)
     })).join('\n')
     expect(help).toContain('Usage:  canonry agent-readiness run <project> [--sitemap-url <url>] [--max-pages <n>]')
-    expect(help).toContain('Start an Agent Readiness scan. No answer-engine provider is required.')
+    expect(help).toContain('Start an Agent Readiness audit scan. No answer-engine provider is required.')
     expect(help).toContain("Without --max-pages the scan uses the project's saved page budget (canonry project update <project> --site-audit-max-pages <n|full>), else the full site, up to 50,000 pages.")
     expect(help).toContain('--wait polls for up to 15 minutes, so a large full-site scan can outlast it; follow it with canonry agent-readiness progress <project> --run-id <id>.')
     expect(help).not.toContain('Deprecated')
@@ -228,7 +228,7 @@ describe('Agent Readiness full-crawl CLI', () => {
     try {
       await technicalAeoProgress('acme', { runId: 'run-1' })
       const output = String(log.mock.calls[0]?.[0])
-      expect(output).toContain('Agent Readiness scan progress: checking (running)')
+      expect(output).toContain('Agent Readiness audit scan progress: checking (running)')
       expect(output).toContain('Pages: 42 found · 17 checked · 1 failed')
       expect(output).toContain('Eligible: 12 · Links found: 88')
       expect(output).not.toContain('%')

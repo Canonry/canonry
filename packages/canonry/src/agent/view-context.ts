@@ -44,7 +44,7 @@ export async function readAeroViewEvidence(options: AeroViewOptions): Promise<un
     }
     const audit = await client.getTechnicalAeoPageAudit(projectName, context.page)
     const search = new URLSearchParams({ nodeKey: context.page.nodeKey, ...(audit.runId || context.page.runId ? { runId: audit.runId ?? context.page.runId! } : {}) })
-    return { context, retrievedAt: new Date().toISOString(), source: { label: 'Open stored page audit', href: `${base}/api/v1/projects/${encodeURIComponent(projectName)}/agent-readiness/crawl/pages/audit?${search}` }, audit, interpretation: 'A stored Agent Readiness scan is not proof of a cause for mention or citation changes.' }
+    return { context, retrievedAt: new Date().toISOString(), source: { label: 'Open stored page audit', href: `${base}/api/v1/projects/${encodeURIComponent(projectName)}/agent-readiness/crawl/pages/audit?${search}` }, audit, interpretation: 'A stored Agent Readiness audit scan is not proof of a cause for mention or citation changes.' }
   }
   const request = visibilityReportRequestSchema.parse(context?.selection ?? { queryClass: 'all', limit: 10 })
   const report = await client.getVisibilityReport(projectName, request)

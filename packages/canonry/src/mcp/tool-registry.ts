@@ -4320,7 +4320,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_agent_readiness_issues',
     title: 'List stored Agent Readiness issues',
-    description: 'Read paginated finding groups from a saved Agent Readiness scan, including duplicate metadata and critical defects regardless of aggregate score. Never starts a crawl. Preserve scan date, run/attempt identity, coverage and partial/unavailable states: an empty result does not prove the site is clean. Disposition separates actionable findings, advisory guidance, unverified checks and information; severity retains the recorded critical-defect level. recommendationsScope distinguishes issue-specific defect guidance from whole-factor advice. stableIdentity=false means the ID cannot establish continuity across scans. Follow nextCursor with the returned runId, or inspect one issue with canonry_agent_readiness_issue_pages.',
+    description: 'Read paginated finding groups from a saved Agent Readiness audit scan, including duplicate metadata and critical defects regardless of aggregate score. Never starts a crawl. Preserve scan date, run/attempt identity, coverage and partial/unavailable states: an empty result does not prove the site is clean. Disposition separates actionable findings, advisory guidance, unverified checks and information; severity retains the recorded critical-defect level. recommendationsScope distinguishes issue-specific defect guidance from whole-factor advice. stableIdentity=false means the ID cannot establish continuity across scans. Follow nextCursor with the returned runId, or inspect one issue with canonry_agent_readiness_issue_pages.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: siteHealthIssuesInputSchema,
@@ -4334,7 +4334,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_agent_readiness_issue_pages',
     title: 'Read pages affected by a saved Agent Readiness issue',
-    description: 'Read paginated affected URLs and saved messages for one issue in the selected Agent Readiness scan. Use the issue ID and runId from canonry_agent_readiness_issues; continue with nextCursor without changing the selection. Null node keys and unavailable/partial coverage remain explicit. recommendationsScope identifies issue-specific defect guidance or broader factor advice; do not present factor advice as an exact fix for this finding. This stored read never crawls, changes content or authorizes edits.',
+    description: 'Read paginated affected URLs and saved messages for one issue in the selected Agent Readiness audit scan. Use the issue ID and runId from canonry_agent_readiness_issues; continue with nextCursor without changing the selection. Null node keys and unavailable/partial coverage remain explicit. recommendationsScope identifies issue-specific defect guidance or broader factor advice; do not present factor advice as an exact fix for this finding. This stored read never crawls, changes content or authorizes edits.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: siteHealthIssuePagesInputSchema,
@@ -4398,7 +4398,7 @@ const rawCanonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_agent_readiness_changes',
-    title: 'Compare Agent Readiness scans',
+    title: 'Compare Agent Readiness audit scans',
     description: 'Compare two immutable complete scans (or the latest pair) for added, removed, and changed canonical pages or links. Results echo resolved filters and scan IDs; the first page has an exact summary, while continuations omit summary/total. MCP pages cap at 25 because every change carries before/after DTOs; filter before paging.',
     access: 'read',
     tier: 'monitoring',
@@ -4430,7 +4430,7 @@ const rawCanonryMcpTools = [
     name: 'canonry_agent_readiness_page_scores',
     title: 'List Agent Readiness page scores',
     description:
-      'List the per-page scores of the latest Agent Readiness scan (paginated). Filter status=error to surface unreachable pages, or sort score-asc (default) to surface the worst-scoring pages first. Use after canonry_agent_readiness_score to drill into which pages drag the site score down.',
+      'List the per-page scores of the latest Agent Readiness audit scan (paginated). Filter status=error to surface unreachable pages, or sort score-asc (default) to surface the worst-scoring pages first. Use after canonry_agent_readiness_score to drill into which pages drag the site score down.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoPagesInputSchema,
@@ -4458,7 +4458,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_sitemaps',
     title: 'Compare sitemaps across the site, Google and Bing',
-    description: 'Read, from stored data, the sitemap files the latest Agent Readiness scan read pages from, each engine\'s sitemap list (status, URL count, submitted and last read) and what each engine is missing: sitemaps the site declares or someone submitted to the other engine. google or bing is null when that engine is not connected or its list was never read. Use for "are my sitemaps in Google and Bing?" before submitting anything.',
+    description: 'Read, from stored data, the sitemap files the latest Agent Readiness audit scan read pages from, each engine\'s sitemap list (status, URL count, submitted and last read) and what each engine is missing: sitemaps the site declares or someone submitted to the other engine. google or bing is null when that engine is not connected or its list was never read. Use for "are my sitemaps in Google and Bing?" before submitting anything.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: projectInputSchema,
@@ -4573,9 +4573,9 @@ const rawCanonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_agent_readiness_run',
-    title: 'Run Agent Readiness scan',
+    title: 'Run Agent Readiness audit scan',
     description:
-      'Start an Agent Readiness scan (a site-audit run). The scan discovers root, sitemap, and linked pages. Without maxPages it uses the project\'s saved page budget (siteAuditMaxPages), else the full site (up to 50,000 pages), and the engine derives the link-observation budget from that page count with a 100,000 floor, so raising maxPages raises it too. An explicit maxEdges is a ceiling that replaces the derivation and can sit below it. It returns {runId, status} and continues in the background. If an active run has identical effective options, this tool returns it; different options are refused. Poll canonry_run_get, then read canonry_agent_readiness_overview and canonry_agent_readiness_score.',
+      'Start an Agent Readiness audit scan (a site-audit run). The scan discovers root, sitemap, and linked pages. Without maxPages it uses the project\'s saved page budget (siteAuditMaxPages), else the full site (up to 50,000 pages), and the engine derives the link-observation budget from that page count with a 100,000 floor, so raising maxPages raises it too. An explicit maxEdges is a ceiling that replaces the derivation and can sit below it. It returns {runId, status} and continues in the background. If an active run has identical effective options, this tool returns it; different options are refused. Poll canonry_run_get, then read canonry_agent_readiness_overview and canonry_agent_readiness_score.',
     access: 'write',
     tier: 'monitoring',
     inputSchema: technicalAeoRunInputSchema,

@@ -2611,7 +2611,7 @@ export const postApiV1ProjectsByNameQueryTrackingCommitMutation = (options?: Par
 /**
  * Preview or clear selected saved visibility and research results
  *
- * Administrator or runs.write key only. Exact run IDs are required; confirm defaults to false for a non-mutating preview. Refuses active visibility or research work and any selected non-visibility run. Keeps queries, measurement plans, Agent Readiness scans, backlinks, schedules, audit history, and usage accounting. Back up stored evidence before confirming deletion.
+ * Administrator or runs.write key only. Exact run IDs are required; confirm defaults to false for a non-mutating preview. Refuses active visibility or research work and any selected non-visibility run. Keeps queries, measurement plans, Agent Readiness audit scans, backlinks, schedules, audit history, and usage accounting. Back up stored evidence before confirming deletion.
  */
 export const postApiV1ProjectsByNameResultsClearMutation = (options?: Partial<Options<PostApiV1ProjectsByNameResultsClearData>>): UseMutationOptions<PostApiV1ProjectsByNameResultsClearResponse, PostApiV1ProjectsByNameResultsClearError, Options<PostApiV1ProjectsByNameResultsClearData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ProjectsByNameResultsClearResponse, PostApiV1ProjectsByNameResultsClearError, Options<PostApiV1ProjectsByNameResultsClearData>> = {
@@ -6831,7 +6831,7 @@ export const getApiV1ProjectsByNameSitemapsQueryKey = (options: Options<GetApiV1
 /**
  * Compare the site's sitemaps with what Google and Bing list
  *
- * Stored data only. `site.sitemaps` are the sitemap files the latest Agent Readiness scan read pages from. `google` and `bing` hold each engine's stored list (null when the engine is not connected or its list was never read) and `missing`: sitemaps the site declares, or someone submitted to the other engine, that this engine lacks. A file inside a missing index is left out; Google lists only sitemaps inside the connected property.
+ * Stored data only. `site.sitemaps` are the sitemap files the latest Agent Readiness audit scan read pages from. `google` and `bing` hold each engine's stored list (null when the engine is not connected or its list was never read) and `missing`: sitemaps the site declares, or someone submitted to the other engine, that this engine lacks. A file inside a missing index is left out; Google lists only sitemaps inside the connected property.
  */
 export const getApiV1ProjectsByNameSitemapsOptions = (options: Options<GetApiV1ProjectsByNameSitemapsData>) => queryOptions<GetApiV1ProjectsByNameSitemapsResponse, GetApiV1ProjectsByNameSitemapsError, GetApiV1ProjectsByNameSitemapsResponse, ReturnType<typeof getApiV1ProjectsByNameSitemapsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -10730,7 +10730,7 @@ export const getApiV1ProjectsByNameTechnicalAeoDeadLinksInfiniteOptions = (optio
 export const getApiV1ProjectsByNameAgentReadinessRunsQueryKey = (options: Options<GetApiV1ProjectsByNameAgentReadinessRunsData>) => createQueryKey('getApiV1ProjectsByNameAgentReadinessRuns', options);
 
 /**
- * List Agent Readiness scan history
+ * List Agent Readiness audit scan history
  *
  * Returns every non-probe `site-audit` run for the project, newest first, including runs still queued or running and runs that failed. `hasCrawlData` says whether that scan published a page and internal-link crawl: a legacy score-only scan is listed with `hasCrawlData=false` rather than hidden, and the crawl-scoped reads answer it with their no-crawl state instead of a 404. `preferredRunId` identifies the default persisted scan shared by score/crawl reads, independently of the history page limit; an explicit selected run stays authoritative.
  */
@@ -10748,7 +10748,7 @@ export const getApiV1ProjectsByNameAgentReadinessRunsOptions = (options: Options
 });
 
 /**
- * Start an Agent Readiness scan (a site-audit run)
+ * Start an Agent Readiness audit scan (a site-audit run)
  *
  * Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, and optional factor selections match exactly; a semantic mismatch returns 409.
  */
@@ -10769,7 +10769,7 @@ export const postApiV1ProjectsByNameAgentReadinessRunsMutation = (options?: Part
 export const getApiV1ProjectsByNameTechnicalAeoRunsQueryKey = (options: Options<GetApiV1ProjectsByNameTechnicalAeoRunsData>) => createQueryKey('getApiV1ProjectsByNameTechnicalAeoRuns', options);
 
 /**
- * List Agent Readiness scan history (deprecated path)
+ * List Agent Readiness audit scan history (deprecated path)
  *
  * Deprecated alias of `GET /api/v1/projects/{name}/agent-readiness/runs`, with the same parameters and response. Use the canonical path.
  *
@@ -10789,7 +10789,7 @@ export const getApiV1ProjectsByNameTechnicalAeoRunsOptions = (options: Options<G
 });
 
 /**
- * Start an Agent Readiness scan (a site-audit run) (deprecated path)
+ * Start an Agent Readiness audit scan (a site-audit run) (deprecated path)
  *
  * Deprecated alias of `POST /api/v1/projects/{name}/agent-readiness/runs`, with the same parameters and response. Use the canonical path.
  *
@@ -10812,7 +10812,7 @@ export const postApiV1ProjectsByNameTechnicalAeoRunsMutation = (options?: Partia
 export const getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey = (options: Options<GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressData>) => createQueryKey('getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgress', options);
 
 /**
- * Get exact stored Agent Readiness scan progress
+ * Get exact stored Agent Readiness audit scan progress
  *
  * Returns durable run, crawl-attempt, and terminal graph-layout state for one exact non-probe site-audit run. It performs no network work and intentionally returns raw counters instead of a completion percentage.
  */
@@ -10832,7 +10832,7 @@ export const getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressOptions = (o
 export const getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey = (options: Options<GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressData>) => createQueryKey('getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgress', options);
 
 /**
- * Get exact stored Agent Readiness scan progress (deprecated path)
+ * Get exact stored Agent Readiness audit scan progress (deprecated path)
  *
  * Deprecated alias of `GET /api/v1/projects/{name}/agent-readiness/runs/{runId}/progress`, with the same parameters and response. Use the canonical path.
  *

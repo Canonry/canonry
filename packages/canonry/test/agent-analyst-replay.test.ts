@@ -57,7 +57,7 @@ it('rejects an invalid project-owned scope before generation and reads selected 
   expect(result).toMatchObject({
     audit: { state: 'unavailable', reason: 'not-checked' },
     source: { label: 'Open stored page audit', href: '/api/v1/projects/demo/agent-readiness/crawl/pages/audit?nodeKey=node-9&runId=scan-7' },
-    interpretation: 'A stored Agent Readiness scan is not proof of a cause for mention or citation changes.',
+    interpretation: 'A stored Agent Readiness audit scan is not proof of a cause for mention or citation changes.',
   })
   const getTechnicalAeoCrawl = vi.fn(async () => ({ hasCrawlData: true, runId: 'scan-8' }))
   const overview = await readAeroViewEvidence({ client: { getTechnicalAeoCrawl } as unknown as ApiClient, projectName: 'demo', basePath: '/canonry/', context: { view: 'site-health' } })

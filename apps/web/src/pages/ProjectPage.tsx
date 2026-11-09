@@ -1730,7 +1730,7 @@ function ProjectPageContent({
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
   // "Map site" invites the operator to do something that has not been done yet,
   // so it needs the one fact the sweep-readiness flags never carry: whether
-  // this project already has an Agent Readiness scan.
+  // this project already has an Agent Readiness audit scan.
   //
   // Scan history, not the crawl summary: a scorecard-only scan published no
   // crawl, so the crawl summary reports no scan for a project that has one and

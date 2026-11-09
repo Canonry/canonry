@@ -124,7 +124,7 @@ export function createOnboardingEventId(): string {
  *   launched a run for project A and then opened setup for project B poll A's
  *   run and attribute its outcome to B's onboarding.
  * - `runId` is what the poll resumes.
- * - `kind` says which run it is. The Agent Readiness scan and the first AI
+ * - `kind` says which run it is. The Agent Readiness audit scan and the first AI
  *   Visibility check share this one marker, and the AI setup wizard must never
  *   poll a running scan as its check. Markers written before the kind was
  *   recorded have none; `isAiVisibilityLaunchedRun` reads those safely.
@@ -164,7 +164,7 @@ export function markOnboardingRunLaunched(projectName: string, runId: string, ki
 /**
  * Whether `marker` holds a first AI Visibility check, the only run the AI
  * setup wizard may resume or report. A marker without a kind predates the
- * field and may hold an Agent Readiness scan, so it counts only when its run is one
+ * field and may hold an Agent Readiness audit scan, so it counts only when its run is one
  * of the project's AI Visibility runs.
  */
 export function isAiVisibilityLaunchedRun(

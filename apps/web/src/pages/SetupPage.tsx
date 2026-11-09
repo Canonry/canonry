@@ -490,7 +490,7 @@ function ReadySetupPage({
     .filter(run => run.kind === RunKinds['answer-visibility'])
     .map(run => run.id))
   const sessionLaunchedRun = useRef(readOnboardingLaunchedRun(resumeProjectName, true)).current
-  // The Agent Readiness scan shares the launched-run marker, so only an AI
+  // The Agent Readiness audit scan shares the launched-run marker, so only an AI
   // Visibility check resumes here. Handled means the outcome was reported, not
   // that its result was dismissed, so a handled check resumes while it is listed.
   const resumableLaunchedRunId = sessionLaunchedRun
@@ -787,7 +787,7 @@ function ReadySetupPage({
   // permanently loses the run-step completion. Failures land in under a second
   // and always emitted; the funnel could record a failure but not a success.
   const pendingLaunchedRun = useRef(readOnboardingLaunchedRun(resumeProjectName)).current
-  // A pending Agent Readiness scan's outcome belongs to the Agent Readiness surface.
+  // A pending Agent Readiness audit scan's outcome belongs to the Agent Readiness surface.
   const pendingLaunchedRunId = pendingLaunchedRun && isAiVisibilityLaunchedRun(pendingLaunchedRun, answerVisibilityRunIds)
     ? pendingLaunchedRun.runId
     : null

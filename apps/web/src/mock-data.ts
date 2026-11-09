@@ -222,7 +222,7 @@ const citypointEvidence: CitationInsightVm[] = [
     groundingSources: [],
     relatedTechnicalSignals: [
       'FAQ schema missing on the emergency service page',
-      'llms.txt not found during the latest Agent Readiness scan',
+      'llms.txt not found during the latest Agent Readiness audit scan',
       'Location pages link weakly into the emergency care hub',
     ],
     summary: 'AI answers now cite two competitors while your emergency page is no longer grounded.',
@@ -1090,7 +1090,7 @@ const baseDashboard: DashboardVm = {
     launchState: {
       enabled: true,
       ctaLabel: 'Launch first run',
-      summary: 'Queue an AI Visibility check first, then follow with an Agent Readiness scan to explain movement.',
+      summary: 'Queue an AI Visibility check first, then follow with an Agent Readiness audit scan to explain movement.',
     },
   },
   settings: {

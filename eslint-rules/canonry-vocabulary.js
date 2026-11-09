@@ -100,10 +100,11 @@ const noQuestionUiCopyRule = {
 // Vocabulary ratchet: the site crawl and audit is "Agent Readiness". Earlier
 // releases showed it as Site Health, Technical AEO, the technical audit and
 // Page health; those names are retired from UI copy so the product shows one
-// name. Machine tokens (`technical-aeo`, `site-health`, `site-audit`) carry no
+// name. One run is an "Agent Readiness audit scan", so the bare "Agent Readiness
+// scan" is retired too. Machine tokens (`technical-aeo`, `site-health`, `site-audit`) carry no
 // space and stay legal, as do identifiers and comments. Audit factor names
 // from @canonry/agent-readiness ("Technical SEO") are not retired names.
-const RETIRED_FEATURE_NAME_RE = /\b(?:site\s+health|technical\s+aeo|technical\s+audits?|page\s+health)\b/i
+const RETIRED_FEATURE_NAME_RE = /\b(?:site\s+health|technical\s+aeo|technical\s+audits?|page\s+health|agent\s+readiness\s+scans?)\b/i
 
 export function isRetiredFeatureNameCopy(text) {
   return typeof text === 'string' && RETIRED_FEATURE_NAME_RE.test(text)
@@ -112,13 +113,14 @@ export function isRetiredFeatureNameCopy(text) {
 const noRetiredFeatureNameRule = {
   meta: {
     type: 'problem',
-    docs: { description: 'Disallow the retired Site Health / Technical AEO names in web UI copy — the feature is Agent Readiness.' },
+    docs: { description: 'Disallow the retired Site Health / Technical AEO names, and the bare "Agent Readiness scan", in web UI copy — the feature is Agent Readiness and one run is an Agent Readiness audit scan.' },
     schema: [],
     messages: {
       retiredFeatureName:
         'The site crawl and audit is "Agent Readiness" in UI copy (labels, headings, buttons, tooltips, ' +
-        'aria-labels, toasts): "Agent Readiness scan", "Agent Readiness score", and the Score view. ' +
-        'Site Health, Technical AEO, technical audit and Page health are retired names. Machine tokens ' +
+        'aria-labels, toasts): "Agent Readiness audit scan" for one run, "Agent Readiness score", and the ' +
+        'Score view. Site Health, Technical AEO, technical audit, Page health and a bare "Agent Readiness ' +
+        'scan" are retired. Machine tokens ' +
         '(technical-aeo, site-health, site-audit) stay as they are.',
     },
   },

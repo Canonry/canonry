@@ -381,7 +381,7 @@ test.each([
 // Aero's reads and Agent Readiness's reads share the generated
 // `getApiV1ProjectsByNameAgent` prefix. An Aero write (here, deleting a saved
 // conversation) refreshes Aero's own reads and must not re-read scan history.
-test('an Aero conversation write refreshes Aero reads without re-reading Agent Readiness scans', async () => {
+test('an Aero conversation write refreshes Aero reads without re-reading Agent Readiness audit scans', async () => {
   let conversationReads = 0
   let scanReads = 0
   const deletes: string[] = []

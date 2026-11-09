@@ -78,10 +78,10 @@ function buildServeOpenLine(input: {
   hasSiteAudit: boolean
 }): string {
   if (input.projectCount === 0) {
-    return `Open ${input.url}/setup to map your site and run your first Agent Readiness scan.`
+    return `Open ${input.url}/setup to map your site and run your first Agent Readiness audit scan.`
   }
   if (!input.hasSiteAudit && input.firstProjectName) {
-    return `Open ${input.url}/setup?onboarding=site-health&setupProject=${encodeURIComponent(input.firstProjectName)} to run your first Agent Readiness scan.`
+    return `Open ${input.url}/setup?onboarding=site-health&setupProject=${encodeURIComponent(input.firstProjectName)} to run your first Agent Readiness audit scan.`
   }
   return `Open ${input.url}`
 }

@@ -94,7 +94,7 @@ export async function technicalAeoScore(project: string, opts: { runId?: string;
 
   if (!score.hasData) {
     console.log(
-      `No Agent Readiness scan yet for "${project}". Run \`canonry agent-readiness run ${project}\` to start one.`,
+      `No Agent Readiness audit scan yet for "${project}". Run \`canonry agent-readiness run ${project}\` to start one.`,
     )
     return
   }
@@ -176,7 +176,7 @@ export async function technicalAeoTrend(
   }
 
   if (res.points.length === 0) {
-    console.log(`No Agent Readiness scans yet for "${project}". Run \`canonry agent-readiness run ${project}\` first.`)
+    console.log(`No Agent Readiness audit scans yet for "${project}". Run \`canonry agent-readiness run ${project}\` first.`)
     return
   }
   const lines: string[] = []
@@ -199,7 +199,7 @@ export async function technicalAeoProgress(
   }
 
   const lines = [
-    `Agent Readiness scan progress: ${progress.phase} (${progress.status})`,
+    `Agent Readiness audit scan progress: ${progress.phase} (${progress.status})`,
     `Run: ${progress.runId}`,
   ]
   if (progress.attempt) {
@@ -702,7 +702,7 @@ export async function technicalAeoRun(
       return
     }
     console.log(
-      `Agent Readiness scan started (run ${runId}, status ${status}). Use \`canonry agent-readiness progress ${project} --run-id ${runId}\` to check status, or pass --wait.`,
+      `Agent Readiness audit scan started (run ${runId}, status ${status}). Use \`canonry agent-readiness progress ${project} --run-id ${runId}\` to check status, or pass --wait.`,
     )
     return
   }
@@ -724,5 +724,5 @@ export async function technicalAeoRun(
     console.log(JSON.stringify({ runId, status: final }, null, 2))
     return
   }
-  console.log(`Agent Readiness scan ${final} (run ${runId}).`)
+  console.log(`Agent Readiness audit scan ${final} (run ${runId}).`)
 }
