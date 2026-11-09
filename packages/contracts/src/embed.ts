@@ -28,7 +28,7 @@ export interface EmbedConfigEntry {
   views?: string[]
   /**
    * Optional allowlist of PROJECT TAB keys the embedded project page may render
-   * (`overview`, `technical-aeo`, `search-console`, `activity`, `backlinks`, ...).
+   * (`overview`, `agent-readiness`, `search-console`, `activity`, `backlinks`, ...).
    * Finer-grained than `views` (which only gates whole top-level routes): the
    * project page collapses to one `project` view, so this is the only lever that
    * can hide individual operator tabs from the embedded client dashboard. Omit =

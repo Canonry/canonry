@@ -342,9 +342,7 @@ cancelled run or a sweep still running after it never moves the row. The
 trend's sweep dates and the sentiment backfill's sweeps read `visibilitySweeps`
 (every completed or partial sweep, from the whole run list), never the five-row
 `recentRuns`.
-Non-brand counts on By engine read amber below 70% of their base and green from
-it (`coverageTone` in `lib/answer-movement.ts`), never red; branded and
-unclassified counts are never toned.
+By engine shows the server's rates as they come, untoned in every query class.
 
 `VisibilityTrendSection` ("AI answers over time") is an AI Visibility card: the
 latest point's date and sweep count, one headline figure, the chart, and a
@@ -391,9 +389,11 @@ and include that scope in each value's accessible text. Show the denominator
 once, beside the count, rather than repeating the server's caption. They have
 no class split, so the class control never touches them. The section needs no
 read beyond /overview. A gap counts only tracked competitors, so with none
-tracked the rows give way to an empty state (`COMPETITOR_COMPARISON_COPY`:
-"No competitors set", why, and an Add competitors action for writers outside
-embeds), and Mention share reads "No comparison" with its named-in count. The
+tracked the heading reads "Compare competitors", the section starts closed,
+and opening it shows an empty state instead of the rows
+(`COMPETITOR_COMPARISON_COPY`: "No competitors set", why, and an Add
+competitors action for writers outside embeds), while Mention share reads
+"No comparison" with its named-in count. The
 disclosure toggle takes its name from the heading alone (`aria-labelledby`),
 with its meta line as the description.
 
@@ -822,8 +822,8 @@ import { CHART_TOOLTIP_STYLE, CHART_AXIS_TICK, CHART_SERIES_COLORS } from '../sh
   timelines) where Recharts is overkill.
 
 **Narrow Agent Readiness exception:** the `/agent-readiness` route (**Agent
-Readiness**) renders its site map with stable `sigma@3` through
-`@react-sigma/core@5` and `graphology`. This is a WebGL graph renderer, not a
+Readiness**) renders its site map with stable `sigma@4` through
+`@react-sigma/core@6` and `graphology`. This is a WebGL graph renderer, not a
 second charting system. Keep all Sigma/Graphology imports inside
 `SiteGraphSigma.tsx` and `site-graph-sigma.ts`; every other visual stays on the
 Recharts path above.
