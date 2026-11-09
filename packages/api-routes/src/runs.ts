@@ -16,6 +16,7 @@ import {
   resolveRunDispatchModes,
   summarizeRunUsage,
   summarizeObservedQueryCounts,
+  summarizeObservedQueryCountsByClass,
   measurementRunScopeIsEmpty,
   RunKinds,
   RunTriggers,
@@ -46,6 +47,7 @@ import { gte } from 'drizzle-orm'
 import { activeRevisionProviders, assertMeasurementRunStampable, assertPublishedMeasurementPlanForSweep, hasActiveMeasurementPlan, providerAccountAdmission, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunLocation, resolveRunnableProviderSelection, runAdmissionState, previewManualRun } from './run-queue.js'
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
+import { readQueryClasses } from './query-class-read.js'
 import { cancelSeoRefresh } from './seo.js'
 import { competitorIdentityColumns } from './competitor-writes.js'
 import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies } from './provider-models.js'
@@ -1125,13 +1127,24 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       ? [{ queryId: snapshot.queryId, citationState: snapshot.citationState, answerMentioned: snapshot.answerMentioned }]
       : [],
   )
+  const countsAttributable = identifiedSignals.length === mappedSnapshots.length
+  // Each query counts under the class it is listed with, so the split matches
+  // the query list (text-classified, or stored by an active Advanced plan).
+  const queryTexts = new Map<string, string>()
+  for (const snapshot of snapshots) {
+    if (snapshot.queryId && snapshot.query) queryTexts.set(snapshot.queryId, snapshot.query)
+  }
+  const queryClasses = countsAttributable && project
+    ? readQueryClasses(app.db, { id: run.projectId, ...project }, [...queryTexts].map(([id, query]) => ({ id, query })))
+    : null
   return {
     ...formatRun(run),
     providerBatches: readRunProviderBatches(app.db, run.id),
     usage: summarizeRunUsage(snapshots),
     snapshots: mappedSnapshots,
-    queryCounts: identifiedSignals.length === mappedSnapshots.length
-      ? summarizeObservedQueryCounts(identifiedSignals)
+    queryCounts: countsAttributable ? summarizeObservedQueryCounts(identifiedSignals) : null,
+    queryCountsByClass: queryClasses
+      ? summarizeObservedQueryCountsByClass(identifiedSignals, queryId => queryClasses.get(queryId) ?? null)
       : null,
   }
 }

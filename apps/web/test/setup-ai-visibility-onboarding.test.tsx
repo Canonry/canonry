@@ -498,7 +498,7 @@ test('uses project-readable provider readiness for a cold scoped-writer setup', 
   expect(screen.queryByRole('link', { name: 'Open provider settings' })).toBeNull()
   await waitFor(() => expect((screen.getByRole('button', { name: 'Run check' }) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button', { name: 'Run check' }))
-  expect(await screen.findByText('Your check is running. You can leave this page and return to its progress.')).toBeTruthy()
+  expect(await screen.findByText(RUNNING_NOTE)).toBeTruthy()
   expect(requests).toContain('/api/v1/projects/scoped-project/runs')
   expect(requests).not.toContain('/api/v1/settings')
   expect(telemetryEvents.some(event => event.event === 'run.requested')).toBe(false)
@@ -1067,16 +1067,13 @@ test.each(['queued', 'running', 'failed', 'completed'] as const)('managed setup 
   })
   await screen.findByRole('heading', { name: 'AI Visibility', exact: true })
   if (status === 'completed') {
-    await screen.findByText('Mentioned', { selector: 'dt' })
-    expect(resultFigures()).toEqual([
-      ['Mentioned', 'Unavailable · all queries'],
-      ['Cited', 'Unavailable · all queries'],
-      ['Engine results', '1 · all queries'],
-    ])
+    await screen.findByRole('table', { name: RESULT_TABLE })
+    expect(resultRows()).toEqual([['All queries', 'Unavailable', 'Unavailable']])
+    expect(resultSummary('City Point Dental · 1 engine result')).toBeTruthy()
   } else if (status === 'failed') {
     expect(await screen.findByText('Provider quota exceeded')).toBeTruthy()
   } else {
-    expect(await screen.findByText('Your check is running. You can leave this page and return to its progress.')).toBeTruthy()
+    expect(await screen.findByText(RUNNING_NOTE)).toBeTruthy()
     expect(screen.getByText(status === 'queued' ? 'Queued' : 'Running')).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Setup complete' })).toBeNull()
   }
@@ -1099,10 +1096,22 @@ function setupResultSnapshot(overrides: Record<string, unknown>) {
 }
 
 /** The first result's summary row as [label, value], including each value's screen-reader class text. */
-function resultFigures() {
-  const summary = screen.getByText('Mentioned', { selector: 'dt' }).closest('dl')!
-  const values = within(summary).getAllByRole('definition')
-  return within(summary).getAllByRole('term').map((term, index) => [term.textContent, values[index]!.textContent])
+const RESULT_TABLE = 'First AI Visibility check by query class'
+/** The running check's reassurance, after its start time. */
+const RUNNING_NOTE = /You can leave this page; the check keeps running\./
+
+/** The first result's rows as [query class, mentioned, cited]. */
+function resultRows() {
+  const table = screen.getByRole('table', { name: RESULT_TABLE })
+  return within(table).getAllByRole('row').slice(1).map(row => [
+    within(row).getByRole('rowheader').textContent,
+    ...within(row).getAllByRole('cell').map(cell => cell.textContent),
+  ])
+}
+
+/** The line above the table: the project and how many engine results the run saved. */
+function resultSummary(text: string) {
+  return screen.getByText((_, element) => element?.tagName === 'P' && element.textContent === text)
 }
 
 test.each([
@@ -1165,7 +1174,7 @@ test.each([
     status: 'completed',
     snapshots: [setupResultSnapshot({ provider: 'local', citationState: 'not-measured', answerText: 'City Point Dental is a common pick.' })],
     queryCounts: { totalQueries: 1, citedQueries: 0, mentionedQueries: 1, citationNotMeasuredQueries: 1 },
-    mentioned: '1 of 1 query', cited: 'Not measured this engine returns no sources', checks: '1',
+    mentioned: '1 of 1 query', cited: 'Not measured', checks: '1',
     featuredCitation: 'Not measured',
   },
   {
@@ -1184,20 +1193,16 @@ test.each([
   const { requests } = renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), run)
   const resultHeading = await screen.findByRole('heading', { name: 'Saved answers', level: 2 })
 
-  // Branded and non-brand queries share these counts, so the class is named once beside the project.
-  expect(screen.getByText((_, element) => element?.tagName === 'P' && element.textContent === 'City Point Dental · all queries')).toBeTruthy()
-  expect(resultFigures()).toEqual([
-    ['Mentioned', `${mentioned} · all queries`],
-    ['Cited', `${cited} · all queries`],
-    ['Engine results', `${checks} · all queries`],
-  ])
+  // A server without the class split gives pooled counts, so the one row says it is all queries.
+  expect(resultSummary(`City Point Dental · ${checks} engine ${checks === '1' ? 'result' : 'results'}`)).toBeTruthy()
+  expect(resultRows()).toEqual([['All queries', mentioned, cited]])
   // In view on arrival, not behind a disclosure.
-  const summary = screen.getByText('Mentioned', { selector: 'dt' }).closest('dl')!
+  const summary = screen.getByRole('table', { name: RESULT_TABLE })
   expect(summary.closest('details')).toBeNull()
   let resultCard = resultHeading.parentElement!
   while (!resultCard.contains(summary)) resultCard = resultCard.parentElement!
   expect(within(resultCard).getByText('Complete')).toBeTruthy()
-  expect(screen.queryByText('Your check is running. You can leave this page and return to its progress.')).toBeNull()
+  expect(screen.queryByText(RUNNING_NOTE)).toBeNull()
   if ('featuredCitation' in row) {
     // The first saved answer says the same as the Cited figure: an engine without sources is never "Not cited".
     const featured = await screen.findByRole('region', { name: 'Your first saved answer' })
@@ -1206,6 +1211,53 @@ test.each([
   }
   expect(requests).toContain('/api/v1/runs/scoped-run')
   expect(requests).not.toContain('/api/v1/projects/scoped-project/runs')
+})
+
+test.each([
+  {
+    scenario: 'non-brand leads and branded keeps its own denominator',
+    byClass: {
+      nonBrand: { totalQueries: 3, citedQueries: 1, mentionedQueries: 0, citationNotMeasuredQueries: 0 },
+      branded: { totalQueries: 1, citedQueries: 1, mentionedQueries: 1, citationNotMeasuredQueries: 0 },
+      unclassifiedQueries: 0,
+    },
+    rows: [['Non-brand', '0 of 3 queries', '1 of 3 queries'], ['Branded', '1 of 1 query', '1 of 1 query']],
+    note: null,
+  },
+  {
+    scenario: 'a class with no queries gets no row, and unmeasured citations read not measured',
+    byClass: {
+      nonBrand: { totalQueries: 2, citedQueries: 0, mentionedQueries: 1, citationNotMeasuredQueries: 2 },
+      branded: { totalQueries: 0, citedQueries: 0, mentionedQueries: 0, citationNotMeasuredQueries: 0 },
+      unclassifiedQueries: 0,
+    },
+    rows: [['Non-brand', '1 of 2 queries', 'Not measured']],
+    note: null,
+  },
+  {
+    scenario: 'queries with no single class are named, not counted',
+    byClass: {
+      nonBrand: { totalQueries: 1, citedQueries: 1, mentionedQueries: 1, citationNotMeasuredQueries: 0 },
+      branded: { totalQueries: 1, citedQueries: 0, mentionedQueries: 1, citationNotMeasuredQueries: 0 },
+      unclassifiedQueries: 2,
+    },
+    rows: [['Non-brand', '1 of 1 query', '1 of 1 query'], ['Branded', '1 of 1 query', '0 of 1 query']],
+    note: '2 queries have no single query class and are not counted above.',
+  },
+])('setup results show each query class on its own row: $scenario', async ({ byClass, rows, note }) => {
+  // The pooled counts disagree with the split on purpose: the rows must come from queryCountsByClass alone.
+  const run = runDetailDtoSchema.parse({
+    id: 'scoped-run', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'completed',
+    createdAt: '2026-09-05T12:00:00Z', snapshots: [setupResultSnapshot({})],
+    queryCounts: { totalQueries: 9, citedQueries: 9, mentionedQueries: 9, citationNotMeasuredQueries: 0 },
+    queryCountsByClass: byClass,
+  })
+  renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), run)
+  await screen.findByRole('table', { name: RESULT_TABLE })
+  expect(resultRows()).toEqual(rows)
+  expect(screen.queryByRole('rowheader', { name: 'All queries' })).toBeNull()
+  if (note) expect(screen.getByText(note)).toBeTruthy()
+  else expect(screen.queryByText(/no single query class/)).toBeNull()
 })
 
 test('features a non-brand answer over a branded one that names the brand', async () => {
@@ -1266,7 +1318,7 @@ test.each([
   for (const other of snapshots.filter(snapshot => snapshot.answerText && snapshot.answerText !== answer)) {
     expect(screen.queryByText(other.answerText!)).toBeNull()
   }
-  const summary = screen.getByText('Mentioned', { selector: 'dt' }).closest('dl')!
+  const summary = screen.getByRole('table', { name: RESULT_TABLE })
   expect(summary.compareDocumentPosition(featured) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
 
@@ -1481,10 +1533,10 @@ test('keeps the first saved answer mounted while a completed run refreshes the p
   await waitFor(() => expect(screen.getByRole('button', { name: 'Run check' })).toHaveProperty('disabled', false))
   expect(screen.queryByRole('region', { name: 'AI engines' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Run check' }))
-  await screen.findByText('Your check is running. You can leave this page and return to its progress.')
+  await screen.findByText(RUNNING_NOTE)
   // The start time reads in the viewer's zone, as the dashboard's "Last sweep" does.
-  const started = document.querySelector('p[role="status"] time')!
-  expect(started.textContent).toBe(formatSweepInstant(started.getAttribute('dateTime')!))
+  const started = screen.getByText(RUNNING_NOTE).querySelector('time')!
+  expect(started.textContent).toBe(formatSweepInstant(started.getAttribute('dateTime')!, new Date().toISOString()))
   expect(started.textContent).not.toContain('UTC')
 
   completed = true
@@ -1495,8 +1547,8 @@ test('keeps the first saved answer mounted while a completed run refreshes the p
   await waitFor(() => expect(resolveOverview).toBeTypeOf('function'))
   expect(screen.getByRole('heading', { name: 'Saved answers' })).toBeTruthy()
   expect(within(screen.getByRole('region', { name: 'Your first saved answer' })).getByText('Local')).toBeTruthy()
-  expect(screen.getByText((_, element) => element?.tagName === 'P' && element.textContent === 'City Point Dental · all queries')).toBeTruthy()
-  expect(resultFigures()).toContainEqual(['Engine results', '1 · all queries'])
+  expect(resultSummary('City Point Dental · 1 engine result')).toBeTruthy()
+  expect(resultRows()).toEqual([['All queries', 'Unavailable', 'Unavailable']])
   expect(screen.queryByRole('heading', { name: 'Add queries' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Reset unsaved fields' })).toBeNull()
   resolveOverview?.(jsonResponse(null))
@@ -1636,18 +1688,52 @@ test('counts saved engine results against the requests previewed for the check l
   await waitFor(() => expect(screen.getByRole('button', { name: 'Run check' })).toHaveProperty('disabled', false))
   fireEvent.click(screen.getByRole('button', { name: 'Run check' }))
   const progress = (text: string) => (_: string, element: Element | null) => element?.getAttribute('role') === 'status' && element.textContent === text
-  expect(await screen.findByText(progress(`0 of 3 engine results saved · Started ${formatSweepInstant(startedAt)}`))).toBeTruthy()
+  expect(await screen.findByText(progress('0 of 3 engine results saved'))).toBeTruthy()
+  const bar = screen.getByRole('progressbar', { name: 'Engine results saved' })
+  expect([bar.getAttribute('aria-valuenow'), bar.getAttribute('aria-valuemax')]).toEqual(['0', '3'])
+  expect(screen.getByText(RUNNING_NOTE).textContent).toBe(`Started ${formatSweepInstant(startedAt, new Date().toISOString())}. You can leave this page; the check keeps running.`)
+  // Outside first-run setup the project may already have a scan, so no scan is offered here.
+  expect(screen.queryByRole('button', { name: 'Check Agent Readiness' })).toBeNull()
 
   snapshots = [setupResultSnapshot({ runId: 'progress-run' })]
   await queryClient.invalidateQueries({ queryKey: getApiV1RunsByIdQueryKey({ client: heyClient, path: { id: 'progress-run' } }) })
-  expect(await screen.findByText(progress(`1 of 3 engine results saved · Started ${formatSweepInstant(startedAt)}`))).toBeTruthy()
+  expect(await screen.findByText(progress('1 of 3 engine results saved'))).toBeTruthy()
+  expect(screen.getByRole('progressbar', { name: 'Engine results saved' }).getAttribute('aria-valuenow')).toBe('1')
+})
+
+test('first-run setup offers the Agent Readiness audit scan while the first check runs', async () => {
+  const { projectName } = renderProjectSetup({
+    onboarding: false,
+    onboardingFinish: true,
+    complete: false,
+    queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]),
+    runResponse: init => jsonResponse(runDetailDtoSchema.parse(init?.method === 'POST'
+      ? { id: 'offer-run', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'queued', createdAt: '2026-09-05T12:00:00Z' }
+      : { id: 'offer-run', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'running', createdAt: '2026-09-05T12:00:00Z', startedAt: '2026-09-05T12:00:30Z', snapshots: [] })),
+  })
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Run check' })).toHaveProperty('disabled', false))
+  fireEvent.click(screen.getByRole('button', { name: 'Run check' }))
+  await screen.findByText(RUNNING_NOTE)
+  expect(screen.getByRole('heading', { name: 'Your first AI Visibility check' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Agent Readiness audit scan' })).toBeTruthy()
+  navigate.mockClear()
+  fireEvent.click(screen.getByRole('button', { name: 'Check Agent Readiness' }))
+  // The scan walkthrough for this project, where Run first scan approves the crawl.
+  expect(navigate).toHaveBeenCalledWith({
+    to: '/setup',
+    search: { onboarding: 'site-health', setupProject: projectName },
+    replace: true,
+  })
 })
 
 test('a check resumed from an earlier visit shows its saved results without a planned total', async () => {
   const startedAt = '2026-09-05T12:00:30Z'
   renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), { status: 'running', startedAt, snapshots: [setupResultSnapshot({})] })
   expect(await screen.findByText((_, element) => element?.getAttribute('role') === 'status'
-    && element.textContent === `1 engine result saved · Started ${formatSweepInstant(startedAt)}`)).toBeTruthy()
+    && element.textContent === '1 engine result saved')).toBeTruthy()
+  // Without a planned total there is no bounded scale, so no progress bar.
+  expect(screen.queryByRole('progressbar', { name: 'Engine results saved' })).toBeNull()
 })
 
 test('says what each provider to connect is and what connecting it takes', async () => {

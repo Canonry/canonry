@@ -9814,6 +9814,21 @@ export type LatestProjectRunDto = {
             mentionedQueries: number;
             citationNotMeasuredQueries?: number;
         } | null;
+        queryCountsByClass?: {
+            nonBrand: {
+                totalQueries: number;
+                citedQueries: number;
+                mentionedQueries: number;
+                citationNotMeasuredQueries?: number;
+            };
+            branded: {
+                totalQueries: number;
+                citedQueries: number;
+                mentionedQueries: number;
+                citationNotMeasuredQueries?: number;
+            };
+            unclassifiedQueries: number;
+        } | null;
         providerBatches?: Array<{
             id: string;
             provider: string;
@@ -15079,6 +15094,21 @@ export type ProjectOverviewDto = {
                 mentionedQueries: number;
                 citationNotMeasuredQueries?: number;
             } | null;
+            queryCountsByClass?: {
+                nonBrand: {
+                    totalQueries: number;
+                    citedQueries: number;
+                    mentionedQueries: number;
+                    citationNotMeasuredQueries?: number;
+                };
+                branded: {
+                    totalQueries: number;
+                    citedQueries: number;
+                    mentionedQueries: number;
+                    citationNotMeasuredQueries?: number;
+                };
+                unclassifiedQueries: number;
+            } | null;
             providerBatches?: Array<{
                 id: string;
                 provider: string;
@@ -16336,6 +16366,21 @@ export type RunDetailDto = {
         citedQueries: number;
         mentionedQueries: number;
         citationNotMeasuredQueries?: number;
+    } | null;
+    queryCountsByClass?: {
+        nonBrand: {
+            totalQueries: number;
+            citedQueries: number;
+            mentionedQueries: number;
+            citationNotMeasuredQueries?: number;
+        };
+        branded: {
+            totalQueries: number;
+            citedQueries: number;
+            mentionedQueries: number;
+            citationNotMeasuredQueries?: number;
+        };
+        unclassifiedQueries: number;
     } | null;
     providerBatches?: Array<{
         id: string;
@@ -17625,6 +17670,7 @@ export type SiteCrawlSummaryDto = {
         pagesFetched: number;
         pagesEligible: number;
         edges: number;
+        internalLinks?: number | null;
         findings: number;
     };
     deadLinks: {

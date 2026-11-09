@@ -644,11 +644,12 @@ export function loadedConfigPath(config: CanonryConfig): string | undefined {
 
 export function loadConfig(configPath = getConfigPath()): CanonryConfig {
   if (!fs.existsSync(configPath)) {
-    throw new Error(
-      `Config not found at ${configPath}.\n` +
+    // A missing config is a setup step for the operator, not a failure to
+    // retry: exit 1 with the code the other config-less commands use.
+    const message = `Config not found at ${configPath}.\n` +
       'Run "canonry bootstrap" to create the local Agent Readiness runtime; provider credentials are optional.\n' +
-      'Use "canonry init" instead only when you want interactive provider/OAuth provisioning.',
-    )
+      'Use "canonry init" instead only when you want interactive provider/OAuth provisioning.'
+    throw new CliError({ code: 'CONFIG_REQUIRED', message, displayMessage: message, details: { configPath } })
   }
   const raw = fs.readFileSync(configPath, 'utf-8')
   const parsed = parse(raw) as CanonryConfig

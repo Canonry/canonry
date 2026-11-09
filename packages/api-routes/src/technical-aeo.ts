@@ -1167,11 +1167,26 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         pagesFetched: snapshot.pagesFetched,
         pagesEligible: snapshot.pagesEligible,
         edges: snapshot.edgesDiscovered,
+        internalLinks: mapLinkTotal(project.id, snapshot),
         findings: snapshot.findingsCount,
       },
       deadLinks,
     }
   })
+
+  /** The links between mapped pages once the site map is built, the same total the graph read reports. */
+  function mapLinkTotal(projectId: string, snapshot: { runId: string; attemptId: string | null }): number | null {
+    if (!snapshot.attemptId) return null
+    const layout = app.db.select({ state: siteCrawlGraphLayouts.state, layoutVersion: siteCrawlGraphLayouts.layoutVersion, totalEdges: siteCrawlGraphLayouts.totalEdges })
+      .from(siteCrawlGraphLayouts)
+      .where(and(
+        eq(siteCrawlGraphLayouts.projectId, projectId),
+        eq(siteCrawlGraphLayouts.runId, snapshot.runId),
+        eq(siteCrawlGraphLayouts.attemptId, snapshot.attemptId),
+      ))
+      .limit(1).get()
+    return layout?.state === 'ready' && layout.layoutVersion ? layout.totalEdges : null
+  }
 
   // GET /projects/:name/agent-readiness/graph — the persisted Agent Readiness
   // projection. Sampling and ForceAtlas2 run exactly once at snapshot publish;

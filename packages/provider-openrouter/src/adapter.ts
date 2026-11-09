@@ -1,7 +1,7 @@
 import {
   asRecord, describeError, hostOf, isRetryableHttpError, normalizeServedModel,
   openRouterRouteModel, openRouterRouteName, OPENROUTER_MODEL_PATTERN, OPENROUTER_ROUTE_FAMILY, ProviderKinds, registrableDomain, RetrievalContracts,
-  RetrievalStatuses, retryAfterDelayMs, usageCount, withRetry,
+  RetrievalStatuses, redactKnownSecrets, redactLogString, retryAfterDelayMs, usageCount, withRetry,
   type GroundingSource, type ModelDefinition, type NormalizedQueryResult,
   type ProviderAdapter, type ProviderConfig, type RawQueryResult, type TrackedQueryInput,
   type TrackedQueryRequest,
@@ -17,10 +17,26 @@ function modelOf(config: ProviderConfig): string {
 }
 
 class OpenRouterHttpError extends Error {
-  constructor(readonly status: number, readonly retryAfter?: string) {
-    super(`OpenRouter request failed (HTTP ${status})`)
+  /** `detail` is OpenRouter's own message, so a run error says why (for example, insufficient credits). */
+  constructor(readonly status: number, readonly retryAfter?: string, detail?: string) {
+    super(`OpenRouter request failed (HTTP ${status})${detail ? `: ${detail}` : ''}`)
     this.name = 'OpenRouterHttpError'
   }
+}
+
+/** OpenRouter writes an error's HTTP status as a number, and sometimes as a numeric string. */
+function errorStatus(code: unknown, fallback: number): number {
+  if (typeof code === 'number' && Number.isInteger(code)) return code
+  if (typeof code === 'string' && /^\d{3}$/.test(code.trim())) return Number(code.trim())
+  return fallback
+}
+
+/** OpenRouter's message for a failure as one short line, without the key the request carried. */
+function errorDetail(error: Record<string, unknown> | null | undefined, apiKey?: string): string | undefined {
+  const message = typeof error?.message === 'string' ? error.message.replace(/\s+/g, ' ').trim() : ''
+  if (!message) return undefined
+  const clipped = message.length > 300 ? `${message.slice(0, 297)}...` : message
+  return redactLogString(redactKnownSecrets(clipped, [apiKey]))
 }
 
 /**
@@ -33,11 +49,11 @@ class OpenRouterHttpError extends Error {
  * and citation rate. A failed choice is therefore a failed request, retried
  * like any other provider error.
  */
-function choiceFailure(body: Record<string, unknown>): number | null {
+function choiceFailure(body: Record<string, unknown>): { status: number; error: Record<string, unknown> | null | undefined } | null {
   const choice = Array.isArray(body.choices) ? asRecord(body.choices[0]) : undefined
   const error = asRecord(choice?.error)
   if (!error && choice?.finish_reason !== 'error') return null
-  return typeof error?.code === 'number' ? error.code : 502
+  return { status: errorStatus(error?.code, 502), error }
 }
 
 async function fetchOnce(config: ProviderConfig, resource: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
@@ -47,13 +63,17 @@ async function fetchOnce(config: ProviderConfig, resource: string, body?: Record
     ...(body ? { body: JSON.stringify(body) } : {}),
     signal: signal ?? AbortSignal.timeout(120_000),
   })
-  if (!response.ok) throw new OpenRouterHttpError(response.status, response.headers.get('retry-after') ?? undefined)
+  if (!response.ok) {
+    // The status decides retrying; the body only explains it, and may not be JSON.
+    const failure = asRecord(await response.json().catch(() => null))
+    throw new OpenRouterHttpError(response.status, response.headers.get('retry-after') ?? undefined, errorDetail(asRecord(failure?.error), config.apiKey))
+  }
   const value = asRecord(await response.json())
   if (!value) throw new Error('OpenRouter returned an invalid response')
   const error = asRecord(value.error)
-  if (error) throw new OpenRouterHttpError(typeof error.code === 'number' ? error.code : 502)
+  if (error) throw new OpenRouterHttpError(errorStatus(error.code, 502), undefined, errorDetail(error, config.apiKey))
   const failed = choiceFailure(value)
-  if (failed !== null) throw new OpenRouterHttpError(failed)
+  if (failed !== null) throw new OpenRouterHttpError(failed.status, undefined, errorDetail(failed.error, config.apiKey))
   return value
 }
 
@@ -90,7 +110,7 @@ function sourcesOf(body: Record<string, unknown>): GroundingSource[] {
 function parseResponse(body: Record<string, unknown>, model: string, provider = openRouterRouteName(model)): RawQueryResult {
   // Also exported as parseTrackedQueryResponse, which never passes fetchOnce.
   const failed = choiceFailure(body)
-  if (failed !== null) throw new OpenRouterHttpError(failed)
+  if (failed !== null) throw new OpenRouterHttpError(failed.status, undefined, errorDetail(failed.error))
   const message = messageOf(body)
   if (typeof message?.content !== 'string' || !message.content.trim()) throw new Error('OpenRouter returned no answer text')
   const groundingSources = sourcesOf(body)

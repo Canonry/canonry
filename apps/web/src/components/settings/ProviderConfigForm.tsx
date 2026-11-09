@@ -14,7 +14,7 @@ import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.j
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { forgetProviderConnectionTests, isConnectedRecord, useProviderConnectionTestRecords, useProviderConnectionTests, type ProviderConnectionTestRecord, type ProviderConnectionTestTarget } from '../../queries/provider-connection-tests.js'
-import { PROVIDER_CONNECTION_TEST_COPY, ProviderConnectionTestLine, providerConnectionStatus } from './ProviderConnectionTest.js'
+import { PROVIDER_CONNECTION_TEST_COPY, ProviderConnectionTestLine, connectionUsesProviderAccount, providerConnectionStatus } from './ProviderConnectionTest.js'
 
 /** Existing connections use the same revision, reset, and limit controls in setup and Settings. */
 export function ProviderConfigForm(props: ComponentProps<typeof NewProviderConfigForm> & { configured?: boolean; onCancel?: () => void }) {
@@ -425,7 +425,7 @@ function ProviderConnectionEditor({ connection, catalog, compact = false, onDirt
         {connection.configured && <Button type="button" variant="outline" disabled={dirty || connectionTest.testing} aria-describedby={testSendsRequest ? `${id}-test-notice ${id}-test-status` : `${id}-test-status`} onClick={connectionTest.test}>{connectionTest.testing ? PROVIDER_CONNECTION_TEST_COPY.testing : PROVIDER_CONNECTION_TEST_COPY.testOne}</Button>}
         {dirty && <span className="text-label-12 text-secondary">Unsaved changes</span>}
       </div>
-      {testSendsRequest && <p id={`${id}-test-notice`} className="text-copy-14 text-secondary">{PROVIDER_CONNECTION_TEST_COPY.sends([connection.displayName])}</p>}
+      {testSendsRequest && <p id={`${id}-test-notice`} className="text-copy-14 text-secondary">{PROVIDER_CONNECTION_TEST_COPY.sends([{ label: connection.displayName, usesAccount: connectionUsesProviderAccount(connection.name) }])}</p>}
       {connection.configured && <div id={`${id}-test-status`} role="status">
         {dirty
           ? <p className="text-copy-14 text-secondary">{PROVIDER_CONNECTION_TEST_COPY.saveFirst}</p>

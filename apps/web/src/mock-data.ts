@@ -1119,13 +1119,13 @@ const baseDashboard: DashboardVm = {
     google: { state: 'ready' },
     bing: { state: 'needs-config' },
     selfHostNotes: [
-      'Configuration is stored in ~/.canonry/config.yaml.',
+      'Configuration is stored in config.yaml in the config folder: ~/.canonry, or the folder CANONRY_CONFIG_DIR names when the server starts.',
       'The local config file is the source of truth for authentication credentials.',
       'Google OAuth app credentials and per-domain Google tokens are stored in local config, not the database.',
-      'Database is SQLite at ~/.canonry/data.db.',
-      'API key was auto-generated during canonry init.',
+      'The SQLite database is the path config.yaml names, data.db in the config folder by default.',
+      'The API key in config.yaml was generated when this install was set up.',
     ],
-    bootstrapNote: 'Use the UI, CLI, or ~/.canonry/config.yaml to manage settings. Authentication credentials persist to local config.',
+    bootstrapNote: 'Use the UI, the CLI, or config.yaml to manage settings. Authentication credentials persist to local config.',
   },
 }
 

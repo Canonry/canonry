@@ -699,10 +699,30 @@ export const observedQueryCountsSchema = z.object({
 })
 export type ObservedQueryCounts = z.infer<typeof observedQueryCountsSchema>
 
+/**
+ * Observed query counts split by query class. Branded and non-brand queries
+ * never share a denominator, so a summary leads with `nonBrand` and keeps
+ * `branded` as its own figure. A query with no single class counts in neither.
+ */
+export const runQueryCountsByClassSchema = z.object({
+  nonBrand: observedQueryCountsSchema,
+  branded: observedQueryCountsSchema,
+  /** Observed queries with no single class (a custom portfolio query unassigned or assigned under both classes). */
+  unclassifiedQueries: z.number().int().nonnegative(),
+})
+export type RunQueryCountsByClass = z.infer<typeof runQueryCountsByClassSchema>
+
 export const runDetailDtoSchema = runDtoSchema.extend({
   snapshots: z.array(querySnapshotDtoSchema).optional(),
   /** Observed queries in this exact run. Null when a snapshot lacks query identity; omitted by older servers. */
   queryCounts: observedQueryCountsSchema.nullable().optional(),
+  /**
+   * `queryCounts` split by the class each query is listed with. Null when
+   * `queryCounts` is null, or when no observed query has a class (the project
+   * has no usable brand name, so its counts can only be pooled); omitted by
+   * older servers.
+   */
+  queryCountsByClass: runQueryCountsByClassSchema.nullable().optional(),
   /** The run's provider batches, oldest first. Empty when nothing was batched. */
   providerBatches: z.array(providerBatchSummaryDtoSchema).optional(),
   /** Usage and estimated cost per provider and price tier. Empty when no answer carries usage. */

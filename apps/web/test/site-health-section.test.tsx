@@ -217,6 +217,8 @@ function summary(runId: string, pagesDiscovered: number, complete = true): SiteC
       pagesFetched: pagesDiscovered - 2,
       pagesEligible: pagesDiscovered - 5,
       edges: pagesDiscovered * 7,
+      // The API reports the map's link total here, the same number as the graph fixture's totalEdges.
+      internalLinks: 1,
       findings: 4,
     },
     deadLinks: { state: 'disabled' as const },

@@ -331,7 +331,8 @@ test('settings route renders the shared Google OAuth configuration card', async 
   const html = await renderApp('/settings')
 
   expect(html).toMatch(/Google OAuth/)
-  expect(html).toMatch(/~\/\.canonry\/config\.yaml/)
+  // The config folder is named by how it is chosen, since a server can start with CANONRY_CONFIG_DIR.
+  expect(html).toMatch(/config\.yaml in the config folder: ~\/\.canonry, or the folder CANONRY_CONFIG_DIR names/)
   expect(html).toMatch(/Configure Google OAuth|Update OAuth app/)
 })
 

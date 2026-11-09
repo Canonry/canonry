@@ -4,13 +4,13 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { createClient, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs } from '@canonry/canonry-db'
+import { createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs } from '@canonry/canonry-db'
 import { canonicalMeasurementPlanV2Json, CitationStates, RunKinds, RunStatuses, RunTriggers, type RunDetailDto } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 const NOW = '2026-10-04T00:00:00.000Z'
-const NORTH = { label: 'north', city: 'North City', country: 'US' }
+const NORTH = { label: 'north', city: 'North City', region: 'North Region', country: 'US' }
 const SCOPE = { groups: ['regional'], targets: [], queries: [], resolvedTargets: ['harbor', 'bayside'] }
 const IDENTITY = { schemaVersion: 1 as const, providers: ['gemini', 'openai'], models: { gemini: 'frozen-gemini', openai: 'frozen-openai' }, checksum: 'a'.repeat(64), language: 'en' }
 const MANIFEST = {
@@ -151,5 +151,59 @@ describe('GET /runs/:id observed query counts', () => {
       { id: 'orphan', queryId: null, answerMentioned: true },
       { id: 'retained', queryId: 'first', answerMentioned: true },
     ])
+  })
+})
+
+describe('GET /runs/:id query counts by class', () => {
+  const counts = (totalQueries: number, citedQueries: number, mentionedQueries: number, citationNotMeasuredQueries: number) =>
+    ({ totalQueries, citedQueries, mentionedQueries, citationNotMeasuredQueries })
+
+  it('splits a Simple run by the class each query text carries, adding up to the pooled counts', async () => {
+    db.insert(queries).values({ id: 'branded', projectId: 'counts-project', query: 'Count Company reviews', createdAt: NOW }).run()
+    seedRun('classified')
+    seedSnapshot({ id: 'first-cited', runId: 'classified', queryId: 'first', citationState: CitationStates.cited, answerMentioned: false })
+    seedSnapshot({ id: 'second-mentioned', runId: 'classified', queryId: 'second', citationState: CitationStates['not-cited'], answerMentioned: true })
+    seedSnapshot({ id: 'branded-local', runId: 'classified', queryId: 'branded', provider: 'local', citationState: CitationStates['not-measured'], answerMentioned: true })
+
+    const response = await app.inject({ method: 'GET', url: '/api/v1/runs/classified' })
+    expect(response.statusCode).toBe(200)
+    const body = response.json<RunDetailDto>()
+    expect(body.queryCounts).toEqual(counts(3, 1, 2, 1))
+    expect(body.queryCountsByClass).toEqual({ nonBrand: counts(2, 1, 1, 0), branded: counts(1, 0, 1, 1), unclassifiedQueries: 0 })
+  })
+
+  it('splits an Advanced run by the classes its active plan stores, leaving an unassigned query unclassified', async () => {
+    seedRun('advanced-classified', true)
+    db.insert(measurementPlans).values({ projectId: 'counts-project', activeVersionId: 'frozen-version', createdAt: NOW, updatedAt: NOW }).run()
+    // The plan stores `first` as non-brand and `second` as branded, though neither text names the brand. `third` has no assignment.
+    seedSnapshot({ id: 'first-answer', runId: 'advanced-classified', queryId: 'first', citationState: CitationStates.cited, answerMentioned: true })
+    seedSnapshot({ id: 'second-answer', runId: 'advanced-classified', queryId: 'second', citationState: CitationStates['not-cited'], answerMentioned: true })
+    seedSnapshot({ id: 'third-answer', runId: 'advanced-classified', queryId: 'third', citationState: CitationStates.cited, answerMentioned: false })
+
+    const body = (await app.inject({ method: 'GET', url: '/api/v1/runs/advanced-classified' })).json<RunDetailDto>()
+    expect(body.queryCounts).toEqual(counts(3, 2, 2, 0))
+    expect(body.queryCountsByClass).toEqual({ nonBrand: counts(1, 1, 1, 0), branded: counts(1, 0, 1, 0), unclassifiedQueries: 1 })
+  })
+
+  it('is null, never non-brand, when the project has no usable brand name', async () => {
+    db.insert(projects).values({ id: 'nameless', name: 'nameless', displayName: '', canonicalDomain: '', country: 'US', language: 'en', createdAt: NOW, updatedAt: NOW }).run()
+    seedQuery('nameless-query', 'nameless')
+    seedRun('nameless-run', false, 'nameless')
+    seedSnapshot({ id: 'nameless-answer', runId: 'nameless-run', queryId: 'nameless-query', citationState: CitationStates.cited, answerMentioned: false })
+
+    const body = (await app.inject({ method: 'GET', url: '/api/v1/runs/nameless-run' })).json<RunDetailDto>()
+    expect(body.queryCounts).toEqual(counts(1, 1, 0, 0))
+    expect(body.queryCountsByClass).toBeNull()
+  })
+
+  it('is null with the pooled counts when a deleted query leaves an unattributable answer', async () => {
+    seedRun('orphaned')
+    seedSnapshot({ id: 'kept', runId: 'orphaned', queryId: 'first', citationState: CitationStates.cited, answerMentioned: true })
+    seedSnapshot({ id: 'lost', runId: 'orphaned', queryId: 'second', citationState: CitationStates.cited, answerMentioned: true })
+    db.delete(queries).where(eq(queries.id, 'second')).run()
+
+    const body = (await app.inject({ method: 'GET', url: '/api/v1/runs/orphaned' })).json<RunDetailDto>()
+    expect(body.queryCounts).toBeNull()
+    expect(body.queryCountsByClass).toBeNull()
   })
 })

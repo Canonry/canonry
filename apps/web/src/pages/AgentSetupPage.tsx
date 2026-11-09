@@ -260,7 +260,7 @@ ${resources}Preserve existing client connections, credentials, and access. Do no
   // knows which install is serving it, so the agent is told to stay on that one.
   const setupRequest = `${agentSetupRequest(showResourceLinks)}
 
-This Canonry dashboard is already running at ${instanceUrl}. Work with the install that serves it: if your Canonry config points somewhere else, stop and ask me before starting or bootstrapping another install.`
+This Canonry dashboard is already running at ${instanceUrl}. Work only with the install that serves it. If \`cnry doctor\` reports no config, or you cannot confirm your config belongs to this dashboard, stop and ask me which config folder it uses, then pass that folder as \`CANONRY_CONFIG_DIR\` on every \`cnry\` command. Do not bootstrap, start, or create another install.`
   const pluginSteps = (
     <div className="space-y-5">
       {LOCAL_PLUGIN_COMMANDS.map(({ client, command }) => (

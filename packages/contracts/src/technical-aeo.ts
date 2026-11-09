@@ -360,7 +360,14 @@ export const siteCrawlCountsSchema = z.object({
   pagesDiscovered: z.number().int().nonnegative(),
   pagesFetched: z.number().int().nonnegative(),
   pagesEligible: z.number().int().nonnegative(),
+  /** Every link the crawl observed, internal and external. */
   edges: z.number().int().nonnegative(),
+  /**
+   * Links between the pages on the site map (menu, footer and in-text): the
+   * dashboard's Internal links figure. Null until the map is built; omitted by
+   * older servers and when no crawl exists.
+   */
+  internalLinks: z.number().int().nonnegative().nullable().optional(),
   findings: z.number().int().nonnegative(),
 })
 export type SiteCrawlCountsDto = z.infer<typeof siteCrawlCountsSchema>

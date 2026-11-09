@@ -11,6 +11,7 @@ import { PricingTiers, ProviderBatchRequestOutcomes, ProviderBatchStatuses, Prov
 import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorIdentityAliases, competitorLabelFromDomain, computeCompetitorOverlap, extractRecommendedCompetitors, type CompetitorIdentityInput, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessage, mostActionableProviderErrorCode, withSkippedProviders, buildProviderRunError, buildRunErrorFromMessages, determineAnswerMentioned, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@canonry/canonry-contracts'
 import { answerIdentityChanged, answerIdentityFrom, backfillProjectAnswerMentions, captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, readAnswerIdentity, readMarketCompetitorNames, type AnswerIdentityFingerprint, type RunCompetitors } from '@canonry/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
+import { ProviderFailureBreaker } from './provider-failure-breaker.js'
 import { trackEvent } from './telemetry.js'
 import { buildProviderOutcomeProps, buildRunCompletedProps, buildSiteAuditCompletedProps, describeRunFailure, failureStreakSampling, hashDomain, runFailureSite, telemetryConnectionName, type RunAnswerUsage, type RunPhaseTimings } from './run-telemetry.js'
 import { createLogger } from './logger.js'
@@ -106,6 +107,8 @@ interface PlanSlotContext extends SlotRecordingContext {
   executionGates: ReadonlyMap<ProviderName, ProviderExecutionGate>
   providerDispatchCounts: Map<ProviderName, number>
   providerErrors: Map<ProviderName, string>
+  /** A sweep's breaker for providers that keep failing; a fill has its own (`fill`). */
+  breaker?: ProviderFailureBreaker
   /** A sweep's sync call latencies for `run.completed`; a fill reports none. */
   callLatencies?: Map<ProviderName, number[]>
   fill?: {
@@ -1007,6 +1010,7 @@ export class JobRunner {
 
       // Track per-provider errors for partial completion
       const providerErrors = new Map<ProviderName, string>()
+      const failureBreaker = new ProviderFailureBreaker()
       let totalSnapshotsInserted = 0
 
       // Split providers: API providers fan out in parallel, browser providers run sequentially
@@ -1044,18 +1048,18 @@ export class JobRunner {
         try {
           await gate.run(async () => {
             this.throwIfRunCancelled(runId)
+            const stoppedBy = failureBreaker.stoppedBy(providerName)
+            if (stoppedBy !== undefined) {
+              log.warn('query.skipped', { runId, provider: providerName, query: q.query, reason: 'provider-failing', error: stoppedBy })
+              return
+            }
             providerDispatchCounts.set(providerName, (providerDispatchCounts.get(providerName) ?? 0) + 1)
 
             const callStartedAt = Date.now()
-            const raw = await adapter.executeTrackedQuery(
-              {
-                query: q.query,
-                canonicalDomains: allDomains,
-                competitorDomains,
-                location: runLocation,
-              },
+            const raw = await failureBreaker.track(providerName, () => adapter.executeTrackedQuery(
+              { query: q.query, canonicalDomains: allDomains, competitorDomains, location: runLocation },
               config,
-            )
+            ))
             recordCallLatency(callLatencies, providerName, callStartedAt)
 
             this.throwIfRunCancelled(runId)
@@ -1217,6 +1221,7 @@ export class JobRunner {
         executionGates,
         providerDispatchCounts,
         providerErrors,
+        breaker: failureBreaker,
         callLatencies,
         onInserted: () => { totalSnapshotsInserted++ },
       }
@@ -2731,18 +2736,20 @@ export class JobRunner {
         // another writer may have recorded the slot, its breaker may have
         // stopped this provider, or a newer sweep may have started meanwhile.
         if (ctx.fill?.shouldSkip(providerName, unit.executionId)) return
+        const stoppedBy = ctx.breaker?.stoppedBy(providerName)
+        if (stoppedBy !== undefined) {
+          log.warn('query.skipped', { runId: ctx.runId, provider: providerName, query: unit.queryText, executionId: unit.executionId, reason: 'provider-failing', error: stoppedBy })
+          return
+        }
         ctx.providerDispatchCounts.set(providerName, (ctx.providerDispatchCounts.get(providerName) ?? 0) + 1)
 
         const callStartedAt = Date.now()
-        const raw = await adapter.executeTrackedQuery(
-          {
-            query: unit.queryText,
-            canonicalDomains: ctx.allDomains,
-            competitorDomains,
-            location: unit.context ?? undefined,
-          },
+        const call = () => adapter.executeTrackedQuery(
+          { query: unit.queryText, canonicalDomains: ctx.allDomains, competitorDomains, location: unit.context ?? undefined },
           config,
         )
+        // A sweep counts the outcome inside the gate, before the next slot is let through.
+        const raw = ctx.breaker ? await ctx.breaker.track(providerName, call) : await call()
         recordCallLatency(ctx.callLatencies, providerName, callStartedAt)
 
         // Recorded inside the gate: resolving cited URLs is part of the slot's

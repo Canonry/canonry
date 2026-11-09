@@ -16,6 +16,7 @@ import {
   bucketOnboardingCount,
   formatLocaleLabel,
   isOpenRouterRoute,
+  normalizeProjectDomain,
   normalizeQueryText,
   openRouterRouteModel,
   providerConnectionName,
@@ -23,7 +24,9 @@ import {
   QueryClasses,
   type QueryClass,
   type CitationState,
+  type ObservedQueryCounts,
   type OnboardingTelemetryEvent,
+  type RunQueryCountsByClass,
 } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
@@ -34,7 +37,7 @@ import { NextSteps } from '../components/shared/NextSteps.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
-import { PROVIDER_CONNECTION_TEST_COPY, ProviderConnectionTestLine, providerConnectionStatus } from '../components/settings/ProviderConnectionTest.js'
+import { PROVIDER_CONNECTION_TEST_COPY, ProviderConnectionTestLine, connectionUsesProviderAccount, providerConnectionStatus } from '../components/settings/ProviderConnectionTest.js'
 import { useProviderConnectionTests } from '../queries/provider-connection-tests.js'
 import { catalogRouteFamilies } from '../lib/provider-routes.js'
 import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
@@ -187,12 +190,39 @@ function featuredSetupAnswer<T extends { queryId: string; answerText?: string | 
     ?? answered[0]
 }
 
-/** One figure in the first result's summary row. Its value names the query class for screen readers. */
-function ResultFigure({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * The first result's rows: non-brand first, branded beside it, each with its
+ * own denominator. One pooled row only when the run's queries have no class
+ * (no usable brand name) or the server predates the split.
+ */
+function firstResultRows(
+  byClass: RunQueryCountsByClass | null | undefined,
+  pooled: ObservedQueryCounts | null | undefined,
+): { label: string; counts: ObservedQueryCounts | undefined }[] {
+  if (!byClass) return [{ label: 'All queries', counts: pooled ?? undefined }]
+  const rows = [
+    { label: 'Non-brand', counts: byClass.nonBrand },
+    { label: 'Branded', counts: byClass.branded },
+  ].filter(row => row.counts.totalQueries > 0)
+  return rows.length > 0 ? rows : [{ label: 'Non-brand', counts: byClass.nonBrand }]
+}
+
+/** Every query an engine without sources answered: whether it cites the site was never observed. */
+function citationUnmeasured(counts: ObservedQueryCounts | undefined): boolean {
+  return Boolean(counts && counts.totalQueries > 0 && (counts.citationNotMeasuredQueries ?? 0) === counts.totalQueries)
+}
+
+/**
+ * Engine results saved out of the planned requests, a real bounded scale. Before
+ * the first result the bar pulses, as the Agent Readiness scan's current step does.
+ */
+function EngineResultsProgress({ saved, planned }: { saved: number; planned: number }) {
+  const share = Math.min(1, saved / planned)
   return (
-    <div className="py-3 sm:px-4 sm:first:pl-0 sm:last:pr-0">
-      <dt className="text-label-14 text-secondary">{label}</dt>
-      <dd className="mt-1">{children}<span className="sr-only"> · all queries</span></dd>
+    <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-inset" role="progressbar" aria-label="Engine results saved" aria-valuemin={0} aria-valuemax={planned} aria-valuenow={Math.min(saved, planned)}>
+      {saved === 0
+        ? <div className="h-full w-full rounded-full bg-positive-400/40 motion-safe:animate-pulse" />
+        : <div className="h-full rounded-full bg-positive-400 transition-[width] duration-500" style={{ width: `${Math.max(4, share * 100)}%` }} />}
     </div>
   )
 }
@@ -619,6 +649,20 @@ function ReadySetupPage({
       replace: true,
     })
   }
+  // First-run setup that led with AI Visibility offers the scan beside the check:
+  // it needs no AI engine, and its own Run first scan button approves the crawl.
+  const scanSite = domain ? normalizeProjectDomain(domain) : 'your site'
+  const agentReadinessOffer = (check: 'running' | 'done') => scanFollowsSkip ? (
+    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-t border-default pt-4">
+      <div className="min-w-0 grow basis-64">
+        <h3 className="text-copy-14-strong text-heading">Agent Readiness audit scan</h3>
+        <p className="mt-1 max-w-prose text-copy-14 text-secondary">
+          {check === 'running' ? `See how well AI agents can read ${scanSite} while this check runs.` : `See how well AI agents can read ${scanSite}.`}
+        </p>
+      </div>
+      <Button type="button" variant="outline" onClick={openSiteScan}>Check Agent Readiness</Button>
+    </div>
+  ) : null
 
   const [queriesText, setQueriesText] = useState(draft.queriesText ?? durableQueries.map(query => query.query).join('\n'))
   const [queriesSaved, setQueriesSaved] = useState(draft.queriesText === undefined && durableQueryCount > 0)
@@ -738,7 +782,7 @@ function ReadySetupPage({
   const engineConnectionTestNoticeId = useId()
   const engineConnectionTestNotice = engineConnectionNames.includes(CDP_PROVIDER_NAME)
     ? null
-    : PROVIDER_CONNECTION_TEST_COPY.sends(engineConnectionNames.map(engineConnectionLabel))
+    : PROVIDER_CONNECTION_TEST_COPY.sends(engineConnectionNames.map(name => ({ label: engineConnectionLabel(name), usesAccount: connectionUsesProviderAccount(name) })))
   // Connected only after a passing test of every listed connection; saved settings alone prove nothing.
   const engineConnectionStatus = providerConnectionStatus(engineConnectionTests.results)
   const [selectedProvider, setSelectedProvider] = useState(runnableApiProviders[0]?.name ?? '')
@@ -851,6 +895,8 @@ function ReadySetupPage({
   )
   const triggerRunMutation = useTriggerRun()
   const runPreview = useRunPreview(createdProjectName, step === 4 && !isDashboardManagedSweeps())
+  // The first check spends a provider account unless every planned engine is a Local model server.
+  const firstCheckUsesAccount = runPreview.data ? runPreview.data.engines.some(engine => connectionUsesProviderAccount(engine.provider)) : true
   // The provider requests the server previewed for the check launched here:
   // one engine result each. A check resumed from an earlier visit has none.
   const [launchedRunPlan, setLaunchedRunPlan] = useState<{ runId: string; requestCount: number } | null>(null)
@@ -1938,6 +1984,8 @@ function ReadySetupPage({
           || runStatus === 'cancelled'
         const snapshots = run?.snapshots ?? []
         const queryCounts = run?.queryCounts
+        const resultRows = firstResultRows(run?.queryCountsByClass, queryCounts)
+        const unclassifiedQueries = run?.queryCountsByClass?.unclassifiedQueries ?? 0
         const plannedResults = run && launchedRunPlan?.runId === run.id ? launchedRunPlan.requestCount : null
         const featured = featuredSetupAnswer(snapshots, queryId => durableQueries.find(saved => saved.id === queryId)?.queryClass)
         const featuredAnswer = featured?.answerText ?? ''
@@ -1973,7 +2021,7 @@ function ReadySetupPage({
           <Card className="surface-card step-card">
             <div className="section-head">
               <div>
-                <div className="flex items-center gap-2"><h2>{successfulRun ? 'Saved answers' : isDashboardManagedSweeps() ? 'AI Visibility' : 'Run your first AI Visibility check'}</h2>{successfulRun || isDashboardManagedSweeps() ? null : <InfoTooltip text={`Asks each AI engine your queries and records whether ${createdProjectName ?? 'your site'} is mentioned and cited. It uses your provider account. You can also finish now and run it later from the project.`} />}</div>
+                <div className="flex items-center gap-2"><h2>{successfulRun ? 'Saved answers' : isDashboardManagedSweeps() ? 'AI Visibility' : runTriggered ? 'Your first AI Visibility check' : 'Run your first AI Visibility check'}</h2>{successfulRun || isDashboardManagedSweeps() ? null : <InfoTooltip text={`Asks each AI engine your queries and records whether ${createdProjectName ?? 'your site'} is mentioned and cited.${firstCheckUsesAccount ? ' It uses your provider account.' : ''} You can also finish now and run it later from the project.`} />}</div>
               </div>
               {stepBadge}
             </div>
@@ -2016,7 +2064,7 @@ function ReadySetupPage({
                     {durableQueries.map(query => <li key={query.id}>{query.query}</li>)}
                   </ul>
                 </details>
-                <p className="text-copy-13 text-secondary">Runs once using your provider account. No schedule is created.</p>
+                <p className="text-copy-13 text-secondary">{firstCheckUsesAccount ? 'Runs once using your provider account. No schedule is created.' : 'Runs once. No schedule is created.'}</p>
                 {(launchBlockedReason || runError) && (
                   <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
                     <p>{runError ?? launchBlockedReason}</p>
@@ -2056,16 +2104,22 @@ function ReadySetupPage({
                 </div>
               </div>
             ) : !terminal ? (
-              <div className="compact-stack">
-                <p className="text-neutral">
-                  Your check is running. You can leave this page and return to its progress.
-                </p>
-                {run ? <p className="text-copy-13 text-secondary" role="status">
-                  {plannedResults !== null && snapshots.length <= plannedResults
-                    ? `${snapshots.length} of ${plannedResults} engine ${plannedResults === 1 ? 'result' : 'results'} saved`
-                    : `${snapshots.length} engine ${snapshots.length === 1 ? 'result' : 'results'} saved`} · {run.startedAt ? 'Started' : 'Queued'}{' '}
-                  <time dateTime={run.startedAt ?? run.createdAt}>{formatSweepInstant(run.startedAt ?? run.createdAt)}</time>
-                </p> : null}
+              <div className="space-y-5">
+                <div>
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <p className="text-copy-14-strong text-heading">{run?.startedAt ? 'Asking each engine your queries' : 'Waiting for the check to start'}</p>
+                    {run ? <p className="text-label-14 tabular-nums text-secondary" role="status">
+                      {plannedResults !== null && snapshots.length <= plannedResults
+                        ? `${snapshots.length} of ${plannedResults} engine ${plannedResults === 1 ? 'result' : 'results'} saved`
+                        : `${snapshots.length} engine ${snapshots.length === 1 ? 'result' : 'results'} saved`}
+                    </p> : null}
+                  </div>
+                  {run && plannedResults ? <EngineResultsProgress saved={snapshots.length} planned={plannedResults} /> : null}
+                  <p className="mt-3 text-label-14 text-secondary">
+                    {run ? <>{run.startedAt ? 'Started' : 'Queued'}{' '}<time dateTime={run.startedAt ?? run.createdAt}>{formatSweepInstant(run.startedAt ?? run.createdAt, new Date().toISOString())}</time>. </> : null}
+                    You can leave this page; the check keeps running.
+                  </p>
+                </div>
                 {launchedRun.isError && (
                   <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
                     <p>{launchedRun.error instanceof Error ? launchedRun.error.message : 'Could not refresh the check status.'}</p>
@@ -2074,8 +2128,8 @@ function ReadySetupPage({
                     </Button>
                   </div>
                 )}
-                <div className="setup-nav">
-                  <span />
+                {agentReadinessOffer('running')}
+                <div className="flex flex-wrap justify-end gap-2">
                   <Button type="button" variant="outline" onClick={() => finishSetup()}>
                     {siteHealthOnboarding ? 'Finish setup' : 'Watch on project page'}
                   </Button>
@@ -2110,24 +2164,36 @@ function ReadySetupPage({
               </div>
             ) : (
               <div className="compact-stack">
-                {/* The run's own counts, branded and non-brand queries together: the class is named once here. */}
                 <p className="text-copy-14 text-secondary">
-                  <span className="text-label-14-strong text-heading">{displayName || createdProjectName}</span> · all queries
+                  <span className="text-label-14-strong text-heading">{displayName || createdProjectName}</span>
+                  {' · '}{snapshots.length} engine {snapshots.length === 1 ? 'result' : 'results'}
                 </p>
-                <dl className="grid grid-cols-1 divide-y divide-default sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-                  <ResultFigure label="Mentioned">
-                    <QueryShare count={queryCounts?.mentionedQueries} total={queryCounts?.totalQueries} />
-                  </ResultFigure>
-                  <ResultFigure label="Cited">
-                    {/* Out of the queries some answer's sources were checked for: an engine that returns no sources is not measured, never 0. */}
-                    {queryCounts && queryCounts.totalQueries > 0 && (queryCounts.citationNotMeasuredQueries ?? 0) === queryCounts.totalQueries
-                      ? <><span className="text-heading-20 text-secondary">{CITATION_NOT_MEASURED.label}</span>{' '}<span className="block text-label-14 text-secondary">this engine returns no sources</span></>
-                      : <QueryShare count={queryCounts?.citedQueries} total={queryCounts ? queryCounts.totalQueries - (queryCounts.citationNotMeasuredQueries ?? 0) : undefined} />}
-                  </ResultFigure>
-                  <ResultFigure label="Engine results">
-                    <span className="text-heading-20 tabular-nums text-heading">{snapshots.length}</span>
-                  </ResultFigure>
-                </dl>
+                {/* Branded and non-brand queries never share a denominator, so each class is its own row. */}
+                <table className="w-full text-left">
+                  <caption className="sr-only">First AI Visibility check by query class</caption>
+                  <thead>
+                    <tr className="text-label-14 text-secondary">
+                      <th scope="col" className="py-2 pr-4 font-normal">Queries</th>
+                      <th scope="col" className="py-2 pr-4 font-normal">Mentioned</th>
+                      <th scope="col" className="py-2 font-normal">Cited</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-default border-t border-default">
+                    {resultRows.map(row => (
+                      <tr key={row.label}>
+                        <th scope="row" className="py-3 pr-4 text-label-14-strong text-heading">{row.label}</th>
+                        <td className="py-3 pr-4"><QueryShare count={row.counts?.mentionedQueries} total={row.counts?.totalQueries} /></td>
+                        <td className="py-3">
+                          {/* Out of the queries some answer's sources were checked for: an engine that returns no sources is not measured, never 0. */}
+                          {citationUnmeasured(row.counts)
+                            ? <span className="inline-flex items-center gap-1 text-label-14 text-secondary">{CITATION_NOT_MEASURED.label}<InfoTooltip text={CITATION_NOT_MEASURED.sources} /></span>
+                            : <QueryShare count={row.counts?.citedQueries} total={row.counts ? row.counts.totalQueries - (row.counts.citationNotMeasuredQueries ?? 0) : undefined} />}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {unclassifiedQueries > 0 ? <p className="text-label-14 text-secondary">{unclassifiedQueries} {unclassifiedQueries === 1 ? 'query has' : 'queries have'} no single query class and {unclassifiedQueries === 1 ? 'is' : 'are'} not counted above.</p> : null}
                 {featured ? <section className="mt-3 border-t border-default pt-4" aria-label="Your first saved answer">
                   <div className="mb-3 flex flex-wrap items-center gap-2"><ProviderBadge provider={featured.provider} displayName={providerDisplayName(featured.provider)} /><ToneBadge tone={featured.answerMentioned ? 'positive' : 'neutral'}>{featured.answerMentioned === true ? 'Mentioned' : featured.answerMentioned === false ? 'Not mentioned' : 'Mention not measured'}</ToneBadge><ToneBadge tone={featured.citationState === CitationStates.cited ? 'positive' : 'neutral'}>{ANSWER_CITATION_LABEL[featured.citationState]}</ToneBadge></div>
                   {featured.query ? <h3 className="text-heading-16 text-heading">{featured.query}</h3> : null}
@@ -2136,6 +2202,7 @@ function ReadySetupPage({
                   {answerPreviewTruncated ? <details className="mt-3"><summary className="cursor-pointer text-label-14 text-link">Read full answer</summary><div className="mt-3 text-copy-14 text-secondary"><AnswerMarkdown copyable>{featuredAnswer}</AnswerMarkdown></div></details> : null}
                 </section> : null}
                 {!onboardingFinish && createdProjectName ? <details><summary className="cursor-pointer py-2 text-label-14 text-link">More setup options</summary><NextSteps projectName={createdProjectName} /></details> : null}
+                {agentReadinessOffer('done')}
                 <div className="setup-nav">
                   <span />
                   <Button type="button" onClick={() => finishSetup()}>

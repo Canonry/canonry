@@ -529,6 +529,9 @@ describe('GET /technical-aeo crawl reads', () => {
       deadLinks: { state: 'complete', checked: 2, found: 1, unverified: 3 },
     })
     expect(body.counts.pagesEligible).toBe(2)
+    // The same total the graph read reports, so the dashboard and CLI show one number.
+    expect(body.counts.internalLinks).toBe(2)
+    expect((await get<SiteCrawlGraphResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/graph')).body.totalEdges).toBe(2)
     expect(body.runId).not.toBe(ctx.probeRun)
   })
 
@@ -552,6 +555,8 @@ describe('GET /technical-aeo crawl reads', () => {
 
     const { body } = await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')
     expect(body.runId).toBe(highRunId)
+    // No map was built for this scan, so there is no internal link total yet.
+    expect(body.counts.internalLinks).toBeNull()
   })
 
   it('makes a newer-day page-capped crawl current while the older complete one stays selectable', async () => {

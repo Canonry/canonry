@@ -1,4 +1,4 @@
-import { ProviderConnectionTestStatuses } from '@canonry/canonry-contracts'
+import { ProviderConnectionTestStatuses, ProviderNames } from '@canonry/canonry-contracts'
 
 import type { MetricTone } from '../../view-models.js'
 import { formatSweepInstant } from '../../lib/format-helpers.js'
@@ -18,10 +18,19 @@ export const PROVIDER_CONNECTION_TEST_COPY = {
   testMany: 'Test connections',
   testing: 'Testing…',
   saveFirst: 'Save your changes, then test the connection.',
-  /** What one click sends, said before it is sent: each test is a live request on the operator's account. */
-  sends: (labels: readonly string[]) => labels.length === 1
-    ? `Sends one short request to ${labels[0]}, using your provider account.`
-    : `Sends one short request each to ${joinWithAnd(labels)}, using your provider accounts.`,
+  /**
+   * What one click sends, said before it is sent. A test is a live request on
+   * the operator's provider account, except to a model server they run
+   * themselves, which has no account to name.
+   */
+  sends: (targets: readonly { label: string; usesAccount: boolean }[]) => {
+    const labels = targets.map(target => target.label)
+    const accounts = targets.filter(target => target.usesAccount).map(target => target.label)
+    const request = labels.length === 1 ? `Sends one short request to ${labels[0]}` : `Sends one short request each to ${joinWithAnd(labels)}`
+    if (accounts.length === 0) return `${request}.`
+    if (accounts.length === labels.length) return `${request}, using your provider ${accounts.length === 1 ? 'account' : 'accounts'}.`
+    return `${request}, using your ${joinWithAnd(accounts)} ${accounts.length === 1 ? 'account' : 'accounts'}.`
+  },
   results: 'Connection test results',
   connectedLine: 'Connected.',
   failed: (message: string) => `Test failed: ${asSentence(message)}`,
@@ -55,4 +64,9 @@ export function ProviderConnectionTestLine({ record, label }: { record: Provider
       {record.kind === 'result' ? <span className="text-secondary"> {PROVIDER_CONNECTION_TEST_COPY.checkedAt(record.result.checkedAt)}</span> : null}
     </p>
   )
+}
+
+/** Whether a connection's requests spend a provider account: a Local model server the operator runs has none. */
+export function connectionUsesProviderAccount(providerName: string): boolean {
+  return providerName !== ProviderNames.local
 }

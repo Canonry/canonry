@@ -2014,9 +2014,6 @@ export function SiteHealthSection({
   })
 
   const graphPages = graphQuery.data?.nodes ?? []
-  const internalLinkCount = graphQuery.data?.layout.state === 'ready'
-    ? graphQuery.data.totalEdges
-    : null
   const graphEdges = graphQuery.data?.edges ?? []
   // Counted from the edges actually drawn, not from a site-wide total, so the
   // legend describes THIS map rather than a number the reader cannot see.
@@ -2495,7 +2492,7 @@ export function SiteHealthSection({
               Internal links
               <InfoTooltip text={siteHealthMetricHelp('internalLinks', false)} />
             </div>
-            <div className="mt-1 text-label-20-strong tabular-nums text-heading">{metricValue(internalLinkCount)}</div>
+            <div className="mt-1 text-label-20-strong tabular-nums text-heading">{metricValue(crawl.counts.internalLinks ?? null)}</div>
           </div>
         </div>
       )}

@@ -238,7 +238,7 @@ export async function technicalAeoCrawl(
     `Site crawl: ${crawl.complete ? 'complete' : 'partial'} (${crawl.runStatus ?? 'unknown'})`,
     `Root: ${crawl.rootUrl ?? '-'}`,
     `Pages: ${crawl.counts.pagesFetched} fetched · ${crawl.counts.pagesDiscovered} discovered · ${crawl.counts.pagesEligible} eligible`,
-    `Links: ${crawl.counts.edges} internal/external observations · ${crawl.counts.findings} findings`,
+    `Links: ${crawl.counts.edges} internal/external observations${crawl.counts.internalLinks != null ? ` · ${crawl.counts.internalLinks} internal links on the site map` : ''} · ${crawl.counts.findings} findings`,
     `Dead links: ${formatDeadLinkState(crawl.deadLinks)}`,
   ]
   lines.push(...inventorySummaryLines(crawl.inventorySummary))

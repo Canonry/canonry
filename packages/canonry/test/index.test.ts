@@ -37,6 +37,8 @@ describe('canonry', () => {
 
     try {
       expect(() => loadConfig()).toThrow(/Config not found/)
+      // A setup step, not a system failure: exit 1 with the code other config-less commands use.
+      expect(() => loadConfig()).toThrow(expect.objectContaining({ code: 'CONFIG_REQUIRED', exitCode: 1 }))
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }

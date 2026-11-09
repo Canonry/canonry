@@ -140,6 +140,7 @@ const TELEMETRY_ERROR_CODES = new Set([
   'DAEMON_START_TIMEOUT',
   'UNEXPECTED_RESPONSE_FORMAT',
   'STORED_ONLY_REFUSED',
+  'CONFIG_REQUIRED',
 ])
 
 function telemetryErrorCode(err: unknown): string {

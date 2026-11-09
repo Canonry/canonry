@@ -1,5 +1,6 @@
-import { CitationStates, type CitationState, type ObservedQueryCounts } from './run.js'
+import { CitationStates, type CitationState, type ObservedQueryCounts, type RunQueryCountsByClass } from './run.js'
 import { isCitationStateMeasured } from './citation-measurement.js'
+import { QueryClasses, type QueryClass } from './query-class.js'
 
 export interface IdentifiedQuerySignal {
   queryId: string
@@ -29,5 +30,32 @@ export function summarizeObservedQueryCounts(snapshots: readonly IdentifiedQuery
     citedQueries: cited.size,
     mentionedQueries: mentioned.size,
     citationNotMeasuredQueries: queries.size - citationMeasured.size,
+  }
+}
+
+/**
+ * {@link summarizeObservedQueryCounts} for each query class. `classOf` returns
+ * a query's class, or null when it has none; that query counts in neither class
+ * and in `unclassifiedQueries`. Returns null when queries were observed and none
+ * has a class, because those counts can only be pooled.
+ */
+export function summarizeObservedQueryCountsByClass(
+  snapshots: readonly IdentifiedQuerySignal[],
+  classOf: (queryId: string) => QueryClass | null,
+): RunQueryCountsByClass | null {
+  const byClass: Record<QueryClass, IdentifiedQuerySignal[]> = { [QueryClasses.branded]: [], [QueryClasses['non-brand']]: [] }
+  const observed = new Set<string>()
+  const unclassified = new Set<string>()
+  for (const snapshot of snapshots) {
+    observed.add(snapshot.queryId)
+    const queryClass = classOf(snapshot.queryId)
+    if (queryClass === null) unclassified.add(snapshot.queryId)
+    else byClass[queryClass].push(snapshot)
+  }
+  if (observed.size > 0 && unclassified.size === observed.size) return null
+  return {
+    nonBrand: summarizeObservedQueryCounts(byClass[QueryClasses['non-brand']]),
+    branded: summarizeObservedQueryCounts(byClass[QueryClasses.branded]),
+    unclassifiedQueries: unclassified.size,
   }
 }

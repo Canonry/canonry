@@ -132,7 +132,7 @@ pm2 restart canonry
 
 ```bash
 cnry project list                              # list all projects
-cnry project create <name> --domain <url> --country US --language en
+cnry project create <name> --domain <url> --country US --language en   # brand name from the domain unless --display-name
 cnry project show <name>                       # project detail
 cnry project update <name>                     # update project settings
 cnry project update <name> --add-lead-event book_demo --remove-lead-event old_event
