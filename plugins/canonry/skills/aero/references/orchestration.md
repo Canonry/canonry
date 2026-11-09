@@ -30,7 +30,7 @@ Steps:
 Trigger: Comparison shows decline or webhook fires regression.detected
 
 Steps:
-1. `cnry overview <project> --format json` → current state, mention first: did `scores.mention` / `scores.mentionShare` move? Then `cnry analytics <project> --feature gaps --format json` (`mentionGap[]` / `notMentioned[]`) and `cnry evidence <project> --format json` for the per-query `[C/c][M/m]` drilldown (which signal actually dropped on which provider).
+1. `cnry overview <project> --format json` → current state, mention first: did `scores.mention` / `scores.mentionShare` move? Its `whatChanged` already lists what the latest check lost: `lostMentions` first, then `lostCitations`, each query once with the engines and locations (and for Advanced the Properties and markets) that lost it. These are the dashboard's What changed counts, so start from them instead of recounting. Check `comparison` first: when it is `unavailable`, nothing was compared and a 0 is unknown. When `truncated` is true, `queries` lists only the first 25 of `queryCount`. Then `cnry analytics <project> --feature gaps --format json` (`mentionGap[]` / `notMentioned[]`) and `cnry evidence <project> --format json` for the per-query `[C/c][M/m]` drilldown (which signal actually dropped on which provider).
 2. `cnry history <project>` → trend for affected query
 3. Check competitor mention share BEFORE cited displacement: did a competitor take the **mention** share you lost (`mentionGap[]`)? Only then ask whether a competitor gained the **citation** you lost.
 4. Check indexing: `cnry google coverage <project>` → is the page still indexed? (a deindexed/thin page starves both signals)
@@ -57,7 +57,7 @@ Trigger: Scheduled (weekly, or on-demand)
 Steps:
 1. `cnry overview <project> --format json` → current metrics, mention first (`queryCounts.mentionRate`, `scores.mention`, `scores.mentionShare`); `cnry analytics <project> --feature gaps --format json` for the mention gaps; `cnry evidence <project> --format json` for the per-query `[C/c][M/m]` drilldown
 2. Compare compatible stored periods/runs using the reporting or portfolio playbook — mention rate + mention share first, cited rate second
-3. Compute deltas: mentions gained/lost/stable (primary), then citations gained/lost/stable (secondary)
+3. Compute deltas: mentions gained/lost/stable (primary), then citations gained/lost/stable (secondary). The latest check's losses are the overview's `whatChanged.lostMentions` and `lostCitations` (check `comparison` and `truncated`); compare stored runs only for gains and for sweeps before it.
 4. Flag any new regressions not yet addressed (lead with lost mentions)
 5. Check competitor movement — mention share swing first, then cited-domain displacement
 6. Generate summary with key changes + recommended next steps

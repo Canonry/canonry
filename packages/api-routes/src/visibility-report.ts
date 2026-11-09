@@ -29,6 +29,7 @@ import {
   type SimpleMeasurementDefinition,
   type VisibilityReportPopulationClass,
   type VisibilityReportQuery,
+  type VisibilityReportResponse,
   normalizeIdentityText as normalizedText,
 } from '@canonry/canonry-contracts'
 import {
@@ -781,6 +782,8 @@ function advancedReaderInput(
   active: NonNullable<ReturnType<typeof activeMeasurementPlan>>,
   query: VisibilityReportQuery,
   includeHistory: boolean,
+  /** Read the predecessor even without history: the overview compares it for What changed. */
+  includePrevious = includeHistory,
 ): VisibilityReportReaderInput {
   if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) throw new Error('Expected a v2 active plan')
   const allVersionRows = db.select().from(measurementPlanVersions)
@@ -844,7 +847,7 @@ function advancedReaderInput(
   const previousInput = (): VisibilityReportPreviousRunInput | null => {
     // A missing or scoped selection is never compared (the reader checks both
     // first), so it needs no predecessor read.
-    if (!includeHistory || selectedSource === undefined || selectedSource.run.measurementScope !== null) return null
+    if (!includePrevious || selectedSource === undefined || selectedSource.run.measurementScope !== null) return null
     return readPreviousSweep(() => {
       const predecessor = previousEligibleVisibilityRun(db, projectId, false, selectedSource.run)
       if (predecessor === undefined) return null
@@ -1058,15 +1061,54 @@ export function readVisibilityReport(
   rawQuery: Record<string, unknown>,
   options: { includeHistory?: boolean } = {},
 ) {
-  const query = parseQuery(rawQuery)
   const includeHistory = options.includeHistory !== false
+  return readReport(db, project, rawQuery, { includeHistory, includeAdvancedPrevious: includeHistory }).report
+}
+
+/**
+ * What an Advanced report read: a schema v1 plan freezes no Property
+ * definition to compare, so it carries no sweeps. A v2 plan carries the sweep
+ * the report selected (null before the first) and the eligible whole-plan
+ * sweep before it (null when none came before).
+ */
+export type OverviewAdvancedSweeps =
+  | { plan: 'legacy' }
+  | { plan: 'v2'; current: VisibilityReportRunInput | null; previous: VisibilityReportPreviousRunInput | null }
+
+/**
+ * The overview's coverage read, without history. On an Advanced project it
+ * also returns the selected sweep and its predecessor, so What changed
+ * compares the very run the coverage headline reads instead of rebuilding it.
+ * `advanced` is null on a Simple project.
+ */
+export function readOverviewVisibility(
+  db: DatabaseClient,
+  project: { id: string; displayName: string; canonicalDomain: string },
+  rawQuery: Record<string, unknown>,
+): { report: VisibilityReportResponse; advanced: OverviewAdvancedSweeps | null } {
+  return readReport(db, project, rawQuery, { includeHistory: false, includeAdvancedPrevious: true })
+}
+
+function readReport(
+  db: DatabaseClient,
+  project: { id: string; displayName: string; canonicalDomain: string },
+  rawQuery: Record<string, unknown>,
+  options: { includeHistory: boolean; includeAdvancedPrevious: boolean },
+): { report: VisibilityReportResponse; advanced: OverviewAdvancedSweeps | null } {
+  const query = parseQuery(rawQuery)
+  const { includeHistory } = options
   const active = activeMeasurementPlan(db, project.id)
   const mode = query.mode === 'auto' ? (active === null ? 'simple' : 'advanced') : query.mode
   try {
     if (mode === 'advanced') {
       if (active === null) throw validationError('This project has no advanced measurement plan.')
-      if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return unsupportedAdvancedResponse(query, active)
-      return buildVisibilityReport(advancedReaderInput(db, project.id, active, query, includeHistory))
+      if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
+        return { report: unsupportedAdvancedResponse(query, active), advanced: { plan: 'legacy' } }
+      }
+      const input = advancedReaderInput(db, project.id, active, query, includeHistory, options.includeAdvancedPrevious)
+      const report = buildVisibilityReport(input)
+      const current = input.runs.find(run => run.id === report.selection.run.id) ?? null
+      return { report, advanced: { plan: 'v2', current, previous: input.previous ?? null } }
     }
     const simple = simpleReaderInput(db, project, query, includeHistory)
     // Simple mode reads planless sweeps only. On a v2 project with no planless
@@ -1081,7 +1123,7 @@ export function readVisibilityReport(
         'This project measures through an Advanced Measurement plan and has no pre-plan sweeps, so mode "simple" has no results. Use mode "advanced", or omit mode.',
       )
     }
-    return buildVisibilityReport(simple)
+    return { report: buildVisibilityReport(simple), advanced: null }
   } catch (error) {
     // Retired-scope details ride the error envelope so a client recovers by reason, not by message text.
     if (error instanceof VisibilityReportScopeError) throw validationError(error.message, error.details)

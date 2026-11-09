@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type VisibilityReportResponse } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type ProjectOverviewDto, type VisibilityReportResponse } from '@canonry/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -183,6 +183,29 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     // latestRun.run is the absolute-latest run of any kind. We only have
     // answer-visibility runs here, so the real run should win — not the probe.
     expect(body.latestRun?.run?.id).toBe(ctx.realRunId)
+  })
+
+  it('overview whatChanged reads the real run as the latest check, and no probe is lost or in progress', async () => {
+    // A probe still running must not show as a run in progress either.
+    const runningProbeId = crypto.randomUUID()
+    ctx.db.insert(runs).values({
+      id: runningProbeId,
+      projectId: ctx.projectId,
+      kind: 'answer-visibility',
+      status: 'running',
+      trigger: 'probe',
+      createdAt: new Date().toISOString(),
+    }).run()
+    const { body } = await get<ProjectOverviewDto>(`/api/v1/projects/probe-excl/overview`)
+    // If the newer probe leaked in as the latest check, the real run would be
+    // its previous check, and the probe's uncited, unmentioned answer would
+    // count as both a lost mention and a lost citation.
+    expect(body.whatChanged?.latestCheck?.runIds).toEqual([ctx.realRunId])
+    expect(body.whatChanged?.comparison).toEqual({ state: 'unavailable', reason: 'no-previous-check' })
+    expect(body.whatChanged?.lostMentions).toEqual({ queryCount: 0, queries: [], truncated: false })
+    expect(body.whatChanged?.lostCitations).toEqual({ queryCount: 0, queries: [], truncated: false })
+    expect(body.whatChanged?.activeRuns).toEqual({ count: 0, runIds: [] })
+    expect(body.whatChanged?.items).toEqual([])
   })
 
   it('runs/latest returns the real run and totalRuns excludes the probe', async () => {

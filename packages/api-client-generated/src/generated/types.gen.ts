@@ -15305,6 +15305,70 @@ export type ProjectOverviewDto = {
         actionLabel: string;
         href: string;
     }>;
+    whatChanged?: {
+        mode: 'simple' | 'advanced';
+        latestCheck: {
+            runIds: Array<string>;
+            createdAt: string;
+        } | null;
+        comparison: {
+            state: 'available';
+            previousRunIds: Array<string>;
+        } | {
+            state: 'unavailable';
+            reason: 'not-measured' | 'no-previous-check' | 'definition-changed' | 'model-changed' | 'partial-run' | 'legacy-plan' | 'unreadable';
+        };
+        lostMentions: {
+            queryCount: number;
+            queries: Array<{
+                queryId: string | null;
+                query: string;
+                queryClass: 'branded' | 'non-brand' | null;
+                providers: Array<string>;
+                locations: Array<string | null>;
+                properties: Array<{
+                    key: string;
+                    label: string;
+                }>;
+                markets: Array<{
+                    key: string;
+                    label: string;
+                }>;
+            }>;
+            truncated: boolean;
+        };
+        lostCitations: {
+            queryCount: number;
+            queries: Array<{
+                queryId: string | null;
+                query: string;
+                queryClass: 'branded' | 'non-brand' | null;
+                providers: Array<string>;
+                locations: Array<string | null>;
+                properties: Array<{
+                    key: string;
+                    label: string;
+                }>;
+                markets: Array<{
+                    key: string;
+                    label: string;
+                }>;
+            }>;
+            truncated: boolean;
+        };
+        activeRuns: {
+            count: number;
+            runIds: Array<string>;
+        };
+        items: Array<{
+            id: string;
+            tone: 'positive' | 'caution' | 'negative' | 'neutral';
+            title: string;
+            detail: string;
+            actionLabel: string;
+            href: string;
+        }>;
+    };
     runHistory: Array<{
         runId: string;
         createdAt: string;

@@ -152,13 +152,15 @@ export function refreshQueriesAfterWrite(queryClient: QueryClient, request: Requ
   const isGlobalRead = (query: Query): boolean => GLOBAL_PROJECT_READS.has((query.queryKey[0] as SdkQueryKey | undefined)?._id ?? '')
   // Queueing work changes run state; its results change only after completion.
   const runTrigger = request.method === 'POST' && /^(?:runs|(?:agent-readiness|technical-aeo)\/runs|discover\/run|backlinks\/extract|seo\/sync|google\/gsc\/(?:sync|inspect-sitemap)|bing\/inspect-sitemap|(?:gbp|ads|google-ads|gtm)\/sync)$/.test(resourcePath)
+  // The portfolio's per-project overviews (`project-overview-slim`) are left
+  // out: the dashboard takes their runs in progress from the run list, and
+  // reads an overview again when a sweep completes (its key changes then).
   const isRunStateRead = (query: Query): boolean => {
     const head = query.queryKey[0] as SdkQueryKey | undefined
     return isGlobalRead(query)
       || ['getApiV1ProjectsByName', 'getApiV1ProjectsByNameOverview', 'getApiV1ProjectsByNameRuns', 'getApiV1ProjectsByNameRunPreview', 'getApiV1ProjectsByNameAgentReadinessRuns', 'getApiV1ProjectsByNameTimeline'].includes(head?._id ?? '')
       || ['getApiV1ProjectsByNameSeoOverview', 'getApiV1ProjectsByNameSeoRuns', 'getApiV1ProjectsByNameSeoStatus'].includes(head?._id ?? '')
       || (query.queryKey[0] === 'project-dashboard-full' && query.queryKey[3] === 'overview')
-      || query.queryKey[0] === 'project-overview-slim'
   }
   const predicate = projectName
     ? (query: Query) => (isProjectRead(query) && (!runTrigger || isRunStateRead(query))) || (!agentOnly && isGlobalRead(query))

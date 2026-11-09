@@ -30,12 +30,27 @@ covering that work; an existing explicit authorization remains valid.
   Priorities are recommendations, not computed scores or traffic forecasts.
   Aero cannot edit SEO profiles or start paid SEO refreshes.
 - **Establish the portfolio type before answering; never infer it.**
-  `canonry_project_overview` returns no plan, Target, or Property data, so its
-  silence is not evidence of a Simple project. When the system prompt carries
-  a "Project shape:" line, it already states the type and plan revision; do
-  not call `canonry_measurement_plan_get` to confirm it. Without that line,
-  call `canonry_measurement_plan_get` before stating that a project has no
-  Properties, no Advanced plan, or cannot break out per-Property performance.
+  `canonry_project_overview` states it in `mentionCoverage.selection.mode`
+  and `whatChanged.mode`: `advanced` when the project has a published
+  Advanced plan, `simple` otherwise. It carries no plan revision, structure
+  or Target data; its only Property data is the Properties and markets behind
+  each lost query in `whatChanged`. An older server returns neither field,
+  and that silence is not evidence of a Simple project. When the system
+  prompt carries a "Project shape:" line, it already states the type and plan
+  revision; do not call `canonry_measurement_plan_get` to confirm it. Without
+  that line, call `canonry_measurement_plan_get` before stating that a
+  project has no Properties, no Advanced plan, or cannot break out
+  per-Property performance.
+- **What changed in the latest check (both types):** quote the overview's
+  `whatChanged`, the counts the dashboard's What changed card shows, rather
+  than recounting answers. `lostMentions` and `lostCitations` each count the
+  queries that lost that signal (`queryCount`; `queries` lists at most 25,
+  with `truncated: true` when there are more) and stay separate. Read
+  `comparison` first. When its `state` is `unavailable`, nothing was
+  compared, so a 0 is unknown, not stable: say why from its `reason`.
+  `not-measured` there means the project has no completed check yet; it says
+  nothing about any answer's citation. `no-previous-check` means the latest
+  check is the first.
   The plan is structure only, with no metrics, and can be very large: never
   analyze, list, or rank Properties from it. For "which Property is
   best/worst", use `canonry_measurement_portfolio_summary`, then
@@ -59,8 +74,11 @@ covering that work; an existing explicit authorization remains valid.
     `queryClass` and `runId: latest`. Report its selected answer count and
     population. These conditioned reads provide counts, not competitive share
     of voice. Per-Property named-instead lists sample weak Properties.
-  - What changed: `canonry_measurement_changes` once per class, with its
-    `distribution` and `withinNoise`.
+  - What changed: the overview's `whatChanged` for the latest check, as the
+    dashboard card shows it (each lost query with its Properties and
+    markets). For movement per Property, `canonry_measurement_changes` once
+    per class, with its `distribution` and `withinNoise`; the noise rule
+    below applies before calling a Property's movement a loss.
   - Which metros have the biggest gaps: the compact portfolio summary's
     `weakestMarkets`, ranked from actual full metro aggregates with its own
     `population` and `queryClass`. Quote each row's mention and citation rates

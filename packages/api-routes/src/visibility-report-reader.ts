@@ -921,8 +921,8 @@ function filterOptions(definition: VisibilityReportDefinitionInput, selection: V
   return { providers, models, locations }
 }
 
-/** One continuity rule for trend boundaries and the change since the previous sweep. */
-function pairContinuity(previous: VisibilityReportRunInput, current: VisibilityReportRunInput) {
+/** One continuity rule for trend boundaries, the change since the previous sweep, and Overview's What changed. */
+export function pairContinuity(previous: VisibilityReportRunInput, current: VisibilityReportRunInput) {
   const currentLegacy = current.definition.provenance.kind === 'legacy-simple'
   const previousLegacy = previous.definition.provenance.kind === 'legacy-simple'
   if (currentLegacy || previousLegacy) return 'legacy-unknown' as const

@@ -84,8 +84,9 @@ import {
 } from '@canonry/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { compareInsightsForTriage } from './intelligence.js'
+import { buildOverviewWhatChanged } from './overview-what-changed.js'
 import { runAdmissionState } from './run-queue.js'
-import { readVisibilityReport } from './visibility-report.js'
+import { readOverviewVisibility } from './visibility-report.js'
 import {
   mergeGscQueryTotalsWithFallback, readGscQueryDailyFallbackRows, readGscQueryDailyRows,
   readLatestGscDataDate, resolveGscWindowDays,
@@ -356,12 +357,22 @@ export async function compositeRoutes(app: FastifyInstance, options: {
 
     // One canonical read keeps the collection and detailed report on the same
     // frozen identities, completed sweep, class split, and missing-answer rules.
-    const coverage = readVisibilityReport(app.db, project, {
+    // On an Advanced project it also hands What changed the sweep it selected
+    // and the one before it.
+    const { report: coverage, advanced } = readOverviewVisibility(app.db, project, {
       queryClass: 'all',
       limit: 1,
       ...(filterLocation ? { location: filterLocation } : {}),
       ...(sinceIso ? { from: sinceIso } : {}),
-    }, { includeHistory: false })
+    })
+    const whatChanged = buildOverviewWhatChanged(app.db, {
+      project,
+      runs: allRuns,
+      latestSweep: latestVisRunGroup,
+      advanced,
+      location: coverage.selection.location,
+      since: sinceIso,
+    })
     const result: ProjectOverviewDto = {
       mentionCoverage: {
         selection: coverage.selection,
@@ -393,6 +404,7 @@ export async function compositeRoutes(app: FastifyInstance, options: {
       competitors: overviewCompetitors,
       providerScores,
       attentionItems,
+      whatChanged,
       runHistory,
       suggestedQueries,
       ...(sentiment ? { sentiment: sentiment.overview(project.id, latestVisRunGroup.map(run => run.id), filterLocation ?? undefined) } : {}),

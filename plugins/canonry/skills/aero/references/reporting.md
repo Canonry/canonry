@@ -95,7 +95,7 @@ and requires explicit approval; preparing a summary does not authorize it.
 - Mention rate: <X>% (Δ<+/-Y>% from last week)        ← primary KPI
 - Mention share (non-brand): <X>% (Δ<+/-Y>% from last week)   ← share-of-voice vs competitors; NEVER pooled with branded
 - Cited rate: <X>% (Δ<+/-Y>% from last week)          ← secondary signal
-- Regressions: <N> new, <N> resolved (lead with lost mentions; note lost citations second)
+- Regressions: <N> new, <N> resolved (lead with lost mentions; note lost citations second)   ← latest check: the overview's whatChanged.lostMentions / lostCitations queryCount; comparison unavailable = not compared, never 0
 - Gains: <N> new mentions / <N> new citations
 - Providers monitored: <N>
 
