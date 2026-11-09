@@ -204,8 +204,7 @@ Canonry ships as a **self-hosted single-process install** — that is the only s
 ## Score Families
 
 - **Answer visibility**: multi-provider query tracking and citation outcomes across all providers
-- **Agent Readiness**: local `@canonry/agent-readiness` full crawls plus the
-  retained worker audit path
+- **Agent Readiness**: local `@canonry/agent-readiness` full crawls
 
 These remain separate to avoid mixing Agent Readiness with live-answer visibility.
 
