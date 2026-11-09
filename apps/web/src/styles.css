@@ -2926,13 +2926,20 @@
     @apply border-b border-subtle;
   }
 
+  /* The column shrinks to its buttons, so spare width goes to the query, and
+     its opaque background covers the cells that scroll under it. */
   .measurement-table-actions {
     position: sticky;
     right: 0;
     z-index: 1;
+    width: 1px;
     white-space: nowrap;
     background-color: var(--color-bg);
-    box-shadow: -1px 0 0 var(--color-border);
+  }
+
+  /* The header cell keeps the header's band. */
+  .evidence-table thead .measurement-table-actions {
+    background-color: var(--color-surface-inset);
   }
 
   .measurement-results-table { table-layout: fixed; }
@@ -2985,6 +2992,8 @@
 
   .query-tracking-workspace { container-type: inline-size; }
   .tracking-query-cell { min-width: 18rem; }
+  /* Short labels and badges take only their own width, leaving the rest to the query. */
+  .tracking-fit-cell { width: 1px; white-space: nowrap; }
   .tracking-scope-cell { min-width: 12rem; max-width: 16rem; }
 
   @container (max-width: 60rem) {
@@ -2994,6 +3003,11 @@
     .query-tracking-workspace .measurement-responsive-table td { padding-inline: 0.75rem; }
     .tracking-query-cell { min-width: 14rem; }
     .tracking-scope-cell { min-width: 10rem; }
+    /* Advanced rows also carry Scope and Class, so their actions stack first. */
+    .tracking-table-advanced .tracking-row-actions { flex-direction: column; align-items: flex-start; gap: 0; }
+  }
+
+  @container (max-width: 40rem) {
     .tracking-row-actions { flex-direction: column; align-items: flex-start; gap: 0; }
   }
 

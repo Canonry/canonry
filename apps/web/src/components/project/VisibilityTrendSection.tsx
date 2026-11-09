@@ -2032,8 +2032,6 @@ export function VisibilityTrendSection({
     }
   }
 
-  const compactTrend = Boolean(trend?.hasData && trend.rows.length === 1 && !error && !(metric === 'mentionShare' && competitorCount === 0))
-
   return (
     <div className="visibility-trend-stack">
       <section className="visibility-trend" aria-labelledby={titleId}>
@@ -2056,15 +2054,10 @@ export function VisibilityTrendSection({
           )}
           {showsClassControl && <div className="mb-3"><SegmentedRadioGroup options={QUERY_CLASS_OPTIONS} value={queryClass} onChange={setQueryClass} label="Query type" /></div>}
           {readout}
-          {!compactTrend && <>{controls}{body}</>}
+          {controls}
+          {body}
         </div>
-        {compactTrend ? (
-          <details className="av-details">
-            <summary>Filters and details</summary>
-            <div className="pb-4">{controls}{body}</div>
-            {trendDetails.length > 0 && <ul className="av-details-list">{trendDetails.map((item, index) => <li key={index}>{item}</li>)}</ul>}
-          </details>
-        ) : <Disclosure items={trendDetails} />}
+        <Disclosure items={trendDetails} />
       </section>
       {data && !error ? (
         <>

@@ -329,6 +329,9 @@ function TrackedQueriesWorkspace({
   const handledRouteAction = useRef<string | null>(null)
   const unavailableScope = unavailableTrackingScope(workspace, selection)
   const rowsInScope = useMemo(() => filterTrackedRows(workspace.tracked, selection, workspace.mode), [selection, workspace.mode, workspace.tracked])
+  // Queries saved before sources were recorded have none. When no query in view
+  // has one, a Source column would read "Not recorded" on every row, so it is left out.
+  const showSource = rowsInScope.some(row => row.provenance !== null)
   const table = useClientTable({
     rows: rowsInScope,
     getSearchText: (row) => `${row.queryText} ${row.provenance?.source ?? ''} ${row.assignments.map(assignment => assignment.queryClass ?? 'unknown').join(' ')}`,
@@ -459,9 +462,9 @@ function TrackedQueriesWorkspace({
           </p>
         ) : (
           <div className="mt-5 overflow-x-auto">
-            <table className={`evidence-table measurement-responsive-table table-auto ${workspace.mode === 'advanced' ? 'min-w-[760px]' : 'min-w-[520px]'}`}>
+            <table className={`evidence-table measurement-responsive-table table-auto ${workspace.mode === 'advanced' ? 'tracking-table-advanced min-w-[760px]' : 'min-w-[520px]'}`}>
               <thead>
-                <tr><th>Query</th>{workspace.mode === 'advanced' ? <><th>Scope</th><th>Class</th></> : null}<th>Source</th><th>Measurement</th><th className="measurement-table-actions"><span className="sr-only">Actions</span></th></tr>
+                <tr><th>Query</th>{workspace.mode === 'advanced' ? <><th>Scope</th><th className="tracking-fit-cell">Class</th></> : null}{showSource ? <th className="tracking-fit-cell">Source</th> : null}<th className="tracking-fit-cell">Measurement</th><th className="measurement-table-actions"><span className="sr-only">Actions</span></th></tr>
               </thead>
               <tbody>
                 {table.rows.map(row => (
@@ -469,7 +472,7 @@ function TrackedQueriesWorkspace({
                     <td className="tracking-query-cell break-words text-label-14-strong text-heading">{row.queryText}</td>
                     {workspace.mode === 'advanced' ? <td className="tracking-scope-cell text-secondary"><AssignmentScopeDisclosure row={row} workspace={workspace} selection={selection} /></td> : null}
                     {workspace.mode === 'advanced' ? <td className="whitespace-nowrap"><AssignmentClassBadge row={row} /></td> : null}
-                    <td className="whitespace-nowrap text-secondary">{provenanceLabel(row)}</td>
+                    {showSource ? <td className="whitespace-nowrap text-secondary">{provenanceLabel(row)}</td> : null}
                     <td className="whitespace-nowrap"><MeasurementStateBadge row={row} outsidePlan={workspace.mode === 'advanced' && row.assignments.length === 0} /></td>
                     <td className="measurement-table-actions whitespace-nowrap text-right">
                       {!isEmbed() && <div className="tracking-row-actions flex min-w-max justify-end gap-2">
@@ -837,7 +840,7 @@ function AssignmentClassBadge({ row }: { row: QueryTrackingTrackedRow }) {
 function MeasurementStateBadge({ row, outsidePlan = false }: { row: QueryTrackingTrackedRow; outsidePlan?: boolean }) {
   if (outsidePlan) return <ToneBadge tone="neutral">Not in current plan</ToneBadge>
   return row.state === 'tracked'
-    ? <div className="space-y-1"><ToneBadge tone="positive">Measured</ToneBadge>{row.lastMeasuredAt ? <time className="block text-copy-13 text-secondary" dateTime={row.lastMeasuredAt} title={formatTimestamp(row.lastMeasuredAt)}>{formatSweepDay(row.lastMeasuredAt)}</time> : null}</div>
+    ? <span className="inline-flex items-center gap-2"><ToneBadge tone="positive">Measured</ToneBadge>{row.lastMeasuredAt ? <time className="text-copy-13 text-secondary" dateTime={row.lastMeasuredAt} title={formatTimestamp(row.lastMeasuredAt)}>{formatSweepDay(row.lastMeasuredAt)}</time> : null}</span>
     : <ToneBadge tone="caution">Awaiting check</ToneBadge>
 }
 

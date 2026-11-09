@@ -663,7 +663,6 @@ test('hides model details and sweep commentary when there are no model changes',
 
   renderSection(['competitor.com'])
 
-  fireEvent.click(await screen.findByText('Filters and details', { selector: 'summary' }))
   await screen.findByRole('list', { name: 'Engines' })
   expect(screen.queryByText('What changed')).toBeNull()
   expect(screen.queryByText('Setup changed')).toBeNull()
@@ -942,15 +941,18 @@ test('opens on non-brand answers with a class toggle, and reads each class from 
     </QueryClientProvider>,
   )
 
-  const filters = await screen.findByText('Filters and details', { selector: 'summary' })
-  expect(filters.closest('details')).toHaveProperty('open', false)
-  expect(within(screen.getByRole('region', { name: 'AI answers over time' })).queryByText('Details', { selector: 'summary' })).toBeNull()
+  // One measured point still opens on the chart and its filters; only the fine print waits in a closed Details.
+  const card = await screen.findByRole('region', { name: 'AI answers over time' })
+  const details = await within(card).findByText('Details', { selector: 'summary' })
+  expect(details.closest('details')).toHaveProperty('open', false)
+  expect(within(card).queryByText('Filters and details', { selector: 'summary' })).toBeNull()
   const classes = screen.getByRole('radiogroup', { name: 'Query type' })
   expect(within(classes).getAllByRole('radio').map(radio => [radio.textContent, radio.getAttribute('aria-checked')])).toEqual([
     ['Non-brand', 'true'], ['Branded', 'false'], ['All', 'false'],
   ])
   expect(classes.closest('details')).toBeNull()
-  expect(screen.getByRole('radiogroup', { name: 'Metric', hidden: true }).closest('details')).toBe(filters.closest('details'))
+  expect(within(card).getByRole('radiogroup', { name: 'Metric' }).closest('details')).toBeNull()
+  expect(within(card).getByRole('radiogroup', { name: 'Time window' }).closest('details')).toBeNull()
   const help = 'This view has one measurement point. A trend needs at least two comparable points.'
   expect(screen.queryByText(help)).toBeNull()
   expect(screen.getByRole('button', { name: help })).toBeTruthy()
@@ -975,7 +977,6 @@ test('opens on non-brand answers with a class toggle, and reads each class from 
   // class toggle steps aside, as the series toggle does.
   await act(async () => { fireEvent.click(within(classes).getByRole('radio', { name: 'Non-brand' })) })
   await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('15.9% · non-brand queries'))
-  fireEvent.click(screen.getByText('Filters and details', { selector: 'summary' }))
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
   expect(screen.queryByRole('radiogroup', { name: 'Query type' })).toBeNull()
   await waitFor(() => expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share in non-brand answers'))

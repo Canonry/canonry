@@ -35,6 +35,9 @@ const context = {
 const active = { revision: 4, compiledChecksum: checksum }
 const selectedContext = { providers: ['openai'], models: { openai: 'gpt-5' }, location: 'New York' }
 
+/** A query saved before sources were recorded has none. */
+type TrackedProvenance = { source: string; sourceId: string | null; capturedAt: string } | null
+
 function workspace() {
   return {
     mode: 'advanced',
@@ -49,7 +52,7 @@ function workspace() {
         queryId: 'query-acme',
         queryText: 'Acme pricing',
         normalizedText: 'acme pricing',
-        provenance: { source: 'manual', sourceId: null, capturedAt: '2026-09-04T12:00:00.000Z' },
+        provenance: { source: 'manual', sourceId: null, capturedAt: '2026-09-04T12:00:00.000Z' } as TrackedProvenance,
         state: 'tracked', lastMeasuredAt: '2026-09-04T12:10:00.000Z',
         assignments: [{
           targetKey: 'acme', groupKeys: ['north-east'], marketKeys: ['new-york'],
@@ -60,7 +63,7 @@ function workspace() {
         queryId: 'query-category',
         queryText: 'Best AEO platform',
         normalizedText: 'best aeo platform',
-        provenance: { source: 'research', sourceId: 'research-query-1', capturedAt: '2026-09-04T12:00:00.000Z' },
+        provenance: { source: 'research', sourceId: 'research-query-1', capturedAt: '2026-09-04T12:00:00.000Z' } as TrackedProvenance,
         state: 'awaiting-sweep', lastMeasuredAt: null,
         assignments: [{
           targetKey: 'acme', groupKeys: [], marketKeys: [],
@@ -698,6 +701,48 @@ test('lets measurement and action columns size to their contents inside the scro
     expect(within(measurementCell as HTMLElement).getByText(row.state === 'tracked' ? 'Measured' : 'Awaiting check')).toBeTruthy()
     if (row.state === 'tracked' && row.lastMeasuredAt) expect(measurementCell.querySelector('time')?.dateTime).toBe(row.lastMeasuredAt)
   }
+})
+
+function workspaceInMode(mode: 'simple' | 'advanced') {
+  const data = workspace()
+  data.mode = mode
+  if (mode === 'simple') {
+    data.active = null
+    data.tracked = data.tracked.map(row => ({ ...row, assignments: [] }))
+  }
+  return data
+}
+
+/** Each body row as [query, source], read under the table's own Source header. */
+function sourceCells(table: HTMLElement): string[][] {
+  const column = within(table).getAllByRole('columnheader').findIndex(header => header.textContent === 'Source')
+  return within(table).getAllByRole('row').slice(1).map(row => [row.children[0]!.textContent ?? '', row.children[column]?.textContent ?? ''])
+}
+
+test.each(['simple', 'advanced'] as const)('leaves the Source column out in %s mode when no query in view has a recorded source', async mode => {
+  const data = workspaceInMode(mode)
+  data.tracked = data.tracked.map(row => ({ ...row, provenance: null }))
+  installWorkspaceApi(undefined, [], data)
+  renderWorkspace()
+
+  const table = (await screen.findByText('Acme pricing')).closest('table')!
+  expect(within(table).queryByRole('columnheader', { name: 'Source' })).toBeNull()
+  expect(within(table).queryByText('Not recorded')).toBeNull()
+  // Every row still has exactly the cells its header names.
+  const columns = within(table).getAllByRole('columnheader').length
+  expect(columns).toBe(mode === 'advanced' ? 5 : 3)
+  for (const row of within(table).getAllByRole('row').slice(1)) expect(row.children).toHaveLength(columns)
+})
+
+test.each(['simple', 'advanced'] as const)('shows the Source column in %s mode once a query in view has one, naming the queries without one', async mode => {
+  const data = workspaceInMode(mode)
+  data.tracked = [data.tracked[0]!, { ...data.tracked[1]!, provenance: null }]
+  installWorkspaceApi(undefined, [], data)
+  renderWorkspace()
+
+  const table = (await screen.findByText('Acme pricing')).closest('table')!
+  expect(within(table).getAllByRole('columnheader').length).toBe(mode === 'advanced' ? 6 : 4)
+  expect(sourceCells(table)).toEqual([['Acme pricing', 'Manual'], ['Best AEO platform', 'Not recorded']])
 })
 
 test('keeps multi-property assignments compact in a large tracked table without a body scope picker', async () => {

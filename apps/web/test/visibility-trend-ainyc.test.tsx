@@ -212,7 +212,6 @@ test('collapses What changed to one line and opens a table by engine, newest fir
 test('dates every model change "on or before" Sep 29 on 7 days, bounded by the Jul 14 sweep', async () => {
   // No recent-sweep list at all: the inherited changes' own lower bound dates the sweep before.
   renderAinyc('7d', {})
-  fireEvent.click(await screen.findByText('Filters and details', { selector: 'summary' }))
   await screen.findByRole('list', { name: 'Engines' })
 
   expect(trendCard().querySelector('.av-card-meta')?.textContent).toBe('Sep 29 · 2 checks')
