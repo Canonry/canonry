@@ -115,7 +115,7 @@ const PROVIDER_CONNECT_GUIDANCE: Readonly<Partial<Record<string, string>>> = {
   [ProviderNames.claude]: "Anthropic's Claude models, answering with web search. Needs an API key.",
   [ProviderNames.perplexity]: 'Perplexity, answering with web search. Needs an API key.',
   [ProviderNames.muse]: "Meta's Muse models, answering with web search. Needs a Meta Model API key.",
-  [ProviderNames.openrouter]: 'Models from several makers through one key. You choose which models to check. Needs an API key.',
+  [ProviderNames.openrouter]: 'Models from several makers through one API key. Save the key, then choose which models to check.',
   [ProviderNames.local]: 'A model you run on an OpenAI-compatible server, without web search. Needs its base URL; an API key is optional.',
 }
 
@@ -682,6 +682,9 @@ function ReadySetupPage({
   // connecting OpenRouter finishes here as a direct provider does. The catalog
   // is the administrator settings read the project Answer engines section uses.
   const inlineModelPicker = isProjectScoped && isAdmin && openRouterModelsNeeded
+  // Saving a first OpenRouter key opens that picker in this step; with another
+  // engine already connected, the models are chosen later instead.
+  const openRouterModelsFollowSave = isProjectScoped && isAdmin && projectProviders.length === 0 && providerReadiness === false
   const openRouterSettingsQuery = useQuery({
     queryKey: ['settings'],
     queryFn: fetchSettings,
@@ -1444,6 +1447,7 @@ function ReadySetupPage({
               )}
               secondaryActions={providerRefreshAction}
               offerFreeTier={providerNeedsConnection}
+              saveLabel={openRouterModelsFollowSave && normalizeProviderName(providerToConfigure.name) === ProviderNames.openrouter ? 'Save and choose models' : undefined}
               providerName={providerToConfigure.name}
               keyUrl={providerToConfigure.keyUrl}
               modelHint={providerToConfigure.modelHint}

@@ -1486,7 +1486,7 @@ test('says what each provider to connect is and what connecting it takes', async
     ['local', 'A model you run on an OpenAI-compatible server, without web search. Needs its base URL; an API key is optional.'],
     ['perplexity', 'Perplexity, answering with web search. Needs an API key.'],
     ['muse', "Meta's Muse models, answering with web search. Needs a Meta Model API key."],
-    ['openrouter', 'Models from several makers through one key. You choose which models to check. Needs an API key.'],
+    ['openrouter', 'Models from several makers through one API key. Save the key, then choose which models to check.'],
   ] as const) {
     if (provider().value !== value) fireEvent.change(provider(), { target: { value } })
     expect(screen.getByRole('combobox', { name: 'Provider to connect', description: guidance })).toHaveProperty('value', value)
@@ -1531,4 +1531,23 @@ test('offers to connect another engine only while one this project can use is un
   // The form reads the saved connection first, then lists the one engine it can edit.
   const only = await screen.findByRole('combobox', { name: 'Provider to connect' }) as HTMLSelectElement
   expect([...only.options].map(option => option.value)).toEqual(['Gemini'])
+})
+
+test('says saving a first OpenRouter key leads to choosing its models, and only then', async () => {
+  const openRouter = [{ name: 'openrouter', displayName: 'OpenRouter' }]
+  // No engine is connected yet, so saving OpenRouter opens its model picker in this step.
+  renderProjectSetup({ onboarding: true, providerReady: false, extraProviders: openRouter })
+  const provider = await screen.findByRole('combobox', { name: 'Provider to connect' })
+  expect(screen.getByRole('button', { name: 'Save connection' })).toBeTruthy()
+  fireEvent.change(provider, { target: { value: 'openrouter' } })
+  expect(await screen.findByRole('button', { name: 'Save and choose models' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Save connection' })).toBeNull()
+  cleanup()
+
+  // Gemini is already connected, so OpenRouter's models are chosen later and the button only saves.
+  renderProjectSetup({ onboarding: true, projectProviders: [], readyProviderNames: ['gemini'], extraProviders: openRouter })
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect another engine' }))
+  fireEvent.change(screen.getByRole('combobox', { name: 'Provider to connect' }), { target: { value: 'openrouter' } })
+  expect(await screen.findByRole('button', { name: 'Save connection' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Save and choose models' })).toBeNull()
 })

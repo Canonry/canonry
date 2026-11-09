@@ -50,7 +50,7 @@ export function ProviderConfigForm(props: ComponentProps<typeof NewProviderConfi
   </div>
 }
 
-function NewProviderConfigForm({ providerName, keyUrl, modelHint, defaultModel, kind, compact = false, offerFreeTier = true, leadingField, secondaryActions, onSaved, onDirtyChange, onBusyChange }: {
+function NewProviderConfigForm({ providerName, keyUrl, modelHint, defaultModel, kind, compact = false, offerFreeTier = true, leadingField, secondaryActions, saveLabel, onSaved, onDirtyChange, onBusyChange }: {
   providerName: string
   keyUrl?: string
   /** The server's example for the model field, shown only when the default model is unknown. */
@@ -67,6 +67,8 @@ function NewProviderConfigForm({ providerName, keyUrl, modelHint, defaultModel, 
   leadingField?: ReactNode
   /** Keep connection actions together in the compact form footer. */
   secondaryActions?: ReactNode
+  /** Names what saving leads to when the caller shows a next step, such as choosing models. */
+  saveLabel?: string
   onSaved: () => void
   onDirtyChange?: (dirty: boolean) => void
   onBusyChange?: (busy: boolean) => void
@@ -242,7 +244,7 @@ function NewProviderConfigForm({ providerName, keyUrl, modelHint, defaultModel, 
   )
   const saveButton = (
     <Button type="button" size={compact ? 'default' : 'sm'} className={compact ? 'pointer-coarse:min-h-11' : undefined} disabled={!canSave || saving} onClick={asyncHandler(handleSave)}>
-      {saving ? 'Saving\u2026' : compact ? 'Save connection' : 'Save'}
+      {saving ? 'Saving\u2026' : saveLabel ?? (compact ? 'Save connection' : 'Save')}
     </Button>
   )
   // A local server needs its endpoint and rarely a key, so the required field leads.
