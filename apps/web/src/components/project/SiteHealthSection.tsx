@@ -1741,7 +1741,7 @@ function TerminalScanRecoveryState({
 
   return (
     <section
-      aria-label="Site scan recovery"
+      aria-label="Audit scan recovery"
       role="alert"
       className="rounded-md border border-negative bg-negative-soft px-5 py-6"
     >
@@ -2241,7 +2241,7 @@ export function SiteHealthSection({
   const onboardingEmptyHeading = scanHistoryUnconfirmed
     ? auditRunsQuery.isError ? 'Scan history could not be loaded' : 'Checking scan history…'
     : scanNotStarted
-      ? scanSkipped ? 'Site scan skipped' : 'No site scan yet'
+      ? scanSkipped ? 'Agent Readiness audit scan skipped' : 'No Agent Readiness audit scan yet'
       : 'Score unavailable'
   const onboardingEmptyDescription = scanHistoryUnconfirmed
     ? 'Scan status is not confirmed. Check scan history before starting a scan.'
@@ -2324,7 +2324,7 @@ export function SiteHealthSection({
           {/* The selected tab already says "Agent Readiness", so this row is
               named for what it reports: the shown scan's state, score and date. */}
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-heading-20 text-heading">Site scan</h2>
+            <h2 className="text-heading-20 text-heading">Audit scan</h2>
             <InfoTooltip text={SITE_HEALTH_VIEW_DESCRIPTIONS[currentView]} />
             <ToneBadge tone={scanTone(status)}>{statusLabel}</ToneBadge>
             {headerScore && (
@@ -2668,7 +2668,7 @@ export function SiteHealthSection({
                 : crawl?.legacyAuditAvailable
                 ? 'The existing score is preserved. Run a new scan to build the page and internal-link map.'
                 : embedded
-                  ? 'A full-site scan has not been run for this project.'
+                  ? 'An Agent Readiness audit scan has not been run for this project.'
                   : 'Run a scan to discover pages, site sections, and internal links.'}
             </p>
             {explicitOnboarding && !scanHistoryUnconfirmed ? <p className="mt-2 text-copy-14 text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages.</p> : null}

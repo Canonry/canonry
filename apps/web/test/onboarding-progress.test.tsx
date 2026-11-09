@@ -9,7 +9,7 @@ test('keeps the three onboarding stages concise and marks AI Visibility as optio
   render(<OnboardingProgress current="fixes" />)
 
   const progress = screen.getByRole('list', { name: 'Onboarding progress' })
-  const siteAudit = within(progress).getByText('Scan site').closest('li')
+  const siteAudit = within(progress).getByText('Audit scan').closest('li')
   const fixes = within(progress).getByText('Score').closest('li')
   const visibility = within(progress).getByText('AI Visibility').closest('li')
 
@@ -19,6 +19,6 @@ test('keeps the three onboarding stages concise and marks AI Visibility as optio
   expect(progress.textContent).not.toMatch(/Current|Upcoming/)
   // The scan and the score it produces: the stage carries the Score view's own name.
   expect([...progress.querySelectorAll('li')].map(stage => stage.textContent)).toEqual([
-    '✓Scan siteComplete', '2Score', '3AI VisibilityOptional', '4Next steps',
+    '✓Audit scanComplete', '2Score', '3AI VisibilityOptional', '4Next steps',
   ])
 })

@@ -24,6 +24,10 @@ describe('isRetiredFeatureNameCopy', () => {
       'Agent Readiness scan queued',
       'Run an Agent Readiness scan',
       'Agent Readiness  scans',
+      'Site scan',
+      'No site scan yet',
+      'A full-site scan has not been run',
+      'Map site',
     ]) {
       expect(isRetiredFeatureNameCopy(text), text).toBe(true)
     }
@@ -42,6 +46,10 @@ describe('isRetiredFeatureNameCopy', () => {
       'Agent Readiness audit scan queued',
       'Run an Agent Readiness audit scan',
       'Scan settings',
+      'Audit scan',
+      'Check Agent Readiness first',
+      'Full-site map not available',
+      'Allow Canonry to scan this public site.',
       'This scan stopped at the page limit, so some pages were not checked.',
       'Technical SEO',
       'Health',

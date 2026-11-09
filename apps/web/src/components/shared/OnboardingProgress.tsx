@@ -5,11 +5,11 @@ export type OnboardingStage = 'site' | 'fixes' | 'visibility' | 'done'
  * audit" here, "Map your site" as the heading, "Map site" on the button, the
  * tab's own name, and another name for its score. Two are enough: the scan,
  * and the score it produces. The feature is Agent Readiness, on its tab and in
- * the CLI, so these stages say what happens in it: "Scan site", then "Score",
- * the same name as the view the stage opens.
+ * the CLI, so these stages say what happens in it: "Audit scan" (one run is
+ * an Agent Readiness audit scan), then "Score", the name of the view it opens.
  */
 const ONBOARDING_STAGES = [
-  { id: 'site', label: 'Scan site', optional: false },
+  { id: 'site', label: 'Audit scan', optional: false },
   { id: 'fixes', label: 'Score', optional: false },
   { id: 'visibility', label: 'AI Visibility', optional: true },
   { id: 'done', label: 'Next steps', optional: false },

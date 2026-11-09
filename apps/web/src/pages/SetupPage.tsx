@@ -280,7 +280,7 @@ interface SetupPageProps {
   /**
    * This visit is part of first-run onboarding, so finishing or skipping ends
    * on its "You're set" step. True for the Agent Readiness handoff and for the
-   * first run that skipped the site scan, which shares no other UI with it.
+   * first run that skipped the audit scan, which shares no other UI with it.
    */
   onboardingFinish?: boolean
 }
@@ -1797,7 +1797,7 @@ function ReadySetupPage({
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={isProjectScoped ? openProjectDashboard : goBack}>Back</Button>
                   <Button type="button" variant="ghost" onClick={skipQueries}>
-                    {scanFollowsSkip ? 'Scan site instead' : isProjectScoped ? 'Finish without AI Visibility' : 'Skip for now'}
+                    {scanFollowsSkip ? 'Check Agent Readiness instead' : isProjectScoped ? 'Finish without AI Visibility' : 'Skip for now'}
                   </Button>
                   <Button type="button" disabled={parsedQueries.length === 0 || queriesSaving} onClick={asyncHandler(handleSaveQueries)}>
                     {queriesSaving ? 'Saving…' : `Save ${parsedQueries.length} quer${parsedQueries.length !== 1 ? 'ies' : 'y'}`}

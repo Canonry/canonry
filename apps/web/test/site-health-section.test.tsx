@@ -592,7 +592,7 @@ test('managed scans hide the plain recovery button on a cold failed-run handoff 
     error: 'The crawl could not reach the sitemap.',
   })
   renderSection(queryClient, { initialRunId: 'run_failed' }, 'viewer')
-  const recovery = screen.getByRole('alert', { name: 'Site scan recovery' })
+  const recovery = screen.getByRole('alert', { name: 'Audit scan recovery' })
   expect(recovery.textContent).toContain('The crawl could not reach the sitemap.')
   expect(within(recovery).queryByRole('button', { name: 'Run scan again' })).toBeNull()
   expect(screen.queryByRole('button', { name: /Run scan/ })).toBeNull()
@@ -789,7 +789,7 @@ test('leads with the map, truthful crawl metrics, and an explicit disabled dead-
   const queryClient = renderSection()
 
   // The selected tab names the feature; the section heads the scan it shows.
-  expect(screen.getByRole('heading', { name: 'Site scan', level: 2 })).not.toBeNull()
+  expect(screen.getByRole('heading', { name: 'Audit scan', level: 2 })).not.toBeNull()
   expect(screen.queryByRole('heading', { name: 'Agent Readiness' })).toBeNull()
   expect(screen.getByRole('option', { name: 'Latest scan' })).not.toBeNull()
   expect(screen.getByRole('button', { name: 'Shows the most complete scan from the latest day with results. Choose a dated entry to view another scan.' })).not.toBeNull()
@@ -821,7 +821,7 @@ test('leads with the map, truthful crawl metrics, and an explicit disabled dead-
 const SCORE_READ_PATH = '/api/v1/projects/citypoint/agent-readiness'
 
 function scanHeader(): HTMLElement {
-  return screen.getByRole('heading', { name: 'Site scan', level: 2 }).parentElement as HTMLElement
+  return screen.getByRole('heading', { name: 'Audit scan', level: 2 }).parentElement as HTMLElement
 }
 
 test('leads the header with the shown scan\'s score on every view, from the Score view\'s read', async () => {
@@ -1390,7 +1390,7 @@ test('uses the exact active run for a first scan instead of showing stale-map co
   expect(scanProgress.textContent).toContain('Checking your site')
   expect(scanProgress.textContent).toContain('Your score appears after the scan finishes')
   expect(scanProgress.textContent).not.toContain('map appears')
-  expect(screen.getByRole('list', { name: 'Onboarding progress' }).querySelector('[aria-current="step"]')?.textContent).toContain('Scan site')
+  expect(screen.getByRole('list', { name: 'Onboarding progress' }).querySelector('[aria-current="step"]')?.textContent).toContain('Audit scan')
   expect(screen.queryByRole('tablist', { name: 'Agent Readiness views' })).toBeNull()
   expect(screen.queryByRole('tabpanel')).toBeNull()
   expect(scanProgress.textContent).toContain('Checking your site')
@@ -2206,12 +2206,12 @@ test('offers rerun recovery when a pinned onboarding scan is cancelled before a 
   })
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalled())
-  const recovery = screen.getByRole('alert', { name: 'Site scan recovery' })
+  const recovery = screen.getByRole('alert', { name: 'Audit scan recovery' })
   expect(recovery.textContent).toContain('Scan cancelled')
   expect(recovery.textContent).toContain('before Canonry could publish its score')
   expect(recovery.textContent).not.toContain('site map')
   expect(screen.queryByRole('tablist', { name: 'Agent Readiness views' })).toBeNull()
-  expect(screen.getByRole('list', { name: 'Onboarding progress' }).querySelector('[aria-current="step"]')?.textContent).toContain('Scan site')
+  expect(screen.getByRole('list', { name: 'Onboarding progress' }).querySelector('[aria-current="step"]')?.textContent).toContain('Audit scan')
   fireEvent.click(within(recovery).getByRole('button', { name: 'Run scan again' }))
   expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
     projectName,
@@ -2500,7 +2500,7 @@ test.each([
     scanHistory(scan('run_2', status, false), scan('run_1')),
   )
 
-  const recovery = await screen.findByRole('alert', { name: 'Site scan recovery' })
+  const recovery = await screen.findByRole('alert', { name: 'Audit scan recovery' })
   expect(within(recovery).getByRole('heading', { name: heading })).not.toBeNull()
   expect(screen.queryByText('Score view for run_1')).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Next: Set up AI Visibility' })).toBeNull()
@@ -3479,7 +3479,7 @@ test('the compressed headings keep their own accessible names', () => {
   // second line of prose it replaced.
   renderSection()
 
-  const scanHeading = screen.getByRole('heading', { name: 'Site scan', level: 2 })
+  const scanHeading = screen.getByRole('heading', { name: 'Audit scan', level: 2 })
   expect(screen.getByRole('heading', { name: 'Site map', level: 2 })).not.toBeNull()
   // ...and each explanation is still reachable, on its own control.
   expect(screen.getByRole('button', { name: MAP_VIEW_HELP })).not.toBeNull()
@@ -3880,7 +3880,7 @@ test.each(['failed', 'cancelled'] as const)('managed scans hide %s recovery in r
     const queryClient = makeClient()
     seedExactProgress(queryClient, phase)
     renderSection(queryClient, { initialRunId: 'run_selected', showOnboardingActions: surface === 'onboarding' }, 'viewer')
-    expect(screen.getByRole('alert', { name: 'Site scan recovery' }).textContent).toContain(phase === 'failed' ? 'Scan failed' : 'Scan cancelled')
+    expect(screen.getByRole('alert', { name: 'Audit scan recovery' }).textContent).toContain(phase === 'failed' ? 'Scan failed' : 'Scan cancelled')
     expect(screen.queryByRole('button', { name: /Run scan|Run Agent Readiness audit scan/ })).toBeNull()
     cleanup()
     queryClient.clear()
@@ -3898,7 +3898,7 @@ test('managed scans guard the dispatcher before releasing a pinned run', () => {
   fireEvent.click(button)
   expect(mutationMock.mutate).not.toHaveBeenCalled()
   expect(onReleaseInitialRun).not.toHaveBeenCalled()
-  expect(screen.getByRole('alert', { name: 'Site scan recovery' })).not.toBeNull()
+  expect(screen.getByRole('alert', { name: 'Audit scan recovery' })).not.toBeNull()
 })
 
 test.each(['header', 'failed', 'no crawl', 'no score', 'no details'] as const)('managed scans preserve admin launches and remove viewer launches: %s', state => {
@@ -4013,7 +4013,7 @@ test.each([false, true])('returning to an unstarted scan is neutral and recovera
   const onContinueOnboarding = vi.fn()
   const onSkipOnboarding = vi.fn()
   renderSection(queryClient, { showOnboardingActions: true, onContinueOnboarding, onSkipOnboarding })
-  expect(screen.getByRole('heading', { name: skipped ? 'Site scan skipped' : 'No site scan yet' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: skipped ? 'Agent Readiness audit scan skipped' : 'No Agent Readiness audit scan yet' })).toBeTruthy()
   expect(screen.queryByText('This scan did not produce a score. Run it again to continue setup.')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Continue without scanning' }))
   expect(onContinueOnboarding).toHaveBeenCalledOnce()
@@ -4044,6 +4044,6 @@ test('empty onboarding waits for scan history and recovers a failed history read
   expect(mutationMock.mutate).not.toHaveBeenCalled()
   receipts['/agent-readiness/runs'] = scanHistory()
   fireEvent.click(screen.getByRole('button', { name: 'Retry scan history' }))
-  expect(await screen.findByRole('heading', { name: 'No site scan yet' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'No Agent Readiness audit scan yet' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Run first scan' })).toBeTruthy()
 })

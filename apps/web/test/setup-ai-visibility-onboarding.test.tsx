@@ -1171,7 +1171,7 @@ test('AI-first setup records the direct project handoff once after its first res
 
 test('AI-first setup hands a skipped AI Visibility step to the Agent Readiness audit scan walkthrough', async () => {
   const { projectName, requests } = renderProjectSetup({ onboarding: false, onboardingFinish: true, complete: false })
-  const scanInstead = await screen.findByRole('button', { name: 'Scan site instead' })
+  const scanInstead = await screen.findByRole('button', { name: 'Check Agent Readiness instead' })
   expect(screen.queryByRole('button', { name: 'Finish without AI Visibility' })).toBeNull()
   // Choosing AI Visibility first noted the scan as skipped; the walkthrough must not say so now.
   markOnboardingScanSkipped(projectName)
@@ -1198,7 +1198,7 @@ test('AI-first setup hands a skipped AI Visibility step to the Agent Readiness a
 test('a project-scoped skip outside first-run setup still returns to the project', async () => {
   const { projectName } = renderProjectSetup({ onboarding: false })
   const finish = await screen.findByRole('button', { name: 'Finish without AI Visibility' })
-  expect(screen.queryByRole('button', { name: 'Scan site instead' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Check Agent Readiness instead' })).toBeNull()
   fireEvent.click(finish)
   expect(navigate).toHaveBeenCalledWith({
     to: '/projects/$projectName',

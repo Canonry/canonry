@@ -906,7 +906,7 @@ Validation owns different risks:
 ### Onboarding state and draft recovery
 
 - Public domain/name/locale and unsaved query/competitor inputs restore from allowlisted session storage scoped by base path and project. Scan consent and provider credentials never persist. Saving clears the saved field's draft; Reset restores persisted project/query state, while Skip or leaving preserves unsaved inputs.
-- AI-first setup opens the project directly after its first result. Its skip, "Scan site instead", hands the project to the Agent Readiness audit scan walkthrough (`/setup?onboarding=site-health&setupProject=…`), the one first result that needs no AI engine; that page's Run first scan button is the crawl approval, so nothing crawls before it. A project-scoped skip outside first-run setup still returns to the project. Agent Readiness-first completion leads with a compact Project saved heading, one sweep status and Open project. Optional setup is a flat list: Connect your agent opens `/agent-setup`, and the data-source details start closed. Keep promotional demos and repeated explanatory paragraphs off this finish step. It derives scan/sweep outcomes from their latest saved runs. Distinguish never started, skipped, queued, running, partial, failed, cancelled and completed; name previous saved evidence separately. Provider/query readiness determines the next action.
+- AI-first setup opens the project directly after its first result. Its skip, "Check Agent Readiness instead", hands the project to the Agent Readiness audit scan walkthrough (`/setup?onboarding=site-health&setupProject=…`), the one first result that needs no AI engine; that page's Run first scan button is the crawl approval, so nothing crawls before it. A project-scoped skip outside first-run setup still returns to the project. Agent Readiness-first completion leads with a compact Project saved heading, one sweep status and Open project. Optional setup is a flat list: Connect your agent opens `/agent-setup`, and the data-source details start closed. Keep promotional demos and repeated explanatory paragraphs off this finish step. It derives scan/sweep outcomes from their latest saved runs. Distinguish never started, skipped, queued, running, partial, failed, cancelled and completed; name previous saved evidence separately. Provider/query readiness determines the next action.
 - Fresh setup leads with website and brand, then enters the exact project’s AI Visibility setup without a crawl or scan consent. The Brand name and Project name fields hold only what the operator types: the names derived from the website (`suggestedBrandName`, the normalized project name) are their placeholders and apply when a field is left blank, so typing never appends to a suggestion and clearing never refills one. A name conflict opens Project details, focuses Project name and links to the existing project. `siteScan=scan` is an explicit optional Agent Readiness entry; preserve its consent and first-scan 100-page cap. Existing scan links remain pinned to their run, while an unscanned project resumes its first AI check.
 - Telemetry status (`GET /api/v1/telemetry`) is operator-only and refuses cookie sessions, so setup reads it only when the browser carries its own API key; a cookie session never asks and shows no telemetry toggle.
 - A saved provider connection is `Configured`, not verified access. Key saves and settings refreshes do not prove provider authentication or quota. Repair a failed first check inline with the shared revision-aware connection editor; preserve the run and saved queries on return.
@@ -1003,7 +1003,7 @@ The site crawl and audit is **Agent Readiness** in every visible string: the
 tab, headings, aria-labels, toasts, the run label ("Agent Readiness audit scan") and
 the score ("Agent Readiness score"). Its views are Map | Pages | Score; the
 view ids (`map`, `inventory`, `technical`) are unchanged. The onboarding stages
-are Scan site | Score | AI Visibility | Next steps. Readiness means only Agent
+are Audit scan | Score | AI Visibility | Next steps. Readiness means only Agent
 Readiness in the UI: provider and engine setup says "Checking AI engines…" or
 "provider connections", never "readiness". `canonry-vocabulary/no-retired-feature-name`
 rejects the retired names (Site Health, Technical AEO, technical audit, Page
@@ -1026,7 +1026,7 @@ family. Internal identifiers stay as they are (`SiteHealthSection`,
 `technical-aeo` page and tab in `UI_PAGES` / `UI_PROJECT_TABS` beside the
 canonical ones, for events from dashboards built before the rename.
 
-Inside the tab, the section heading is "Site scan" (never the tab's own name)
+Inside the tab, the section heading is "Audit scan" (never the tab's own name)
 and leads with state: the status badge, then the shown scan's "Score N/100"
 ("Score so far" for a partial scan) read from the same score query the Score
 view uses, then the date. The four scan counts (Pages found, Pages checked,

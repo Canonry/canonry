@@ -1873,7 +1873,7 @@ test('a fresh project offers one AI Visibility setup action instead of an unread
     readiness: false,
   })
 
-  expect(html).toContain('>Map site<')
+  expect(html).toContain('>Check Agent Readiness<')
   expect(html).toContain('Set up AI Visibility')
   expectTrendChartFirst(html)
   expect(html).not.toContain('Where competitors are winning')
@@ -1890,7 +1890,7 @@ test('a fresh project offers one AI Visibility setup action instead of an unread
   expect(html).not.toContain('Run AI Visibility check')
 })
 
-test('Map site is the overview primary action and is omitted on Agent Readiness', async () => {
+test('Check Agent Readiness is the overview primary action and is omitted on Agent Readiness', async () => {
   const unmappedProject = {
     configureFixture(dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) {
       forceNoisyFreshVisibility(dashboard)
@@ -1903,13 +1903,13 @@ test('Map site is the overview primary action and is omitted on Agent Readiness'
   }
 
   const overview = await renderAt('/projects/project_citypoint', undefined, undefined, unmappedProject)
-  expect(overview).toContain('>Map site<')
+  expect(overview).toContain('>Check Agent Readiness<')
   const overviewRow = contextRow(new DOMParser().parseFromString(overview, 'text/html'))
   const overviewActions = [...overviewRow.querySelectorAll('[data-project-actions] button')].map(button => button.textContent)
-  expect(overviewActions).toEqual(expect.arrayContaining(['Map site', 'Set up AI Visibility']))
+  expect(overviewActions).toEqual(expect.arrayContaining(['Check Agent Readiness', 'Set up AI Visibility']))
 
   const siteHealth = await renderAt('/projects/project_citypoint/agent-readiness', undefined, undefined, unmappedProject)
-  expect(siteHealth).not.toContain('>Map site<')
+  expect(siteHealth).not.toContain('>Check Agent Readiness<')
 
   // An invitation to map a site that is already mapped is just a wrong label.
   // Nothing in the sweep-readiness flags carries this, so it is read separately.
@@ -1917,7 +1917,7 @@ test('Map site is the overview primary action and is omitted on Agent Readiness'
     ...unmappedProject,
     siteHealthScan: 'completed',
   })
-  expect(alreadyMapped).not.toContain('>Map site<')
+  expect(alreadyMapped).not.toContain('>Check Agent Readiness<')
   expect(alreadyMapped).toContain('Set up AI Visibility')
 
   // A bounded first run that hits the page or duration budget lands as
@@ -1927,14 +1927,14 @@ test('Map site is the overview primary action and is omitted on Agent Readiness'
     ...unmappedProject,
     siteHealthScan: 'partial',
   })
-  expect(partiallyMapped).not.toContain('>Map site<')
+  expect(partiallyMapped).not.toContain('>Check Agent Readiness<')
 
   // A failed scan left nothing to read, so the invitation still stands.
   const failedScan = await renderAt('/projects/project_citypoint', undefined, undefined, {
     ...unmappedProject,
     siteHealthScan: 'failed',
   })
-  expect(failedScan).toContain('>Map site<')
+  expect(failedScan).toContain('>Check Agent Readiness<')
 })
 
 test('a scanned project is pointed at the evidence it has, not an empty tab', async () => {
@@ -1954,7 +1954,7 @@ test('a scanned project is pointed at the evidence it has, not an empty tab', as
   })
 
   expect(scanned).toContain('>View Agent Readiness score<')
-  expect(scanned).not.toContain('>Map site<')
+  expect(scanned).not.toContain('>Check Agent Readiness<')
   const scannedRow = contextRow(new DOMParser().parseFromString(scanned, 'text/html'))
   expect([...scannedRow.querySelectorAll('[data-project-actions] button')].map(button => button.textContent)).toContain('View Agent Readiness score')
 })
@@ -3997,7 +3997,7 @@ test.each(['', '/agent-readiness', '/settings', '/history'])('unset managed run 
       if (suffix === '/agent-readiness') {
         // Agent Readiness leads with its own scan, so the context row offers no AI Visibility check there.
         expect(within(projectActions(html)).queryByRole('button')).toBeNull()
-        expect(within(doc).getByRole('heading', { name: 'Site scan' })).toBeTruthy()
+        expect(within(doc).getByRole('heading', { name: 'Audit scan' })).toBeTruthy()
       } else {
         expect(within(projectActions(html)).getByRole('button', { name: /AI Visibility check running|Checking AI engines|Set up AI Visibility|Run AI Visibility check/ }).hasAttribute('disabled')).toBe(true)
       }

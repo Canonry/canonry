@@ -1728,7 +1728,7 @@ function ProjectPageContent({
     && !draftRequiresPublication
     && providerReady === true
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
-  // "Map site" invites the operator to do something that has not been done yet,
+  // "Check Agent Readiness" invites the operator to do something not done yet,
   // so it needs the one fact the sweep-readiness flags never carry: whether
   // this project already has an Agent Readiness audit scan.
   //
@@ -2296,7 +2296,7 @@ function ProjectPageContent({
                 {nextSweepLabel ? <p className="text-copy-14 text-secondary">{nextSweepLabel}</p> : null}
                 {showMapSite ? (
                   <WriteButton type="button" onClick={openSiteHealth}>
-                    Map site
+                    Check Agent Readiness
                   </WriteButton>
                 ) : showViewPageHealth ? (
                   <WriteButton type="button" onClick={openSiteHealth}>

@@ -269,7 +269,7 @@ export type SiteHealthDispatchSettlement<T extends SiteHealthDispatchResult> =
   | { state: 'timed-out' }
 
 /**
- * The site scan can take a moment to queue on a cold worker. Bound only the
+ * The audit scan can take a moment to queue on a cold worker. Bound only the
  * handoff, not the server job: after the boundary the valid project moves into
  * Agent Readiness, where the normal persisted run list resumes it.
  */
@@ -1111,7 +1111,7 @@ function PlatformSetupPageBody({
       {!skipSiteScan ? <OnboardingProgress current="site" /> : null}
       <header className={`mb-8 ${skipSiteScan ? '' : 'mt-8'}`}>
         <h1 id="site-map-setup-title" className="text-heading-24 text-heading">
-          {skipSiteScan ? 'Track your brand in AI answers' : 'Scan your site'}
+          {skipSiteScan ? 'Track your brand in AI answers' : 'Run an Agent Readiness audit scan'}
         </h1>
         <p className="mt-2 max-w-lg text-copy-14 text-secondary">
           {skipSiteScan
@@ -1257,13 +1257,13 @@ function PlatformSetupPageBody({
             disabled={!identity || (!skipSiteScan && !crawlApproved) || !localeValid || busy}
           >
             {phase === 'creating' || phase === 'dispatching'
-              ? <><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> {skipSiteScan ? 'Creating project…' : 'Mapping site…'}</>
-              : skipSiteScan ? 'Continue' : 'Scan site'}
+              ? <><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> {skipSiteScan ? 'Creating project…' : 'Starting audit scan…'}</>
+              : skipSiteScan ? 'Continue' : 'Run audit scan'}
           </Button>
           {phase === 'dispatching' ? <span className="text-center text-label-14 text-secondary" role="status">Opening Agent Readiness when the scan is ready.</span> : null}
           <Button asChild type="button" variant="ghost" className={TOUCH_TARGET}>
             <Link to="/setup" search={{ experience: 'platform', siteScan: skipSiteScan ? 'scan' : 'skip' }}>
-              {skipSiteScan ? 'Scan site first' : 'Set up AI Visibility instead'}
+              {skipSiteScan ? 'Check Agent Readiness first' : 'Set up AI Visibility instead'}
             </Link>
           </Button>
         </div>
