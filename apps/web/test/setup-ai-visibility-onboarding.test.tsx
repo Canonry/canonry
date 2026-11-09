@@ -1492,3 +1492,24 @@ test('says what each provider to connect is and what connecting it takes', async
     expect(screen.getByRole('combobox', { name: 'Provider to connect', description: guidance })).toHaveProperty('value', value)
   }
 })
+
+test('names every engine it can connect, and that more can follow, until one is connected', async () => {
+  const extraProviders = [
+    { name: 'perplexity', displayName: 'Perplexity' },
+    { name: 'muse', displayName: 'Muse' },
+    { name: 'openrouter', displayName: 'OpenRouter' },
+  ]
+  renderProjectSetup({ onboarding: true, providerReady: false, includeLocalProvider: true, extraProviders })
+  // The form opens on Gemini, so this line is where the others show up: the
+  // server's own list, OpenRouter's one key spelled out, local models last.
+  const engines = await screen.findByRole('region', { name: 'AI engines' })
+  expect(await within(engines).findByText(
+    'Works with Gemini, OpenAI, Claude, Perplexity, Muse, OpenRouter (many models with one key) and models you run yourself. Start with one and add more any time in Settings.',
+  )).toBeTruthy()
+  cleanup()
+
+  renderProjectSetup({ onboarding: true, includeLocalProvider: true, extraProviders })
+  const connected = await screen.findByRole('region', { name: 'AI engines' })
+  expect(await within(connected).findByText('Configured')).toBeTruthy()
+  expect(within(connected).queryByText(/^Works with /)).toBeNull()
+})

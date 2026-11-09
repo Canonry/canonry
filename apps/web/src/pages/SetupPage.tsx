@@ -120,6 +120,22 @@ const PROVIDER_CONNECT_GUIDANCE: Readonly<Partial<Record<string, string>>> = {
 }
 
 /**
+ * Every engine the first connection can choose, as one line. The form opens on
+ * one engine, so this says the others exist and that more can follow.
+ */
+function engineChoicesHint(providers: readonly { name: string; displayName?: string }[]): string | null {
+  if (providers.length < 2) return null
+  const names = providers
+    .filter(provider => normalizeProviderName(provider.name) !== ProviderNames.local)
+    .map(provider => normalizeProviderName(provider.name) === ProviderNames.openrouter
+      ? `${provider.displayName ?? provider.name} (many models with one key)`
+      : provider.displayName ?? provider.name)
+  if (providers.some(provider => normalizeProviderName(provider.name) === ProviderNames.local)) names.push('models you run yourself')
+  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join('')
+  return `Works with ${list}. Start with one and add more any time in Settings.`
+}
+
+/**
  * The queries in a one-per-line list, each once. Lines match as the server's
  * query replace matches them (`normalizeQueryText`), keeping the first
  * spelling, so a count read from this is the number Save stores.
@@ -700,6 +716,7 @@ function ReadySetupPage({
     && provider.kind !== 'answer-service'
     && (projectProviders.length === 0 || projectProviders.includes(normalizeProviderName(provider.name)) || (provider.name === 'openrouter' && projectProviders.some(isOpenRouterRoute)))
   ))
+  const engineChoices = engineChoicesHint(configurableProviders)
   const providerToConfigure = configurableProviders.find(provider => provider.name === configuringProvider)
     ?? configurableProviders.find(provider => provider.state !== 'ready' && provider.state !== 'configured')
     ?? configurableProviders.at(0)
@@ -1349,6 +1366,7 @@ function ReadySetupPage({
             ? 'AI Visibility checks need an AI engine. You can save queries now and connect one later.'
             : 'Checking connected AI engines. You can choose queries meanwhile.'} />
       </div>
+      {providerNeedsConnection && engineChoices ? <p className="max-w-prose text-copy-14 text-secondary">{engineChoices}</p> : null}
       {providerReadiness === true && (runnableApiProviders.length > 0 || cdpConfigured === true) ? (
         <ul aria-label="Connected AI engines" className="divide-y divide-default">
           {runnableApiProviders.map(provider => {
