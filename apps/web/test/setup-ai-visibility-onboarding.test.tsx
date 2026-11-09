@@ -198,7 +198,7 @@ test('picks and saves several OpenRouter models in the provider step before allo
   const picker = await screen.findByRole('group', { name: 'Choose OpenRouter models' })
   expect(screen.queryByRole('button', { name: 'Add models', exact: true })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Save engines' })).toBeNull()
-  expect(screen.getByRole('button', { name: 'Use a different provider' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Connect another engine' })).toBeTruthy()
   fireEvent.click(within(picker).getByRole('checkbox', { name: 'Model A' }))
   fireEvent.click(within(picker).getByRole('checkbox', { name: 'Model B' }))
   fireEvent.click(within(picker).getByRole('button', { name: 'Save 2 models' }))
@@ -235,7 +235,7 @@ test('a corrected OpenRouter key refreshes the model list without leaving the st
   const settingsLink = screen.getByRole('link', { name: 'Settings' })
   expect(settingsLink.getAttribute('target')).toBe('_blank')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Use a different provider' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Connect another engine' }))
   // OpenRouter is already connected: no free-tier pitch, and the OpenRouter
   // form says how it bills.
   expect(screen.queryByRole('heading', { name: 'Connect Gemini' })).toBeNull()
@@ -860,7 +860,7 @@ test('treats a registered project-selected CDP provider as runnable', async () =
   expect(await screen.findByRole('heading', { name: 'Run your first AI Visibility check' })).toBeTruthy()
   const launch = screen.getByRole('button', { name: 'Run check' }) as HTMLButtonElement
   await waitFor(() => expect(launch.disabled).toBe(false))
-  expect(screen.queryByRole('link', { name: 'Use a different provider' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Connect another engine' })).toBeNull()
 })
 
 test('invalidates project query and dashboard caches after project-scoped query setup', async () => {
@@ -1512,4 +1512,23 @@ test('names every engine it can connect, and that more can follow, until one is 
   const connected = await screen.findByRole('region', { name: 'AI engines' })
   expect(await within(connected).findByText('Configured')).toBeTruthy()
   expect(within(connected).queryByText(/^Works with /)).toBeNull()
+})
+
+test('offers to connect another engine only while one this project can use is unconnected', async () => {
+  // Gemini is connected and others are not: the button adds one, opening on the next.
+  renderProjectSetup({ onboarding: true, projectProviders: [], readyProviderNames: ['gemini'] })
+  const engines = await screen.findByRole('region', { name: 'AI engines' })
+  fireEvent.click(await within(engines).findByRole('button', { name: 'Connect another engine' }))
+  expect((screen.getByRole('combobox', { name: 'Provider to connect' }) as HTMLSelectElement).value).toBe('OpenAI')
+  cleanup()
+
+  // The project may only use Gemini, and Gemini is connected: the form can only
+  // edit that saved connection, so the button does not promise another engine.
+  renderProjectSetup({ onboarding: true, projectProviders: ['gemini'], readyProviderNames: ['gemini'] })
+  const limited = await screen.findByRole('region', { name: 'AI engines' })
+  fireEvent.click(await within(limited).findByRole('button', { name: 'Change engine settings' }))
+  expect(within(limited).queryByRole('button', { name: 'Connect another engine' })).toBeNull()
+  // The form reads the saved connection first, then lists the one engine it can edit.
+  const only = await screen.findByRole('combobox', { name: 'Provider to connect' }) as HTMLSelectElement
+  expect([...only.options].map(option => option.value)).toEqual(['Gemini'])
 })

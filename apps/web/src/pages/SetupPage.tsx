@@ -717,8 +717,12 @@ function ReadySetupPage({
     && (projectProviders.length === 0 || projectProviders.includes(normalizeProviderName(provider.name)) || (provider.name === 'openrouter' && projectProviders.some(isOpenRouterRoute)))
   ))
   const engineChoices = engineChoicesHint(configurableProviders)
+  const isUnconnected = (provider: { state: string }) => provider.state !== 'ready' && provider.state !== 'configured'
+  // The provider form opens on an unconnected engine when there is one; with
+  // none left it can only edit a saved connection, and its button says so.
+  const canConnectAnotherEngine = configurableProviders.some(isUnconnected)
   const providerToConfigure = configurableProviders.find(provider => provider.name === configuringProvider)
-    ?? configurableProviders.find(provider => provider.state !== 'ready' && provider.state !== 'configured')
+    ?? configurableProviders.find(isUnconnected)
     ?? configurableProviders.at(0)
   const providerGuidance = providerToConfigure ? PROVIDER_CONNECT_GUIDANCE[normalizeProviderName(providerToConfigure.name)] : undefined
   const researchPrompt = `Help me choose AI Visibility queries for Canonry project ${JSON.stringify(createdProjectName ?? projectName)} (${domain}).
@@ -1462,7 +1466,7 @@ function ReadySetupPage({
       <div className="flex flex-wrap items-center gap-2">
         {(providerReadiness === true || openRouterModelsNeeded) && !showProviderConfig && providerToConfigure ? (
           <Button type="button" variant="ghost" size="sm" className="-ml-3 text-button-14" onClick={() => setShowProviderConfig(true)}>
-            Use a different provider
+            {canConnectAnotherEngine ? 'Connect another engine' : 'Change engine settings'}
           </Button>
         ) : null}
         {!providerToConfigure || cdpConfigured === true ? (
