@@ -2753,7 +2753,7 @@ describe('graph root identity', () => {
 
 describe('crawl page health-state filter', () => {
   /**
-   * The dashboard's "Hidden pages" chip and every agent read must mean the
+   * The dashboard's "Hidden pages" filter and every agent read must mean the
    * same thing by "hidden". That only holds if the route filters with the
    * contract's own derivation rather than a SQL lookalike, so this asserts the
    * two agree across the whole crawler vocabulary, not just the happy path.

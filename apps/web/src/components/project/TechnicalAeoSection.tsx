@@ -696,10 +696,10 @@ export function TechnicalAeoSection({
         ) : (
           <div className="section-head">
             <p className="eyebrow eyebrow-soft">Scorecard</p>
-            <h2 className="inline-flex items-center gap-1.5">
-              Ranking factors
+            <div className="flex items-center gap-1.5">
+              <h2>Ranking factors</h2>
               <InfoTooltip text={SCORECARD_STATUS_HELP} />
-            </h2>
+            </div>
           </div>
         )}
         <div className="evidence-table-wrap mt-3">
@@ -872,10 +872,10 @@ export function TechnicalAeoSection({
         <section className="page-section-divider">
           <div className="section-head">
             <p className="eyebrow eyebrow-soft">Opportunities</p>
-            <h2 className="inline-flex items-center gap-1.5">
-              Prioritized fixes
+            <div className="flex items-center gap-1.5">
+              <h2>Prioritized fixes</h2>
               <InfoTooltip text="Factors scoring below pass across the most pages, ranked by site-wide impact. Fixing one of these typically lifts many pages at once." />
-            </h2>
+            </div>
           </div>
           <div className="mt-3 divide-y divide-mono-800/60 overflow-hidden material-base">
             {score.crossCuttingIssues.map((issue) => {

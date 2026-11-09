@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 
 import { ToneBadge } from '../../shared/ToneBadge.js'
 import { InfoTooltip } from '../../shared/InfoTooltip.js'
@@ -599,8 +600,8 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
             </div>
           ) : null}
           {preview.rows.length > 0 ? (
-            <details className="mt-3 border-y border-default py-3">
-              <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">Review CSV rows ({preview.counts.dataRows})</summary>
+            <details className="group/csv-rows mt-3 border-y border-default py-3">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-label-14-strong text-heading [&::-webkit-details-marker]:hidden"><ChevronRight className="size-3.5 shrink-0 transition-transform group-open/csv-rows:rotate-90" aria-hidden="true" />Review CSV rows ({preview.counts.dataRows})</summary>
               <div className="mt-3 overflow-x-auto border-y border-default">
                 <table className="evidence-table min-w-[620px]">
                   <caption className="sr-only">CSV group membership review</caption>
@@ -628,8 +629,8 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
             </details>
           ) : null}
           {attentionCount > 0 ? (
-            <details className="mt-3 border-y border-caution-800/30 py-3">
-              <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">Fix {attentionCount} row{attentionCount === 1 ? '' : 's'} before applying</summary>
+            <details className="group/csv-fixes mt-3 border-y border-caution-800/30 py-3">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-label-14-strong text-heading [&::-webkit-details-marker]:hidden"><ChevronRight className="size-3.5 shrink-0 transition-transform group-open/csv-fixes:rotate-90" aria-hidden="true" />Fix {attentionCount} row{attentionCount === 1 ? '' : 's'} before applying</summary>
               <p className="mt-2 text-copy-14 text-secondary">Correct these rows, or explicitly continue with only the reviewed matches. Rows needing attention are not added.</p>
               <div className="mt-3 overflow-x-auto border-y border-default">
                 <table className="evidence-table min-w-[620px]">
@@ -978,8 +979,8 @@ export function AdvancedMeasurementQueriesStep({
       </details> : null}
 
       {viewer || !onCreateQueries ? null : (
-        <details open={queries.length === 0} className="border-y border-default py-4">
-          <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">Add queries</summary>
+        <details open={queries.length === 0} className="group/add-queries border-y border-default py-4">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-label-14-strong text-heading [&::-webkit-details-marker]:hidden"><ChevronRight className="size-3.5 shrink-0 transition-transform group-open/add-queries:rotate-90" aria-hidden="true" />Add queries</summary>
           <div className="pt-3">
             <h4 className="m-0 text-heading-14 text-heading">
               {queries.length === 0 ? 'Add the queries you want to track' : 'Add more queries'}
@@ -1441,8 +1442,8 @@ export function AdvancedMeasurementGroupsStep({
               placeholder="e.g. Core products"
             />
           </label>
-          <details open={properties.length <= 10}>
-            <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">{selectedPropertyCount} of {properties.length} Properties selected</summary>
+          <details open={properties.length <= 10} className="group/group-properties">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-label-14-strong text-heading [&::-webkit-details-marker]:hidden"><ChevronRight className="size-3.5 shrink-0 transition-transform group-open/group-properties:rotate-90" aria-hidden="true" />{selectedPropertyCount} of {properties.length} Properties selected</summary>
             <div className="pt-3">
               <PropertyChecklist
                 legend="Properties in this group"
@@ -1567,8 +1568,8 @@ export function AdvancedMeasurementReviewStep({
               {sitemapReview.coverageReviewCount > 0 ? <p className="mt-1 text-copy-14 text-secondary">{sitemapReview.coverageReviewCount} {sitemapReview.coverageReviewCount === 1 ? 'Property has' : 'Properties have'} URL coverage changes.</p> : null}
             </div>
             {sitemapReview.exceptionCount > 0 ? (
-              <details className="border-y border-caution-800/30 py-3">
-                <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">URLs not added to Properties ({sitemapReview.exceptionCount})</summary>
+              <details className="group/sitemap-urls border-y border-caution-800/30 py-3">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-label-14-strong text-heading [&::-webkit-details-marker]:hidden"><ChevronRight className="size-3.5 shrink-0 transition-transform group-open/sitemap-urls:rotate-90" aria-hidden="true" />URLs not added to Properties ({sitemapReview.exceptionCount})</summary>
                 {sitemapItems.length > 0 ? (
                   <ul className="mt-3 space-y-3 text-label-14">
                     {shownSitemapItems.map(item => (
@@ -1593,8 +1594,8 @@ export function AdvancedMeasurementReviewStep({
                   <fieldset className="space-y-3">
                     <legend className="text-label-14-strong text-heading">For changed Property URLs</legend>
                     <p className="text-copy-14 text-secondary">This choice applies to all {sitemapReview.coverageReviewCount} changed {sitemapReview.coverageReviewCount === 1 ? 'Property' : 'Properties'}.</p>
-                    <details className="border-y border-caution-800/30 py-3">
-                      <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">Review Property URL changes ({sitemapReview.coverageReviewCount})</summary>
+                    <details className="group/url-changes border-y border-caution-800/30 py-3">
+                      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-label-14-strong text-heading [&::-webkit-details-marker]:hidden"><ChevronRight className="size-3.5 shrink-0 transition-transform group-open/url-changes:rotate-90" aria-hidden="true" />Review Property URL changes ({sitemapReview.coverageReviewCount})</summary>
                       {shownCoverageItems.length > 0 ? (
                         <div className="mt-3 space-y-4">
                           {shownCoverageItems.map(item => (

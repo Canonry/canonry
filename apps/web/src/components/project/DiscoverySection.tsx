@@ -1,6 +1,6 @@
 import { formatModelName, openRouterRouteModel } from '@canonry/canonry-contracts'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Pencil, Play, Plus, RefreshCw, Trash2 } from 'lucide-react'
@@ -44,6 +44,7 @@ import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { WorkspaceTabs } from '../shared/WorkspaceTabs.js'
 import { ResearchQueriesSection, type ResearchTemplateOption } from './ResearchQueriesSection.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
 import { canUseResearchWorkspace, effectiveQueryWorkspace, unavailableTrackingScope, type QueryWorkspace } from '../../lib/project-scope.js'
@@ -109,6 +110,7 @@ export function QueriesSection({
   const requestedWorkspace = controlledWorkspace ?? uncontrolledWorkspace
   const queryWorkspace = effectiveQueryWorkspace(requestedWorkspace, showResearchWorkspace)
   const researchMode = controlledResearchMode ?? uncontrolledResearchMode
+  const tabsId = useId()
 
   const selectWorkspace = (workspace: QueryWorkspace) => {
     if (controlledWorkspace === undefined) setUncontrolledWorkspace(workspace)
@@ -134,11 +136,18 @@ export function QueriesSection({
   return (
     <section className="page-section-divider" aria-labelledby="queries-heading">
       <h2 id="queries-heading" className="sr-only">Queries</h2>
-      <div className="flex border-b border-default" role="tablist" aria-label="Query workspace">
-        <WorkspaceTab active={queryWorkspace === 'tracked'} label="Tracked" onClick={() => selectWorkspace('tracked')} />
-        {showResearchWorkspace ? <WorkspaceTab active={queryWorkspace === 'research'} label="Research" onClick={() => selectWorkspace('research')} /> : null}
-      </div>
-      <div className="mt-4">
+      <WorkspaceTabs
+        id={tabsId}
+        label="Query workspace"
+        value={queryWorkspace}
+        onChange={selectWorkspace}
+        className="flex border-b border-default"
+        tabClassName={UNDERLINE_TAB_CLASS}
+        activeTabClassName={UNDERLINE_TAB_ACTIVE_CLASS}
+        inactiveTabClassName={UNDERLINE_TAB_INACTIVE_CLASS}
+        options={showResearchWorkspace ? [['tracked', 'Tracked'], ['research', 'Research']] : [['tracked', 'Tracked']]}
+      />
+      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${queryWorkspace}`} tabIndex={0} className="mt-4">
         {queryWorkspace === 'tracked' ? (
           <TrackedQueriesSection
             projectName={projectName}
@@ -166,19 +175,10 @@ export function QueriesSection({
   )
 }
 
-function WorkspaceTab({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      className={`-mb-px border-b-2 px-3 py-2 text-button-14 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500 focus-visible:ring-inset ${active ? 'border-mono-400 text-heading' : 'border-transparent text-muted hover:border-strong hover:text-strong'}`}
-      onClick={onClick}
-    >
-      {label}
-    </button>
-  )
-}
+// The Query and Research workspaces share one underline tab style.
+const UNDERLINE_TAB_CLASS = '-mb-px border-b-2 px-3 py-2 text-button-14 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500 focus-visible:ring-inset'
+const UNDERLINE_TAB_ACTIVE_CLASS = 'border-mono-400 text-heading'
+const UNDERLINE_TAB_INACTIVE_CLASS = 'border-transparent text-muted hover:border-strong hover:text-strong'
 
 function QueryResearchWorkspace({
   projectName,
@@ -197,6 +197,7 @@ function QueryResearchWorkspace({
   viewerResearchConfig: ViewerResearchConfig | null
 }) {
   const { canWrite } = useAccount()
+  const tabsId = useId()
   const researchWorkspaceEnabled = !canWrite || mode === 'test'
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
@@ -262,11 +263,21 @@ function QueryResearchWorkspace({
   }
   return (
     <div>
-      <div className="flex border-b border-default" role="tablist" aria-label="Research workspace">
-        <WorkspaceTab active={mode === 'find'} label="Find queries" onClick={() => onModeChange('find')} />
-        <WorkspaceTab active={mode === 'test'} label="Test queries" onClick={() => onModeChange('test')} />
-      </div>
-      <div className="mt-4">
+      <WorkspaceTabs
+        id={tabsId}
+        label="Research workspace"
+        value={mode}
+        onChange={onModeChange}
+        className="flex border-b border-default"
+        tabClassName={UNDERLINE_TAB_CLASS}
+        activeTabClassName={UNDERLINE_TAB_ACTIVE_CLASS}
+        inactiveTabClassName={UNDERLINE_TAB_INACTIVE_CLASS}
+        options={[
+          ['find', 'Find queries'],
+          ['test', 'Test queries'],
+        ]}
+      />
+      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${mode}`} tabIndex={0} className="mt-4">
         {mode === 'find' ? (
           <FindQueriesSection
             projectName={projectName}
@@ -1522,6 +1533,7 @@ function TrackedQueriesSection({
 
 export function DiscoverySection({ projectName }: { projectName: string }) {
   const [workflow, setWorkflow] = useState<'find' | 'research'>('find')
+  const tabsId = useId()
 
   return (
     <section className="page-section-divider">
@@ -1531,27 +1543,21 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
           <h2>Discover or research queries</h2>
         </div>
       </div>
-      <div className="inline-flex material-base p-1" role="tablist" aria-label="Query discovery workflow">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={workflow === 'find'}
-          className={`rounded px-3 py-1.5 text-button-14 transition-colors ${workflow === 'find' ? 'bg-bg-elevated text-heading shadow-sm' : 'text-muted hover:text-strong'}`}
-          onClick={() => setWorkflow('find')}
-        >
-          Find queries
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={workflow === 'research'}
-          className={`rounded px-3 py-1.5 text-button-14 transition-colors ${workflow === 'research' ? 'bg-bg-elevated text-heading shadow-sm' : 'text-muted hover:text-strong'}`}
-          onClick={() => setWorkflow('research')}
-        >
-          Research queries
-        </button>
-      </div>
-      <div className="mt-4">
+      <WorkspaceTabs
+        id={tabsId}
+        label="Query discovery workflow"
+        value={workflow}
+        onChange={setWorkflow}
+        className="inline-flex material-base p-1"
+        tabClassName="rounded px-3 py-1.5 text-button-14 transition-colors"
+        activeTabClassName="bg-bg-elevated text-heading shadow-sm"
+        inactiveTabClassName="text-muted hover:text-strong"
+        options={[
+          ['find', 'Find queries'],
+          ['research', 'Research queries'],
+        ]}
+      />
+      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${workflow}`} tabIndex={0} className="mt-4">
         {workflow === 'find' ? <FindQueriesSection projectName={projectName} /> : <ResearchQueriesSection projectName={projectName} />}
       </div>
     </section>

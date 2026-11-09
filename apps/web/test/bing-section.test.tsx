@@ -335,3 +335,34 @@ test('the position change follows the API difference, and says when there is non
   expect(bingPositionChange({ ...base, difference: { ...base.difference, avgImpressionPosition: 0 } })).toMatchObject({ direction: 'flat', tone: 'neutral' })
   expect(bingPositionChange({ ...base, difference: { ...base.difference, avgImpressionPosition: null } })).toEqual({ kind: 'note', text: 'No position in the prior 30 days' })
 })
+
+test('each Bing tab group takes one tab stop and switches its list from the keyboard', async () => {
+  mountBing()
+
+  const queries = await screen.findByRole('tab', { name: 'Queries' })
+  const pages = screen.getByRole('tab', { name: 'Pages' })
+  expect([queries.tabIndex, pages.tabIndex]).toEqual([0, -1])
+  expect(await within(screen.getByRole('tabpanel', { name: 'Queries' })).findByRole('button', { name: 'Show details for garage heater' })).not.toBeNull()
+  queries.focus()
+  fireEvent.keyDown(queries, { key: 'ArrowRight' })
+  expect(document.activeElement).toBe(pages)
+  expect([queries.tabIndex, pages.tabIndex]).toEqual([-1, 0])
+  expect(await within(screen.getByRole('tabpanel', { name: 'Pages' })).findByTitle(`${SITE}pricing/`)).not.toBeNull()
+
+  const notIndexed = screen.getByRole('tab', { name: 'Not indexed (1)' })
+  const lists = within(screen.getByRole('tablist', { name: 'Bing index and crawl lists' })).getAllByRole('tab')
+  expect(lists.map(tab => [tab.textContent, tab.tabIndex])).toEqual([
+    ['Not indexed (1)', 0], ['Status unknown (0)', -1], ['Indexed (0)', -1], ['Inspections (1)', -1], ['Crawl by day', -1],
+  ])
+  expect(await within(screen.getByRole('tabpanel', { name: 'Not indexed (1)' })).findByTitle(`${SITE}old/`)).not.toBeNull()
+  notIndexed.focus()
+  fireEvent.keyDown(notIndexed, { key: 'End' })
+  const crawl = screen.getByRole('tab', { name: 'Crawl by day' })
+  expect(document.activeElement).toBe(crawl)
+  expect(await within(screen.getByRole('tabpanel', { name: 'Crawl by day' })).findByText('No crawl stats stored yet.')).not.toBeNull()
+  fireEvent.keyDown(crawl, { key: 'ArrowLeft' })
+  expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Inspections (1)' }))
+  expect(await within(screen.getByRole('tabpanel', { name: 'Inspections (1)' })).findByTitle(`${SITE}pricing/`)).not.toBeNull()
+  fireEvent.keyDown(document.activeElement!, { key: 'Home' })
+  expect(document.activeElement).toBe(notIndexed)
+})

@@ -3015,15 +3015,17 @@ test('narrows the page list to hidden pages through the server-side filter', () 
   renderSection(queryClient)
   fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
 
-  const allChip = screen.getByRole('button', { name: 'All' })
-  const hiddenChip = screen.getByRole('button', { name: 'Hidden pages' })
-  expect(allChip.getAttribute('aria-pressed')).toBe('true')
-  expect(hiddenChip.getAttribute('aria-pressed')).toBe('false')
+  // The status filter and the search share one filter bar.
+  const filters = screen.getByRole('group', { name: 'Page filters' })
+  const status = within(filters).getByRole<HTMLSelectElement>('combobox', { name: 'Filter pages by status' })
+  expect(within(filters).getByRole('searchbox', { name: 'Search loaded pages' })).not.toBeNull()
+  expect(Array.from(status.options, option => option.text)).toEqual(['All pages', 'Hidden pages'])
+  expect(status.value).toBe('all')
   expect(screen.getByRole('button', { name: '/services/roof-repair' })).not.toBeNull()
 
-  fireEvent.click(hiddenChip)
+  fireEvent.change(status, { target: { value: 'hidden' } })
 
-  expect(hiddenChip.getAttribute('aria-pressed')).toBe('true')
+  expect(status.value).toBe('hidden')
   expect(screen.getByRole('button', { name: '/thank-you' })).not.toBeNull()
   expect(screen.queryByRole('button', { name: '/services/roof-repair' })).toBeNull()
 
@@ -3253,7 +3255,7 @@ test('keeps a filtered selection until the server says it does not match', async
       renderSection(queryClient)
       fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
       fireEvent.click(screen.getByRole('button', { name: '/services/roof-repair' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Hidden pages' }))
+      fireEvent.change(screen.getByRole('combobox', { name: 'Filter pages by status' }), { target: { value: 'hidden' } })
       await screen.findByRole('button', { name: '/thanks' })
       await waitFor(() => expect(reads.filter(read => read.path.endsWith('/crawl/pages'))).toHaveLength(1))
       expect(screen.getByRole('heading', { name: '/services/roof-repair', level: 3 })).not.toBeNull()
@@ -3296,7 +3298,7 @@ test('says so when a scan is too old to filter, instead of showing an empty list
 
   renderSection(queryClient)
   fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Hidden pages' }))
+  fireEvent.change(screen.getByRole('combobox', { name: 'Filter pages by status' }), { target: { value: 'hidden' } })
 
   expect(screen.getByText('This scan cannot be filtered. Run a new scan to filter its pages.')).not.toBeNull()
 })

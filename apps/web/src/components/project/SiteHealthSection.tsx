@@ -120,7 +120,7 @@ type PageReasonsState = 'idle' | 'loading' | 'ready' | 'error'
  * The route derives this with the same contract function the map uses.
  */
 const INVENTORY_FILTERS = [
-  { id: 'all', label: 'All', healthState: undefined },
+  { id: 'all', label: 'All pages', healthState: undefined },
   { id: 'hidden', label: 'Hidden pages', healthState: SiteHealthStates.hidden },
 ] as const satisfies ReadonlyArray<{
   id: InventoryFilterId
@@ -1013,31 +1013,32 @@ function InventoryTable({
             )}
           </div>
         </div>
-        <label className="relative block w-full sm:w-72">
-          <span className="sr-only">Search loaded pages</span>
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" aria-hidden="true" />
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search loaded pages"
-            className="h-9 w-full rounded-md border border-base bg-bg pl-9 pr-3 text-label-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-600"
-          />
-        </label>
-      </div>
-
-      <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Filter pages">
-        {INVENTORY_FILTERS.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            aria-pressed={filter === option.id}
-            onClick={() => onFilterChange(option.id)}
-            className={`filter-chip ${filter === option.id ? 'filter-chip-active' : ''}`}
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto" role="group" aria-label="Page filters">
+          <select
+            aria-label="Filter pages by status"
+            value={filter}
+            onChange={(event) => {
+              const next = INVENTORY_FILTERS.find((option) => option.id === event.target.value)
+              if (next) onFilterChange(next.id)
+            }}
+            className="h-9 rounded-md border border-base bg-bg px-3 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
           >
-            {option.label}
-          </button>
-        ))}
+            {INVENTORY_FILTERS.map((option) => (
+              <option key={option.id} value={option.id}>{option.label}</option>
+            ))}
+          </select>
+          <label className="relative block min-w-0 flex-1 sm:w-72 sm:flex-none">
+            <span className="sr-only">Search loaded pages</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search loaded pages"
+              className="h-9 w-full rounded-md border border-base bg-bg pl-9 pr-3 text-label-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-600"
+            />
+          </label>
+        </div>
       </div>
 
       <div className="evidence-table-wrap">
@@ -2368,9 +2369,10 @@ export function SiteHealthSection({
                 event.currentTarget.open = false
                 event.currentTarget.querySelector('summary')?.focus()
               }}>
-                <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-md border border-base bg-bg px-3 text-label-14-strong text-heading outline-none hover:bg-bg-elevated focus-visible:ring-2 focus-visible:ring-mono-400">
+                <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-md border border-base bg-bg px-3 text-label-14-strong text-heading outline-none hover:bg-bg-elevated focus-visible:ring-2 focus-visible:ring-mono-400 [&::-webkit-details-marker]:hidden">
                   <Settings2 className="size-4" aria-hidden="true" />
                   Scan settings
+                  <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
                 </summary>
                 <div className="absolute left-0 z-20 mt-2 w-72 material-menu p-4 sm:left-auto sm:right-0">
                   <div className="flex items-center justify-between gap-3 text-label-14 text-heading">

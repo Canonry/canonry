@@ -2,7 +2,7 @@ import type { KeyboardEvent } from 'react'
 
 /** Horizontal workspace tabs with automatic activation and a single tab stop. */
 export function WorkspaceTabs<T extends string>({
-  id, label, options, value, onChange, className, tabClassName, activeTabClassName,
+  id, label, options, value, onChange, className, tabClassName, activeTabClassName, inactiveTabClassName = '',
 }: {
   id: string
   label: string
@@ -12,6 +12,8 @@ export function WorkspaceTabs<T extends string>({
   className: string
   tabClassName: string
   activeTabClassName: string
+  /** Classes only the unselected tabs take, such as a hover state the selected tab must not show. */
+  inactiveTabClassName?: string
 }) {
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const index = options.findIndex(([key]) => key === value)
@@ -39,7 +41,7 @@ export function WorkspaceTabs<T extends string>({
           aria-selected={value === key}
           aria-controls={`${id}-panel`}
           tabIndex={value === key ? 0 : -1}
-          className={`${tabClassName} ${value === key ? activeTabClassName : ''}`}
+          className={`${tabClassName} ${value === key ? activeTabClassName : inactiveTabClassName}`}
           onClick={() => onChange(key)}
         >
           {name}

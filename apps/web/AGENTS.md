@@ -871,9 +871,11 @@ boundary. Use spacing there, and plain disclosures inside bounded cards.
 The shared topbar's `ThemeSelector` uses icon options in `SegmentedRadioGroup`
 for Light/Dark/System and saves the choice in `canonry:theme`. Preserve its
 accessible names, tooltips, roving focus, and arrow-key selection.
-Search Engine and History workspace tabs use `WorkspaceTabs`: one tab stop,
-Left/Right and Home/End activation, and a named `tabpanel` connected to the
-selected tab. Keep this shared keyboard behavior when adding workspace views.
+`WorkspaceTabs` drives the Search engines, History, Search Console coverage,
+both Bing lists, and the Queries, Research and discovery workspace tabs: one tab
+stop, Left/Right and Home/End activation, and a named `tabpanel` connected to
+the selected tab. Styles only unselected tabs take, such as a hover state, go in
+`inactiveTabClassName`. Use it for a new tab group.
 `ThemeProvider` wraps `AuthGate`, applies the resolved mode to the document root,
 and follows OS/storage changes; Dark remains the initial default. The inline
 bootstrap in `index.html` resolves the same preference before paint, after the
