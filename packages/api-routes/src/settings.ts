@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type {
   AnswerServiceProfileSummary,
+  ConnectionAction,
   ProviderCapabilities,
   ProviderCatalogEntryDto,
   ProviderKeyCheck,
@@ -20,12 +21,16 @@ import type {
 } from '@canonry/canonry-contracts'
 import {
   AppError,
+  classifyProviderErrorMessage,
+  ConnectionActions,
   describeError,
+  IntegrationNames,
   validationError,
   notImplemented,
   internalError,
   OutcomeReasonCodes,
   OutcomeStatuses,
+  providerErrorOutcomeReason,
   providerConnectionTestResultDtoSchema,
   ProviderConnectionTestErrorReasons,
   ProviderConnectionTestStatuses,
@@ -48,7 +53,7 @@ import {
 } from '@canonry/canonry-contracts'
 import { isInstanceAdministrator, requireAdminSession, requireInstanceAdministrator, requirePaidReadScope, requireScope } from './auth.js'
 import { auditFromRequest, type AuditEntry } from './helpers.js'
-import { connectionRoute, outcomeProviderName } from './connection-telemetry.js'
+import { connectionRoute, outcomeProviderName, type ConnectionSubject } from './connection-telemetry.js'
 import { withFeatureOutcome } from './feature-outcome.js'
 import { providerAdapterForName } from './provider-models.js'
 import { providerConnectionSettings } from './provider-settings-usage.js'
@@ -207,6 +212,16 @@ function secondsLabel(ms: number): string {
   return `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`
 }
 
+/**
+ * The `integration.connection` subject for a provider connection's test or
+ * disconnect, or nothing for a name the telemetry catalog does not list (an
+ * answer service), as with a key save.
+ */
+function providerConnectionSubject(name: string, action: ConnectionAction): ConnectionSubject | undefined {
+  const provider = outcomeProviderName(name)
+  return provider ? { integration: IntegrationNames.provider, provider, action } : undefined
+}
+
 export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesOptions) {
   const connections = (): ProviderConnectionSettingsDto[] => {
     if (!opts.getProviderConnections) throw notImplemented('Provider connection details are not supported in this deployment')
@@ -308,7 +323,9 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     return connection(request.params.name)
   })
 
-  app.delete<{ Params: { name: string }; Body: ProviderDisconnectRequest }>('/settings/providers/:name', async request => {
+  app.delete<{ Params: { name: string }; Body: ProviderDisconnectRequest }>('/settings/providers/:name', connectionRoute(app, (request) => (
+    providerConnectionSubject(request.params.name, ConnectionActions.disconnect)
+  ), async (request, _reply, attempt) => {
     requireScope(request, SETTINGS_WRITE_SCOPE)
     requireInstanceAdministrator(request)
     const parsed = providerDisconnectRequestSchema.safeParse(request.body ?? {})
@@ -322,8 +339,10 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     }
     const { actor, userAgent, actorSession, requestId, credentialId } = auditFromRequest(request, { actor: 'api', action: 'provider.disconnected', entityType: 'provider' })
     await opts.onProviderDisconnect(current.name, expected === undefined ? undefined : current.revision, { actor, userAgent, actorSession, requestId, credentialId })
+    // Nothing was saved to remove; the route still answers with the connection.
+    if (!current.configured) attempt.cancelled(OutcomeReasonCodes.NOT_CONNECTED)
     return connection(current.name)
-  })
+  }))
 
   app.put<{
     Params: { name: string }
@@ -441,7 +460,11 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
   const testsInFlight = new Set<string>()
 
   // A POST because it calls the provider now; it reads and changes no saved state.
-  app.post<{ Params: { name: string } }>('/settings/providers/:name/test', async (request) => withFeatureOutcome(app, { feature: 'providers', operation: 'test' }, async (settle): Promise<ProviderConnectionTestResultDto> => {
+  // Reported as an `integration.connection` test, beside the connection's save
+  // and disconnect, as the webhook and CDP tests are.
+  app.post<{ Params: { name: string } }>('/settings/providers/:name/test', connectionRoute(app, (request) => (
+    providerConnectionSubject(request.params.name, ConnectionActions.test)
+  ), async (request, _reply, attempt): Promise<ProviderConnectionTestResultDto> => {
     // The check spends on the operator's install-wide provider account with
     // the saved key, so only an install administrator runs it, as with the
     // connection's detail, reload and disconnect: never a viewer, a read-only
@@ -474,6 +497,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       testsInFlight.delete(name)
     }
     if (outcome.kind === 'not-configured') {
+      attempt.failed(undefined, OutcomeReasonCodes.NOT_CONNECTED)
       throw validationError(`${adapter.displayName} is not configured. Save its connection, then test it.`, {
         provider: name,
         reason: ProviderConnectionTestErrorReasons['provider-not-configured'],
@@ -486,16 +510,18 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       ? ProviderConnectionTestStatuses.failed
       : check.verified === false ? ProviderConnectionTestStatuses['not-verified'] : ProviderConnectionTestStatuses.connected
 
-    const provider = outcomeProviderName(name)
     switch (status) {
       case ProviderConnectionTestStatuses.connected:
-        settle({ status: OutcomeStatuses.succeeded, ...(provider ? { provider } : {}) })
+        // Reported as succeeded once the route answers.
         break
       case ProviderConnectionTestStatuses['not-verified']:
-        settle({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.UNSUPPORTED, ...(provider ? { provider } : {}) })
+        // The service has no free key check, so the test proves nothing either way.
+        attempt.cancelled(OutcomeReasonCodes.UNSUPPORTED)
         break
       case ProviderConnectionTestStatuses.failed:
-        settle({ status: OutcomeStatuses.failed, reasonCode: outcome.kind === 'timed-out' ? OutcomeReasonCodes.TIMEOUT : OutcomeReasonCodes.UNKNOWN, ...(provider ? { provider } : {}) })
+        attempt.failed(undefined, outcome.kind === 'timed-out'
+          ? OutcomeReasonCodes.TIMEOUT
+          : providerErrorOutcomeReason(classifyProviderErrorMessage(check.message)))
         break
       default: {
         const _exhaustive: never = status
@@ -513,7 +539,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       checkedAt: new Date().toISOString(),
       durationMs: Math.max(0, Date.now() - startedAt),
     })
-  }, err => (err instanceof AppError && err.code === 'NOT_IMPLEMENTED' ? OutcomeReasonCodes.UNSUPPORTED : undefined)))
+  }))
 
   app.put<{
     Body: { clientId?: string; clientSecret?: string }

@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { forbidden, internalError, notImplemented, validationError } from '@canonry/canonry-contracts'
+import { forbidden, internalError, notImplemented, ProviderKinds, validationError, type ProviderConnectionConfigDto } from '@canonry/canonry-contracts'
 import { createClient, migrate, projects } from '@canonry/canonry-db'
 import { BingApiError, getSites } from '@canonry/canonry-integration-bing'
 import { GA4ApiError, verifyConnection } from '@canonry/canonry-integration-google-analytics'
@@ -175,6 +175,38 @@ describe('provider connections', () => {
     ])
     expect(gated.connections()).toEqual([
       { integration: 'provider', provider: 'gemini', action: 'connect', status: 'failed', reasonCode: 'GATE_REFUSED', errorName: 'AppError', ...DONE },
+    ])
+  })
+
+  it('reports a disconnect, one with nothing saved as cancelled, a host refusal as failed, and nothing for an unknown provider', async () => {
+    const quota = { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 }
+    const saved = (name: string, configured: boolean): ProviderConnectionConfigDto => ({
+      name, displayName: name, kind: ProviderKinds['answer-engine'], mode: 'api', configured, revision: `${name}-revision`,
+      apiKeyConfigured: configured, baseUrl: null, model: null, defaultModel: null, effectiveModel: null,
+      quota: { defaults: quota, overrides: {}, effective: quota },
+      capabilities: { apiKey: true, clearApiKey: false, baseUrl: true, resetBaseUrl: true, model: true, quota: true, disconnect: true, reload: true },
+      hostManaged: { vertex: null, batch: null, pricing: null }, hostUses: [], blockers: [],
+    })
+    const onProviderDisconnect = vi.fn<NonNullable<ApiRoutesOptions['onProviderDisconnect']>>()
+    const h = await harness({
+      providerAdapters: [adapter],
+      getProviderConnections: () => [saved('gemini', true), saved('openai', false)],
+      onProviderDisconnect,
+    })
+    const disconnect = (name: string) => h.app.inject({ method: 'DELETE', url: `/api/v1/settings/providers/${name}`, payload: {} })
+
+    expect((await disconnect('gemini')).statusCode).toBe(200)
+    expect((await disconnect('openai')).statusCode).toBe(200)
+    // A refusal is a failure even when nothing was saved.
+    onProviderDisconnect.mockImplementationOnce(() => { throw forbidden('This connection has host-managed credentials. Disconnect it on the host.') })
+    expect((await disconnect('openai')).statusCode).toBe(403)
+    expect((await disconnect('acme-llm')).statusCode).toBe(404)
+
+    expect(onProviderDisconnect).toHaveBeenCalledTimes(3)
+    expect(h.connections()).toEqual([
+      { integration: 'provider', provider: 'gemini', action: 'disconnect', status: 'succeeded', ...DONE },
+      { integration: 'provider', provider: 'openai', action: 'disconnect', status: 'cancelled', reasonCode: 'NOT_CONNECTED', ...DONE },
+      { integration: 'provider', provider: 'openai', action: 'disconnect', status: 'failed', reasonCode: 'GATE_REFUSED', errorName: 'AppError', ...DONE },
     ])
   })
 })

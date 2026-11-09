@@ -138,7 +138,7 @@ export const FEATURE_OPERATIONS = {
   webhooks: ['deliver', 'test'],
   schedules: ['slot'],
   exports: ['export'],
-  providers: ['reload', 'test'],
+  providers: ['reload'],
   wordpress: ['schema_deploy', 'llms_txt', 'meta_write', 'publish'],
   measurement: ['publish'],
   insights: ['generate'],

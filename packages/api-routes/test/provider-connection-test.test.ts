@@ -8,6 +8,7 @@ import { notImplemented, type ProviderHealthcheckResult } from '@canonry/canonry
 import { apiRoutes, hashApiKey, type ApiRoutesOptions, type OutcomeTelemetryEvent } from '../src/index.js'
 import { NARROW_KEY_DENIED_MESSAGE } from '../src/auth.js'
 import { featureOutcomes } from './feature-outcome-capture.js'
+import { connectionOutcomes } from './outcome-capture.js'
 
 type ProviderTestHook = NonNullable<ApiRoutesOptions['onProviderTest']>
 
@@ -236,23 +237,27 @@ describe('POST /settings/providers/:name/test', () => {
     expect(onProviderTest).not.toHaveBeenCalled()
   })
 
-  it('reports each test outcome, naming only providers the telemetry catalog knows', async () => {
+  it('reports each test as a provider connection test, for providers the telemetry catalog knows', async () => {
     const results: Array<() => Promise<ProviderHealthcheckResult | undefined>> = [
       async () => ({ ok: true, provider: 'gemini', message: 'gemini api key verified' }),
       async () => ({ ok: false, provider: 'gemini', message: '401 Unauthorized' }),
+      // Any connection's check can say it verified nothing.
+      async () => ({ ok: true, verified: false, provider: 'gemini', message: 'Gemini key saved, not verified' }),
       async () => ({ ok: true, verified: false, provider: 'exa', message: 'Exa key saved, not verified' }),
       () => new Promise(() => {}),
       async () => undefined,
     ]
     const { test, outcomes } = await harness({ onProviderTest: () => results.shift()!(), timeoutMs: 20 })
-    for (const name of ['gemini', 'gemini', 'exa', 'gemini', 'gemini']) await test(name)
-    const base = { feature: 'providers', operation: 'test', durationBucket: expect.any(String) }
-    expect(featureOutcomes(outcomes)).toEqual([
-      { ...base, status: 'succeeded', provider: 'gemini' },
-      { ...base, status: 'failed', reasonCode: 'UNKNOWN', provider: 'gemini' },
-      { ...base, status: 'skipped', reasonCode: 'UNSUPPORTED' },
-      { ...base, status: 'failed', reasonCode: 'TIMEOUT', provider: 'gemini' },
-      { ...base, status: 'failed', reasonCode: 'VALIDATION', errorName: 'AppError' },
+    for (const name of ['gemini', 'gemini', 'gemini', 'exa', 'gemini', 'gemini']) await test(name)
+    const base = { integration: 'provider', provider: 'gemini', action: 'test', durationBucket: expect.any(String) }
+    // Exa is not in the catalog, so its test reports nothing, as its key save does.
+    expect(connectionOutcomes(outcomes)).toEqual([
+      { ...base, status: 'succeeded' },
+      { ...base, status: 'failed', reasonCode: 'INVALID_CREDENTIALS' },
+      { ...base, status: 'cancelled', reasonCode: 'UNSUPPORTED' },
+      { ...base, status: 'failed', reasonCode: 'TIMEOUT' },
+      { ...base, status: 'failed', reasonCode: 'NOT_CONNECTED' },
     ])
+    expect(featureOutcomes(outcomes)).toEqual([])
   })
 })
