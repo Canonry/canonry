@@ -2107,8 +2107,9 @@ test.each([
     },
   })
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  const card = [...doc.querySelectorAll('section.page-section-divider')]
-    .find(section => section.querySelector('h2')?.textContent === 'Where competitors are winning')!
+  const card = [...doc.querySelectorAll('h2')]
+    .find(heading => heading.textContent === 'Where competitors are winning')!
+    .closest('section')!
 
   // Mention gaps keep every query as their base: mention is measured on every answer.
   expect([...card.querySelectorAll('.competitive-gaps .aeo-hero-row-value')].map(value => value.textContent))
@@ -2222,8 +2223,8 @@ test('a completed sweep discovered by the mounted Simple route refreshes By engi
       const movement = { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false }
       return jsonResponse(projectOverviewDtoSchema.parse({
         project, latestRun: { totalRuns: generation + 1, run: completedRuns[generation] }, health: null, topInsights: [],
-        queryCounts: { totalQueries: 4, citedQueries: 2, notCitedQueries: 2, citedRate: 0.5, mentionedQueries: mentioned, notMentionedQueries: 4 - mentioned, mentionRate: generation === 0 ? 0.25 : 0.75 },
-        providers: [{ provider: 'openai', cited: 2, total: 4, citedRate: 0.5 }],
+        queryCounts: { totalQueries: 4, citedQueries: 2, notCitedQueries: 2, citedRate: 0.5, citationNotMeasuredQueries: 0, mentionedQueries: mentioned, notMentionedQueries: 4 - mentioned, mentionRate: generation === 0 ? 0.25 : 0.75 },
+        providers: [{ provider: 'openai', cited: 2, total: 4, citedRate: 0.5, citationNotMeasured: 0 }],
         transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
         scores: {
           mention: { ...score, label: 'Mentioned', value: generation === 0 ? '25%' : '75%' },
@@ -2233,7 +2234,7 @@ test('a completed sweep discovered by the mounted Simple route refreshes By engi
         },
         movementSummary: movement, citationMovement: movement, mentionMovement: movement,
         movementComparison: { hasPreviousRun: false, comparable: false, querySetChanged: false, previousRunAt: null, currentQueryCount: 4, previousQueryCount: 0, comparableQueryCount: 0, addedQueryCount: 0, removedQueryCount: 0, addedQueries: [], removedQueries: [] },
-        competitors: [], providerScores: [{ provider: 'openai', model: null, cited: 2, total: 4, score: 50 }], attentionItems: [], runHistory: [],
+        competitors: [], providerScores: [{ provider: 'openai', model: null, cited: 2, total: 4, score: 50, citationNotMeasured: 0 }], attentionItems: [], runHistory: [],
         suggestedQueries: { rows: [], totalCandidates: 0, skippedAlreadyTracked: 0 }, dateRangeLabel: 'All time', contextLabel: 'US / EN',
       }))
     }
