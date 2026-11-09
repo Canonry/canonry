@@ -1010,7 +1010,14 @@ export class JobRunner {
 
       // Track per-provider errors for partial completion
       const providerErrors = new Map<ProviderName, string>()
-      const failureBreaker = new ProviderFailureBreaker()
+      // Each failure is saved as it happens, so the run detail can show it before the run ends.
+      const failureBreaker = new ProviderFailureBreaker(2, failures => {
+        try {
+          this.db.update(runs).set({ providerFailures: failures }).where(eq(runs.id, runId)).run()
+        } catch (err: unknown) {
+          log.warn('run.provider-failures-write-failed', { runId, error: describeError(err) })
+        }
+      })
       let totalSnapshotsInserted = 0
 
       // Split providers: API providers fan out in parallel, browser providers run sequentially

@@ -179,6 +179,10 @@ test.each(['Simple', 'Advanced'] as const)('%s sweeps stop calling an engine aft
     const outcome = db.select().from(runs).where(eq(runs.id, runId)).get()!
     expect(outcome.status).toBe(RunStatuses.partial)
     expect(outcome.error).toContain('OpenRouter request failed (HTTP 402): Insufficient credits')
+    // Saved as they happened, so the run detail could show them while the sweep was still going.
+    expect(outcome.providerFailures).toEqual({
+      [route]: { message: 'OpenRouter request failed (HTTP 402): Insufficient credits. Add more using https://openrouter.ai/settings/credits', failedQueries: 2, stopped: true },
+    })
     const rows = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
     expect(rows.map(row => row.provider)).toEqual(['gemini', 'gemini', 'gemini', 'gemini'])
   } finally { db.$client.close() }

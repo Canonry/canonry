@@ -2120,6 +2120,15 @@ function ReadySetupPage({
                     You can leave this page; the check keeps running.
                   </p>
                 </div>
+                {/* An engine failing now, said before the check ends rather than after minutes of waiting. */}
+                {Object.entries(run?.providerFailures ?? {}).map(([provider, failure]) => (
+                  <div key={provider} role="status" className="rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
+                    <p className="text-label-14-strong">
+                      {providerDisplayName(provider)}: {failure.failedQueries} {failure.failedQueries === 1 ? 'query' : 'queries'} failed{failure.stopped ? ', so this check stopped asking it' : ''}.
+                    </p>
+                    <p className="mt-1 break-words">{failure.message}</p>
+                  </div>
+                ))}
                 {launchedRun.isError && (
                   <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
                     <p>{launchedRun.error instanceof Error ? launchedRun.error.message : 'Could not refresh the check status.'}</p>

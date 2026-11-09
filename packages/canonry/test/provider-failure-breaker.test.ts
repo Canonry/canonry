@@ -34,6 +34,23 @@ describe('ProviderFailureBreaker', () => {
     expect(other.stoppedBy('gemini')).toBeUndefined()
   })
 
+  it('reports each provider\'s first reason, failed calls and whether it stopped, after every failure', () => {
+    const reported: Array<Record<string, unknown>> = []
+    const breaker = new ProviderFailureBreaker(2, failures => { reported.push(failures) })
+    breaker.failed('openrouter', 'HTTP 402: Insufficient credits')
+    breaker.succeeded('gemini')
+    breaker.failed('openrouter', 'HTTP 402: still no credits')
+    breaker.failed('gemini', 'HTTP 503')
+    expect(reported).toEqual([
+      { openrouter: { message: 'HTTP 402: Insufficient credits', failedQueries: 1, stopped: false } },
+      { openrouter: { message: 'HTTP 402: Insufficient credits', failedQueries: 2, stopped: true } },
+      {
+        openrouter: { message: 'HTTP 402: Insufficient credits', failedQueries: 2, stopped: true },
+        gemini: { message: 'HTTP 503', failedQueries: 1, stopped: false },
+      },
+    ])
+  })
+
   it('tracks each provider apart', () => {
     const breaker = new ProviderFailureBreaker()
     breaker.failed('openrouter', 'down')

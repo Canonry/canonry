@@ -272,6 +272,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       providerDispatchModes: 'Exposed as `dispatchModes` on the run DTO ({} when null).',
       pendingProviderErrors: 'Sync-provider errors held while finalization waits on a provider batch; folded into `error` at finalize.',
+      providerFailures: 'Exposed as `providerFailures` on the run detail while the run is queued or running; a finished run reports them in `error`.',
     },
   },
   runFills: {

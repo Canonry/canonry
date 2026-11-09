@@ -9829,6 +9829,13 @@ export type LatestProjectRunDto = {
             };
             unclassifiedQueries: number;
         } | null;
+        providerFailures?: {
+            [key: string]: {
+                message: string;
+                failedQueries: number;
+                stopped: boolean;
+            };
+        } | null;
         providerBatches?: Array<{
             id: string;
             provider: string;
@@ -15109,6 +15116,13 @@ export type ProjectOverviewDto = {
                 };
                 unclassifiedQueries: number;
             } | null;
+            providerFailures?: {
+                [key: string]: {
+                    message: string;
+                    failedQueries: number;
+                    stopped: boolean;
+                };
+            } | null;
             providerBatches?: Array<{
                 id: string;
                 provider: string;
@@ -16381,6 +16395,13 @@ export type RunDetailDto = {
             citationNotMeasuredQueries?: number;
         };
         unclassifiedQueries: number;
+    } | null;
+    providerFailures?: {
+        [key: string]: {
+            message: string;
+            failedQueries: number;
+            stopped: boolean;
+        };
     } | null;
     providerBatches?: Array<{
         id: string;

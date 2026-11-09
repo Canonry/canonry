@@ -603,6 +603,10 @@ export function printRunDetail(run: RunDetailDto): void {
   if (run.createdAt) console.log(`  Created:  ${run.createdAt}`)
   const skipped = Object.entries(run.skippedProviders ?? {})
   for (const [provider, streak] of skipped) console.log(`  Skipped:  ${providerAccountStreakLine(provider, streak)}`)
+  // A run still going: the engines failing so far, before `error` reports them.
+  for (const [provider, failure] of Object.entries(run.providerFailures ?? {})) {
+    console.log(`  Failing:  ${provider}: ${failure.failedQueries} ${failure.failedQueries === 1 ? 'query' : 'queries'} failed${failure.stopped ? ', no longer called this run' : ''}. ${failure.message}`)
+  }
   if (run.error) {
     if (run.error.message) console.log(`  Error:    ${run.error.message}`)
     if (run.error.providers) {

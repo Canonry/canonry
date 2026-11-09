@@ -17,6 +17,7 @@ import {
   summarizeRunUsage,
   summarizeObservedQueryCounts,
   summarizeObservedQueryCountsByClass,
+  RunStatuses,
   measurementRunScopeIsEmpty,
   RunKinds,
   RunTriggers,
@@ -1145,6 +1146,11 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
     queryCounts: countsAttributable ? summarizeObservedQueryCounts(identifiedSignals) : null,
     queryCountsByClass: queryClasses
       ? summarizeObservedQueryCountsByClass(identifiedSignals, queryId => queryClasses.get(queryId) ?? null)
+      : null,
+    // Failures so far, for a run still going; a finished run reports them in `error`.
+    providerFailures: (run.status === RunStatuses.queued || run.status === RunStatuses.running)
+      && run.providerFailures && Object.keys(run.providerFailures).length > 0
+      ? run.providerFailures
       : null,
   }
 }

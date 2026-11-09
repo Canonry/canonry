@@ -1,4 +1,4 @@
-import { describeError } from '@canonry/canonry-contracts'
+import { describeError, type RunProviderFailure } from '@canonry/canonry-contracts'
 
 /**
  * Stops calling a provider for the rest of one sweep once its calls keep
@@ -10,8 +10,13 @@ import { describeError } from '@canonry/canonry-contracts'
 export class ProviderFailureBreaker {
   private readonly streaks = new Map<string, number>()
   private readonly stopped = new Map<string, string>()
+  private readonly failures = new Map<string, { message: string; failedQueries: number }>()
 
-  constructor(private readonly threshold = 2) {}
+  /** `onFailure` receives every provider's failures so far, after each new one. */
+  constructor(
+    private readonly threshold = 2,
+    private readonly onFailure?: (failures: Record<string, RunProviderFailure>) => void,
+  ) {}
 
   /** The error that stopped this provider, or undefined while it may still be called. */
   stoppedBy(provider: string): string | undefined {
@@ -26,6 +31,17 @@ export class ProviderFailureBreaker {
     const streak = (this.streaks.get(provider) ?? 0) + 1
     this.streaks.set(provider, streak)
     if (streak >= this.threshold && !this.stopped.has(provider)) this.stopped.set(provider, error)
+    const seen = this.failures.get(provider)
+    this.failures.set(provider, { message: seen?.message ?? error, failedQueries: (seen?.failedQueries ?? 0) + 1 })
+    this.onFailure?.(this.summary())
+  }
+
+  /** Every provider that has failed: its first reason, how many calls failed, and whether it was stopped. */
+  summary(): Record<string, RunProviderFailure> {
+    return Object.fromEntries([...this.failures].map(([provider, failure]) => [
+      provider,
+      { ...failure, stopped: this.stopped.has(provider) },
+    ]))
   }
 
   /**

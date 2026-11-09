@@ -5463,6 +5463,15 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       )`,
     ],
   },
+  {
+    version: 215,
+    name: 'run-provider-failures',
+    // A running sweep's failures so far, so a reader sees them before the run
+    // ends. Nullable: existing runs have none to report.
+    statements: [
+      `ALTER TABLE runs ADD COLUMN provider_failures TEXT`,
+    ],
+  },
 ]
 
 /**

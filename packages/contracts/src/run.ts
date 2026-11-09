@@ -712,6 +712,17 @@ export const runQueryCountsByClassSchema = z.object({
 })
 export type RunQueryCountsByClass = z.infer<typeof runQueryCountsByClassSchema>
 
+/** One engine's failures so far in a run that is still going. */
+export const runProviderFailureSchema = z.object({
+  /** The first failure's reason, as the run's final `error` reports it. */
+  message: z.string(),
+  /** Queries this engine failed so far, each after its retries were spent. */
+  failedQueries: z.number().int().nonnegative(),
+  /** True once the run stopped calling this engine after failures in a row. */
+  stopped: z.boolean(),
+})
+export type RunProviderFailure = z.infer<typeof runProviderFailureSchema>
+
 export const runDetailDtoSchema = runDtoSchema.extend({
   snapshots: z.array(querySnapshotDtoSchema).optional(),
   /** Observed queries in this exact run. Null when a snapshot lacks query identity; omitted by older servers. */
@@ -723,6 +734,13 @@ export const runDetailDtoSchema = runDtoSchema.extend({
    * older servers.
    */
   queryCountsByClass: runQueryCountsByClassSchema.nullable().optional(),
+  /**
+   * While the run is queued or running: each engine that has failed so far,
+   * keyed by provider, so a reader sees why answers are missing before the run
+   * ends. Null when none has, or once the run finished (its `error` then
+   * reports them); omitted by older servers.
+   */
+  providerFailures: z.record(z.string(), runProviderFailureSchema).nullable().optional(),
   /** The run's provider batches, oldest first. Empty when nothing was batched. */
   providerBatches: z.array(providerBatchSummaryDtoSchema).optional(),
   /** Usage and estimated cost per provider and price tier. Empty when no answer carries usage. */

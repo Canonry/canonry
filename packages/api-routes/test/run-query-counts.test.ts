@@ -207,3 +207,25 @@ describe('GET /runs/:id query counts by class', () => {
     expect(body.queryCountsByClass).toBeNull()
   })
 })
+
+describe('GET /runs/:id provider failures', () => {
+  const failures = { 'openrouter:google/gemini-3.8-flash': { message: 'OpenRouter request failed (HTTP 402): Insufficient credits.', failedQueries: 2, stopped: true } }
+
+  it.each([
+    { status: RunStatuses.queued, shown: true },
+    { status: RunStatuses.running, shown: true },
+    { status: RunStatuses.partial, shown: false },
+    { status: RunStatuses.failed, shown: false },
+  ])('reports engines failing so far only while the run is active ($status)', async ({ status, shown }) => {
+    db.insert(runs).values({ id: `failing-${status}`, projectId: 'counts-project', kind: RunKinds['answer-visibility'], status, trigger: RunTriggers.manual, providerFailures: failures, createdAt: NOW }).run()
+    const body = (await app.inject({ method: 'GET', url: `/api/v1/runs/failing-${status}` })).json<RunDetailDto>()
+    // A finished run reports its failures in error, never twice.
+    expect(body.providerFailures).toEqual(shown ? failures : null)
+  })
+
+  it('is null for a running run with no failures yet', async () => {
+    db.insert(runs).values({ id: 'quiet-running', projectId: 'counts-project', kind: RunKinds['answer-visibility'], status: RunStatuses.running, trigger: RunTriggers.manual, createdAt: NOW }).run()
+    const body = (await app.inject({ method: 'GET', url: '/api/v1/runs/quiet-running' })).json<RunDetailDto>()
+    expect(body.providerFailures).toBeNull()
+  })
+})

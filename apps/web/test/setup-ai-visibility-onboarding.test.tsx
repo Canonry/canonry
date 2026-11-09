@@ -1736,6 +1736,18 @@ test('a check resumed from an earlier visit shows its saved results without a pl
   expect(screen.queryByRole('progressbar', { name: 'Engine results saved' })).toBeNull()
 })
 
+test('a running check says which engine is failing before it ends', async () => {
+  renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), {
+    status: 'running', startedAt: '2026-09-05T12:00:30Z', snapshots: [],
+    providerFailures: {
+      'openrouter:google/gemini-3.8-flash': { message: 'OpenRouter request failed (HTTP 402): Insufficient credits.', failedQueries: 2, stopped: true },
+    },
+  })
+  await screen.findByText(RUNNING_NOTE)
+  const note = screen.getByText('OpenRouter request failed (HTTP 402): Insufficient credits.').closest('[role="status"]')!
+  expect(note.textContent).toMatch(/: 2 queries failed, so this check stopped asking it\.OpenRouter request failed \(HTTP 402\): Insufficient credits\.$/)
+})
+
 test('says what each provider to connect is and what connecting it takes', async () => {
   renderProjectSetup({
     onboarding: true,
