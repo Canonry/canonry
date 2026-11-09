@@ -18,7 +18,7 @@ Gemini adapter — implements `ProviderAdapter` for Google's Gemini API using th
 All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@canonry/canonry-contracts`:
 
 - **`validateConfig(config)`** — verify API key and model are valid
-- **`healthcheck(config)`** — test connectivity to the provider
+- **`healthcheck(config, signal?)`** — test connectivity to the provider; once `signal` aborts, its retries stop and its request is cancelled
 - **`executeTrackedQuery(input)`** — send a tracked query and capture raw response with grounding sources
   - It is `buildTrackedQueryRequest` (the exact wire body) → the SDK call → `parseTrackedQueryResponse` (usage and stop reason included). Batch dispatch reuses both halves, so change the request or its reading there, never inline in `executeTrackedQuery`; `test/tracked-query-request.test.ts` pins the built body against the wire.
 - **`normalizeResult(raw)`** — convert provider-specific response to standard `NormalizedQueryResult`

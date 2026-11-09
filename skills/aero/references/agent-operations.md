@@ -8,11 +8,16 @@ description: Shared Canonry vocabulary, evidence scope, comparison rules, and au
 > **Built-in Aero:** your available `canonry_*` tools are already loaded, and
 > you read this guide through `read_skill_doc` (slug `agent-operations`). Your
 > catalog does not include `canonry_help` or `canonry_load_toolkit`; the
-> connection and navigation steps below are for external MCP hosts. Your
-> project-scoped tools use the current session's project. Dashboard selections
-> are not passed to chat: resolve the requested Property, market, filters, or
-> page before making a scoped claim. The `portfolio-analysis` and `site-health`
-> skill docs cover those investigations for Simple and Advanced portfolios.
+> connection and navigation steps below are for external MCP hosts. It also
+> leaves out the provider connection actions the guide names
+> (`canonry_provider_test`, `canonry_provider_settings_update` and
+> `canonry_providers_reload`): they spend on or change the operator's
+> install-wide provider accounts, so the operator runs them from the dashboard
+> or CLI. Your project-scoped tools use the current session's project.
+> Dashboard selections are not passed to chat: resolve the requested Property,
+> market, filters, or page before making a scoped claim. The
+> `portfolio-analysis` and `site-health` skill docs cover those investigations
+> for Simple and Advanced portfolios.
 
 # Canonry Operations Guide v1
 
@@ -158,8 +163,12 @@ authority without exposing its token. Missing `operator` means unapproved.
 machine. Telemetry reports configured preference, effective state, and any
 environment override; inspecting status never creates an anonymous identifier.
 After approval, `canonry_telemetry_update` changes that preference and
-`canonry_provider_settings_update` changes an already-configured provider's
-model/quota. Both require `settings.write`; neither accepts credentials.
+`canonry_provider_settings_update` changes or resets an already-configured
+provider's model and quota, restores its built-in endpoint, or removes an
+optional Local key. Both require `settings.write`; neither accepts credentials.
+A reset, restoring the endpoint and removing the Local key included, also
+requires install administrator authority. Pass the `revision` from
+`canonry_provider_settings_get` as `expectedRevision` to reject a stale edit.
 Server telemetry reads and updates additionally require operator authority.
 Ordinary audit-history reads omit internal telemetry events and their state.
 
