@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, expect, onTestFinished, test } from 'vitest'
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
@@ -8,6 +8,7 @@ import { createDashboardFixture } from '../src/mock-data.js'
 import { SettingsPage } from '../src/pages/SettingsPage.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { connectionFixture, settingsFixture } from './provider-settings-fixtures.js'
+import { onFeedbackPanelOpen } from '../src/lib/feedback-panel.js'
 
 afterEach(cleanup)
 
@@ -120,4 +121,21 @@ test.each(['ok', 'error'] as const)('shows every connection and %s service healt
   fireEvent.click(await screen.findByRole('link', { name: 'Browser settings' }))
   await waitFor(() => expect(router.state.location.hash).toBe('browser-connection'))
   expect(document.getElementById('browser-connection')).toBe(chrome)
+})
+
+test('Settings always offers feedback, opening the panel the top bar opens', async () => {
+  const restore = mockFetch((url, init) => {
+    const path = pathOf(url)
+    if (path === '/api/v1/settings') return jsonResponse(settingsFixture([]))
+    if (path === '/api/v1/cdp/status' && init?.method === 'GET') return jsonResponse({ connected: false, targets: [] })
+    throw new Error(`Unexpected fetch: ${init?.method} ${path}`)
+  })
+  onTestFinished(restore)
+  const opened = vi.fn()
+  onTestFinished(onFeedbackPanelOpen(opened))
+  await renderSettings(createDashboardFixture())
+  const feedback = screen.getByRole('region', { name: 'Feedback' })
+  expect(within(feedback).getByText(/Feedback is also at the top of every page\./)).toBeTruthy()
+  fireEvent.click(within(feedback).getByRole('button', { name: 'Share feedback' }))
+  expect(opened).toHaveBeenCalledTimes(1)
 })

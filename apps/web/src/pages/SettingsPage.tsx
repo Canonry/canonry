@@ -9,6 +9,8 @@ import { updateBingApiKey } from '../api.js'
 import { CdpConfigCard } from '../components/settings/CdpConfigCard.js'
 import { SettingsConnectionRow } from '../components/settings/SettingsConnectionRow.js'
 import { asyncHandler } from '../lib/async-handler.js'
+import { feedbackPanelAvailable, openFeedbackPanel } from '../lib/feedback-panel.js'
+import { useAccount } from '../contexts/account-context.js'
 import { serviceStatusTooltip } from '../lib/health-helpers.js'
 import { toneFromService } from '../lib/tone-helpers.js'
 import { addToast } from '../lib/toast-store.js'
@@ -37,6 +39,7 @@ export function SettingsPage() {
 
 function SettingsPageBody() {
   const contextDashboard = useInitialDashboard()
+  const { canWrite } = useAccount()
   const { dashboard } = useDashboard()
   const settings = dashboard?.settings ?? contextDashboard?.dashboard?.settings
   const enableLiveStatus = !contextDashboard
@@ -176,6 +179,20 @@ function SettingsPageBody() {
             </div>
           </div>
         </section>
+
+        {feedbackPanelAvailable(canWrite) ? (
+          <section aria-labelledby="feedback-title" className="border-t border-default pt-6">
+            <div className="section-head">
+              <h2 id="feedback-title" className="text-heading-16 text-heading">Feedback</h2>
+            </div>
+            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 py-4">
+              <p className="min-w-0 max-w-prose grow basis-64 text-copy-14 text-secondary">
+                Ideas, problems or anything confusing go straight to the Canonry team. Feedback is also at the top of every page.
+              </p>
+              <Button type="button" variant="outline" size="sm" onClick={openFeedbackPanel}>Share feedback</Button>
+            </div>
+          </section>
+        ) : null}
 
         {/* File locations and storage are diagnostics, not settings, so they stay closed. */}
         <details className="border-t border-default pt-6">
