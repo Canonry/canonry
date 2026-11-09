@@ -2411,17 +2411,19 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
             }>;
         };
@@ -14767,17 +14769,19 @@ export type ProjectOverviewDto = {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
         }>;
     };
