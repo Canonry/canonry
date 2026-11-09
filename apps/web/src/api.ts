@@ -1,6 +1,6 @@
 import { postApiV1ProjectsByNameSchedulePreview } from '@canonry/canonry-api-client'
 import type { SchedulePreviewRequest, SchedulePreviewDto } from '@canonry/canonry-contracts'
-import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto, ProviderConnectionSettingsDto, ProviderConnectionsUnavailableDto, ProviderSettingsUpdateRequest, ProviderReloadResponseDto } from '@canonry/canonry-contracts'
+import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto, ProviderConnectionSettingsDto, ProviderConnectionTestResultDto, ProviderConnectionsUnavailableDto, ProviderSettingsUpdateRequest, ProviderReloadResponseDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@canonry/canonry-contracts'
 import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
@@ -38,6 +38,7 @@ import {
   getApiV1SettingsProvidersByName,
   deleteApiV1SettingsProvidersByName,
   postApiV1SettingsProvidersReload,
+  postApiV1SettingsProvidersByNameTest,
   putApiV1SettingsGoogle,
   putApiV1SettingsBing,
   putApiV1SettingsCdp,
@@ -1159,6 +1160,11 @@ export function disconnectProvider(provider: string, expectedImpactRevision: str
 
 export function reloadProviderConnections(): Promise<ProviderReloadResponseDto> {
   return invokeWeb<ProviderReloadResponseDto>(() => postApiV1SettingsProvidersReload({ client: heyClient, body: {} }))
+}
+
+/** A live check of the saved connection. A failed check resolves with `ok: false`; only a refused request rejects. */
+export function testProviderConnection(provider: string): Promise<ProviderConnectionTestResultDto> {
+  return invokeWeb<ProviderConnectionTestResultDto>(() => postApiV1SettingsProvidersByNameTest({ client: heyClient, path: { name: provider } }))
 }
 
 /**

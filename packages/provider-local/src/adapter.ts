@@ -82,8 +82,8 @@ export const localAdapter: ProviderAdapter = {
     }
   },
 
-  async healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult> {
-    const result = await localHealthcheck(toLocalConfig(config))
+  async healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult> {
+    const result = await localHealthcheck(toLocalConfig(config), signal)
     return {
       ok: result.ok,
       provider: 'local',

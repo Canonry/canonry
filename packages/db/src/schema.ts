@@ -726,6 +726,22 @@ export const dataRepairCompletions = sqliteTable('data_repair_completions', {
   completedAt: text('completed_at').notNull(),
 })
 
+/**
+ * The latest test of each provider connection (migration 214), as the test
+ * returned it. `fingerprint` is a keyed hash of the registration the test
+ * checked, never a credential; a changed key, endpoint, model or Vertex
+ * setting no longer matches it, so the row stops describing the connection.
+ */
+export const providerConnectionTests = sqliteTable('provider_connection_tests', {
+  provider: text('provider').primaryKey().notNull(),
+  fingerprint: text('fingerprint').notNull(),
+  status: text('status').notNull(),
+  message: text('message').notNull(),
+  model: text('model'),
+  checkedAt: text('checked_at').notNull(),
+  durationMs: integer('duration_ms').notNull(),
+})
+
 export const apiKeys = sqliteTable('api_keys', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),

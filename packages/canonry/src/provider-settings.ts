@@ -24,6 +24,7 @@ import { providerConfigFromEntry } from './provider-batch-config.js'
 import { assertProviderReloadKeepsPendingBatches } from './provider-reload-batch-guard.js'
 import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, resolveProviderQuotaPolicy } from './provider-runtime-config.js'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
+import type { ProviderConnectionTestStore } from './provider-connection-tests.js'
 
 type ProviderAuditContext = Parameters<NonNullable<ApiRoutesOptions['onProviderUpdate']>>[5]
 
@@ -38,6 +39,7 @@ interface ProviderSettingsHost {
   persist: (name: string, entry: ProviderConfigEntry | null) => void
   recordChange: (name: string, before: RegisteredProvider | undefined, after: RegisteredProvider | undefined, audit?: ProviderAuditContext, savedSettingsChanged?: boolean) => void
   refreshSummary: () => void
+  connectionTests: Pick<ProviderConnectionTestStore, 'read' | 'forget'>
 }
 
 /** Saved connection lifecycle; provider calls and project/history mutations never belong here. */
@@ -139,6 +141,7 @@ export function createProviderSettingsController(host: ProviderSettingsHost) {
       hostManaged: { vertex, batch: entry?.batch ?? null, pricing: entry?.pricing ?? null },
       hostUses,
       blockers,
+      lastTest: host.connectionTests.read(adapter.name, current?.config),
     }
   }
 
@@ -214,6 +217,8 @@ export function createProviderSettingsController(host: ProviderSettingsHost) {
     const { adapter, metadata, saved } = prepare(name, expectedRevision)
     if (!metadata.capabilities.disconnect) throw forbidden('This connection has host-managed credentials. Disconnect it on the host.')
     commit(adapter, null, saved, audit)
+    // Reconnecting with the same settings is a new connection, not one an old test vouches for.
+    host.connectionTests.forget(adapter.name)
   }
 
   return { connections, update, disconnect }

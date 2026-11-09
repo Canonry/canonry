@@ -77,6 +77,20 @@ JSON and JSONL preserve the response DTO. It requires install administrator auth
 and `settings.write`; the MCP counterpart is `canonry_providers_reload`, excluded from
 native Aero. Unsupported hosts return `NOT_IMPLEMENTED`.
 
+`settings provider test <name>` calls `ApiClient.testProvider`
+(`POST /settings/providers/{name}/test`, access `live`). The host hook
+`onProviderTest` starts the active registration's own `adapter.healthcheck(config, signal)`
+with the route's signal, so a check the route stopped waiting for stops retrying;
+an unregistered connection returns `undefined` (`VALIDATION_ERROR`,
+`details.reason: provider-not-configured`). `src/provider-connection-tests.ts`
+keeps each result in `provider_connection_tests` with a fingerprint taken when the
+run starts, and the settings controller adds it to every connection DTO as
+`lastTest` while the active registration still matches (a new key, endpoint,
+model or Vertex setting hides it; disconnect deletes it). `settings` and
+`settings provider-info` print it. JSON preserves the DTO. A `failed`
+result prints first, then exits 2 (`PROVIDER_TEST_FAILED`); `connected` and
+`not-verified` exit 0. MCP: `canonry_provider_test`, excluded from native Aero.
+
 **Always use `createApiClient()`** — never instantiate `ApiClient` directly:
 
 ```typescript

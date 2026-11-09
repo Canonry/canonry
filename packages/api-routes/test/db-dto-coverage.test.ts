@@ -56,6 +56,7 @@ import {
   notificationDtoSchema,
   projectDtoSchema,
   providerBatchSummaryDtoSchema,
+  providerConnectionLastTestDtoSchema,
   queryDtoSchema,
   querySnapshotDtoSchema,
   recommendationExplanationDtoSchema,
@@ -300,6 +301,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
   providerBatchRequests: {
     kind: 'internal-only',
     reason: 'Maps each batch line\'s custom_id to its slot for ingest; answers surface as query snapshots.',
+  },
+  providerConnectionTests: {
+    kind: 'dto',
+    dto: providerConnectionLastTestDtoSchema,
+    internal: {
+      provider: 'The row key; the result is returned as lastTest on that provider connection, not as a row of its own.',
+      fingerprint: 'Keyed hash of the registration the test checked; it only decides whether the row still describes the active settings and never leaves the server.',
+    },
   },
   querySnapshots: {
     kind: 'dto',

@@ -539,5 +539,8 @@ from native Aero because they can start paid classifier work; API, CLI and
 external MCP retain those operator actions.
 
 Provider settings mutations (including override resets and optional Local-key
-removal), disconnect and reload stay excluded from native Aero. External MCP,
-CLI and API retain these explicitly authorized operator actions.
+removal), disconnect, reload and the connection test (`canonry_provider_test`,
+which spends on the operator's provider account) stay excluded from native Aero.
+Aero's copy of the operations guide names the ones the guide offers
+(`AERO_PREFACE` in `scripts/sync-agent-operations.mjs`). External MCP, CLI and
+API retain these explicitly authorized operator actions.

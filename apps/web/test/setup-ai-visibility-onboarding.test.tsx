@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameQueriesQueryKey, getApiV1ProjectsByNameRunPreviewQueryKey, getApiV1RunsByIdQueryKey, getApiV1RunsQueryKey } from '@canonry/canonry-api-client/react-query'
 import type { ReactNode } from 'react'
-import { onboardingTelemetryEventSchema, querySnapshotDtoSchema, runDetailDtoSchema, type RunDetailDto } from '@canonry/canonry-contracts'
+import { onboardingTelemetryEventSchema, querySnapshotDtoSchema, runDetailDtoSchema, type ProviderConnectionLastTestDto, type RunDetailDto } from '@canonry/canonry-contracts'
 
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { AccountProvider, type ApiKeyAccess } from '../src/contexts/account-context.js'
@@ -15,7 +15,9 @@ import { formatSweepInstant } from '../src/lib/format-helpers.js'
 import { SetupPage } from '../src/pages/SetupPage.js'
 import { markOnboardingScanSkipped, wasOnboardingScanSkipped } from '../src/lib/onboarding-draft.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY } from '../src/components/project/ManagedSweepStatus.js'
-import { connectionFixture } from './provider-settings-fixtures.js'
+import { connectionFixture, settingsFixture } from './provider-settings-fixtures.js'
+import { PROVIDER_CONNECTION_TEST_COPY } from '../src/components/settings/ProviderConnectionTest.js'
+import { ProviderConnectionsSection } from '../src/components/settings/ProviderConfigForm.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 
@@ -77,6 +79,12 @@ function renderProjectSetup(options: {
   settingsResponse?: () => Response | Promise<Response>
   /** Answers `POST /projects/:name/queries/generate`. */
   generateResponse?: (init?: RequestInit) => Response | Promise<Response>
+  /** Answers `POST /settings/providers/:name/test`. */
+  providerTestResponse?: (name: string) => Response | Promise<Response>
+  /** The stored last test an administrator's settings read carries, by provider name. */
+  providerLastTests?: Record<string, ProviderConnectionLastTestDto | null>
+  /** The saved connection revision an administrator's settings read carries, by provider name. */
+  providerRevisions?: Record<string, string>
 }) {
   const fixture = createDashboardFixture()
   // Match the key destinations published by the provider adapter catalog.
@@ -116,6 +124,16 @@ function renderProjectSetup(options: {
     fixture.dashboard.settings.providerStatuses.push({ ...provider, state: 'needs-config', detail: 'API key is missing.' })
   }
   if (options.openRouter) fixture.dashboard.settings.providerStatuses.push({ name: 'openrouter', displayName: 'OpenRouter', state: 'ready', detail: 'Connected.' })
+  for (const [name, lastTest] of Object.entries(options.providerLastTests ?? {})) {
+    fixture.dashboard.settings.providerStatuses = fixture.dashboard.settings.providerStatuses.map(provider => (
+      provider.name.toLowerCase() === name ? { ...provider, revision: `${name}-revision`, lastTest } : provider
+    ))
+  }
+  for (const [name, revision] of Object.entries(options.providerRevisions ?? {})) {
+    fixture.dashboard.settings.providerStatuses = fixture.dashboard.settings.providerStatuses.map(provider => (
+      provider.name.toLowerCase() === name ? { ...provider, revision } : provider
+    ))
+  }
 
   const requests: Array<{ path: string; method?: string; body?: RequestInit['body'] }> = []
   let canonicalQueryCount = options.complete ? 1 : 0
@@ -139,6 +157,8 @@ function renderProjectSetup(options: {
     if (pathOf(url).endsWith('/run-preview')) return options.previewResponse?.() ?? jsonResponse(runPreviewFixture(canonicalQueryCount))
     if (pathOf(url).endsWith('/measurement-setup')) return jsonResponse({ answerVisibilityProviderReady: options.providerReady !== false })
     if (pathOf(url) === '/api/v1/cdp/status') return options.cdpResponse?.() ?? jsonResponse(options.cdpStatus ?? {})
+    const tested = pathOf(url).match(/^\/api\/v1\/settings\/providers\/([^/]+)\/test$/)
+    if (tested && init?.method === 'POST' && options.providerTestResponse) return options.providerTestResponse(decodeURIComponent(tested[1]!))
     if (pathOf(url).startsWith('/api/v1/settings/providers/')) return options.providerResponse?.() ?? jsonResponse(init?.method === 'GET' ? connectionFixture({ name: pathOf(url).split('/').at(-1) ?? 'gemini', displayName: 'Gemini' }) : { name: 'gemini', configured: true })
     if (pathOf(url).endsWith('/queries/generate') && options.generateResponse) return options.generateResponse(init)
     if (pathOf(url).endsWith('/queries')) {
@@ -213,9 +233,9 @@ test('picks and saves several OpenRouter models in the provider step before allo
   expect(screen.getByText('Change engines', { selector: 'summary' }).closest('details')?.open).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }))
   expect(screen.getByRole('heading', { name: 'AI engines' })).toBeTruthy()
-  expect(screen.getByText('Configured')).toBeTruthy()
+  expect(screen.getByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
   // The saved models are named from OpenRouter's catalog, not by raw ID.
-  const engines = await screen.findByRole('list', { name: 'Connected AI engines' })
+  const engines = await screen.findByRole('list', { name: 'Saved AI engines' })
   expect(within(engines).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Model AOpenRouter', 'Model BOpenRouter'])
   expect(screen.queryByText('Choose models')).toBeNull()
   expect(screen.queryByRole('group', { name: 'Choose OpenRouter models' })).toBeNull()
@@ -554,7 +574,7 @@ test('retries a failed scoped-provider readiness read without losing the query d
   fireEvent.change(screen.getByLabelText('Queries (one per line)'), { target: { value: 'keep this query draft' } })
   expect(await screen.findByText('Provider connections could not be checked. Try again.')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Retry provider check' }))
-  expect(await within(screen.getByRole('region', { name: 'AI engines' })).findByText('Configured')).toBeTruthy()
+  expect(await within(screen.getByRole('region', { name: 'AI engines' })).findByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
   expect((screen.getByLabelText('Queries (one per line)') as HTMLTextAreaElement).value).toBe('keep this query draft')
   expect(attempts).toBe(2)
   expect(requests).not.toContain('/api/v1/settings')
@@ -719,11 +739,114 @@ test('offers provider setup before queries and keeps the draft after saving and 
 
   // Readiness comes from refreshed settings, not an optimistic key-save result.
   markProviderReady('gemini')
-  expect(await screen.findByText('Configured')).toBeTruthy()
+  expect(await screen.findByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
   expect(screen.queryByLabelText('API key')).toBeNull()
   expect((screen.getByLabelText('Queries (one per line)') as HTMLTextAreaElement).value).toBe('unsubmitted customer question')
   expect(navigate).not.toHaveBeenCalled()
   expect(requests.filter(request => request.method === 'POST' && /\/(?:runs|generate)$/.test(request.path))).toEqual([])
+})
+
+test.each([
+  {
+    outcome: 'passes',
+    result: { status: 'connected', ok: true, message: 'gemini api key verified' },
+    badge: PROVIDER_CONNECTION_TEST_COPY.connected,
+    line: `Gemini: ${PROVIDER_CONNECTION_TEST_COPY.connectedLine} ${PROVIDER_CONNECTION_TEST_COPY.checkedAt('2026-11-08T10:00:00.000Z')}`,
+  },
+  {
+    outcome: 'fails',
+    result: { status: 'failed', ok: false, message: '400 API key not valid.' },
+    badge: PROVIDER_CONNECTION_TEST_COPY.savedNotVerified,
+    line: `Gemini: ${PROVIDER_CONNECTION_TEST_COPY.failed('400 API key not valid.')} ${PROVIDER_CONNECTION_TEST_COPY.checkedAt('2026-11-08T10:00:00.000Z')}`,
+  },
+])('the engine step tests the saved connection and reads $badge when the test $outcome', async ({ result, badge, line }) => {
+  const tested: string[] = []
+  renderProjectSetup({
+    onboarding: true,
+    readyProviderNames: ['gemini'],
+    providerTestResponse: name => {
+      tested.push(name)
+      return jsonResponse({ provider: name, displayName: 'Gemini', model: 'gemini-2.5-flash', checkedAt: '2026-11-08T10:00:00.000Z', durationMs: 900, ...result })
+    },
+  })
+  const engines = await screen.findByRole('region', { name: 'AI engines' })
+  expect(within(engines).getByText(PROVIDER_CONNECTION_TEST_COPY.savedNotVerified)).toBeTruthy()
+  expect(tested).toEqual([])
+  // The test is a live request on the provider account, so the button says so before it is pressed.
+  fireEvent.click(within(engines).getByRole('button', { name: PROVIDER_CONNECTION_TEST_COPY.testOne, description: 'Sends one short request to Gemini, using your provider account.' }))
+  const results = await within(engines).findByRole('list', { name: PROVIDER_CONNECTION_TEST_COPY.results })
+  expect(within(results).getAllByRole('listitem').map(item => item.textContent)).toEqual([line])
+  expect(within(engines).getByText(badge)).toBeTruthy()
+  expect(tested).toEqual(['gemini'])
+})
+
+test('the engine step reads a stored passing test as Connected without testing again', async () => {
+  const tested: string[] = []
+  const checkedAt = '2026-01-05T09:30:00.000Z'
+  renderProjectSetup({
+    onboarding: true,
+    readyProviderNames: ['gemini'],
+    providerLastTests: { gemini: { status: 'connected', ok: true, message: 'gemini api key verified', model: 'gemini-2.5-flash', checkedAt, durationMs: 800 } },
+    providerTestResponse: name => { tested.push(name); return jsonResponse({}) },
+  })
+  const engines = await screen.findByRole('region', { name: 'AI engines' })
+  expect(within(engines).getByText(PROVIDER_CONNECTION_TEST_COPY.connected)).toBeTruthy()
+  const results = within(engines).getByRole('list', { name: PROVIDER_CONNECTION_TEST_COPY.results })
+  expect(within(results).getAllByRole('listitem').map(item => item.textContent)).toEqual([
+    `Gemini: ${PROVIDER_CONNECTION_TEST_COPY.connectedLine} ${PROVIDER_CONNECTION_TEST_COPY.checkedAt(checkedAt)}`,
+  ])
+  expect(tested).toEqual([])
+})
+
+test('tests each saved connection behind the listed engines once, and says first what that sends', async () => {
+  const tested: string[] = []
+  renderProjectSetup({
+    onboarding: true,
+    openRouter: true,
+    readyProviderNames: ['gemini'],
+    projectProviders: ['gemini', 'openrouter:vendor/model-a', 'openrouter:vendor/model-b'],
+    providerTestResponse: name => {
+      tested.push(name)
+      return jsonResponse({ provider: name, displayName: name, status: 'connected', ok: true, message: `${name} verified`, model: null, checkedAt: '2026-11-08T10:00:00.000Z', durationMs: 500 })
+    },
+  })
+  const engines = await screen.findByRole('region', { name: 'AI engines' })
+  // Both OpenRouter models run on the one OpenRouter connection, which is what gets tested.
+  const button = await within(engines).findByRole('button', {
+    name: PROVIDER_CONNECTION_TEST_COPY.testMany,
+    description: 'Sends one short request each to Gemini and OpenRouter, using your provider accounts.',
+  })
+  fireEvent.click(button)
+  await within(engines).findByText(PROVIDER_CONNECTION_TEST_COPY.connected)
+  expect([...tested].sort()).toEqual(['gemini', 'openrouter'])
+})
+
+test.each([
+  { settings: 'unchanged', tested: 'gemini-saved', revision: 'gemini-saved', badge: PROVIDER_CONNECTION_TEST_COPY.connected, stale: PROVIDER_CONNECTION_TEST_COPY.savedNotVerified },
+  { settings: 'changed elsewhere since (the CLI or another tab)', tested: 'gemini-saved', revision: 'gemini-rotated', badge: PROVIDER_CONNECTION_TEST_COPY.savedNotVerified, stale: PROVIDER_CONNECTION_TEST_COPY.connected },
+  // Setup's read named no revision (no connection details), so the test cannot vouch for these settings.
+  { settings: 'unknown to setup when it tested them', tested: undefined, revision: 'gemini-saved', badge: PROVIDER_CONNECTION_TEST_COPY.savedNotVerified, stale: PROVIDER_CONNECTION_TEST_COPY.connected },
+])('a pass in setup reads $badge in Settings when the saved settings are $settings', async ({ tested, revision, badge, stale }) => {
+  const { queryClient } = renderProjectSetup({
+    onboarding: true,
+    readyProviderNames: ['gemini'],
+    ...(tested ? { providerRevisions: { gemini: tested } } : {}),
+    providerTestResponse: name => jsonResponse({ provider: name, displayName: 'Gemini', status: 'connected', ok: true, message: 'gemini api key verified', model: 'gemini-2.5-flash', checkedAt: '2026-11-08T10:00:00.000Z', durationMs: 900 }),
+    settingsResponse: () => jsonResponse(settingsFixture([connectionFixture({ name: 'gemini', displayName: 'Gemini', revision })])),
+  })
+  const engines = await screen.findByRole('region', { name: 'AI engines' })
+  fireEvent.click(within(engines).getByRole('button', { name: PROVIDER_CONNECTION_TEST_COPY.testOne }))
+  await within(engines).findByText(PROVIDER_CONNECTION_TEST_COPY.connected)
+  // Leave setup for Settings in the same tab.
+  cleanup()
+  render(<QueryClientProvider client={queryClient}><ProviderConnectionsSection projects={[]} /></QueryClientProvider>)
+  const row = await waitFor(() => {
+    const found = document.getElementById('provider-gemini')
+    if (!found) throw new Error('No Gemini row yet')
+    return found
+  })
+  expect(within(row).getByText(badge)).toBeTruthy()
+  expect(within(row).queryByText(stale)).toBeNull()
 })
 
 test('keeps failed provider setup retryable without losing queries', async () => {

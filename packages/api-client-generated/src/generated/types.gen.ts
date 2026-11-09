@@ -15519,6 +15519,29 @@ export type ProviderConnectionSettingsDto = {
         runIds: Array<string>;
         batchIds: Array<string>;
     }>;
+    /**
+     * The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model, Vertex setting or CDP endpoint, or a disconnect, hides an earlier test). Absent from hosts that keep no test history.
+     */
+    lastTest?: {
+        status: 'connected' | 'failed' | 'not-verified';
+        /**
+         * False only when status is failed. A not-verified connection is ok but unproven, so read status.
+         */
+        ok: boolean;
+        /**
+         * The provider's own result or refusal, with credentials redacted.
+         */
+        message: string;
+        /**
+         * The model this connection runs, as its check reported it, or null when the check names none.
+         */
+        model: string | null;
+        /**
+         * When the check finished (ISO 8601).
+         */
+        checkedAt: string;
+        durationMs: number;
+    } | null;
     usage: {
         projectCount: number;
         projects: Array<{
@@ -15540,6 +15563,29 @@ export type ProviderConnectionSettingsDto = {
         };
     };
     impactRevision: string;
+};
+
+export type ProviderConnectionTestResultDto = {
+    provider: string;
+    displayName: string;
+    status: 'connected' | 'failed' | 'not-verified';
+    /**
+     * False only when status is failed. A not-verified connection is ok but unproven, so read status.
+     */
+    ok: boolean;
+    /**
+     * The provider's own result or refusal, with credentials redacted.
+     */
+    message: string;
+    /**
+     * The model this connection runs, as its check reported it, or null when the check names none.
+     */
+    model: string | null;
+    /**
+     * When the check finished (ISO 8601).
+     */
+    checkedAt: string;
+    durationMs: number;
 };
 
 export type ProviderDisconnectRequest = {
@@ -16476,6 +16522,29 @@ export type SettingsDto = {
             runIds: Array<string>;
             batchIds: Array<string>;
         }>;
+        /**
+         * The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model, Vertex setting or CDP endpoint, or a disconnect, hides an earlier test). Absent from hosts that keep no test history.
+         */
+        lastTest?: {
+            status: 'connected' | 'failed' | 'not-verified';
+            /**
+             * False only when status is failed. A not-verified connection is ok but unproven, so read status.
+             */
+            ok: boolean;
+            /**
+             * The provider's own result or refusal, with credentials redacted.
+             */
+            message: string;
+            /**
+             * The model this connection runs, as its check reported it, or null when the check names none.
+             */
+            model: string | null;
+            /**
+             * When the check finished (ISO 8601).
+             */
+            checkedAt: string;
+            durationMs: number;
+        } | null;
         usage: {
             projectCount: number;
             projects: Array<{
@@ -27154,6 +27223,48 @@ export type PostApiV1SettingsProvidersReloadResponses = {
 };
 
 export type PostApiV1SettingsProvidersReloadResponse = PostApiV1SettingsProvidersReloadResponses[keyof PostApiV1SettingsProvidersReloadResponses];
+
+export type PostApiV1SettingsProvidersByNameTestData = {
+    body?: never;
+    path: {
+        /**
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/providers/{name}/test';
+};
+
+export type PostApiV1SettingsProvidersByNameTestErrors = {
+    /**
+     * Unknown provider connection (error.details.validProviders), or one that is not configured (error.details.reason provider-not-configured).
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator authority and settings.write are required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * A test of this connection is already running (error.details.reason provider-test-in-progress).
+     */
+    409: ErrorEnvelope;
+    /**
+     * Provider connection tests are not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type PostApiV1SettingsProvidersByNameTestError = PostApiV1SettingsProvidersByNameTestErrors[keyof PostApiV1SettingsProvidersByNameTestErrors];
+
+export type PostApiV1SettingsProvidersByNameTestResponses = {
+    /**
+     * Connection test result, including a failed test.
+     */
+    200: ProviderConnectionTestResultDto;
+};
+
+export type PostApiV1SettingsProvidersByNameTestResponse = PostApiV1SettingsProvidersByNameTestResponses[keyof PostApiV1SettingsProvidersByNameTestResponses];
 
 export type PutApiV1SettingsGoogleData = {
     body: {

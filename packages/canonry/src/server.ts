@@ -58,6 +58,7 @@ import {
   forbidden,
   notFound,
   validationError,
+  redactKnownSecrets,
   redactUrlPrivateFields,
   embedProjectTabsError,
   embedClientConfigForRequest,
@@ -104,6 +105,7 @@ import type {
   CloudflareTrafficConnectionConfigEntry,
 } from "./config.js";
 import { createProviderSettingsController } from "./provider-settings.js";
+import { createProviderConnectionTestStore } from "./provider-connection-tests.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentAllowViewers, resolveAgentEnabled, resolveAgentProactiveEnabled } from "./agent-config.js";
 import { saveConfig, saveConfigPatch, loadConfig, loadConfigRaw, loadedConfigPath, getConfigPath } from "./config.js";
@@ -3197,6 +3199,8 @@ export async function createServer(opts: {
       });
     }
   };
+  // Keyed like the connection revision, with the install's own key.
+  const connectionTests = createProviderConnectionTestStore(opts.db, opts.config.apiKey);
   const providerSettings = createProviderSettingsController({
     config: opts.config,
     configPath: persistedConfigPath,
@@ -3211,6 +3215,7 @@ export async function createServer(opts: {
     ),
     recordChange: recordProviderChange,
     refreshSummary: () => { providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config)); },
+    connectionTests,
   });
   await app.register(apiRoutes, {
     // Outcome telemetry reported from route code (`app.emitOutcome`).
@@ -3721,6 +3726,21 @@ export async function createServer(opts: {
       registry.getAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
     getBatchEligibleProviderNames: () => batchEligibleProviderNames(registry),
+    // The active registration's own healthcheck: the settings a sweep would
+    // use right now. Its result is kept for exactly those settings.
+    onProviderTest: (name: string, signal: AbortSignal) => {
+      const provider = registry.get(name);
+      if (!provider) return undefined;
+      // Taken now: settings saved while the check runs are not what it checked.
+      const tested = connectionTests.fingerprint(provider.config);
+      return {
+        // Once the route stops waiting, the check stops retrying and spending.
+        // A vendor error can quote the key it was sent; it never leaves in a test result.
+        check: provider.adapter.healthcheck(provider.config, signal)
+          .then(result => ({ ...result, message: redactKnownSecrets(result.message, [provider.config.apiKey]) })),
+        record: result => connectionTests.record(name, tested, result),
+      };
+    },
     onProviderReload: (input, auditContext) => {
       if (input.configPath !== undefined && (
         runtimePathIdentity(input.configPath) !== runtimeConfigIdentity

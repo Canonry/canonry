@@ -8,11 +8,16 @@ description: Shared Canonry vocabulary, evidence scope, comparison rules, and au
 > **Built-in Aero:** your available `canonry_*` tools are already loaded, and
 > you read this guide through `read_skill_doc` (slug `agent-operations`). Your
 > catalog does not include `canonry_help` or `canonry_load_toolkit`; the
-> connection and navigation steps below are for external MCP hosts. Your
-> project-scoped tools use the current session's project. Dashboard selections
-> are not passed to chat: resolve the requested Property, market, filters, or
-> page before making a scoped claim. The `portfolio-analysis` and `site-health`
-> skill docs cover those investigations for Simple and Advanced portfolios.
+> connection and navigation steps below are for external MCP hosts. It also
+> leaves out the provider connection actions the guide names
+> (`canonry_provider_test`, `canonry_provider_settings_update` and
+> `canonry_providers_reload`): they spend on or change the operator's
+> install-wide provider accounts, so the operator runs them from the dashboard
+> or CLI. Your project-scoped tools use the current session's project.
+> Dashboard selections are not passed to chat: resolve the requested Property,
+> market, filters, or page before making a scoped claim. The
+> `portfolio-analysis` and `site-health` skill docs cover those investigations
+> for Simple and Advanced portfolios.
 
 # Canonry Operations Guide v1
 
@@ -79,7 +84,17 @@ missing instead of silently creating it.
 After an Agent Readiness result on an install with no provider (a `NO_PROVIDER`
 notice, or doctor's `providers.none-configured`), propose AI Visibility setup
 as the next step. The operator adds the provider key in the dashboard or in
-their own terminal; never ask for it in chat.
+their own terminal; never ask for it in chat. A saved key is not a verified one:
+with approval, `canonry settings provider test <name>` or `canonry_provider_test`
+checks the saved connection with the provider now (usually one tiny prompt on
+the operator's account) and reports `connected`, `failed` with the provider's
+reason, or `not-verified`. It needs install administrator authority and
+`settings.write`; while a connection's test is still running, another test of it
+returns `OPERATION_IN_PROGRESS`, so wait for that result. The latest result is
+kept as the connection's `lastTest` (`canonry settings provider-info <name>` or
+`canonry_provider_settings_get`) until its key, endpoint, model, Vertex project,
+region or credentials, or CDP endpoint changes, or the connection is
+disconnected; read it before testing again.
 Rerunning `canonry bootstrap` after a provider change reloads saved provider
 settings on a matching running local server and reports whether they became
 active. If the server is offline, start it to apply the saved settings. For an
@@ -154,8 +169,12 @@ authority without exposing its token. Missing `operator` means unapproved.
 machine. Telemetry reports configured preference, effective state, and any
 environment override; inspecting status never creates an anonymous identifier.
 After approval, `canonry_telemetry_update` changes that preference and
-`canonry_provider_settings_update` changes an already-configured provider's
-model/quota. Both require `settings.write`; neither accepts credentials.
+`canonry_provider_settings_update` changes or resets an already-configured
+provider's model and quota, restores its built-in endpoint, or removes an
+optional Local key. Both require `settings.write`; neither accepts credentials.
+A reset, restoring the endpoint and removing the Local key included, also
+requires install administrator authority. Pass the `revision` from
+`canonry_provider_settings_get` as `expectedRevision` to reject a stale edit.
 Server telemetry reads and updates additionally require operator authority.
 Ordinary audit-history reads omit internal telemetry events and their state.
 

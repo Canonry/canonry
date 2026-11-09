@@ -200,6 +200,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/settings/providers/{name}': 'included',
   'DELETE /api/v1/settings/providers/{name}': 'included',
   'POST /api/v1/settings/providers/reload': 'included',
+  'POST /api/v1/settings/providers/{name}/test': 'included',
   'PUT /api/v1/settings/google': 'deferred',
   'POST /api/v1/snapshot': 'included',
   'PUT /api/v1/settings/bing': 'deferred',

@@ -222,7 +222,8 @@ describe('answer service key check', () => {
   it('saves a key without spending when the service documents no free key check', async () => {
     const { stub, adapter } = setup([{ json: {} }])
     const result = await adapter.healthcheck({ provider: FAKE_SERVICE_ID, apiKey: 'test-key', quotaPolicy: QUOTA })
-    expect(result).toEqual({ ok: true, provider: FAKE_SERVICE_ID, message: 'Fake Answers key saved, not verified: the service documents no free key check.' })
+    // Passing but unproven: a connection test reports this as not-verified, never as connected.
+    expect(result).toEqual({ ok: true, verified: false, provider: FAKE_SERVICE_ID, message: 'Fake Answers key saved, not verified: the service documents no free key check.' })
     expect(stub.calls).toHaveLength(0)
   })
 })

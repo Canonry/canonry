@@ -10,7 +10,7 @@ Chrome DevTools Protocol adapter — implements `ProviderAdapter` by automating 
 |------|------|
 | `src/adapter.ts` | Exports `cdpAdapter` — the `ProviderAdapter` object |
 | `src/normalize.ts` | Response normalization to standard `NormalizedQueryResult` |
-| `src/connection.ts` | `CDPConnectionManager` — manages browser connections via CDP |
+| `src/connection.ts` | `CDPConnectionManager` — manages browser connections via CDP. `healthcheck(signal?)` reads Chrome's `/json/version` itself (`CDP.Version` takes no signal) at the host's resolved address, so an aborted connection test cancels its request |
 | `src/screenshot.ts` | `captureElementScreenshot()` — captures page element screenshots |
 | `src/targets/` | Target-specific automation scripts |
 | `src/targets/chatgpt.ts` | ChatGPT UI automation — navigation, query input, response extraction |

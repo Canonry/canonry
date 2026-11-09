@@ -52,6 +52,8 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/cdp/status',
   'POST /api/v1/apply/preview',
   'POST /api/v1/projects/{name}/measurement-discovery',
+  // Runs the saved connection's healthcheck: usually one small request on the provider account.
+  'POST /api/v1/settings/providers/{name}/test',
 ])
 
 /** POST previews that calculate from supplied or draft data without persistence. */

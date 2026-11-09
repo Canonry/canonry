@@ -2,7 +2,7 @@ import { CitationStates } from '@canonry/canonry-contracts'
 import { AnswerMarkdown } from '../components/shared/AnswerMarkdown.js'
 import { ProviderBadge } from '../components/shared/ProviderBadge.js'
 import { RunPreviewSummary, useRunPreview } from '../components/project/RunAdmissionNotice.js'
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefCallback } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type RefCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { isDashboardManagedSweeps, type ApiProject } from '../api.js'
@@ -18,6 +18,7 @@ import {
   isOpenRouterRoute,
   normalizeQueryText,
   openRouterRouteModel,
+  providerConnectionName,
   uniqueQueryTexts,
   QueryClasses,
   type QueryClass,
@@ -33,6 +34,9 @@ import { NextSteps } from '../components/shared/NextSteps.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
+import { PROVIDER_CONNECTION_TEST_COPY, ProviderConnectionTestLine, providerConnectionStatus } from '../components/settings/ProviderConnectionTest.js'
+import { useProviderConnectionTests } from '../queries/provider-connection-tests.js'
+import { catalogRouteFamilies } from '../lib/provider-routes.js'
 import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
 import { OpenRouterModelPicker } from '../components/shared/OpenRouterModelPicker.js'
 import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
@@ -707,6 +711,35 @@ function ReadySetupPage({
   })
   const openRouterCatalog = (openRouterSettingsQuery.data?.providerCatalog ?? []).find(provider => provider.name === 'openrouter')
   const runnableProviderCount = runnableApiProviders.length + (cdpConfigured === true ? 1 : 0)
+  // The saved connections behind the listed engines: every route of a routed
+  // family (OpenRouter models, answer-service profiles) shares its connection.
+  const engineRouteFamilies = catalogRouteFamilies(settingsCatalogQuery.data?.providerCatalog ?? [])
+  const engineConnectionNames = [...new Set([
+    ...runnableApiProviders.map(provider => providerConnectionName(normalizeProviderName(provider.name), engineRouteFamilies)),
+    ...(runnableApiProviders.length === 0 && cdpConfigured === true ? [CDP_PROVIDER_NAME] : []),
+  ])]
+  const engineConnectionStatusOf = (name: string) => settings.providerStatuses.find(provider => normalizeProviderName(provider.name) === name)
+  // An administrator's settings read carries each connection's revision and stored last test.
+  const engineConnectionTests = useProviderConnectionTests(engineConnectionNames.map(name => {
+    const status = engineConnectionStatusOf(name)
+    return {
+      name,
+      ...(status?.revision !== undefined ? { revision: status.revision } : {}),
+      ...(status?.lastTest !== undefined ? { lastTest: status.lastTest } : {}),
+    }
+  }))
+  const engineConnectionLabel = (name: string): string => {
+    if (name === CDP_PROVIDER_NAME) return 'ChatGPT in Chrome'
+    const status = engineConnectionStatusOf(name)
+    return status?.displayName ?? status?.name ?? name
+  }
+  // A test of an API connection reaches the provider on the operator's account; Chrome's does not.
+  const engineConnectionTestNoticeId = useId()
+  const engineConnectionTestNotice = engineConnectionNames.includes(CDP_PROVIDER_NAME)
+    ? null
+    : PROVIDER_CONNECTION_TEST_COPY.sends(engineConnectionNames.map(engineConnectionLabel))
+  // Connected only after a passing test of every listed connection; saved settings alone prove nothing.
+  const engineConnectionStatus = providerConnectionStatus(engineConnectionTests.results)
   const [selectedProvider, setSelectedProvider] = useState(runnableApiProviders[0]?.name ?? '')
   const [generateCount, setGenerateCount] = useState(5)
   const [generatingQueries, setGeneratingQueries] = useState(false)
@@ -1349,11 +1382,11 @@ function ReadySetupPage({
           <h2 id="setup-provider-heading" className="text-heading-20 text-heading">AI engines</h2>
           {providerReadinessFailed ? null : (
             <span role="status" className="flex items-center gap-2">
-              <ToneBadge tone="neutral">
-                {providerReadiness === true ? 'Configured' : providerReadiness === false ? 'Not connected' : 'Checking'}
+              <ToneBadge tone={providerReadiness === true ? engineConnectionStatus.tone : 'neutral'}>
+                {providerReadiness === true ? engineConnectionStatus.label : providerReadiness === false ? 'Not connected' : 'Checking'}
               </ToneBadge>
               <InfoTooltip text={providerReadiness === true
-                ? 'Connection settings are saved. A successful check confirms access. An administrator manages provider settings.'
+                ? 'Connection settings are saved. An administrator can test the connection, and a successful check also confirms access.'
                 : providerReadiness === false
                   ? 'Ask an administrator to connect an AI engine for this project. You can save queries now.'
                   : 'Checking for a connected AI engine. An administrator manages provider settings. You can save queries now.'} />
@@ -1378,12 +1411,14 @@ function ReadySetupPage({
     <section aria-labelledby="setup-provider-heading" className="space-y-3 border-b border-default pb-6 mb-6">
       <div className="flex flex-wrap items-center gap-3">
         <h2 id="setup-provider-heading" className="text-heading-20 text-heading">AI engines</h2>
-        <ToneBadge tone={openRouterModelsNeeded ? 'caution' : 'neutral'}>
-          {providerReadiness === true ? 'Configured' : openRouterModelsNeeded ? 'Choose models' : providerNeedsConnection ? 'Not connected' : 'Checking'}
+        <ToneBadge tone={openRouterModelsNeeded ? 'caution' : providerReadiness === true ? engineConnectionStatus.tone : 'neutral'}>
+          {providerReadiness === true ? engineConnectionStatus.label : openRouterModelsNeeded ? 'Choose models' : providerNeedsConnection ? 'Not connected' : 'Checking'}
         </ToneBadge>
         <InfoTooltip text={providerReadiness === true
           ? runnableApiProviders.length > 0
-            ? 'Connection settings are saved, but access and quota are not verified. Checks and Research use your provider account.'
+            ? engineConnectionTests.allConnected
+              ? 'A test reached each provider with the saved settings. Checks and Research use your provider account and its quota.'
+              : 'Connection settings are saved, but access and quota are not verified. Test the connection before your first check. Checks and Research use your provider account.'
             : 'ChatGPT in Chrome runs AI Visibility checks. Query Research needs an API provider.'
           : openRouterModelsNeeded
             ? 'OpenRouter is connected. Choose the models your AI Visibility checks ask. You can save queries now.'
@@ -1393,7 +1428,7 @@ function ReadySetupPage({
       </div>
       {providerNeedsConnection && engineChoices ? <p className="max-w-prose text-copy-14 text-secondary">{engineChoices}</p> : null}
       {providerReadiness === true && (runnableApiProviders.length > 0 || cdpConfigured === true) ? (
-        <ul aria-label="Connected AI engines" className="divide-y divide-default">
+        <ul aria-label="Saved AI engines" className="divide-y divide-default">
           {runnableApiProviders.map(provider => {
             const routed = isOpenRouterRoute(provider.name)
             const label = provider.displayName ?? provider.name
@@ -1407,6 +1442,28 @@ function ReadySetupPage({
           })}
           {runnableApiProviders.length === 0 ? <li className="flex min-h-11 items-center px-3.5 py-2 text-label-14 text-heading">ChatGPT in Chrome</li> : null}
         </ul>
+      ) : null}
+      {providerReadiness === true && engineConnectionNames.length > 0 && !providerFormVisible ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Button type="button" variant="outline" size="sm" className={TOUCH_TARGET} disabled={engineConnectionTests.testing} aria-describedby={engineConnectionTestNotice ? engineConnectionTestNoticeId : undefined} onClick={engineConnectionTests.test}>
+              {engineConnectionTests.testing
+                ? PROVIDER_CONNECTION_TEST_COPY.testing
+                : engineConnectionNames.length > 1 ? PROVIDER_CONNECTION_TEST_COPY.testMany : PROVIDER_CONNECTION_TEST_COPY.testOne}
+            </Button>
+            {engineConnectionTestNotice ? <p id={engineConnectionTestNoticeId} className="text-copy-14 text-secondary">{engineConnectionTestNotice}</p> : null}
+          </div>
+          <div role="status">
+            {engineConnectionTests.records.some(record => record !== undefined) ? (
+              <ul aria-label={PROVIDER_CONNECTION_TEST_COPY.results} className="space-y-1">
+                {engineConnectionNames.map((name, index) => {
+                  const record = engineConnectionTests.records[index]
+                  return record ? <li key={name}><ProviderConnectionTestLine record={record} label={engineConnectionLabel(name)} /></li> : null
+                })}
+              </ul>
+            ) : null}
+          </div>
+        </div>
       ) : null}
       {inlineModelPicker ? (
         openRouterCatalog ? (
@@ -1571,7 +1628,7 @@ function ReadySetupPage({
                     )}
                   </div>
                   <ToneBadge
-                    tone={check.state === 'ready' ? check.id === 'provider' ? 'neutral' : 'positive' : 'caution'}
+                    tone={check.state === 'ready' ? check.id === 'provider' ? engineConnectionStatus.tone : 'positive' : 'caution'}
                     title={
                       check.id === 'api'
                         ? serviceStatusTooltip(healthSnapshot.apiStatus)
@@ -1580,7 +1637,7 @@ function ReadySetupPage({
                           : check.detail
                     }
                   >
-                    {check.state === 'ready' ? check.id === 'provider' ? 'Configured' : 'Ready' : 'Attention'}
+                    {check.state === 'ready' ? check.id === 'provider' ? engineConnectionStatus.label : 'Ready' : 'Attention'}
                   </ToneBadge>
                 </div>
               ))}

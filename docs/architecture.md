@@ -152,7 +152,7 @@ ProviderAdapter {
   mode: 'api' | 'browser'
   keyUrl?: string
   validateConfig(config) → ValidationResult
-  healthcheck(config) → HealthcheckResult
+  healthcheck(config, signal?) → HealthcheckResult
   executeTrackedQuery(input) → RawQueryResult
   normalizeResult(raw) → NormalizedQueryResult
   generateText(config, prompt) → string
