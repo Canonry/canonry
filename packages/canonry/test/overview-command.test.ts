@@ -518,7 +518,8 @@ describe('canonry overview — human output', () => {
       return Response.json(pathname === '/prefix/api/v1/projects' ? [older.project] : older)
     }))
     const all = await invokeCli(['overview', '--all'])
-    expect(all.stdout.split('\n')).toContain(`  ${'Demo'.padEnd(20)}${'75.0%'.padEnd(10)}${'50.0%'.padEnd(13)}${'60.0% · non-brand queries'.padEnd(42)}${'1/3'.padEnd(10)}—`)
+    // The combined table splits mention by query class (#1497); the base under test is the 1/3 cell.
+    expect(all.stdout.split('\n')).toContain(`  ${'Demo'.padEnd(20)}${'0% (0/2 answers)'.padEnd(30)}${'100% (1/1 answers)'.padEnd(30)}${'50.0%'.padEnd(22)}${'60.0% · non-brand queries'.padEnd(42)}${'1/3'.padEnd(22)}—`)
   })
 
   it('renders citation and mention movement separately with query-basket comparability', async () => {

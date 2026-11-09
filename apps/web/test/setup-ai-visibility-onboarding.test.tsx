@@ -1695,7 +1695,8 @@ test('names every engine it can connect, and that more can follow, until one is 
 
   renderProjectSetup({ onboarding: true, includeLocalProvider: true, extraProviders })
   const connected = await screen.findByRole('region', { name: 'AI engines' })
-  expect(await within(connected).findByText('Configured')).toBeTruthy()
+  // Connected: the step offers another engine instead of a first connection.
+  expect(await within(connected).findByRole('button', { name: 'Connect another engine' })).toBeTruthy()
   expect(within(connected).queryByText(/^Works with /)).toBeNull()
 })
 
