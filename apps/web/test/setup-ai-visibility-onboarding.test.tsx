@@ -1139,10 +1139,10 @@ test.each([
   expect(copy[0]!.closest('details') !== null).toBe(truncated)
 })
 
-test.each([true, false])('AI-first setup records the direct project handoff once in its journey (skipped: %s)', async skipped => {
-  const { projectName, requests } = renderProjectSetup({ onboarding: false, onboardingFinish: true, complete: !skipped })
-  if (!skipped) fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-  const finish = await screen.findByRole('button', { name: skipped ? 'Finish without AI Visibility' : 'Open project dashboard →' })
+test('AI-first setup records the direct project handoff once after its first result', async () => {
+  const { projectName, requests } = renderProjectSetup({ onboarding: false, onboardingFinish: true, complete: true })
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  const finish = await screen.findByRole('button', { name: 'Open project dashboard →' })
   fireEvent.click(finish)
   fireEvent.click(finish)
 
@@ -1161,10 +1161,45 @@ test.each([true, false])('AI-first setup records the direct project handoff once
         surface: 'wizard',
         event: 'onboarding.step_completed',
         step: 'finish',
-        method: skipped ? 'skipped' : 'manual',
+        method: 'manual',
         nextAction: 'open_project',
       }),
     ])
+  })
+})
+
+test('AI-first setup hands a skipped AI Visibility step to the Agent Readiness audit scan walkthrough', async () => {
+  const { projectName, requests } = renderProjectSetup({ onboarding: false, onboardingFinish: true, complete: false })
+  const scanInstead = await screen.findByRole('button', { name: 'Scan site instead' })
+  expect(screen.queryByRole('button', { name: 'Finish without AI Visibility' })).toBeNull()
+  fireEvent.click(scanInstead)
+
+  // The scan walkthrough for this same project, where Run first scan approves the crawl.
+  expect(navigate).toHaveBeenCalledTimes(1)
+  expect(navigate).toHaveBeenCalledWith({
+    to: '/setup',
+    search: { onboarding: 'site-health', setupProject: projectName },
+    replace: true,
+  })
+  await waitFor(() => {
+    const events = requests.filter(request => request.path.endsWith('/telemetry/onboarding')).map(request => onboardingTelemetryEventSchema.parse(JSON.parse(String(request.body))))
+    expect(events.filter(event => event.event === 'onboarding.step_completed' && event.step === 'queries')).toEqual([
+      expect.objectContaining({ method: 'skipped', countBucket: '0' }),
+    ])
+    // Setup goes on in the walkthrough, which records its own steps, so this page claims no finish.
+    expect(events.filter(event => event.event === 'onboarding.step_completed' && event.step === 'finish')).toEqual([])
+  })
+})
+
+test('a project-scoped skip outside first-run setup still returns to the project', async () => {
+  const { projectName } = renderProjectSetup({ onboarding: false })
+  const finish = await screen.findByRole('button', { name: 'Finish without AI Visibility' })
+  expect(screen.queryByRole('button', { name: 'Scan site instead' })).toBeNull()
+  fireEvent.click(finish)
+  expect(navigate).toHaveBeenCalledWith({
+    to: '/projects/$projectName',
+    params: { projectName },
+    replace: true,
   })
 })
 

@@ -600,6 +600,18 @@ function ReadySetupPage({
     })
   }
   const skipToFinish = () => finishSetup(true)
+  // First-run setup that opened on AI Visibility hands a skip to the Agent
+  // Readiness audit scan walkthrough, the one first result that needs no AI
+  // engine. Its Run first scan button is the crawl approval.
+  const scanFollowsSkip = onboardingFinish && !siteHealthOnboarding && Boolean(createdProjectName)
+  const openSiteScan = () => {
+    if (!createdProjectName) return
+    void navigate({
+      to: '/setup',
+      search: { onboarding: 'site-health', setupProject: createdProjectName },
+      replace: true,
+    })
+  }
 
   const [queriesText, setQueriesText] = useState(draft.queriesText ?? durableQueries.map(query => query.query).join('\n'))
   const [queriesSaved, setQueriesSaved] = useState(draft.queriesText === undefined && durableQueryCount > 0)
@@ -1294,6 +1306,10 @@ function ReadySetupPage({
       method: 'skipped',
       countBucket: '0',
     }, 'onboarding.step_completed:queries')
+    if (scanFollowsSkip) {
+      openSiteScan()
+      return
+    }
     if (isProjectScoped) {
       skipToFinish()
       return
@@ -1779,7 +1795,7 @@ function ReadySetupPage({
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={isProjectScoped ? openProjectDashboard : goBack}>Back</Button>
                   <Button type="button" variant="ghost" onClick={skipQueries}>
-                    {isProjectScoped ? 'Finish without AI Visibility' : 'Skip for now'}
+                    {scanFollowsSkip ? 'Scan site instead' : isProjectScoped ? 'Finish without AI Visibility' : 'Skip for now'}
                   </Button>
                   <Button type="button" disabled={parsedQueries.length === 0 || queriesSaving} onClick={asyncHandler(handleSaveQueries)}>
                     {queriesSaving ? 'Saving…' : `Save ${parsedQueries.length} quer${parsedQueries.length !== 1 ? 'ies' : 'y'}`}
