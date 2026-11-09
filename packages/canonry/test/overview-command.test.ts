@@ -599,15 +599,24 @@ describe('canonry overview --all — What changed', () => {
     cleanup()
   })
 
-  /** Serves the project list and each project's overview, as the server would. */
-  async function captureAll(overviews: ProjectOverviewDto[]): Promise<string[]> {
+  /**
+   * Serves the project list and each project's overview, as the server would.
+   * A project named in `failing` answers its overview read with that status.
+   */
+  async function readAll(overviews: ProjectOverviewDto[], options: { failing?: Record<string, number>; format?: string } = {}) {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = new URL(input instanceof Request ? input.url : String(input))
       if (url.pathname === '/prefix/api/v1/projects') return Response.json(overviews.map(overview => overview.project))
       const overview = overviews.find(candidate => url.pathname === `/prefix/api/v1/projects/${candidate.project.name}/overview`)
+      const status = overview && options.failing?.[overview.project.name]
+      if (status) return Response.json({ error: { code: status >= 500 ? 'INTERNAL_ERROR' : 'NOT_FOUND', message: 'Overview unavailable' } }, { status })
       return overview ? Response.json(overview) : Response.json({ error: { code: 'NOT_FOUND', message: url.pathname } }, { status: 404 })
     }))
-    const result = await invokeCli(['overview', '--all'])
+    return invokeCli(['overview', '--all', ...(options.format ? ['--format', options.format] : [])])
+  }
+
+  async function captureAll(overviews: ProjectOverviewDto[]): Promise<string[]> {
+    const result = await readAll(overviews)
     expect(result.stderr).toBe('')
     return result.stdout.split('\n')
   }
@@ -617,9 +626,11 @@ describe('canonry overview --all — What changed', () => {
     return { ...base, project: { ...base.project, id: `id-${name}`, name, displayName: name }, ...(whatChanged ? { whatChanged } : {}) }
   }
 
+  const quiet = () => makeWhatChanged({ lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: { count: 0, runIds: [] }, items: [] })
+  const tableRows = (stdout: string) => stdout.split('\n').filter(line => /^ {2}(?:alpha|beta) /.test(line))
+
   it('lists every project\'s rows under the table, in project order', async () => {
-    const quiet = makeWhatChanged({ lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: { count: 0, runIds: [] }, items: [] })
-    const lines = await captureAll([projectOverview('alpha', makeWhatChanged()), projectOverview('beta', quiet)])
+    const lines = await captureAll([projectOverview('alpha', makeWhatChanged()), projectOverview('beta', quiet())])
     const at = lines.indexOf('What changed:')
     expect(at).toBeGreaterThan(-1)
     expect(lines.slice(at + 1)).toEqual([
@@ -630,20 +641,57 @@ describe('canonry overview --all — What changed', () => {
     ])
   })
 
-  // The same unread row the dashboard shows when a project's overview fails:
-  // its changes are unknown, so the portfolio is never called clear.
-  it('names a project whose overview reports no What changed instead of printing all clear', async () => {
-    const quiet = makeWhatChanged({ lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: { count: 0, runIds: [] }, items: [] })
-    const lines = await captureAll([projectOverview('alpha', quiet), projectOverview('beta', undefined)])
+  // As on the dashboard, one project's failed read never hides the others, and
+  // its changes are unknown, so the portfolio is never called clear. The exit
+  // code still reports it: 2, because a server failure may clear on a retry.
+  it('prints every readable project, names the one whose overview failed, then exits 2', async () => {
+    const alpha = projectOverview('alpha', quiet())
+    const [alphaAlone] = tableRows((await readAll([alpha])).stdout)
+
+    const result = await readAll([alpha, projectOverview('beta', quiet())], { failing: { beta: 500 } })
+    expect(tableRows(result.stdout)).toEqual([
+      alphaAlone,
+      `  ${'beta'.padEnd(20)}Couldn't be loaded: Overview unavailable`,
+    ])
+    const lines = result.stdout.split('\n')
     expect(lines.slice(lines.indexOf('What changed:') + 1)).toEqual([
       '  1 project couldn\'t be loaded: beta. Its lost mentions and citations are unknown.',
       '',
     ])
+    expect(result.stderr).toBe('Error: 1 of 2 project overviews couldn\'t be loaded: beta')
+    expect(result.exitCode).toBe(2)
+  })
+
+  it('keeps the unread project\'s place in JSON with its error, and exits 1 when no retry would help', async () => {
+    const alpha = projectOverview('alpha', quiet())
+    const beta = projectOverview('beta', quiet())
+    const result = await readAll([alpha, beta], { failing: { beta: 404 }, format: 'json' })
+    expect(JSON.parse(result.stdout)).toEqual([
+      alpha,
+      { project: beta.project, error: { code: 'NOT_FOUND', message: 'Overview unavailable' } },
+    ])
+    expect(JSON.parse(result.stderr)).toEqual({
+      error: {
+        code: 'OVERVIEW_INCOMPLETE',
+        message: '1 of 2 project overviews couldn\'t be loaded: beta',
+        details: { projects: ['beta'] },
+      },
+    })
+    expect(result.exitCode).toBe(1)
+  })
+
+  it('names every project when no overview could be read', async () => {
+    const result = await readAll([projectOverview('alpha', quiet()), projectOverview('beta', quiet())], { failing: { alpha: 503, beta: 500 } })
+    const lines = result.stdout.split('\n')
+    expect(lines.slice(lines.indexOf('What changed:') + 1)).toEqual([
+      '  2 projects couldn\'t be loaded: alpha, beta. Their lost mentions and citations are unknown.',
+      '',
+    ])
+    expect(result.exitCode).toBe(2)
   })
 
   it('prints the one fallback row the dashboard shows when no project has a row', async () => {
-    const quiet = makeWhatChanged({ lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: { count: 0, runIds: [] }, items: [] })
-    const lines = await captureAll([projectOverview('alpha', quiet), projectOverview('beta', { ...quiet, latestCheck: null })])
+    const lines = await captureAll([projectOverview('alpha', quiet()), projectOverview('beta', { ...quiet(), latestCheck: null })])
     expect(lines[lines.indexOf('What changed:') + 1]).toBe('  All projects stable: No lost mentions or citations, and no runs in progress.')
   })
 

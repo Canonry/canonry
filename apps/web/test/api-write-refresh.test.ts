@@ -314,8 +314,9 @@ test.each([
   { scope: 'ads-sync', launch: () => postApiV1ProjectsByNameAdsSync({ client: heyClient, path: { name: 'alpha' } }) },
   { scope: 'google-ads-sync', launch: () => postApiV1ProjectsByNameGoogleAdsSync({ client: heyClient, path: { name: 'alpha' } }) },
   { scope: 'gtm-sync', launch: () => postApiV1ProjectsByNameGtmSync({ client: heyClient, path: { name: 'alpha' } }) },
-])('$scope job launch refreshes run state without rereading stored evidence, analytics, or Google data', async ({ scope, launch }) => {
+])('$scope job launch refreshes run state without rereading stored evidence, portfolio overviews, analytics, or Google data', async ({ scope, launch }) => {
   let runReads = 0
+  let overviewReads = 0
   let analyticsReads = 0
   let googleReads = 0
   let evidenceReads = 0
@@ -356,6 +357,12 @@ test.each([
     return { project: { id: 'alpha-id', name: 'alpha' }, queries: [], timeline: [], latestRunDetails: [] }
   })
   await observe(queryClient, ['analytics-metrics', 'alpha', '90d'], async () => { analyticsReads += 1; return { trend: [] } })
+  // The Overview page's per-project overview: it counts runs in progress from
+  // the run list, so a queued job never reads it again.
+  await observe(queryClient, ['project-overview-slim', 'alpha-id', 'no-run'], async () => {
+    overviewReads += 1
+    return { project: { id: 'alpha-id', name: 'alpha' }, overview: null }
+  })
   const google = new QueryObserver(queryClient, getApiV1ProjectsByNameGoogleGscPerformanceOptions({ client: heyClient, path: { name: 'alpha' } }))
   onTestFinished(google.subscribe(() => {}))
   await waitFor(() => expect(google.getCurrentResult().isSuccess).toBe(true))
@@ -364,6 +371,7 @@ test.each([
   await waitFor(() => expect(runReads).toBe(2))
   try {
     expect(evidenceReads).toBe(1)
+    expect(overviewReads).toBe(1)
     expect(analyticsReads).toBe(1)
     expect(googleReads).toBe(1)
     if (scope === 'site-audit') {

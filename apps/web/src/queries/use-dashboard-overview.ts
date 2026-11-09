@@ -70,7 +70,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
     staleTime: RUNS_STALE_MS,
     refetchInterval: (query) => {
       const runs = query.state.data
-      const hasActive = runs?.some(r => r.status === 'running' || r.status === 'queued')
+      const hasActive = runs?.some(r => r.status === RunStatuses.running || r.status === RunStatuses.queued)
       return hasActive ? 3000 : RUNS_STALE_MS
     },
   })
@@ -94,7 +94,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
       // Fast poll only when setup needs it (zero projects) or a sweep is active;
       // otherwise idle at 30s — cuts 30 req/min → ~2 req/min per tab.
       const hasActive = (runsQuery.data as { status: string }[] | undefined)?.some(
-        r => r.status === 'running' || r.status === 'queued',
+        r => r.status === RunStatuses.running || r.status === RunStatuses.queued,
       )
       const needsFast = (data?.length ?? 0) === 0 || !!hasActive
       return needsFast ? PROJECTS_REFRESH_MS : PROJECTS_REFRESH_IDLE_MS
@@ -123,9 +123,9 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
       // after a sweep completes. Mirrors the pattern in `useDashboard`.
       const completedRuns = projectRuns
         .filter(r =>
-          (r.status === 'completed' || r.status === 'partial')
-          && r.kind === 'answer-visibility'
-          && r.trigger !== 'probe')
+          (r.status === RunStatuses.completed || r.status === RunStatuses.partial)
+          && r.kind === RunKinds['answer-visibility']
+          && r.trigger !== RunTriggers.probe)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       const cacheBustKey = completedRuns.length > 0 ? completedRuns[0]!.id : 'no-run'
 
