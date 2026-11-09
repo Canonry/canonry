@@ -85,8 +85,8 @@ covering that work; an existing explicit authorization remains valid.
   separate signal from measured mentions and citations. Use the latest scan
   selected by the tool. `runSelection` explains same-date ambiguity and
   prefers complete scans, then the largest page sample, on the latest date.
-  For a dated question, pass `date: YYYY-MM-DD` to the crawl or crawl-pages
-  read. An empty read for an assumed year does not prove a historical scan is
+  For a dated question, pass `date: YYYY-MM-DD` to
+  `canonry_agent_readiness_overview` or `canonry_agent_readiness_pages`. An empty read for an assumed year does not prove a historical scan is
   missing. When the user omitted the year, use
   `availableScanDates.matchingMonthDayDates` from the dated no-data result to
   resolve it, then request the exact returned `YYYY-MM-DD`. If several years
