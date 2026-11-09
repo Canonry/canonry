@@ -9,7 +9,9 @@ pnpm exec vitest run --project canonry agent-analyst-replay.test.ts agent-progre
 
 Fixtures cover Simple and Advanced scope, branded versus non-brand denominators,
 missing evidence, stale measurement dates, incompatible comparisons, selected
-Agent Readiness pages, permission downgrades, and bounded execution. Scripted replies
+Agent Readiness pages, permission downgrades, bounded execution, and deprecated
+tool names: a read a saved transcript still calls by its old name runs as the
+canonical tool, and a deprecated write is never renamed. Scripted replies
 verify the harness and transport. They do **not** measure a model's reasoning
 quality or establish that a prompt change improved it.
 

@@ -2,7 +2,7 @@
 
 [Canonry](https://canonry.ai) is an open-source, agent-first Answer Engine
 Optimization (AEO) platform for AI search and SEO operations. It brings AI
-answer evidence, search data, Agent Readiness scans, traffic, and
+answer evidence, search data, Agent Readiness site audits, traffic, and
 content workflows together so an agent can investigate a gap, prepare a fix,
 and measure what changed.
 

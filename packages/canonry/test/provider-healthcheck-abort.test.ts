@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProviderAdapter, ProviderConfig } from '@canonry/canonry-contracts'
+import { cdpChatgptAdapter } from '@canonry/canonry-provider-cdp'
 import { claudeAdapter } from '@canonry/canonry-provider-claude'
 import { geminiAdapter } from '@canonry/canonry-provider-gemini'
 import { localAdapter } from '@canonry/canonry-provider-local'
@@ -12,8 +13,9 @@ afterEach(() => { vi.restoreAllMocks() })
 
 const quotaPolicy = { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 100 }
 
-// Every adapter whose connection test sends a request. Search answer services
-// document no free key check today, so their tests send nothing.
+// Every adapter whose connection test sends a request, the browser's version
+// read included. Search answer services document no free key check today, so
+// their tests send nothing.
 const CHECKS: Array<{ adapter: ProviderAdapter; config: ProviderConfig }> = [
   { adapter: geminiAdapter, config: { provider: 'gemini', apiKey: 'test-key', quotaPolicy } },
   { adapter: openaiAdapter, config: { provider: 'openai', apiKey: 'test-key', quotaPolicy } },
@@ -22,6 +24,7 @@ const CHECKS: Array<{ adapter: ProviderAdapter; config: ProviderConfig }> = [
   { adapter: museAdapter, config: { provider: 'muse', apiKey: 'test-key', quotaPolicy } },
   { adapter: localAdapter, config: { provider: 'local', baseUrl: 'http://127.0.0.1:9/v1', quotaPolicy } },
   { adapter: openrouterAdapter, config: { provider: 'openrouter', apiKey: 'test-key', quotaPolicy } },
+  { adapter: cdpChatgptAdapter, config: { provider: 'cdp:chatgpt', cdpEndpoint: '127.0.0.1:9', quotaPolicy } },
 ]
 
 /** A provider that never answers: each request hangs until its caller cancels it. */
