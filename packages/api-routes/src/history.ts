@@ -44,7 +44,7 @@ export async function historyRoutes(app: FastifyInstance) {
       const selectedRuns = tx.select({ id: runs.id, kind: runs.kind }).from(runs).where(and(eq(runs.projectId, project.id), inArray(runs.id, input.runIds))).all()
       const selectedResearch = tx.select({ id: researchRuns.id }).from(researchRuns).where(and(eq(researchRuns.projectId, project.id), inArray(researchRuns.id, input.researchRunIds))).all()
       if (selectedRuns.length !== input.runIds.length || selectedResearch.length !== input.researchRunIds.length) throw notFound('Selected saved run in project', project.name)
-      if (selectedRuns.some(run => run.kind !== RunKinds['answer-visibility'])) throw validationError('Only answer-visibility runs and research batches can be cleared. Site Health and integration runs are preserved.')
+      if (selectedRuns.some(run => run.kind !== RunKinds['answer-visibility'])) throw validationError('Only answer-visibility runs and research batches can be cleared. Agent Readiness audit scans and integration runs are preserved.')
       const result: ResultsClearResponse = {
         dryRun: !input.confirm,
         runIds: input.runIds,

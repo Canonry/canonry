@@ -3,7 +3,6 @@ import { ChevronDown, ChevronRight, RefreshCw, Zap } from 'lucide-react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   calendarDateRange,
-  describeError,
   formatPercent,
   formatRunErrorOneLine,
   formatTenthsMagnitude,
@@ -48,6 +47,7 @@ import { SitemapsCard } from './SitemapsCard.js'
 import { useAccount } from '../../contexts/account-context.js'
 import { gscComparisonBasisText, gscTrendChange } from './GscSection.js'
 import { formatTimestamp } from '../../lib/format-helpers.js'
+import { extractErrorMessage } from '../../lib/extract-error-message.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { GSC_STALE_MS } from '../../queries/query-client.js'
@@ -64,6 +64,7 @@ import {
   inspectBingSitemap,
   inspectBingUrl,
   isEmbed,
+  isPublicDemo,
   triggerBingSync,
   type ApiBingConnection,
   type ApiBingInspection,
@@ -219,7 +220,7 @@ function cellText(value: unknown, column: string): string {
 
 function BingFrame({ status, right, children }: { status?: ReactNode; right?: ReactNode; children: ReactNode }) {
   return (
-    <section className="page-section-divider">
+    <section className="page-section">
       <div className="section-head section-head-inline">
         <div>
           <h2>Bing Webmaster Tools</h2>
@@ -268,7 +269,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
       setApiKeyInput('')
       await invalidateProjectQueryDomain(queryClient, 'bing')
     } catch (e) {
-      setError(describeError(e))
+      setError(extractErrorMessage(e))
     }
   }
 
@@ -279,7 +280,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
       setSelectedSite('')
       await invalidateProjectQueryDomain(queryClient, 'bing')
     } catch (e) {
-      setError(describeError(e))
+      setError(extractErrorMessage(e))
     }
   }
 
@@ -290,7 +291,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
       await apiBingSetSite(projectName, selectedSite)
       await invalidateProjectQueryDomain(queryClient, 'bing')
     } catch (e) {
-      setError(describeError(e))
+      setError(extractErrorMessage(e))
     }
   }
 
@@ -308,7 +309,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
     return (
       <BingFrame>
         <Card className="surface-card">
-          <p className="text-copy-14 text-negative">Could not load the Bing connection: {describeError(status.error)}</p>
+          <p className="text-copy-14 text-negative">Could not load the Bing connection: {extractErrorMessage(status.error)}</p>
           <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => void status.refetch()}>
             Retry
           </Button>
@@ -323,7 +324,6 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
         <Card className="surface-card">
           <div className="section-head section-head-inline">
             <div>
-              <p className="eyebrow eyebrow-soft">Connection</p>
               <h3>Domain authorization</h3>
             </div>
             <ToneBadge tone="caution">Not connected</ToneBadge>
@@ -375,7 +375,6 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
         <Card className="surface-card">
           <div className="section-head section-head-inline">
             <div>
-              <p className="eyebrow eyebrow-soft">Connection</p>
               <h3>Domain authorization</h3>
             </div>
             <div className="flex items-center gap-2">
@@ -388,7 +387,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
             </div>
           </div>
           <div className="space-y-3">
-            <div className="material-base px-4 py-3">
+            <div>
               <div className="flex items-center gap-3">
                 <span className="h-2 w-2 rounded-full bg-positive-500" />
                 <span className="text-label-14 text-strong">Authorized for this project domain</span>
@@ -399,16 +398,16 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
               </p>
             </div>
             <div className="grid gap-3 lg:grid-cols-2">
-              <div className="material-base p-3">
+              <div className="min-w-0">
                 <p className="text-label-12 normal-case text-muted">Registered domain</p>
                 <p className="mt-1 text-copy-14 text-strong">{connection.domain}</p>
               </div>
-              <div className="material-base p-3">
+              <div className="min-w-0">
                 <p className="text-label-12 normal-case text-muted">Last auth update</p>
                 <p className="mt-1 text-copy-14 text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '—'}</p>
               </div>
             </div>
-            <div className="material-base p-3">
+            <div>
               <p className="text-label-12 normal-case text-muted">Select site</p>
               {siteList.length > 0 ? (
                 <div className="mt-3 flex flex-col gap-2 lg:flex-row">
@@ -418,7 +417,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
                     value={selectedSite}
                     onChange={(e) => setSelectedSite(e.target.value)}
                   >
-                    <option value="">Select a site...</option>
+                    <option value="">Select a site…</option>
                     {siteList.map((s) => (
                       <option key={s.url} value={s.url}>
                         {s.url}
@@ -466,6 +465,7 @@ function BingWorkspace({
   error: string | null
 }) {
   const [range, setRange] = useState<MetricsWindow>('30d')
+  const demo = isPublicDemo()
   const path = { name: projectName }
   const traffic = useQuery({
     ...getApiV1ProjectsByNameBingTrafficOptions({
@@ -475,17 +475,20 @@ function BingWorkspace({
     }),
     staleTime: GSC_STALE_MS,
     placeholderData: keepPreviousData,
+    enabled: !demo,
   })
   const site = useQuery({
     ...getApiV1ProjectsByNameBingSiteOptions({ client: heyClient, path }),
     staleTime: GSC_STALE_MS,
+    enabled: !demo,
   })
   const sitemaps = useQuery({
     ...getApiV1ProjectsByNameBingSitemapsOptions({ client: heyClient, path }),
     staleTime: GSC_STALE_MS,
+    enabled: !demo,
   })
 
-  const synced = Boolean(traffic.data?.latestAvailableDate || site.data?.syncedAt || sitemaps.data?.syncedAt)
+  const synced = !demo && Boolean(traffic.data?.latestAvailableDate || site.data?.syncedAt || sitemaps.data?.syncedAt)
   const loaded = !traffic.isPending && !site.isPending && !sitemaps.isPending
   // A failed read is not "never synced": say it failed, with a way to retry.
   const loadFailure = [traffic, site, sitemaps].find((read) => read.isError)?.error ?? null
@@ -537,7 +540,7 @@ function BingWorkspace({
             <p>
               <span className="text-secondary">Last auth update</span> <span className="text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '—'}</span>
             </p>
-            {!isEmbed() && (
+            {!isEmbed() && !demo && (
               <WriteButton size="sm" variant="ghost" onClick={asyncHandler(onDisconnect)}>
                 Disconnect
               </WriteButton>
@@ -549,9 +552,9 @@ function BingWorkspace({
       <div className="space-y-3">
         {error && <p className="text-copy-13 text-negative">{error}</p>}
 
-        {loaded && !synced && loadFailure ? (
+        {!demo && (loaded && !synced && loadFailure ? (
           <Card className="surface-card">
-            <p className="text-copy-14 text-negative">Could not load Bing data: {describeError(loadFailure)}</p>
+            <p className="text-copy-14 text-negative">Could not load Bing data: {extractErrorMessage(loadFailure)}</p>
             <Button
               type="button"
               variant="outline"
@@ -570,7 +573,7 @@ function BingWorkspace({
           <BingFirstSyncCard projectName={projectName} loadedAt={site.dataUpdatedAt} />
         ) : (
           <BingPerformanceCard projectName={projectName} siteUrl={siteUrl} range={range} onRangeChange={setRange} />
-        )}
+        ))}
         <BingIndexCard projectName={projectName} siteUrl={siteUrl} snapshots={site.data?.snapshots} />
         {synced && <BingSitemapsCard projectName={projectName} siteUrl={siteUrl} />}
         {synced && <BingDemandCard projectName={projectName} />}
@@ -627,7 +630,7 @@ function BingFirstSyncCard({ projectName, loadedAt }: { projectName: string; loa
     } catch (e) {
       addToast({
         title: 'Bing sync could not start',
-        detail: describeError(e),
+        detail: extractErrorMessage(e),
         tone: 'negative',
         dedupeKey: `bing:sync:${projectName}`,
         dedupeMode: 'replace',
@@ -710,7 +713,7 @@ function BingPerformanceCard({
   if (traffic.isPending) {
     body = <p className="mt-3 text-copy-14 text-secondary">Loading Bing search data…</p>
   } else if (traffic.isError || !data) {
-    body = <p className="mt-3 text-copy-14 text-negative">Could not load Bing search data: {describeError(traffic.error)}</p>
+    body = <p className="mt-3 text-copy-14 text-negative">Could not load Bing search data: {extractErrorMessage(traffic.error)}</p>
   } else {
     const positionValue = weekly.data?.totals?.avgImpressionPosition ?? null
     const positionChange = bingPositionChange(weekly.data?.comparison)
@@ -977,7 +980,7 @@ function BingSearchTable({ projectName, siteUrl, range }: { projectName: string;
       </div>
       {read.isError ? (
         <p className="mt-3 text-copy-14 text-negative">
-          Could not load Bing {tab}: {describeError(read.error)}
+          Could not load Bing {tab}: {extractErrorMessage(read.error)}
         </p>
       ) : (
         <div className="mt-2 overflow-x-auto">
@@ -1161,7 +1164,7 @@ function BingRowDetail({ projectName, siteUrl, range, tab, rowKey }: { projectNa
         {live && liveRead.isPending && <p className="text-copy-13 text-secondary">Asking Bing…</p>}
         {live && liveRead.isError && (
           <div className="flex flex-wrap items-center gap-2">
-            <InfoTooltip tone="caution" label="Bing refused this read" text={`${describeError(liveRead.error)} Nothing was stored.`} />
+            <InfoTooltip tone="caution" label="Bing refused this read" text={`${extractErrorMessage(liveRead.error)} Nothing was stored.`} />
             <Button type="button" variant="outline" size="sm" onClick={() => void liveRead.refetch()}>
               <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
               Retry
@@ -1236,7 +1239,7 @@ function BingDemandCard({ projectName }: { projectName: string }) {
         )}
       </div>
       {demand.isError ? (
-        <p className="text-copy-14 text-negative">Could not load search demand: {describeError(demand.error)}</p>
+        <p className="text-copy-14 text-negative">Could not load search demand: {extractErrorMessage(demand.error)}</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="data-table w-full text-label-14">
@@ -1337,6 +1340,7 @@ type IndexTab = 'not-indexed' | 'unknown' | 'indexed' | 'inspections' | 'crawl'
 
 function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: string; siteUrl: string; snapshots: readonly BingSiteSnapshotDto[] | undefined }) {
   const queryClient = useQueryClient()
+  const demo = isPublicDemo()
   const path = { name: projectName }
   const coverage = useQuery({
     ...getApiV1ProjectsByNameBingCoverageOptions({ client: heyClient, path }),
@@ -1356,6 +1360,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
       query: { days: '30' },
     }),
     staleTime: GSC_STALE_MS,
+    enabled: !demo,
   })
   const [tab, setTab] = useState<IndexTab>('not-indexed')
   const [submitting, setSubmitting] = useState(false)
@@ -1385,7 +1390,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
       })
       await invalidateProjectQueryDomain(queryClient, 'bing')
     } catch (e) {
-      const message = describeError(e)
+      const message = extractErrorMessage(e)
       setError(message)
       addToast({
         title: 'Bing submission failed',
@@ -1407,7 +1412,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
       setInspectionResult(result)
       await invalidateProjectQueryDomain(queryClient, 'bing')
     } catch (e) {
-      setError(describeError(e))
+      setError(extractErrorMessage(e))
     }
   }
 
@@ -1439,15 +1444,16 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
     { key: 'unknown', label: `Status unknown (${unknown.length})` },
     { key: 'indexed', label: `Indexed (${indexed.length})` },
     { key: 'inspections', label: `Inspections (${inspectionRows.length})` },
-    { key: 'crawl', label: 'Crawl by day' },
   ]
-  const showSubmit = !isEmbed() && (tab === 'not-indexed' || tab === 'unknown') && (tab === 'not-indexed' ? notIndexed.length : unknown.length) > 0
+  if (!demo) tabs.push({ key: 'crawl', label: 'Crawl by day' })
+  const showSubmit = !isEmbed() && !demo && (tab === 'not-indexed' || tab === 'unknown') && (tab === 'not-indexed' ? notIndexed.length : unknown.length) > 0
 
   return (
     <Card className="surface-card">
       <div className="section-head section-head-inline">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <h3>Index and crawl</h3>
+          <h3>{demo ? 'Index coverage' : 'Index and crawl'}</h3>
+          {demo && <InfoTooltip text="This demo includes saved index coverage and URL inspections." />}
           {latestCrawl && latestCrawl.crawlErrors > 0 && (
             <InfoTooltip
               tone="caution"
@@ -1464,7 +1470,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
         {coverageItems.length > 0 ? (
           <KpiRow label="Bing index coverage" items={coverageItems} />
         ) : (
-          <p className="text-copy-13 text-muted">No coverage data yet. Inspect URLs to build coverage data.</p>
+          <p className="text-copy-13 text-muted">{demo ? 'No saved coverage data.' : 'No coverage data yet. Inspect URLs to build coverage data.'}</p>
         )}
       </div>
 
@@ -1500,7 +1506,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
       <div className="mt-2 overflow-x-auto">
         {(tab === 'not-indexed' || tab === 'unknown' || tab === 'indexed') &&
           (() => {
-            const canSubmit = tab !== 'indexed' && !isEmbed()
+            const canSubmit = tab !== 'indexed' && !isEmbed() && !demo
             return (
               <table className="data-table w-full text-label-14">
                 <thead>
@@ -1551,7 +1557,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
 
         {tab === 'inspections' && (
           <div className="space-y-3 pt-2">
-            {!isEmbed() && (
+            {!isEmbed() && !demo && (
               <div className="flex flex-col gap-2 lg:flex-row">
                 <input
                   type="text"
@@ -1570,7 +1576,7 @@ function BingIndexCard({ projectName, siteUrl, snapshots }: { projectName: strin
               </div>
             )}
             {inspectionResult && (
-              <div className="material-base space-y-1 p-3 text-label-13">
+              <div className="space-y-1 text-label-13">
                 <div className="text-label-13-strong text-strong">{inspectionResult.url}</div>
                 <div className="text-secondary">
                   In index: <span className={inspectionResult.inIndex ? 'text-positive' : 'text-negative'}>{inspectionResult.inIndex ? 'Yes' : 'No'}</span>
@@ -1710,7 +1716,7 @@ function BingSitemapsCard({ projectName, siteUrl }: { projectName: string; siteU
     } catch (e) {
       addToast({
         title: acceptedUrls.length > 0 ? `Bing took ${acceptedUrls.length} of ${urls.length}` : 'Bing did not take the sitemap',
-        detail: describeError(e),
+        detail: extractErrorMessage(e),
         tone: 'negative',
         dedupeKey: `bing:submit-sitemap:${projectName}`,
         dedupeMode: 'replace',
@@ -1735,7 +1741,7 @@ function BingSitemapsCard({ projectName, siteUrl }: { projectName: string; siteU
     } catch (e) {
       addToast({
         title: 'Sitemap check could not start',
-        detail: describeError(e),
+        detail: extractErrorMessage(e),
         tone: 'negative',
         dedupeKey: `bing:inspect-sitemap:${projectName}`,
         dedupeMode: 'replace',
@@ -1749,7 +1755,7 @@ function BingSitemapsCard({ projectName, siteUrl }: { projectName: string; siteU
     <SitemapsCard
       engine="Bing"
       data={coverage.isError ? null : coverage.isPending ? undefined : coverage.data.bing}
-      loadError={coverage.isError ? describeError(coverage.error) : null}
+      loadError={coverage.isError ? extractErrorMessage(coverage.error) : null}
       label={(url) => sitePath(url, siteUrl)}
       canSubmit={canWrite}
       onSubmit={submit}

@@ -27,7 +27,7 @@ cnry health <project> --format json
 cnry timeline <project> --since <YYYY-MM-DD> --format json
 cnry insights <project> --format json
 cnry evidence <project> --format json
-cnry audit <project> --format json
+cnry agent-readiness score <project> --format json
 ```
 
 If the data you need isn't reachable with a single read tool or CLI call, that's a bug in canonry's API surface — file it rather than working around it in memory.

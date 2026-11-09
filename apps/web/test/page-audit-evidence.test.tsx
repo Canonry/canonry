@@ -229,6 +229,14 @@ test('does not infer a clean page from a legacy scan with only passing scores', 
   expect(screen.queryByText(/No technical findings need attention/)).toBeNull()
 })
 
+test('announces loading findings without claiming the page has none', () => {
+  render(<PageAuditEvidence audit={undefined} isLoading error={null} onRetry={vi.fn()} />)
+
+  expect(screen.getByRole('status').textContent).toBe('Loading findings…')
+  expect(screen.queryByText('No findings are available for this page.')).toBeNull()
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
 test('shows a truthful retry state when page audit evidence cannot be loaded', () => {
   const onRetry = vi.fn()
   render(<PageAuditEvidence audit={undefined} isLoading={false} error={new Error('offline')} onRetry={onRetry} />)

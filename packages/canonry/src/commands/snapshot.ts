@@ -84,7 +84,7 @@ export function formatSnapshotMarkdown(report: SnapshotReportDto): string {
   lines.push('')
   lines.push(`**Domain:** ${report.domain}`)
   lines.push(`**Generated:** ${new Date(report.generatedAt).toLocaleString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`)
-  lines.push(`**AEO Audit Score:** ${report.audit.overallScore}/100`)
+  lines.push(`**Agent Readiness score:** ${report.audit.overallScore}/100`)
   lines.push('')
 
   lines.push('## Visibility Gap (Citations + Mentions)')

@@ -5,10 +5,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import {
   getApiV1ProjectsByNameRunsQueryKey,
-  getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditQueryKey,
-  getApiV1ProjectsByNameTechnicalAeoPagesQueryKey,
-  getApiV1ProjectsByNameTechnicalAeoQueryKey,
-  getApiV1ProjectsByNameTechnicalAeoTrendQueryKey,
+  getApiV1ProjectsByNameAgentReadinessCrawlPagesAuditQueryKey,
+  getApiV1ProjectsByNameAgentReadinessPagesQueryKey,
+  getApiV1ProjectsByNameAgentReadinessQueryKey,
+  getApiV1ProjectsByNameAgentReadinessTrendQueryKey,
 } from '@canonry/canonry-api-client/react-query'
 
 import { FACTOR_SHARE_NOT_RECORDED, TechnicalAeoSection } from '../src/components/project/TechnicalAeoSection.js'
@@ -38,16 +38,16 @@ vi.mock('../src/queries/mutations.js', async importOriginal => {
 
 const projectName = 'citypoint'
 const projectId = 'proj_1'
-const scoreKey = getApiV1ProjectsByNameTechnicalAeoQueryKey({
+const scoreKey = getApiV1ProjectsByNameAgentReadinessQueryKey({
   client: heyClient,
   path: { name: projectName },
 })
-const trendKey = getApiV1ProjectsByNameTechnicalAeoTrendQueryKey({
+const trendKey = getApiV1ProjectsByNameAgentReadinessTrendQueryKey({
   client: heyClient,
   path: { name: projectName },
   query: { limit: 30 },
 })
-const pagesKey = getApiV1ProjectsByNameTechnicalAeoPagesQueryKey({
+const pagesKey = getApiV1ProjectsByNameAgentReadinessPagesQueryKey({
   client: heyClient,
   path: { name: projectName },
   query: { limit: 100, sort: 'score-asc' },
@@ -168,8 +168,8 @@ test('shows an active audit and prevents a duplicate re-run', () => {
     </QueryClientProvider>,
   )
 
-  expect((screen.getByRole('button', { name: 'Audit running' }) as HTMLButtonElement).disabled).toBe(true)
-  expect(screen.getByText('Results refresh automatically when this audit finishes.')).not.toBeNull()
+  expect((screen.getByRole('button', { name: 'Scan running' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.getByText('Results refresh automatically when this scan finishes.')).not.toBeNull()
 })
 
 test('refreshes the score, trend, and pages when a newer audit completes', async () => {
@@ -178,13 +178,13 @@ test('refreshes the score, trend, and pages when a newer audit completes', async
 
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input)
-    if (url.includes('/technical-aeo/pages')) {
+    if (url.includes('/agent-readiness/pages')) {
       return jsonResponse({ project: projectName, runId: 'audit_new', auditedAt: null, total: 0, pages: [] })
     }
-    if (url.includes('/technical-aeo/trend')) {
+    if (url.includes('/agent-readiness/trend')) {
       return jsonResponse({ project: projectName, points: [] })
     }
-    if (url.includes('/technical-aeo')) {
+    if (url.includes('/agent-readiness')) {
       return jsonResponse(score('audit_new', 90))
     }
     throw new Error(`Unexpected fetch: ${url}`)
@@ -199,8 +199,8 @@ test('refreshes the score, trend, and pages when a newer audit completes', async
 
   await waitFor(() => expect(screen.getByText('90')).not.toBeNull())
   const fetchedUrls = fetchMock.mock.calls.map(([input]) => input instanceof Request ? input.url : String(input))
-  expect(fetchedUrls.some((url) => url.includes('/technical-aeo/pages'))).toBe(true)
-  expect(fetchedUrls.some((url) => url.includes('/technical-aeo/trend'))).toBe(true)
+  expect(fetchedUrls.some((url) => url.includes('/agent-readiness/pages'))).toBe(true)
+  expect(fetchedUrls.some((url) => url.includes('/agent-readiness/trend'))).toBe(true)
 })
 
 test('loads the scorecard and pages for a selected historical audit', async () => {
@@ -218,10 +218,10 @@ test('loads the scorecard and pages for a selected historical audit', async () =
 
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input)
-    if (url.includes('/technical-aeo/pages')) {
+    if (url.includes('/agent-readiness/pages')) {
       return jsonResponse({ project: projectName, runId: 'audit_old', auditedAt: '2026-07-01T18:16:33.000Z', total: 0, pages: [] })
     }
-    if (url.includes('/technical-aeo')) {
+    if (url.includes('/agent-readiness')) {
       return jsonResponse(score('audit_old', 72))
     }
     throw new Error(`Unexpected fetch: ${url}`)
@@ -234,12 +234,12 @@ test('loads the scorecard and pages for a selected historical audit', async () =
     </QueryClientProvider>,
   )
 
-  fireEvent.change(screen.getByRole('combobox', { name: 'View a Technical AEO audit' }), {
+  fireEvent.change(screen.getByRole('combobox', { name: 'View an Agent Readiness audit scan' }), {
     target: { value: 'audit_old' },
   })
 
   await waitFor(() => expect(screen.getByText('72')).not.toBeNull())
-  expect(screen.getByText('Technical AEO history')).not.toBeNull()
+  expect(screen.getByText('Agent Readiness history')).not.toBeNull()
   const fetchedUrls = fetchMock.mock.calls.map(([input]) => input instanceof Request ? input.url : String(input))
   expect(fetchedUrls.some((url) => url.includes('runId=audit_old'))).toBe(true)
   expect(fetchedUrls.filter((url) => url.includes('runId=audit_old'))).toHaveLength(2)
@@ -311,7 +311,7 @@ test.each([
   let scoreCalls = 0
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input)
-    if (/\/technical-aeo(?:\?|$)/.test(url)) scoreCalls += 1
+    if (/\/agent-readiness(?:\?|$)/.test(url)) scoreCalls += 1
     return new Response('{"error":"unavailable"}', {
       status: 503,
       headers: { 'content-type': 'application/json' },
@@ -326,15 +326,15 @@ test.each([
   )
 
   const alert = await screen.findByRole('alert')
-  expect(alert.textContent).toContain('Page health could not load')
-  expect(screen.queryByText('Page health unavailable')).toBeNull()
+  expect(alert.textContent).toContain('Score could not load')
+  expect(screen.queryByText('Score unavailable')).toBeNull()
 
   const callsBeforeRetry = scoreCalls
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
   await waitFor(() => expect(scoreCalls).toBeGreaterThan(callsBeforeRetry))
 })
 
-test('adds the caller recovery path when integrated page health cannot be read', async () => {
+test('adds the caller recovery path when the integrated score cannot be read', async () => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   })
@@ -350,20 +350,20 @@ test('adds the caller recovery path when integrated page health cannot be read',
         projectId={projectId}
         runId="audit_partial"
         integrated
-        afterSummary={<p>Continue after successful Page health</p>}
-        unavailableFooter={<p>Continue setup without Page health</p>}
+        afterSummary={<p>Continue after a successful score</p>}
+        unavailableFooter={<p>Continue setup without a score</p>}
       />
     </QueryClientProvider>,
   )
 
-  expect(await screen.findByText('Page health could not load')).not.toBeNull()
-  expect(screen.getByText('Continue setup without Page health')).not.toBeNull()
-  expect(screen.queryByText('Continue after successful Page health')).toBeNull()
+  expect(await screen.findByText('Score could not load')).not.toBeNull()
+  expect(screen.getByText('Continue setup without a score')).not.toBeNull()
+  expect(screen.queryByText('Continue after a successful score')).toBeNull()
 })
 
 test('a partial crawl scores the pages it reached, and never claims the site', () => {
   // `partial` is the normal outcome of a bounded first scan, not an exception.
-  // Labelling it "Site score / Pass" makes exactly the claim the agent setup
+  // Labelling it "Agent Readiness score / Pass" makes exactly the claim the agent setup
   // request forbids ("never present it as a full-site result").
   const queryClient = makeClient()
   queryClient.setQueryData(scoreKey, { ...score('audit_partial', 86), runStatus: 'partial' })
@@ -377,7 +377,7 @@ test('a partial crawl scores the pages it reached, and never claims the site', (
 
   expect(screen.getByText('Score so far')).not.toBeNull()
   expect(screen.getByText('Part of the site')).not.toBeNull()
-  expect(screen.queryByText('Site score')).toBeNull()
+  expect(screen.queryByText('Agent Readiness score')).toBeNull()
   expect(screen.getByLabelText(/from a scan that did not cover the whole site/)).not.toBeNull()
 })
 
@@ -454,24 +454,29 @@ test('distills the integrated view to a score and its actionable findings', asyn
         projectName={projectName}
         projectId={projectId}
         integrated
-        afterSummary={<p>Continue after the Page health summary</p>}
-        unavailableFooter={<p>Recover unavailable Page health</p>}
+        afterSummary={<p>Continue after the score summary</p>}
+        unavailableFooter={<p>Recover an unavailable score</p>}
       />
     </QueryClientProvider>,
   )
 
-  expect(screen.getByLabelText('Site score 52 out of 100')).not.toBeNull()
-  expect(screen.getByText('2 pages checked')).not.toBeNull()
+  expect(screen.getByLabelText('Agent Readiness score 52 out of 100')).not.toBeNull()
+  // The Score view names the feature's score once; its table says "Check".
+  expect(screen.getByText('Agent Readiness score').tagName).toBe('P')
+  expect(screen.getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Check', 'Score', 'Worst page', 'Pages affected'])
+  // "Scored", because the scan counts above it say "Pages checked" for every page loaded.
+  expect(screen.getByText('2 pages scored')).not.toBeNull()
+  expect(screen.queryByText(/pages? checked/)).toBeNull()
   expect(screen.getByText('2 checks with pages below pass')).not.toBeNull()
-  const findingsHeading = screen.getByRole('heading', { name: 'Technical findings' })
+  const findingsHeading = screen.getByRole('heading', { name: 'Findings' })
   expect(findingsHeading).not.toBeNull()
   expect(screen.getByText('Select a check to see affected pages and recommended fixes.')).not.toBeNull()
   expect(screen.getByText('Pages affected')).not.toBeNull()
-  const nextAction = screen.getByText('Continue after the Page health summary')
-  const scoreSummary = screen.getByLabelText('Site score 52 out of 100')
+  const nextAction = screen.getByText('Continue after the score summary')
+  const scoreSummary = screen.getByLabelText('Agent Readiness score 52 out of 100')
   expect(Boolean(scoreSummary.compareDocumentPosition(nextAction) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   expect(Boolean(nextAction.compareDocumentPosition(findingsHeading) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
-  expect(screen.queryByText('Recover unavailable Page health')).toBeNull()
+  expect(screen.queryByText('Recover an unavailable score')).toBeNull()
 
   const failingFactor = screen.getByRole('button', { name: 'AI Crawler Access' })
   expect(failingFactor.getAttribute('aria-expanded')).toBe('false')
@@ -482,9 +487,56 @@ test('distills the integrated view to a score and its actionable findings', asyn
   expect(screen.getByText('Allow GPTBot in robots.txt')).not.toBeNull()
   expect(screen.getByRole('link', { name: 'https://citypoint.example/services' })).not.toBeNull()
 
-  expect(screen.queryByRole('heading', { name: 'Site score over time' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Agent Readiness score over time' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Prioritized fixes' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Per-page breakdown' })).toBeNull()
+})
+
+test('lists integrated findings worst first and names the worst page beside each average', () => {
+  const queryClient = makeClient()
+  const factor = (id: string, name: string, avgScore: number, status: 'pass' | 'partial' | 'fail', pagesPartial: number, pagesFailing: number) => ({
+    id, name, weight: 6, avgScore, status, pagesPassing: 10 - pagesPartial - pagesFailing, pagesPartial, pagesFailing,
+  })
+  // The API's own order, which is not worst first.
+  queryClient.setQueryData(scoreKey, {
+    ...score('audit_old', 72),
+    pagesAudited: 10,
+    factors: [
+      factor('technical-seo', 'Technical SEO', 95, 'pass', 0, 0),
+      factor('schema-validity', 'Schema Validity', 95, 'pass', 0, 0),
+      factor('content-depth', 'Content Depth', 74, 'partial', 3, 0),
+      factor('ai-crawler-access', 'AI Crawler Access', 87, 'fail', 0, 2),
+      factor('faq-content', 'FAQ Content', 61, 'partial', 3, 0),
+      factor('structured-data', 'Structured Data', 72, 'fail', 0, 1),
+      factor('named-entities', 'Named Entities', 79, 'partial', 4, 0),
+    ],
+  })
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated />
+    </QueryClientProvider>,
+  )
+
+  const table = screen.getByRole('columnheader', { name: 'Worst page' }).closest('table')!
+  const rows = within(table).getAllByRole('row').slice(1)
+    .map(row => within(row).getAllByRole('cell').map(cell => cell.textContent))
+  // Fail, then Partial, then Pass, whatever the average. Within a band, more
+  // pages affected first (AI Crawler Access before the lower-scoring Structured
+  // Data), then the lower score (FAQ Content before Content Depth), and an exact
+  // tie keeps the API's order (Technical SEO before Schema Validity).
+  expect(rows).toEqual([
+    ['AI Crawler Access', '87/100', 'Fail', '2 of 10'],
+    ['Structured Data', '72/100', 'Fail', '1 of 10'],
+    ['Named Entities', '79/100', 'Partial', '4 of 10'],
+    ['FAQ Content', '61/100', 'Partial', '3 of 10'],
+    ['Content Depth', '74/100', 'Partial', '3 of 10'],
+    ['Technical SEO', '95/100', 'Pass', '0 of 10'],
+    ['Schema Validity', '95/100', 'Pass', '0 of 10'],
+  ])
+  expect(screen.getByRole('button', {
+    name: 'Score is the check\'s average across scored pages. Worst page is the band of its lowest-scoring page: Fail below 40, Partial 40 to 69, Pass 70 or more. Pages affected counts pages below 70. Checks are listed worst first.',
+  })).not.toBeNull()
 })
 
 test('keeps the integrated findings table readable while affected pages load', async () => {
@@ -502,9 +554,9 @@ test('keeps the integrated findings table readable while affected pages load', a
   const factorButton = screen.getByRole('button', { name: 'AI Crawler Access' })
   expect(factorButton.getAttribute('aria-expanded')).toBe('false')
   fireEvent.click(factorButton)
-  expect(await screen.findByText('Loading affected pages...')).not.toBeNull()
+  expect(await screen.findByText('Loading affected pages…')).not.toBeNull()
   expect(screen.getByRole('table').className).toContain('min-w-[42rem]')
-  expect(screen.queryByText('Page details are not available in the loaded audit sample.')).toBeNull()
+  expect(screen.queryByText('Page details are not available in the loaded page sample.')).toBeNull()
   expect(screen.queryByText(/Showing the worst 0 audited pages/)).toBeNull()
 })
 
@@ -519,15 +571,22 @@ test('uses compact findings copy only when the onboarding parent requests it', (
     </QueryClientProvider>,
   )
 
+  // Onboarding heads this view "Agent Readiness score", so the number reads "Score"
+  // rather than repeating the heading; its spoken label still names the feature.
+  const scoreSummary = screen.getByLabelText('Agent Readiness score 52 out of 100')
+  expect(scoreSummary.parentElement?.previousElementSibling?.textContent).toBe('Score')
+  expect(screen.queryByText('Agent Readiness score')).toBeNull()
+  expect(screen.getByText('All site checks').closest('details')?.open).toBe(false)
+  expect(screen.getByText('Allow GPTBot in robots.txt')).not.toBeNull()
+  fireEvent.click(screen.getByText('All site checks'))
   expect(screen.getByRole('heading', { name: 'Checks' })).not.toBeNull()
   expect(screen.getByText('Open a check to see affected pages and recommended fixes.')).not.toBeNull()
-  expect(screen.queryByRole('heading', { name: 'Technical findings' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Findings' })).toBeNull()
   const check = screen.getByRole('button', { name: 'AI Crawler Access' })
   expect(check.getAttribute('aria-expanded')).toBe('false')
-  expect(screen.queryByText('Allow GPTBot in robots.txt')).toBeNull()
   fireEvent.click(check)
   expect(check.getAttribute('aria-expanded')).toBe('true')
-  expect(screen.getByText('Allow GPTBot in robots.txt')).not.toBeNull()
+  expect(screen.getAllByText('Allow GPTBot in robots.txt')).toHaveLength(2)
 })
 
 test('shows one exact page finding in onboarding when aggregate recommendations are unavailable', async () => {
@@ -551,7 +610,7 @@ test('shows one exact page finding in onboarding when aggregate recommendations 
       factors: [{ id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 20, score: 30 }],
     }],
   })
-  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditQueryKey({
+  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessCrawlPagesAuditQueryKey({
     client: heyClient,
     path: { name: projectName },
     query: { url: 'https://citypoint.example/services' },
@@ -585,7 +644,7 @@ test('shows one exact page finding in onboarding when aggregate recommendations 
     </QueryClientProvider>,
   )
 
-  expect(screen.getByText('Page-level evidence for the first page to fix appears below.', { exact: false })).not.toBeNull()
+  expect(screen.getByText('All site checks').closest('details')?.open).toBe(false)
   expect(screen.getByRole('heading', { name: 'First page to fix' })).not.toBeNull()
   expect(screen.getAllByRole('link', { name: 'https://citypoint.example/services' })).toHaveLength(1)
   expect(screen.getByRole('heading', { name: 'Findings and fixes for this page' })).not.toBeNull()
@@ -633,7 +692,7 @@ test('shows a focused retry when integrated affected pages fail to load', async 
   let pageCalls = 0
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input)
-    if (url.includes('/technical-aeo/pages')) pageCalls += 1
+    if (url.includes('/agent-readiness/pages')) pageCalls += 1
     return new Response('{"error":"unavailable"}', {
       status: 503,
       headers: { 'content-type': 'application/json' },
@@ -651,7 +710,7 @@ test('shows a focused retry when integrated affected pages fail to load', async 
   expect(factorButton.getAttribute('aria-expanded')).toBe('false')
   fireEvent.click(factorButton)
   expect(await screen.findByText('Affected pages could not load')).not.toBeNull()
-  expect(screen.queryByText('Page details are not available in the loaded audit sample.')).toBeNull()
+  expect(screen.queryByText('Page details are not available in the loaded page sample.')).toBeNull()
   expect(screen.queryByText(/Showing the worst 0 audited pages/)).toBeNull()
 
   const callsBeforeRetry = pageCalls
@@ -703,7 +762,7 @@ test.each([false, true])('managed standalone audit controls are role-aware (hasD
         <TechnicalAeoSection projectName={projectName} projectId={projectId} />
       </AccountProvider>
     </QueryClientProvider>)
-    const button = screen.queryByRole('button', { name: hasData ? 'Re-run audit' : 'Run first audit' })
+    const button = screen.queryByRole('button', { name: hasData ? 'Re-run scan' : 'Run first scan' })
     expect(Boolean(button)).toBe(role === 'admin')
     cleanup()
     queryClient.clear()
@@ -738,8 +797,8 @@ test.each(['running', 'failed'] as const)('managed viewer keeps the scorecard an
   </QueryClientProvider>)
   expect(screen.getByText('52')).not.toBeNull()
   expect(screen.getAllByText('AI Crawler Access').length).toBeGreaterThan(0)
-  if (status === 'running') expect(screen.getByText('Results refresh automatically when this audit finishes.')).not.toBeNull()
-  expect(screen.queryByRole('button', { name: /Re-run audit|Audit running/ })).toBeNull()
+  if (status === 'running') expect(screen.getByText('Results refresh automatically when this scan finishes.')).not.toBeNull()
+  expect(screen.queryByRole('button', { name: /Re-run scan|Scan running/ })).toBeNull()
 })
 
 /**

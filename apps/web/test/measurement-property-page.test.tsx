@@ -539,7 +539,7 @@ describe('Property page', () => {
     const contrast = await screen.findByRole('table', {
       name: 'Mention and citation coverage for this Property, split by query class',
     })
-    const nonBrand = within(contrast).getByText('When they don\'t').closest('tr')!
+    const nonBrand = within(contrast).getByText('Non-brand queries').closest('tr')!
     expect(within(nonBrand).getByText('75.0%')).toBeTruthy()
     expect(screen.getByRole('alert').textContent).toContain('Could not load branded queries.')
 
@@ -568,7 +568,7 @@ describe('Property page', () => {
     const contrast = await screen.findByRole('table', {
       name: 'Mention and citation coverage for this Property, split by query class',
     })
-    const branded = within(contrast).getByText('When they know your name').closest('tr')!
+    const branded = within(contrast).getByText('Branded queries').closest('tr')!
     expect(within(branded).getAllByText('50.0%')).toHaveLength(2)
     // The evidence panel is now one row per ANSWER, so the row that survives a
     // failed refresh is addressed by its question rather than by a cited URL —
@@ -752,11 +752,17 @@ describe('Property page', () => {
     })
 
     expect(await screen.findByRole('heading', { name: 'Harbor House' })).toBeTruthy()
+    for (const name of ['Measured at the market level', 'Which engines answer for this Property', 'URLs that count as this Property', 'Answers the engines gave']) {
+      expect(screen.getByRole('heading', { name, exact: true })).toBeTruthy()
+      expect(screen.getByRole('region', { name, exact: true })).toBeTruthy()
+    }
+    // Rival names stay hidden until their own read succeeds. This render does
+    // not load that read; the Named instead suite owns the heading.
     const contrast = screen.getByRole('table', {
       name: 'Mention and citation coverage for this Property, split by query class',
     })
-    const branded = within(contrast).getByText('When they know your name').closest('tr')!
-    const nonBrand = within(contrast).getByText('When they don\'t').closest('tr')!
+    const branded = within(contrast).getByText('Branded queries').closest('tr')!
+    const nonBrand = within(contrast).getByText('Non-brand queries').closest('tr')!
 
     expect(within(branded).getAllByText('100%')).toHaveLength(2)
     expect(within(branded).getAllByText('12 of 12')).toHaveLength(2)
@@ -781,7 +787,7 @@ describe('Property page', () => {
     const contrast = await screen.findByRole('table', {
       name: 'Mention and citation coverage for this Property, split by query class',
     })
-    const branded = within(contrast).getByText('When they know your name').closest('tr')!
+    const branded = within(contrast).getByText('Branded queries').closest('tr')!
 
     expect(within(branded).getAllByText('Not measured')).toHaveLength(2)
     expect(within(branded).getAllByText('No queries of this type are assigned')).toHaveLength(2)
@@ -804,18 +810,23 @@ describe('Property page', () => {
         mentionCoverage: available(3, 4),
         citationCoverage: available(2, 4),
         providers: [
-          { provider: 'gemini', mentionCoverage: available(1, 2), citationCoverage: available(0, 2) },
+          { provider: 'openrouter:google/gemini-2.5-pro', mentionCoverage: available(1, 2), citationCoverage: available(0, 2) },
           { provider: 'openai', mentionCoverage: available(2, 2), citationCoverage: available(2, 2) },
         ],
       }),
     })
 
     const providers = await screen.findByRole('table', { name: 'Per-engine mention and citation coverage' })
-    const gemini = within(providers).getByText('gemini').closest('tr')!
-    const openai = within(providers).getByText('openai').closest('tr')!
+    const gemini = within(providers).getByText('Gemini 2.5 Pro').closest('tr')!
+    const openai = within(providers).getByText('OpenAI').closest('tr')!
 
     expect(within(gemini).getByText('50.0%')).toBeTruthy()
     expect(within(gemini).getByText('0%')).toBeTruthy()
+    expect(within(gemini).getByText('via OpenRouter')).toBeTruthy()
+    expect(within(gemini).getByText('1/2').getAttribute('aria-hidden')).toBe('true')
+    expect(within(gemini).getByText('· 1 of 2 answers · non-brand queries')).toBeTruthy()
+    expect(within(gemini).getByText('0/2').getAttribute('aria-hidden')).toBe('true')
+    expect(within(gemini).getByText('· 0 of 2 answers · non-brand queries')).toBeTruthy()
     expect(within(openai).getAllByText('100%')).toHaveLength(2)
   })
 
@@ -840,25 +851,20 @@ describe('Property page', () => {
     })
 
     const flag = '9 unattributed. 9 of 10 answers could not be tied to one property, so this rate leaves them out.'
-    const hero = await screen.findByRole('region', { name: 'Coverage for this Property' })
-    const nonBrandMention = within(hero).getAllByText('Mentioned')[0]!.closest('.aeo-hero-row')!
-    expect(within(nonBrandMention as HTMLElement).getByText('1 of 1')).toBeTruthy()
-    expect(within(nonBrandMention as HTMLElement).getByRole('button', { name: flag })).toBeTruthy()
-
-    const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
-    const nonBrand = within(contrast).getByText('When they don\'t').closest('tr')!
+    const contrast = await screen.findByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
+    const nonBrand = within(contrast).getByText('Non-brand queries').closest('tr')!
     const [, mentioned, cited] = [...nonBrand.querySelectorAll('td')]
-    expect(mentioned!.textContent).toBe('100%1 of 19 unattributed')
+    expect(mentioned!.textContent).toBe('100% · non-brand queries1 of 19 unattributed')
     expect(within(mentioned!).getByRole('button', { name: flag })).toBeTruthy()
     expect(cited!.textContent).not.toContain('unattributed')
     // Every answer ambiguous: the reason is named instead of a bare "Not measured".
-    const branded = within(contrast).getByText('When they know your name').closest('tr')!
+    const branded = within(contrast).getByText('Branded queries').closest('tr')!
     expect(within(branded).getByText('No answer could be tied to one property')).toBeTruthy()
 
     const providers = screen.getByRole('table', { name: 'Per-engine mention and citation coverage' })
-    const gemini = within(providers).getByText('gemini').closest('tr')!
+    const gemini = within(providers).getByText('Gemini').closest('tr')!
     expect(within(gemini).getByRole('button', { name: '4 unattributed. 4 of 5 answers could not be tied to one property, so this rate leaves them out.' })).toBeTruthy()
-    const openai = within(providers).getByText('openai').closest('tr')!
+    const openai = within(providers).getByText('OpenAI').closest('tr')!
     expect(within(openai).getByText('No answer could be tied to one property')).toBeTruthy()
   })
 
@@ -883,30 +889,25 @@ describe('Property page', () => {
     })
 
     const flag = '2 unchecked. 2 of 10 answers had sources that could not be checked, so this rate leaves them out.'
-    const hero = await screen.findByRole('region', { name: 'Coverage for this Property' })
-    const nonBrandCited = within(hero).getAllByText('Cited')[0]!.closest('.aeo-hero-row')!
-    expect(nonBrandCited.querySelector('.aeo-hero-row-detail')!.textContent).toBe('2 of 82 unchecked')
-    expect(within(nonBrandCited as HTMLElement).getByRole('button', { name: flag })).toBeTruthy()
-    const nonBrandMentioned = within(hero).getAllByText('Mentioned')[0]!.closest('.aeo-hero-row')!
-    expect(nonBrandMentioned.querySelector('.aeo-hero-row-detail')!.textContent).toBe('5 of 10')
-
-    const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
-    const nonBrand = within(contrast).getByText('When they don\'t').closest('tr')!
+    const contrast = await screen.findByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
+    const nonBrand = within(contrast).getByText('Non-brand queries').closest('tr')!
     const [, mentioned, cited] = [...nonBrand.querySelectorAll('td')]
-    expect(cited!.textContent).toBe('25.0%2 of 82 unchecked')
+    expect(cited!.textContent).toBe('25.0% · non-brand queries2 of 82 unchecked')
     expect(within(cited!).getByRole('button', { name: flag })).toBeTruthy()
-    expect([...mentioned!.querySelectorAll('span span')].map(node => node.textContent)).toEqual(['50.0%', '5 of 10'])
+    expect(within(mentioned!).getByText('50.0%')).toBeTruthy()
+    expect(within(mentioned!).getByText('5 of 10')).toBeTruthy()
+    expect(mentioned!.textContent).not.toContain('unchecked')
     // Every branded answer unchecked: unavailable, with its reason and no count line.
-    const branded = within(contrast).getByText('When they know your name').closest('tr')!
-    expect(branded.querySelectorAll('td')[2]!.textContent).toBe('Not measuredSource evidence is incomplete')
+    const branded = within(contrast).getByText('Branded queries').closest('tr')!
+    expect(branded.querySelectorAll('td')[2]!.textContent).toBe('Not measured · branded queriesSource evidence is incomplete')
 
     const providers = screen.getByRole('table', { name: 'Per-engine mention and citation coverage' })
-    const gemini = within(providers).getByText('gemini').closest('tr')!
-    expect(gemini.querySelectorAll('td')[2]!.textContent).toBe('33.3%1 of 32 unchecked')
+    const gemini = within(providers).getByText('Gemini').closest('tr')!
+    expect(gemini.querySelectorAll('td')[2]!.textContent).toBe('33.3%1/3 · 1 of 3 answers · non-brand queries2 unchecked')
     expect(within(gemini.querySelectorAll('td')[2]!).getByRole('button', { name: '2 unchecked. 2 of 5 answers had sources that could not be checked, so this rate leaves them out.' })).toBeTruthy()
-    expect(gemini.querySelectorAll('td')[1]!.textContent).toBe('40.0%2 of 5')
-    const openai = within(providers).getByText('openai').closest('tr')!
-    expect(openai.querySelectorAll('td')[2]!.textContent).toBe('20.0%1 of 5')
+    expect(gemini.querySelectorAll('td')[1]!.textContent).toBe('40.0%2/5 · 2 of 5 answers · non-brand queries')
+    const openai = within(providers).getByText('OpenAI').closest('tr')!
+    expect(openai.querySelectorAll('td')[2]!.textContent).toBe('20.0%1/5 · 1 of 5 answers · non-brand queries')
   })
 
   it('lists the assigned questions, URLs, and scoped evidence for the selected class', async () => {
@@ -1148,7 +1149,7 @@ describe('Property answer evidence', () => {
   })
 })
 
-describe('Coverage hero', () => {
+describe('Property coverage comparison', () => {
   it('leads with non-brand and shows the count behind each rate', async () => {
     await renderPropertyPage({
       branded: overviewResponse('branded', {
@@ -1161,23 +1162,19 @@ describe('Coverage hero', () => {
       }),
     })
 
-    const hero = await screen.findByRole('region', { name: 'Coverage for this Property' })
-    // Non-brand is the demand a Property has to earn, so it reads first.
-    const eyebrows = within(hero).getAllByText(/the demand to earn|already named/)
-    expect(eyebrows[0]!.textContent).toContain('the demand to earn')
-
-    // The rate is never shown without the count it came from. The figure is
-    // the shared one-decimal format with its percent sign set apart.
-    expect(within(hero).getByText('20.0')).toBeTruthy()
-    expect(within(hero).getByText('15.0')).toBeTruthy()
-    expect(within(hero).getAllByText('100')).toHaveLength(2)
-    expect(within(hero).getAllByText('%')).toHaveLength(4)
-    expect(within(hero).getByText('4 of 20')).toBeTruthy()
-    expect(within(hero).getByText('3 of 20')).toBeTruthy()
-    expect(within(hero).getAllByText('12 of 12').length).toBe(2)
+    const coverage = await screen.findByRole('region', { name: 'Coverage for this Property' })
+    const table = within(coverage).getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
+    expect(within(table).getAllByRole('row').slice(1).map(row => row.querySelector('td')!.textContent)).toEqual(['Non-brand queries', 'Branded queries'])
+    expect(within(coverage).getByText('20.0%')).toBeTruthy()
+    expect(within(coverage).getByText('15.0%')).toBeTruthy()
+    expect(within(coverage).getAllByText('100%')).toHaveLength(2)
+    expect(within(coverage).getByText('4 of 20')).toBeTruthy()
+    expect(within(coverage).getByText('3 of 20')).toBeTruthy()
+    expect(within(coverage).getAllByText('12 of 12')).toHaveLength(2)
+    expect(screen.queryByRole('heading', { name: 'Named versus not named' })).toBeNull()
   })
 
-  it('renders no bar at all for an unmeasured class, so it cannot read as a measured zero', async () => {
+  it('keeps an unmeasured class distinct from a measured zero in the comparison', async () => {
     await renderPropertyPage({
       branded: overviewResponse('branded', {
         mentionCoverage: available(12, 12),
@@ -1189,13 +1186,11 @@ describe('Coverage hero', () => {
       }),
     })
 
-    const hero = await screen.findByRole('region', { name: 'Coverage for this Property' })
-    expect(within(hero).getAllByText('Not measured').length).toBe(2)
-
-    // A zero-width track beside "Not measured" would read as a measured zero.
-    // Branded is measured and keeps its two bars; the unmeasured pair has none.
-    expect(hero.querySelectorAll('.aeo-hero-row-bar').length).toBe(2)
-    expect(within(hero).queryByText('0%')).toBeNull()
+    const coverage = await screen.findByRole('region', { name: 'Coverage for this Property' })
+    const nonBrand = within(coverage).getByText('Non-brand queries').closest('tr')!
+    expect(within(nonBrand).getAllByText('Not measured')).toHaveLength(2)
+    expect(within(nonBrand).queryByText('0%')).toBeNull()
+    expect(within(nonBrand).queryByText(/0 of/)).toBeNull()
   })
 })
 
@@ -1239,7 +1234,7 @@ describe('Property facts and market link', () => {
       // The server ships `providers: []` next to an unavailable metric, so an
       // empty provider list here means "this class was not measured", not "no
       // engine answered". Counting it printed "0 / No engine answered" while
-      // the hero on the same screen said "Not measured".
+      // the comparison table on the same screen said "Not measured".
       nonBrand: overviewResponse('non-brand', {
         mentionCoverage: unavailable('no_population'),
         citationCoverage: unavailable('no_population'),
@@ -1249,8 +1244,7 @@ describe('Property facts and market link', () => {
     await screen.findByRole('region', { name: 'Coverage for this Property' })
     expect(screen.queryByText('No engine answered for this Property')).toBeNull()
     // The server's own reason reaches the reader rather than a bare em dash.
-    // It appears in the hero rows too, which is why this counts rather than
-    // asserting a single node.
+    // Both signals retain the server reason.
     expect(screen.getAllByText(/No queries of this type are assigned/).length).toBeGreaterThan(0)
   })
 
@@ -1302,11 +1296,10 @@ describe('Property facts and market link', () => {
     expect(screen.queryByText(/Never/)).toBeNull()
     expect(screen.queryByText(/No completed sweep yet/)).toBeNull()
 
-    // And the hero says the class failed rather than spinning forever: the
-    // retry is in the table below, so "Loading" is a promise nothing will keep.
-    const hero = screen.getByRole('region', { name: 'Coverage for this Property' })
-    expect(within(hero).getAllByText('Unavailable')).toHaveLength(2)
-    expect(within(hero).queryByText('Loading')).toBeNull()
+    const coverage = screen.getByRole('region', { name: 'Coverage for this Property' })
+    expect(within(coverage).getByRole('alert').textContent).toBe('Could not load non-brand queries.')
+    expect(within(coverage).getByRole('button', { name: 'Retry non-brand queries' })).toBeTruthy()
+    expect(within(coverage).queryByText('Loading…')).toBeNull()
   })
 
   it('uses the singular for a market with one competitor', async () => {
@@ -1419,7 +1412,7 @@ describe('Named instead of this Property', () => {
     const section = await screen.findByRole('region', { name: /Named instead of this Property/ })
     expect(within(section).getByText('Harborline Homes')).toBeTruthy()
     expect(within(section).getByText('The Sutton')).toBeTruthy()
-    expect(within(section).getByText('openai, gemini')).toBeTruthy()
+    expect(within(section).getByText('OpenAI, Gemini')).toBeTruthy()
     expect(within(section).getByText(/3 of 4 answers to non-brand queries did not name this Property/)).toBeTruthy()
   })
 
@@ -1652,7 +1645,7 @@ describe('Names that count as this Property', () => {
 
     const section = await namesSection()
     expect(within(section).getByRole('button', { name: PROPERTY_NAMES_COPY.help })).toBeTruthy()
-    expect(PROPERTY_NAMES_COPY.help).toContain('Source titles and source links never count, but a link in the answer whose text is one of these names does.')
+    expect(PROPERTY_NAMES_COPY.help).toContain('Source titles and URLs do not count as mentions.')
     // A link written into the sentence keeps its text as prose; a source link
     // in parentheses is dropped whatever its text says.
     expect(answerProseForMentions('Try [Harbor House](https://locations.example/harbor-house) today.')).toContain('Harbor House')
@@ -1967,7 +1960,7 @@ describe('Cited on other queries', () => {
 
     // The rates above still read only this Property's own queries.
     const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
-    expect(within(within(contrast).getByText('When they don\'t').closest('tr')!).getByText('50.0%')).toBeTruthy()
+    expect(within(within(contrast).getByText('Non-brand queries').closest('tr')!).getByText('50.0%')).toBeTruthy()
   })
 
   it('reads the class the page shows, and says so when nothing was cited elsewhere', async () => {

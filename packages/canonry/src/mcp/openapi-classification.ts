@@ -176,6 +176,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   // `manualAdmission` from canonry_runs_latest and canonry_project_overview,
   // so a third tool would only repeat those decisions.
   'GET /api/v1/projects/{name}/run-admission': 'deferred',
+  'GET /api/v1/projects/{name}/run-preview': 'included',
   'GET /api/v1/runs': 'deferred',
   'POST /api/v1/runs': 'deferred',
   'GET /api/v1/runs/{id}': 'included',
@@ -196,6 +197,8 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/settings': 'included',
   // MCP exposes only non-secret model/quota edits; credential fields remain operator-only.
   'PUT /api/v1/settings/providers/{name}': 'included',
+  'GET /api/v1/settings/providers/{name}': 'included',
+  'DELETE /api/v1/settings/providers/{name}': 'included',
   'POST /api/v1/settings/providers/reload': 'included',
   'PUT /api/v1/settings/google': 'deferred',
   'POST /api/v1/snapshot': 'included',
@@ -226,6 +229,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/users': 'deferred',
   'POST /api/v1/users': 'deferred',
   'DELETE /api/v1/users/{name}': 'deferred',
+  'POST /api/v1/projects/{name}/schedule/preview': 'included',
   'PUT /api/v1/projects/{name}/schedule': 'included',
   'GET /api/v1/projects/{name}/schedules': 'included',
   'GET /api/v1/projects/{name}/schedule': 'included',
@@ -522,35 +526,58 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/discover/sessions/{id}/harvest': 'included',
   'GET /api/v1/projects/{name}/discover/sessions/{id}/promote': 'included',
   'POST /api/v1/projects/{name}/discover/sessions/{id}/promote': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/pages': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/trend': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/pages': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/trend': 'included',
   'GET /api/v1/projects/{name}/trends': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/crawl': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/issues': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/subgraph': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/path': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/changes': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/crawl': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/issues': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/issues/{issueId}/pages': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/subgraph': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/path': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/changes': 'included',
   // The interactive map projection is dashboard transport; agents already
   // have the cursor-paged inventory and bounded page-neighbor reads.
-  'GET /api/v1/projects/{name}/technical-aeo/graph': 'deferred',
-  'GET /api/v1/projects/{name}/technical-aeo/crawl/pages': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/crawl/pages/audit': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/structure': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/internal-links': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/internal-links/neighbors': 'included',
-  'GET /api/v1/projects/{name}/technical-aeo/dead-links': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/graph': 'deferred',
+  'GET /api/v1/projects/{name}/agent-readiness/crawl/pages': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/crawl/pages/audit': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/structure': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/internal-links': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/internal-links/neighbors': 'included',
+  'GET /api/v1/projects/{name}/agent-readiness/dead-links': 'included',
   // Scan history exists so the dashboard's run picker can label a legacy
   // score-only scan. Agents address a scan by `runId` on the reads above and
   // already get run provenance from the trend and changes tools, so this is
   // deferred until an agent workflow actually needs to enumerate scans.
-  'GET /api/v1/projects/{name}/technical-aeo/runs': 'deferred',
+  'GET /api/v1/projects/{name}/agent-readiness/runs': 'deferred',
   // Raw crawl-attempt counters exist for transient onboarding progress. Agents
   // use run_get plus the canonical crawl reads once evidence is published.
-  'GET /api/v1/projects/{name}/technical-aeo/runs/{runId}/progress': 'deferred',
+  'GET /api/v1/projects/{name}/agent-readiness/runs/{runId}/progress': 'deferred',
   // This is a transient browser-polling projection with no durable final
-  // findings. Agents use the canonical Page Health reads after publication.
+  // findings. Agents use the canonical Agent Readiness reads after publication.
+  'GET /api/v1/projects/{name}/agent-readiness/runs/{runId}/page-health-preview': 'excluded-protocol',
+  'POST /api/v1/projects/{name}/agent-readiness/runs': 'included',
+  // Deprecated `technical-aeo` path aliases. Each answers exactly like its
+  // canonical `agent-readiness` operation above, which carries the MCP
+  // classification; MCP tools address only the canonical path.
+  'GET /api/v1/projects/{name}/technical-aeo': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/pages': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/trend': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/crawl': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/issues': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/subgraph': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/path': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/changes': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/graph': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/crawl/pages': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/crawl/pages/audit': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/structure': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/internal-links': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/internal-links/neighbors': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/dead-links': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/runs': 'excluded-protocol',
+  'GET /api/v1/projects/{name}/technical-aeo/runs/{runId}/progress': 'excluded-protocol',
   'GET /api/v1/projects/{name}/technical-aeo/runs/{runId}/page-health-preview': 'excluded-protocol',
-  'POST /api/v1/projects/{name}/technical-aeo/runs': 'included',
+  'POST /api/v1/projects/{name}/technical-aeo/runs': 'excluded-protocol',
 } as const satisfies Record<string, OpenApiMcpClassification>

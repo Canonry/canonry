@@ -1013,10 +1013,9 @@ export function GscSection({
   }
 
   return (
-    <section className="page-section-divider">
+    <section className="page-section">
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Search Console</p>
           <h2>Google Search Console</h2>
         </div>
       </div>
@@ -1116,14 +1115,13 @@ export function GscSection({
             <Card className="surface-card">
               <div className="section-head section-head-inline">
                 <div>
-                  <p className="eyebrow eyebrow-soft">Connection</p>
                   <h3>Domain authorization</h3>
                 </div>
                 <ToneBadge tone={googleConfigured ? 'caution' : 'negative'}>
                   {googleConfigured ? 'Ready to connect' : 'App credentials missing'}
                 </ToneBadge>
               </div>
-              <div className="mt-3 material-base px-4 py-5">
+              <div className="mt-3">
                 <p className="text-copy-14 text-neutral">
                   {googleConfigured
                     ? 'Generate a Google OAuth link for this project and have the client sign in with a Google account that already has access to the correct Search Console property.'
@@ -1155,7 +1153,6 @@ export function GscSection({
               <Card className="surface-card">
                 <div className="section-head section-head-inline">
                   <div>
-                    <p className="eyebrow eyebrow-soft">Performance</p>
                     <div className="flex items-center gap-1.5">
                       <h3>Search performance</h3>
                       <InfoTooltip text={`${gscComparisonBasisText(performanceDaily?.periodComparison)} The optional trend line shows the fitted direction. Click any day to filter the table below to that date. Query and page filters match case-insensitive substrings and run on Apply filters. Filtering and sorting examine up to ${EXPANDED_PERFORMANCE_LIMIT.toLocaleString()} matching rows while the table shows ${DEFAULT_TABLE_PAGE_SIZE} per page.`} />
@@ -1495,7 +1492,6 @@ export function GscSection({
              <Card className="surface-card">
                 <div className="section-head section-head-inline">
                   <div>
-                    <p className="eyebrow eyebrow-soft">Coverage</p>
                     <div className="flex items-center gap-1.5">
                       <h3>Index coverage</h3>
                       <InfoTooltip text="Google's Indexing API is intended for eligible JobPosting and BroadcastEvent pages. Sitemap resubmission is the general-site bulk path." />
@@ -1729,7 +1725,7 @@ export function GscSection({
                                 {'\u2190'} Back to reasons
                               </button>
                             </div>
-                            <div className="mb-3 flex items-center justify-between material-base p-3">
+                            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                               <div>
                                 <p className="text-copy-14-strong text-strong">{group.reason}</p>
                                 <p className="mt-1 text-copy-13 text-muted">{group.count} affected page{group.count !== 1 ? 's' : ''}</p>
@@ -1895,7 +1891,6 @@ export function GscSection({
               <Card className="surface-card">
                 <div className="section-head">
                   <div>
-                    <p className="eyebrow eyebrow-soft">Inspection</p>
                     <h3>Inspect a URL</h3>
                   </div>
                 </div>
@@ -1914,19 +1909,19 @@ export function GscSection({
                 </div>
                 {inspectionResult && (
                   <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="material-base p-3">
+                    <div className="min-w-0">
                       <p className="text-label-12 normal-case text-muted">Indexing state</p>
                       <p className="mt-1 text-copy-14 text-strong">{inspectionResult.indexingState ?? 'Unknown'}</p>
                     </div>
-                    <div className="material-base p-3">
+                    <div className="min-w-0">
                       <p className="text-label-12 normal-case text-muted">Verdict</p>
                       <p className="mt-1 text-copy-14 text-strong">{inspectionResult.verdict ?? 'Unknown'}</p>
                     </div>
-                    <div className="material-base p-3">
+                    <div className="min-w-0">
                       <p className="text-label-12 normal-case text-muted">Mobile friendly</p>
                       <p className="mt-1 text-copy-14 text-strong">{formatBooleanState(inspectionResult.isMobileFriendly ?? null)}</p>
                     </div>
-                    <div className="material-base p-3">
+                    <div className="min-w-0">
                       <p className="text-label-12 normal-case text-muted">Last crawl</p>
                       <p className="mt-1 text-copy-14 text-strong">{formatTimestamp(inspectionResult.crawlTime)}</p>
                     </div>
@@ -1939,7 +1934,6 @@ export function GscSection({
               <Card className="surface-card">
                 <div className="section-head section-head-inline">
                   <div>
-                    <p className="eyebrow eyebrow-soft">History</p>
                     <h3>Inspection log</h3>
                   </div>
                   <Button type="button" variant="outline" size="sm" disabled={loadingInspections} onClick={() => void loadInspectionHistory(true)}>
@@ -1947,14 +1941,17 @@ export function GscSection({
                   </Button>
                 </div>
                 <div className="mt-3 flex flex-col gap-2 lg:flex-row">
-                  <input
-                    className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
-                    type="text"
-                    placeholder="Filter exact URL"
-                    value={inspectionFilterUrl}
-                    onChange={(e) => setInspectionFilterUrl(e.target.value)}
-                  />
-                  <Button type="button" size="sm" variant="outline" disabled={loadingInspections} onClick={() => void loadInspectionHistory(true)}>
+                  <label className="flex flex-1 flex-col gap-1 text-label-13 text-secondary">
+                    Filter exact URL
+                    <input
+                      className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
+                      type="text"
+                      placeholder="https://example.com/page"
+                      value={inspectionFilterUrl}
+                      onChange={(e) => setInspectionFilterUrl(e.target.value)}
+                    />
+                  </label>
+                  <Button type="button" size="sm" variant="outline" className="self-end" disabled={loadingInspections} onClick={() => void loadInspectionHistory(true)}>
                     Apply filter
                   </Button>
                 </div>
@@ -1994,7 +1991,6 @@ export function GscSection({
               <Card className="surface-card">
                 <div className="section-head">
                   <div>
-                    <p className="eyebrow eyebrow-soft">Deindexed</p>
                     <h3>Recent indexing losses</h3>
                   </div>
                 </div>
@@ -2057,7 +2053,6 @@ export function GscSection({
                     <Card className="surface-card">
                       <div className="section-head">
                         <div>
-                          <p className="eyebrow eyebrow-soft">Property</p>
                           <div className="flex items-center gap-1.5">
                             <h3>Pick the Search Console property</h3>
                             <InfoTooltip text="The selected property is used for future syncs and URL inspections for this project." />
@@ -2097,7 +2092,6 @@ export function GscSection({
                     <Card className="surface-card">
                       <div className="section-head">
                         <div>
-                          <p className="eyebrow eyebrow-soft">Sync</p>
                           <h3>Import GSC performance data</h3>
                         </div>
                       </div>

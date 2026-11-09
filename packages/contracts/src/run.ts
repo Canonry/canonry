@@ -8,6 +8,7 @@ import { mentionIdentitySchema } from './mention-identity.js'
 import { classifyProviderErrorMessage, providerErrorCodeSchema } from './provider-errors.js'
 import { pricingTierSchema, providerBatchStatusSchema, providerDispatchModeSchema, snapshotUsageSchema } from './provider-batch.js'
 import { runSyncSummarySchema } from './run-sync-summary.js'
+import { visibilityReportPopulationClassSchema } from './visibility-report.js'
 
 export const runStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed', 'cancelled'])
 export type RunStatus = z.infer<typeof runStatusSchema>
@@ -329,6 +330,37 @@ export const runAdmissionDtoSchema = z.object({
   providers: z.record(z.string(), providerAccountStreakSchema),
 })
 export type RunAdmissionDto = z.infer<typeof runAdmissionDtoSchema>
+
+/** Stored-only projection of the next unfiltered manual sweep; it reserves no work. */
+export const runPreviewDtoSchema = z.object({
+  mode: z.enum(['simple', 'advanced']),
+  revision: z.number().int().positive().nullable(),
+  queryCount: z.number().int().nonnegative(),
+  assignmentCount: z.number().int().nonnegative().nullable(),
+  queryClasses: z.array(z.object({
+    queryClass: visibilityReportPopulationClassSchema,
+    queryCount: z.number().int().nonnegative(),
+    assignmentCount: z.number().int().nonnegative().nullable(),
+  }).strict()),
+  /** Provider requests currently runnable, after unavailable engines and account holds. */
+  requestCount: z.number().int().nonnegative(),
+  /** Planned answer slots, including engines that cannot currently be called. */
+  expectedRequestCount: z.number().int().nonnegative(),
+  engines: z.array(z.object({
+    provider: z.string(),
+    models: z.array(z.string()),
+    requestCount: z.number().int().nonnegative(),
+    expectedRequestCount: z.number().int().nonnegative(),
+    available: z.boolean(),
+  }).strict()),
+  locations: z.array(z.object({ location: z.string().nullable(), requestCount: z.number().int().nonnegative() }).strict()),
+  admission: runAdmissionDtoSchema,
+  activeRunId: z.string().nullable(),
+  /** Workload and admission readiness; this does not grant the caller write authority. */
+  canStart: z.boolean(),
+  blockedReason: z.enum(['unpublished-plan', 'no-queries', 'no-provider', 'providers-failing', 'run-in-progress']).nullable(),
+}).strict()
+export type RunPreviewDto = z.infer<typeof runPreviewDtoSchema>
 
 const PROVIDER_PREFIX = /^\[provider-[\w-]+\]\s+/
 

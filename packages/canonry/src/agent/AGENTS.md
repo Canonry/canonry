@@ -81,7 +81,10 @@ REST, CLI flags, and dashboard Copy as CLI. Resolve context through public API
 reads before generation/compaction. Invalid identities must fail without silently
 widening the selection. `view-context.ts` packs report/API evidence without
 calculating metrics, preserves class denominators and missing states, and links
-the selected evidence. Do not persist context into the system-prompt snapshot.
+the selected evidence. The Agent Readiness view keeps its stable token
+`view: 'site-health'`; its links use the canonical `/projects/<name>/agent-readiness`
+page and `/api/v1/projects/<name>/agent-readiness/...` reads. Do not persist
+context into the system-prompt snapshot.
 
 Default execution limits are 30 tool calls / 180 seconds; hard maxima are 100 /
 600 seconds. Count attempted calls, including invalid ones. Tool and research-time limits get
@@ -128,7 +131,7 @@ Tool surface:
   These stay Aero-only because they read on-disk skill files, not API state.
   Ride in every scope. `SKILL.md` stays lightweight; detailed playbooks
   (workflows, regression diagnosis, reporting templates, integrations) load
-  on-demand via slug. `portfolio-analysis` and `site-health` cover Simple and
+  on-demand via slug. `portfolio-analysis` and `site-health` (Agent Readiness) cover Simple and
   Advanced interpretation. `seo-analysis` owns provider-neutral keyword and
   ranking prioritization from stored evidence; its source is
   `skills/aero/references/seo-analysis.md`. `agent-operations` is generated from
@@ -274,6 +277,13 @@ tool within a small edit distance (never toward a hidden or disallowed tool),
 and the tool-result message records the name the model wrote as
 `aeroRequestedToolName`. Without a unique visible match, the refusal names the
 likely tool ("Did you mean ...?"), including which toolkit to load first.
+A deprecated MCP name (`DEPRECATED_MCP_TOOL_ALIASES`, e.g.
+`canonry_technical_aeo_score`) is never in Aero's catalog
+(`AERO_EXCLUDED_MCP_TOOLS`), but a transcript saved before the rename still
+shows it. The same wrapper resolves it to its canonical tool
+(`canonry_agent_readiness_score`) under the same rules: a visible read runs
+renamed, and otherwise the refusal says "X is now Y" and which toolkit to load;
+a deprecated write is never renamed.
 
 System prompt is composed from `skills/aero/soul.md` (identity/voice/values)
 + `skills/aero/SKILL.md` (task rules). Soul is prepended so identity frames
@@ -527,3 +537,7 @@ Aero exposes the seven stored sentiment read tools in administrator and viewer
 turns. `canonry_sentiment_configure` and `canonry_sentiment_backfill` stay excluded
 from native Aero because they can start paid classifier work; API, CLI and
 external MCP retain those operator actions.
+
+Provider settings mutations (including override resets and optional Local-key
+removal), disconnect and reload stay excluded from native Aero. External MCP,
+CLI and API retain these explicitly authorized operator actions.

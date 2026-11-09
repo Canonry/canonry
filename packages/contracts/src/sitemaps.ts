@@ -3,7 +3,7 @@ import { z } from 'zod'
 /**
  * Sitemaps across the site and both search engines, from stored data only
  * (`GET /projects/:name/sitemaps`, `canonry sitemaps`). Canonry compares three
- * lists: the sitemap files the latest Site Health scan read pages from, what
+ * lists: the sitemap files the latest Agent Readiness audit scan read pages from, what
  * Search Console lists, and what Bing lists. A sitemap one source has and an
  * engine lacks is `missing` for that engine.
  */
@@ -67,7 +67,7 @@ export type EngineSitemapsDto = z.infer<typeof engineSitemapsDtoSchema>
 
 export const sitemapCoverageResponseDtoSchema = z.object({
   site: z.object({
-    /** When the scan behind `sitemaps` ran; null before the first Site Health scan. */
+    /** When the scan behind `sitemaps` ran; null before the first Agent Readiness audit scan. */
     scannedAt: z.string().nullable(),
     runId: z.string().nullable(),
     /** Sitemap files the scan read pages from. An index appears through its files. */

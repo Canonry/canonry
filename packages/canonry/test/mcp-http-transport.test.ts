@@ -7,7 +7,10 @@ import { createClient, migrate, apiKeys, oauthClients, users, type DatabaseClien
 import { createUserSession, USER_SESSION_COOKIE_NAME } from '@canonry/canonry-api-routes'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ApiClient } from '../src/client.js'
+import { ApiClient } from '../src/client.js'
+import * as clientModule from '../src/client.js'
+import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
+import { SCHEDULE_CLI_COMMANDS } from '../src/cli-commands/schedule.js'
 import type { CanonryConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
 import { handoffTarget } from './oauth-handoff.js'
@@ -132,6 +135,19 @@ interface Built {
   /** Ephemeral per-session api keys, for asserting they are cleaned up. */
   sessionKeys: () => { scopes: string[]; revokedAt: string | null }[]
   cleanup: () => Promise<void>
+}
+
+/** Keep both real authentication hops on this fixture's ephemeral listener. */
+function routeMcpClientToListener(built: Built): void {
+  const realFetch = globalThis.fetch
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+    const original = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (original.startsWith('http://127.0.0.1:4100/')) {
+      const target = original.replace('http://127.0.0.1:4100', built.origin)
+      return realFetch(input instanceof Request ? new Request(target, input) : target, init)
+    }
+    return realFetch(input, init)
+  })
 }
 
 async function buildServer(researchAllowViewers = false): Promise<Built> {
@@ -265,17 +281,7 @@ describe('MCP over OAuth', () => {
   })
 
   it('keeps Aero notes and provider details private for an admin read-only grant', async () => {
-    // The fixture binds a random port; route the MCP client's configured
-    // loopback URL back to that listener. Both authentication hops stay real.
-    const realFetch = globalThis.fetch
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
-      const original = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-      if (original.startsWith('http://127.0.0.1:4100/')) {
-        const target = original.replace('http://127.0.0.1:4100', built.origin)
-        return realFetch(input instanceof Request ? new Request(target, input) : target, init)
-      }
-      return realFetch(input, init)
-    })
+    routeMcpClientToListener(built)
     const rootHeaders = { authorization: `Bearer ${built.wildcardKey}` }
     const project = await request(built, {
       method: 'PUT', url: '/api/v1/projects/acme', headers: rootHeaders,
@@ -600,6 +606,35 @@ describe('MCP over Streamable HTTP', () => {
     expect(res.statusCode).toBeLessThan(400)
   })
 
+  it('previews schedule timing over authenticated MCP and CLI without enabling recurrence', async () => {
+    routeMcpClientToListener(built)
+    const created = await request(built, { method: 'PUT', url: '/api/v1/projects/preview-project', headers: { authorization: `Bearer ${built.wildcardKey}` }, payload: { displayName: 'Preview', canonicalDomain: 'preview.example', country: 'US', language: 'en' } })
+    expect(created.statusCode).toBeLessThan(300)
+    const before = await request(built, { method: 'GET', url: '/api/v1/projects/preview-project/schedules', headers: { authorization: `Bearer ${built.readOnlyKey}` } })
+    expect(before.statusCode).toBe(200)
+    const timing = { preset: 'daily@9', timezone: 'America/New_York' }
+    const api = await request(built, { method: 'POST', url: '/api/v1/projects/preview-project/schedule/preview', headers: { authorization: `Bearer ${built.readOnlyKey}` }, payload: timing })
+    expect(api.statusCode).toBe(200)
+    const endpoint = '/api/v1/mcp/x/setup'
+    const initialized = await request(built, { method: 'POST', url: endpoint, headers: { authorization: `Bearer ${built.readOnlyKey}`, accept: MCP_ACCEPT, 'content-type': 'application/json' }, payload: INIT })
+    const mcp = await request(built, { method: 'POST', url: endpoint, headers: { authorization: `Bearer ${built.readOnlyKey}`, accept: MCP_ACCEPT, 'mcp-session-id': initialized.headers['mcp-session-id']! }, payload: { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'canonry_schedule_preview', arguments: { project: 'preview-project', timing } } } })
+    expect(mcp.statusCode).toBe(200)
+    const frame = mcp.body.split('\n').find(line => line.startsWith('data:'))
+    const result = JSON.parse((frame ?? mcp.body).replace(/^data:\s*/, '')) as { result: { isError?: boolean; content: Array<{ text: string }> } }
+    expect(result.result.isError, JSON.stringify(result.result)).not.toBe(true)
+    expect(JSON.parse(result.result.content[0]!.text)).toEqual(api.json())
+    const client = new ApiClient(built.origin, built.readOnlyKey, { skipProbe: true })
+    vi.spyOn(clientModule, 'createApiClient').mockReturnValue(client)
+    const output: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation(value => { output.push(String(value)) })
+    await dispatchRegisteredCommand(['schedule', 'preview', 'preview-project', '--preset', timing.preset, '--timezone', timing.timezone], 'json', SCHEDULE_CLI_COMMANDS)
+    log.mockRestore()
+    expect(output.map(line => JSON.parse(line))).toEqual([api.json()])
+    const stored = await request(built, { method: 'GET', url: '/api/v1/projects/preview-project/schedules', headers: { authorization: `Bearer ${built.readOnlyKey}` } })
+    expect(stored.statusCode).toBe(200)
+    expect(stored.json()).toEqual(before.json())
+  })
+
   it('automatically narrows a logs.read-only credential to read tools', async () => {
     const created = await request(built, {
       method: 'POST', url: '/api/v1/keys', headers: { authorization: `Bearer ${built.wildcardKey}` },
@@ -729,7 +764,7 @@ describe('MCP over Streamable HTTP', () => {
       expect(typeof tool.annotations.openWorldHint, tool.name).toBe('boolean')
     }
     const names = tools.map(tool => tool.name)
-    for (const name of ['canonry_doctor', 'canonry_gbp_accounts', 'canonry_gsc_sitemaps', 'canonry_research_run_start', 'canonry_providers_reload', 'canonry_provider_settings_update', 'canonry_load_toolkit']) {
+    for (const name of ['canonry_doctor', 'canonry_gbp_accounts', 'canonry_gsc_sitemaps', 'canonry_research_run_start', 'canonry_providers_reload', 'canonry_provider_settings_update', 'canonry_provider_disconnect', 'canonry_load_toolkit']) {
       expect(names).not.toContain(name)
       expect((await rpc('tools/call', { name, arguments: {} })).error).toMatchObject({ code: -32602 })
     }

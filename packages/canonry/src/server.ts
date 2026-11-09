@@ -58,6 +58,7 @@ import {
   forbidden,
   notFound,
   validationError,
+  redactUrlPrivateFields,
   embedProjectTabsError,
   embedClientConfigForRequest,
   EMBED_QUERY_LIMIT_HEADER,
@@ -99,8 +100,10 @@ import {
 } from "@canonry/canonry-contracts";
 import type {
   CanonryConfig,
+  ProviderConfigEntry,
   CloudflareTrafficConnectionConfigEntry,
 } from "./config.js";
+import { createProviderSettingsController } from "./provider-settings.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentAllowViewers, resolveAgentEnabled, resolveAgentProactiveEnabled } from "./agent-config.js";
 import { saveConfig, saveConfigPatch, loadConfig, loadConfigRaw, loadedConfigPath, getConfigPath } from "./config.js";
@@ -264,7 +267,7 @@ import {
   ccReleaseSyncs as ccReleaseSyncsTable,
 } from "@canonry/canonry-db";
 import { ProviderRegistry, type RegisteredProvider } from "./provider-registry.js";
-import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
+import { batchEligibleProviderNames, providersWithUnsupportedBatch } from "./provider-batch-config.js";
 import { handleRouteOutcome, outcomeAttribution } from "./outcome-telemetry.js";
 import { startInstallStateTelemetry } from "./install-state-telemetry.js";
 import { trackTrafficIngested, trackTrafficSynced } from "./traffic-telemetry.js";
@@ -524,7 +527,7 @@ function summarizeProviderConfig(provider: RegisteredProvider | undefined) {
     // summary AND produce an audit diff. Omitting it for API providers would let
     // an endpoint redirect (a credential-exfiltration vector on a box where the
     // provider key is the carrier) happen with no audit trail.
-    baseUrl: config?.baseUrl ?? config?.cdpEndpoint ?? null,
+    baseUrl: redactUrlPrivateFields(config?.baseUrl ?? config?.cdpEndpoint)?.url ?? null,
     quota: { ...(config?.quotaPolicy ?? DEFAULT_QUOTA) },
     vertexProject: config?.vertexProject ?? null,
     vertexRegion: config?.vertexRegion ?? null,
@@ -538,7 +541,9 @@ function providerSummaries(registry: ProviderRegistry, config: CanonryConfig, in
     name: adapter.name,
     displayName: adapter.displayName,
     keyUrl: adapter.keyUrl,
-    modelHint: `e.g. ${adapter.modelRegistry.defaultModel}`,
+    // A gateway or answer service has no single default model, and "e.g. "
+    // with nothing after it is not a hint.
+    ...(adapter.modelRegistry.defaultModel ? { modelHint: `e.g. ${adapter.modelRegistry.defaultModel}` } : {}),
     model: registry.get(adapter.name)?.config.model ?? undefined,
     defaultModel: adapter.modelRegistry.defaultModel,
     configured: Boolean(registry.get(adapter.name)),
@@ -1079,7 +1084,7 @@ export async function createServer(opts: {
   const persistedConfigPath = configSourcePath === undefined ? undefined : runtimeConfigPath;
   const persistConfigPatch = (
     patch: Partial<CanonryConfig>,
-    options: { setDashboardPasswordHash?: string } = {},
+    options: { setDashboardPasswordHash?: string; providerReplacement?: { name: string; entry: ProviderConfigEntry | null } } = {},
   ): void => {
     if (persistedConfigPath !== undefined) saveConfigPatch(patch, { ...options, configPath: persistedConfigPath });
   };
@@ -1554,8 +1559,8 @@ export async function createServer(opts: {
       });
   };
 
-  // Shared Technical-AEO site-audit worker. Used by BOTH the manual
-  // `POST /technical-aeo/runs` route and the scheduled `site-audit` kind. The
+  // Shared Agent Readiness site-audit worker. Used by BOTH the manual
+  // `POST /agent-readiness/runs` route and the scheduled `site-audit` kind. The
   // run row is created by the caller. This runs the full crawl and audit, then
   // hands off to the post-run coordinator on completion.
   //
@@ -2101,7 +2106,7 @@ export async function createServer(opts: {
     },
     onSiteAuditRequested: (runId, projectId, auditOpts) => {
       // The scheduler already created the site-audit run row; run the same
-      // worker the manual POST /technical-aeo/runs route uses, with the
+      // worker the manual POST /agent-readiness/runs route uses, with the
       // scheduler's full-site page budget.
       runSiteAudit(runId, projectId, auditOpts);
     },
@@ -3156,13 +3161,16 @@ export async function createServer(opts: {
     before: RegisteredProvider | undefined,
     after: RegisteredProvider | undefined,
     auditContext: Parameters<NonNullable<ApiRoutesOptions['onProviderUpdate']>>[5],
+    savedSettingsChanged = false,
   ): void => {
     const beforeConfig = summarizeProviderConfig(before);
     const afterConfig = summarizeProviderConfig(after);
     const apiKeyRotated = Boolean(before) && Boolean(after?.config.apiKey)
       && before?.config.apiKey !== after?.config.apiKey;
+    const apiKeyRemoved = Boolean(before?.config.apiKey) && !after?.config.apiKey;
     const credentialsChanged = before?.config.vertexCredentials !== after?.config.vertexCredentials;
-    if (!apiKeyRotated && !credentialsChanged && JSON.stringify(beforeConfig) === JSON.stringify(afterConfig)) return;
+    const endpointChanged = before?.config.baseUrl !== after?.config.baseUrl || before?.config.cdpEndpoint !== after?.config.cdpEndpoint;
+    if (!savedSettingsChanged && !apiKeyRotated && !apiKeyRemoved && !credentialsChanged && !endpointChanged && JSON.stringify(beforeConfig) === JSON.stringify(afterConfig)) return;
     const affectedProjects = opts.db.select({ id: projects.id, providers: projects.providers }).from(projects).all()
       .filter(project => project.providers.length === 0 || project.providers.includes(name));
     const projectIds = affectedProjects.length ? affectedProjects.map(project => project.id) : [null];
@@ -3181,11 +3189,29 @@ export async function createServer(opts: {
           before: before ? beforeConfig : null,
           after: afterConfig,
           ...(apiKeyRotated ? { apiKeyRotated: true } : {}),
+          ...(apiKeyRemoved ? { apiKeyRemoved: true } : {}),
           ...(credentialsChanged ? { credentialsChanged: true } : {}),
+          ...(endpointChanged ? { endpointChanged: true } : {}),
+          ...(savedSettingsChanged ? { savedSettingsChanged: true } : {}),
         },
       });
     }
   };
+  const providerSettings = createProviderSettingsController({
+    config: opts.config,
+    configPath: persistedConfigPath,
+    db: opts.db,
+    registry,
+    apiAdapters: API_ADAPTERS,
+    browserAdapter: cdpChatgptAdapter,
+    executingBatches: () => jobRunner.getExecutingBatchRegistrations(),
+    persist: (name, entry) => persistConfigPatch(
+      persistedConfigPath && fs.existsSync(persistedConfigPath) ? {} : opts.config,
+      { providerReplacement: { name, entry } },
+    ),
+    recordChange: recordProviderChange,
+    refreshSummary: () => { providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config)); },
+  });
   await app.register(apiRoutes, {
     // Outcome telemetry reported from route code (`app.emitOutcome`).
     onOutcome: handleRouteOutcome,
@@ -3731,72 +3757,12 @@ export async function createServer(opts: {
       providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
       return providerSummaries(registry, opts.config, true);
     },
-    onProviderUpdate: (
-      providerName: string,
-      apiKey: string,
-      model?: string,
-      baseUrl?: string,
-      incomingQuota?: Partial<
-        import("@canonry/canonry-contracts").ProviderQuotaPolicy
-      >,
-      auditContext?,
-    ) => {
-      const name = providerName;
-      if (!adapterMap[name]) return null;
-      const adapterDefaultQuota = adapterMap[name]!.defaultQuota ?? DEFAULT_QUOTA;
-      const answerService = adapterMap[name]!.kind === "answer-service";
-
-      // Update config and persist
-      if (!opts.config.providers) opts.config.providers = {};
-      const existing = opts.config.providers[name];
-      const previousProvider = registry.get(name) ?? (existing ? {
-        adapter: adapterMap[name]!,
-        config: providerConfigFromEntry(name, existing, resolveProviderQuotaPolicy(existing.quota, adapterDefaultQuota)),
-      } : undefined);
-      const mergedQuota = incomingQuota
-        ? { ...(existing?.quota ?? adapterDefaultQuota), ...incomingQuota }
-        : existing?.quota;
-      opts.config.providers[name] = {
-        apiKey: apiKey || existing?.apiKey,
-        // An answer service's endpoint is fixed and its routes pin profiles.
-        baseUrl: answerService ? undefined : baseUrl || existing?.baseUrl,
-        model: answerService ? undefined : model || existing?.model,
-        quota: mergedQuota,
-        // Preserve Vertex AI config (Gemini provider) — these are set via
-        // config file or env vars, not through the dashboard update payload
-        vertexProject: existing?.vertexProject,
-        vertexRegion: existing?.vertexRegion,
-        vertexCredentials: existing?.vertexCredentials,
-        // Batch and price settings are config-file only too; a key rotation
-        // from the dashboard must not switch batch off or drop overrides.
-        ...(existing?.batch ? { batch: existing.batch } : {}),
-        ...(existing?.pricing ? { pricing: existing.pricing } : {}),
-      };
-
-      try {
-        persistConfigPatch(fs.existsSync(runtimeConfigPath)
-          ? { providers: { [name]: opts.config.providers[name]! } }
-          : opts.config);
-      } catch (err) {
-        app.log.error({ err }, "Failed to save config");
-        return null;
-      }
-
-      // Re-register in the live registry (use preserved model if none was passed)
-      const quota = resolveProviderQuotaPolicy(opts.config.providers[name]!.quota, adapterDefaultQuota);
-      registry.register(adapterMap[name]!, providerConfigFromEntry(name, opts.config.providers[name]!, quota));
-
-      providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
-      const entry = providerSummary.find((provider) => provider.name === name);
-      opts.db.transaction(() => recordProviderChange(name, previousProvider, registry.get(name), auditContext));
-
-      return {
-        name,
-        model: entry?.model,
-        configured: true,
-        quota,
-      };
+    getProviderConnections: providerSettings.connections,
+    onProviderSettingsUpdate: (name, input, auditContext) => {
+      providerSettings.update(name, input, auditContext);
+      return providerSummary.find(provider => provider.name === name)!;
     },
+    onProviderDisconnect: providerSettings.disconnect,
     onGoogleSettingsUpdate: (clientId: string, clientSecret: string) => {
       try {
         setGoogleAuthConfig(opts.config, { clientId, clientSecret });

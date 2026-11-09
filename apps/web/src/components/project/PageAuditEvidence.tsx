@@ -70,7 +70,7 @@ export function PageAuditEvidence({
       </div>
 
       {isLoading ? (
-        <p className="mt-4 text-copy-14 text-secondary" role="status">Loading findings...</p>
+        <p className="mt-4 text-copy-14 text-secondary" role="status">Loading findings…</p>
       ) : error ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-y border-negative bg-negative-soft px-4 py-3" role="alert">
           <p className="text-copy-14 text-negative">Findings could not be loaded.</p>
@@ -79,7 +79,7 @@ export function PageAuditEvidence({
       ) : !audit ? (
         <p className="mt-4 text-copy-14 text-secondary">No findings are available for this page.</p>
       ) : audit.state === 'no-crawl' ? (
-        <p className="mt-4 text-copy-14 text-secondary">No Site Health scan is available.</p>
+        <p className="mt-4 text-copy-14 text-secondary">No Agent Readiness audit scan is available.</p>
       ) : audit.state === 'details-unavailable' ? (
         <p className="mt-4 text-copy-14 text-secondary">This scan saved its summary, but not the findings for each page.</p>
       ) : audit.state === 'not-found' ? (

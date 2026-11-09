@@ -72,7 +72,7 @@ type SearchParams = {
   /** Opens the project's query manager after a navigation, so setup can hand off to it. */
   manageQueries?: boolean
   runId?: string
-  /** Exact Site Health onboarding handoff; separate from the global run drawer. */
+  /** Exact Agent Readiness onboarding handoff; separate from the global run drawer. */
   siteHealthRunId?: string
   seoProfileId?: string
   seoRunId?: string
@@ -97,15 +97,15 @@ type SearchParams = {
   runProject?: string
   runWindow?: string
   runQuery?: string
-  /** Durable first-run handoff state; a Site Health run remains authoritative when present. */
+  /** Durable first-run handoff state; an Agent Readiness run remains authoritative when present. */
   onboarding?: 'site-health' | 'first-run' | 'complete'
   /** Onboarding step the operator chose to skip, so the finish step does not claim it. */
   skipped?: 'visibility'
   /** Explicit setup surface, independent of the instance rollout default. */
   experience?: 'legacy' | 'platform'
-  /** Create the project without consenting to or starting a Site Health scan. */
-  siteScan?: 'skip'
-  /** Exact project handed from Site Health into the original visibility wizard. */
+  /** Optional first-run choice. Omission starts AI Visibility; scan explicitly opts into Agent Readiness. */
+  siteScan?: 'skip' | 'scan'
+  /** Exact project handed from Agent Readiness into the original visibility wizard. */
   setupProject?: string
   /**
    * Advanced-measurement view state, in the URL so a market is a place you can
@@ -144,6 +144,7 @@ function RootLayoutWithErrorBoundary() {
 
 export const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: RootLayoutWithErrorBoundary,
+  notFoundComponent: NotFoundPage,
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
     manageQueries: search.manageQueries === true || search.manageQueries === 'true' ? true : undefined,
     runId: typeof search.runId === 'string' ? search.runId : undefined,
@@ -167,7 +168,7 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     experience: search.experience === 'legacy' || search.experience === 'platform'
       ? search.experience
       : undefined,
-    siteScan: search.siteScan === 'skip' ? 'skip' : undefined,
+    siteScan: search.siteScan === 'skip' || search.siteScan === 'scan' ? search.siteScan : undefined,
     skipped: search.skipped === 'visibility' ? 'visibility' : undefined,
     setupProject: typeof search.setupProject === 'string' ? search.setupProject : undefined,
     scope: typeof search.scope === 'string' ? search.scope : undefined,
@@ -346,16 +347,40 @@ export const projectActivityRoute = createRoute({
   component: () => <LazyProjectPage tab="activity" />,
 })
 
+export const projectTrafficRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/traffic',
+  component: () => <LazyProjectPage tab="traffic" />,
+})
+
 export const projectBacklinksRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/backlinks',
   component: () => <LazyProjectPage tab="backlinks" />,
 })
 
+export const projectAgentReadinessRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/agent-readiness',
+  component: () => <LazyProjectPage tab="agent-readiness" />,
+})
+
+// Agent Readiness answered at `/technical-aeo` before it was renamed. Bookmarks,
+// shared links and an embed's remembered tab still land here, so forward them
+// with their search (scan, run and onboarding selection) and hash intact, and
+// replace the entry so Back never returns to the retired address.
 export const projectTechnicalAeoRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/technical-aeo',
-  component: () => <LazyProjectPage tab="technical-aeo" />,
+  beforeLoad: ({ params, location }) => {
+    throw redirect({
+      to: '/projects/$projectName/agent-readiness',
+      params,
+      search: location.search,
+      hash: location.hash,
+      replace: true,
+    })
+  },
 })
 
 export const projectHistoryRoute = createRoute({
@@ -421,12 +446,6 @@ export const trafficSourceDetailRoute = createRoute({
   component: LazyTrafficSourceDetailPage,
 })
 
-export const notFoundRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '*',
-  component: NotFoundPage,
-})
-
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   projectsRoute,
@@ -444,7 +463,9 @@ export const routeTree = rootRoute.addChildren([
     projectMeasurementPropertyRoute,
     projectReportRoute,
     projectActivityRoute,
+    projectTrafficRoute,
     projectBacklinksRoute,
+    projectAgentReadinessRoute,
     projectTechnicalAeoRoute,
     projectHistoryRoute,
     projectSettingsRoute,
@@ -457,5 +478,4 @@ export const routeTree = rootRoute.addChildren([
   backlinksRoute,
   trafficRoute,
   trafficSourceDetailRoute,
-  notFoundRoute,
 ])

@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { formatPercent } from '@canonry/canonry-contracts'
+import { formatPercent, RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameHealthHistoryOptions,
   getApiV1ProjectsByNameRunsOptions,
@@ -12,10 +12,13 @@ import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 import { AuditHistoryPanel } from '../shared/AuditHistoryPanel.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { WorkspaceTabs } from '../shared/WorkspaceTabs.js'
 
 type HistoryView = 'changes' | 'health' | 'compare'
 
 export function ProjectHistorySection({ projectName }: { projectName: string }) {
+  const tabsId = useId()
   const [view, setView] = useState<HistoryView>('changes')
   const [firstRunId, setFirstRunId] = useState<string | null>(null)
   const [secondRunId, setSecondRunId] = useState<string | null>(null)
@@ -28,13 +31,14 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
     ...getApiV1ProjectsByNameRunsOptions({
       client: heyClient,
       path: { name: projectName },
-      query: { kind: 'answer-visibility', limit: 100 },
+      query: { kind: RunKinds['answer-visibility'], limit: 100 },
     }),
     enabled: view === 'compare',
   })
   const comparableRuns = (runsQuery.data ?? [])
-    .filter((run) => (run.status === 'completed' || run.status === 'partial') && run.trigger !== 'probe')
+    .filter((run) => (run.status === RunStatuses.completed || run.status === RunStatuses.partial) && run.trigger !== RunTriggers.probe)
     .reverse()
+  const hasComparableRuns = new Set(comparableRuns.map(run => run.id)).size > 1
   const resolvedSecondRunId = secondRunId ?? comparableRuns[0]?.id ?? ''
   const resolvedFirstRunId = firstRunId ?? comparableRuns.find((run) => run.id !== resolvedSecondRunId)?.id ?? ''
   const canCompare = Boolean(resolvedFirstRunId && resolvedSecondRunId && resolvedFirstRunId !== resolvedSecondRunId)
@@ -51,33 +55,28 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
 
   return (
     <div className="mt-6">
-      <div className="filter-row" role="tablist" aria-label="Project history views">
-        {([
+      <WorkspaceTabs
+        id={tabsId}
+        label="Project history views"
+        value={view}
+        onChange={setView}
+        className="filter-row"
+        tabClassName="filter-chip"
+        activeTabClassName="filter-chip-active"
+        options={[
           ['changes', 'Changes'],
           ['health', 'Coverage history'],
           ['compare', 'Compare runs'],
-        ] as const).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={view === key}
-            className={`filter-chip ${view === key ? 'filter-chip-active' : ''}`}
-            onClick={() => setView(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
+        ]}
+      />
+      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${view}`} tabIndex={0}>
       {view === 'changes' ? <AuditHistoryPanel projectName={projectName} /> : null}
 
       {view === 'health' ? (
         <section className="mt-6" aria-labelledby="coverage-history-heading">
-          <div className="section-head">
-            <p className="eyebrow eyebrow-soft">Query evidence</p>
-            <h2 id="coverage-history-heading">Mention and citation coverage</h2>
-            <p className="supporting-copy mt-1">Independent answer-text mentions and source citations across completed checks.</p>
+          <div className="flex items-center gap-2">
+            <h2 id="coverage-history-heading" className="text-heading-16 text-heading">Mention and citation coverage</h2>
+            <InfoTooltip text="Independent answer-text mentions and source citations across completed checks." />
           </div>
           {healthQuery.isLoading ? <p className="supporting-copy mt-4" role="status">Loading coverage history…</p> : null}
           {!healthQuery.isLoading && healthRows.length === 0 ? (
@@ -117,12 +116,11 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
 
       {view === 'compare' ? (
         <section className="mt-6" aria-labelledby="compare-runs-heading">
-          <div className="section-head">
-            <p className="eyebrow eyebrow-soft">Evidence diff</p>
-            <h2 id="compare-runs-heading">Compare answer visibility runs</h2>
-            <p className="supporting-copy mt-1">See which tracked queries changed mention or citation state between two checks.</p>
+          <div className="flex items-center gap-2">
+            <h2 id="compare-runs-heading" className="text-heading-16 text-heading">Compare answer visibility runs</h2>
+            <InfoTooltip text="See which tracked queries changed mention or citation state between two checks." />
           </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {hasComparableRuns && <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="text-label-12 text-muted">
               Earlier run
               <select
@@ -143,9 +141,9 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
                 {comparableRuns.map((run) => <option key={run.id} value={run.id}>{new Date(run.createdAt).toLocaleString()}</option>)}
               </select>
             </label>
-          </div>
+          </div>}
           {runsQuery.isLoading || diffQuery.isLoading ? <p className="supporting-copy mt-4" role="status">Comparing runs…</p> : null}
-          {!runsQuery.isLoading && comparableRuns.length < 2 ? (
+          {!runsQuery.isLoading && !hasComparableRuns ? (
             <Card className="surface-card empty-card mt-4">
               <h3>Two completed checks are required</h3>
               <p>{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run another AI Visibility check before comparing historical evidence.'}</p>
@@ -185,6 +183,7 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
           ) : null}
         </section>
       ) : null}
+      </div>
     </div>
   )
 }

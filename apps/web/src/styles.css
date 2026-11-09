@@ -29,7 +29,7 @@
   --chart-tone-caution: #fbbf24;
   --chart-tone-negative: #fb7185;
   --chart-tone-neutral: #a1a1a1;
-  /* Site Health's four-way state palette is Okabe-Ito-derived. These literals
+  /* Agent Readiness's four-way state palette is Okabe-Ito-derived. These literals
      are WebGL-safe and remain distinct under common color-vision deficiencies. */
   --chart-site-health-eligible: #56b4e9;
   --chart-site-health-hidden: #e69f00;
@@ -456,8 +456,9 @@
       0 8px 20px -10px var(--color-caution-glow),
       inset 0 0 0 1px var(--color-caution-glow-inset);
     transform-origin: 0 50%;
-    /* Delayed so the bird "speaks" first, then the bubble appears as the chirp. */
-    animation: brand-bubble-pop 540ms cubic-bezier(0.34, 1.56, 0.64, 1) 100ms both;
+    /* Delayed so the bird "speaks" first, then the bubble appears as the chirp.
+       An exponential ease-out that settles at full size without overshooting. */
+    animation: brand-bubble-pop 420ms cubic-bezier(0.16, 1, 0.3, 1) 100ms both;
   }
 
   .brand-update-bubble:hover {
@@ -519,18 +520,11 @@
   @keyframes brand-bubble-pop {
     0% {
       opacity: 0;
-      transform: scale(0.4) translateY(-6px);
-    }
-    55% {
-      opacity: 1;
-      transform: scale(1.08) translateY(0);
-    }
-    75% {
-      transform: scale(0.97);
+      transform: scale(0.92) translateY(-4px);
     }
     100% {
       opacity: 1;
-      transform: scale(1);
+      transform: scale(1) translateY(0);
     }
   }
 
@@ -627,14 +621,6 @@
   /* Presentation privacy: removing the sidebar also removes its desktop
      gutter, giving the active project view the full viewport width. */
   .app-shell-sidebar-hidden .main-area {
-    @apply lg:pl-0;
-  }
-
-  /* First-run focus mode (sidebar hidden) — drop the 224px sidebar gutter
-     so the wizard centers across the full viewport instead of being
-     offset right. Applied via the `app-shell-focus` modifier set by
-     App.tsx when the user is on /setup with zero projects. */
-  .app-shell-focus .main-area {
     @apply lg:pl-0;
   }
 
@@ -736,30 +722,6 @@
     }
   }
 
-  .health-pill-row {
-    @apply hidden items-center gap-1.5 lg:flex;
-  }
-
-  .health-pill {
-    @apply rounded-full border px-2 py-0.5 normal-case text-label-12-strong;
-  }
-
-  .health-pill-ok {
-    @apply border-positive-500/20 bg-positive-500/8 text-positive-400;
-  }
-
-  .health-pill-checking {
-    @apply border-strong bg-bg-elevated text-secondary;
-  }
-
-  .health-pill-disabled {
-    @apply border-strong bg-bg-elevated text-secondary;
-  }
-
-  .health-pill-error {
-    @apply border-negative-500/20 bg-negative-500/8 text-negative-400;
-  }
-
   .topbar-cta {
     @apply hidden md:inline-flex;
   }
@@ -811,11 +773,11 @@
      RootLayout sets the class on .main-area; pages never pad for the bar.
      Product links and the version live in navigation, outside this lane. */
   .main-area-agent-bar {
-    padding-bottom: 6rem;
+    padding-bottom: calc(7rem + env(safe-area-inset-bottom));
   }
 
   html:has(.main-area-agent-bar) {
-    scroll-padding-bottom: 6rem;
+    scroll-padding-bottom: calc(7rem + env(safe-area-inset-bottom));
   }
 
   .page-container {
@@ -1170,7 +1132,7 @@
      controls change future sweeps, so their inherited/override state needs a
      calm, scannable row layout rather than a modal. */
   .project-engine-settings {
-    @apply material-base mt-5 px-5 py-5;
+    @apply mt-8 border-t border-subtle pt-6;
   }
 
   .project-engine-fieldset {
@@ -1190,7 +1152,7 @@
   }
 
   .project-engine-list {
-    @apply material-base mt-3 divide-y divide-mono-800/40;
+    @apply mt-3 divide-y divide-mono-800/40;
   }
 
   .project-engine-row {
@@ -1348,6 +1310,32 @@
     @apply text-strong text-label-14-strong;
   }
 
+  .engine-comparison {
+    @apply w-full max-w-2xl table-fixed border-collapse;
+  }
+
+  .engine-comparison th,
+  .engine-comparison td {
+    @apply w-1/4 py-2 pl-6 text-right align-middle;
+  }
+
+  .engine-comparison th:first-child,
+  .engine-comparison td:first-child {
+    @apply w-1/2 pl-0 text-left;
+  }
+
+  .engine-comparison thead th {
+    @apply text-label-13 text-secondary;
+  }
+
+  .engine-comparison tbody tr + tr {
+    @apply border-t border-default;
+  }
+
+  .engine-comparison-metric {
+    @apply flex items-baseline justify-end gap-2.5 tabular-nums;
+  }
+
   /* A real space separates the figure for screen readers; the margin tops it
      up to the design's gap. */
   .av-of {
@@ -1474,15 +1462,6 @@
   /* A row's time that opens its run: reads as text, underlines on hover. */
   .av-link {
     @apply rounded-sm text-left underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
-  }
-
-  /* One labelled figure under a card's grid ("Competitor cited instead of you"). */
-  .av-card-line {
-    @apply mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 border-t border-subtle pt-3;
-  }
-
-  .av-card-line-label {
-    @apply text-strong text-label-14-strong;
   }
 
   /* A list inside a Details bullet ("Company names in answers ▸"). Starts
@@ -1993,7 +1972,7 @@
   }
 
   .project-subnav-link {
-    @apply relative -mb-px inline-flex shrink-0 items-center whitespace-nowrap border-b-2 border-transparent px-3 py-2.5 text-muted transition-colors hover:text-strong focus-visible:outline-none focus-visible:text-heading text-label-14-strong;
+    @apply relative -mb-px inline-flex shrink-0 items-center whitespace-nowrap border-b border-transparent px-3 py-2.5 text-muted transition-colors hover:text-strong focus-visible:outline-none focus-visible:text-heading text-label-14-strong;
   }
 
   .project-subnav-current {
@@ -2009,9 +1988,9 @@
     @apply border-mono-100 text-primary;
   }
 
-  /* Trailing group (overflow "More" + Settings), pushed to the far right. */
+  /* More follows the last section. It is not pinned to the far edge. */
   .project-subnav-trailing {
-    @apply ml-auto flex shrink-0 items-stretch gap-x-1;
+    @apply flex shrink-0 items-stretch gap-x-1;
   }
 
   .project-subnav-more {
@@ -2029,10 +2008,6 @@
 
   .project-subnav-menu-item {
     @apply rounded px-3 py-2 text-secondary transition-colors hover:bg-surface-inset hover:text-heading focus-visible:outline-none focus-visible:bg-surface-inset focus-visible:text-heading text-label-14-strong;
-  }
-
-  .project-subnav-menu-item-active {
-    @apply bg-surface-inset text-primary;
   }
 
   /* ── Overview secondary grid (attention + activity) ── */
@@ -2072,35 +2047,32 @@
   }
 
   .hero-stack,
-  .compact-stack,
-  .run-list,
-  .project-list {
+  .run-list {
     @apply grid gap-3;
   }
 
-  /* Scrollable list containers — cap height, fade bottom edge */
+  .project-list,
+  .compact-stack {
+    @apply grid;
+  }
+
+  /* Scrollable list containers keep every visible row fully readable. */
 
   .project-list-scrollable {
     max-height: 32rem;
     overflow-y: auto;
-    mask-image: linear-gradient(to bottom, black calc(100% - 2rem), transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 2rem), transparent 100%);
     padding-bottom: 0.5rem;
   }
 
   .attention-list-scrollable {
     max-height: 18rem;
     overflow-y: auto;
-    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
     padding-bottom: 0.25rem;
   }
 
   .compact-stack-scrollable {
     max-height: 18rem;
     overflow-y: auto;
-    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
     padding-bottom: 0.25rem;
   }
 
@@ -2186,7 +2158,7 @@
   /* ── Compact run ── */
 
   .compact-run {
-    @apply material-base flex items-center justify-between gap-4 px-3.5 py-2.5 text-left transition hover:bg-surface-hover;
+    @apply flex items-center justify-between gap-4 border-b border-subtle px-3.5 py-2.5 text-left transition last:border-b-0 hover:bg-surface-hover;
   }
 
   .compact-run-detail {
@@ -2396,11 +2368,20 @@
   }
 
   .setup-input {
-    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 text-label-14;
+    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition text-label-14;
   }
 
   .setup-textarea {
-    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 resize-y text-copy-14-mono;
+    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition resize-y text-copy-14-mono;
+  }
+
+  /* Focus outranks rest and hover in both themes: gray-900 sits beyond the
+     gray-600 hover border against either background, and the 1px ring makes
+     the edge 2px. Forced colors drop the ring, so a transparent outline takes
+     the system focus color there. */
+  .setup-input:focus-visible,
+  .setup-textarea:focus-visible {
+    @apply border-mono-400 ring-1 ring-mono-400 outline-hidden;
   }
 
   .setup-input:disabled,
@@ -2945,13 +2926,20 @@
     @apply border-b border-subtle;
   }
 
+  /* The column shrinks to its buttons, so spare width goes to the query, and
+     its opaque background covers the cells that scroll under it. */
   .measurement-table-actions {
     position: sticky;
     right: 0;
     z-index: 1;
+    width: 1px;
     white-space: nowrap;
     background-color: var(--color-bg);
-    box-shadow: -1px 0 0 var(--color-border);
+  }
+
+  /* The header cell keeps the header's band. */
+  .evidence-table thead .measurement-table-actions {
+    background-color: var(--color-surface-inset);
   }
 
   .measurement-results-table { table-layout: fixed; }
@@ -3004,6 +2992,8 @@
 
   .query-tracking-workspace { container-type: inline-size; }
   .tracking-query-cell { min-width: 18rem; }
+  /* Short labels and badges take only their own width, leaving the rest to the query. */
+  .tracking-fit-cell { width: 1px; white-space: nowrap; }
   .tracking-scope-cell { min-width: 12rem; max-width: 16rem; }
 
   @container (max-width: 60rem) {
@@ -3013,10 +3003,15 @@
     .query-tracking-workspace .measurement-responsive-table td { padding-inline: 0.75rem; }
     .tracking-query-cell { min-width: 14rem; }
     .tracking-scope-cell { min-width: 10rem; }
+    /* Advanced rows also carry Scope and Class, so their actions stack first. */
+    .tracking-table-advanced .tracking-row-actions { flex-direction: column; align-items: flex-start; gap: 0; }
+  }
+
+  @container (max-width: 40rem) {
     .tracking-row-actions { flex-direction: column; align-items: flex-start; gap: 0; }
   }
 
-  /* Site Health tables read as prose, not as a spec sheet: sentence-case
+  /* Agent Readiness tables read as prose, not as a spec sheet: sentence-case
      headers at body size instead of the all-caps letterspaced default. Scoped
      to this one surface so the shared .evidence-table stays as it is. */
   .site-health-table th {
@@ -3098,11 +3093,11 @@
   /* ── Project row (overview) ── */
 
   .project-row {
-    @apply material-base grid gap-3 px-4 py-3.5 transition hover:bg-surface-hover lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_auto] lg:items-center no-underline text-inherit;
+    @apply grid gap-3 border-b border-subtle px-4 py-3.5 transition last:border-b-0 hover:bg-surface-hover lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
   .project-row-with-sentiment {
-    @apply lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto];
+    @apply lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_9rem_auto];
   }
 
   .project-row-primary {
@@ -3113,16 +3108,8 @@
     @apply min-w-0;
   }
 
-  .project-row-chart {
-    @apply hidden lg:block;
-  }
-
   .project-row-link {
     @apply justify-self-end;
-  }
-
-  .project-insight {
-    @apply mt-1.5 text-muted text-label-12;
   }
 
   /* Fixed 3-row template (label / value / caption) — every stat cell that
@@ -3169,6 +3156,26 @@
   }
 
   /* ── Run row ── */
+
+  .run-filters {
+    @apply mb-4 flex flex-wrap items-center gap-2;
+  }
+
+  .run-filter-control {
+    @apply h-9 min-w-0 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-mono-600;
+  }
+
+  .run-filter-control[type='search'] {
+    @apply min-w-48 flex-1;
+  }
+
+  .run-filters select {
+    @apply max-w-56;
+  }
+
+  .runs-table {
+    @apply min-w-[52rem];
+  }
 
   .run-row {
     @apply material-base grid gap-4 px-4 py-4 transition hover:bg-surface-hover xl:grid-cols-[minmax(0,1.6fr)_20rem_auto] xl:items-center;

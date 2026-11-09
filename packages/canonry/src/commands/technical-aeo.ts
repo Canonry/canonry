@@ -30,7 +30,7 @@ export async function technicalAeoIssues(
     lines.push('', `[${issue.disposition}${severity}] ${issue.code} · ${issue.affectedPages} page(s)`, issue.message)
     lines.push(`Issue: ${issue.id}${issue.stableIdentity ? '' : ' (identity is specific to this scan)'}`)
     for (const example of issue.examples) lines.push(`  ${example.url}`)
-    if (issue.examplesTruncated) lines.push('More affected pages are available with site-health issue-pages.')
+    if (issue.examplesTruncated) lines.push('More affected pages are available with canonry agent-readiness issue-pages.')
     if (issue.messageTruncated) lines.push('The saved message is shortened; inspect the affected pages for context.')
   }
   if (res.nextCursor) lines.push('', `Next cursor: ${res.nextCursor}`)
@@ -82,7 +82,7 @@ function issueEvidenceProvenance(
   ]
 }
 
-/** `canonry technical-aeo score <project>` — site-level scorecard. Composite → json (not jsonl). */
+/** `canonry agent-readiness score <project>` — site-level scorecard. Composite → json (not jsonl). */
 export async function technicalAeoScore(project: string, opts: { runId?: string; format?: string }): Promise<void> {
   const client = getClient()
   const score = await client.getTechnicalAeoScore(project, { runId: opts.runId })
@@ -94,14 +94,14 @@ export async function technicalAeoScore(project: string, opts: { runId?: string;
 
   if (!score.hasData) {
     console.log(
-      `No technical audit yet for "${project}". Run \`canonry technical-aeo run ${project}\` to generate one.`,
+      `No Agent Readiness audit scan yet for "${project}". Run \`canonry agent-readiness run ${project}\` to start one.`,
     )
     return
   }
 
   const lines: string[] = []
   const delta = score.deltaScore == null ? '' : ` (${score.deltaScore >= 0 ? '+' : ''}${score.deltaScore} vs prev)`
-  lines.push(`Technical AEO: ${score.aggregateScore}/100${delta}`)
+  lines.push(`Agent Readiness: ${score.aggregateScore}/100${delta}`)
   lines.push(
     `Audited ${score.pagesAudited} page(s) · ${score.pagesSkipped} skipped · ${score.pagesErrored} errored · sitemap ${score.sitemapUrl}`,
   )
@@ -126,7 +126,7 @@ export async function technicalAeoScore(project: string, opts: { runId?: string;
   console.log(lines.join('\n'))
 }
 
-/** `canonry technical-aeo pages <project>` — per-page breakdown. Collection → supports jsonl. */
+/** `canonry agent-readiness page-scores <project>` — per-page breakdown. Collection → supports jsonl. */
 export async function technicalAeoPages(
   project: string,
   opts: { runId?: string; status?: string; sort?: string; limit?: number; format?: string },
@@ -145,7 +145,7 @@ export async function technicalAeoPages(
   }
 
   if (res.pages.length === 0) {
-    console.log(`No audited pages for "${project}". Run \`canonry technical-aeo run ${project}\` first.`)
+    console.log(`No audited pages for "${project}". Run \`canonry agent-readiness run ${project}\` first.`)
     return
   }
   const lines: string[] = []
@@ -158,7 +158,7 @@ export async function technicalAeoPages(
   console.log(lines.join('\n'))
 }
 
-/** `canonry technical-aeo trend <project>` — aggregate score over time. Collection → supports jsonl. */
+/** `canonry agent-readiness trend <project>` — aggregate score over time. Collection → supports jsonl. */
 export async function technicalAeoTrend(
   project: string,
   opts: { limit?: number; format?: string },
@@ -176,7 +176,7 @@ export async function technicalAeoTrend(
   }
 
   if (res.points.length === 0) {
-    console.log(`No audits yet for "${project}". Run \`canonry technical-aeo run ${project}\` first.`)
+    console.log(`No Agent Readiness audit scans yet for "${project}". Run \`canonry agent-readiness run ${project}\` first.`)
     return
   }
   const lines: string[] = []
@@ -187,7 +187,7 @@ export async function technicalAeoTrend(
   console.log(lines.join('\n'))
 }
 
-/** `canonry technical-aeo progress <project>` — exact durable progress for one run. */
+/** `canonry agent-readiness progress <project>` — exact durable progress for one run. */
 export async function technicalAeoProgress(
   project: string,
   opts: { runId: string; format?: string },
@@ -199,7 +199,7 @@ export async function technicalAeoProgress(
   }
 
   const lines = [
-    `Site Health progress: ${progress.phase} (${progress.status})`,
+    `Agent Readiness audit scan progress: ${progress.phase} (${progress.status})`,
     `Run: ${progress.runId}`,
   ]
   if (progress.attempt) {
@@ -216,7 +216,7 @@ export async function technicalAeoProgress(
   console.log(lines.join('\n'))
 }
 
-/** `canonry technical-aeo crawl <project>` — persisted crawl metadata, not a graph dump. */
+/** `canonry agent-readiness overview <project>` — persisted crawl metadata, not a graph dump. */
 export async function technicalAeoCrawl(
   project: string,
   opts: { runId?: string; date?: string; format?: string },
@@ -231,7 +231,7 @@ export async function technicalAeoCrawl(
       console.log([`No persisted site crawl for "${project}" on ${opts.date}.`, ...availableScanDateLines(crawl.availableScanDates)].join('\n'))
       return
     }
-    console.log(`No persisted site crawl for "${project}". Run \`canonry technical-aeo run ${project}\` first.`)
+    console.log(`No persisted site crawl for "${project}". Run \`canonry agent-readiness run ${project}\` first.`)
     return
   }
   const lines = [
@@ -246,7 +246,7 @@ export async function technicalAeoCrawl(
   console.log(lines.join('\n'))
 }
 
-/** `canonry technical-aeo subgraph <project>` — bounded semantic crawl neighborhood. */
+/** `canonry agent-readiness subgraph <project>` — bounded semantic crawl neighborhood. */
 export async function technicalAeoSubgraph(
   project: string,
   opts: { runId?: string; nodeKey?: string; url?: string; hops?: number; maxNodes?: number; maxEdges?: number; format?: string },
@@ -257,17 +257,17 @@ export async function technicalAeoSubgraph(
     return
   }
   if (!res.hasCrawlData) {
-    console.log(`No persisted Site Health crawl for "${project}". Run \`canonry technical-aeo run ${project}\` first.`)
+    console.log(`No persisted Agent Readiness crawl for "${project}". Run \`canonry agent-readiness run ${project}\` first.`)
     return
   }
   if (res.state !== 'ready') {
-    console.log(`Site Health subgraph details are unavailable for crawl ${res.runId ?? '-'}.`)
+    console.log(`Agent Readiness subgraph details are unavailable for crawl ${res.runId ?? '-'}.`)
     return
   }
   const focus = res.focusUrl ?? res.focusNodeKey ?? 'crawl root'
   const totalQualifier = res.countAccuracy === 'lower-bound' ? 'at least ' : ''
   const lines = [
-    `Site Health subgraph: ${focus} (${res.hops} hop${res.hops === 1 ? '' : 's'})`,
+    `Agent Readiness subgraph: ${focus} (${res.hops} hop${res.hops === 1 ? '' : 's'})`,
     `${res.nodes.length} of ${totalQualifier}${res.totalNodes} node(s) · ${res.edges.length} of ${totalQualifier}${res.totalEdges} edge(s)`,
     `Crawl: ${res.complete ? 'complete' : `partial (${res.termination ?? 'incomplete'})`}`,
   ]
@@ -277,7 +277,7 @@ export async function technicalAeoSubgraph(
   console.log(lines.join('\n'))
 }
 
-/** `canonry technical-aeo path <project>` — directed shortest internal-link path. */
+/** `canonry agent-readiness path <project>` — directed shortest internal-link path. */
 export async function technicalAeoPath(
   project: string,
   opts: { runId?: string; fromNodeKey?: string; fromUrl?: string; toNodeKey?: string; toUrl?: string; maxDepth?: number; format?: string },
@@ -288,11 +288,11 @@ export async function technicalAeoPath(
     return
   }
   if (res.state === 'no-crawl') {
-    console.log(`No persisted Site Health crawl for "${project}". Run \`canonry technical-aeo run ${project}\` first.`)
+    console.log(`No persisted Agent Readiness crawl for "${project}". Run \`canonry agent-readiness run ${project}\` first.`)
     return
   }
   if (res.state === 'details-unavailable') {
-    console.log(`Site Health path details are unavailable for crawl ${res.runId ?? '-'}.`)
+    console.log(`Agent Readiness path details are unavailable for crawl ${res.runId ?? '-'}.`)
     return
   }
   if (res.state === 'unreachable') {
@@ -310,7 +310,7 @@ export async function technicalAeoPath(
   console.log(lines.join('\n'))
 }
 
-/** `canonry technical-aeo changes <project>` — cursor-paged canonical scan diff. */
+/** `canonry agent-readiness changes <project>` — cursor-paged canonical scan diff. */
 export async function technicalAeoChanges(
   project: string,
   opts: { fromRunId?: string; toRunId?: string; scope?: 'all' | 'pages' | 'links'; change?: 'all' | 'added' | 'removed' | 'changed'; cursor?: string; limit?: number; format?: string },
@@ -331,15 +331,15 @@ export async function technicalAeoChanges(
     return
   }
   if (res.state === 'unavailable') {
-    console.log(`Site Health changes unavailable: ${res.reason.replaceAll('-', ' ')}.`)
+    console.log(`Agent Readiness changes unavailable: ${res.reason.replaceAll('-', ' ')}.`)
     return
   }
   if (res.state === 'incompatible') {
-    console.log(`Site Health changes unavailable: snapshots use incompatible ${res.mismatchedVersions.join(', ')} versions.`)
+    console.log(`Agent Readiness changes unavailable: snapshots use incompatible ${res.mismatchedVersions.join(', ')} versions.`)
     return
   }
   const lines = [
-    `Site Health changes: ${res.fromRunId} → ${res.toRunId}`,
+    `Agent Readiness changes: ${res.fromRunId} → ${res.toRunId}`,
     `Filters: ${res.filters.scope} · ${res.filters.change}`,
   ]
   if (res.summaryState === 'exact' && res.summary !== null && res.total !== null) {
@@ -400,7 +400,7 @@ function inventorySummaryLines(summary: SiteCrawlInventorySummaryDto | null | un
   ]
 }
 
-/** `canonry technical-aeo crawl-pages <project>` — cursor-paged crawl nodes. */
+/** `canonry agent-readiness pages <project>` — cursor-paged crawl nodes. */
 export async function technicalAeoCrawlPages(
   project: string,
   opts: {
@@ -458,7 +458,7 @@ export async function technicalAeoCrawlPages(
   console.log(lines.join('\n'))
 }
 
-/** `canonry technical-aeo page-audit <project>` — one score with its exact evidence. */
+/** `canonry agent-readiness page-audit <project>` — one score with its exact evidence. */
 export async function technicalAeoPageAudit(
   project: string,
   opts: { runId?: string; nodeKey?: string; url?: string; format?: string },
@@ -473,7 +473,7 @@ export async function technicalAeoPageAudit(
     return
   }
   if (res.state === 'no-crawl') {
-    console.log(`No persisted Site Health crawl for "${project}". Run \`canonry technical-aeo run ${project}\` first.`)
+    console.log(`No persisted Agent Readiness crawl for "${project}". Run \`canonry agent-readiness run ${project}\` first.`)
     return
   }
   const provenance = [`Run: ${res.runId} · ${res.complete ? 'complete' : 'partial'}`]
@@ -526,7 +526,7 @@ export async function technicalAeoPageAudit(
   console.log(lines.join('\n'))
 }
 
-/** `canonry technical-aeo structure <project>` — exactly one site-hierarchy level. */
+/** `canonry agent-readiness structure <project>` — exactly one site-hierarchy level. */
 export async function technicalAeoStructure(
   project: string,
   opts: { runId?: string; parentPath?: string; cursor?: string; limit?: number; format?: string },
@@ -564,7 +564,7 @@ export async function technicalAeoStructure(
   console.log(lines.join('\n'))
 }
 
-/** `canonry technical-aeo links <project>` — bounded internal-link edge list. */
+/** `canonry agent-readiness links <project>` — bounded internal-link edge list. */
 export async function technicalAeoInternalLinks(
   project: string,
   opts: { runId?: string; sourceUrl?: string; targetUrl?: string; followable?: boolean; cursor?: string; limit?: number; format?: string },
@@ -601,7 +601,7 @@ export async function technicalAeoInternalLinks(
   console.log(lines.join('\n'))
 }
 
-/** `canonry technical-aeo links neighbors <project>` — bounded inbound/outbound edges for one page. */
+/** `canonry agent-readiness neighbors <project>` — bounded inbound/outbound edges for one page. */
 export async function technicalAeoLinkNeighbors(
   project: string,
   opts: { runId?: string; nodeKey?: string; url?: string; limit?: number; format?: string },
@@ -626,7 +626,7 @@ export async function technicalAeoLinkNeighbors(
   console.log(lines.join('\n'))
 }
 
-/** `canonry technical-aeo dead-links <project>` — opt-in check state and bounded findings. */
+/** `canonry agent-readiness dead-links <project>` — opt-in check state and bounded findings. */
 export async function technicalAeoDeadLinks(
   project: string,
   opts: { runId?: string; cursor?: string; limit?: number; format?: string },
@@ -678,7 +678,7 @@ function formatDeadLinkState(value: { state: string; checked?: number; found?: n
   return `${value.found ?? 0} found / ${value.checked ?? 0} checked${suffix} (${value.state})`
 }
 
-/** `canonry technical-aeo run <project>` — trigger a site-audit run. Mutation → json (not jsonl). */
+/** `canonry agent-readiness run <project>` — trigger a site-audit run. Mutation → json (not jsonl). */
 export async function technicalAeoRun(
   project: string,
   opts: Partial<SiteAuditRunRequest> & { wait?: boolean; format?: string },
@@ -702,7 +702,7 @@ export async function technicalAeoRun(
       return
     }
     console.log(
-      `Site audit started (run ${runId}, status ${status}). Use \`canonry runs get ${runId}\` to check status, or pass --wait.`,
+      `Agent Readiness audit scan started (run ${runId}, status ${status}). Use \`canonry agent-readiness progress ${project} --run-id ${runId}\` to check status, or pass --wait.`,
     )
     return
   }
@@ -710,7 +710,7 @@ export async function technicalAeoRun(
   const terminal = new Set(['completed', 'partial', 'failed', 'cancelled'])
   const start = Date.now()
   const timeoutMs = 15 * 60 * 1000
-  if (!isMachineFormat(opts.format)) process.stderr.write('Auditing')
+  if (!isMachineFormat(opts.format)) process.stderr.write('Scanning')
   let final = status
   while (!terminal.has(final) && Date.now() - start < timeoutMs) {
     await new Promise((r) => setTimeout(r, 2000))
@@ -724,5 +724,5 @@ export async function technicalAeoRun(
     console.log(JSON.stringify({ runId, status: final }, null, 2))
     return
   }
-  console.log(`Site audit ${final} (run ${runId}).`)
+  console.log(`Agent Readiness audit scan ${final} (run ${runId}).`)
 }

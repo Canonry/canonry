@@ -437,7 +437,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   // the anonymousId and fire any telemetry events.
   if (!isMachineFormat(format)) {
     showFirstRunNotice()
-    console.log('\nNext: canonry serve to map your site and capture a Page Health baseline.')
+    console.log('\nNext: canonry serve to map your site and capture an Agent Readiness baseline.')
     console.log('\nNext steps:')
     for (const line of nextSteps) {
       console.log(`  ${line}`)
@@ -482,7 +482,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
 
   // End inside the product, not at a printout. Half of new installs run init
   // and never another command; every printed "Next:" line is a place to lose
-  // more of them, and the resumable Page Health setup is strictly better than
+  // more of them, and the resumable Agent Readiness setup is strictly better than
   // terminal instructions that describe it.
   // Interactive human sessions only: machine formats and piped stdio keep the
   // printed next steps as the contract.
@@ -504,27 +504,27 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
  * so the goal is to make the next action unambiguous and immediate.
  *
  * The dashboard setup (`canonry serve` → `http://127.0.0.1:4100/setup`) is the
- * recommended primary path: it maps a public site and captures a Page Health
- * baseline without requiring an answer-engine provider. AI Visibility remains
- * an optional follow-on. The CLI sequence is listed as the alternative for
+ * recommended primary path: it maps a public site and captures an Agent
+ * Readiness baseline without requiring an answer-engine provider. AI
+ * Visibility remains an optional follow-on. The CLI sequence is listed as the alternative for
  * operators who prefer scripts or non-interactive automation.
  */
 function buildNextSteps(): string[] {
   return [
-    '1. Start the dashboard and open Page Health setup:',
+    '1. Start the dashboard and open Agent Readiness setup:',
     '     canonry serve',
     '     → http://127.0.0.1:4100/setup',
     '',
-    '   Map your public site and capture a persisted Page Health baseline.',
-    '   AI Visibility is optional and can be configured after Page Health.',
+    '   Map your public site and capture a persisted Agent Readiness baseline.',
+    '   AI Visibility is optional and can be configured after Agent Readiness.',
     '   On a remote or proxied host, dashboard password setup asks for the root API key (apiKey in config.yaml).',
     '',
     'Prefer the terminal? The same flow as CLI commands:',
     '',
     '  a. canonry project create my-site --domain example.com --country US --language en',
-    '  b. canonry technical-aeo run my-site --max-pages 100 --wait --format json',
-    '  c. canonry technical-aeo score my-site --format json',
-    '  d. canonry technical-aeo pages my-site --sort score-asc --limit 10 --format jsonl',
+    '  b. canonry agent-readiness run my-site --max-pages 100 --wait --format json',
+    '  c. canonry agent-readiness score my-site --format json',
+    '  d. canonry agent-readiness page-scores my-site --sort score-asc --limit 10 --format jsonl',
     '',
     'Tip: "canonry doctor" verifies your setup before you start.',
   ]

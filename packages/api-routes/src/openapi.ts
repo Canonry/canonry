@@ -19,6 +19,7 @@ import {
   seoCompetitorSortSchema,
   seoMarketRankingFilterSchema,
   seoMarketRankingSortSchema,
+  legacyAgentReadinessPath,
   operationAccess,
 } from '@canonry/canonry-contracts'
 import {
@@ -79,6 +80,8 @@ interface OpenApiOperation {
   summary: string
   tags: string[]
   auth?: boolean
+  /** Emitted as OpenAPI `deprecated`; generated clients mark the call `@deprecated`. */
+  deprecated?: boolean
   description?: string
   parameters?: OpenApiParameter[]
   requestBody?: {
@@ -2131,7 +2134,7 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post', path: '/api/v1/projects/{name}/results/clear', summary: 'Preview or clear selected saved visibility and research results', tags: ['runs'],
-    description: 'Administrator or runs.write key only. Exact run IDs are required; confirm defaults to false for a non-mutating preview. Refuses active visibility or research work and any selected non-visibility run. Keeps queries, measurement plans, Site Health, backlinks, schedules, audit history, and usage accounting. Back up stored evidence before confirming deletion.',
+    description: 'Administrator or runs.write key only. Exact run IDs are required; confirm defaults to false for a non-mutating preview. Refuses active visibility or research work and any selected non-visibility run. Keeps queries, measurement plans, Agent Readiness audit scans, backlinks, schedules, audit history, and usage accounting. Back up stored evidence before confirming deletion.',
     parameters: [nameParameter],
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ResultsClearRequest' } } } },
     responses: { 200: jsonResponse('Selected history previewed or cleared.', 'ResultsClearResponse'), 400: errorResponse('Invalid selection or unsupported run kind.'), 403: errorResponse('Administrator or runs.write scope required.'), 404: errorResponse('Project or selected run not found.'), 409: errorResponse('Visibility or research work is active.') },
@@ -2879,6 +2882,23 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/run-preview',
+    summary: 'Preview the next full manual sweep without spending',
+    description: 'Projects the default POST /projects/{name}/runs request from the same queue preparation and admission. '
+      + 'Simple uses the saved default location and configured engines; Advanced uses its published revision and deduplicated execution slots. '
+      + 'expectedRequestCount includes every planned answer slot; requestCount excludes unavailable engines and held provider accounts. '
+      + 'Query-class counts remain independent: one Advanced query can have assignments in more than one class. '
+      + 'No writes, reservations or provider calls. The launch rechecks current configuration and admission; this preview is not a price quote or a reservation.',
+    tags: ['runs'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Full manual sweep workload and admission returned.', 'RunPreviewDto'),
+      400: errorResponse('Published plan or saved location is invalid.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/run-admission',
     summary: 'Get whether the next sweep would be admitted',
     description: 'The `admission` or `manualAdmission` of `/projects/{name}/runs/latest` without the latest run: whether the next full sweep would '
@@ -3251,31 +3271,56 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/settings',
     summary: 'Get provider settings summary',
+    description: 'Install administrators also receive providerConnections, the credential-free connection list with project usage. When the host cannot build that list (for example config.yaml cannot be read), the response omits it and carries providerConnectionsUnavailable with a typed reason and message instead; provider status, the catalog, Google and Bing are still returned. A project whose saved measurement plan or draft cannot be read is reported under each connection\'s usage.unknown.',
     tags: ['settings'],
     responses: {
       200: jsonResponse('Settings returned.', 'SettingsDto'),
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/settings/providers/{name}',
+    summary: 'Inspect saved provider connection settings and usage',
+    description: 'Requires install administrator authority. Returns credential-free current settings, inherited defaults, host-managed options, mutation capabilities and saved Simple/Advanced project references. A stored-only read: no model discovery, provider check or spend. impactRevision guards a subsequent disconnect against changed configuration or references. usage.unknown lists projects whose saved measurement plan or draft could not be read, so their references are unknown.',
+    tags: ['settings'],
+    parameters: [providerNameParameter],
+    responses: {
+      200: jsonResponse('Provider connection settings and usage returned.', 'ProviderConnectionSettingsDto'),
+      400: errorResponse('The host could not read its saved provider configuration (error.details.reason config-unreadable).'),
+      403: errorResponse('Install administrator authority is required.'),
+      404: errorResponse('Unknown provider connection.'),
+      501: errorResponse('Provider connection details are not supported.'),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/settings/providers/{name}',
+    summary: 'Disconnect a provider while retaining project references and history',
+    description: 'Requires settings.write and install administrator authority. Removes the saved connection without deleting project selections, schedules, Advanced plans/drafts, or historical answers. Optional expectedImpactRevision is a concurrency precondition from the connection read (not execution tuning): a changed connection or saved dependency is refused. Outstanding provider batches and host-managed configuration can block removal.',
+    tags: ['settings'],
+    parameters: [providerNameParameter],
+    requestBody: { required: false, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProviderDisconnectRequest' } } } },
+    responses: {
+      200: jsonResponse('Provider disconnected; saved references and history retained.', 'ProviderConnectionSettingsDto'),
+      400: errorResponse('Invalid disconnect request.'),
+      403: errorResponse('Install administrator authority and settings.write are required.'),
+      404: errorResponse('Unknown provider connection.'),
+      409: errorResponse('Provider configuration, usage, or outstanding work prevents disconnection.'),
+      501: errorResponse('Provider disconnection is not supported.'),
+    },
+  },
+  {
     method: 'put',
     path: '/api/v1/settings/providers/{name}',
     summary: 'Update provider settings',
-    description: 'Requires settings.write. Already configured providers accept model or quota changes without resubmitting credentials. An unconfigured provider still requires its connection credentials.',
+    description: 'Requires settings.write. Already configured providers accept model or quota changes without resubmitting credentials. Omitted values preserve saved settings. reset removes a model, defaultable endpoint or quota override, or the optional local API key, and additionally requires install administrator authority. A field cannot be set and reset together. Browser endpoints keep using PUT /settings/cdp; browser quotas can be updated here when the host supports it. expectedRevision is an optional concurrency precondition from the connection read, not execution tuning. An unconfigured API provider still requires its connection credentials.',
     tags: ['settings'],
     parameters: [providerNameParameter],
     requestBody: {
       required: true,
       content: {
         'application/json': {
-          schema: {
-            type: 'object',
-            properties: {
-              apiKey: stringSchema,
-              baseUrl: stringSchema,
-              model: stringSchema,
-              quota: objectSchema,
-            },
-          },
+          schema: { $ref: '#/components/schemas/ProviderSettingsUpdateRequest' },
         },
       },
     },
@@ -3283,6 +3328,7 @@ const routeCatalog: OpenApiOperation[] = [
       200: jsonResponse('Provider updated.', 'ProviderSummaryEntryDto'),
       400: errorResponse('Invalid provider settings.'),
       403: errorResponse('The credential lacks settings.write.'),
+      409: errorResponse('Provider configuration changed or outstanding work prevents this update.'),
       501: errorResponse('Provider updates are not supported.'),
     },
   },
@@ -3580,6 +3626,20 @@ const routeCatalog: OpenApiOperation[] = [
       200: rawJsonResponse('CDP endpoint updated.', looseObjectSchema),
       400: errorResponse('Invalid CDP settings.'),
       501: errorResponse('CDP updates are not supported.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/schedule/preview',
+    summary: 'Preview schedule timing without enabling recurrence',
+    description: 'Computes the next run from the same timing validation as a saved schedule. Changes no configuration and performs no provider work. Timing and timezone are identity inputs; no work is reused.',
+    tags: ['schedules'],
+    parameters: [nameParameter],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SchedulePreviewRequest' } } } },
+    responses: {
+      200: jsonResponse('Next occurrence returned.', 'SchedulePreviewDto'),
+      400: errorResponse('Invalid schedule timing.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -5995,7 +6055,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/sitemaps',
     summary: 'Compare the site\'s sitemaps with what Google and Bing list',
-    description: 'Stored data only. `site.sitemaps` are the sitemap files the latest Site Health scan read pages from. `google` and `bing` hold each engine\'s stored list (null when the engine is not connected or its list was never read) and `missing`: sitemaps the site declares, or someone submitted to the other engine, that this engine lacks. A file inside a missing index is left out; Google lists only sitemaps inside the connected property.',
+    description: 'Stored data only. `site.sitemaps` are the sitemap files the latest Agent Readiness audit scan read pages from. `google` and `bing` hold each engine\'s stored list (null when the engine is not connected or its list was never read) and `missing`: sitemaps the site declares, or someone submitted to the other engine, that this engine lacks. A file inside a missing index is left out; Google lists only sitemaps inside the connected property.',
     tags: ['sitemaps'],
     parameters: [nameParameter],
     responses: {
@@ -8203,27 +8263,27 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo',
-    summary: 'Get the Technical AEO scorecard for a project',
+    path: '/api/v1/projects/{name}/agent-readiness',
+    summary: 'Get the Agent Readiness scorecard for a project',
     description:
       'runSelection selects a complete run on the latest UTC scan date, otherwise the largest page sample, then newest; it flags same-date candidates. Factor pagesFailing and pagesPartial are separate; a factor with failing pages is fail. Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the scan a default read returned just before this one was recorded. A default read whose preferred crawl audited no page falls back to the preferred scored crawl. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest audit.', schema: stringSchema },
     ],
     responses: {
-      200: jsonResponse('Technical AEO scorecard returned.', 'SiteAuditScoreDto'),
+      200: jsonResponse('Agent Readiness scorecard returned.', 'SiteAuditScoreDto'),
       404: errorResponse('Project or site-audit run not found.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/pages',
+    path: '/api/v1/projects/{name}/agent-readiness/pages',
     summary: 'List audited pages from a site-audit run',
     description:
       'Returns the per-page breakdown of the latest completed/partial site-audit run, or the historical audit selected by `runId` (paginated). Filter to `status=error` to surface unreachable pages; sort `score-asc` (default) to surface the worst-scoring pages first.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest audit.', schema: stringSchema },
@@ -8239,16 +8299,16 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/trend',
-    summary: 'Get the Technical AEO aggregate-score trend',
+    path: '/api/v1/projects/{name}/agent-readiness/trend',
+    summary: 'Get the Agent Readiness score trend',
     description: 'Returns historical aggregate scores across completed/partial site-audit runs, oldest-first, for the trend chart.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'limit', in: 'query', description: 'Max data points returned (most recent runs). Default 30.', schema: integerSchema },
     ],
     responses: {
-      200: jsonResponse('Technical AEO trend returned.', 'SiteAuditTrendResponseDto'),
+      200: jsonResponse('Agent Readiness trend returned.', 'SiteAuditTrendResponseDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -8273,10 +8333,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/crawl',
-    summary: 'Get persisted Technical AEO crawl metadata',
+    path: '/api/v1/projects/{name}/agent-readiness/crawl',
+    summary: 'Get persisted Agent Readiness crawl metadata',
     description: 'Returns a non-probe site-audit crawl on the requested UTC date, the selected run, or the latest scan date. Prefer complete scans, then the largest page sample, then the latest scan on that date. runSelection records same-date ambiguity; inventorySummary reports exact whole-snapshot eligibility and disjoint excluded reasons. `complete` and `termination` qualify budget-limited evidence. `hasCrawlData=false` never synthesizes a graph from legacy scorecard rows; dated no-data reads expose bounded `availableScanDates` with full distinct-date totals and matching month/day candidates to resolve an omitted year; `legacyAuditAvailable` says that the old score/pages/trend data can still be read separately.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8290,10 +8350,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/graph',
-    summary: 'Get a persisted Site Health graph projection',
+    path: '/api/v1/projects/{name}/agent-readiness/graph',
+    summary: 'Get a persisted Agent Readiness graph projection',
     description: 'Returns the deterministic graph projection computed once when the latest or selected historical crawl was published. ForceAtlas2 positions and the exact internal-anchor edge sample are persisted, so reads run no layout physics and never rescan the crawl edge table. Nav, header, and footer links are excluded from the layout physics but retained in the sample and tagged `isTemplate`, so a viewer can draw them without a refetch and without any node moving. The response is bounded to 20,000 nodes / 50,000 edges; `layout`, `omittedNodes`, `omittedEdges`, and `sampled` disclose legacy/unavailable layouts and intentional truncation, and `templateDetection` says whether template links could be told apart at all and by which rule.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8302,16 +8362,16 @@ const routeCatalog: OpenApiOperation[] = [
       linkKindParameter,
     ],
     responses: {
-      200: jsonResponse('Bounded Site Health graph projection returned.', 'SiteCrawlGraphResponseDto'),
+      200: jsonResponse('Bounded Agent Readiness graph projection returned.', 'SiteCrawlGraphResponseDto'),
       404: errorResponse('Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/subgraph',
-    summary: 'Get a bounded canonical Site Health neighborhood',
+    path: '/api/v1/projects/{name}/agent-readiness/subgraph',
+    summary: 'Get a bounded canonical Agent Readiness neighborhood',
     description: 'Agent-oriented canonical crawl neighborhood around one page. Reads full crawl page/link rows rather than the sampled visualization, excludes layout coordinates, and returns snapshot completeness/termination. When a hard bound is reached, countAccuracy=lower-bound makes totalNodes, totalEdges, omittedNodes, and omittedEdges explicit minimums rather than false exact totals.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8322,16 +8382,16 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'maxEdges', in: 'query', description: 'Maximum canonical edges. Defaults to 50; maximum 500.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
     ],
     responses: {
-      200: jsonResponse('Bounded canonical Site Health neighborhood returned.', 'SiteHealthSubgraphResponseDto'),
+      200: jsonResponse('Bounded canonical Agent Readiness neighborhood returned.', 'SiteHealthSubgraphResponseDto'),
       404: errorResponse('Project, crawl-bearing run, or focus page not found.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/path',
+    path: '/api/v1/projects/{name}/agent-readiness/path',
     summary: 'Find a directed internal-link path between pages',
     description: 'Returns the shortest directed path over followable internal anchor links. The source defaults to the crawl root; the target must be identified by toNodeKey or toUrl. Exploration is bounded to 5,000 nodes and returns an explicit unreachable or truncated state. Snapshot complete and termination provenance prevents an unreachable result from a selected partial crawl being mistaken for a site-wide claim.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8349,10 +8409,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/changes',
-    summary: 'Compare canonical Site Health snapshots',
+    path: '/api/v1/projects/{name}/agent-readiness/changes',
+    summary: 'Compare canonical Agent Readiness snapshots',
     description: 'Returns exact page and internal-link additions, removals, and semantic field changes between immutable complete crawl snapshots. Omitted toRunId selects the latest complete crawl; omitted fromRunId selects the complete crawl immediately before the target. A crawl stopped at its budget is never compared: when every crawl is partial, the result is `partial-not-comparable` with the newest crawl as `toRunId`, and `no-crawl` means no scan published a crawl. ForceAtlas2 positions are presentation data and never count as a change. The first page includes exact post-filter summary counts; cursor pages set summary and total to null so they never repeat full snapshot joins or trust caller-carried counts. Results use a snapshot- and filter-bound keyset cursor.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'fromRunId', in: 'query', description: 'Baseline complete crawl. Omit for the complete crawl immediately before the target.', schema: stringSchema },
@@ -8363,17 +8423,17 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'limit', in: 'query', description: 'Maximum change records. Defaults to 25; maximum 100.', schema: { type: 'integer', minimum: 1, maximum: 100 } },
     ],
     responses: {
-      200: jsonResponse('Canonical Site Health snapshot comparison returned.', 'SiteHealthChangesResponseDto'),
+      200: jsonResponse('Canonical Agent Readiness snapshot comparison returned.', 'SiteHealthChangesResponseDto'),
       400: errorResponse('Invalid filters, run direction, or cursor context.'),
       404: errorResponse('Project or selected crawl-bearing run not found.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/issues',
+    path: '/api/v1/projects/{name}/agent-readiness/issues',
     summary: 'List stored audit issue groups and representative URLs',
     description: 'Read-only retained evidence, without provider calls. Includes coded findings and independent critical defects at every page score and retained cross-page groups; mirrored duplicate annotations appear once. Returns stored run/date/attempt, crawl completeness, and separate page-finding/cross-page coverage so legacy absence and malformed evidence cannot imply a clean site. Disposition is a prioritization hint, not permission to edit or proof of score impact. Recommendations distinguish whole-factor guidance from independently issue-scoped critical-defect guidance. Page-finding identities use factor/code/type; duplicate metadata identities use the full exact metadata value. Unknown cross-page identities are run-local. Reads fail explicitly above 128 MiB evidence or 4096 groups; they never sample an apparently complete total.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Stored non-probe audit run. Omit for the standard latest crawl selection.', schema: stringSchema },
@@ -8388,10 +8448,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages',
+    path: '/api/v1/projects/{name}/agent-readiness/issues/{issueId}/pages',
     summary: 'List affected URLs for one stored audit issue',
     description: 'Read-only bounded membership of one issue in the selected published audit attempt. Preserve runId from the issue list when following historical evidence. Messages and factor-scoped recommendations expose explicit truncation; URLs are preserved. Missing legacy evidence remains unavailable, never a measured empty result.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Stored non-probe audit run. Omit for the standard latest crawl selection.', schema: stringSchema },
@@ -8407,10 +8467,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/crawl/pages/audit',
+    path: '/api/v1/projects/{name}/agent-readiness/crawl/pages/audit',
     summary: 'Get exact audit evidence for one persisted crawl page',
     description: 'Returns one page score with the exact weighted-factor findings, recommendations, applicability, and independent critical defects persisted for the selected crawl. Exactly one of nodeKey or url is required. The discriminated state preserves crawl completeness and termination provenance, distinguishes a page that was not audited from one that was not found, and marks legacy score-only rows without fabricating missing evidence. This one-page read keeps verbose evidence out of the bounded interactive graph projection.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8425,10 +8485,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/crawl/pages',
-    summary: 'List persisted Technical AEO crawl pages',
+    path: '/api/v1/projects/{name}/agent-readiness/crawl/pages',
+    summary: 'List persisted Agent Readiness crawl pages',
     description: 'Cursor-paged canonical crawl nodes for the requested UTC date, latest scan date, or selected crawl. inventorySummary gives whole-snapshot eligibility and excluded reasons independent of paging and filters; healthReasonCounts sums the filtered list before paging. Dated no-data reads expose `availableScanDates` for an explicit retry on a known date, never an automatic fallback. Unknown indexability never means canonical-away. `inventoryEligible` is Canonry technical-inventory eligibility, not a statement about actual Google index state.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8437,7 +8497,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'fetchState', in: 'query', description: 'Filter by persisted fetch state.', schema: stringSchema },
       { name: 'indexabilityState', in: 'query', description: 'Filter by crawler-derived indexability state; this is not Google index coverage.', schema: stringSchema },
       { name: 'nodeKey', in: 'query', description: 'Return only the page with this node key. Combined with a filter it answers whether that exact page is in the filtered set, without paging through the list.', schema: stringSchema },
-      { name: 'healthState', in: 'query', description: 'Filter by the derived Site Health state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.', schema: { type: 'string', enum: ['eligible', 'hidden', 'resource', 'redirect', 'failed', 'unchecked'] } },
+      { name: 'healthState', in: 'query', description: 'Filter by the derived page state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.', schema: { type: 'string', enum: ['eligible', 'hidden', 'resource', 'redirect', 'failed', 'unchecked'] } },
       { name: 'auditState', in: 'query', description: 'Filter by audit state. A URL version has `url-version`: it was fetched and classified but not scored.', schema: stringSchema },
       { name: 'urlVersions', in: 'query', description: 'URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Once a few addresses with the same parameter pattern prove to be copies, the crawl stops fetching that pattern: those have no rows and `inventorySummary.urlVersionsNotFetched` counts them. Scans made before URL versions were set aside have none.', schema: { type: 'string', enum: ['include', 'exclude', 'only'] } },
       { name: 'sort', in: 'query', description: 'Sort order. Defaults to `url`.', schema: { type: 'string', enum: ['url', 'path', 'score-asc', 'score-desc'] } },
@@ -8452,10 +8512,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/structure',
-    summary: 'List one level of Technical AEO crawl structure',
+    path: '/api/v1/projects/{name}/agent-readiness/structure',
+    summary: 'List one level of Agent Readiness crawl structure',
     description: 'Returns immediate children under `parentPath` only. It is deliberately bounded and never emits a full site tree.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8470,10 +8530,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/internal-links',
+    path: '/api/v1/projects/{name}/agent-readiness/internal-links',
     summary: 'List persisted internal crawl links',
     description: 'Cursor-paged internal edges for the latest or selected crawl. Optional source/target/followability/link-kind filters remain project-, run-, and attempt-scoped. `total` counts exactly what the requested filters match, `templateDetection` says whether nav and footer links could be told apart for this scan and by which rule, and the `templateSource` plus `placementOccurrences` on each edge show the evidence behind its own classification.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8491,10 +8551,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/internal-links/neighbors',
+    path: '/api/v1/projects/{name}/agent-readiness/internal-links/neighbors',
     summary: 'Get a bounded internal-link neighborhood',
     description: 'Returns bounded inbound and outbound internal edges for one `nodeKey` or URL; this is not a full graph traversal.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8511,10 +8571,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/dead-links',
+    path: '/api/v1/projects/{name}/agent-readiness/dead-links',
     summary: 'List dead-link findings when checks were enabled',
     description: 'Returns a discriminated `disabled`, `complete`, `partial`, or `unavailable` state. A disabled check is never returned as an empty zero-result list.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8528,58 +8588,58 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/runs',
-    summary: 'List Site Health scan history',
+    path: '/api/v1/projects/{name}/agent-readiness/runs',
+    summary: 'List Agent Readiness audit scan history',
     description: 'Returns every non-probe `site-audit` run for the project, newest first, including runs still queued or running and runs that failed. `hasCrawlData` says whether that scan published a page and internal-link crawl: a legacy score-only scan is listed with `hasCrawlData=false` rather than hidden, and the crawl-scoped reads answer it with their no-crawl state instead of a 404. `preferredRunId` identifies the default persisted scan shared by score/crawl reads, independently of the history page limit; an explicit selected run stays authoritative.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'limit', in: 'query', description: 'Max scans returned (most recent first). Defaults to 20; max 100.', schema: { type: 'integer', minimum: 1, maximum: 100 } },
     ],
     responses: {
-      200: jsonResponse('Site Health scan history returned.', 'SiteHealthScansResponseDto'),
+      200: jsonResponse('Agent Readiness audit scan history returned.', 'SiteHealthScansResponseDto'),
       404: errorResponse('Project not found.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/runs/{runId}/progress',
-    summary: 'Get exact stored Site Health run progress',
+    path: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/progress',
+    summary: 'Get exact stored Agent Readiness audit scan progress',
     description:
       'Returns durable run, crawl-attempt, and terminal graph-layout state for one exact non-probe site-audit run. It performs no network work and intentionally returns raw counters instead of a completion percentage.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'path', required: true, description: 'Exact site-audit run ID.', schema: stringSchema },
     ],
     responses: {
-      200: jsonResponse('Exact stored Site Health progress returned.', 'SiteAuditRunProgressDto'),
+      200: jsonResponse('Exact stored Agent Readiness audit scan progress returned.', 'SiteAuditRunProgressDto'),
       404: errorResponse('Project or non-probe site-audit run not found.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/runs/{runId}/page-health-preview',
-    summary: 'Get a bounded, provisional Page Health preview',
+    path: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/page-health-preview',
+    summary: 'Get a bounded, provisional Agent Readiness score preview',
     description:
-      'Returns a small durable, provisional preview for one exact non-probe site-audit run while it is running: the count of audited pages plus at most 12 actionable low-score examples without finding prose. Queued scans return waiting. Terminal scans return no examples so callers use the immutable Page Health results instead. It performs no network work.',
-    tags: ['technical-aeo'],
+      'Returns a small durable, provisional preview for one exact non-probe site-audit run while it is running: the count of audited pages plus at most 12 actionable low-score examples without finding prose. Queued scans return waiting. Terminal scans return no examples so callers use the immutable Agent Readiness results instead. It performs no network work.',
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'path', required: true, description: 'Exact site-audit run ID.', schema: stringSchema },
     ],
     responses: {
-      200: jsonResponse('Bounded provisional Page Health preview returned.', 'SiteAuditLivePageHealthDto'),
+      200: jsonResponse('Bounded provisional Agent Readiness score preview returned.', 'SiteAuditLivePageHealthDto'),
       404: errorResponse('Project or non-probe site-audit run not found.'),
     },
   },
   {
     method: 'post',
-    path: '/api/v1/projects/{name}/technical-aeo/runs',
-    summary: 'Trigger a Technical AEO site-audit run',
+    path: '/api/v1/projects/{name}/agent-readiness/runs',
+    summary: 'Start an Agent Readiness audit scan (a site-audit run)',
     description:
       'Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, and optional factor selections match exactly; a semantic mismatch returns 409.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [nameParameter],
     requestBody: {
       required: false,
@@ -8805,9 +8865,9 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
   // Api-routes' shared contract test builds the app without the local Aero
   // plugin, so we don't want to surface those entries in that path. canonry's
   // real `buildOpenApiDocument` call passes `includeCanonryLocal: true`.
-  const fullCatalog = info.includeCanonryLocal
+  const fullCatalog = withLegacyAgentReadinessOperations(info.includeCanonryLocal
     ? [...routeCatalog, ...canonryLocalRouteCatalog]
-    : routeCatalog
+    : routeCatalog)
   const paths = fullCatalog.reduce<Record<string, Record<string, unknown>>>((acc, route) => {
     // Strip the hardcoded prefix from the route path, then prepend the configured prefix
     const subpath = route.path.startsWith(BASE_PREFIX) ? route.path.slice(BASE_PREFIX.length) : route.path
@@ -8824,6 +8884,7 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
     if (route.parameters) operation.parameters = route.parameters
     if (route.requestBody) operation.requestBody = route.requestBody
     if (route.auth === false) operation.security = []
+    if (route.deprecated) operation.deprecated = true
 
     const pathItem = acc[fullPath] ?? {}
     pathItem[route.method] = operation
@@ -8867,6 +8928,26 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
     },
     paths,
   }
+}
+
+/**
+ * Every Agent Readiness route also answers at its earlier `technical-aeo`
+ * path. The spec lists that path as a deprecated twin of the canonical
+ * operation, with the same parameters and response, so generated clients and
+ * agents move to the canonical name while existing callers keep working.
+ */
+function withLegacyAgentReadinessOperations(catalog: readonly OpenApiOperation[]): OpenApiOperation[] {
+  return catalog.flatMap((route) => {
+    const legacyPath = legacyAgentReadinessPath(route.path)
+    if (!legacyPath) return [route]
+    return [route, {
+      ...route,
+      path: legacyPath,
+      deprecated: true,
+      summary: `${route.summary} (deprecated path)`,
+      description: `Deprecated alias of \`${route.method.toUpperCase()} ${route.path}\`, with the same parameters and response. Use the canonical path.`,
+    }]
+  })
 }
 
 export async function openApiRoutes(app: FastifyInstance, opts: OpenApiInfo = {}) {

@@ -16,6 +16,7 @@ import {
   ApiError,
   createOnboardingProject,
   getOnboardingMode,
+  hasExplicitBrowserApiKey,
   heyClient,
   recordOnboardingEvent,
   shouldShowDashboardLocalAgentSetup,
@@ -29,10 +30,14 @@ import {
   RunStatuses,
   RunTriggers,
   SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
+  formatLocaleLabel,
+  normalizeProjectName,
+  suggestedBrandName,
   type OnboardingSurface as OnboardingTelemetrySurface,
   type OnboardingTelemetryEvent,
 } from '@canonry/canonry-contracts'
 import { clearOnboardingDraft, markOnboardingScanSkipped, readOnboardingDraft, writeOnboardingDraft } from '../lib/onboarding-draft.js'
+import { agentSetupRequest } from '../lib/agent-setup-request.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { addToast } from '../lib/toast-store.js'
 import {
@@ -64,24 +69,6 @@ const CRAWL_CONSENT_HELP = `Public pages only, crawled from this computer and st
 
 export const SITE_HEALTH_DISPATCH_BOUNDARY_MS = 1_800
 export const AGENT_SETUP_GUIDE_URL = 'https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent'
-const AGENT_SETUP_RESOURCES = `Use the official Canonry docs:
-- Agent quickstart: https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent
-- CLI reference: https://github.com/Canonry/canonry/blob/main/skills/canonry/references/canonry-cli.md
-- Plugin setup: https://github.com/Canonry/canonry/blob/main/docs/plugins.md
-- MCP setup: https://github.com/Canonry/canonry/blob/main/docs/mcp.md
-
-`
-export const AGENT_SETUP_REQUEST = `Help me set up Canonry for my public site.
-
-${AGENT_SETUP_RESOURCES}Pick one path and stay on it. Use connected Canonry tools (plugin or MCP) only if you have them and I have not pointed you at a specific install. A connected tool runs in its own process and never sees \`CANONRY_CONFIG_DIR\`, \`CANONRY_PORT\`, or anything else you export in a shell, so it always acts on my default install. If I named a config directory, a port, or a sandbox, that is the shell path: use \`cnry\` and tell me which path you chose. Never mix the two in one run, and never create a duplicate project. The \`cnry\` and \`canonry\` commands are interchangeable.
-
-1. Ask for my public domain, country, and language. Do not create or scan anything yet. Country and language are only applied when a project is created, so if you reuse an existing project, report its country and language instead of changing them.
-2. Shell path only: confirm \`cnry\` is on PATH, then run \`cnry --version\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. Then run \`cnry doctor --format json\`, which is the command that says whether config, database, and server are in place. \`cnry --version\` does not read config and succeeds on a completely unconfigured install, so it cannot answer this. If config is missing, run \`cnry bootstrap\` yourself: it is not interactive, takes about a second, and is safe to rerun. Do not hand it to me and wait. The interactive command is \`cnry init\`, which is optional provider and OAuth setup that Page Health does not need. Bootstrap prints an API key, so do not repeat its output back to me, and never ask me to paste passwords, API keys, OAuth credentials, or command output.
-3. Confirm the API is reachable. \`cnry doctor --format json\` reports it, and any project read exits non-zero with \`CONNECTION_ERROR\` when it is not. If it is unreachable, propose \`cnry start\` and wait for approval. Use \`cnry start\`, which is the background daemon, and not \`cnry serve\`, which runs in the foreground and will block you until I stop it, even though some error messages suggest it. Stop anything you started with \`cnry stop\`.
-4. List projects with the connected project tool or \`cnry project list --format json\`, and reuse one whose domain matches. Confirm the proposed name is not already assigned to a different domain. To find out whether a project has already been scanned, run \`cnry technical-aeo score <project> --format json\` with no \`--run-id\`, which reports the latest run. Read the \`hasData\` field, not the score: this command exits 0 and reports \`aggregateScore: 0\` for a project that has never been scanned, so reading the score alone would have you tell me my site scored zero. If \`hasData\` is true and \`runStatus\` is \`completed\` or \`partial\`, read that scan instead of starting a new one. If no project matches, show the exact create operation and wait for approval.
-5. Propose a bounded Site Health scan: \`--max-pages 100\` for a first look, plus whether dead-link checking is on (it is off unless you pass \`--check-dead-links\`). Show the connected operation or the exact \`cnry technical-aeo run <project> --max-pages 100 --wait --format json\` command with the project name filled in, and wait for separate approval before scanning. \`--wait\` polls for up to 15 minutes and returns only the run id and status. If the status it returns is still \`queued\` or \`running\`, the scan has not finished: do not rerun it or report results, poll \`cnry technical-aeo progress <project> --run-id <run-id> --format json\` until it is terminal. If \`--wait\` outruns your own tool timeout first, recover the run id with \`cnry technical-aeo score <project> --format json\` and poll the same way.
-6. When the run is \`completed\` or \`partial\`, read \`cnry technical-aeo crawl <project> --run-id <run-id> --format json\` first. It is the only one of these commands that carries \`termination\` and \`complete\`; the score and pages commands do not. Then read \`cnry technical-aeo score <project> --run-id <run-id> --format json\` and \`cnry technical-aeo pages <project> --run-id <run-id> --sort score-asc --limit 10 --format jsonl\`. Tell me the termination reason in plain words and whether the scan covered the whole site or stopped at a page, link, depth, or time limit. A \`partial\` run scored the pages it reached and not my site, so never present it as a full-site result. If it stopped early, the fix depends on the reason, so say which: a page or depth limit needs a larger budget, a time limit needs a smaller scan (a lower \`--max-pages\` or \`--max-depth\`). If the run failed or was cancelled, inspect the run error and stop.
-7. Summarize only completed evidence, then propose AI Visibility setup. Ask before you add queries, connect providers, start a provider-backed or quota-consuming run, edit files, or publish.`
 
 export type OnboardingProjectListState =
   | { state: 'idle' | 'loading' | 'error' }
@@ -109,6 +96,11 @@ export function resolveOnboardingSurface(
 
 /** Compact for a mouse on a desktop; 44px tall for touch and narrow screens. */
 const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
+/**
+ * Every launchpad field, inputs and selects alike: the shared input style at
+ * 40px, with 16px text on narrow screens so a phone does not zoom on focus.
+ */
+const LAUNCHPAD_FIELD = `setup-input h-10 w-full max-md:text-label-16 ${TOUCH_TARGET}`
 /** Before any Canonry install could exist: the whole scan history. */
 const AUTO_RESUME_HISTORY_SINCE = '2000-01-01T00:00:00.000Z'
 /** The runs endpoint's own maximum. Newest-first, so older scans fall off last. */
@@ -176,6 +168,7 @@ export function resolveAutoResumeTarget(
 export interface LaunchpadIdentity {
   canonicalDomain: string
   projectName: string
+  /** The brand name suggested for the website, used when the field is left blank. */
   displayName: string
 }
 
@@ -208,18 +201,6 @@ export const LAUNCHPAD_LANGUAGES = [
   { value: 'nl', label: 'Dutch' },
   { value: 'ja', label: 'Japanese' },
 ] as const
-
-function launchpadLocaleLabel(country: string, language: string): string {
-  try {
-    const regionNames = new Intl.DisplayNames(['en'], { type: 'region' })
-    const languageNames = new Intl.DisplayNames(['en'], { type: 'language' })
-    const region = country.length === 2 ? regionNames.of(country.toUpperCase()) : undefined
-    const locale = language ? languageNames.of(language.toLowerCase()) : undefined
-    return `${region ?? (country || 'Country')} · ${locale ?? (language || 'Language')}`
-  } catch {
-    return `${country || 'Country'} · ${language || 'Language'}`
-  }
-}
 
 /** Keep project creation on the locale values the launchpad explicitly supports. */
 export function validateLaunchpadLocale(country: string, language: string): {
@@ -271,12 +252,10 @@ export function deriveLaunchpadIdentity(value: string): LaunchpadIdentity | null
     return null
   }
 
-  const projectName = canonicalDomain
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  const projectName = normalizeProjectName(canonicalDomain)
 
   return projectName
-    ? { canonicalDomain, projectName, displayName: canonicalDomain }
+    ? { canonicalDomain, projectName, displayName: suggestedBrandName(canonicalDomain) }
     : null
 }
 
@@ -290,9 +269,9 @@ export type SiteHealthDispatchSettlement<T extends SiteHealthDispatchResult> =
   | { state: 'timed-out' }
 
 /**
- * The site scan can take a moment to queue on a cold worker. Bound only the
+ * The audit scan can take a moment to queue on a cold worker. Bound only the
  * handoff, not the server job: after the boundary the valid project moves into
- * Site Health, where the normal persisted run list resumes it.
+ * Agent Readiness, where the normal persisted run list resumes it.
  */
 export async function settleSiteHealthDispatch<T extends SiteHealthDispatchResult>(
   dispatch: Promise<T>,
@@ -317,8 +296,8 @@ export function watchTimedOutSiteHealthDispatch(
 ): void {
   void dispatch.catch(() => {
     addToast({
-      title: 'Site Health scan did not start',
-      detail: 'The project is safe. Choose Run scan in Site Health to retry.',
+      title: 'Agent Readiness audit scan did not start',
+      detail: 'The project is safe. Choose Run scan in Agent Readiness to retry.',
       tone: 'negative',
       dedupeKey: `site-health-dispatch:${projectId}`,
     })
@@ -407,7 +386,7 @@ function SiteHealthOnboardingPage({
   initialRunId?: string
 }) {
   return (
-    <AdminOnly title="Site Health setup">
+    <AdminOnly title="Project setup">
       <SiteHealthOnboardingPageBody projectName={projectName} initialRunId={initialRunId} />
     </AdminOnly>
   )
@@ -456,8 +435,8 @@ function SiteHealthOnboardingPageBody({
   // terminal.
   useEffect(() => {
     if (!projectName || !initialRunId) return
-    if (readOnboardingLaunchedRun(projectName)?.runId === initialRunId) return
-    markOnboardingRunLaunched(projectName, initialRunId)
+    if (readOnboardingLaunchedRun(projectName, true)?.runId === initialRunId) return
+    markOnboardingRunLaunched(projectName, initialRunId, RunKinds['site-audit'])
   }, [initialRunId, projectName])
 
   // The scan's lifecycle lives inside SiteHealthSection, which is also rendered
@@ -480,6 +459,7 @@ function SiteHealthOnboardingPageBody({
   const scanStatus = scanRun.data?.status
   useEffect(() => {
     if (!projectName || !initialRunId || !scanStatus) return
+    if (readOnboardingLaunchedRun(projectName)?.runId !== initialRunId) return
     // A crawl has no snapshots, so status alone is the terminal signal.
     if (scanStatus === 'completed' || scanStatus === 'partial') {
       emit({
@@ -488,7 +468,7 @@ function SiteHealthOnboardingPageBody({
         event: 'onboarding.step_completed',
         step: 'run',
         method: 'automatic',
-      }, 'onboarding.step_completed:run')
+      }, `onboarding.step_completed:run:${initialRunId}`)
       markOnboardingRunHandled(initialRunId)
       return
     }
@@ -501,7 +481,7 @@ function SiteHealthOnboardingPageBody({
       step: 'run',
       action: 'retry_run',
       reasonCode,
-    }, `onboarding.blocked:run:${reasonCode}`)
+    }, `onboarding.blocked:run:${initialRunId}:${reasonCode}`)
     markOnboardingRunHandled(initialRunId)
   }, [emit, initialRunId, onboardingSessionId, projectName, scanStatus])
 
@@ -527,7 +507,7 @@ function SiteHealthOnboardingPageBody({
         <OnboardingProgress current="site" />
         <div className="mt-8 flex items-center gap-3 text-label-14 text-secondary" role="status">
           <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
-          Loading Site Health setup…
+          Loading Agent Readiness setup…
         </div>
       </div>
     )
@@ -539,7 +519,7 @@ function SiteHealthOnboardingPageBody({
         <div className="page-header">
           <div className="page-header-left">
             <h1 className="page-title">Can’t resume setup</h1>
-            <p className="page-subtitle">Canonry could not load the project for this Site Health scan.</p>
+            <p className="page-subtitle">Canonry could not load the project for this Agent Readiness audit scan.</p>
           </div>
         </div>
         <div className="rounded-md border border-negative bg-negative-soft p-4" role="alert">
@@ -617,7 +597,7 @@ function SiteHealthOnboardingPageBody({
             <OnboardingProgress current="site" />
             <div className="flex min-h-72 items-center justify-center gap-3 text-label-14 text-secondary" role="status">
               <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
-              Loading Site Health…
+              Loading Agent Readiness…
             </div>
           </div>
         )}
@@ -722,7 +702,7 @@ export function OnboardingSetupPage() {
   }
   const autoResume = autoResumeEligible ? autoResumeDecision : null
   if (autoResume) {
-    return <AutoResumeSiteHealthRedirect projectName={autoResume.projectName} runId={autoResume.runId} />
+    return <AutoResumeSetupRedirect projectName={autoResume.projectName} runId={autoResume.runId} />
   }
   if (surface === 'legacy') {
     return (
@@ -738,22 +718,25 @@ export function OnboardingSetupPage() {
   return (
     <PlatformSetupPage
       onActivationStarted={() => setPlatformLatched(true)}
-      skipSiteScan={search.siteScan === 'skip'}
+      skipSiteScan={search.siteScan !== 'scan'}
     />
   )
 }
 
-/** Write the same URL `cnry serve` prints so the focused first-run shell applies. */
-function AutoResumeSiteHealthRedirect({ projectName, runId }: { projectName: string; runId?: string }) {
+/** Resume an existing scan; otherwise continue the project’s first AI check. */
+function AutoResumeSetupRedirect({ projectName, runId }: { projectName: string; runId?: string }) {
   const navigate = useNavigate()
   useEffect(() => {
     void navigate({
       to: '/setup',
-      search: {
+      search: runId ? {
         onboarding: 'site-health',
         setupProject: projectName,
-        // Pinning the scan is what lets the resumed session report an outcome.
-        ...(runId ? { siteHealthRunId: runId } : {}),
+        siteHealthRunId: runId,
+      } : {
+        experience: 'legacy',
+        onboarding: 'first-run',
+        setupProject: projectName,
       },
       replace: true,
     })
@@ -769,7 +752,7 @@ function PlatformSetupPage({
   skipSiteScan: boolean
 }) {
   return (
-    <AdminOnly title="Site Health setup">
+    <AdminOnly title="Project setup">
       <PlatformSetupPageBody
         onActivationStarted={onActivationStarted}
         skipSiteScan={skipSiteScan}
@@ -788,8 +771,14 @@ function PlatformSetupPageBody({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const siteAuditMutation = useTriggerSiteAudit()
+  // Telemetry status is operator-only, and the server grants operator access
+  // only to a key sent as a bearer header, never to a session cookie. Without
+  // its own browser key this dashboard signs requests with the cookie, so the
+  // read could only be refused.
+  const telemetryReadable = hasExplicitBrowserApiKey()
   const telemetryQuery = useQuery({
     ...getApiV1TelemetryOptions({ client: heyClient }),
+    enabled: telemetryReadable,
     retry: false,
   })
   const telemetryMutation = useMutation(putApiV1TelemetryMutation())
@@ -800,16 +789,28 @@ function PlatformSetupPageBody({
   const [country, setCountry] = useState(draft.country ?? 'US')
   const [language, setLanguage] = useState(draft.language ?? 'en')
   const [crawlApproved, setCrawlApproved] = useState(false)
+  useEffect(() => { setCrawlApproved(false) }, [domain, skipSiteScan])
   const [phase, setPhase] = useState<'idle' | 'creating' | 'dispatching' | 'recovery'>('idle')
   const [createdProject, setCreatedProject] = useState<ApiProject | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [createConflict, setCreateConflict] = useState(false)
+  /** The project name a create collided with, normalized as the server compares names. */
+  const [conflictName, setConflictName] = useState<string | null>(null)
   const [dispatchError, setDispatchError] = useState<string | null>(null)
   const [agentRequestCopied, setAgentRequestCopied] = useState(false)
   const showLocalAgentSetup = shouldShowDashboardLocalAgentSetup()
   const showResourceLinks = shouldShowDashboardResourceLinks()
+  // A legacy project can predate normalized names, so the recovery link uses
+  // the stored name that collided, not the one this form would have created.
+  const conflictProjectsQuery = useQuery({
+    ...getApiV1ProjectsOptions({ client: heyClient }),
+    enabled: conflictName !== null,
+    retry: false,
+  })
+  const existingProjectName = conflictName === null
+    ? null
+    : conflictProjectsQuery.data?.find(project => normalizeProjectName(project.name) === conflictName)?.name ?? conflictName
   // A denied refresh must not keep showing internal state from an older cache.
-  const telemetryStatus = telemetryQuery.isError ? undefined : telemetryQuery.data
+  const telemetryStatus = !telemetryReadable || telemetryQuery.isError ? undefined : telemetryQuery.data
   const telemetryEnabled = typeof telemetryStatus?.enabled === 'boolean'
     ? telemetryStatus.enabled
     : null
@@ -818,6 +819,8 @@ function PlatformSetupPageBody({
     : telemetryEnabled
   const [telemetryError, setTelemetryError] = useState<string | null>(null)
   const errorRef = useRef<HTMLDivElement>(null)
+  const projectDetailsRef = useRef<HTMLDetailsElement>(null)
+  const projectNameRef = useRef<HTMLInputElement>(null)
   const { onboardingSessionId, emit } = useOnboardingTelemetry('platform')
 
   useEffect(() => {
@@ -844,21 +847,33 @@ function PlatformSetupPageBody({
     setLanguage('en')
     setCrawlApproved(false)
     setCreateError(null)
-    setCreateConflict(false)
+    setConflictName(null)
   }
 
   const identity = deriveLaunchpadIdentity(domain)
-  const resolvedProjectName = projectName || identity?.projectName || ''
-  const resolvedDisplayName = displayName || identity?.displayName || ''
+  // The fields hold only what the operator typed; the names derived from the
+  // website are their placeholders and apply when a field is left blank. A
+  // derived value shown as text would be appended to by typing and come back
+  // after the field is cleared.
+  const resolvedProjectName = projectName.trim() || identity?.projectName || ''
+  const resolvedDisplayName = displayName.trim() || identity?.displayName || ''
   const busy = phase === 'creating' || phase === 'dispatching'
   const visibleError = createError ?? dispatchError
-  const localeLabel = launchpadLocaleLabel(country, language)
+  const localeLabel = formatLocaleLabel(country, language)
   const { countryValid, languageValid } = validateLaunchpadLocale(country, language)
   const localeValid = countryValid && languageValid
 
   useEffect(() => {
-    if (visibleError) errorRef.current?.focus()
-  }, [visibleError])
+    if (!visibleError) return
+    // A name collision is fixed in the Project name field, so open its section
+    // and move there; the alert below still says why.
+    if (conflictName !== null && projectNameRef.current) {
+      if (projectDetailsRef.current) projectDetailsRef.current.open = true
+      projectNameRef.current.focus()
+      return
+    }
+    errorRef.current?.focus()
+  }, [conflictName, visibleError])
 
   const openSiteHealthSetup = (project: ApiProject, runId?: string) => navigate({
     to: '/setup',
@@ -934,13 +949,13 @@ function PlatformSetupPageBody({
       )
 
       // Do not leave a valid project pinned to the form while the request is
-      // still settling. Site Health's normal persisted run list will pick up
+      // still settling. Agent Readiness's normal persisted run list will pick up
       // the queued scan as soon as it exists.
       watchTimedOutSiteHealthDispatch(dispatch, project.id)
       await openSiteHealthSetup(project)
     } catch (error) {
       setPhase('recovery')
-      setDispatchError(onboardingError(error, 'The project was created, but the Site Health scan could not be started.'))
+      setDispatchError(onboardingError(error, 'The project was created, but the Agent Readiness audit scan could not be started.'))
       const reasonCode = onboardingErrorReason(error, 'run_rejected')
       emit({
         flowVersion: ONBOARDING_FLOW_VERSION,
@@ -970,7 +985,7 @@ function PlatformSetupPageBody({
 
     setPhase('creating')
     setCreateError(null)
-    setCreateConflict(false)
+    setConflictName(null)
     setDispatchError(null)
     try {
       const project = await createOnboardingProject({
@@ -1013,7 +1028,7 @@ function PlatformSetupPageBody({
     } catch (error) {
       setPhase('idle')
       const conflict = error instanceof ApiError && error.statusCode === 409
-      setCreateConflict(conflict)
+      setConflictName(conflict ? normalizeProjectName(resolvedProjectName) : null)
       setCreateError(onboardingError(error, 'Could not create the project. Try again.'))
       emit({
         flowVersion: ONBOARDING_FLOW_VERSION,
@@ -1040,14 +1055,9 @@ function PlatformSetupPageBody({
     }
   }
 
-  const cancel = () => {
-    if (busy) return
-    void navigate({ to: '/projects' })
-  }
-
   const copyAgentSetupRequest = async () => {
     try {
-      await navigator.clipboard.writeText(showResourceLinks ? AGENT_SETUP_REQUEST : AGENT_SETUP_REQUEST.replace(AGENT_SETUP_RESOURCES, ''))
+      await navigator.clipboard.writeText(agentSetupRequest(showResourceLinks))
       setAgentRequestCopied(true)
     } catch {
       addToast({
@@ -1081,14 +1091,14 @@ function PlatformSetupPageBody({
         <div className="page-header mt-8">
           <div className="page-header-left">
             <h1 className="page-title">Project created</h1>
-            <p className="page-subtitle">{createdProject.displayName || createdProject.name} is ready. The Site Health scan needs another try.</p>
+            <p className="page-subtitle">{createdProject.displayName || createdProject.name} is ready. The Agent Readiness audit scan needs another try.</p>
           </div>
         </div>
         <div ref={errorRef} className="rounded-md border border-negative bg-negative-soft p-4" role="alert" tabIndex={-1}>
           <p className="text-copy-14-strong text-heading">{dispatchError}</p>
-          <p className="mt-1 text-copy-14 text-secondary">You can retry the scan or continue setup and retry from Site Health.</p>
+          <p className="mt-1 text-copy-14 text-secondary">You can retry the scan or continue setup and retry from Agent Readiness.</p>
           <div className="mt-4 flex flex-wrap gap-3">
-            <Button type="button" onClick={retryDispatch}>Retry Site Health scan</Button>
+            <Button type="button" onClick={retryDispatch}>Retry Agent Readiness audit scan</Button>
             <Button type="button" variant="secondary" onClick={() => { void openSiteHealthSetup(createdProject) }}>Continue setup</Button>
           </div>
         </div>
@@ -1097,29 +1107,25 @@ function PlatformSetupPageBody({
   }
 
   return (
-    <div className="page-container max-w-xl py-8 md:py-12">
+    <div className="page-container max-w-xl py-5 md:py-8">
       {!skipSiteScan ? <OnboardingProgress current="site" /> : null}
       <header className={`mb-8 ${skipSiteScan ? '' : 'mt-8'}`}>
         <h1 id="site-map-setup-title" className="text-heading-24 text-heading">
-          {skipSiteScan ? 'Create a project' : 'Scan your site'}
+          {skipSiteScan ? 'Track your brand in AI answers' : 'Run an Agent Readiness audit scan'}
         </h1>
         <p className="mt-2 max-w-lg text-copy-14 text-secondary">
           {skipSiteScan
-            ? 'Add a public domain, then choose the queries you want to track. No site scan will run.'
-            : 'Enter your public website to see its pages, structure, internal links, and Technical AEO scores.'}
+            ? 'See how AI assistants mention your brand and cite your website.'
+            : 'Check how ready your public website is for AI agents.'}
         </p>
       </header>
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-label-13 text-secondary">
-        <p>Draft fields use tab storage when available. Scan permission resets on reload.</p>
-        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={resetDraft}>Reset draft</Button>
-      </div>
       <form aria-labelledby="site-map-setup-title" className="space-y-6" onSubmit={asyncHandler(submit)} noValidate>
         <div className="grid gap-2">
           <label className="text-label-14-strong text-heading" htmlFor="launchpad-domain">Website URL</label>
           <input
             id="launchpad-domain"
-            className={`h-10 w-full rounded-md border border-strong bg-bg-elevated/50 px-3 text-label-16 text-heading outline-none transition placeholder:text-muted focus:border-mono-500 focus:ring-1 focus:ring-mono-500 md:h-9 md:text-label-14 ${TOUCH_TARGET}`}
+            className={LAUNCHPAD_FIELD}
             type="text"
             inputMode="url"
             autoComplete="url"
@@ -1127,55 +1133,32 @@ function PlatformSetupPageBody({
             spellCheck={false}
             required
             aria-invalid={Boolean(domain && !identity)}
-            aria-describedby={domain && !identity ? 'launchpad-domain-hint launchpad-domain-error' : 'launchpad-domain-hint'}
+            aria-describedby={domain && !identity ? 'launchpad-domain-error' : undefined}
             placeholder="https://example.com"
             value={domain}
             onChange={(event) => {
               setDomain(event.target.value)
               setCreateError(null)
-              setCreateConflict(false)
+              setConflictName(null)
             }}
           />
-          <p id="launchpad-domain-hint" className="text-copy-14 text-secondary">
-            {skipSiteScan ? (
-              <>
-                A public domain is still required.{' '}
-                <Link
-                  to="/setup"
-                  search={{ experience: 'platform' }}
-                  className="text-copy-14-strong text-link underline-offset-4 hover:underline"
-                >
-                  Map with Site Health instead
-                </Link>
-              </>
-            ) : (
-              <>
-                Only public pages are scanned.{' '}
-                <Link
-                  to="/setup"
-                  search={{ experience: 'platform', onboarding: 'first-run', siteScan: 'skip' }}
-                  className="text-copy-14-strong text-link underline-offset-4 hover:underline"
-                >
-                  Set up without a site scan
-                </Link>
-              </>
-            )}
-          </p>
           {domain && !identity ? <p id="launchpad-domain-error" className="text-copy-14 text-negative" role="alert">Enter a public domain, such as example.com.</p> : null}
         </div>
 
-        <details className="group border-y border-default">
+        <div className="grid gap-2">
+          <label className="text-label-14-strong text-heading" htmlFor="launchpad-display-name">Brand name</label>
+          <input id="launchpad-display-name" className={LAUNCHPAD_FIELD} type="text" autoComplete="organization" placeholder={identity?.displayName ?? 'Your brand'} value={displayName} onChange={event => setDisplayName(event.target.value)} />
+        </div>
+
+        <details ref={projectDetailsRef} className="group border-t border-default">
           <summary className={`flex min-h-9 cursor-pointer list-none items-center justify-between gap-4 py-2 text-label-14 [&::-webkit-details-marker]:hidden ${TOUCH_TARGET}`}>
-            {/* Nothing behind this is advanced: it is the project name Canonry
-                is about to create and the locale it will measure in. Both are
-                worth seeing before the scan starts. */}
-            <span className="text-label-14-strong text-heading">Project name and locale</span>
+            <span className="text-label-14-strong text-heading">Project details</span>
             <span className="flex items-center gap-2 text-secondary">
               {localeLabel}
               <ChevronDown className="size-4 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
             </span>
           </summary>
-          <div className="space-y-5 border-t border-default py-4">
+          <div className="space-y-5 pb-4 pt-2">
             {identity ? (
               <div>
                 <p className="mb-3 text-copy-14-strong text-heading">Project</p>
@@ -1183,21 +1166,22 @@ function PlatformSetupPageBody({
                   <div className="grid gap-2">
                     <label className="text-label-14 text-secondary" htmlFor="launchpad-project-name">Project name</label>
                     <input
+                      ref={projectNameRef}
                       id="launchpad-project-name"
-                      className="setup-input h-10"
+                      className={LAUNCHPAD_FIELD}
                       type="text"
-                      value={resolvedProjectName}
-                      onChange={(event) => setProjectName(event.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <label className="text-label-14 text-secondary" htmlFor="launchpad-display-name">Display name</label>
-                    <input
-                      id="launchpad-display-name"
-                      className="setup-input h-10"
-                      type="text"
-                      value={resolvedDisplayName}
-                      onChange={(event) => setDisplayName(event.target.value)}
+                      placeholder={identity.projectName}
+                      aria-invalid={conflictName !== null}
+                      aria-describedby={conflictName !== null ? 'launchpad-create-error' : undefined}
+                      value={projectName}
+                      onChange={(event) => {
+                        setProjectName(event.target.value)
+                        // The collision was with the old name; a new one gets its own answer on submit.
+                        if (conflictName !== null) {
+                          setConflictName(null)
+                          setCreateError(null)
+                        }
+                      }}
                     />
                   </div>
                 </div>
@@ -1211,7 +1195,7 @@ function PlatformSetupPageBody({
                   <label className="text-label-14 text-secondary" htmlFor="launchpad-country">Country</label>
                   <select
                     id="launchpad-country"
-                    className="setup-input h-10"
+                    className={LAUNCHPAD_FIELD}
                     value={country}
                     onChange={(event) => setCountry(event.target.value)}
                   >
@@ -1224,7 +1208,7 @@ function PlatformSetupPageBody({
                   <label className="text-label-14 text-secondary" htmlFor="launchpad-language">Language</label>
                   <select
                     id="launchpad-language"
-                    className="setup-input h-10"
+                    className={LAUNCHPAD_FIELD}
                     value={language}
                     onChange={(event) => setLanguage(event.target.value)}
                   >
@@ -1238,7 +1222,7 @@ function PlatformSetupPageBody({
           </div>
         </details>
 
-        {!skipSiteScan ? <p className="text-copy-14 text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages. A limited scan describes the pages reached, not the whole site.</p> : null}
+        {!skipSiteScan ? <p className="text-copy-14 text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages.</p> : null}
         {!skipSiteScan ? (
           <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2">
             <input
@@ -1257,9 +1241,11 @@ function PlatformSetupPageBody({
 
         {visibleError ? (
           <div ref={errorRef} className="rounded-md border border-negative bg-negative-soft p-3" role="alert" tabIndex={-1}>
-            <p className="text-copy-14-strong text-heading">{visibleError}</p>
-            {createConflict ? (
-              <Button type="button" variant="secondary" size="sm" className="mt-3" onClick={cancel}>View projects</Button>
+            <p id="launchpad-create-error" className="text-copy-14-strong text-heading">{visibleError}</p>
+            {existingProjectName !== null ? (
+              <Button asChild variant="secondary" size="sm" className="mt-3">
+                <Link to="/projects/$projectName" params={{ projectName: existingProjectName }}>Open {existingProjectName}</Link>
+              </Button>
             ) : null}
           </div>
         ) : null}
@@ -1271,15 +1257,21 @@ function PlatformSetupPageBody({
             disabled={!identity || (!skipSiteScan && !crawlApproved) || !localeValid || busy}
           >
             {phase === 'creating' || phase === 'dispatching'
-              ? <><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> {skipSiteScan ? 'Creating project…' : 'Mapping site…'}</>
-              : skipSiteScan ? 'Create project' : 'Scan site'}
+              ? <><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> {skipSiteScan ? 'Creating project…' : 'Starting audit scan…'}</>
+              : skipSiteScan ? 'Continue' : 'Run audit scan'}
           </Button>
-          {phase === 'dispatching' ? <span className="text-center text-label-14 text-secondary" role="status">Opening Site Health when the scan is ready.</span> : null}
+          {phase === 'dispatching' ? <span className="text-center text-label-14 text-secondary" role="status">Opening Agent Readiness when the scan is ready.</span> : null}
+          <Button asChild type="button" variant="ghost" className={TOUCH_TARGET}>
+            <Link to="/setup" search={{ experience: 'platform', siteScan: skipSiteScan ? 'scan' : 'skip' }}>
+              {skipSiteScan ? 'Check Agent Readiness first' : 'Set up AI Visibility instead'}
+            </Link>
+          </Button>
         </div>
       </form>
+      {(domain || projectName || displayName || country !== 'US' || language !== 'en') && <div className="mt-2 text-right"><Button type="button" variant="ghost" size="sm" disabled={busy} onClick={resetDraft}>Reset draft</Button></div>}
 
-      <section className="mt-8 border-t border-default pt-6" aria-labelledby="agent-setup-title">
-        <p id="agent-setup-title" className="text-copy-14-strong text-heading">Use your agent instead</p>
+      <details className="mt-6 border-t border-default pt-4">
+        <summary className="cursor-pointer text-label-14 text-secondary">Use your agent instead</summary>
         <p className="mt-1 text-copy-14 text-secondary">{showLocalAgentSetup ? 'Connect your agent to this instance, or copy a request for a new local installation.' : 'Connect ChatGPT or Claude Desktop to this instance.'}</p>
         <div className="mt-3 flex flex-wrap items-center gap-1">
           <Button asChild variant="secondary" size="sm">
@@ -1301,7 +1293,7 @@ function PlatformSetupPageBody({
             </a>
           </Button> : null}
         </div>
-      </section>
+      </details>
 
       {telemetryEnabled !== null ? (
         <section className="mt-6 border-t border-default pt-5" aria-labelledby="telemetry-title">

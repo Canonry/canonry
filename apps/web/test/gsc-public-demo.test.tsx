@@ -1,7 +1,7 @@
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 vi.mock('recharts', () => {
   const passthrough = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>
@@ -50,6 +50,10 @@ test('public demo reads stored Google evidence without configuration or live sit
   )
 
   await waitFor(() => expect(screen.getByRole('heading', { name: 'Search performance' })).not.toBeNull())
+  const inspectionFilter = screen.getByRole('textbox', { name: 'Filter exact URL' })
+  fireEvent.change(inspectionFilter, { target: { value: 'https://example.com/saved-page' } })
+  expect(screen.getByLabelText('Filter exact URL')).toBe(inspectionFilter)
+  expect(screen.getByText('Filter exact URL').textContent).toBe('Filter exact URL')
   expect(requests).not.toContain('/api/v1/settings')
   expect(requests.some((path) => path.includes('/google/properties'))).toBe(false)
   expect(requests.some((path) => path.includes('/google/gsc/sitemaps'))).toBe(false)

@@ -23,13 +23,15 @@ export const PROJECT_QUERY_DOMAINS = {
   researchRuns: 'getApiV1ProjectsByNameResearchRuns',
   visibilityReport: 'getApiV1ProjectsByNameVisibilityReport',
   queryTracking: 'getApiV1ProjectsByNameQueryTracking',
-  technicalAeo: 'getApiV1ProjectsByNameTechnicalAeo',
+  /** Agent Readiness reads (the canonical `/agent-readiness` operations). */
+  technicalAeo: 'getApiV1ProjectsByNameAgentReadiness',
   seo: 'getApiV1ProjectsByNameSeo',
   trends: 'getApiV1ProjectsByNameTrends',
-  /** The site vs Google vs Bing sitemap comparison: changes with either sync and with a Site Health scan. */
+  /** The site vs Google vs Bing sitemap comparison: changes with either sync and with an Agent Readiness audit scan. */
   sitemaps: 'getApiV1ProjectsByNameSitemaps',
   runs: 'getApiV1ProjectsByNameRuns',
   runAdmission: 'getApiV1ProjectsByNameRunAdmission',
+  runPreview: 'getApiV1ProjectsByNameRunPreview',
 } as const
 
 export type ProjectQueryDomain = keyof typeof PROJECT_QUERY_DOMAINS
@@ -73,6 +75,17 @@ interface SdkQueryKey {
   _id?: string
   path?: { name?: string }
   query?: { profileId?: string }
+}
+
+/**
+ * Aero's own reads (`/agent/...`). Their generated ids share the
+ * `getApiV1ProjectsByNameAgent` prefix with Agent Readiness
+ * (`getApiV1ProjectsByNameAgentReadiness…`), whose scans an Aero write never changes.
+ */
+function isAeroQueryId(id: string | undefined): boolean {
+  return id !== undefined
+    && id.startsWith('getApiV1ProjectsByNameAgent')
+    && !id.startsWith(PROJECT_QUERY_DOMAINS.technicalAeo)
 }
 
 const GLOBAL_PROJECT_READS = new Set([
@@ -119,7 +132,7 @@ export function refreshQueriesAfterWrite(queryClient: QueryClient, request: Requ
   const isProjectRead = (query: Query): boolean => {
     const head = query.queryKey[0] as SdkQueryKey | undefined
     if (agentOnly) {
-      return (head?.path?.name === projectName && head._id?.startsWith('getApiV1ProjectsByNameAgent') === true)
+      return (head?.path?.name === projectName && isAeroQueryId(head._id))
         || (query.queryKey[0] === 'aero-preview' && query.queryKey[1] === projectName)
     }
     if (head?._id?.startsWith('getApiV1ProjectsByName') && head.path?.name && identities.has(head.path.name)) return true
@@ -138,11 +151,11 @@ export function refreshQueriesAfterWrite(queryClient: QueryClient, request: Requ
   }
   const isGlobalRead = (query: Query): boolean => GLOBAL_PROJECT_READS.has((query.queryKey[0] as SdkQueryKey | undefined)?._id ?? '')
   // Queueing work changes run state; its results change only after completion.
-  const runTrigger = request.method === 'POST' && /^(?:runs|technical-aeo\/runs|discover\/run|backlinks\/extract|seo\/sync|google\/gsc\/(?:sync|inspect-sitemap)|bing\/inspect-sitemap|(?:gbp|ads|google-ads|gtm)\/sync)$/.test(resourcePath)
+  const runTrigger = request.method === 'POST' && /^(?:runs|(?:agent-readiness|technical-aeo)\/runs|discover\/run|backlinks\/extract|seo\/sync|google\/gsc\/(?:sync|inspect-sitemap)|bing\/inspect-sitemap|(?:gbp|ads|google-ads|gtm)\/sync)$/.test(resourcePath)
   const isRunStateRead = (query: Query): boolean => {
     const head = query.queryKey[0] as SdkQueryKey | undefined
     return isGlobalRead(query)
-      || ['getApiV1ProjectsByName', 'getApiV1ProjectsByNameOverview', 'getApiV1ProjectsByNameRuns', 'getApiV1ProjectsByNameTechnicalAeoRuns', 'getApiV1ProjectsByNameTimeline'].includes(head?._id ?? '')
+      || ['getApiV1ProjectsByName', 'getApiV1ProjectsByNameOverview', 'getApiV1ProjectsByNameRuns', 'getApiV1ProjectsByNameRunPreview', 'getApiV1ProjectsByNameAgentReadinessRuns', 'getApiV1ProjectsByNameTimeline'].includes(head?._id ?? '')
       || ['getApiV1ProjectsByNameSeoOverview', 'getApiV1ProjectsByNameSeoRuns', 'getApiV1ProjectsByNameSeoStatus'].includes(head?._id ?? '')
       || (query.queryKey[0] === 'project-dashboard-full' && query.queryKey[3] === 'overview')
       || query.queryKey[0] === 'project-overview-slim'

@@ -1,5 +1,5 @@
 import type { ProjectDto, InsightDto, MentionShareBreakdownDto, ProjectOverviewDto, QueryClassifier, RunErrorDto, RunKind } from '@canonry/canonry-contracts'
-import { RunKinds, RunStatuses, RunTriggers, CitationStates, compileQueryClassifier, effectiveBrandNames, formatRunErrorOneLine } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, CitationStates, MentionTransitions, compileQueryClassifier, effectiveBrandNames, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 import type {
   ApiCompetitor,
   ApiBingCoverageSummary,
@@ -18,7 +18,6 @@ import type {
   ModelTransitionVm,
   CompetitorVm,
   DashboardVm,
-  MetricTone,
   PortfolioProjectVm,
   ProjectCommandCenterVm,
   RunHistoryPoint,
@@ -87,7 +86,7 @@ function kindLabel(kind: RunKind): string {
     case RunKinds['bing-inspect']: return 'Bing URL inspection'
     case RunKinds['bing-inspect-sitemap']: return 'Bing sitemap inspection'
     case RunKinds['bing-sync']: return 'Bing data sync'
-    case RunKinds['site-audit']: return 'Technical AEO audit'
+    case RunKinds['site-audit']: return 'Agent Readiness audit scan'
     case RunKinds['backlink-extract']: return 'Backlink extract'
     case RunKinds['aeo-discover-seed']: return 'Discovery (seed phase)'
     case RunKinds['aeo-discover-probe']: return 'Discovery (probe phase)'
@@ -146,9 +145,9 @@ function statusDetailFromRun(run: ApiRun): string {
   if (run.kind === RunKinds['seo-sync']) return 'View the saved scope and task results in SEO.'
   switch (run.status) {
     case RunStatuses.queued: return 'Waiting for execution slot.'
-    case RunStatuses.running: return 'Provider queries in progress.'
-    case RunStatuses.completed: return 'All queries checked.'
-    case RunStatuses.partial: return 'Run completed with some queries skipped.'
+    case RunStatuses.running: return run.kind === RunKinds['answer-visibility'] ? 'Provider queries in progress.' : 'Scan in progress.'
+    case RunStatuses.completed: return run.kind === RunKinds['answer-visibility'] ? 'All queries checked.' : 'Scan completed.'
+    case RunStatuses.partial: return run.kind === RunKinds['answer-visibility'] ? 'Run completed with some queries skipped.' : 'Scan completed with partial results.'
     case RunStatuses.failed: return run.error ? formatRunError(run.error) : 'Run failed.'
     case RunStatuses.cancelled: return 'Run was cancelled.'
     default: return ''
@@ -353,9 +352,9 @@ function buildEvidenceFromTimeline(
             answerMentioned: snap?.answerMentioned,
             visibilityState: snapVisibilityState,
             visibilityChangeLabel: changeLabel(effectiveVisibilityTransition, visibilityStreak, {
-              positive: 'visible',
-              negative: 'not visible',
-              first: 'first visibility',
+              positive: 'mentioned',
+              negative: 'not mentioned',
+              first: 'first mention',
             }),
             changeLabel: changeLabel(effectiveTransition, streak),
             answerSnippet: snap?.answerText ?? '',
@@ -397,8 +396,8 @@ function buildEvidenceFromTimeline(
       location: null,
       citationState: 'pending',
       visibilityState: 'pending',
-      visibilityChangeLabel: 'Awaiting first run',
-      changeLabel: 'Awaiting first run',
+      visibilityChangeLabel: 'Awaiting first check',
+      changeLabel: 'Awaiting first check',
       answerSnippet: '',
       citedDomains: [],
       evidenceUrls: [],
@@ -411,7 +410,7 @@ function buildEvidenceFromTimeline(
       relatedTechnicalSignals: [],
       groundingSources: [],
       searchQueries: [],
-      summary: `"${q.query}" has been added but no visibility run has been triggered yet.`,
+      summary: `"${q.query}" has been added but not checked yet.`,
       runHistory: [],
       historyScope: 'query',
       modelsSeen: [],
@@ -466,7 +465,7 @@ function computeModelTransitions(history: RunHistoryPoint[]): ModelTransitionVm[
   return transitions
 }
 
-/** Count consecutive runs from the end that share the same citationState as the latest run. */
+/** Count consecutive checks from the end that share the same citationState as the latest one. */
 function computeStreak(runs: { citationState: string }[]): number {
   if (runs.length === 0) return 0
   const latest = runs[runs.length - 1]!.citationState
@@ -503,12 +502,12 @@ function changeLabel(
     case 'new': return 'First observation'
     case 'cited':
     case 'visible':
-      return streak <= 1 ? `${capitalizeLabel(resolved.positive)} in latest run` : `${capitalizeLabel(resolved.positive)} for ${streak} runs`
-    case 'lost': return 'Lost since last run'
+      return streak <= 1 ? `${capitalizeLabel(resolved.positive)} in the latest check` : `${capitalizeLabel(resolved.positive)} in the last ${streak} checks`
+    case 'lost': return 'Lost since the previous check'
     case 'emerging': return capitalizeLabel(resolved.first)
     case 'not-cited':
     case 'not-visible':
-      return streak <= 1 ? `${capitalizeLabel(resolved.negative)} in latest run` : `${capitalizeLabel(resolved.negative)} across ${streak} runs`
+      return streak <= 1 ? `${capitalizeLabel(resolved.negative)} in the latest check` : `${capitalizeLabel(resolved.negative)} in the last ${streak} checks`
     default: return transition
   }
 }
@@ -533,7 +532,7 @@ function visibilityEvidenceSummary(
     case 'visible':
       return `Your brand or domain is mentioned in AI answers for "${query}".`
     case 'pending':
-      return `"${query}" has been added but no run has been triggered yet.`
+      return `"${query}" has been added but not checked yet.`
     case 'not-visible':
     default:
       return `Your brand or domain was not mentioned in AI answers for "${query}".`
@@ -626,6 +625,7 @@ function adaptOverviewToCommandCenter(
     project,
     contextLabel: overview.contextLabel,
     mentionSummary: overview.scores.mention as ScoreSummaryVm,
+    mentionCoverage: overview.mentionCoverage,
     visibilitySummary: overview.scores.visibility as ScoreSummaryVm,
     mentionShareSummary: overview.scores.mentionShare,
     queryCounts: { cited: overview.queryCounts.citedQueries, total: overview.queryCounts.totalQueries },
@@ -755,44 +755,17 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
     return {
       project: dto,
       hasMeasurement: false,
-      mentionScore: 0,
-      mentionDelta: 'No data',
-      mentionTone: 'neutral',
       lastRun: runItem,
-      insight: 'No runs completed yet.',
-      trend: [],
       competitorPressureLabel: 'None',
     }
   }
 
-  // Mention Coverage is the headline portfolio metric (did the AI actually say
-  // the brand?), not the cited/source signal. Both ride on the overview; we
-  // read `mention`. The gauge's `value` is presentational ("66.7%"/"No data");
-  // `progress` is the same share as 0–100 (at wire precision), so we read that for
-  // the score and the view formats it.
-  const mention = overview.scores.mention
-  const mentionScore = mention.progress ?? 0
-  const mentioned = overview.queryCounts.mentionedQueries
-  const total = overview.queryCounts.totalQueries
-  const providerCount = overview.providers.length
-
   return {
     project: dto,
-    hasMeasurement: total > 0 && mention.progress != null,
-    mentionScore,
-    mentionDelta: total > 0 ? `${mentioned} of ${total} queries` : 'No data',
-    mentionTone: mention.tone as MetricTone,
-    providerCoverage: mention.providerCoverage,
+    hasMeasurement: overview.mentionCoverage?.populations.some(population => population.answerCount > 0),
+    mentionPopulations: overview.mentionCoverage?.populations,
+    providerCoverage: overview.scores.mention.providerCoverage,
     lastRun: runItem,
-    // Subtitle reads the mention signal (answerMentioned) — the word
-    // "mentioned" must be backed by mention data, not the cited count.
-    insight: total > 0
-      ? `${mentioned} of ${total} queries mentioned across ${providerCount} provider${providerCount === 1 ? '' : 's'}.`
-      : 'No runs completed yet.',
-    // Mention-rate-over-time series (0–100, oldest→newest), computed
-    // server-side from runHistory — drives the per-project sparkline so the
-    // trend tracks the same signal as the headline number.
-    trend: mention.trend ?? [],
     competitorPressureLabel: overview.scores.competitorPressure.value,
     sentiment: overview.sentiment,
   }
@@ -888,9 +861,9 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
         modelHint: p.modelHint,
         model: p.model,
         defaultModel: p.defaultModel,
-        state: (p.configured ? 'ready' : 'needs-config') as 'ready' | 'needs-config',
+        state: (p.configured ? 'configured' : 'needs-config') as 'configured' | 'needs-config',
         detail: p.configured
-          ? 'Provider is configured.'
+          ? 'Configuration saved.'
           : p.name.toLowerCase() === 'local'
             ? 'Base URL is missing.'
             : 'API key is missing.',
@@ -920,19 +893,51 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
   }
 }
 
+/**
+ * True when the row's own latest check lost the mention, read as the row's
+ * change label reads it: the transition on its snapshot's run, in its engine's
+ * history. A row with no snapshot in that check, or with only query-wide
+ * history, has no transition of its own, as with a lost citation.
+ */
+function lostMentionInLatestCheck(row: CitationInsightVm): boolean {
+  if (!row.sourceRunId || row.historyScope === 'query') return false
+  const own = row.runHistory.find(point => point.runId === row.sourceRunId)
+  return (own?.mentionTransition ?? own?.visibilityTransition) === MentionTransitions.lost
+}
+
+/** Evidence rows are one per engine and location, so a query lost on two engines counts once. */
+function distinctQueryCount(rows: readonly CitationInsightVm[]): number {
+  return new Set(rows.map(row => row.query)).size
+}
+
 function buildAttentionItems(projectCenters: ProjectCommandCenterVm[]) {
   const items: DashboardVm['portfolioOverview']['attentionItems'] = []
 
   for (const pc of projectCenters) {
-    const lostEvidence = pc.visibilityEvidence.filter(e => e.citationState === 'lost')
-    if (lostEvidence.length > 0) {
+    const projectLabel = pc.project.displayName || pc.project.name
+    const projectHref = `/projects/${encodeURIComponent(pc.project.name)}`
+    // Mentions first, then citations: the two signals are counted apart.
+    const lostMentions = distinctQueryCount(pc.visibilityEvidence.filter(lostMentionInLatestCheck))
+    if (lostMentions > 0) {
+      items.push({
+        id: `attention_${pc.project.id}_lost_mentions`,
+        tone: 'negative',
+        title: `${projectLabel} lost mentions`,
+        detail: `${lostMentions} ${lostMentions === 1 ? 'query' : 'queries'} lost a mention in the latest check.`,
+        actionLabel: 'Open project',
+        href: projectHref,
+      })
+    }
+
+    const lostCitations = distinctQueryCount(pc.visibilityEvidence.filter(e => e.citationState === 'lost'))
+    if (lostCitations > 0) {
       items.push({
         id: `attention_${pc.project.id}_lost`,
         tone: 'negative',
-        title: `${pc.project.displayName || pc.project.name} lost citations`,
-        detail: `${lostEvidence.length} quer${lostEvidence.length > 1 ? 'ies' : 'y'} lost citation.`,
+        title: `${projectLabel} lost citations`,
+        detail: `${lostCitations} ${lostCitations === 1 ? 'query' : 'queries'} lost a citation in the latest check.`,
         actionLabel: 'Open project',
-        href: `/projects/${encodeURIComponent(pc.project.name)}`,
+        href: projectHref,
       })
     }
 
@@ -941,7 +946,7 @@ function buildAttentionItems(projectCenters: ProjectCommandCenterVm[]) {
       items.push({
         id: `attention_${pc.project.id}_active`,
         tone: 'neutral',
-        title: `${pc.project.displayName || pc.project.name} has active runs`,
+        title: `${projectLabel} has active runs`,
         detail: `${activeRuns.length} run${activeRuns.length > 1 ? 's' : ''} in progress.`,
         actionLabel: 'View runs',
         href: '/runs',
@@ -957,7 +962,7 @@ function buildAttentionItems(projectCenters: ProjectCommandCenterVm[]) {
       id: 'attention_stable',
       tone: 'positive',
       title: 'All projects stable',
-      detail: 'No citation losses or active runs to flag.',
+      detail: 'No lost mentions or citations, and no runs in progress.',
     })
   }
 

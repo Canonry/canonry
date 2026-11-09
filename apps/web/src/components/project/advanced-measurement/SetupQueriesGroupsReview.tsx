@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ToneBadge } from '../../shared/ToneBadge.js'
+import { InfoTooltip } from '../../shared/InfoTooltip.js'
 import { Button } from '../../ui/button.js'
+import { PropertyIdentityReview, type DraftPropertyIdentity, type DraftPropertyInput } from './SetupImportProperties.js'
 
 export type AdvancedMeasurementAccess = 'editor' | 'viewer'
 
@@ -51,6 +53,23 @@ export interface AdvancedMeasurementMarketRoutingOption {
   id: string
   label: string
   measurementCount: number
+  assignmentIds?: readonly string[]
+  groupId?: string
+}
+
+export interface AdvancedMeasurementMarketAssignment {
+  id: string
+  property: string
+  query: string
+  context: string
+  queryClass: string
+  groupIds: readonly string[]
+}
+
+export interface AdvancedMeasurementMarketInput {
+  id?: string
+  name: string
+  assignmentIds: readonly string[]
 }
 
 export interface AdvancedMeasurementMarketRoutingImpact {
@@ -115,6 +134,8 @@ export interface AdvancedMeasurementQueriesStepProps {
   executionOptionId?: string
   onExecutionOptionChange?: (optionId: string) => void
   markets?: readonly AdvancedMeasurementMarketRoutingOption[]
+  marketAssignments?: readonly AdvancedMeasurementMarketAssignment[]
+  onSaveMarket?: (input: AdvancedMeasurementMarketInput) => Promise<boolean>
   marketId?: string
   onMarketChange?: (marketId: string) => void
   marketExecutionOptionId?: string
@@ -263,6 +284,8 @@ export interface AdvancedMeasurementReviewStepProps {
   availability?: AdvancedMeasurementAvailability
   counts: AdvancedMeasurementReviewCounts
   flaggedExceptions: readonly AdvancedMeasurementFlaggedException[]
+  properties?: readonly DraftPropertyIdentity[]
+  onSaveProperty?: (id: string, input: DraftPropertyInput) => Promise<boolean>
   sitemapReview?: {
     exceptionCount: number
     coverageReviewCount: number
@@ -334,8 +357,8 @@ function audienceLabel(
   groups: readonly AdvancedMeasurementGroup[],
   propertyCount: number,
 ): string {
-  if (audience.kind === 'all') return `every location (${propertyCount})`
-  if (audience.kind === 'specific') return propertyCount === 1 ? '1 location' : `${propertyCount} locations`
+  if (audience.kind === 'all') return `every Property (${propertyCount})`
+  if (audience.kind === 'specific') return propertyCount === 1 ? '1 Property' : `${propertyCount} Properties`
   const labels = audience.groupIds
     .map(id => groups.find(group => group.id === id)?.name)
     .filter((label): label is string => Boolean(label))
@@ -681,6 +704,8 @@ export function AdvancedMeasurementQueriesStep({
   executionOptionId = '',
   onExecutionOptionChange,
   markets = [],
+  marketAssignments = [],
+  onSaveMarket,
   marketId = '',
   onMarketChange,
   marketExecutionOptionId = '',
@@ -707,6 +732,7 @@ export function AdvancedMeasurementQueriesStep({
   const [showUnappliedOnly, setShowUnappliedOnly] = useState(false)
   const [newQueriesText, setNewQueriesText] = useState('')
   const [patternText, setPatternText] = useState('')
+  const [editingMarket, setEditingMarket] = useState(false)
   const [replacement, setReplacement] = useState<{ queryId: string; propertyIds: string[] } | null>(null)
   if (isUnavailable(availability)) {
     return <section aria-label="Queries"><UnavailableState message={availability.message} /></section>
@@ -767,7 +793,7 @@ export function AdvancedMeasurementQueriesStep({
       <div className="section-head">
         <div>
           <h3 id="advanced-measurement-queries-title">Queries</h3>
-          <p className="mt-1 max-w-2xl text-copy-14 text-secondary">Choose queries, then apply them to locations.</p>
+          <p className="mt-1 max-w-2xl text-copy-14 text-secondary">Choose queries, then assign them to Properties.</p>
         </div>
       </div>
 
@@ -778,7 +804,7 @@ export function AdvancedMeasurementQueriesStep({
           <legend className="text-label-14-strong text-heading">Apply to</legend>
           <div className="mt-3 grid max-w-2xl gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="text-label-14-strong text-heading">Locations or group</span>
+              <span className="text-label-14-strong text-heading">Properties or group</span>
               <select
                 aria-label="Apply to"
                 value={activeAudience.kind === 'none'
@@ -799,7 +825,7 @@ export function AdvancedMeasurementQueriesStep({
                 className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
               >
                 <option value="" disabled>Choose where to apply</option>
-                <option value="all">Every location ({properties.length})</option>
+                <option value="all">Every Property ({properties.length})</option>
                 {groups.length > 0 ? (
                   <optgroup label="Groups">
                     {groups.map(group => {
@@ -808,7 +834,7 @@ export function AdvancedMeasurementQueriesStep({
                     })}
                   </optgroup>
                 ) : null}
-                <option value="specific">Specific locations…</option>
+                <option value="specific">Specific Properties…</option>
               </select>
             </label>
             {executionOptions.length > 0 && onExecutionOptionChange ? (
@@ -826,7 +852,7 @@ export function AdvancedMeasurementQueriesStep({
               </label>
             ) : null}
           </div>
-          {executionOptions.length > 0 ? <p className="mt-2 max-w-2xl text-copy-14 text-secondary">The answer engine is saved on assignments for these locations or groups.</p> : null}
+          {executionOptions.length > 0 ? <p className="mt-2 max-w-2xl text-copy-14 text-secondary">The selected engine applies to these Property assignments.</p> : null}
 
           {activeAudience.kind === 'groups' ? (
             <div className="mt-3 max-w-2xl space-y-3">
@@ -879,7 +905,7 @@ export function AdvancedMeasurementQueriesStep({
           {activeAudience.kind === 'specific' ? (
             <div className="mt-4">
               <PropertyChecklist
-                legend="Specific locations"
+                legend="Specific Properties"
                 properties={properties}
                 selectedPropertyIds={activeAudience.propertyIds}
                 showBulkActions={false}
@@ -889,11 +915,14 @@ export function AdvancedMeasurementQueriesStep({
               />
             </div>
           ) : null}
-          <p className="mt-3 max-w-2xl text-copy-14 text-secondary">Groups are shortcuts resolved when you assign. Changing membership later does not rewrite existing assignments, and a Property added later does not receive earlier group queries.</p>
+          {activeAudience.kind === 'groups' ? <p className="mt-3 max-w-2xl text-copy-13 text-secondary">Assignments use the group’s current Properties. Later membership changes do not change existing assignments.</p> : null}
         </fieldset>
       )}
 
-      {viewer || markets.length === 0 || executionOptions.length === 0 || !onMarketChange || !onMarketExecutionOptionChange || !onRouteMarket ? null : (
+      {!viewer && (onSaveMarket || markets.length > 0) ? <details className="border-b border-default py-3">
+        <summary className="min-h-11 cursor-pointer text-label-14-strong text-heading">Markets{markets.length > 0 ? ` (${markets.length})` : ' (optional)'}</summary>
+        {onSaveMarket ? <MarketEditor markets={markets} assignments={marketAssignments} groups={groups} onSave={onSaveMarket} disabled={isBusy} onEditingChange={setEditingMarket} /> : null}
+      {markets.length === 0 || executionOptions.length === 0 || !onMarketChange || !onMarketExecutionOptionChange || !onRouteMarket ? null : (
         <fieldset className="border-b border-default pb-4">
           <legend className="text-label-14-strong text-heading">Market routing</legend>
           <p className="mt-1 max-w-2xl text-copy-14 text-secondary">Choose the answer engine for one saved market. Its existing answer-engine locations stay unchanged.</p>
@@ -946,6 +975,7 @@ export function AdvancedMeasurementQueriesStep({
           </div>
         </fieldset>
       )}
+      </details> : null}
 
       {viewer || !onCreateQueries ? null : (
         <details open={queries.length === 0} className="border-y border-default py-4">
@@ -961,7 +991,7 @@ export function AdvancedMeasurementQueriesStep({
               rows={4}
               value={newQueriesText}
               onChange={event => setNewQueriesText(event.currentTarget.value)}
-              placeholder={'best apartments in dallas\nluxury apartments atlanta\npet friendly apartments austin'}
+              placeholder={'best tools for team collaboration\nhow to compare project management software'}
             />
             {createQueriesError ? (
               <p role="alert" className="mt-2 text-copy-14 text-negative">{createQueriesError}</p>
@@ -989,8 +1019,8 @@ export function AdvancedMeasurementQueriesStep({
               ) : null}
             </div>
 
-            <div className="mt-4 border-t border-default pt-4">
-              <h4 className="m-0 text-heading-14 text-heading">Write one query for every Property</h4>
+            <details className="mt-4 border-t border-default pt-4">
+              <summary className="min-h-11 cursor-pointer text-label-14-strong text-heading">Write one query for every Property</summary>
               <p className="mt-1 mb-2 text-copy-14 text-secondary">
                 Put <code className="rounded bg-bg-elevated px-1">{'{property}'}</code> where the
                 Property name belongs. You get one query per selected Property.
@@ -1000,7 +1030,7 @@ export function AdvancedMeasurementQueriesStep({
                 className="min-h-11 w-full rounded border border-strong bg-transparent px-3 py-2 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                 value={patternText}
                 onChange={event => setPatternText(event.target.value)}
-                placeholder="apartments near {property}"
+                placeholder="How does {property} compare with alternatives?"
               />
               {patternText.trim() === '' ? null : patternPlaceholders.length === 0 ? (
                 <p className="mt-2 text-copy-14 text-caution">
@@ -1047,7 +1077,7 @@ export function AdvancedMeasurementQueriesStep({
                   {patternPairs.length} assignment{patternPairs.length === 1 ? '' : 's'}.
                 </p>
               ) : null}
-            </div>
+            </details>
           </div>
         </details>
       )}
@@ -1273,14 +1303,85 @@ export function AdvancedMeasurementQueriesStep({
       {viewer ? null : (
         <>
           {canContinue ? null : <p role="status" className="text-copy-14 text-caution">Apply at least one query to a Property before continuing.</p>}
+          {editingMarket ? <p role="status" className="text-copy-14 text-secondary">Save or cancel the market before continuing.</p> : null}
           <div className={`flex flex-wrap items-center gap-3 ${onBack ? 'justify-between' : 'justify-end'}`}>
             {onBack ? <Button type="button" variant="outline" className="pointer-coarse:min-h-11" disabled={isBusy} onClick={onBack}>Back</Button> : null}
-            <Button type="button" variant={canApply ? 'outline' : 'default'} className="pointer-coarse:min-h-11" disabled={!canContinue || isBusy} onClick={onContinue}>Continue</Button>
+            <Button type="button" variant={canApply ? 'outline' : 'default'} className="pointer-coarse:min-h-11" disabled={!canContinue || isBusy || editingMarket} onClick={onContinue}>Continue</Button>
           </div>
         </>
       )}
     </section>
   )
+}
+
+function MarketEditor({ markets, assignments, groups, onSave, disabled, onEditingChange }: {
+  markets: readonly AdvancedMeasurementMarketRoutingOption[]
+  assignments: readonly AdvancedMeasurementMarketAssignment[]
+  groups: readonly AdvancedMeasurementGroup[]
+  onSave: (input: AdvancedMeasurementMarketInput) => Promise<boolean>
+  disabled: boolean
+  onEditingChange: (editing: boolean) => void
+}) {
+  const [editing, setEditing] = useState<AdvancedMeasurementMarketInput | null>(null)
+  const [search, setSearch] = useState('')
+  const [saving, setSaving] = useState(false)
+  const nameRef = useRef<HTMLInputElement>(null)
+  const addRef = useRef<HTMLButtonElement>(null)
+  const wasEditing = useRef(false)
+  const currentMarket = markets.find(market => market.id === editing?.id)
+  const group = groups.find(candidate => candidate.id === currentMarket?.groupId)
+  const eligible = assignments.filter(assignment => !currentMarket?.groupId || assignment.groupIds.includes(currentMarket.groupId))
+  const filtered = eligible.filter(assignment => `${assignment.property} ${assignment.query} ${assignment.context} ${assignment.queryClass}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+  const selected = editing?.assignmentIds ?? []
+  useEffect(() => { onEditingChange(editing !== null) }, [editing, onEditingChange])
+  useEffect(() => {
+    if (editing !== null && !wasEditing.current) nameRef.current?.focus()
+    if (editing === null && wasEditing.current) addRef.current?.focus()
+    wasEditing.current = editing !== null
+  }, [editing])
+
+  async function save() {
+    if (!editing) return
+    setSaving(true)
+    try {
+      if (await onSave(editing)) setEditing(null)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return <div className="space-y-4 pb-5">
+    <p className="text-copy-13 text-secondary">A market reports on the specific Property, query, engine, and location assignments you select.</p>
+    {markets.length > 0 ? <ul className="divide-y divide-subtle">
+      {markets.map(market => <li key={market.id} className="flex items-center justify-between gap-3 py-2">
+        <span className="text-label-14 text-primary">{market.label} <span className="text-secondary">· {market.measurementCount} assignments</span></span>
+        {market.assignmentIds ? <Button type="button" size="sm" variant="ghost" disabled={disabled || editing !== null} aria-label={`Edit ${market.label} market`} onClick={() => { setEditing({ id: market.id, name: market.label, assignmentIds: market.assignmentIds! }); setSearch('') }}>Edit</Button> : null}
+      </li>)}
+    </ul> : null}
+    {assignments.length === 0 ? <p className="text-copy-13 text-secondary">Publish your initial setup, then return here to choose its saved assignments for a market.</p> : editing ? <form className="space-y-3" onSubmit={event => { event.preventDefault(); void save() }}>
+      <label className="block max-w-xl text-label-14-strong text-heading">Market name
+        <input ref={nameRef} required value={editing.name} disabled={disabled || saving} onChange={event => setEditing({ ...editing, name: event.target.value })} className="mt-1 block min-h-11 w-full rounded border border-default bg-surface px-3 text-label-14 text-primary" />
+      </label>
+      {group ? <p className="text-copy-13 text-secondary">Linked group: {group.name}</p> : null}
+      <label className="block text-label-14-strong text-heading">Find assignments
+        <input type="search" value={search} onChange={event => setSearch(event.target.value)} className="mt-1 block min-h-11 w-full rounded border border-default bg-surface px-3 text-label-14 text-primary" />
+      </label>
+      <fieldset disabled={disabled || saving}>
+        <legend className="text-copy-13 text-secondary">{selected.length} assignments selected</legend>
+        <div className="mt-2 max-h-80 overflow-y-auto divide-y divide-subtle border-y border-default">
+          {filtered.map(assignment => <label key={assignment.id} className="flex min-h-11 cursor-pointer items-start gap-3 py-3 text-label-14 text-primary">
+            <input type="checkbox" checked={selected.includes(assignment.id)} onChange={event => setEditing({ ...editing, assignmentIds: changeSelection(selected, assignment.id, event.target.checked) })} className="mt-1 size-4 shrink-0 accent-accent" />
+            <span><span className="block text-label-14-strong">{assignment.property} · {assignment.query}</span><span className="text-copy-13 text-secondary">{assignment.context} · {assignment.queryClass}</span></span>
+          </label>)}
+          {filtered.length === 0 ? <p className="py-3 text-copy-13 text-secondary">No matching assignments.</p> : null}
+        </div>
+      </fieldset>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={disabled || saving || !editing.name.trim() || selected.length === 0}>{saving ? 'Saving market…' : 'Save market'}</Button>
+        <Button type="button" variant="ghost" disabled={saving} onClick={() => setEditing(null)}>Cancel</Button>
+      </div>
+    </form> : <Button ref={addRef} type="button" size="sm" variant="outline" disabled={disabled} onClick={() => { setEditing({ name: '', assignmentIds: [] }); setSearch('') }}>Add market</Button>}
+  </div>
 }
 
 export function AdvancedMeasurementGroupsStep({
@@ -1328,8 +1429,6 @@ export function AdvancedMeasurementGroupsStep({
 
       {viewer ? <ViewerNotice /> : null}
 
-      {viewer || !membershipImport ? null : <GroupMembershipImportPanel value={membershipImport} />}
-
       {viewer ? null : (
         <div className="space-y-4 border-y border-default py-4">
           <label className="block max-w-xl">
@@ -1339,10 +1438,10 @@ export function AdvancedMeasurementGroupsStep({
               className="mt-1 min-h-11 w-full rounded border border-strong bg-transparent px-3 py-2 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
               value={groupDraft.name}
               onChange={event => onGroupDraftChange({ ...groupDraft, name: event.currentTarget.value })}
-              placeholder="Waterfront venues"
+              placeholder="e.g. Core products"
             />
           </label>
-          <details>
+          <details open={properties.length <= 10}>
             <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">{selectedPropertyCount} of {properties.length} Properties selected</summary>
             <div className="pt-3">
               <PropertyChecklist
@@ -1354,7 +1453,7 @@ export function AdvancedMeasurementGroupsStep({
             </div>
           </details>
           <label className="block max-w-xl">
-            <span className="text-label-14-strong text-heading">Competitor domains</span>
+            <span className="text-label-14-strong text-heading">Competitor domains (optional)</span>
             <input
               aria-label="Competitor domains"
               className="mt-1 min-h-11 w-full rounded border border-strong bg-transparent px-3 py-2 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
@@ -1368,13 +1467,12 @@ export function AdvancedMeasurementGroupsStep({
               {isSaving ? 'Saving group…' : 'Save group'}
             </Button>
             <Button type="button" size="sm" variant="ghost" className="pointer-coarse:min-h-11" disabled={!hasUnsavedGroupDraft} onClick={clearGroupForm}>Clear form</Button>
-            <p className="text-copy-14 text-secondary">Competitor domains are used only in this group&apos;s competitor report. Membership changes affect future assignments only.</p>
           </div>
           {hasUnsavedGroupDraft ? <p role="status" className="text-copy-14 text-caution">Save this group or clear the form before continuing.</p> : null}
         </div>
       )}
 
-      <div className="overflow-x-auto border-y border-default">
+      {groups.length > 0 ? <div className="overflow-x-auto border-y border-default">
         <table className="evidence-table min-w-[620px]">
           <thead><tr><th>Group</th><th>Properties</th><th>Competitors</th>{showSavedGroupActions ? <th>Actions</th> : null}</tr></thead>
           <tbody>
@@ -1395,9 +1493,12 @@ export function AdvancedMeasurementGroupsStep({
             ))}
           </tbody>
         </table>
-      </div>
+      </div> : null}
 
-      {groups.length === 0 ? <p className="text-copy-14 text-secondary">No groups have been added.</p> : null}
+      {viewer || !membershipImport ? null : <details className="border-t border-default pt-3">
+        <summary className="min-h-11 cursor-pointer text-label-14-strong text-heading">Import groups from CSV</summary>
+        <GroupMembershipImportPanel value={membershipImport} />
+      </details>}
 
       {viewer ? null : (
         <div className={`flex flex-wrap items-center gap-3 ${onBack ? 'justify-between' : 'justify-end'}`}>
@@ -1414,6 +1515,8 @@ export function AdvancedMeasurementReviewStep({
   availability,
   counts,
   flaggedExceptions,
+  properties,
+  onSaveProperty,
   sitemapReview,
   onBack,
   onReviewChanges,
@@ -1429,6 +1532,7 @@ export function AdvancedMeasurementReviewStep({
   const [sitemapItemLimit, setSitemapItemLimit] = useState(INITIAL_REVIEW_ITEM_LIMIT)
   const [coverageItemLimit, setCoverageItemLimit] = useState(INITIAL_REVIEW_ITEM_LIMIT)
   const [flaggedExceptionLimit, setFlaggedExceptionLimit] = useState(INITIAL_REVIEW_ITEM_LIMIT)
+  const [editingProperty, setEditingProperty] = useState(false)
   if (isUnavailable(availability)) {
     return <section aria-label="Review and publish"><UnavailableState message={availability.message} /></section>
   }
@@ -1447,11 +1551,12 @@ export function AdvancedMeasurementReviewStep({
       <div className="section-head">
         <div>
           <h3 id="advanced-measurement-review-title">Review &amp; publish</h3>
-          <p className="mt-1 max-w-2xl text-copy-14 text-secondary">Confirm the setup details before publishing.</p>
         </div>
       </div>
 
       {viewer ? <ViewerNotice /> : null}
+
+      {properties && properties.length > 0 ? <PropertyIdentityReview properties={properties} onSave={viewer ? undefined : onSaveProperty} onEditingChange={setEditingProperty} /> : null}
 
       {sitemapReview ? (
         <section aria-labelledby="advanced-measurement-sitemap-review-title" className="border-y border-caution-800/40 bg-caution-950/20 py-4">
@@ -1539,7 +1644,7 @@ export function AdvancedMeasurementReviewStep({
 
       <div className="overflow-x-auto border-y border-default">
         <table className="evidence-table min-w-[720px]">
-          <thead><tr><th>Properties</th><th>Queries</th><th>Groups</th><th>Assignments</th><th>Provider requests / run</th></tr></thead>
+          <thead><tr><th>Properties</th><th>Queries</th><th>Groups</th><th><span className="inline-flex items-center gap-1.5">Assignments{counts.assignments !== undefined && counts.assignments > counts.queries ? <InfoTooltip text={`An assignment pairs one query with one Property. Applying a query to a group creates one assignment per Property. ${counts.queries} ${counts.queries === 1 ? 'query produces' : 'queries produce'} ${counts.assignments} assignments here.`} /> : null}</span></th><th>Provider requests / run</th></tr></thead>
           <tbody><tr>
             <td className="tabular-nums text-heading">{counts.properties}</td>
             <td className="tabular-nums text-heading">{counts.queries}</td>
@@ -1554,16 +1659,6 @@ export function AdvancedMeasurementReviewStep({
           Review changes to see how many provider requests one run will make.
         </p>
       ) : null}
-      {counts.assignments !== undefined && counts.assignments > counts.queries ? (
-        // Applying one query to a group writes one assignment per Property in
-        // it, so this number outruns the query count and looks wrong without
-        // the reason beside it.
-        <p className="supporting-copy">
-          Queries applied to groups create one assignment for every Property in each group.
-          {' '}{counts.queries} {counts.queries === 1 ? 'query' : 'queries'} produce {counts.assignments} assignment{counts.assignments === 1 ? '' : 's'} here.
-        </p>
-      ) : null}
-
       {reviewedChanges ? (
         <section aria-labelledby="advanced-measurement-reviewed-changes-title" className="border-y border-default py-4" aria-live="polite">
           <h4 id="advanced-measurement-reviewed-changes-title" className="text-heading-14 text-heading">{reviewedChanges.title}</h4>
@@ -1575,7 +1670,7 @@ export function AdvancedMeasurementReviewStep({
         </section>
       ) : null}
 
-      <section aria-labelledby="advanced-measurement-flagged-exceptions-title" className="space-y-3">
+      {flaggedExceptions.length > 0 ? <section aria-labelledby="advanced-measurement-flagged-exceptions-title" className="space-y-3">
         <h4 id="advanced-measurement-flagged-exceptions-title" className="text-heading-14 text-heading">Flagged exceptions</h4>
         {flaggedExceptions.length === 0 ? <p className="text-copy-14 text-secondary">No flagged exceptions.</p> : (
           <div className="space-y-3">
@@ -1595,18 +1690,19 @@ export function AdvancedMeasurementReviewStep({
             </div>
           </div>
         )}
-      </section>
+      </section> : null}
 
       {viewer ? null : (
         <>
           {requiresChangeReview && reviewChangesError ? <p role="alert" className="text-copy-14 text-negative">{reviewChangesError}</p> : null}
           {sweepActive ? <p role="status" className="text-copy-14 text-caution">A check is queued or running. Publish after it finishes.</p> : null}
+          {editingProperty ? <p role="status" className="text-copy-14 text-secondary">Save or cancel the Property edit before reviewing or publishing.</p> : null}
           <div className={`flex flex-wrap items-center gap-3 ${onBack ? 'justify-between' : 'justify-end'}`}>
             {onBack ? <Button type="button" variant="outline" className="pointer-coarse:min-h-11" onClick={onBack}>Back</Button> : null}
             {onReviewChanges !== undefined && !hasReviewedChanges ? (
-              <Button type="button" className="pointer-coarse:min-h-11" disabled={isReviewing || !canReviewChanges} onClick={() => { void onReviewChanges() }}>{isReviewing ? 'Reviewing changes…' : 'Review changes'}</Button>
+              <Button type="button" className="pointer-coarse:min-h-11" disabled={editingProperty || isReviewing || !canReviewChanges} onClick={() => { void onReviewChanges() }}>{isReviewing ? 'Reviewing changes…' : 'Review changes'}</Button>
             ) : (
-              <Button type="button" className="pointer-coarse:min-h-11" disabled={!canPublish || isPublishing} onClick={() => { void onPublish() }}>{isPublishing ? 'Publishing setup…' : 'Publish setup'}</Button>
+              <Button type="button" className="pointer-coarse:min-h-11" disabled={editingProperty || !canPublish || isPublishing} onClick={() => { void onPublish() }}>{isPublishing ? 'Publishing setup…' : 'Publish setup'}</Button>
             )}
           </div>
         </>

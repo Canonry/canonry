@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
@@ -7,6 +8,7 @@ import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { fetchCdpStatus, configureCdp, type ApiCdpStatus } from '../../api.js'
 import { describeError } from '@canonry/canonry-contracts'
+import { useUnsavedChanges } from '../../hooks/use-unsaved-changes.js'
 
 function shortCdpError(error: string): string {
   const summary = error.replace(/^Error:\s*/, '').replace(/\s+/g, ' ').trim()
@@ -15,32 +17,36 @@ function shortCdpError(error: string): string {
 }
 
 export function CdpConfigCard() {
+  const queryClient = useQueryClient()
   const [cdpStatus, setCdpStatus] = useState<ApiCdpStatus | null>(null)
   const [cdpStatusError, setCdpStatusError] = useState<string | null>(null)
   const [configuringCdp, setConfiguringCdp] = useState(false)
   const [cdpHost, setCdpHost] = useState('localhost')
   const [cdpPort, setCdpPort] = useState('9222')
   const [cdpSaving, setCdpSaving] = useState(false)
+  const [cdpDirty, setCdpDirty] = useState(false)
+  const guard = useUnsavedChanges(cdpDirty, cdpSaving)
 
   useEffect(() => {
+    let active = true
     fetchCdpStatus()
       .then((status) => {
+        if (!active) return
         setCdpStatus(status)
         setCdpStatusError(null)
       })
       .catch((err: unknown) => {
+        if (!active) return
         const msg = describeError(err)
         if (!msg.includes('501')) setCdpStatusError(msg)
       })
+    return () => { active = false }
   }, [])
 
   return (
-    <Card className="surface-card">
+    <Card id="browser-connection" className="surface-card scroll-mt-24">
       <div className="section-head">
-        <div>
-          <p className="eyebrow eyebrow-soft">Browser provider</p>
-          <h2>ChatGPT (CDP)</h2>
-        </div>
+        <h2>ChatGPT (CDP)</h2>
         <ToneBadge tone={cdpStatus?.connected ? 'positive' : 'caution'}>
           {cdpStatus?.connected ? 'Connected' : 'Not connected'}
         </ToneBadge>
@@ -55,8 +61,17 @@ export function CdpConfigCard() {
           </>
         ) : cdpStatus?.connected ? 'Chrome is available for this provider.' : 'Connect Chrome to enable this provider.'}
       </p>
-      <details className="mt-3">
-        <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">Advanced</summary>
+      {!cdpStatus?.connected && <details className="mt-3">
+        <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">How to connect Chrome</summary>
+        <ol className="mt-2 ml-5 list-decimal space-y-2 text-copy-14 text-secondary">
+          <li>On the machine running Canonry, launch Chrome with remote debugging on port 9222 and a separate browser profile.</li>
+          <li>In that browser, open ChatGPT and sign in.</li>
+          <li>Choose Configure below and save the host and port.</li>
+        </ol>
+        <p className="mt-2 text-copy-14 text-secondary">Chrome requires <code>--remote-debugging-port=9222</code> and <code>--user-data-dir</code> pointing to a separate profile. <a className="text-link underline" href="https://developer.chrome.com/docs/devtools/agents/get-started/configuration" target="_blank" rel="noopener noreferrer">Launch commands for your operating system</a></p>
+      </details>}
+      {(cdpStatus?.endpoint || cdpStatus?.browserVersion || Boolean(cdpStatus?.targets?.length)) && <details className="mt-3">
+        <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">Connection details</summary>
         <dl className="definition-list mt-2">
           {cdpStatus?.endpoint && (
             <div>
@@ -83,13 +98,21 @@ export function CdpConfigCard() {
             </div>
           )}
         </dl>
-      </details>
+      </details>}
       <div className="mt-2">
         <Button
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => setConfiguringCdp(!configuringCdp)}
+          disabled={cdpSaving}
+          onClick={() => guard.request(() => {
+            if (configuringCdp) { setConfiguringCdp(false); setCdpDirty(false); return }
+            if (cdpStatus?.endpoint) {
+              try { const url = new URL(cdpStatus.endpoint); setCdpHost(url.hostname); setCdpPort(url.port || '9222') }
+              catch { setCdpStatusError('The saved browser endpoint could not be read. Enter its host and port.') }
+            }
+            setConfiguringCdp(true)
+          })}
         >
           {configuringCdp ? 'Cancel' : cdpStatus?.connected ? 'Update endpoint' : 'Configure'}
         </Button>
@@ -101,14 +124,16 @@ export function CdpConfigCard() {
             e.preventDefault()
             setCdpSaving(true)
             try {
-              await configureCdp(cdpHost, parseInt(cdpPort, 10) || 9222)
+              await configureCdp(cdpHost.trim(), Number(cdpPort))
               const status = await fetchCdpStatus()
               setCdpStatus(status)
               setCdpStatusError(null)
               setConfiguringCdp(false)
+              setCdpDirty(false)
+              void queryClient.invalidateQueries({ queryKey: ['settings'] })
               addToast({
                 title: 'CDP endpoint saved',
-                detail: `${cdpHost}:${parseInt(cdpPort, 10) || 9222} is now configured.`,
+                detail: `${cdpHost.trim()}:${cdpPort} is now configured.`,
                 tone: 'positive',
                 dedupeKey: 'settings:cdp',
                 dedupeMode: 'replace',
@@ -125,14 +150,21 @@ export function CdpConfigCard() {
               className="flex-1 rounded border border-strong bg-bg-elevated px-2 py-1 text-label-14 text-heading placeholder-mono-400 focus:outline-none focus:ring-1 focus:ring-mono-500"
               placeholder="localhost"
               value={cdpHost}
-              onChange={e => setCdpHost(e.target.value)}
+              required
+              disabled={cdpSaving}
+              onChange={e => { setCdpHost(e.target.value); setCdpDirty(true) }}
               aria-label="CDP host"
             />
             <input
               className="w-24 rounded border border-strong bg-bg-elevated px-2 py-1 text-label-14 text-heading placeholder-mono-400 focus:outline-none focus:ring-1 focus:ring-mono-500"
               placeholder="9222"
+              type="number"
+              min="1"
+              max="65535"
+              required
+              disabled={cdpSaving}
               value={cdpPort}
-              onChange={e => setCdpPort(e.target.value)}
+              onChange={e => { setCdpPort(e.target.value); setCdpDirty(true) }}
               aria-label="CDP port"
             />
           </div>
@@ -143,6 +175,7 @@ export function CdpConfigCard() {
           </div>
         </form>
       )}
+      {guard.dialog}
     </Card>
   )
 }

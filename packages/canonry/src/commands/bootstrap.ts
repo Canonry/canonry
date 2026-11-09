@@ -38,7 +38,7 @@ function persistedValue(value: unknown): unknown {
  * matching local server after saving; the settings command registers live.
  */
 const PROVIDER_FREE_NEXT_STEPS: readonly string[] = [
-  'AI Visibility needs an answer-engine provider. Page Health does not.',
+  'AI Visibility needs an answer-engine provider. Agent Readiness does not.',
   'With the server running, the operator runs `canonry settings provider gemini --api-key <key>` '
     + '(free key at https://aistudio.google.com/apikey). It takes effect immediately.',
   'Or the operator sets GEMINI_API_KEY and reruns `canonry bootstrap`. It reloads the matching running local server '
@@ -374,7 +374,7 @@ export async function bootstrapCommand(opts?: { format?: CliFormat; ref?: string
       break
   }
   if (providerFree) {
-    console.log('Providers: none (Page Health works now; add one later to enable AI Visibility).')
+    console.log('Providers: none (Agent Readiness works now; add one later to enable AI Visibility).')
     console.log('  To add one with the server running: canonry settings provider gemini --api-key <key>')
     console.log('  (free key at aistudio.google.com). Or set GEMINI_API_KEY and rerun `canonry bootstrap`;')
     console.log('  bootstrap reloads the matching running local server and confirms active providers.')

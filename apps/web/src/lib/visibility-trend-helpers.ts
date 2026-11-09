@@ -1,4 +1,4 @@
-import { openRouterRouteModel } from '@canonry/canonry-contracts'
+import { formatModelName, openRouterRouteModel } from '@canonry/canonry-contracts'
 import type {
   BasketChangeEvent,
   BrandMetricsDto,
@@ -193,11 +193,15 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
  * each adapter or service descriptor ("Standard · <service>"), so a routed
  * key of any family reads the way the server names it.
  */
-export function providerDisplayName(name: string, catalog?: ReadonlyArray<{ name: string; displayName?: string }>): string {
+export function providerDisplayName(name: string, catalog?: ReadonlyArray<{ name: string; displayName?: string; knownModels?: readonly { id: string; displayName: string }[] }>): string {
+  const routedModel = openRouterRouteModel(name)
+  if (routedModel) {
+    const models = catalog?.find(entry => entry.name === 'openrouter')?.knownModels
+      ?? catalog?.find(entry => entry.name === name)?.knownModels
+    return `${formatModelName(routedModel, models)} via OpenRouter`
+  }
   const listed = catalog?.find(entry => entry.name === name)?.displayName?.trim()
   if (listed) return listed
-  const routedModel = openRouterRouteModel(name)
-  if (routedModel) return `${routedModel} via OpenRouter`
   const key = normalizeProviderKey(name)
   return PROVIDER_DISPLAY_NAMES[key] ?? name.charAt(0).toUpperCase() + name.slice(1)
 }
@@ -306,18 +310,18 @@ export function joinWithAnd(items: readonly string[]): string {
 export function formatModelEvidence(state: ModelEvidenceState): string {
   switch (state.status) {
     case 'known':
-      return state.model
+      return state.model.includes('/') ? formatModelName(state.model) : state.model
     case 'unknown':
       return 'Unknown model'
     case 'mixed':
       if (state.models.length === 0) return 'Unknown model'
-      return `${state.models.join(', ')}${state.includesUnknown ? ' and an unknown model' : ''}`
+      return `${state.models.map(model => model.includes('/') ? formatModelName(model) : model).join(', ')}${state.includesUnknown ? ' and an unknown model' : ''}`
   }
 }
 
 /** A mixed point's models as a phrase ("a and b", "a, b and an unknown model"). */
 export function formatMixedModels(state: Extract<ModelEvidenceState, { status: 'mixed' }>): string {
-  return joinWithAnd([...state.models, ...(state.includesUnknown ? ['an unknown model'] : [])])
+  return joinWithAnd([...state.models.map(model => model.includes('/') ? formatModelName(model) : model), ...(state.includesUnknown ? ['an unknown model'] : [])])
 }
 
 /** Group categorical changes by the existing plotted bucket; no false-precision timestamp markers. */

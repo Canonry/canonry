@@ -1,3 +1,5 @@
+import { getApiV1ProjectsByNameRunPreview } from '@canonry/canonry-api-client'
+import { postApiV1ProjectsByNameSchedulePreview } from '@canonry/canonry-api-client'
 import type { BingSubmitSitemapResponseDto, SitemapCoverageResponseDto, BingCrawlStatsResponseDto, BingFetchedUrlsResponseDto, BingKeywordDemandResponseDto, BingKeywordResearchResponseDto, BingLinksResponseDto, BingPageQueriesResponseDto, BingPageTotalsResponseDto, BingQueryHistoryResponseDto, BingQueryPagesResponseDto, BingQueryTotalsResponseDto, BingSiteResponseDto, BingSitemapsResponseDto, BingTrafficResponseDto, BingUrlChildrenResponseDto, BingUrlTrafficResponseDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameBingCrawlStats, getApiV1ProjectsByNameBingFetchedUrls, getApiV1ProjectsByNameBingKeywordDemand, getApiV1ProjectsByNameBingKeywords, getApiV1ProjectsByNameBingLinks, getApiV1ProjectsByNameBingPageQueries, getApiV1ProjectsByNameBingPages, getApiV1ProjectsByNameBingQueries, getApiV1ProjectsByNameBingQueryHistory, getApiV1ProjectsByNameBingQueryPages, getApiV1ProjectsByNameBingSite, getApiV1ProjectsByNameBingSitemaps, getApiV1ProjectsByNameBingTraffic, getApiV1ProjectsByNameBingUrlChildren, getApiV1ProjectsByNameBingUrlTraffic, getApiV1ProjectsByNameSitemaps, postApiV1ProjectsByNameBingSitemaps, postApiV1ProjectsByNameBingSync } from '@canonry/canonry-api-client'
 import type { McpProfileDto } from '@canonry/canonry-contracts'
@@ -41,7 +43,7 @@ import {
   postApiV1ProjectsByNameSentimentBackfills, getApiV1ProjectsByNameSentimentJobs, getApiV1ProjectsByNameSentimentJobsByJobId,
 } from '@canonry/canonry-api-client'
 import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@canonry/canonry-contracts'
-import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto } from '@canonry/canonry-contracts'
+import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto, RunPreviewDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { detectAgentRuntime, normalizeAgentSlug, USAGE_TELEMETRY_HEADERS, type OutcomeSurface } from '@canonry/canonry-contracts'
@@ -143,6 +145,8 @@ import type {
   SnapshotDiffResponse,
   SnapshotListResponse,
   ScheduleDto,
+  SchedulePreviewDto,
+  SchedulePreviewRequest,
   NotificationDto,
   SnapshotReportDto,
   SnapshotRequestInput,
@@ -341,6 +345,9 @@ import type {
   ResultsExportFormat,
   IntegrationSettingsSummaryDto,
   ProviderSummaryEntryDto,
+  ProviderConnectionSettingsDto,
+  ProviderSettingsUpdateRequest,
+  ProviderDisconnectRequest,
   ProviderReloadRequest,
   ProviderReloadResponseDto,
   TelemetryStatusDto,
@@ -415,6 +422,8 @@ import {
   getApiV1Settings,
   putApiV1SettingsGoogle,
   putApiV1SettingsProvidersByName,
+  getApiV1SettingsProvidersByName,
+  deleteApiV1SettingsProvidersByName,
   postApiV1SettingsProvidersReload,
   postApiV1Snapshot,
   getApiV1Telemetry,
@@ -597,24 +606,24 @@ import {
   getApiV1ProjectsByNameResearchRuns,
   getApiV1ProjectsByNameResearchRunsByRunId,
   postApiV1ProjectsByNameDiscoverSessionsByIdPromote,
-  // Technical AEO (site-audit)
-  getApiV1ProjectsByNameTechnicalAeo,
-  getApiV1ProjectsByNameTechnicalAeoPages,
-  getApiV1ProjectsByNameTechnicalAeoIssues,
-  getApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPages,
-  getApiV1ProjectsByNameTechnicalAeoTrend,
-  getApiV1ProjectsByNameTechnicalAeoCrawl,
-  getApiV1ProjectsByNameTechnicalAeoChanges,
-  getApiV1ProjectsByNameTechnicalAeoCrawlPages,
-  getApiV1ProjectsByNameTechnicalAeoCrawlPagesAudit,
-  getApiV1ProjectsByNameTechnicalAeoStructure,
-  getApiV1ProjectsByNameTechnicalAeoPath,
-  getApiV1ProjectsByNameTechnicalAeoSubgraph,
-  getApiV1ProjectsByNameTechnicalAeoInternalLinks,
-  getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighbors,
-  getApiV1ProjectsByNameTechnicalAeoDeadLinks,
-  getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgress,
-  postApiV1ProjectsByNameTechnicalAeoRuns,
+  // Agent Readiness (site-audit)
+  getApiV1ProjectsByNameAgentReadiness,
+  getApiV1ProjectsByNameAgentReadinessPages,
+  getApiV1ProjectsByNameAgentReadinessIssues,
+  getApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPages,
+  getApiV1ProjectsByNameAgentReadinessTrend,
+  getApiV1ProjectsByNameAgentReadinessCrawl,
+  getApiV1ProjectsByNameAgentReadinessChanges,
+  getApiV1ProjectsByNameAgentReadinessCrawlPages,
+  getApiV1ProjectsByNameAgentReadinessCrawlPagesAudit,
+  getApiV1ProjectsByNameAgentReadinessStructure,
+  getApiV1ProjectsByNameAgentReadinessPath,
+  getApiV1ProjectsByNameAgentReadinessSubgraph,
+  getApiV1ProjectsByNameAgentReadinessInternalLinks,
+  getApiV1ProjectsByNameAgentReadinessInternalLinksNeighbors,
+  getApiV1ProjectsByNameAgentReadinessDeadLinks,
+  getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgress,
+  postApiV1ProjectsByNameAgentReadinessRuns,
   // Wordpress
   postApiV1ProjectsByNameWordpressConnect,
   deleteApiV1ProjectsByNameWordpressDisconnect,
@@ -2481,6 +2490,10 @@ export class ApiClient {
     )
   }
 
+  async previewRun(project: string): Promise<RunPreviewDto> {
+    return this.invoke<RunPreviewDto>(() => getApiV1ProjectsByNameRunPreview({ client: this.heyClient, path: { name: project } }))
+  }
+
   async getLatestRun(project: string): Promise<LatestProjectRunDto> {
     return this.invoke<LatestProjectRunDto>(() =>
       getApiV1ProjectsByNameRunsLatest({ client: this.heyClient, path: { name: project } }),
@@ -2675,15 +2688,22 @@ export class ApiClient {
 
   async updateProvider(
     name: string,
-    body: {
-      apiKey?: string
-      baseUrl?: string
-      model?: string
-      quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number }
-    },
+    body: ProviderSettingsUpdateRequest,
   ): Promise<ProviderSummaryEntryDto> {
     return this.invoke<ProviderSummaryEntryDto>(() =>
       putApiV1SettingsProvidersByName({ client: this.heyClient, path: { name }, body }),
+    )
+  }
+
+  async getProviderSettings(name: string): Promise<ProviderConnectionSettingsDto> {
+    return this.invoke<ProviderConnectionSettingsDto>(() =>
+      getApiV1SettingsProvidersByName({ client: this.heyClient, path: { name } }),
+    )
+  }
+
+  async disconnectProvider(name: string, body: ProviderDisconnectRequest): Promise<ProviderConnectionSettingsDto> {
+    return this.invoke<ProviderConnectionSettingsDto>(() =>
+      deleteApiV1SettingsProvidersByName({ client: this.heyClient, path: { name }, body }),
     )
   }
 
@@ -2731,6 +2751,10 @@ export class ApiClient {
   }
 
   // ── Schedules / notifications / locations ───────────────────────────────
+
+  async previewSchedule(project: string, body: SchedulePreviewRequest): Promise<SchedulePreviewDto> {
+    return this.invoke<SchedulePreviewDto>(() => postApiV1ProjectsByNameSchedulePreview({ client: this.heyClient, path: { name: project }, body }))
+  }
 
   async listSchedules(project: string): Promise<ScheduleDto[]> {
     return this.invoke<ScheduleDto[]>(() =>
@@ -4601,11 +4625,11 @@ export class ApiClient {
     )
   }
 
-  // ── Technical AEO (site-audit) ──────────────────────────────────────────
+  // ── Agent Readiness (site-audit) ────────────────────────────────────────
 
   async getTechnicalAeoScore(project: string, opts?: { runId?: string }): Promise<SiteAuditScoreDto> {
     return this.invoke<SiteAuditScoreDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeo({ client: this.heyClient, path: { name: project }, query: { runId: opts?.runId } }),
+      getApiV1ProjectsByNameAgentReadiness({ client: this.heyClient, path: { name: project }, query: { runId: opts?.runId } }),
     )
   }
 
@@ -4614,7 +4638,7 @@ export class ApiClient {
     opts?: { runId?: string; status?: 'success' | 'error'; sort?: string; limit?: number; offset?: number },
   ): Promise<SiteAuditPagesResponseDto> {
     return this.invoke<SiteAuditPagesResponseDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoPages({
+      getApiV1ProjectsByNameAgentReadinessPages({
         client: this.heyClient,
         path: { name: project },
         query: {
@@ -4646,7 +4670,7 @@ export class ApiClient {
 
   async getTechnicalAeoTrend(project: string, opts?: { limit?: number }): Promise<SiteAuditTrendResponseDto> {
     return this.invoke<SiteAuditTrendResponseDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoTrend({
+      getApiV1ProjectsByNameAgentReadinessTrend({
         client: this.heyClient,
         path: { name: project },
         query: { limit: opts?.limit !== undefined ? String(opts.limit) : undefined } as never,
@@ -4657,7 +4681,7 @@ export class ApiClient {
   /** Exact durable counters and lifecycle state for one non-probe site-audit run. */
   async getTechnicalAeoProgress(project: string, runId: string): Promise<SiteAuditRunProgressDto> {
     return this.invoke<SiteAuditRunProgressDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgress({
+      getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgress({
         client: this.heyClient,
         path: { name: project, runId },
       }),
@@ -4667,7 +4691,7 @@ export class ApiClient {
   /** Persisted full-crawl metadata. This never synthesizes a graph from legacy audit rows. */
   async getTechnicalAeoCrawl(project: string, opts?: { runId?: string; date?: string }): Promise<SiteCrawlSummaryDto> {
     return this.invoke<SiteCrawlSummaryDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoCrawl({
+      getApiV1ProjectsByNameAgentReadinessCrawl({
         client: this.heyClient,
         path: { name: project },
         query: { runId: opts?.runId, date: opts?.date },
@@ -4681,7 +4705,7 @@ export class ApiClient {
     opts?: { runId?: string; cursor?: string; limit?: number },
   ): Promise<SiteAuditIssuesResponseDto> {
     return this.invoke<SiteAuditIssuesResponseDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoIssues({
+      getApiV1ProjectsByNameAgentReadinessIssues({
         client: this.heyClient,
         path: { name: project },
         query: { runId: opts?.runId, cursor: opts?.cursor, limit: opts?.limit },
@@ -4696,7 +4720,7 @@ export class ApiClient {
     opts?: { runId?: string; cursor?: string; limit?: number },
   ): Promise<SiteAuditIssuePagesResponseDto> {
     return this.invoke<SiteAuditIssuePagesResponseDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPages({
+      getApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPages({
         client: this.heyClient,
         path: { name: project, issueId },
         query: { runId: opts?.runId, cursor: opts?.cursor, limit: opts?.limit },
@@ -4704,13 +4728,13 @@ export class ApiClient {
     )
   }
 
-  /** Bounded semantic Site Health neighborhood; this never returns visualization layout. */
+  /** Bounded semantic Agent Readiness neighborhood; this never returns visualization layout. */
   async getSiteHealthSubgraph(
     project: string,
     opts?: { runId?: string; nodeKey?: string; url?: string; hops?: number; maxNodes?: number; maxEdges?: number },
   ): Promise<SiteHealthSubgraphResponseDto> {
     return this.invoke<SiteHealthSubgraphResponseDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoSubgraph({
+      getApiV1ProjectsByNameAgentReadinessSubgraph({
         client: this.heyClient,
         path: { name: project },
         query: {
@@ -4731,7 +4755,7 @@ export class ApiClient {
     opts: { runId?: string; fromNodeKey?: string; fromUrl?: string; toNodeKey?: string; toUrl?: string; maxDepth?: number },
   ): Promise<SiteHealthPathResponseDto> {
     return this.invoke<SiteHealthPathResponseDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoPath({
+      getApiV1ProjectsByNameAgentReadinessPath({
         client: this.heyClient,
         path: { name: project },
         query: {
@@ -4752,7 +4776,7 @@ export class ApiClient {
     opts?: { fromRunId?: string; toRunId?: string; scope?: 'all' | 'pages' | 'links'; change?: 'all' | 'added' | 'removed' | 'changed'; cursor?: string; limit?: number },
   ): Promise<SiteHealthChangesResponseDto> {
     return this.invoke<SiteHealthChangesResponseDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoChanges({
+      getApiV1ProjectsByNameAgentReadinessChanges({
         client: this.heyClient,
         path: { name: project },
         query: {
@@ -4784,7 +4808,7 @@ export class ApiClient {
     },
   ): Promise<SiteCrawlPagesResponseDto> {
     return this.invoke<SiteCrawlPagesResponseDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoCrawlPages({
+      getApiV1ProjectsByNameAgentReadinessCrawlPages({
         client: this.heyClient,
         path: { name: project },
         query: {
@@ -4809,7 +4833,7 @@ export class ApiClient {
     opts: { runId?: string; nodeKey?: string; url?: string },
   ): Promise<SiteCrawlPageAuditDto> {
     return this.invoke<SiteCrawlPageAuditDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoCrawlPagesAudit({
+      getApiV1ProjectsByNameAgentReadinessCrawlPagesAudit({
         client: this.heyClient,
         path: { name: project },
         query: {
@@ -4827,7 +4851,7 @@ export class ApiClient {
     opts?: { runId?: string; parentPath?: string; cursor?: string; limit?: number },
   ): Promise<SiteCrawlStructureResponseDto> {
     return this.invoke<SiteCrawlStructureResponseDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoStructure({
+      getApiV1ProjectsByNameAgentReadinessStructure({
         client: this.heyClient,
         path: { name: project },
         query: {
@@ -4854,7 +4878,7 @@ export class ApiClient {
     },
   ): Promise<SiteCrawlInternalLinksResponseDto> {
     return this.invoke<SiteCrawlInternalLinksResponseDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoInternalLinks({
+      getApiV1ProjectsByNameAgentReadinessInternalLinks({
         client: this.heyClient,
         path: { name: project },
         query: {
@@ -4876,7 +4900,7 @@ export class ApiClient {
     opts: { runId?: string; nodeKey?: string; url?: string; linkKind?: SiteHealthLinkKind; limit?: number },
   ): Promise<SiteCrawlNeighborsResponseDto> {
     return this.invoke<SiteCrawlNeighborsResponseDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighbors({
+      getApiV1ProjectsByNameAgentReadinessInternalLinksNeighbors({
         client: this.heyClient,
         path: { name: project },
         query: {
@@ -4896,7 +4920,7 @@ export class ApiClient {
     opts?: { runId?: string; cursor?: string; limit?: number },
   ): Promise<SiteCrawlDeadLinksResponseDto> {
     return this.invoke<SiteCrawlDeadLinksResponseDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeoDeadLinks({
+      getApiV1ProjectsByNameAgentReadinessDeadLinks({
         client: this.heyClient,
         path: { name: project },
         query: {
@@ -4913,7 +4937,7 @@ export class ApiClient {
     body?: Partial<SiteAuditRunRequest>,
   ): Promise<SiteAuditRunResponseDto> {
     return this.invoke<SiteAuditRunResponseDto>(() =>
-      postApiV1ProjectsByNameTechnicalAeoRuns({
+      postApiV1ProjectsByNameAgentReadinessRuns({
         client: this.heyClient,
         path: { name: project },
         body: (body ?? {}) as never,

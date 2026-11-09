@@ -1,3 +1,4 @@
+import { formatModelName } from '@canonry/canonry-contracts'
 import type { CitationInsightVm, RunHistoryPoint } from '../../view-models.js'
 
 export function CitationTimeline({ history, maxDots = 12, signal = 'citations' }: {
@@ -34,7 +35,7 @@ export function CitationTimeline({ history, maxDots = 12, signal = 'citations' }
   const timelineLabel = dots.map((dot, i) => {
     const date = new Date(dot.createdAt).toLocaleDateString()
     const prefix = i === lastIndex ? 'Latest run, ' : ''
-    return `${prefix}${date}: ${stateLabels[dot.citationState] ?? dot.citationState}${dot.model ? `, model ${dot.model}` : ''}`
+    return `${prefix}${date}: ${stateLabels[dot.citationState] ?? dot.citationState}${dot.model ? `, model ${dot.model.includes('/') ? formatModelName(dot.model) : dot.model}` : ''}`
   }).join('; ')
 
   return (
@@ -58,7 +59,7 @@ export function CitationTimeline({ history, maxDots = 12, signal = 'citations' }
               title={[
                 stateLabels[d.citationState] ?? d.citationState,
                 new Date(d.createdAt).toLocaleDateString(),
-                d.model ? `model ${d.model}` : null,
+                d.model ? `model ${d.model.includes('/') ? formatModelName(d.model) : d.model}` : null,
                 modelChanged ? 'model changed' : null,
                 isLatest ? 'latest run' : null,
               ].filter(Boolean).join(' · ')}

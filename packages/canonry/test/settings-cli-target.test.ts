@@ -52,4 +52,11 @@ describe('settings google CLI target', () => {
       format: 'json',
     })
   })
+
+  it('forwards reset flags and rejects simultaneous override values', async () => {
+    await dispatchRegisteredCommand(['settings', 'provider', 'local', '--remove-key', '--reset-model', '--reset-quota', 'maxRequestsPerDay', '--if-revision', 'rev-1', '--format', 'json'], 'human', SETTINGS_CLI_COMMANDS)
+    expect(setProvider).toHaveBeenLastCalledWith('local', expect.objectContaining({ reset: { apiKey: true, model: true, quota: ['maxRequestsPerDay'] }, expectedRevision: 'rev-1', format: 'json' }))
+    await expect(dispatchRegisteredCommand(['settings', 'provider', 'local', '--model', 'custom', '--reset-model'], 'human', SETTINGS_CLI_COMMANDS)).rejects.toThrow('Cannot set and reset model together')
+    await expect(dispatchRegisteredCommand(['settings', 'provider', 'openai', '--reset-quota', 'typo'], 'human', SETTINGS_CLI_COMMANDS)).rejects.toThrow()
+  })
 })

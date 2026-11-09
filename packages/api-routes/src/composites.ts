@@ -85,6 +85,7 @@ import {
 import { notProbeRun, resolveProject } from './helpers.js'
 import { compareInsightsForTriage } from './intelligence.js'
 import { runAdmissionState } from './run-queue.js'
+import { readVisibilityReport } from './visibility-report.js'
 import {
   mergeGscQueryTotalsWithFallback, readGscQueryDailyFallbackRows, readGscQueryDailyRows,
   readLatestGscDataDate, resolveGscWindowDays,
@@ -353,7 +354,25 @@ export async function compositeRoutes(app: FastifyInstance, options: {
       projectQueries.map(q => q.query),
     )
 
+    // One canonical read keeps the collection and detailed report on the same
+    // frozen identities, completed sweep, class split, and missing-answer rules.
+    const coverage = readVisibilityReport(app.db, project, {
+      queryClass: 'all',
+      limit: 1,
+      ...(filterLocation ? { location: filterLocation } : {}),
+      ...(sinceIso ? { from: sinceIso } : {}),
+    }, { includeHistory: false })
     const result: ProjectOverviewDto = {
+      mentionCoverage: {
+        selection: coverage.selection,
+        populations: coverage.populations.map(({ queryClass, summary }) => ({
+          queryClass,
+          queryCount: summary.queryCount,
+          answerCount: summary.answerCount,
+          mentionCoverage: summary.mentionCoverage,
+          citationCoverage: summary.citationCoverage,
+        })),
+      },
       project: formatProject(project, readNegativeReviewMaxStars(app.db, project.id)),
       latestRun,
       health,

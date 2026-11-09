@@ -1,4 +1,6 @@
-import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto } from '@canonry/canonry-contracts'
+import { postApiV1ProjectsByNameSchedulePreview } from '@canonry/canonry-api-client'
+import type { SchedulePreviewRequest, SchedulePreviewDto } from '@canonry/canonry-contracts'
+import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto, ProviderConnectionSettingsDto, ProviderConnectionsUnavailableDto, ProviderSettingsUpdateRequest, ProviderReloadResponseDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@canonry/canonry-contracts'
 import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
@@ -33,6 +35,9 @@ import {
   postApiV1Apply,
   getApiV1Settings,
   putApiV1SettingsProvidersByName,
+  getApiV1SettingsProvidersByName,
+  deleteApiV1SettingsProvidersByName,
+  postApiV1SettingsProvidersReload,
   putApiV1SettingsGoogle,
   putApiV1SettingsBing,
   putApiV1SettingsCdp,
@@ -71,8 +76,8 @@ import {
   postApiV1ProjectsByNameGoogleIndexingRequest,
   // Discovery
   postApiV1ProjectsByNameDiscoverRun,
-  // Technical AEO (site-audit)
-  postApiV1ProjectsByNameTechnicalAeoRuns,
+  // Agent Readiness (site-audit)
+  postApiV1ProjectsByNameAgentReadinessRuns,
   getApiV1ProjectsByNameDiscoverSessions,
   getApiV1ProjectsByNameDiscoverSessionsById,
   getApiV1ProjectsByNameDiscoverSessionsByIdPromote,
@@ -458,7 +463,8 @@ export function getPublicBase(): string {
   return ''
 }
 
-function isLoopbackHostname(hostname: string): boolean {
+/** True for localhost, 127.x.x.x and ::1: the dashboard is open on the computer running it. */
+export function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '')
   if (normalized === 'localhost' || normalized === '::1') return true
   return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)
@@ -943,7 +949,7 @@ export async function updateProject(projectName: string, updates: {
   defaultLocation?: string | null
   providers?: string[]
   providerModels?: Record<string, string>
-  /** Site Health page budget; null means the full site. Omitted keeps the stored value. */
+  /** Agent Readiness page budget; null means the full site. Omitted keeps the stored value. */
   siteAuditMaxPages?: number | null
 }): Promise<ApiProject> {
   const project = await fetchProject(projectName)
@@ -1025,6 +1031,9 @@ export interface ApiProviderSummary {
 
 export interface ApiSettings {
   providers: ApiProviderSummary[]
+  providerConnections?: ProviderConnectionSettingsDto[]
+  /** Present instead of `providerConnections` when the server could not build the list (for example an unreadable config.yaml). */
+  providerConnectionsUnavailable?: ProviderConnectionsUnavailableDto
   /** Credential-free adapter metadata, including routed connections and answer-service profiles. */
   providerCatalog: ProviderCatalogEntryDto[]
   google: {
@@ -1130,12 +1139,7 @@ export async function fetchHealthCheck(): Promise<{ status: string }> {
   return res.json() as Promise<{ status: string }>
 }
 
-export function updateProviderConfig(provider: string, body: {
-  apiKey?: string
-  baseUrl?: string
-  model?: string
-  quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number }
-}): Promise<ApiProviderSummary> {
+export function updateProviderConfig(provider: string, body: ProviderSettingsUpdateRequest): Promise<ApiProviderSummary> {
   return invokeWeb<ApiProviderSummary>(() =>
     putApiV1SettingsProvidersByName({
       client: heyClient,
@@ -1143,6 +1147,18 @@ export function updateProviderConfig(provider: string, body: {
       body,
     }),
   )
+}
+
+export function fetchProviderConnection(provider: string): Promise<ProviderConnectionSettingsDto> {
+  return invokeWeb<ProviderConnectionSettingsDto>(() => getApiV1SettingsProvidersByName({ client: heyClient, path: { name: provider } }))
+}
+
+export function disconnectProvider(provider: string, expectedImpactRevision: string): Promise<ProviderConnectionSettingsDto> {
+  return invokeWeb<ProviderConnectionSettingsDto>(() => deleteApiV1SettingsProvidersByName({ client: heyClient, path: { name: provider }, body: { expectedImpactRevision } }))
+}
+
+export function reloadProviderConnections(): Promise<ProviderReloadResponseDto> {
+  return invokeWeb<ProviderReloadResponseDto>(() => postApiV1SettingsProvidersReload({ client: heyClient, body: {} }))
 }
 
 /**
@@ -1192,6 +1208,10 @@ export async function fetchSchedule(project: string): Promise<ApiSchedule | null
     if (e instanceof ApiError && e.statusCode === 404) return null
     throw e
   }
+}
+
+export function previewSchedule(project: string, body: SchedulePreviewRequest): Promise<SchedulePreviewDto> {
+  return invokeWeb<SchedulePreviewDto>(() => postApiV1ProjectsByNameSchedulePreview({ client: heyClient, path: { name: project }, body }))
 }
 
 export function saveSchedule(project: string, body: {
@@ -1530,7 +1550,7 @@ export function triggerSiteAudit(
   body?: Partial<SiteAuditRunRequest>,
 ): Promise<SiteAuditRunResponseDto> {
   return invokeWeb<SiteAuditRunResponseDto>(() =>
-    postApiV1ProjectsByNameTechnicalAeoRuns({
+    postApiV1ProjectsByNameAgentReadinessRuns({
       client: heyClient,
       path: { name: project },
       body: (body ?? {}) as never,

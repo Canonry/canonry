@@ -69,7 +69,7 @@ cnry bootstrap
 
 `cnry bootstrap` creates the local configuration, SQLite database, and default
 API key. The command is safe to run again and preserves existing settings.
-Provider credentials are optional, so Page Health works before you add one.
+Provider credentials are optional, so Agent Readiness works before you add one.
 
 The command prints a new full-access API key once. Run it in a private terminal.
 Never paste the output into an agent chat or shared log. Add provider credentials

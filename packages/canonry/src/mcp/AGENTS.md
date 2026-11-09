@@ -102,6 +102,32 @@ Cloudflare connect is intentionally deferred. It is a local deployment workflow 
 
 Reload refuses provider removal or non-quota configuration changes while that provider has submitting, submitted or ended batches, or an executing sweep can still submit or cancel one (`OPERATION_IN_PROGRESS`); quota-only updates stay available. The host preserves the registration that work needs for dispatch, polling, ingestion and cancellation.
 
+## Agent Readiness tools and deprecated names
+
+The canonical Agent Readiness tools are `canonry_agent_readiness_*` (`score`,
+`page_scores`, `trend`, `overview`, `pages`, `page_audit`, `issues`,
+`issue_pages`, `structure`, `links`, `link_neighbors`, `dead_links`,
+`subgraph`, `path`, `changes`, `run`), each on its canonical
+`/api/v1/projects/{name}/agent-readiness/...` operation. The deprecated
+`/technical-aeo/...` path twins are `excluded-protocol` in
+`openapi-classification.ts`; no tool addresses them.
+
+The names they replaced (`canonry_technical_aeo_*`, `canonry_site_health_*`)
+stay registered as deprecated aliases, listed in `DEPRECATED_MCP_TOOL_ALIASES`
+(`tool-registry.ts`; `canonry_site_health_overview` and
+`canonry_technical_aeo_crawl` both map to `canonry_agent_readiness_overview`).
+An alias is the canonical tool with another name: the same input schema object,
+handler, output schema, annotations, access, tier and canonical OpenAPI
+operation; its title ends "(deprecated name)", its description names the
+canonical tool, and `deprecatedAliasOf` marks it. Aliases are registered after
+every canonical tool, appear in `tools/list` and load with their toolkit, so
+existing callers keep working. Guidance names only canonical tools: the dynamic
+catalog leaves aliases out of `canonry_help` core and toolkit tool lists and
+`canonry_load_toolkit` results (the `liveTools` approval lists stay complete for
+every name a live tool answers to; no alias is live today), and the operations guide, playbooks
+and tool descriptions cross-reference canonical names. Native Aero excludes the
+aliases (`AERO_EXCLUDED_MCP_TOOLS`). Remove them only in a future major version.
+
 ## Commands
 
 ```bash
@@ -117,14 +143,14 @@ canonry mcp config  --client codex                   # print snippet for clients
 
 ## Agent workflow
 
-MCP workflows (agent): inspect → diagnose → act. Inspect: get-project / visibility-report / property / property-evidence / visibility-stats / bing coverage ; diagnose: doctor / coverage-refresh / technical-aeo score ; act: query add/replace, measurement-plan publish, gsc sitemap submit (gsc-sitemap-submission), discovery promote. Start with canonry_help(intent); native skills are optional. Only progressive stdio offers canonry_load_toolkit. Permissions remain server-enforced.
+MCP workflows (agent): inspect → diagnose → act. Inspect: get-project / visibility-report / property / property-evidence / visibility-stats / bing coverage ; diagnose: doctor / coverage-refresh / agent-readiness score ; act: query add/replace, measurement-plan publish, gsc sitemap submit (gsc-sitemap-submission), discovery promote. Start with canonry_help(intent); native skills are optional. Only progressive stdio offers canonry_load_toolkit. Permissions remain server-enforced.
 
 ## Kept out of MCP on purpose
 
 - `canonry help` describes the local CLI binary and has no API route. MCP discovery remains `canonry_help({ includeCatalog: true })`, which describes the tool catalog.
 
-- MCP/Aero expose task-shaped Site Health overview/issues/issue-pages/page-audit/subgraph/path/changes reads; the 20k/50k Sigma layout payload stays API/dashboard-only. CLI aliases: `canonry site-health overview|issues|issue-pages|pages|page-audit|structure|links|neighbors|dead-links|subgraph|path|changes`.
-- `canonry_site_health_issues` and `canonry_site_health_issue_pages` use the typed stored API and shared bounded query/response schemas. Preserve scan date and identity, missing/partial coverage, nullable totals, truncation and pagination. Use the returned run ID for continuation; `stableIdentity: false` never proves continuity across scans. Keep critical-defect severity and `recommendationsScope`: factor recommendations differ from issue-specific defect guidance. Read access grants no edit authority.
+- MCP/Aero expose task-shaped Agent Readiness overview/issues/issue-pages/page-audit/subgraph/path/changes reads; the 20k/50k Sigma layout payload stays API/dashboard-only. CLI: `canonry agent-readiness overview|issues|issue-pages|pages|page-audit|structure|links|neighbors|dead-links|subgraph|path|changes`.
+- `canonry_agent_readiness_issues` and `canonry_agent_readiness_issue_pages` use the typed stored API and shared bounded query/response schemas. Preserve scan date and identity, missing/partial coverage, nullable totals, truncation and pagination. Use the returned run ID for continuation; `stableIdentity: false` never proves continuity across scans. Keep critical-defect severity and `recommendationsScope`: factor recommendations differ from issue-specific defect guidance. Read access grants no edit authority.
 - Ads archive is classified `deferred`: it is irreversible and stays a human API surface.
 - `canonry serve --embed` is not an `/api/v1` operation, so it has no MCP tool (same precedent as `--base-path`).
 - Cloudflare connect: see "Adapter rules" above.
@@ -155,3 +181,10 @@ outcome codes) narrows the page to those outcomes, is echoed as `selection.outco
 is bound into the cursor. Branded summaries carry the server's `criticizedProperties`. Configure accepts only enabled
 state, and no active tool accepts theme settings. Credentials are never accepted. Native Aero gets the seven reads; configure
 and backfill submit start paid classifier work and stay excluded (`AERO_EXCLUDED_MCP_TOOLS`).
+
+Provider lifecycle setup tools read credential-free saved connection detail and
+apply explicit model/quota resets, optional Local-key removal, or a disconnect.
+Disconnect requires the preview's `expectedImpactRevision`; updates can bind
+`expectedRevision`. Resets/disconnect need install administrator authority plus
+`settings.write`. Keep all provider mutations excluded from native Aero. New
+credentials and endpoint changes stay in the secure operator setup flow.

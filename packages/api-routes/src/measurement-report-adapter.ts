@@ -11,6 +11,7 @@ import {
   brandLabelFromDomain,
   brandKeyFromText,
   buildMeasurementRunManifestV1,
+  CitedUrlCaptureStatuses,
   deriveCitedUrlCandidates,
   filterCapturedCitedUrls,
   isVertexGroundingRedirect,
@@ -230,7 +231,14 @@ function historicalEvidence(rawResponse: string | null): { urls: string[]; compl
 
 /** The canonical stored source population, including pre-capture raw grounding recovery. */
 export function measurementSnapshotSources(snapshot: Pick<typeof querySnapshots.$inferSelect, 'citedUrls' | 'captureStatus' | 'rawResponse'>): { urls: string[]; complete: boolean; historical: boolean } {
-  if (snapshot.citedUrls !== null) return { urls: snapshot.citedUrls, complete: snapshot.captureStatus === 'complete', historical: false }
+  // A modern capture result is authoritative even when it saved no URL list.
+  // Unsupported/failed capture cannot become a measured zero through an empty
+  // grounding array in the raw provider envelope. Only pre-capture rows recover.
+  if (snapshot.citedUrls !== null || snapshot.captureStatus !== null) return {
+    urls: snapshot.citedUrls ?? [],
+    complete: snapshot.citedUrls !== null && snapshot.captureStatus === CitedUrlCaptureStatuses.complete,
+    historical: false,
+  }
   return { ...historicalEvidence(snapshot.rawResponse), historical: true }
 }
 

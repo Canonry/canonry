@@ -617,3 +617,74 @@ describe('misspelled tool names', () => {
     expect(results[0]!.content[0]!.text).toBe('canonry_insigths_list is not a tool. Did you mean canonry_insights_list? Call aero_load_toolkit with toolkit "monitoring", then call canonry_insights_list.')
   })
 })
+
+describe('deprecated tool names', () => {
+  function watch(agent: Agent) {
+    const starts: string[] = []
+    const results: Array<{ toolName: string; isError: boolean; content: Array<{ text: string }>; aeroRequestedToolName?: string }> = []
+    agent.subscribe(event => {
+      if (event.type === 'tool_execution_start') starts.push(event.toolName)
+      if (event.type === 'message_end' && event.message.role === 'toolResult') results.push(event.message as never)
+    })
+    return { starts, results }
+  }
+
+  it('runs the canonical read a saved transcript still calls by its deprecated name', async () => {
+    const getTechnicalAeoScore = vi.fn(async () => ({ hasData: false }))
+    const allowed = buildReadTools({ client: { getTechnicalAeoScore } as unknown as ApiClient, projectName: 'demo' })
+    expect(allowed.map(tool => tool.name)).not.toContain('canonry_technical_aeo_score')
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(agent, allowed, undefined, false)
+    const { starts, results } = watch(agent)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_technical_aeo_score', { runId: 'run-1' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await agent.prompt('What is the Agent Readiness score?')
+    expect(getTechnicalAeoScore).toHaveBeenCalledExactlyOnceWith('demo', { runId: 'run-1' })
+    expect(starts).toEqual(['canonry_agent_readiness_score'])
+    expect(results[0]).toMatchObject({ toolName: 'canonry_agent_readiness_score', isError: false, aeroRequestedToolName: 'canonry_technical_aeo_score' })
+  })
+
+  it('names the canonical tool and its toolkit when that toolkit is not loaded', async () => {
+    const getSiteAuditIssues = vi.fn(async () => ({}))
+    const allowed = buildReadTools({ client: { getSiteAuditIssues } as unknown as ApiClient, projectName: 'demo' })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(agent, allowed)
+    const { results } = watch(agent)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_site_health_issues', {}), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await agent.prompt('List the issues')
+    expect(getSiteAuditIssues).not.toHaveBeenCalled()
+    expect(results[0]).toMatchObject({ toolName: 'canonry_site_health_issues', isError: true })
+    expect(results[0]!.content[0]!.text).toBe('canonry_site_health_issues is now canonry_agent_readiness_issues. Call aero_load_toolkit with toolkit "monitoring", then call canonry_agent_readiness_issues.')
+  })
+
+  it('never renames a deprecated write, and names its replacement only when that write is allowed', async () => {
+    const triggerSiteAudit = vi.fn(async () => ({ runId: 'run-1', status: 'queued' }))
+    const all = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(all, buildAllTools({ client: { triggerSiteAudit } as unknown as ApiClient, projectName: 'demo' }), undefined, false)
+    const write = watch(all)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_technical_aeo_run', {}), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await all.prompt('Scan the site')
+    expect(triggerSiteAudit).not.toHaveBeenCalled()
+    expect(write.results[0]!.aeroRequestedToolName).toBeUndefined()
+    expect(write.results[0]!.content[0]!.text).toBe('canonry_technical_aeo_run is now canonry_agent_readiness_run. Call canonry_agent_readiness_run instead.')
+
+    const readOnly = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(readOnly, buildReadTools({ client: { triggerSiteAudit } as unknown as ApiClient, projectName: 'demo' }), undefined, false)
+    const read = watch(readOnly)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_technical_aeo_run', {}), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await readOnly.prompt('Scan the site')
+    expect(triggerSiteAudit).not.toHaveBeenCalled()
+    expect(read.results[0]!.content[0]!.text).toBe('canonry_technical_aeo_run is not available in this conversation. Use only the tools listed for you.')
+  })
+})

@@ -8,7 +8,7 @@ import { toneFromService } from './tone-helpers.js'
  * never makes an install sweep-ready by itself.
  */
 function isSweepReadyProvider(provider: SettingsVm['providerStatuses'][number]): boolean {
-  return provider.state === 'ready' && makesInstallMeasurable(provider)
+  return provider.state !== 'needs-config' && makesInstallMeasurable(provider)
 }
 
 /** Display name comes from the API (adapter.displayName). Capitalize as fallback. */
@@ -45,14 +45,14 @@ export function buildSystemHealthCards(
       }
     }
 
-    const configuredCount = settings.providerStatuses.filter(p => p.state === 'ready').length
+    const configuredCount = settings.providerStatuses.filter(p => p.state !== 'needs-config').length
     const totalCount = settings.providerStatuses.length
     const allReady = settings.providerStatuses.some(isSweepReadyProvider)
-    const configuredNames = settings.providerStatuses.filter(p => p.state === 'ready').map(p => providerDisplayName(p)).join(' · ')
+    const configuredNames = settings.providerStatuses.filter(p => p.state !== 'needs-config').map(p => providerDisplayName(p)).join(' · ')
     return {
       ...card,
       label: 'Providers',
-      tone: allReady ? 'positive' as MetricTone : 'caution' as MetricTone,
+      tone: allReady ? 'neutral' as MetricTone : 'caution' as MetricTone,
       detail: `${configuredCount} of ${totalCount} configured`,
       meta: configuredNames || 'None configured',
     }
@@ -132,7 +132,7 @@ export function buildSetupModel(base: SetupWizardVm, healthSnapshot: HealthSnaps
   model.launchState.enabled = blockedReason === undefined
   model.launchState.blockedReason = blockedReason
   model.launchState.summary =
-    blockedReason ?? 'Queue an AI Visibility check first, then follow with a Technical AEO audit to explain movement.'
+    blockedReason ?? 'Queue an AI Visibility check first, then follow with an Agent Readiness audit scan to explain movement.'
 
   return model
 }

@@ -440,7 +440,10 @@ test('shows a connect empty-state when the project has no GBP connection', async
   // The dedicated tab renders a setup guide (not nothing) so direct navigation
   // isn't a blank page. No data endpoints are fetched.
   await waitFor(() => expect(screen.getByText('Connect Google Business Profile')).toBeTruthy())
-  expect(screen.getByText(/Four steps from the CLI/)).toBeTruthy()
+  const guide = screen.getByText('Connect using the CLI', { selector: 'summary' })
+  expect(guide.closest('details')?.open).toBe(false)
+  fireEvent.click(guide)
+  expect(guide.closest('details')?.open).toBe(true)
   expect(screen.getByText(/canonry gbp connect test-project/)).toBeTruthy()
 })
 

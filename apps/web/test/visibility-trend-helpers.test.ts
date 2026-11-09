@@ -906,11 +906,13 @@ describe('querySetMovePhrase', () => {
 
 describe('providerDisplayName with the server catalog', () => {
   it('uses the catalog display name for any routed key and keeps the built-in names without one', () => {
-    const catalog = [{ name: 'svc:deep', displayName: 'Deep · Search Service' }, { name: 'svc', displayName: 'Search Service' }]
+    const catalog = [{ name: 'svc:deep', displayName: 'Deep · Search Service' }, { name: 'svc', displayName: 'Search Service' }, { name: 'openrouter', knownModels: [{ id: 'google/gemini-2.5-flash', displayName: 'Google: Gemini 2.5 Flash' }] }]
     expect(providerDisplayName('svc:deep', catalog)).toBe('Deep · Search Service')
     expect(providerDisplayName('svc', catalog)).toBe('Search Service')
     expect(providerDisplayName('openai', catalog)).toBe('OpenAI')
-    expect(providerDisplayName('openrouter:vendor/model', catalog)).toBe('vendor/model via OpenRouter')
+    expect(providerDisplayName('openrouter:google/gemini-2.5-flash', catalog)).toBe('Gemini 2.5 Flash via OpenRouter')
+    expect(providerDisplayName('gemini', catalog)).toBe('Gemini')
+    expect(providerDisplayName('openrouter:vendor/model', catalog)).toBe('Vendor: Model via OpenRouter')
     expect(providerDisplayName('svc:deep')).toBe('Svc:deep')
   })
 })

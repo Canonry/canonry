@@ -56,7 +56,7 @@ export function BrandLockup({ compact = false, version, updateAvailable, onDismi
       <Link
         to="/"
         className="brand-lockup brand-lockup-compact"
-        aria-label="Canonry home"
+        aria-label="Canonry overview"
       >
         <BrandMarkImage className="brand-icon" />
         <span className="brand-copy">
@@ -75,7 +75,7 @@ export function BrandLockup({ compact = false, version, updateAvailable, onDismi
       <Link
         to="/"
         className="brand-icon-link"
-        aria-label="Canonry home"
+        aria-label="Canonry overview"
         tabIndex={-1}
       >
         <BrandMarkImage className="brand-icon" />
@@ -98,7 +98,7 @@ export function BrandLockup({ compact = false, version, updateAvailable, onDismi
             target="_blank"
             rel="noopener noreferrer"
             title={`Open release: ${updateAvailable.upgradeCommand}`}
-            aria-label={`New version v${updateAvailable.latest} available — open release page`}
+            aria-label={`New version v${updateAvailable.latest} available. Open release page`}
           >
             <span className="brand-update-bubble-from">v{updateAvailable.current}</span>
             <ArrowRight className="brand-update-bubble-arrow size-3" aria-hidden="true" />

@@ -178,7 +178,7 @@ Canonry ships as a **self-hosted single-process install** — that is the only s
 ## Service Boundaries
 
 - **`@canonry/agent-readiness`** (formerly `@canonry/aeo-audit`) — published
-  audit engine used by the local `packages/canonry` Technical AEO executor. It
+  audit engine used by the local `packages/canonry` Agent Readiness executor. It
   provides the full-site crawl event and graph contract.
 - **`apps/worker`** — has no audit-engine dependency or audit execution path.
 - **`packages/api-routes/`** — HTTP surface, validation, orchestration, read APIs.
@@ -197,17 +197,16 @@ Canonry ships as a **self-hosted single-process install** — that is the only s
   `@canonry/agent-readiness` pin explicit
 - API key-based auth
 - Raw observation snapshots only; transitions computed at query time
-- Agent-first Site Health parity: browser color, size, focus, and scan-change
+- Agent-first Agent Readiness parity: browser color, size, focus, and scan-change
   semantics must exist as typed API fields or bounded CLI/MCP reads. The raw
   Sigma coordinate payload remains dashboard transport, not model context.
 
 ## Score Families
 
 - **Answer visibility**: multi-provider query tracking and citation outcomes across all providers
-- **Technical readiness**: local `@canonry/agent-readiness` full crawls plus the
-  retained worker audit path
+- **Agent Readiness**: local `@canonry/agent-readiness` full crawls
 
-These remain separate to avoid mixing technical readiness with live-answer visibility.
+These remain separate to avoid mixing Agent Readiness with live-answer visibility.
 
 ## Agent Layer
 

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type {
   AnswerServiceProfileSummary,
   ProviderCapabilities,
@@ -10,6 +10,11 @@ import type {
   ProviderReloadRequest,
   ProviderRouteFamily,
   ProviderSettingsField,
+  ProviderConnectionConfigDto,
+  ProviderConnectionSettingsDto,
+  ProviderDisconnectRequest,
+  ProviderSettingsUpdateRequest,
+  SettingsDto,
 } from '@canonry/canonry-contracts'
 import {
   AppError,
@@ -23,12 +28,23 @@ import {
   ProviderKinds,
   providerRouteName,
   routeFamiliesOf,
+  notFound,
+  operationInProgress,
+  providerConnectionConfigDtoSchema,
+  providerConnectionSettingsDtoSchema,
+  ProviderConnectionsUnavailableReasons,
+  providerConnectionsUnavailableReasonSchema,
+  providerDisconnectRequestSchema,
+  providerSettingsUpdateRequestSchema,
+  providerSummaryEntryDtoSchema,
+  ProviderNames,
 } from '@canonry/canonry-contracts'
-import { requireAdminSession, requireInstanceAdministrator, requireScope } from './auth.js'
+import { isInstanceAdministrator, requireAdminSession, requireInstanceAdministrator, requireScope } from './auth.js'
 import { auditFromRequest, type AuditEntry } from './helpers.js'
 import { connectionRoute, outcomeProviderName } from './connection-telemetry.js'
 import { withFeatureOutcome } from './feature-outcome.js'
 import { providerAdapterForName } from './provider-models.js'
+import { providerConnectionSettings } from './provider-settings-usage.js'
 
 /**
  * Scope required to mutate any global setting — provider API keys,
@@ -112,6 +128,10 @@ function descriptorFields(adapter: ProviderAdapterInfo): Partial<ProviderCatalog
 }
 
 export interface SettingsRoutesOptions {
+  /** Every known connection, including disconnected ones. Stored and credential-free; never calls providers. */
+  getProviderConnections?: () => ProviderConnectionConfigDto[]
+  onProviderSettingsUpdate?: (name: string, input: ProviderSettingsUpdateRequest, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry | Promise<ProviderSummaryEntry>
+  onProviderDisconnect?: (name: string, expectedRevision: string | undefined, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => void | Promise<void>
   /** Cached, credential-free model metadata supplied by the execution host. */
   getProviderModels?: (name: string) => Promise<ProviderModelRegistry['knownModels']>
   providerSummary?: ProviderSummaryEntry[]
@@ -127,6 +147,37 @@ export interface SettingsRoutesOptions {
 }
 
 export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesOptions) {
+  const connections = (): ProviderConnectionSettingsDto[] => {
+    if (!opts.getProviderConnections) throw notImplemented('Provider connection details are not supported in this deployment')
+    const configured = opts.getProviderConnections().map(value => providerConnectionConfigDtoSchema.parse(value))
+    return providerConnectionSettings(app.db, configured, opts.providerAdapters ?? []).map(value => providerConnectionSettingsDtoSchema.parse(value))
+  }
+  const connection = (name: string): ProviderConnectionSettingsDto => {
+    const found = connections().find(value => value.name === name)
+    if (!found) throw notFound('Provider connection', name)
+    return found
+  }
+  // The connection list reads the host's saved configuration and every
+  // project's saved selections. When it cannot be built, the rest of the
+  // settings (provider status, catalog, Google, Bing) must still answer.
+  const connectionState = (request: FastifyRequest): Pick<SettingsDto, 'providerConnections' | 'providerConnectionsUnavailable'> => {
+    if (!opts.getProviderConnections || !isInstanceAdministrator(request)) return {}
+    try {
+      return { providerConnections: connections() }
+    } catch (error) {
+      // A host refusal names its reason and a message written without secrets or paths.
+      if (error instanceof AppError) {
+        const reason = providerConnectionsUnavailableReasonSchema.safeParse(error.details?.reason)
+        if (reason.success) return { providerConnectionsUnavailable: { reason: reason.data, message: error.message } }
+      }
+      // Anything else may quote stored values, so only the server log sees it.
+      request.log.error({ err: error }, 'Provider connections could not be listed')
+      return { providerConnectionsUnavailable: {
+        reason: ProviderConnectionsUnavailableReasons['internal-error'],
+        message: 'Provider connections could not be loaded. Check the server log, then retry.',
+      } }
+    }
+  }
   // Settings describe which credentials this install holds and where its
   // providers point. That is administrator territory even to read, so a
   // view-only account is refused here at the server rather than merely being
@@ -135,6 +186,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     requireAdminSession(request)
     return {
       providers: opts.providerSummary ?? [],
+      ...connectionState(request),
       providerCatalog: (await Promise.all((opts.providerAdapters ?? []).map(async adapter => {
         const configured = opts.providerSummary?.some(provider => provider.name === adapter.name && provider.configured)
         const discovered = configured && opts.getProviderModels ? await opts.getProviderModels(adapter.name) : []
@@ -190,9 +242,31 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     }
   })
 
+  app.get<{ Params: { name: string } }>('/settings/providers/:name', async request => {
+    requireInstanceAdministrator(request)
+    return connection(request.params.name)
+  })
+
+  app.delete<{ Params: { name: string }; Body: ProviderDisconnectRequest }>('/settings/providers/:name', async request => {
+    requireScope(request, SETTINGS_WRITE_SCOPE)
+    requireInstanceAdministrator(request)
+    const parsed = providerDisconnectRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) throw validationError('Invalid provider disconnect request', parsed.error.flatten())
+    if (!opts.onProviderDisconnect) throw notImplemented('Provider disconnection is not supported in this deployment')
+    const current = connection(request.params.name)
+    if (!current.capabilities.disconnect) throw notImplemented('This provider connection is managed by the host and cannot be disconnected here')
+    const expected = parsed.data.expectedImpactRevision
+    if (expected !== undefined && expected !== current.impactRevision) {
+      throw operationInProgress('Provider settings or usage changed. Review the current connection before disconnecting.', { reason: 'provider-impact-changed' })
+    }
+    const { actor, userAgent, actorSession, requestId, credentialId } = auditFromRequest(request, { actor: 'api', action: 'provider.disconnected', entityType: 'provider' })
+    await opts.onProviderDisconnect(current.name, expected === undefined ? undefined : current.revision, { actor, userAgent, actorSession, requestId, credentialId })
+    return connection(current.name)
+  })
+
   app.put<{
     Params: { name: string }
-    Body: { apiKey?: string; baseUrl?: string; model?: string; quota?: Partial<ProviderQuotaPolicy> }
+    Body: ProviderSettingsUpdateRequest
   }>('/settings/providers/:name', connectionRoute(app, (request) => {
     // A key or endpoint is a connection; a model or quota change alone is not.
     const provider = outcomeProviderName(request.params.name)
@@ -202,11 +276,14 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     return { integration: 'provider', provider, action: configured ? 'reauth' : 'connect' }
   }, async (request) => {
     requireScope(request, SETTINGS_WRITE_SCOPE)
-    const { apiKey, baseUrl, model, quota } = request.body ?? {}
+    const parsed = providerSettingsUpdateRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) throw validationError('Invalid provider settings', parsed.error.flatten())
+    const { apiKey, baseUrl, model, quota, reset, expectedRevision } = parsed.data
+    if (reset) requireInstanceAdministrator(request)
     const name = request.params.name
 
     const adapters = opts.providerAdapters ?? []
-    const apiAdapters = adapters.filter(a => a.mode === 'api')
+    const apiAdapters = adapters.filter(a => a.mode === 'api' || opts.onProviderSettingsUpdate !== undefined)
     const adapterInfo = apiAdapters.find(a => a.name === name)
     if (!adapterInfo) {
       const validNames = apiAdapters.map(a => a.name)
@@ -216,22 +293,13 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       })
     }
 
-    if (apiKey !== undefined && (typeof apiKey !== 'string' || !apiKey.trim())) {
-      throw validationError('apiKey must be a non-empty string when provided')
-    }
-    if (baseUrl !== undefined && (typeof baseUrl !== 'string' || !baseUrl.trim())) {
-      throw validationError('baseUrl must be a non-empty string when provided')
-    }
-    if (model !== undefined && (typeof model !== 'string' || !model.trim())) {
-      throw validationError('model must be a non-empty string when provided')
-    }
-    if (apiKey === undefined && baseUrl === undefined && model === undefined && quota === undefined) {
-      throw validationError('at least one provider setting must be supplied')
-    }
-
     const existing = (opts.providerSummary ?? []).find(provider => provider.name === name)
     const configured = Boolean(existing?.configured)
-    if (!configured && name === 'local') {
+    if (adapterInfo.mode === 'browser') {
+      if (apiKey !== undefined || baseUrl !== undefined || model !== undefined || reset?.model || reset?.apiKey || reset?.baseUrl) {
+        throw validationError('Browser endpoint changes use /settings/cdp; only request limits can be changed here')
+      }
+    } else if (!configured && name === 'local') {
       if (!baseUrl) {
         throw validationError('baseUrl is required for local provider')
       }
@@ -253,10 +321,15 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     // (so the key can never be sent elsewhere) and each route pins its profile.
     if (adapterInfo.kind === ProviderKinds['answer-service']) {
       if (baseUrl !== undefined) throw validationError(`${adapterInfo.displayName} uses a fixed endpoint; baseUrl is not accepted.`, { provider: name })
+      if (reset?.baseUrl) throw validationError(`${adapterInfo.displayName} uses a fixed endpoint and has no endpoint override to reset.`, { provider: name })
       if (model !== undefined) throw validationError(`${adapterInfo.displayName} has no connection model; choose profiles per project instead.`, { provider: name })
+      if (reset?.model) throw validationError(`${adapterInfo.displayName} has no connection model to reset.`, { provider: name })
     }
+    if (reset?.apiKey && name !== ProviderNames.local) throw validationError('Only the optional local-provider API key can be cleared; disconnect other providers instead')
+    if (reset?.baseUrl && name === ProviderNames.local) throw validationError('A local provider requires an endpoint; disconnect it to remove the endpoint')
 
     if (model !== undefined) {
+      adapterInfo.modelValidationPattern.lastIndex = 0
       if (!adapterInfo.modelValidationPattern.test(model)) {
         throw validationError(
           `Invalid model "${model}" for provider "${name}" — ${adapterInfo.modelValidationHint}`,
@@ -264,25 +337,8 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       }
     }
 
-    if (!opts.onProviderUpdate) {
+    if (!opts.onProviderSettingsUpdate && (!opts.onProviderUpdate || reset || expectedRevision !== undefined)) {
       throw notImplemented('Provider configuration updates are not supported in this deployment')
-    }
-
-    if (quota !== undefined) {
-      if (typeof quota !== 'object' || quota === null) {
-        throw validationError('quota must be an object')
-      }
-      if (Object.keys(quota).length === 0) {
-        throw validationError('quota must include at least one field')
-      }
-      for (const [key, val] of Object.entries(quota)) {
-        if (!['maxConcurrency', 'maxRequestsPerMinute', 'maxRequestsPerDay'].includes(key)) {
-          throw validationError(`Unknown quota field: ${key}`)
-        }
-        if (typeof val !== 'number' || !Number.isInteger(val) || val <= 0) {
-          throw validationError(`${key} must be a positive integer`)
-        }
-      }
     }
 
     // Only trusted identity and bounded correlation reach the host's audit writer;
@@ -290,12 +346,15 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     const { actor, userAgent, actorSession, requestId, credentialId } = auditFromRequest(request, {
       actor: 'api', action: 'provider.updated', entityType: 'provider',
     })
-    const result = opts.onProviderUpdate(name, apiKey ?? '', model, baseUrl, quota, { actor, userAgent, actorSession, requestId, credentialId })
+    const context = { actor, userAgent, actorSession, requestId, credentialId }
+    const result = opts.onProviderSettingsUpdate
+      ? await opts.onProviderSettingsUpdate(name, parsed.data, context)
+      : opts.onProviderUpdate!(name, apiKey ?? '', model, baseUrl, quota, context)
     if (!result) {
       throw internalError('Failed to update provider configuration')
     }
 
-    return result
+    return providerSummaryEntryDtoSchema.parse(result)
   }))
 
   app.post('/settings/providers/reload', async (request) => withFeatureOutcome(app, { feature: 'providers', operation: 'reload' }, async (settle) => {

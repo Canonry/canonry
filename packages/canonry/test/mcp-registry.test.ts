@@ -77,6 +77,7 @@ const expectedToolNames = [
   'canonry_project_history',
   'canonry_history_global',
   'canonry_runs_list',
+  'canonry_run_preview',
   'canonry_runs_latest',
   'canonry_run_get',
   'canonry_run_completeness',
@@ -102,6 +103,7 @@ const expectedToolNames = [
   'canonry_queries_list',
   'canonry_keywords_list',
   'canonry_competitors_list',
+  'canonry_schedule_preview',
   'canonry_schedule_get',
   'canonry_schedules_list',
   'canonry_notification_events',
@@ -113,6 +115,8 @@ const expectedToolNames = [
   'canonry_logs_list',
   'canonry_telemetry_update',
   'canonry_provider_settings_update',
+  'canonry_provider_settings_get',
+  'canonry_provider_disconnect',
   'canonry_providers_reload',
   'canonry_telemetry_get',
   'canonry_google_connections_list',
@@ -273,25 +277,24 @@ const expectedToolNames = [
   'canonry_discover_harvest',
   'canonry_discover_promote_preview',
   'canonry_discover_promote',
-  'canonry_site_health_overview',
-  'canonry_site_health_issues',
-  'canonry_site_health_issue_pages',
-  'canonry_site_health_page_audit',
-  'canonry_site_health_subgraph',
-  'canonry_site_health_path',
-  'canonry_site_health_changes',
-  'canonry_technical_aeo_score',
-  'canonry_technical_aeo_pages',
-  'canonry_technical_aeo_trend',
+  'canonry_agent_readiness_overview',
+  'canonry_agent_readiness_issues',
+  'canonry_agent_readiness_issue_pages',
+  'canonry_agent_readiness_page_audit',
+  'canonry_agent_readiness_subgraph',
+  'canonry_agent_readiness_path',
+  'canonry_agent_readiness_changes',
+  'canonry_agent_readiness_score',
+  'canonry_agent_readiness_page_scores',
+  'canonry_agent_readiness_trend',
   'canonry_sitemaps',
-      'canonry_trends',
-  'canonry_technical_aeo_crawl',
-  'canonry_technical_aeo_crawl_pages',
-  'canonry_technical_aeo_structure',
-  'canonry_technical_aeo_internal_links',
-  'canonry_technical_aeo_link_neighbors',
-  'canonry_technical_aeo_dead_links',
-  'canonry_technical_aeo_run',
+  'canonry_trends',
+  'canonry_agent_readiness_pages',
+  'canonry_agent_readiness_structure',
+  'canonry_agent_readiness_links',
+  'canonry_agent_readiness_link_neighbors',
+  'canonry_agent_readiness_dead_links',
+  'canonry_agent_readiness_run',
   'canonry_google_ads_status',
   'canonry_google_ads_customers',
   'canonry_conversion_tracking_options',
@@ -335,6 +338,24 @@ const expectedToolNames = [
   'canonry_ads_ad_update',
   'canonry_ads_ad_pause',
   'canonry_ads_sync',
+  // Deprecated names, registered after every canonical tool.
+  'canonry_technical_aeo_score',
+  'canonry_technical_aeo_pages',
+  'canonry_technical_aeo_trend',
+  'canonry_site_health_overview',
+  'canonry_technical_aeo_crawl',
+  'canonry_technical_aeo_crawl_pages',
+  'canonry_site_health_page_audit',
+  'canonry_site_health_issues',
+  'canonry_site_health_issue_pages',
+  'canonry_technical_aeo_structure',
+  'canonry_technical_aeo_internal_links',
+  'canonry_technical_aeo_link_neighbors',
+  'canonry_technical_aeo_dead_links',
+  'canonry_site_health_subgraph',
+  'canonry_site_health_path',
+  'canonry_site_health_changes',
+  'canonry_technical_aeo_run',
 ] as const
 
 describe('MCP tool registry', () => {
@@ -415,7 +436,7 @@ describe('MCP tool registry', () => {
     const upsertRequest = schemaProperty(inputSchemaFor('canonry_project_upsert'), 'request')
     expect(schemaProperty(upsertRequest, 'siteAuditMaxPages')).toEqual(budgetSchema)
     expect(upsertRequest.required ?? []).not.toContain('siteAuditMaxPages')
-    expect(upsert.description).toContain('An omitted siteAuditMaxPages (the Site Health page budget for scans that set none, 1 to 50,000) keeps the stored budget; send null for the full site.')
+    expect(upsert.description).toContain('An omitted siteAuditMaxPages (the Agent Readiness page budget for scans that set none, 1 to 50,000) keeps the stored budget; send null for the full site.')
 
     const apply = canonryMcpTools.find(candidate => candidate.name === 'canonry_apply_config')!
     const config = { apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'acme' }, spec: request }
@@ -426,7 +447,7 @@ describe('MCP tool registry', () => {
     const applySpec = schemaProperty(schemaProperty(inputSchemaFor('canonry_apply_config'), 'config'), 'spec')
     expect(schemaProperty(applySpec, 'siteAuditMaxPages')).toEqual(budgetSchema)
     expect(applySpec.required ?? []).not.toContain('siteAuditMaxPages')
-    expect(apply.description).toContain('An omitted siteAuditMaxPages keeps the stored Site Health page budget (null means the full site).')
+    expect(apply.description).toContain('An omitted siteAuditMaxPages keeps the stored Agent Readiness page budget (null means the full site).')
   })
 
   it('carries competitorAutoAliases on project upsert and apply as an optional off|preview|apply mode that an omission keeps', () => {
@@ -518,21 +539,20 @@ describe('MCP tool registry', () => {
     ]).toBe('deferred')
   })
 
-  it('exposes bounded Site Health reads as read-only monitoring tools', () => {
+  it('exposes bounded Agent Readiness reads as read-only monitoring tools', () => {
     const expected = [
-      ['canonry_site_health_overview', 'GET /api/v1/projects/{name}/technical-aeo/crawl'],
-      ['canonry_site_health_issues', 'GET /api/v1/projects/{name}/technical-aeo/issues'],
-      ['canonry_site_health_issue_pages', 'GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages'],
-      ['canonry_site_health_page_audit', 'GET /api/v1/projects/{name}/technical-aeo/crawl/pages/audit'],
-      ['canonry_site_health_subgraph', 'GET /api/v1/projects/{name}/technical-aeo/subgraph'],
-      ['canonry_site_health_path', 'GET /api/v1/projects/{name}/technical-aeo/path'],
-      ['canonry_site_health_changes', 'GET /api/v1/projects/{name}/technical-aeo/changes'],
-      ['canonry_technical_aeo_crawl', 'GET /api/v1/projects/{name}/technical-aeo/crawl'],
-      ['canonry_technical_aeo_crawl_pages', 'GET /api/v1/projects/{name}/technical-aeo/crawl/pages'],
-      ['canonry_technical_aeo_structure', 'GET /api/v1/projects/{name}/technical-aeo/structure'],
-      ['canonry_technical_aeo_internal_links', 'GET /api/v1/projects/{name}/technical-aeo/internal-links'],
-      ['canonry_technical_aeo_link_neighbors', 'GET /api/v1/projects/{name}/technical-aeo/internal-links/neighbors'],
-      ['canonry_technical_aeo_dead_links', 'GET /api/v1/projects/{name}/technical-aeo/dead-links'],
+      ['canonry_agent_readiness_overview', 'GET /api/v1/projects/{name}/agent-readiness/crawl'],
+      ['canonry_agent_readiness_issues', 'GET /api/v1/projects/{name}/agent-readiness/issues'],
+      ['canonry_agent_readiness_issue_pages', 'GET /api/v1/projects/{name}/agent-readiness/issues/{issueId}/pages'],
+      ['canonry_agent_readiness_page_audit', 'GET /api/v1/projects/{name}/agent-readiness/crawl/pages/audit'],
+      ['canonry_agent_readiness_subgraph', 'GET /api/v1/projects/{name}/agent-readiness/subgraph'],
+      ['canonry_agent_readiness_path', 'GET /api/v1/projects/{name}/agent-readiness/path'],
+      ['canonry_agent_readiness_changes', 'GET /api/v1/projects/{name}/agent-readiness/changes'],
+      ['canonry_agent_readiness_pages', 'GET /api/v1/projects/{name}/agent-readiness/crawl/pages'],
+      ['canonry_agent_readiness_structure', 'GET /api/v1/projects/{name}/agent-readiness/structure'],
+      ['canonry_agent_readiness_links', 'GET /api/v1/projects/{name}/agent-readiness/internal-links'],
+      ['canonry_agent_readiness_link_neighbors', 'GET /api/v1/projects/{name}/agent-readiness/internal-links/neighbors'],
+      ['canonry_agent_readiness_dead_links', 'GET /api/v1/projects/{name}/agent-readiness/dead-links'],
     ] as const
 
     for (const [name, operation] of expected) {
@@ -546,50 +566,61 @@ describe('MCP tool registry', () => {
       expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS[operation]).toBe('included')
     }
 
-    const graphOperation = 'GET /api/v1/projects/{name}/technical-aeo/graph'
+    const graphOperation = 'GET /api/v1/projects/{name}/agent-readiness/graph'
     expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS[graphOperation]).toBe('deferred')
     expect(canonryMcpTools.flatMap(tool => tool.openApiOperations)).not.toContain(graphOperation)
 
-    const livePreviewOperation = 'GET /api/v1/projects/{name}/technical-aeo/runs/{runId}/page-health-preview'
+    const livePreviewOperation = 'GET /api/v1/projects/{name}/agent-readiness/runs/{runId}/page-health-preview'
     expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS[livePreviewOperation]).toBe('excluded-protocol')
     expect(canonryMcpTools.flatMap(tool => tool.openApiOperations)).not.toContain(livePreviewOperation)
+
+    // Every deprecated technical-aeo path is the twin of one agent-readiness
+    // operation and answers like it, so no tool, deprecated names included,
+    // addresses the deprecated path.
+    const classified: Record<string, string> = MCP_OPENAPI_OPERATION_CLASSIFICATIONS
+    const legacyOperations = Object.keys(classified).filter(operation => operation.includes('/technical-aeo'))
+    const canonicalOperations = Object.keys(classified).filter(operation => operation.includes('/agent-readiness'))
+    expect(legacyOperations).toHaveLength(20)
+    expect(legacyOperations.map(operation => operation.replace('/technical-aeo', '/agent-readiness')).sort()).toEqual(canonicalOperations.sort())
+    for (const operation of legacyOperations) expect(classified[operation], operation).toBe('excluded-protocol')
+    expect(canonryMcpTools.flatMap(tool => tool.openApiOperations).filter(operation => operation.includes('/technical-aeo'))).toEqual([])
 
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(expect.arrayContaining(
       expected.map(([name]) => name),
     ))
 
-    const pages = canonryMcpTools.find(candidate => candidate.name === 'canonry_technical_aeo_crawl_pages')!
+    const pages = canonryMcpTools.find(candidate => candidate.name === 'canonry_agent_readiness_pages')!
     expect(pages.inputSchema.safeParse({ project: 'acme', limit: 200, cursor: 'next' }).success).toBe(true)
     expect(pages.inputSchema.safeParse({ project: 'acme', limit: 201 }).success).toBe(false)
 
-    const neighbors = canonryMcpTools.find(candidate => candidate.name === 'canonry_technical_aeo_link_neighbors')!
+    const neighbors = canonryMcpTools.find(candidate => candidate.name === 'canonry_agent_readiness_link_neighbors')!
     expect(neighbors.inputSchema.safeParse({ project: 'acme', nodeKey: 'node-1', limit: 100 }).success).toBe(true)
     expect(neighbors.inputSchema.safeParse({ project: 'acme', limit: 100 }).success).toBe(false)
 
-    const pageAudit = canonryMcpTools.find(candidate => candidate.name === 'canonry_site_health_page_audit')!
+    const pageAudit = canonryMcpTools.find(candidate => candidate.name === 'canonry_agent_readiness_page_audit')!
     expect(pageAudit.inputSchema.safeParse({ project: 'acme', nodeKey: 'node-1' }).success).toBe(true)
     expect(pageAudit.inputSchema.safeParse({ project: 'acme', url: 'https://acme.test/' }).success).toBe(true)
     expect(pageAudit.inputSchema.safeParse({ project: 'acme' }).success).toBe(false)
     expect(pageAudit.inputSchema.safeParse({ project: 'acme', nodeKey: 'node-1', url: 'https://acme.test/' }).success).toBe(false)
 
-    const subgraph = canonryMcpTools.find(candidate => candidate.name === 'canonry_site_health_subgraph')!
+    const subgraph = canonryMcpTools.find(candidate => candidate.name === 'canonry_agent_readiness_subgraph')!
     expect(subgraph.inputSchema.parse({ project: 'acme' })).toMatchObject({ maxNodes: 25, maxEdges: 50 })
     expect(subgraph.inputSchema.safeParse({ project: 'acme', maxNodes: 26 }).success).toBe(false)
     expect(subgraph.inputSchema.safeParse({ project: 'acme', maxEdges: 51 }).success).toBe(false)
     expect(subgraph.description).toContain('countAccuracy=lower-bound')
 
-    const path = canonryMcpTools.find(candidate => candidate.name === 'canonry_site_health_path')!
+    const path = canonryMcpTools.find(candidate => candidate.name === 'canonry_agent_readiness_path')!
     expect(path.description).toContain('complete')
     expect(path.description).toContain('termination')
 
-    const changes = canonryMcpTools.find(candidate => candidate.name === 'canonry_site_health_changes')!
+    const changes = canonryMcpTools.find(candidate => candidate.name === 'canonry_agent_readiness_changes')!
     expect(changes.inputSchema.parse({ project: 'acme' })).toMatchObject({ limit: 25 })
     expect(changes.inputSchema.safeParse({ project: 'acme', limit: 26 }).success).toBe(false)
 
-    const run = canonryMcpTools.find(candidate => candidate.name === 'canonry_technical_aeo_run')!
+    const run = canonryMcpTools.find(candidate => candidate.name === 'canonry_agent_readiness_run')!
     expect(run.description).toContain('the engine derives the link-observation budget from that page count')
     expect(run.description).toContain('Without maxPages it uses the project\'s saved page budget (siteAuditMaxPages), else the full site (up to 50,000 pages)')
-    expect(schemaProperty(inputSchemaFor('canonry_technical_aeo_run'), 'maxPages')).toMatchObject({
+    expect(schemaProperty(inputSchemaFor('canonry_agent_readiness_run'), 'maxPages')).toMatchObject({
       type: 'integer',
       minimum: 1,
       maximum: 50_000,
@@ -834,7 +865,9 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(214)
+    // 216 canonical reads plus 16 deprecated read aliases (canonry_technical_aeo_run is the one write alias).
+    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(232)
+    expect(canonryMcpTools.filter(tool => tool.deprecatedAliasOf !== undefined)).toHaveLength(17)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator && !tool.requiresConnectionProfile).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -874,8 +907,9 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(65)
-    expect(counts.get('setup')).toBe(69)
+    // 65 canonical monitoring tools plus the 17 deprecated Agent Readiness names.
+    expect(counts.get('monitoring')).toBe(82)
+    expect(counts.get('setup')).toBe(72)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(14)
     expect(counts.get('gbp')).toBe(18)

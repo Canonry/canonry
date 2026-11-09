@@ -1,11 +1,11 @@
-import { useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
+import { useLocation } from '@tanstack/react-router'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { AdminOnly } from '../components/shared/AccessControls.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
+import { ProviderConnectionsSection } from '../components/settings/ProviderConfigForm.js'
 import { GoogleOAuthConfigForm } from '../components/settings/GoogleOAuthConfigForm.js'
 import { updateBingApiKey } from '../api.js'
 import { CdpConfigCard } from '../components/settings/CdpConfigCard.js'
@@ -16,7 +16,7 @@ import { addToast } from '../lib/toast-store.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
-import type { HealthSnapshot, ProviderStatusVm } from '../view-models.js'
+import type { HealthSnapshot } from '../view-models.js'
 
 const defaultHealthSnapshot: HealthSnapshot = {
   apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' },
@@ -28,18 +28,6 @@ const defaultHealthSnapshot: HealthSnapshot = {
  * keys. The server refuses this whole surface to a view-only account; the
  * wrapper below is so a viewer gets an explanation rather than an empty page.
  */
-/** A connection whose projects pick routes (OpenRouter models, answer-service profiles). */
-function isRoutedProvider(provider: ProviderStatusVm): boolean {
-  return provider.name === 'openrouter' || provider.kind === 'model-gateway' || provider.kind === 'answer-service'
-}
-
-function routedConnectionCopy(provider: ProviderStatusVm): { connected: string; choose: string } {
-  const name = provider.displayName ?? provider.name
-  return provider.kind === 'answer-service'
-    ? { connected: `${name} connected. Projects use it only where you choose its profiles.`, choose: 'Choose project profiles' }
-    : { connected: `${name} connected. Choose the models for each project.`, choose: 'Choose project models' }
-}
-
 export function SettingsPage() {
   return (
     <AdminOnly title="Settings">
@@ -49,6 +37,9 @@ export function SettingsPage() {
 }
 
 function SettingsPageBody() {
+  const location = useLocation()
+  const [connectionsOpen, setConnectionsOpen] = useState(false)
+  useEffect(() => { if (location.hash.replace(/^#/, '') === 'browser-connection') setConnectionsOpen(true) }, [location.hash])
   const contextDashboard = useInitialDashboard()
   const { dashboard } = useDashboard()
   const settings = dashboard?.settings ?? contextDashboard?.dashboard?.settings
@@ -56,9 +47,6 @@ function SettingsPageBody() {
   const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
 
-  const [configuringProvider, setConfiguringProvider] = useState<string | null>(null)
-  const [savedRoutedConnections, setSavedRoutedConnections] = useState<ReadonlySet<string>>(new Set())
-  const [modelProject, setModelProject] = useState('')
   const [configuringGoogle, setConfiguringGoogle] = useState(false)
   const [configuringBing, setConfiguringBing] = useState(false)
   const [bingApiKey, setBingApiKey] = useState('')
@@ -68,7 +56,6 @@ function SettingsPageBody() {
 
   if (!settings) return null
   const projects = dashboard?.projects ?? contextDashboard?.dashboard?.projects ?? []
-  const selectedModelProject = modelProject || projects[0]?.project.name
 
   return (
     <div className="page-container">
@@ -80,104 +67,18 @@ function SettingsPageBody() {
       </div>
 
       <section className="space-y-6">
-        <section>
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Answer engines</p>
-              <h2>Providers</h2>
-            </div>
-          </div>
-          <div className="divide-y divide-default border-y border-default">
-            {settings.providerStatuses.map((provider) => (
-              // The project notice for a provider that keeps failing links here.
-              <div key={provider.name} id={`provider-${provider.name}`} className="scroll-mt-24 py-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-copy-14-strong text-heading">{provider.displayName ?? provider.name}</p>
-                    <p className="text-copy-14 text-secondary">{provider.detail}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <ToneBadge tone={provider.state === 'ready' ? 'positive' : 'caution'}>
-                      {provider.state === 'ready' ? 'Ready' : 'Not connected'}
-                    </ToneBadge>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setConfiguringProvider(configuringProvider === provider.name ? null : provider.name)}
-                    >
-                      {configuringProvider === provider.name
-                        ? 'Cancel'
-                        : provider.state === 'ready'
-                          ? 'Update'
-                          : 'Configure'}
-                    </Button>
-                  </div>
-                </div>
-                <details className="mt-3">
-                  <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">Advanced</summary>
-                  <dl className="definition-list mt-2">
-                    {!isRoutedProvider(provider) && <div>
-                      <dt>Model</dt>
-                      <dd className="text-label-12-mono">
-                        {provider.model ?? provider.defaultModel ?? 'unknown'}
-                        {!provider.model && provider.defaultModel && (
-                          <span className="ml-1 font-sans text-muted">(default)</span>
-                        )}
-                      </dd>
-                    </div>}
-                    {provider.quota && (
-                      <>
-                        <div>
-                          <dt>Concurrency</dt>
-                          <dd>{provider.quota.maxConcurrency}</dd>
-                        </div>
-                        <div>
-                          <dt>Rate limit</dt>
-                          <dd>{provider.quota.maxRequestsPerMinute}/min · {provider.quota.maxRequestsPerDay}/day</dd>
-                        </div>
-                      </>
-                    )}
-                  </dl>
-                </details>
-                {configuringProvider === provider.name && (
-                  <ProviderConfigForm
-                    providerName={provider.name}
-                    keyUrl={provider.keyUrl}
-                    modelHint={provider.modelHint}
-                    {...(provider.kind ? { kind: provider.kind } : {})}
-                    onSaved={() => {
-                      setConfiguringProvider(null)
-                      if (isRoutedProvider(provider)) setSavedRoutedConnections(current => new Set([...current, provider.name]))
-                    }}
-                  />
-                )}
-                {isRoutedProvider(provider) && (provider.state === 'ready' || savedRoutedConnections.has(provider.name)) && <div className="mt-3 flex flex-wrap items-end gap-3">
-                  <p role={savedRoutedConnections.has(provider.name) ? 'status' : undefined} className="w-full text-copy-14 text-secondary">{routedConnectionCopy(provider).connected}</p>
-                  {projects.length > 1 && <label className="text-label-14 text-secondary">Project<select className="setup-input ml-2" value={selectedModelProject} onChange={event => setModelProject(event.target.value)}>{projects.map(project => <option key={project.project.name} value={project.project.name}>{project.project.displayName ?? project.project.name}</option>)}</select></label>}
-                  <Button type="button" variant="outline" asChild>{selectedModelProject ? <Link to="/projects/$projectName/settings" params={{ projectName: selectedModelProject }} hash="answer-engines">{routedConnectionCopy(provider).choose}</Link> : <Link to="/setup">Create a project</Link>}</Button>
-                </div>}
-              </div>
-            ))}
-          </div>
-        </section>
+        <ProviderConnectionsSection projects={projects.map(project => project.project)} />
 
-        <section>
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Connections</p>
-              <h2>Search and browser</h2>
-            </div>
-          </div>
-          <div className="settings-grid">
+        <details open={connectionsOpen} onToggle={event => setConnectionsOpen(event.currentTarget.open)} className="border-t border-default pt-4">
+          <summary className="cursor-pointer text-label-14 text-heading">Search and browser connections</summary>
+          <div className="settings-grid mt-4">
             <Card className="surface-card">
           <div className="section-head">
             <div>
-              <p className="eyebrow eyebrow-soft">Google</p>
               <h2>Google OAuth</h2>
             </div>
-            <ToneBadge tone={settings.google.state === 'ready' ? 'positive' : 'caution'}>
-              {settings.google.state === 'ready' ? 'Ready' : 'Not connected'}
+            <ToneBadge tone={settings.google.state === 'ready' ? 'neutral' : 'caution'}>
+              {settings.google.state === 'ready' ? 'Configured' : 'Not configured'}
             </ToneBadge>
           </div>
           <p className="mt-2 text-copy-14 text-secondary">{settings.google.detail}</p>
@@ -216,11 +117,10 @@ function SettingsPageBody() {
             <Card className="surface-card">
           <div className="section-head">
             <div>
-              <p className="eyebrow eyebrow-soft">Bing</p>
-              <h2>Webmaster Tools</h2>
+              <h2>Bing Webmaster Tools</h2>
             </div>
-            <ToneBadge tone={settings.bing.state === 'ready' ? 'positive' : 'caution'}>
-              {settings.bing.state === 'ready' ? 'Ready' : 'Not connected'}
+            <ToneBadge tone={settings.bing.state === 'ready' ? 'neutral' : 'caution'}>
+              {settings.bing.state === 'ready' ? 'Configured' : 'Not configured'}
             </ToneBadge>
           </div>
           <p className="mt-2 text-copy-14 text-secondary">{settings.bing.detail}</p>
@@ -248,7 +148,7 @@ function SettingsPageBody() {
             </Button>
           </div>
           {configuringBing && (
-            <div className="mt-3 material-base p-3 space-y-2">
+            <div className="mt-3 space-y-2">
               <div>
                 <div className="flex items-center justify-between">
                   <label className="text-label-14 text-secondary" htmlFor="bing-api-key">API key</label>
@@ -296,7 +196,7 @@ function SettingsPageBody() {
                   setBingSaving(false)
                 }
               })}>
-                {bingSaving ? 'Saving...' : 'Save Bing API key'}
+                {bingSaving ? 'Saving…' : 'Save Bing API key'}
               </Button>
             </div>
           )}
@@ -304,15 +204,11 @@ function SettingsPageBody() {
 
             <CdpConfigCard />
           </div>
-        </section>
+        </details>
 
-        <Card className="surface-card">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Service health</p>
-              <h2>API and worker</h2>
-            </div>
-          </div>
+        <details className="border-t border-default pt-4" open={healthSnapshot.apiStatus.state !== 'ok' || healthSnapshot.workerStatus.state !== 'ok' ? true : undefined}>
+          <summary className="cursor-pointer text-label-14 text-heading">Service health</summary>
+          <div className="mt-4">
           <div className="compact-stack">
             <div className="health-row">
               <div>
@@ -337,19 +233,20 @@ function SettingsPageBody() {
               </ToneBadge>
             </div>
           </div>
-        </Card>
+          </div>
+        </details>
       </section>
 
       <details className="page-section">
         <summary className="cursor-pointer text-label-14-strong text-secondary hover:text-strong">Self-hosting details</summary>
-        <Card className="surface-card mt-3">
+        <div className="mt-3">
           <ul className="detail-list">
             {settings.selfHostNotes.map((note) => (
               <li key={note}>{note}</li>
             ))}
           </ul>
           <p className="supporting-copy">{settings.bootstrapNote}</p>
-        </Card>
+        </div>
       </details>
     </div>
   )

@@ -11,16 +11,50 @@ import { hostOf } from './url-normalize.js'
 const nullableRunStatusSchema = z.union([runStatusSchema, z.null()])
 
 /**
- * Technical AEO — site-wide technical audit surfaced from
+ * Agent Readiness — the site-wide crawl and audit surfaced from
  * `@canonry/agent-readiness`'s `runSiteCrawl`. A `site-audit` run discovers pages
  * from the root, robots/sitemaps, and internal links; audits each reachable
- * HTML page; and rolls the reports into a site score plus crawl graph.
+ * HTML page; and rolls the reports into the Agent Readiness score plus a
+ * crawl graph. Earlier releases called this Site Health, Technical AEO and
+ * the technical audit.
  *
- * These DTOs are the public contract for the dashboard's visible "Site Health"
- * tab, the `canonry technical-aeo …` CLI, and the matching MCP tools. The
- * stable route/API/embed key stays `technical-aeo`; the underlying run and
- * schedule kind stays `site-audit` (the existing `RunKinds` value).
+ * These DTOs are the public contract for the dashboard's Agent Readiness tab,
+ * the `canonry agent-readiness …` CLI, and the `canonry_agent_readiness_*`
+ * MCP tools. `agent-readiness` is the canonical route, embed-tab and command
+ * name; `technical-aeo` (and the `site-health` CLI and MCP names) keep working
+ * as deprecated aliases. The run and schedule kind stays `site-audit` (the
+ * existing `RunKinds` value), and the DTO names are unchanged.
  */
+
+/** Canonical API path segment, web route segment and embed-tab key. */
+export const AGENT_READINESS_PATH_SEGMENT = 'agent-readiness'
+/** Deprecated segment that still answers every Agent Readiness route. */
+export const LEGACY_AGENT_READINESS_PATH_SEGMENT = 'technical-aeo'
+/** Every segment an Agent Readiness route answers at, canonical first. */
+export const AGENT_READINESS_PATH_SEGMENTS = [AGENT_READINESS_PATH_SEGMENT, LEGACY_AGENT_READINESS_PATH_SEGMENT] as const
+
+const CANONICAL_AGENT_READINESS_PATH = /(\/projects\/[^/]+)\/agent-readiness(?=\/|$)/
+
+/**
+ * The deprecated `technical-aeo` twin of a canonical Agent Readiness path or
+ * operation key (`GET /api/v1/projects/{name}/agent-readiness/pages`), or
+ * `undefined` when the input is not an Agent Readiness path.
+ */
+export function legacyAgentReadinessPath(path: string): string | undefined {
+  if (!CANONICAL_AGENT_READINESS_PATH.test(path)) return undefined
+  return path.replace(CANONICAL_AGENT_READINESS_PATH, `$1/${LEGACY_AGENT_READINESS_PATH_SEGMENT}`)
+}
+
+/** Each path in order, followed by its deprecated `technical-aeo` twin when it has one. */
+export function withLegacyAgentReadinessPaths(paths: Iterable<string>): string[] {
+  const out: string[] = []
+  for (const path of paths) {
+    out.push(path)
+    const legacy = legacyAgentReadinessPath(path)
+    if (legacy) out.push(legacy)
+  }
+  return out
+}
 
 /** Per-factor / per-page health bucket — mirrors the audit engine's `scoreToStatus`. */
 export const siteAuditFactorStatusSchema = z.enum(['pass', 'partial', 'fail'])
@@ -137,7 +171,7 @@ export const siteAuditRunSelectionSchema = z.object({
 export type SiteAuditRunSelectionDto = z.infer<typeof siteAuditRunSelectionSchema>
 
 /**
- * The Technical AEO scorecard for the selected scan. Default reads use the
+ * The Agent Readiness scorecard for the selected scan. Default reads use the
  * preferred persisted crawl, or the preferred legacy score-only audit when
  * no crawl exists. When the preferred crawl audited no page (a partial crawl
  * stores no scorecard then), default reads use the preferred scored crawl
@@ -422,7 +456,7 @@ export function isSelfLink(sourceUrl: string, targetUrl: string): boolean {
   return sourceUrl === targetUrl
 }
 
-/** Shared meaning behind Site Health node color across API, agents, and UI. */
+/** Shared meaning behind Agent Readiness node color across API, agents, and UI. */
 /**
  * What a crawled page is, for a reader.
  *
@@ -1374,7 +1408,7 @@ export type SiteCrawlPageAuditDto = z.infer<typeof siteCrawlPageAuditSchema>
 /**
  * Whether a requested `healthState` filter actually ran.
  *
- * Site Health state is persisted at publish time and backfilled for existing
+ * Agent Readiness state is persisted at publish time and backfilled for existing
  * scans, so `applied` is the normal answer. `unavailable-legacy-scan` remains
  * for the one case a backfill cannot reach: a page written AFTER the migration
  * by an older engine image that does not know the column. Tenants keep their
@@ -1552,7 +1586,7 @@ export const siteCrawlGraphLayoutSchema = z.discriminatedUnion('state', [
 export type SiteCrawlGraphLayoutDto = z.infer<typeof siteCrawlGraphLayoutSchema>
 
 /**
- * A persisted, deterministic graph projection for an interactive Site Health
+ * A persisted, deterministic graph projection for an interactive Agent Readiness
  * map. `total*` reflects graph-compatible persisted crawl rows; `omitted*`
  * explains what the publish/read caps intentionally leave out. Layout state is
  * explicit because snapshots written before layout support remain valid.
@@ -1595,7 +1629,7 @@ export const siteCrawlGraphResponseSchema = z.object({
 })
 export type SiteCrawlGraphResponseDto = z.infer<typeof siteCrawlGraphResponseSchema>
 
-/** Site Health publish/read caps. They deliberately do not change crawl budgets. */
+/** Agent Readiness publish/read caps. They deliberately do not change crawl budgets. */
 export const SITE_CRAWL_GRAPH_DEFAULT_MAX_NODES = 20_000
 export const SITE_CRAWL_GRAPH_MAX_NODES = 20_000
 export const SITE_CRAWL_GRAPH_DEFAULT_MAX_EDGES = 50_000
@@ -1848,7 +1882,7 @@ export const siteAuditPageBudgetSchema = z.number().int().min(1).max(SITE_AUDIT_
 export function formatPageCount(pages: number): string {
   return `${pages.toLocaleString('en-US')} ${pages === 1 ? 'page' : 'pages'}`
 }
-/** A saved Site Health page budget in words, lower case: "2,500 pages", or "full site (up to 50,000 pages)" for null. */
+/** A saved Agent Readiness page budget in words, lower case: "2,500 pages", or "full site (up to 50,000 pages)" for null. */
 export function formatSiteAuditPageBudget(maxPages: number | null): string {
   return maxPages === null ? `full site (up to ${formatPageCount(SITE_AUDIT_MAX_PAGE_LIMIT)})` : formatPageCount(maxPages)
 }
@@ -1859,7 +1893,7 @@ export function formatSiteAuditPageBudget(maxPages: number | null): string {
  */
 export const SITE_AUDIT_DEFAULT_MAX_DEPTH = 10
 /**
- * First-run Site Health budget. Onboarding is a bounded first look at the top
+ * First-run Agent Readiness budget. Onboarding is a bounded first look at the top
  * of the site, not the full audit: the scheduled scan keeps the page default.
  */
 export const SITE_AUDIT_ONBOARDING_PAGE_LIMIT = 100
@@ -1961,7 +1995,7 @@ export const siteAuditRunResponseSchema = z.object({
 export type SiteAuditRunResponseDto = z.infer<typeof siteAuditRunResponseSchema>
 
 /**
- * One entry in the Site Health scan history. `hasCrawlData` separates a scan
+ * One entry in the Agent Readiness audit scan history. `hasCrawlData` separates a scan
  * that published a page and internal-link graph from a legacy score-only scan
  * that predates crawl persistence: both are real, selectable history, but only
  * the first can open the map, inventory, or structure views.
@@ -1988,7 +2022,7 @@ export type SiteHealthScansResponseDto = z.infer<typeof siteHealthScansResponseS
 export const SITE_HEALTH_SCANS_DEFAULT_LIMIT = 20
 export const SITE_HEALTH_SCANS_MAX_LIMIT = 100
 
-/** Stable lifecycle stage for one exact stored Site Health crawl. */
+/** Stable lifecycle stage for one exact stored Agent Readiness crawl. */
 export const siteAuditRunPhaseSchema = z.enum([
   'queued',
   'discovering',
@@ -2042,7 +2076,7 @@ export const siteAuditRunProgressSchema = z.object({
 })
 export type SiteAuditRunProgressDto = z.infer<typeof siteAuditRunProgressSchema>
 
-/** Exact lifecycle state for a bounded, in-progress Page Health preview. */
+/** Exact lifecycle state for a bounded, in-progress Agent Readiness preview. */
 export const siteAuditLivePageHealthStateSchema = z.enum(['waiting', 'collecting', 'terminal'])
 export type SiteAuditLivePageHealthState = z.infer<typeof siteAuditLivePageHealthStateSchema>
 
@@ -2058,7 +2092,7 @@ export type SiteAuditLivePageHealthExampleDto = z.infer<typeof siteAuditLivePage
 /**
  * A small, durable preview for an exact active site-audit run. It is never a
  * final scorecard: terminal runs deliberately omit examples so callers switch
- * to the immutable Page Health results once the crawl has published.
+ * to the immutable Agent Readiness results once the crawl has published.
  */
 export const siteAuditLivePageHealthSchema = z.object({
   project: z.string(),

@@ -572,6 +572,19 @@ describe('SiteGraphSigma', () => {
     expect(sigmaMocks.graphsSeen).toHaveLength(1)
   })
 
+  it('counts the pages on the map and only the links it draws', () => {
+    // A live scan read "75 pages · 2,282 links" under a line saying 1,998 of
+    // those links were hidden. The count follows the menu and footer toggle.
+    mockWebGl(false)
+    const { rerender } = render(<SiteGraphSigma nodes={nodes} edges={templateEdges} showTemplateLinks={false} />)
+    expect(screen.getByText('2 pages on the map · 1 link shown')).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Interactive site map showing 2 pages and 1 internal link' })).toBeTruthy()
+
+    rerender(<SiteGraphSigma nodes={nodes} edges={templateEdges} showTemplateLinks />)
+    expect(screen.getByText('2 pages on the map · 2 links shown')).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Interactive site map showing 2 pages and 2 internal links' })).toBeTruthy()
+  })
+
   it('offers the inventory directly when the persisted layout is unavailable', () => {
     const onOpenInventory = vi.fn()
     render(

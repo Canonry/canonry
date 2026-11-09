@@ -188,10 +188,10 @@ export const BOOTSTRAP_PROVIDER_DEFAULT_QUOTA: Readonly<ProviderQuotaPolicy> = {
  * YAML) model or quota. Any value already present, from the environment or
  * from a saved entry, is kept.
  */
-export function withBootstrapProviderDefaults<T extends { model?: string | null; quota?: ProviderQuotaPolicy | null }>(
+export function withBootstrapProviderDefaults<T extends { model?: string | null; quota?: Partial<ProviderQuotaPolicy> | null }>(
   name: BootstrapProviderName,
   entry: T,
-): T & { model: string; quota: ProviderQuotaPolicy } {
+): T & { model: string; quota: Partial<ProviderQuotaPolicy> } {
   return {
     ...entry,
     model: entry.model ?? BOOTSTRAP_PROVIDER_DEFAULT_MODELS[name],

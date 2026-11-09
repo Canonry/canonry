@@ -431,7 +431,7 @@ function CappedEvidenceList({
                     <span className="block">{item.query}</span>
                     {item.provider || item.location ? (
                       <span className="mt-1 block text-label-12 text-muted">
-                        {[item.provider, item.location].filter(Boolean).join(' · ')}
+                        {[item.provider ? providerDisplayName(item.provider) : null, item.location].filter(Boolean).join(' · ')}
                       </span>
                     ) : null}
                   </td>
@@ -493,7 +493,7 @@ interface SegmentedControlOption<T extends string> {
  *
  * Wears the house `.segmented` skin so it is visually identical to the five
  * segmented controls already in the dashboard (GSC, Activity, Visibility trend,
- * Technical AEO). The SEMANTICS deliberately differ from `VisibilityTrendSection`'s
+ * Agent Readiness). The SEMANTICS deliberately differ from `VisibilityTrendSection`'s
  * `Segmented`, which is a `role="group"` of `aria-pressed` toggles: these options
  * are mutually exclusive filters, and radiogroup is the WAI-ARIA pattern for
  * "choose exactly one", giving arrow-key navigation a toggle group does not.

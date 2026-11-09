@@ -143,16 +143,16 @@ function readSurface(app: FastifyInstance, projectId: string, surface: TrendSurf
         .select({ auditedAt: siteAuditSnapshots.auditedAt, aggregateScore: siteAuditSnapshots.aggregateScore, pagesAudited: siteAuditSnapshots.pagesAudited })
         .from(siteAuditSnapshots)
         .innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
-        // The scans the Technical AEO score trend charts, so the two never disagree.
+        // The scans the Agent Readiness score trend charts, so the two never disagree.
         .where(and(...surfaceableSiteAuditFilters(projectId)))
         // Each scan is a moment: keep every one, oldest first.
         .orderBy(asc(siteAuditSnapshots.auditedAt))
         .all()
       return [{
         key: 'site-health',
-        label: 'Site Health',
+        label: 'Agent Readiness',
         figures: [
-          { key: 'score', label: 'Site score', unit: TrendUnits.score, better: TrendBetter.higher, readings: rows.map(row => ({ date: row.auditedAt, observedAt: row.auditedAt, value: row.aggregateScore })) },
+          { key: 'score', label: 'Agent Readiness score', unit: TrendUnits.score, better: TrendBetter.higher, readings: rows.map(row => ({ date: row.auditedAt, observedAt: row.auditedAt, value: row.aggregateScore })) },
           { key: 'pages-checked', label: 'Pages checked', unit: TrendUnits.count, better: TrendBetter.neither, readings: rows.map(row => ({ date: row.auditedAt, observedAt: row.auditedAt, value: row.pagesAudited })) },
         ],
       }]

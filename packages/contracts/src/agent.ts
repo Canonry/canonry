@@ -19,7 +19,7 @@ export const agentViewContextSchema = z.object({
   if (value.seoProfileId && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO profile context requires the SEO view.' })
   if (value.seoRunId && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO run context requires the SEO view.' })
   if ((value.seoRegionKey || value.seoMarketKey) && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO market context requires the SEO view.' })
-  if (value.page && value.view !== 'site-health') ctx.addIssue({ code: 'custom', message: 'Page context requires Site Health.' })
+  if (value.page && value.view !== 'site-health') ctx.addIssue({ code: 'custom', message: 'Page context requires the Agent Readiness view.' })
   if (value.selection && !['visibility', 'property', 'queries'].includes(value.view)) ctx.addIssue({ code: 'custom', message: 'Measurement selection requires a measurement view.' })
 })
 export type AgentViewContext = z.infer<typeof agentViewContextSchema>

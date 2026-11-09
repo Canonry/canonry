@@ -25,6 +25,7 @@ import {
   formatPercent,
   RatioUnits,
   RunKinds,
+  RunStatuses,
   SITE_AUDIT_DEFAULT_MAX_DEPTH,
   SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
   SITE_CRAWL_GRAPH_MAX_EDGES,
@@ -33,6 +34,7 @@ import {
   SiteHealthStates,
   TEMPLATE_LINK_MIN_FETCHED_PAGES,
   isTemplateDetectionApplied,
+  type SiteAuditScoreDto,
   type SiteCrawlEdgeDto,
   type SiteCrawlGraphNodeDto,
   type SiteCrawlIndexabilityReason,
@@ -47,17 +49,18 @@ import {
 } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameOptions,
-  getApiV1ProjectsByNameTechnicalAeoCrawlOptions,
-  getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditOptions,
-  getApiV1ProjectsByNameTechnicalAeoCrawlPagesOptions,
-  getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteOptions,
-  getApiV1ProjectsByNameTechnicalAeoDeadLinksOptions,
-  getApiV1ProjectsByNameTechnicalAeoGraphOptions,
-  getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsOptions,
-  getApiV1ProjectsByNameTechnicalAeoRunsOptions,
-  getApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewOptions,
-  getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressOptions,
-  getApiV1ProjectsByNameTechnicalAeoStructureInfiniteOptions,
+  getApiV1ProjectsByNameAgentReadinessOptions,
+  getApiV1ProjectsByNameAgentReadinessCrawlOptions,
+  getApiV1ProjectsByNameAgentReadinessCrawlPagesAuditOptions,
+  getApiV1ProjectsByNameAgentReadinessCrawlPagesOptions,
+  getApiV1ProjectsByNameAgentReadinessCrawlPagesInfiniteOptions,
+  getApiV1ProjectsByNameAgentReadinessDeadLinksOptions,
+  getApiV1ProjectsByNameAgentReadinessGraphOptions,
+  getApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsOptions,
+  getApiV1ProjectsByNameAgentReadinessRunsOptions,
+  getApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewOptions,
+  getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressOptions,
+  getApiV1ProjectsByNameAgentReadinessStructureInfiniteOptions,
 } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient, isDashboardManagedRunKind, isEmbed, isPublicDemo } from '../../api.js'
@@ -92,13 +95,13 @@ type SiteHealthView = 'map' | 'inventory' | 'technical'
 const SITE_HEALTH_VIEWS = [
   { id: 'map', label: 'Map' },
   { id: 'inventory', label: 'Pages' },
-  { id: 'technical', label: 'Page health' },
+  { id: 'technical', label: 'Score' },
 ] as const satisfies ReadonlyArray<{ id: SiteHealthView; label: string }>
 
 const SITE_HEALTH_VIEW_DESCRIPTIONS: Record<SiteHealthView, string> = {
   map: 'Explore how pages, site sections, and internal links fit together.',
   inventory: 'Review discovered pages and the links that shape their visibility.',
-  technical: 'Prioritize audit findings and inspect the pages that need work.',
+  technical: 'Prioritize findings and inspect the pages that need work.',
 }
 
 /**
@@ -158,7 +161,7 @@ function urlVersionsSkippedHelp(count: number): { label: string; text: string } 
   const label = `${metricValue(count)} URL version${count === 1 ? '' : 's'} skipped`
   return {
     label,
-    text: `${label}. These addresses add parameters, such as a filter, to a page and name that page as canonical, so they are copies of it. The audit does not score them or list them here.`,
+    text: `${label}. These addresses add parameters, such as a filter, to a page and name that page as canonical, so they are copies of it. The scan does not score them or list them here.`,
   }
 }
 
@@ -256,7 +259,7 @@ function metricValue(value: number | null | undefined): string {
 }
 
 /**
- * What every Site Health number means, in plain words.
+ * What every Agent Readiness number means, in plain words.
  *
  * One source of truth, because the same four metrics appear on the page
  * inspector tiles AND as Pages table columns. Two copies would drift, and a
@@ -307,7 +310,10 @@ const FULL_GRAPH_METRICS: ReadonlySet<SiteHealthMetric> = new Set([
 function siteHealthMetricHelp(metric: SiteHealthMetric, filtered: boolean): string {
   const base = SITE_HEALTH_METRIC_HELP[metric]
   if (FULL_GRAPH_METRICS.has(metric)) {
-    return `${base} This always counts every link, including menu and footer.`
+    // Page counts are not link counts: say what the menu/footer toggle does to them.
+    return metric === 'pagesFound' || metric === 'pagesChecked'
+      ? `${base} Hiding menu and footer links does not change it.`
+      : `${base} This always counts every link, including menu and footer.`
   }
   if (metric === 'technicalScore' || metric === 'linkTimes') return base
   return filtered
@@ -342,6 +348,18 @@ function scanTone(status: string | null | undefined): MetricTone {
   if (status === 'partial' || status === 'queued' || status === 'running') return 'caution'
   if (status === 'failed' || status === 'cancelled') return 'negative'
   return 'neutral'
+}
+
+/**
+ * The shown scan's score, for the header beside its status: the API's
+ * `aggregateScore` as sent, from the same read the Score view makes. A partial
+ * scan scored only the pages it reached, so it reads "Score so far" there too.
+ */
+function headerScoreLabel(score: Pick<SiteAuditScoreDto, 'hasData' | 'runStatus' | 'aggregateScore'> | undefined): string | null {
+  if (!score?.hasData) return null
+  if (score.runStatus === RunStatuses.partial) return `Score so far ${score.aggregateScore}/100`
+  if (score.runStatus === RunStatuses.completed) return `Score ${score.aggregateScore}/100`
+  return null
 }
 
 const DEFAULT_SCAN_OPTION_LABEL = 'Latest scan'
@@ -430,7 +448,7 @@ function terminationRemedy(termination: string | null, onboarding = false): stri
   // Onboarding hides Scan settings because its first-look budget is fixed, so
   // point at where the setting lives once setup is done.
   return remedy && onboarding
-    ? `${remedy.replace(/ in Scan settings\.$/, '')} in Site Health's Scan settings after setup.`
+    ? `${remedy.replace(/ in Scan settings\.$/, '')} in Scan settings on the Agent Readiness tab after setup.`
     : remedy
 }
 
@@ -864,7 +882,7 @@ function PageInspector({
           </div>
           <p className="mt-1 break-all text-copy-14 text-secondary">{page.url}</p>
           {reasonsState === 'loading' ? (
-            <p className="mt-2 text-copy-14 text-secondary" role="status">Loading page details...</p>
+            <p className="mt-2 text-copy-14 text-secondary" role="status">Loading page details…</p>
           ) : reasonsState === 'error' ? (
             <p className="mt-2 flex flex-wrap items-center gap-2 text-copy-14 text-negative" role="alert">
               Page details could not be loaded, so any reason this page is hidden is unknown.
@@ -907,7 +925,7 @@ function PageInspector({
           {isLoading ? (
           <div className="flex items-center gap-2 py-6 text-label-14 text-secondary">
             <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
-            Loading page links...
+            Loading page links…
           </div>
         ) : error ? (
           <p className="rounded-md border border-negative bg-negative-soft px-4 py-3 text-copy-14 text-negative" role="alert">
@@ -982,9 +1000,12 @@ function InventoryTable({
         <div>
           <h2 id="site-health-inventory-heading" className="text-heading-16 text-heading">Pages</h2>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {/* Not "pages found": the scan counts strip says "Pages found" for
+                every address the scan discovered, which is a bigger number
+                than this list of pages (URL versions are left out). */}
             <p className="text-copy-14 text-secondary">
               {filter === 'all'
-                ? `Showing ${metricValue(pages.length)} of ${metricValue(total)} pages found.`
+                ? `Showing ${metricValue(pages.length)} of ${metricValue(total)} pages.`
                 : `Showing ${metricValue(pages.length)} of ${metricValue(total)} hidden pages.`}
             </p>
             {skippedUrlVersions != null && skippedUrlVersions > 0 && (
@@ -1126,7 +1147,7 @@ function SiteSectionRow({
         <button
           type="button"
           onClick={() => onSelect(section.path)}
-          className="min-w-0 flex-1 break-all rounded-sm py-2 text-left font-mono text-button-14 text-heading outline-none hover:text-link focus-visible:ring-2 focus-visible:ring-mono-400"
+          className="min-w-0 flex-1 break-words rounded-sm py-2 text-left font-mono text-button-14 text-heading outline-none hover:text-link focus-visible:ring-2 focus-visible:ring-mono-400"
         >
           {section.path}
         </button>
@@ -1161,7 +1182,7 @@ function RootPageRow({ page, onSelect }: {
         <button
           type="button"
           onClick={() => onSelect(page.nodeKey)}
-          className="min-w-0 flex-1 break-all rounded-sm py-2 text-left font-mono text-button-14 text-heading outline-none hover:text-link focus-visible:ring-2 focus-visible:ring-mono-400"
+          className="min-w-0 flex-1 break-words rounded-sm py-2 text-left font-mono text-button-14 text-heading outline-none hover:text-link focus-visible:ring-2 focus-visible:ring-mono-400"
         >
           {page.path || '/'}
         </button>
@@ -1193,7 +1214,7 @@ function SiteSectionChildren({
     query: { runId, parentPath, limit: STRUCTURE_LIMIT },
   } as const
   const structureQuery = useInfiniteQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoStructureInfiniteOptions(structureInput),
+    ...getApiV1ProjectsByNameAgentReadinessStructureInfiniteOptions(structureInput),
     initialPageParam: structureInput,
     getNextPageParam: (lastPage: SiteCrawlStructureResponseDto) => lastPage.nextCursor
       ? {
@@ -1207,7 +1228,7 @@ function SiteSectionChildren({
   if (structureQuery.isLoading) {
     return (
       <div className="flex items-center gap-2 px-3 py-4 text-label-14 text-secondary" role="status">
-        <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> Loading sections...
+        <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> Loading sections…
       </div>
     )
   }
@@ -1427,8 +1448,8 @@ function OnboardingContinuationActions({
   return (
     <section aria-labelledby="site-health-continuation-heading" className="mt-5 flex flex-col gap-3 border-t border-default pt-5 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <h3 id="site-health-continuation-heading" className="text-heading-16 text-heading">Continue while Site Health finishes</h3>
-        <p className="mt-1 text-copy-14 text-secondary">Canonry will finish this scan locally. Saved results will appear in Site Health.</p>
+        <h3 id="site-health-continuation-heading" className="text-heading-16 text-heading">Continue while the Agent Readiness audit scan finishes</h3>
+        <p className="mt-1 text-copy-14 text-secondary">Canonry will finish this scan locally. Saved results will appear in Agent Readiness.</p>
       </div>
       <div className="flex shrink-0 flex-wrap gap-2">
         <Button type="button" onClick={onContinueOnboarding}>Set up AI Visibility</Button>
@@ -1500,22 +1521,22 @@ function ActiveScanState({
     >
       <div className="flex min-h-6 items-center gap-2">
         <h2 className="text-heading-16 text-heading">
-          {arrangingMap && pageHealthDestination ? 'Preparing page health' : arrangingMap ? 'Preparing site map' : firstLook ? 'Checking your site' : 'Scanning site'}
+          {arrangingMap && pageHealthDestination ? 'Preparing your score' : arrangingMap ? 'Preparing site map' : firstLook ? 'Checking your site' : 'Scanning site'}
         </h2>
         {firstLook ? (
           // Said to someone who may not know what Canonry is yet: name what the
           // scan is FOR. The tooltip names the time limit too, since a first
           // scan on a real site usually stops there before the page budget.
           <InfoTooltip text={boundedPageLimit
-            ? `A quick scan to find your first fixes. Reads up to ${boundedPageLimit} pages, or stops sooner at the time limit, so results come back fast. You can run a larger scan from Site Health later.`
-            : 'A quick scan to find your first fixes. Stops at its page budget or the time limit, so results come back fast. You can run a larger scan from Site Health later.'} />
+            ? `A quick scan to find your first fixes. Reads up to ${boundedPageLimit} pages, or stops sooner at the time limit, so results come back fast. You can run a larger scan from Agent Readiness later.`
+            : 'A quick scan to find your first fixes. Stops at its page budget or the time limit, so results come back fast. You can run a larger scan from Agent Readiness later.'} />
         ) : null}
       </div>
       <p aria-atomic="true" aria-label="Current scan progress" aria-live="polite" role="status" className="sr-only">
         {pageHealthDestination
           ? arrangingMap
-            ? 'Finalizing page health. The scan is complete and its findings are being published.'
-            : `${scanPhaseCopy(phase)}. Page health appears after the scan finishes.`
+            ? 'Finalizing your score. The scan is complete and its findings are being published.'
+            : `${scanPhaseCopy(phase)}. Your score appears after the scan finishes.`
           : arrangingMap
             ? 'Arranging map. The scan is complete and its map is being published.'
             : `${scanPhaseCopy(phase)}. The map appears after the scan finishes.`}
@@ -1542,7 +1563,7 @@ function ActiveScanState({
       {progressError && (
         <div className="mt-4 flex flex-wrap items-center gap-3 text-label-14 text-secondary">
           <span>{arrangingMap
-            ? pageHealthDestination ? 'Page health publishing status could not load.' : 'Map publishing status could not load.'
+            ? pageHealthDestination ? 'Score publishing status could not load.' : 'Map publishing status could not load.'
             : 'Live scan counts could not load. The scan is still running.'}</span>
           {onRetryProgress && <Button type="button" variant="secondary" size="sm" onClick={onRetryProgress}>Retry progress</Button>}
         </div>
@@ -1622,7 +1643,7 @@ function latchLivePageHealthExamples(
 }
 
 /**
- * Provisional examples are intentionally not a mini Page Health table. The
+ * Provisional examples are intentionally not a mini score table. The
  * fixed three-row sample is enough to establish that useful evidence is
  * arriving, while keeping the scan panel from moving on every three-second
  * poll. A different run starts with a clean set of slots.
@@ -1640,7 +1661,7 @@ export function LivePageHealthFindings({
     runId: string | null
     slots: LivePageHealthSlots
   }>(() => ({ runId, slots: emptyLivePageHealthSlots() }))
-  // A terminal preview is the handoff to immutable Page Health. Hide the
+  // A terminal preview is the handoff to the immutable score. Hide the
   // sample in the same render that terminal state arrives, rather than
   // waiting for scan history or progress to refetch.
   const terminal = preview?.state === 'terminal'
@@ -1670,7 +1691,7 @@ export function LivePageHealthFindings({
         </p>
       </div>
       <ul
-        aria-label="Live Page Health findings"
+        aria-label="Live findings"
         className="mt-3 grid h-[10.5rem] grid-rows-3 divide-y divide-default overflow-hidden material-base"
       >
         {slots.map((example, index) => {
@@ -1720,7 +1741,7 @@ function TerminalScanRecoveryState({
 
   return (
     <section
-      aria-label="Site scan recovery"
+      aria-label="Audit scan recovery"
       role="alert"
       className="rounded-md border border-negative bg-negative-soft px-5 py-6"
     >
@@ -1728,8 +1749,8 @@ function TerminalScanRecoveryState({
       <p className="mt-1 text-copy-14 text-secondary">
         {pageHealthDestination
           ? cancelled
-            ? 'The scan was cancelled before Canonry could publish page health results.'
-            : 'The scan did not complete, so page health results are unavailable.'
+            ? 'The scan was cancelled before Canonry could publish its score.'
+            : 'The scan did not complete, so its score is unavailable.'
           : cancelled
             ? 'The scan was cancelled before Canonry could publish a site map.'
             : 'The scan did not complete, so there is no site map for this run.'}
@@ -1765,6 +1786,16 @@ export function SiteHealthSection({
   const scanHistoryId = useId()
   const [view, setView] = useState<SiteHealthView>('map')
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+  // Scan settings is a native <details> used as a popover; like the scope
+  // picker, it closes on an outside pointerdown or Escape and when a scan starts.
+  const scanSettings = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent) => {
+      if (scanSettings.current?.open && event.target instanceof Node && !scanSettings.current.contains(event.target)) scanSettings.current.open = false
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    return () => document.removeEventListener('pointerdown', closeOutside)
+  }, [])
   const [selectedRunId, setSelectedRunId] = useState<string | null>(() => initialRunId ?? null)
   // A scan this section started stops being followed once the operator picks a scan.
   const [releasedRescanRunId, setReleasedRescanRunId] = useState<string | null>(null)
@@ -1811,10 +1842,10 @@ export function SiteHealthSection({
     setSelectedNodeKey(null)
   }, [initialRunId])
 
-  // The Site Health scan history, not the generic run list: it already excludes
+  // The Agent Readiness audit scan history, not the generic run list: it already excludes
   // probes and says which scans kept a crawl.
   const auditRunsQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoRunsOptions({
+    ...getApiV1ProjectsByNameAgentReadinessRunsOptions({
       client: heyClient,
       path: { name: projectName },
       query: { limit: SCAN_HISTORY_LIMIT },
@@ -1855,7 +1886,7 @@ export function SiteHealthSection({
     ?? (isInitialRunSelection || mutationNeedsExactProgress ? requestedRunId : null)
 
   const activeProgressQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressOptions({
+    ...getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressOptions({
       client: heyClient,
       path: { name: projectName, runId: exactProgressRunId ?? '' },
     }),
@@ -1864,7 +1895,7 @@ export function SiteHealthSection({
     // Same reason as the live page-health preview beside it: react-query
     // suspends interval refetches while the window is unfocused or occluded,
     // and onboarding explicitly invites the operator to go and do something
-    // else ("Continue while Site Health finishes"). Without this the counters
+    // else ("Continue while the Agent Readiness audit scan finishes"). Without this the counters
     // freeze on whatever they read at mount, which is zero, while the findings
     // line beside them keeps counting up from a query that does set it.
     refetchIntervalInBackground: true,
@@ -1893,11 +1924,11 @@ export function SiteHealthSection({
     && (activeRunWithoutPublishedMap?.runId === exactProgressRunId || exactProgressActive),
   )
   const livePageHealthPreviewQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewOptions({
+    ...getApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewOptions({
       client: heyClient,
       path: { name: projectName, runId: exactProgressRunId ?? '' },
     }),
-    // This is onboarding-only evidence. Normal Site Health retains its
+    // This is onboarding-only evidence. Normal Agent Readiness retains its
     // terminal, immutable result model and never fetches this live sample.
     enabled: livePageHealthPreviewEnabled,
     refetchInterval: (query) => query.state.data?.state === 'terminal' ? false : 3_000,
@@ -1917,7 +1948,7 @@ export function SiteHealthSection({
       : null
 
   const crawlQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoCrawlOptions({
+    ...getApiV1ProjectsByNameAgentReadinessCrawlOptions({
       client: heyClient,
       path: { name: projectName },
       ...(requestedRunId ? { query: { runId: requestedRunId } } : {}),
@@ -1933,7 +1964,7 @@ export function SiteHealthSection({
   const scopedRunQuery = resolvedRunId ? { runId: resolvedRunId } : {}
 
   const graphQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoGraphOptions({
+    ...getApiV1ProjectsByNameAgentReadinessGraphOptions({
       client: heyClient,
       path: { name: projectName },
       query: { ...scopedRunQuery, maxNodes: GRAPH_NODE_LIMIT, maxEdges: GRAPH_EDGE_LIMIT },
@@ -1960,7 +1991,7 @@ export function SiteHealthSection({
     },
   }
   const pagesQuery = useInfiniteQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteOptions(pagesInput),
+    ...getApiV1ProjectsByNameAgentReadinessCrawlPagesInfiniteOptions(pagesInput),
     enabled: siteExplorerEnabled,
     initialPageParam: pagesInput,
     getNextPageParam: (lastPage) => lastPage.nextCursor
@@ -1973,7 +2004,7 @@ export function SiteHealthSection({
   const deadLinkDetailsEnabled = siteExplorerEnabled
     && (crawl?.deadLinks.state === 'complete' || crawl?.deadLinks.state === 'partial')
   const deadLinksQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoDeadLinksOptions({
+    ...getApiV1ProjectsByNameAgentReadinessDeadLinksOptions({
       client: heyClient,
       path: { name: projectName },
       query: { ...scopedRunQuery, limit: DEAD_LINK_LIMIT },
@@ -2028,7 +2059,7 @@ export function SiteHealthSection({
   // scan this surface is built to avoid, and giving up loses its reasons.
   const selectedPageNeedsRead = Boolean(detailsEnabled && selectedNodeKey && !loadedInventoryPage)
   const selectedPageQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoCrawlPagesOptions({
+    ...getApiV1ProjectsByNameAgentReadinessCrawlPagesOptions({
       client: heyClient,
       path: { name: projectName },
       query: {
@@ -2082,7 +2113,7 @@ export function SiteHealthSection({
           : 'ready'
 
   const neighborsQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsOptions({
+    ...getApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsOptions({
       client: heyClient,
       path: { name: projectName },
       query: {
@@ -2094,7 +2125,7 @@ export function SiteHealthSection({
     enabled: siteExplorerEnabled && Boolean(effectiveSelectedNodeKey),
   })
   const pageAuditQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditOptions({
+    ...getApiV1ProjectsByNameAgentReadinessCrawlPagesAuditOptions({
       client: heyClient,
       path: { name: projectName },
       query: {
@@ -2117,6 +2148,9 @@ export function SiteHealthSection({
       ? [selectedScan, ...terminalScans]
       : terminalScans
   }, [auditScans, selectedRunId])
+  // Scan history appears once there is a scan to choose: a finished scan, or
+  // one this view was opened on. Before that it would offer "Latest scan" alone.
+  const hasScanHistory = selectableScans.length > 0
   const newestRunStatus = auditScans[0]?.status ?? null
   const selectedRun = resolvedRunId ? requestedAuditRun : undefined
   const status = activeRunWithoutPublishedMap
@@ -2137,6 +2171,22 @@ export function SiteHealthSection({
             : status === 'cancelled'
               ? 'Scan cancelled'
             : 'No scan'
+  // The header leads with the shown scan's score on every view. This is the
+  // Score view's own read (same key, pinned to the same scan), so the two
+  // share one cache entry and can never disagree. Only a finished scan has a
+  // score to read; onboarding has no header.
+  const headerScoreReadable = !explicitOnboarding
+    && Boolean(resolvedRunId)
+    && (status === RunStatuses.completed || status === RunStatuses.partial)
+  const headerScoreQuery = useQuery({
+    ...getApiV1ProjectsByNameAgentReadinessOptions({
+      client: heyClient,
+      path: { name: projectName },
+      ...(resolvedRunId ? { query: { runId: resolvedRunId } } : {}),
+    }),
+    enabled: headerScoreReadable,
+  })
+  const headerScore = headerScoreReadable ? headerScoreLabel(headerScoreQuery.data) : null
   const deadLinks = deadLinksQuery.data
   const deadLinkCounts = deadLinks && 'found' in deadLinks
     ? deadLinks
@@ -2153,7 +2203,7 @@ export function SiteHealthSection({
   // the inventory read (which every crawl has) is the fallback.
   const rootNodeKey = graphQuery.data?.rootNodeKey ?? null
   const rootPageQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoCrawlPagesOptions({
+    ...getApiV1ProjectsByNameAgentReadinessCrawlPagesOptions({
       client: heyClient,
       path: { name: projectName },
       query: { ...scopedRunQuery, nodeKey: rootNodeKey ?? undefined, limit: 1 },
@@ -2191,16 +2241,16 @@ export function SiteHealthSection({
   const onboardingEmptyHeading = scanHistoryUnconfirmed
     ? auditRunsQuery.isError ? 'Scan history could not be loaded' : 'Checking scan history…'
     : scanNotStarted
-      ? scanSkipped ? 'Site scan skipped' : 'No site scan yet'
-      : 'Page health results unavailable'
+      ? scanSkipped ? 'Agent Readiness audit scan skipped' : 'No Agent Readiness audit scan yet'
+      : 'Score unavailable'
   const onboardingEmptyDescription = scanHistoryUnconfirmed
     ? 'Scan status is not confirmed. Check scan history before starting a scan.'
     : scanNotStarted
       ? 'No scan has been started for this project. Run a first scan or continue without scanning.'
-      : 'This scan did not produce page health results. Run it again to continue setup.'
+      : 'This scan did not produce a score. Run it again to continue setup.'
   const siteAuditReady = Boolean(crawl?.hasCrawlData && !showProgressState && !recoveryPhase)
   // Explicit onboarding has one task per state. A usable terminal crawl opens
-  // Page health immediately; active and recovery states stay on the scan view.
+  // the score immediately; active and recovery states stay on the scan view.
   const currentView: SiteHealthView = explicitOnboarding
     ? siteAuditReady ? 'technical' : 'map'
     : view
@@ -2214,6 +2264,8 @@ export function SiteHealthSection({
     // Gate the dispatcher too: recovery actions also use plain Buttons.
     // This is presentation only; the server independently refuses viewer writes.
     if ((publicDemo || isDashboardManagedRunKind(RunKinds['site-audit'])) && !isAdmin) return
+    // The open settings panel would otherwise cover the scan's progress.
+    if (scanSettings.current) scanSettings.current.open = false
     // Release any pinned scan before dispatching its replacement.
     // Otherwise the durable URL handoff keeps the old run selected while the
     // newly queued scan progresses invisibly in the background.
@@ -2224,6 +2276,7 @@ export function SiteHealthSection({
     runMutation.mutate({
       projectName,
       projectId,
+      projectLabel: projectQuery.data?.displayName || projectName,
       body: {
         checkDeadLinks: explicitOnboarding || checkDeadLinks,
         ...(includeGeo ? { includeGeo: true } : {}),
@@ -2268,10 +2321,15 @@ export function SiteHealthSection({
       {explicitOnboarding ? <OnboardingProgress current={siteAuditReady ? 'fixes' : 'site'} /> : null}
       {!explicitOnboarding && <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
         <div>
+          {/* The selected tab already says "Agent Readiness", so this row is
+              named for what it reports: the shown scan's state, score and date. */}
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-heading-20 text-heading">Site Health</h2>
+            <h2 className="text-heading-20 text-heading">Audit scan</h2>
             <InfoTooltip text={SITE_HEALTH_VIEW_DESCRIPTIONS[currentView]} />
             <ToneBadge tone={scanTone(status)}>{statusLabel}</ToneBadge>
+            {headerScore && (
+              <span className="text-label-14-strong tabular-nums text-heading">{headerScore}</span>
+            )}
             {selectedRun && (
               <span className="text-label-12 text-muted">{formatScanDate(selectedRun.finishedAt ?? selectedRun.startedAt)}</span>
             )}
@@ -2279,28 +2337,37 @@ export function SiteHealthSection({
         </div>
 
         <div className="flex flex-wrap items-start gap-2">
-          <div className="grid gap-1 text-label-12 text-muted">
-            <div className="flex items-center gap-1.5">
-              <label htmlFor={scanHistoryId}>Scan history</label>
-              <InfoTooltip text={DEFAULT_SCAN_HELP} placement="bottom" />
+          {/* A picker with nothing to pick until a scan has finished. */}
+          {hasScanHistory && (
+            <div className="grid gap-1 text-label-12 text-muted">
+              <div className="flex items-center gap-1.5">
+                <label htmlFor={scanHistoryId}>Scan history</label>
+                <InfoTooltip text={DEFAULT_SCAN_HELP} placement="bottom" />
+              </div>
+              <select
+                id={scanHistoryId}
+                aria-label="View an Agent Readiness audit scan"
+                value={selectedRunId ?? finishedRescanRunId ?? ''}
+                onChange={(event) => selectRun(event.target.value)}
+                className="h-9 min-w-48 rounded-md border border-base bg-bg px-3 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
+              >
+                <option value="">{DEFAULT_SCAN_OPTION_LABEL}</option>
+                {selectableScans.map((scan) => (
+                  <option key={scan.runId} value={scan.runId}>{scanOptionLabel(scan)}</option>
+                ))}
+              </select>
             </div>
-            <select
-              id={scanHistoryId}
-              aria-label="View a Site Health scan"
-              value={selectedRunId ?? finishedRescanRunId ?? ''}
-              onChange={(event) => selectRun(event.target.value)}
-              className="h-9 min-w-48 rounded-md border border-base bg-bg px-3 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
-            >
-              <option value="">{DEFAULT_SCAN_OPTION_LABEL}</option>
-              {selectableScans.map((scan) => (
-                <option key={scan.runId} value={scan.runId}>{scanOptionLabel(scan)}</option>
-              ))}
-            </select>
-          </div>
+          )}
 
           {!embedded && !managedScanForViewer && (
-            <div className="flex items-end gap-2 pt-5">
-              <details className="group relative">
+            // Without the picker there is no label row above it to line up with.
+            <div className={cn('flex items-end gap-2', hasScanHistory && 'pt-5')}>
+              <details ref={scanSettings} className="group relative" onKeyDown={(event) => {
+                if (event.key !== 'Escape' || !event.currentTarget.open) return
+                event.preventDefault()
+                event.currentTarget.open = false
+                event.currentTarget.querySelector('summary')?.focus()
+              }}>
                 <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-md border border-base bg-bg px-3 text-label-14-strong text-heading outline-none hover:bg-bg-elevated focus-visible:ring-2 focus-visible:ring-mono-400">
                   <Settings2 className="size-4" aria-hidden="true" />
                   Scan settings
@@ -2398,7 +2465,10 @@ export function SiteHealthSection({
       </header>}
       {managedScanForViewer && <ManagedSweepStatus projectName={projectName} kind={RunKinds['site-audit']} loadSchedule={!publicDemo} />}
 
-      {crawl?.hasCrawlData && currentView !== 'technical' && (
+      {/* The scan's counts stay put across Map, Pages and Score, so each view's
+          own counts ("72 pages", "70 pages scored") read against the same four
+          numbers. Onboarding's score step keeps to the score alone. */}
+      {crawl?.hasCrawlData && !(explicitOnboarding && currentView === 'technical') && (
         <div className="grid grid-cols-2 divide-x divide-y divide-default material-base sm:grid-cols-4 sm:divide-y-0">
           <div className="px-4 py-3">
             <div className="flex items-center gap-1 text-label-12 text-muted">
@@ -2429,7 +2499,7 @@ export function SiteHealthSection({
       )}
 
       {!explicitOnboarding && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default">
-        <div role="tablist" aria-label="Site Health views" aria-orientation="horizontal" className="flex min-w-0 gap-5">
+        <div role="tablist" aria-label="Agent Readiness views" aria-orientation="horizontal" className="flex min-w-0 gap-5">
           {SITE_HEALTH_VIEWS.map((item, index) => (
             <button
               key={item.id}
@@ -2471,7 +2541,7 @@ export function SiteHealthSection({
           The scan started at <span className="font-mono text-primary">{movedSite.requested}</span> and continued at{' '}
           <span className="font-mono text-primary">{movedSite.effective}</span>.{' '}
           {explicitOnboarding
-            ? 'Page health uses the new address.'
+            ? 'The score uses the new address.'
             : 'The map and inventory use the new address.'}
         </div>
       )}
@@ -2487,7 +2557,9 @@ export function SiteHealthSection({
       {!activeAudit && newestRunStatus === 'failed' && !selectedRunId && (
         <div className="flex gap-3 rounded-md border border-negative bg-negative-soft px-4 py-3 text-label-14 text-negative" role="alert">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          <span>The latest scan failed. The previous completed results remain available.</span>
+          <span>{crawl?.hasCrawlData
+            ? 'The latest scan failed. The previous completed results remain available.'
+            : 'The latest scan failed, and there are no earlier results to show.'}</span>
         </div>
       )}
 
@@ -2529,7 +2601,7 @@ export function SiteHealthSection({
           className="min-w-0 space-y-6"
         >
           {explicitOnboarding ? (
-            <h2 className="text-heading-20 text-heading">Page health</h2>
+            <h2 className="text-heading-20 text-heading">Agent Readiness score</h2>
           ) : null}
           <TechnicalAeoSection
             projectName={projectName}
@@ -2552,7 +2624,7 @@ export function SiteHealthSection({
               </section>
             ) : undefined}
             unavailableFooter={explicitOnboarding && siteAuditReady && !managedScanForViewer ? (
-              <section aria-label="Page health recovery" className="mt-4">
+              <section aria-label="Score recovery" className="mt-4">
                 <Button
                   type="button"
                   disabled={scanBusy}
@@ -2561,7 +2633,7 @@ export function SiteHealthSection({
                     startScan()
                   }}
                 >
-                  Run site audit again
+                  Run Agent Readiness audit scan again
                 </Button>
               </section>
             ) : undefined}
@@ -2571,13 +2643,13 @@ export function SiteHealthSection({
         <TransientSiteHealthPanel view={currentView} tabbed={!explicitOnboarding}>
           <div className="flex min-h-72 items-center justify-center gap-2 text-label-14 text-secondary" role="status">
             <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
-            Loading site health...
+            Loading Agent Readiness…
           </div>
         </TransientSiteHealthPanel>
       ) : crawlQuery.error ? (
         <TransientSiteHealthPanel view={currentView} tabbed={!explicitOnboarding}>
           <section className="rounded-md border border-negative bg-negative-soft px-5 py-6" role="alert">
-            <h2 className="text-heading-14 text-negative">Site Health could not load</h2>
+            <h2 className="text-heading-14 text-negative">Agent Readiness could not load</h2>
             <p className="mt-1 text-copy-14 text-negative">Try loading the crawl again.</p>
             <Button variant="secondary" size="sm" className="mt-4" onClick={() => void crawlQuery.refetch()}>Try again</Button>
           </section>
@@ -2594,16 +2666,16 @@ export function SiteHealthSection({
                 : explicitOnboarding
                 ? onboardingEmptyDescription
                 : crawl?.legacyAuditAvailable
-                ? 'Existing page health results are preserved. Run a new scan to build the page and internal-link map.'
+                ? 'The existing score is preserved. Run a new scan to build the page and internal-link map.'
                 : embedded
-                  ? 'A full-site scan has not been run for this project.'
+                  ? 'An Agent Readiness audit scan has not been run for this project.'
                   : 'Run a scan to discover pages, site sections, and internal links.'}
             </p>
             {explicitOnboarding && !scanHistoryUnconfirmed ? <p className="mt-2 text-copy-14 text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages.</p> : null}
             {(crawl?.legacyAuditAvailable || explicitOnboarding) && (
               <div className="mt-4 flex flex-wrap justify-center gap-2">
                 {crawl?.legacyAuditAvailable && !explicitOnboarding && (
-                  <Button variant="secondary" size="sm" onClick={() => setView('technical')}>View page health</Button>
+                  <Button variant="secondary" size="sm" onClick={() => setView('technical')}>View score</Button>
                 )}
                 {scanHistoryUnconfirmed && auditRunsQuery.isError ? <Button type="button" size="sm" onClick={() => { void auditRunsQuery.refetch() }}>Retry scan history</Button> : null}
                 {explicitOnboarding && !scanHistoryUnconfirmed && !managedScanForViewer && (
@@ -2619,7 +2691,7 @@ export function SiteHealthSection({
         <TransientSiteHealthPanel view={currentView} tabbed={!explicitOnboarding}>
           <section className="rounded-md border border-caution bg-caution-soft px-5 py-6">
             <h2 className="text-heading-14 text-caution">
-              {explicitOnboarding ? 'Page health results unavailable' : 'Page details unavailable'}
+              {explicitOnboarding ? 'Score unavailable' : 'Page details unavailable'}
             </h2>
             <p className="mt-1 text-copy-14 text-caution">
               {managedScanForViewer && explicitOnboarding
@@ -2638,7 +2710,7 @@ export function SiteHealthSection({
           {pagesQuery.isLoading ? (
             <div className="flex min-h-56 items-center justify-center gap-2 text-label-14 text-secondary" role="status">
               <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
-              Loading page inventory...
+              Loading page inventory…
             </div>
           ) : pagesQuery.error ? (
             <p className="rounded-md border border-negative bg-negative-soft px-4 py-3 text-copy-14 text-negative" role="alert">
@@ -2689,10 +2761,12 @@ export function SiteHealthSection({
                   <InfoTooltip text={SITE_MAP_HELP} />
                 </div>
               </div>
+              {/* What the map was given, against the whole scan. "Shown" is
+                  reserved for the map's own count of the links it draws. */}
               {graphQuery.data?.sampled && (
                 <span className="text-label-12 text-muted">
-                  Showing {metricValue(graphQuery.data.nodes.length)} of {metricValue(graphQuery.data.totalNodes)} pages
-                  {' · '}
+                  Map limited to {metricValue(graphQuery.data.nodes.length)} of {metricValue(graphQuery.data.totalNodes)} pages
+                  {' and '}
                   {metricValue(graphQuery.data.edges.length)} of {metricValue(graphQuery.data.totalEdges)} links
                 </span>
               )}
@@ -2768,7 +2842,7 @@ export function SiteHealthSection({
                   <div className="flex min-h-[420px] items-center justify-center rounded-md border border-negative bg-negative-soft px-6 text-center lg:min-h-[520px]" role="alert">
                     <div>
                       <p className="text-copy-14-strong text-negative">The interactive map could not be loaded.</p>
-                      <p className="mt-1 text-copy-14 text-secondary">The page inventory and technical findings remain available.</p>
+                      <p className="mt-1 text-copy-14 text-secondary">The page inventory and findings remain available.</p>
                       <Button variant="secondary" size="sm" className="mt-4" onClick={() => setView('inventory')}>Open page inventory</Button>
                     </div>
                   </div>
@@ -2785,7 +2859,7 @@ export function SiteHealthSection({
                     selectedNodeKey={effectiveSelectedNodeKey}
                     onSelectNode={(node) => setSelectedNodeKey(node.nodeKey)}
                     onOpenInventory={() => setView('inventory')}
-                    ariaLabel={`Interactive site map showing ${metricValue(graphQuery.data?.nodes.length ?? 0)} pages and ${metricValue(visibleGraphEdges.length)} internal links`}
+                    ariaLabel={`Interactive site map showing ${countedLinks(graphQuery.data?.nodes.length ?? 0, 'page')} and ${countedLinks(visibleGraphEdges.length, 'internal link')}`}
                   />
                 )}
               </div>

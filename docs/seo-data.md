@@ -190,7 +190,7 @@ Only documented rejection permits retry, with one exception: a market-rankings s
 
 Operator receipt endpoints require a direct bearer key ID listed in host-only `CANONRY_OPERATOR_KEY_IDS`. Reconciliation also requires `seo.run`. Customer roles, wildcard scope alone, browser sessions, delegated tokens and project keys cannot grant operator authority. Operator tools are excluded from Aero; ordinary audit events contain safe identifiers only.
 
-The SEO surface does not synthesize visibility share, rank movement, backlink coverage or SERP-feature opportunity scores. Those require their own data and comparable snapshots; market rankings store each refresh so rank movement can be compared later. Existing Search Console, backlinks and Site Health surfaces remain the sources for their current metrics.
+The SEO surface does not synthesize visibility share, rank movement, backlink coverage or SERP-feature opportunity scores. Those require their own data and comparable snapshots; market rankings store each refresh so rank movement can be compared later. Existing Search Console, backlinks and Agent Readiness surfaces remain the sources for their current metrics.
 
 ## Organic search competitors and gaps
 

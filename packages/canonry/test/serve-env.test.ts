@@ -60,7 +60,8 @@ const CONFIG_WARN = 'This server is configured to be reached through a proxy or 
 const OFF = { enabled: false }
 const ON = { enabled: true, projectTabs: ['overview'] }
 const LIMITED = { enabled: true, views: ['overview', 'project'], projectTabs: ['overview'] }
-const TABBED = { enabled: true, views: ['overview', 'project'], projectTabs: ['overview', 'technical-aeo'] }
+// The row below passes the renamed `technical-aeo` tab key; the browser reads it as `agent-readiness`.
+const TABBED = { enabled: true, views: ['overview', 'project'], projectTabs: ['overview', 'agent-readiness'] }
 
 interface SettingsRow {
   id: string
@@ -101,14 +102,14 @@ const JAN2 = '2026-01-02T00:00:00.000Z'
 const JAN3 = '2026-01-03T00:00:00.000Z'
 const ALPHA = { id: 'p1', name: 'alpha', createdAt: JAN1 }
 const BANNERS: BannerRow[] = [
-  { id: 'empty', projects: [], open: 'Open http://127.0.0.1:4100/setup to map your site and run your first Page Health scan.' },
-  { id: 'unscanned', projects: [{ id: 'p1', name: 'example-com', createdAt: JAN1 }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=example-com to run your first Page Health scan.' },
+  { id: 'empty', projects: [], open: 'Open http://127.0.0.1:4100/setup to map your site and run your first Agent Readiness audit scan.' },
+  { id: 'unscanned', projects: [{ id: 'p1', name: 'example-com', createdAt: JAN1 }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=example-com to run your first Agent Readiness audit scan.' },
   { id: 'completed', projects: [ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.completed }], open: 'Open http://127.0.0.1:4100' },
   { id: 'partial', projects: [ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.partial }], open: 'Open http://127.0.0.1:4100' },
-  { id: 'probe', projects: [ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.completed, trigger: RunTriggers.probe }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=alpha to run your first Page Health scan.' },
-  { id: 'unfinished', projects: [ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.running }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=alpha to run your first Page Health scan.' },
-  { id: 'chronological-unscanned', projects: [{ id: 'p3', name: 'aardvark', createdAt: JAN3 }, { id: 'p2', name: 'bravo', createdAt: JAN2 }, ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.completed }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=bravo to run your first Page Health scan.' },
-  { id: 'name-tie-unscanned', projects: [{ id: 'p2', name: 'bravo', createdAt: JAN2 }, { id: 'p1', name: 'alpha', createdAt: JAN2 }, { id: 'p3', name: 'zulu', createdAt: JAN1 }], runs: [{ projectId: 'p3', status: RunStatuses.completed }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=alpha to run your first Page Health scan.' },
+  { id: 'probe', projects: [ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.completed, trigger: RunTriggers.probe }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=alpha to run your first Agent Readiness audit scan.' },
+  { id: 'unfinished', projects: [ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.running }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=alpha to run your first Agent Readiness audit scan.' },
+  { id: 'chronological-unscanned', projects: [{ id: 'p3', name: 'aardvark', createdAt: JAN3 }, { id: 'p2', name: 'bravo', createdAt: JAN2 }, ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.completed }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=bravo to run your first Agent Readiness audit scan.' },
+  { id: 'name-tie-unscanned', projects: [{ id: 'p2', name: 'bravo', createdAt: JAN2 }, { id: 'p1', name: 'alpha', createdAt: JAN2 }, { id: 'p3', name: 'zulu', createdAt: JAN1 }], runs: [{ projectId: 'p3', status: RunStatuses.completed }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=alpha to run your first Agent Readiness audit scan.' },
 ]
 const WARNS = [
   { id: 'wildcard-ipv4', host: '0.0.0.0', url: 'http://127.0.0.1:4100', warn: true },
@@ -252,7 +253,7 @@ it.each(WARNS)('CLI serve reports bind setup guidance: $id', async row => {
   expect(native.binds).toEqual([{ host: row.host, port: 4100 }])
   expect(lines).toEqual([
     `\nCanonry server running at ${row.url}`,
-    `Open ${row.url}/setup to map your site and run your first Page Health scan.`,
+    `Open ${row.url}/setup to map your site and run your first Agent Readiness audit scan.`,
     ...(row.warn ? [WARN] : []),
     'Press Ctrl+C to stop.\n',
   ])
@@ -262,7 +263,7 @@ it.each(CONFIGURED_WARNS)('CLI serve reports configured setup guidance: $id', as
   const { lines } = await startNative({ args: row.args, env: row.env, config: row.config })
   expect(lines).toEqual([
     '\nCanonry server running at http://127.0.0.1:4100',
-    'Open http://127.0.0.1:4100/setup to map your site and run your first Page Health scan.',
+    'Open http://127.0.0.1:4100/setup to map your site and run your first Agent Readiness audit scan.',
     ...(row.notice ? [row.notice] : []),
     'Press Ctrl+C to stop.\n',
   ])

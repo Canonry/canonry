@@ -371,6 +371,16 @@ export const visibilityReportBreakdownRowSchema = z.object({
 }).strict()
 export type VisibilityReportBreakdownRow = z.output<typeof visibilityReportBreakdownRowSchema>
 
+/** Engine totals use the same frozen, class-filtered answer population as the headline. */
+export const visibilityReportProviderBreakdownSchema = z.object({
+  provider: nonBlankIdSchema,
+  queryCount: z.number().int().nonnegative(),
+  answerCount: z.number().int().nonnegative(),
+  mentionCoverage: visibilityReportRateSchema,
+  citationCoverage: visibilityReportRateSchema,
+}).strict()
+export type VisibilityReportProviderBreakdown = z.output<typeof visibilityReportProviderBreakdownSchema>
+
 /** Bounded detail rows. Cursors are opaque and bound to the resolved report selection. */
 export function visibilityReportPageSchema<T extends z.ZodType>(itemSchema: T) {
   return z.object({
@@ -461,6 +471,8 @@ export const visibilityReportPopulationSchema = z.object({
   breakdown: z.object({
     properties: z.array(visibilityReportBreakdownRowSchema),
     groups: z.array(visibilityReportBreakdownRowSchema),
+    /** Optional only when reading a report saved by an older server. */
+    providers: z.array(visibilityReportProviderBreakdownSchema).optional(),
   }).strict(),
 }).strict()
 export type VisibilityReportPopulation = z.output<typeof visibilityReportPopulationSchema>

@@ -101,7 +101,7 @@ const configSpecShape = {
   /** Highest star rating that counts as a negative Google review (1-4). Omitted means the default of 3. */
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.optional(),
   /**
-   * Site Health page budget for scans that set none (1-50,000); null means the
+   * Agent Readiness page budget for scans that set none (1-50,000); null means the
    * full site. Absent leaves the stored value alone, so a re-apply that never
    * mentions it cannot undo a budget set in the dashboard.
    */

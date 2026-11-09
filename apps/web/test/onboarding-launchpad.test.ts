@@ -13,7 +13,7 @@ describe('platform onboarding launchpad', () => {
     expect(deriveLaunchpadIdentity('https://www.Example.co.uk/pricing?ref=home')).toEqual({
       canonicalDomain: 'example.co.uk',
       projectName: 'example-co-uk',
-      displayName: 'example.co.uk',
+      displayName: 'Example',
     })
   })
 
@@ -73,8 +73,8 @@ describe('platform onboarding launchpad', () => {
 
     expect(getToasts()).toEqual([
       expect.objectContaining({
-        title: 'Site Health scan did not start',
-        detail: 'The project is safe. Choose Run scan in Site Health to retry.',
+        title: 'Agent Readiness audit scan did not start',
+        detail: 'The project is safe. Choose Run scan in Agent Readiness to retry.',
         tone: 'negative',
       }),
     ])
