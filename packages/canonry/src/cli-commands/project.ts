@@ -178,6 +178,17 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['project', 'setup'],
+    usage: 'canonry project setup <project> [--format json]',
+    access: OperationAccesses.stored,
+    help: 'Show first-run setup: the Agent Readiness audit scan and the AI Visibility check, each with its latest run, and the next step the server suggests. Stored reads only: no provider calls or crawls. JSON is the API response.',
+    run: async (input) => {
+      const { showProjectSetup } = await import('../commands/project-setup.js')
+      const name = requireProject(input, 'project.setup', 'canonry project setup <project> [--format json]')
+      await showProjectSetup(name, input.format)
+    },
+  },
+  {
     path: ['project', 'delete'],
     usage: 'canonry project delete <name> [--dry-run] [--format json]',
     supportsDryRun: true,
@@ -267,12 +278,12 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project'],
-    usage: 'canonry project <create|update|list|show|delete|add-location|locations|remove-location|set-default-location> [args]',
+    usage: 'canonry project <create|update|list|show|setup|delete|add-location|locations|remove-location|set-default-location> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'project',
-        usage: 'canonry project <create|update|list|show|delete|add-location|locations|remove-location|set-default-location> [args]',
-        available: ['create', 'update', 'list', 'show', 'delete', 'add-location', 'locations', 'remove-location', 'set-default-location'],
+        usage: 'canonry project <create|update|list|show|setup|delete|add-location|locations|remove-location|set-default-location> [args]',
+        available: ['create', 'update', 'list', 'show', 'setup', 'delete', 'add-location', 'locations', 'remove-location', 'set-default-location'],
       })
     },
   },

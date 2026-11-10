@@ -199,6 +199,7 @@ const expectedToolNames = [
   'canonry_traffic_reset',
   'canonry_traffic_declare_gap',
   'canonry_snapshot',
+  'canonry_project_setup',
   'canonry_project_upsert',
   'canonry_project_update',
   'canonry_apply_config',
@@ -866,8 +867,8 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    // 216 canonical reads plus 16 deprecated read aliases (canonry_technical_aeo_run is the one write alias).
-    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(232)
+    // 217 canonical reads plus 16 deprecated read aliases (canonry_technical_aeo_run is the one write alias).
+    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(233)
     expect(canonryMcpTools.filter(tool => tool.deprecatedAliasOf !== undefined)).toHaveLength(17)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator && !tool.requiresConnectionProfile).map(tool => tool.name)
@@ -910,7 +911,7 @@ describe('MCP tool registry', () => {
     }
     // 65 canonical monitoring tools plus the 17 deprecated Agent Readiness names.
     expect(counts.get('monitoring')).toBe(82)
-    expect(counts.get('setup')).toBe(73)
+    expect(counts.get('setup')).toBe(74)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(14)
     expect(counts.get('gbp')).toBe(18)

@@ -350,6 +350,15 @@ export const runAdmissionDtoSchema = z.object({
 })
 export type RunAdmissionDto = z.infer<typeof runAdmissionDtoSchema>
 
+/**
+ * Why the next full manual sweep cannot start: an edited Advanced draft is not
+ * published, nothing is tracked, no engine it would call can run, every engine
+ * it would call keeps failing on its account, or a sweep is already active.
+ */
+export const runPreviewBlockedReasonSchema = z.enum(['unpublished-plan', 'no-queries', 'no-provider', 'providers-failing', 'run-in-progress'])
+export type RunPreviewBlockedReason = z.infer<typeof runPreviewBlockedReasonSchema>
+export const RunPreviewBlockedReasons = runPreviewBlockedReasonSchema.enum
+
 /** Stored-only projection of the next unfiltered manual sweep; it reserves no work. */
 export const runPreviewDtoSchema = z.object({
   mode: z.enum(['simple', 'advanced']),
@@ -377,7 +386,7 @@ export const runPreviewDtoSchema = z.object({
   activeRunId: z.string().nullable(),
   /** Workload and admission readiness; this does not grant the caller write authority. */
   canStart: z.boolean(),
-  blockedReason: z.enum(['unpublished-plan', 'no-queries', 'no-provider', 'providers-failing', 'run-in-progress']).nullable(),
+  blockedReason: runPreviewBlockedReasonSchema.nullable(),
 }).strict()
 export type RunPreviewDto = z.infer<typeof runPreviewDtoSchema>
 
@@ -741,6 +750,14 @@ export const runDetailDtoSchema = runDtoSchema.extend({
    * reports them); omitted by older servers.
    */
   providerFailures: z.record(z.string(), runProviderFailureSchema).nullable().optional(),
+  /**
+   * Answers an answer-visibility sweep set out to collect, recorded when it
+   * started: every query it asks times every engine it calls (a published
+   * plan's slots for those engines), leaving out engines it skips or cannot
+   * reach. Omitted before the sweep starts, on runs from before it was
+   * recorded, on other run kinds, and by older servers.
+   */
+  plannedAnswers: z.number().int().nonnegative().optional(),
   /** The run's provider batches, oldest first. Empty when nothing was batched. */
   providerBatches: z.array(providerBatchSummaryDtoSchema).optional(),
   /** Usage and estimated cost per provider and price tier. Empty when no answer carries usage. */

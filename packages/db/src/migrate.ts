@@ -5472,6 +5472,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE runs ADD COLUMN provider_failures TEXT`,
     ],
   },
+  {
+    version: 216,
+    name: 'run-planned-answers',
+    // The answers a sweep set out to collect, written when it starts, so a
+    // reader can show progress without remembering the launch. Nullable:
+    // existing runs never recorded one.
+    statements: [
+      `ALTER TABLE runs ADD COLUMN planned_answers INTEGER`,
+    ],
+  },
 ]
 
 /**

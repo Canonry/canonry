@@ -3401,6 +3401,17 @@ const rawCanonryMcpTools = [
     handler: (client, input) => client.createSnapshot(input),
   }),
   defineTool({
+    name: 'canonry_project_setup',
+    title: 'Get project setup status',
+    description: 'Read one project\'s first-run setup from stored state, with no provider calls, crawls or writes: the Agent Readiness audit scan and the AI Visibility check, each the latest non-probe run of its kind (state not_started, queued, running, completed, partial, failed or cancelled) with its stored progress, result or error, plus the server\'s nextAction. nextAction is one step, in row order: run_agent_readiness (no scan yet, or the last was cancelled), retry_agent_readiness (the scan failed), then for AI Visibility connect_engine, add_queries or publish_plan (what blocks the first check: no AI engine, no tracked queries, an unpublished Advanced Measurement draft), run_ai_visibility (a check can start), repair_ai_visibility (every engine keeps failing on its account, or the check failed), wait (a scan or check is in progress) and open_project (both have results). It names a step and grants nothing: the scan (canonry_agent_readiness_run) and the check (canonry_run_trigger, which spends the operator\'s AI engine accounts) each need their own approval. Results keep non-brand and branded query counts apart (queryCountsByClass): mentioned means the brand is in the answer text, cited means the domain is in its sources.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/setup'],
+    handler: (client, input) => client.getProjectSetup(input.project),
+  }),
+  defineTool({
     name: 'canonry_project_upsert',
     title: 'Create or replace project',
     description: 'Create or replace a Canonry project. PUT semantics: fields not in the request are reset to their defaults. Provide the full intended project shape. Exceptions: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it. An omitted qualifiedAliases (the aliases Simple sentiment treats as this brand\'s own names) keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it. Competitors are not part of this request, but a new identity (display name, aliases, domains) that claims a tracked competitor\'s curated alias drops that alias, and the drop is audited. An omitted siteAuditMaxPages (the Agent Readiness page budget for scans that set none, 1 to 50,000) keeps the stored budget; send null for the full site. An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode: `off` (no unattended detection pass), `preview` (the default: detect and log, store nothing) or `apply` (store the detected names, which restates history).',

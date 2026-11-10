@@ -161,6 +161,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set(withLegacyAge
   'GET /api/v1/projects/{name}/runs/latest',
   'GET /api/v1/projects/{name}/run-admission',
   'GET /api/v1/projects/{name}/run-preview',
+  'GET /api/v1/projects/{name}/setup',
   'GET /api/v1/runs',
   'GET /api/v1/runs/{id}',
   'GET /api/v1/runs/{id}/completeness',

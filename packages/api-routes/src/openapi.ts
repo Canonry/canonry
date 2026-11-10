@@ -2899,6 +2899,25 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/setup',
+    summary: 'Get the project setup status',
+    description: 'The first-run setup tracker for one project, read from stored state only: no provider calls, crawls or writes. '
+      + 'Each track is the status of the latest non-probe run of its kind (`site-audit` for the Agent Readiness audit scan, '
+      + '`answer-visibility` for the AI Visibility check), or `not_started` when there is none; neither track gates the other. '
+      + 'A track reports stored progress while queued or running, its result once completed or partial, and its reason when failed. '
+      + 'AI Visibility `blockedBy` is the run preview\'s readiness (Simple and Advanced): `no_engine`, `no_queries`, `plan_unpublished` or `engines_failing`. '
+      + 'Its result keeps non-brand and branded query counts apart, exactly as the run detail reports them. '
+      + '`nextAction` is the server\'s suggested step, in row order: the audit scan, then the AI Visibility check, then `wait` while work is in progress, then `open_project`.',
+    tags: ['projects'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Setup status returned.', 'ProjectSetupDto'),
+      400: errorResponse('Published plan or saved location is invalid.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/run-admission',
     summary: 'Get whether the next sweep would be admitted',
     description: 'The `admission` or `manualAdmission` of `/projects/{name}/runs/latest` without the latest run: whether the next full sweep would '

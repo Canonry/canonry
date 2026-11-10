@@ -47,7 +47,7 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
   },
   "project": {
     "section": "Projects",
-    "summary": "Create, update, list, show, delete projects"
+    "summary": "Create, update, list, show, delete projects; read setup status"
   },
   "query": {
     "section": "Projects",

@@ -69,7 +69,7 @@ export function ProjectsPage() {
             }}
           >
             <Plus className="size-4 mr-1.5" />
-            {projects.length === 0 ? 'Map a site' : 'Add project'}
+            Add project
           </Button>
         </div> : null}
       </div>

@@ -38,25 +38,34 @@ async function renderProjects(apiKey?: ApiKeyAccess, emptyPortfolio = false, con
   return { fixture, router }
 }
 
-test.each([false, true])('routes Add project through AI-first setup without starting a scan (empty=%s)', async emptyPortfolio => {
+test.each([
+  { emptyPortfolio: false, action: 'Add project', title: 'Add a project' },
+  // With nothing tracked yet, adding the first project is the install's first setup.
+  { emptyPortfolio: true, action: 'Add a project', title: 'Set up Canonry' },
+])('routes $action to the website form, past the legacy wizard, without starting work (empty=$emptyPortfolio)', async ({ emptyPortfolio, action, title }) => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'legacy' } }
+  const projects = emptyPortfolio ? [] : createDashboardFixture().dashboard.projects.map(entry => entry.project)
   const requests: Array<{ path: string; method: string }> = []
   const restore = mockFetch((url, init) => {
-    requests.push({ path: pathOf(url), method: init?.method ?? 'GET' })
+    const path = pathOf(url)
+    requests.push({ path, method: init?.method ?? 'GET' })
+    if (path === '/api/v1/projects') return jsonResponse(projects)
     return jsonResponse({})
   })
   onTestFinished(restore)
   const { router } = await renderProjects(undefined, emptyPortfolio)
 
-  fireEvent.click(await screen.findByRole('button', { name: emptyPortfolio ? 'Add a project' : 'Add project' }))
+  // The header's action reads the same however many projects there are.
+  expect(await screen.findByRole('button', { name: 'Add project' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: action }))
 
   await waitFor(() => expect(router.state.location.pathname).toBe('/setup'))
   expect(router.state.location.search).toEqual({ experience: 'platform' })
-  expect(await screen.findByRole('heading', { name: 'Track your brand in AI answers' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { level: 1, name: title })).toBeTruthy()
   expect(screen.getByLabelText('Website URL')).toBeTruthy()
   expect(screen.getByLabelText('Brand name')).toBeTruthy()
   expect(screen.queryByLabelText('Canonical domain')).toBeNull()
-  expect(requests.some(request => request.path === '/api/v1/projects' && request.method === 'POST')).toBe(false)
+  expect(requests.filter(request => request.method !== 'GET' && request.path !== '/api/v1/telemetry/onboarding')).toEqual([])
 })
 
 test('hides instance project creation from a project-scoped write key', async () => {

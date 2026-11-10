@@ -87,12 +87,12 @@ export function NextSteps({ projectName }: { projectName: string }) {
       <h2 id="next-steps-heading" className="text-heading-14 text-heading">What else this project can do</h2>
       <ul className="mt-3 divide-y divide-default">
         {steps.map(({ id, icon: Icon, label, detail, action, to, href }) => (
-          <li key={id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3">
+          <li key={id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 py-3 sm:grid-cols-[auto_9rem_minmax(0,1fr)_auto] sm:gap-x-4">
             <Icon className="size-4 shrink-0 text-muted" aria-hidden="true" />
-            <span className="min-w-36 text-label-14-strong text-heading">{label}</span>
-            <span className="min-w-0 flex-1 text-label-14 text-secondary">{detail}</span>
+            <span className="text-label-14-strong text-heading">{label}</span>
+            <span className="col-start-2 row-start-2 text-label-14 text-secondary sm:col-start-3 sm:row-start-1">{detail}</span>
             {to ? (
-              <Link to={to} params={{ projectName }} className="text-label-14-strong text-link underline-offset-4 hover:underline">
+              <Link to={to} params={{ projectName }} className="col-start-3 row-start-1 justify-self-end text-label-14-strong text-link underline-offset-4 hover:underline sm:col-start-4">
                 {action}
                 <span className="sr-only"> {label}</span>
               </Link>
@@ -101,7 +101,7 @@ export function NextSteps({ projectName }: { projectName: string }) {
                 href={href}
                 target="_blank"
                 rel="noreferrer"
-                className="text-label-14-strong text-link underline-offset-4 hover:underline"
+                className="col-start-3 row-start-1 justify-self-end text-label-14-strong text-link underline-offset-4 hover:underline sm:col-start-4"
               >
                 {action}
                 <span className="sr-only"> {label}</span>

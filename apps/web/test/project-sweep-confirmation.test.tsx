@@ -65,7 +65,7 @@ test('explains a held engine and its retry time while allowing the remaining req
   const available = within(details).getByRole('row', { name: /Gemini/ })
   expect(available.textContent).not.toContain('Skipped')
   expect(within(available).getByRole('cell', { name: '3', exact: true })).toBeTruthy()
-  expect(within(details).getByText('3 of 6 planned requests can run.')).toBeTruthy()
+  expect(within(details).getByText('3 of 6 planned answers can run.')).toBeTruthy()
   const launch = screen.getByRole('button', { name: 'Run project-wide check' })
   expect(launch).toHaveProperty('disabled', false)
   fireEvent.click(launch)

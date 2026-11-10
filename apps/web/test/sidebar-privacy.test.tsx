@@ -288,9 +288,10 @@ test('keeps setup navigation and reveals the tracked project after onboarding cr
 })
 
 test.each([
+  // The setup tracker's first-run address, as creating the first project leaves it.
+  '/setup?project=project_citypoint&onboarding=first-run',
+  // Older first-run links, which open the same tracker.
   '/setup?onboarding=site-health&setupProject=project_citypoint&siteHealthRunId=run_site_health',
-  '/setup?experience=legacy&onboarding=site-health&setupProject=project_citypoint',
-  '/setup?experience=legacy&onboarding=first-run&setupProject=project_citypoint',
   '/setup?onboarding=complete&setupProject=project_citypoint',
 ])('preserves setup navigation after reloading %s with an existing project', async pathname => {
   const { getByRole } = await renderRoute(pathname)
@@ -301,7 +302,12 @@ test.each([
   expect(getByRole('button', { name: 'Open navigation' }).getAttribute('aria-expanded')).toBe('false')
 })
 
-test.each(['/setup', '/setup?experience=legacy&setupProject=project_citypoint'])('preserves full navigation for ordinary existing-operator setup at %s', async pathname => {
+test.each([
+  '/setup',
+  // A project's own setup, as its Set up AI Visibility action opens it.
+  '/setup?project=project_citypoint&track=ai-visibility',
+  '/setup?experience=legacy&setupProject=project_citypoint',
+])('preserves full navigation for ordinary existing-operator setup at %s', async pathname => {
   const { getByRole } = await renderRoute(pathname)
 
   expectOperatorNavigation(getByRole('complementary', { name: 'Primary navigation' }))

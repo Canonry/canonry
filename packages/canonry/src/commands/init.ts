@@ -437,7 +437,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   // the anonymousId and fire any telemetry events.
   if (!isMachineFormat(format)) {
     showFirstRunNotice()
-    console.log('\nNext: canonry serve to map your site and capture an Agent Readiness baseline.')
+    console.log('\nNext: canonry serve, then open its setup to run your first Agent Readiness audit scan.')
     console.log('\nNext steps:')
     for (const line of nextSteps) {
       console.log(`  ${line}`)

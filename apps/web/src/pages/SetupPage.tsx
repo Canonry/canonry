@@ -1,6 +1,3 @@
-import { CitationStates } from '@canonry/canonry-contracts'
-import { AnswerMarkdown } from '../components/shared/AnswerMarkdown.js'
-import { ProviderBadge } from '../components/shared/ProviderBadge.js'
 import { RunPreviewSummary, useRunPreview } from '../components/project/RunAdmissionNotice.js'
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type RefCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
@@ -16,24 +13,19 @@ import {
   bucketOnboardingCount,
   formatLocaleLabel,
   isOpenRouterRoute,
-  normalizeProjectDomain,
   normalizeQueryText,
   openRouterRouteModel,
   providerConnectionName,
   uniqueQueryTexts,
-  QueryClasses,
-  type QueryClass,
-  type CitationState,
-  type ObservedQueryCounts,
   type OnboardingTelemetryEvent,
-  type RunQueryCountsByClass,
 } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { AdminOnly } from '../components/shared/AccessControls.js'
-import { OnboardingProgress } from '../components/shared/OnboardingProgress.js'
 import { NextSteps } from '../components/shared/NextSteps.js'
+import { JobProgress } from '../components/shared/JobProgress.js'
+import { FeaturedAnswer, FirstResultTable, featuredSetupAnswer } from '../components/setup/FirstResult.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
@@ -68,12 +60,10 @@ import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useAccount } from '../contexts/account-context.js'
 import { buildSetupModel, serviceStatusTooltip } from '../lib/health-helpers.js'
-import { useOnboardingRunOutcome } from './OnboardingCompletePage.js'
-import { clearOnboardingDraft, clearOnboardingScanSkipped, readOnboardingDraft, wasOnboardingScanSkipped, writeOnboardingDraft } from '../lib/onboarding-draft.js'
+import { clearOnboardingDraft, readOnboardingDraft, writeOnboardingDraft } from '../lib/onboarding-draft.js'
 import { useUnsavedChanges } from '../hooks/use-unsaved-changes.js'
 import { asyncHandler } from '../lib/async-handler.js'
-import { ANSWER_CITATION_LABEL, formatSweepInstant, summarizeRunError } from '../lib/format-helpers.js'
-import { CITATION_NOT_MEASURED } from '../lib/citation-not-measured-copy.js'
+import { summarizeRunError } from '../lib/format-helpers.js'
 import {
   CDP_PROVIDER_NAME,
   normalizeProviderName,
@@ -109,9 +99,6 @@ const PROJECT_VISIBILITY_STEPS = [
   { label: 'Engines and queries' },
   { label: 'First check' },
 ] as const
-
-/** Characters of the first saved answer shown before "Read full answer". */
-const FIRST_ANSWER_PREVIEW_LENGTH = 650
 
 /**
  * What each provider is and what connecting it takes, as its adapter
@@ -169,73 +156,6 @@ function newQuerySuggestions(currentText: string, suggestions: readonly string[]
     added.push(query)
   }
   return { added, skipped }
-}
-
-/**
- * The saved answer to show first: one that names the brand, else one that
- * cites the site, else the first. Only an answer with text can be shown.
- */
-function featuredSetupAnswer<T extends { queryId: string; answerText?: string | null; answerMentioned?: boolean | null; citationState: CitationState }>(
-  snapshots: readonly T[],
-  queryClassOf: (queryId: string) => QueryClass | null | undefined = () => undefined,
-): T | undefined {
-  const answered = snapshots.filter(snapshot => Boolean(snapshot.answerText?.trim()))
-  // A branded query hands the engine the brand's name, so its mention says
-  // little; a non-brand answer that names or cites the brand is the proof.
-  const nonBrand = answered.filter(snapshot => queryClassOf(snapshot.queryId) === QueryClasses['non-brand'])
-  return nonBrand.find(snapshot => snapshot.answerMentioned === true)
-    ?? nonBrand.find(snapshot => snapshot.citationState === CitationStates.cited)
-    ?? answered.find(snapshot => snapshot.answerMentioned === true)
-    ?? answered.find(snapshot => snapshot.citationState === CitationStates.cited)
-    ?? answered[0]
-}
-
-/**
- * The first result's rows: non-brand first, branded beside it, each with its
- * own denominator. One pooled row only when the run's queries have no class
- * (no usable brand name) or the server predates the split.
- */
-function firstResultRows(
-  byClass: RunQueryCountsByClass | null | undefined,
-  pooled: ObservedQueryCounts | null | undefined,
-): { label: string; counts: ObservedQueryCounts | undefined }[] {
-  if (!byClass) return [{ label: 'All queries', counts: pooled ?? undefined }]
-  const rows = [
-    { label: 'Non-brand', counts: byClass.nonBrand },
-    { label: 'Branded', counts: byClass.branded },
-  ].filter(row => row.counts.totalQueries > 0)
-  return rows.length > 0 ? rows : [{ label: 'Non-brand', counts: byClass.nonBrand }]
-}
-
-/** Every query an engine without sources answered: whether it cites the site was never observed. */
-function citationUnmeasured(counts: ObservedQueryCounts | undefined): boolean {
-  return Boolean(counts && counts.totalQueries > 0 && (counts.citationNotMeasuredQueries ?? 0) === counts.totalQueries)
-}
-
-/**
- * Engine results saved out of the planned requests, a real bounded scale. Before
- * the first result the bar pulses, as the Agent Readiness scan's current step does.
- */
-function EngineResultsProgress({ saved, planned }: { saved: number; planned: number }) {
-  const share = Math.min(1, saved / planned)
-  return (
-    <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-inset" role="progressbar" aria-label="Engine results saved" aria-valuemin={0} aria-valuemax={planned} aria-valuenow={Math.min(saved, planned)}>
-      {saved === 0
-        ? <div className="h-full w-full rounded-full bg-positive-400/40 motion-safe:animate-pulse" />
-        : <div className="h-full rounded-full bg-positive-400 transition-[width] duration-500" style={{ width: `${Math.max(4, share * 100)}%` }} />}
-    </div>
-  )
-}
-
-/** "3 of 7 queries", or Unavailable when the run reports no query counts. */
-function QueryShare({ count, total }: { count: number | undefined; total: number | undefined }) {
-  if (count === undefined || total === undefined) return <span className="text-label-14 text-secondary">Unavailable</span>
-  return (
-    <>
-      <span className="text-heading-20 tabular-nums text-heading">{count}</span>{' '}
-      <span className="text-label-14 text-secondary">of {total} {total === 1 ? 'query' : 'queries'}</span>
-    </>
-  )
 }
 
 type SetupStep = 0 | 1 | 2 | 3 | 4
@@ -309,44 +229,44 @@ function SetupStepIndicator({ current, labels }: { current: number; labels: read
  * The setup wizard exists to CREATE things — a project, its queries, its
  * first sweep. There is nothing in it for a view-only account.
  */
+/** Where the setup tracker's AI Visibility panel opens. */
+export type SetupPanelStep = 'engines-and-queries' | 'first-check'
+
+/**
+ * The AI Visibility steps without page chrome, for the setup tracker's AI
+ * Visibility row. The tracker shows the check's progress and result from the
+ * server, so the panel ends once the check is queued.
+ */
+export interface SetupPanel {
+  initialStep: SetupPanelStep
+  /** Back from the first step: the tracker closes the panel. */
+  onClose: () => void
+  /** The first check was queued. */
+  onLaunched: (runId: string) => void
+}
+
 interface SetupPageProps {
   visibilityProjectName?: string
-  siteHealthOnboarding?: boolean
-  /**
-   * This visit is part of first-run onboarding, so finishing or skipping ends
-   * on its "You're set" step. True for the Agent Readiness handoff and for the
-   * first run that skipped the audit scan, which shares no other UI with it.
-   */
-  onboardingFinish?: boolean
+  /** Render only the AI Visibility steps for the setup tracker. Needs `visibilityProjectName`. */
+  panel?: SetupPanel
 }
 
 export function SetupPage({
   visibilityProjectName,
-  siteHealthOnboarding = false,
-  onboardingFinish = siteHealthOnboarding,
+  panel,
 }: SetupPageProps = {}) {
   const { canWrite } = useAccount()
   if (visibilityProjectName && canWrite) {
-    return (
-      <SetupPageBody
-        visibilityProjectName={visibilityProjectName}
-        siteHealthOnboarding={siteHealthOnboarding}
-        onboardingFinish={onboardingFinish}
-      />
-    )
+    return <SetupPageBody visibilityProjectName={visibilityProjectName} panel={panel} />
   }
   return (
     <AdminOnly title={visibilityProjectName ? 'Set up AI Visibility' : 'Setup'}>
-      <SetupPageBody
-        visibilityProjectName={visibilityProjectName}
-        siteHealthOnboarding={siteHealthOnboarding}
-        onboardingFinish={onboardingFinish}
-      />
+      <SetupPageBody visibilityProjectName={visibilityProjectName} panel={panel} />
     </AdminOnly>
   )
 }
 
-function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboardingFinish }: SetupPageProps) {
+function SetupPageBody({ visibilityProjectName, panel }: SetupPageProps) {
   const contextDashboard = useInitialDashboard()
   const { isAdmin } = useAccount()
   // RootLayout and this page are separate observers of the same project query.
@@ -362,31 +282,13 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboarding
   // A completed run changes the overview cache key. Keep the wizard mounted
   // while that background summary loads so its exact launched run survives.
   const safeDashboard = dashboard ?? contextDashboard?.dashboard ?? lastDashboard.current
-  const navigate = useNavigate()
   const visibilityHeadingRef = useCallback<RefCallback<HTMLHeadingElement>>((node) => {
     if (node && visibilityProjectName) node.focus()
   }, [visibilityProjectName])
-  const skipAiVisibility = () => {
-    if (!visibilityProjectName) {
-      void navigate({ to: '/', replace: true })
-      return
-    }
-    if (onboardingFinish) {
-      void navigate({
-        to: '/setup',
-        search: { onboarding: 'complete', setupProject: visibilityProjectName, skipped: 'visibility' },
-        replace: true,
-      })
-      return
-    }
-    void navigate({
-      to: '/projects/$projectName',
-      params: { projectName: visibilityProjectName },
-      replace: true,
-    })
-  }
 
   if (!safeDashboard) {
+    // Inside a tracker row, a page skeleton would draw a second page header.
+    if (panel) return <p role="status" className="text-copy-14 text-secondary">Loading AI engines and queries…</p>
     return (
       <div className="page-skeleton">
         <div className="page-skeleton-header">
@@ -412,26 +314,26 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboarding
   }
 
   if (visibilityProjectName && !safeDashboard.projects.some(project => project.project.name === visibilityProjectName)) {
+    if (panel) {
+      return (
+        <div role="alert" className="rounded-md border border-caution px-3 py-2">
+          <p className="text-copy-14 text-primary">Canonry could not find {visibilityProjectName} in the project list.</p>
+          <Button type="button" variant="secondary" size="sm" className="mt-2" onClick={() => { void refetch() }}>Retry</Button>
+        </div>
+      )
+    }
     return (
       <div className="page-container">
-        {siteHealthOnboarding ? <OnboardingProgress current="visibility" outcomes={{ site: 'unknown', fixes: 'unknown' }} /> : null}
         <div className="page-header">
           <div className="page-header-left">
             <h1 ref={visibilityHeadingRef} tabIndex={-1} className="page-title outline-none">Set up AI Visibility</h1>
             <p className="page-subtitle">Choose what to track, then run your first AI Visibility check.</p>
           </div>
-          {siteHealthOnboarding ? (
-            <div className="page-header-right">
-              <Button type="button" variant="outline" onClick={skipAiVisibility}>
-                Skip AI Visibility
-              </Button>
-            </div>
-          ) : null}
         </div>
         <Card role="alert" className="compact-stack">
           <h2>Project not found</h2>
           <p className="text-secondary">
-            Canonry could not find the project handed off from Agent Readiness. Refresh the project list or choose a project to continue.
+            Canonry could not find {visibilityProjectName}. Refresh the project list or choose a project to continue.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => { void refetch() }}>Retry</Button>
@@ -451,8 +353,7 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboarding
       refetch={refetch}
       visibilityProjectName={visibilityProjectName}
       visibilityHeadingRef={visibilityHeadingRef}
-      siteHealthOnboarding={siteHealthOnboarding}
-      onboardingFinish={onboardingFinish}
+      panel={panel}
     />
   )
 }
@@ -464,8 +365,7 @@ function ReadySetupPage({
   refetch,
   visibilityProjectName,
   visibilityHeadingRef,
-  siteHealthOnboarding,
-  onboardingFinish,
+  panel,
 }: {
   dashboard: DashboardVm
   initialHealth?: HealthSnapshot
@@ -473,8 +373,7 @@ function ReadySetupPage({
   refetch: () => Promise<void>
   visibilityProjectName?: string
   visibilityHeadingRef: RefCallback<HTMLHeadingElement>
-  siteHealthOnboarding?: boolean
-  onboardingFinish?: boolean
+  panel?: SetupPanel
 }) {
   const settings = safeDashboard.settings
   const { isAdmin } = useAccount()
@@ -519,8 +418,6 @@ function ReadySetupPage({
   // partial runs may contain fewer snapshots than the project's actual basket.
   const snapshotQueryCount = resumeProject?.queryCounts.total ?? 0
   const resumeProjectName = resumeProject?.project.name
-  const scan = useOnboardingRunOutcome(resumeProjectName ?? '', RunKinds['site-audit'], Boolean(siteHealthOnboarding && resumeProjectName))
-  const scanOutcome = scan.outcome === 'not-started' && resumeProjectName && wasOnboardingScanSkipped(resumeProjectName) ? 'skipped' : scan.outcome
   const resumeQueriesQuery = useQuery({
     queryKey: ['setup', 'resume-queries', resumeProjectName],
     queryFn: () => resumeProjectName ? fetchQueries(resumeProjectName) : Promise.resolve([]),
@@ -547,7 +444,10 @@ function ReadySetupPage({
     : null
   // Project-scoped AI Visibility setup starts with the measurement input, not
   // instance or project ceremony. Provider readiness gates only the paid run.
-  const initialResumeStep: SetupStep = isProjectScoped
+  // The tracker's panel opens where the server's blocker says to.
+  const initialResumeStep: SetupStep = panel
+    ? (panel.initialStep === 'first-check' ? 4 : 2)
+    : isProjectScoped
     ? (resumableLaunchedRunId || (resumeProjectRuns.length > 0 && !hasExistingSuccessfulBaseline) ? 4 : 2)
     : deriveSetupStep({
         launchReady: connectionSetupReady,
@@ -572,12 +472,30 @@ function ReadySetupPage({
   useEffect(() => {
     if (previousStep.current === step) return
     previousStep.current = step
-    const heading = stepContentRef.current?.querySelector('h2')
+    const heading = stepContentRef.current?.querySelector<HTMLElement>('h2, h3')
     if (heading) {
       heading.tabIndex = -1
       heading.focus()
     }
   }, [step])
+  const panelRef = useRef<HTMLDivElement>(null)
+  const panelFocusPending = useRef(panel !== undefined)
+  useEffect(() => {
+    // The tracker replaces the button that opened this panel with the panel, so
+    // focus left on nothing moves to the panel's first heading once it shows.
+    // Focus the operator already moved elsewhere stays where it is.
+    if (!panelFocusPending.current) return
+    const active = document.activeElement
+    if (active && active !== document.body) {
+      panelFocusPending.current = false
+      return
+    }
+    const heading = panelRef.current?.querySelector<HTMLElement>('h3')
+    if (!heading) return
+    panelFocusPending.current = false
+    heading.tabIndex = -1
+    heading.focus()
+  })
   const [resumeApplied, setResumeApplied] = useState(!resumeLoading)
   const queriesHydrating = isProjectScoped && (resumeLoading || !resumeApplied)
 
@@ -598,71 +516,14 @@ function ReadySetupPage({
       return
     }
     void navigate({
-      to: siteHealthOnboarding
-        ? '/projects/$projectName/agent-readiness'
-        : '/projects/$projectName',
+      to: '/projects/$projectName',
       params: { projectName: createdProjectName },
       // Project-scoped setup replaces the project route on entry. Replace it
       // again on exit so Back cannot reopen a wizard the operator just finished.
       replace: Boolean(visibilityProjectName),
     })
   }
-  // Forward exits record the selected next action even when AI-first setup
-  // opens the project directly instead of showing the optional finish page.
-  const finishSetup = (skippedVisibility = false) => {
-    if (!onboardingFinish || !createdProjectName || !siteHealthOnboarding) {
-      if (onboardingFinish && createdProjectName) {
-        emitOnboardingEvent({
-          flowVersion: ONBOARDING_FLOW_VERSION,
-          onboardingSessionId,
-          event: 'onboarding.step_completed',
-          step: 'finish',
-          method: skippedVisibility ? 'skipped' : 'manual',
-          nextAction: 'open_project',
-        }, 'onboarding.step_completed:finish:open_project')
-      }
-      openProjectDashboard()
-      return
-    }
-    void navigate({
-      to: '/setup',
-      search: {
-        onboarding: 'complete',
-        setupProject: createdProjectName,
-        ...(skippedVisibility ? { skipped: 'visibility' as const } : {}),
-      },
-      replace: true,
-    })
-  }
-  const skipToFinish = () => finishSetup(true)
-  // First-run setup that opened on AI Visibility hands a skip to the Agent
-  // Readiness audit scan walkthrough, the one first result that needs no AI
-  // engine. Its Run first scan button is the crawl approval.
-  const scanFollowsSkip = onboardingFinish && !siteHealthOnboarding && Boolean(createdProjectName)
-  const openSiteScan = () => {
-    if (!createdProjectName) return
-    // Choosing AI Visibility first noted the scan as skipped; scanning now undoes that.
-    clearOnboardingScanSkipped(createdProjectName)
-    void navigate({
-      to: '/setup',
-      search: { onboarding: 'site-health', setupProject: createdProjectName },
-      replace: true,
-    })
-  }
-  // First-run setup that led with AI Visibility offers the scan beside the check:
-  // it needs no AI engine, and its own Run first scan button approves the crawl.
-  const scanSite = domain ? normalizeProjectDomain(domain) : 'your site'
-  const agentReadinessOffer = (check: 'running' | 'done') => scanFollowsSkip ? (
-    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-t border-default pt-4">
-      <div className="min-w-0 grow basis-64">
-        <h3 className="text-copy-14-strong text-heading">Agent Readiness audit scan</h3>
-        <p className="mt-1 max-w-prose text-copy-14 text-secondary">
-          {check === 'running' ? `See how well AI agents can read ${scanSite} while this check runs.` : `See how well AI agents can read ${scanSite}.`}
-        </p>
-      </div>
-      <Button type="button" variant="outline" onClick={openSiteScan}>Check Agent Readiness</Button>
-    </div>
-  ) : null
+  const finishSetup = () => openProjectDashboard()
 
   const [queriesText, setQueriesText] = useState(draft.queriesText ?? durableQueries.map(query => query.query).join('\n'))
   const [queriesSaved, setQueriesSaved] = useState(draft.queriesText === undefined && durableQueryCount > 0)
@@ -1322,12 +1183,16 @@ function ReadySetupPage({
         projectName: createdProjectName,
         projectLabel: displayName || projectName || createdProjectName,
         sourceAction: 'setup-launch',
+        // The tracker's row shows the queued check.
+        suppressQueuedToast: Boolean(panel),
       })
       setLaunchedRunPlan({ runId: run.id, requestCount: plannedRequests })
       setLaunchedRunId(run.id)
       setRunTriggered(true)
       markOnboardingRunLaunched(createdProjectName, run.id, RunKinds['answer-visibility'])
       launchedThisSessionRunId.current = run.id
+      // The tracker's row shows the queued check from the server from here on.
+      panel?.onLaunched(run.id)
       if (!usesProjectProviderReadiness) {
         emitOnboardingEvent({
           flowVersion: ONBOARDING_FLOW_VERSION,
@@ -1388,12 +1253,8 @@ function ReadySetupPage({
       method: 'skipped',
       countBucket: '0',
     }, 'onboarding.step_completed:queries')
-    if (scanFollowsSkip) {
-      openSiteScan()
-      return
-    }
     if (isProjectScoped) {
-      skipToFinish()
+      finishSetup()
       return
     }
     setStep(3)
@@ -1411,7 +1272,10 @@ function ReadySetupPage({
     setStep(4)
   }
 
-  const StepSurface = isProjectScoped ? 'section' : Card
+  // The tracker's row is the panel's surface and heading; its sections sit one level below.
+  const StepSurface = panel ? 'div' : isProjectScoped ? 'section' : Card
+  const StepHeading = panel ? 'h3' : 'h2'
+  const leaveFirstStep = panel ? panel.onClose : isProjectScoped ? openProjectDashboard : goBack
   const providerRefreshAction = providerReadiness !== true || cdpConfigured === true ? (
     <Button type="button" variant="ghost" size="sm" className={TOUCH_TARGET} onClick={() => {
       void refetch()
@@ -1426,7 +1290,7 @@ function ReadySetupPage({
     !isAdmin ? (
       <section aria-labelledby="setup-provider-heading" className="space-y-2 border-b border-default pb-6 mb-6">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 id="setup-provider-heading" className="text-heading-20 text-heading">AI engines</h2>
+          <StepHeading id="setup-provider-heading" className={panel ? 'text-heading-16 text-heading' : 'text-heading-20 text-heading'}>AI engines</StepHeading>
           {providerReadinessFailed ? null : (
             <span role="status" className="flex items-center gap-2">
               <ToneBadge tone={providerReadiness === true ? engineConnectionStatus.tone : 'neutral'}>
@@ -1457,7 +1321,7 @@ function ReadySetupPage({
     ) : (
     <section aria-labelledby="setup-provider-heading" className="space-y-3 border-b border-default pb-6 mb-6">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 id="setup-provider-heading" className="text-heading-20 text-heading">AI engines</h2>
+        <StepHeading id="setup-provider-heading" className={panel ? 'text-heading-16 text-heading' : 'text-heading-20 text-heading'}>AI engines</StepHeading>
         <ToneBadge tone={openRouterModelsNeeded ? 'caution' : providerReadiness === true ? engineConnectionStatus.tone : 'neutral'}>
           {providerReadiness === true ? engineConnectionStatus.label : openRouterModelsNeeded ? 'Choose models' : providerNeedsConnection ? 'Not connected' : 'Checking'}
         </ToneBadge>
@@ -1789,10 +1653,10 @@ function ReadySetupPage({
 
       case 2:
         return (
-          <StepSurface className={isProjectScoped ? 'visibility-setup-section step-card' : 'surface-card step-card'} aria-labelledby="setup-queries-heading">
+          <StepSurface className={panel ? 'space-y-3' : isProjectScoped ? 'visibility-setup-section step-card' : 'surface-card step-card'} aria-labelledby="setup-queries-heading">
             <div className="section-head">
               <div>
-                <div className="flex items-center gap-2"><h2 id="setup-queries-heading">Add queries</h2><InfoTooltip text="Queries your customers ask AI assistants, one per line. You can refine the list later." /></div>
+                <div className="flex items-center gap-2"><StepHeading id="setup-queries-heading" className={panel ? 'text-heading-16 text-heading' : undefined}>Add queries</StepHeading><InfoTooltip text="Queries your customers ask AI assistants, one per line. You can refine the list later." /></div>
               </div>
               {queriesHydrating ? (
                 <ToneBadge tone="neutral">Loading</ToneBadge>
@@ -1814,7 +1678,7 @@ function ReadySetupPage({
                   Saved queries could not be loaded. Retry before changing the query basket.
                 </div>
                 <div className="setup-nav">
-                  <Button type="button" variant="outline" onClick={isProjectScoped ? openProjectDashboard : goBack}>Back</Button>
+                  <Button type="button" variant="outline" onClick={leaveFirstStep}>Back</Button>
                   <Button type="button" onClick={() => { void resumeQueriesQuery.refetch() }}>
                     Retry loading queries
                   </Button>
@@ -1826,7 +1690,7 @@ function ReadySetupPage({
                   {parsedQueries.map((q) => <li key={q}>{q}</li>)}
                 </ul>
                 <div className="setup-nav">
-                  <Button type="button" variant="outline" onClick={isProjectScoped ? openProjectDashboard : goBack}>Back</Button>
+                  <Button type="button" variant="outline" onClick={leaveFirstStep}>Back</Button>
                   <Button type="button" variant="outline" onClick={() => setQueriesSaved(false)}>Edit queries</Button>
                   <Button type="button" onClick={() => completeExistingStep('queries', isProjectScoped ? 4 : 3, parsedQueries.length)}>Continue</Button>
                 </div>
@@ -1837,7 +1701,7 @@ function ReadySetupPage({
                   <label className="setup-label" htmlFor="queries">Queries (one per line)</label>
                   <textarea
                     id="queries"
-                    className="setup-textarea"
+                    className="setup-textarea text-copy-14"
                     rows={6}
                     placeholder="One query per line"
                     value={queriesText}
@@ -1891,7 +1755,7 @@ function ReadySetupPage({
                 ) : null}
                 <details open={researchCopyError || undefined} className="space-y-2">
                   <summary className="cursor-pointer py-2 text-label-14 text-link">Research queries with your agent</summary>
-                  <textarea aria-label="Agent query research prompt" readOnly className="setup-textarea w-full" rows={8} value={researchPrompt} />
+                  <textarea aria-label="Agent query research prompt" readOnly className="setup-textarea w-full text-copy-14" rows={8} value={researchPrompt} />
                   <Button type="button" variant="outline" size="sm" className={`shrink-0 self-start ${TOUCH_TARGET}`} onClick={asyncHandler(copyResearchPrompt)}>
                     {researchPromptCopied ? 'Research prompt copied' : 'Copy research prompt'}
                   </Button>
@@ -1899,11 +1763,12 @@ function ReadySetupPage({
                 </details>
                 {queriesError ? <p role="alert" className="text-negative-400 text-copy-14">{queriesError}</p> : null}
                 <div className="setup-nav">
-                  <Button type="button" variant="outline" onClick={isProjectScoped ? openProjectDashboard : goBack}>Back</Button>
-                  <Button type="button" variant="ghost" onClick={skipQueries}>
-                    {scanFollowsSkip ? 'Check Agent Readiness instead' : isProjectScoped ? 'Finish without AI Visibility' : 'Skip for now'}
-                  </Button>
-                  <Button type="button" disabled={parsedQueries.length === 0 || queriesSaving} onClick={asyncHandler(handleSaveQueries)}>
+                  <Button type="button" variant="outline" onClick={leaveFirstStep}>Back</Button>
+                  {/* In the tracker, not starting AI Visibility is the skip: the panel's Back closes it. */}
+                  {panel ? null : <Button type="button" variant="ghost" onClick={skipQueries}>
+                    {isProjectScoped ? 'Finish without AI Visibility' : 'Skip for now'}
+                  </Button>}
+                  <Button type="button" variant={providerFormVisible ? 'secondary' : 'default'} disabled={parsedQueries.length === 0 || queriesSaving} onClick={asyncHandler(handleSaveQueries)}>
                     {queriesSaving ? 'Saving…' : `Save ${parsedQueries.length} quer${parsedQueries.length !== 1 ? 'ies' : 'y'}`}
                   </Button>
                 </div>
@@ -1938,7 +1803,7 @@ function ReadySetupPage({
                   <label className="setup-label" htmlFor="competitors">Competitor domains (one per line)</label>
                   <textarea
                     id="competitors"
-                    className="setup-textarea"
+                    className="setup-textarea text-copy-14"
                     rows={4}
                     placeholder={'competitor1.com\ncompetitor2.com'}
                     value={competitorsText}
@@ -1983,16 +1848,11 @@ function ReadySetupPage({
           || runStatus === 'failed'
           || runStatus === 'cancelled'
         const snapshots = run?.snapshots ?? []
-        const queryCounts = run?.queryCounts
-        const resultRows = firstResultRows(run?.queryCountsByClass, queryCounts)
-        const unclassifiedQueries = run?.queryCountsByClass?.unclassifiedQueries ?? 0
-        const plannedResults = run && launchedRunPlan?.runId === run.id ? launchedRunPlan.requestCount : null
+        // The run's own planned total, stored when its sweep starts; the preview's
+        // count stands in only until the run reports one.
+        const plannedResults = run?.plannedAnswers ?? (run && launchedRunPlan?.runId === run.id ? launchedRunPlan.requestCount : null)
         const featured = featuredSetupAnswer(snapshots, queryId => durableQueries.find(saved => saved.id === queryId)?.queryClass)
-        const featuredAnswer = featured?.answerText ?? ''
-        // AnswerMarkdown cuts its preview past this many parsed characters.
-        // Markdown syntax and link URLs only make the written text longer, so
-        // an answer within the limit always shows in full.
-        const answerPreviewTruncated = Array.from(featuredAnswer).length > FIRST_ANSWER_PREVIEW_LENGTH
+        const brandLabel = displayName || createdProjectName || 'your brand'
         const successfulRun = runStatus ? isSuccessfulSetupRun(runStatus, snapshots.length) : false
         const runFailureDetail = runError
           ?? (run?.error
@@ -2017,15 +1877,16 @@ function ReadySetupPage({
           stepBadge = <ToneBadge tone="caution">{runStatus === RunStatuses.queued ? 'Queued' : 'Running'}</ToneBadge>
         }
 
+        const CheckSurface = panel ? 'div' : Card
         return (
-          <Card className="surface-card step-card">
+          <CheckSurface className={panel ? 'space-y-3' : 'surface-card step-card'}>
             <div className="section-head">
               <div>
-                <div className="flex items-center gap-2"><h2>{successfulRun ? 'Saved answers' : isDashboardManagedSweeps() ? 'AI Visibility' : runTriggered ? 'Your first AI Visibility check' : 'Run your first AI Visibility check'}</h2>{successfulRun || isDashboardManagedSweeps() ? null : <InfoTooltip text={`Asks each AI engine your queries and records whether ${createdProjectName ?? 'your site'} is mentioned and cited.${firstCheckUsesAccount ? ' It uses your provider account.' : ''} You can also finish now and run it later from the project.`} />}</div>
+                <div className="flex items-center gap-2"><StepHeading className={panel ? 'text-heading-16 text-heading' : undefined}>{successfulRun ? 'Saved answers' : isDashboardManagedSweeps() ? 'AI Visibility' : runTriggered ? 'Your first AI Visibility check' : 'Run your first AI Visibility check'}</StepHeading>{successfulRun || isDashboardManagedSweeps() ? null : <InfoTooltip text={`Asks each AI engine your queries and records whether answers mention ${brandLabel} and whether they cite its site.${firstCheckUsesAccount ? ' It uses your provider account.' : ''}`} />}</div>
               </div>
-              {stepBadge}
+              {panel ? null : stepBadge}
             </div>
-            {persistedSetupComplete ? (
+            {!panel && persistedSetupComplete ? (
               <div className="compact-stack">
                 <p className="text-secondary">
                   <span className="text-strong text-label-14-strong">{createdProjectName}</span> has saved AI Visibility results.
@@ -2033,7 +1894,7 @@ function ReadySetupPage({
                 <div className="setup-nav">
                   <span />
                   <Button type="button" onClick={() => finishSetup()}>
-                    {siteHealthOnboarding ? 'Finish setup' : 'Open project dashboard →'}
+                    Open project dashboard →
                   </Button>
                 </div>
               </div>
@@ -2072,13 +1933,14 @@ function ReadySetupPage({
                 )}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
-                  <Button
+                  {/* In the tracker, leaving the check unstarted is the skip. */}
+                  {panel ? null : <Button
                     type="button"
                     variant="ghost"
-                    onClick={skipToFinish}
+                    onClick={finishSetup}
                   >
                     Finish without running
-                  </Button>
+                  </Button>}
                   {systemBlockReason === 'no_provider' && !isProjectScoped ? (
                     <Button type="button" onClick={() => setShowProviderConfig(true)}>Connect an AI engine</Button>
                   ) : (
@@ -2088,7 +1950,7 @@ function ReadySetupPage({
                       title={launchBlockedReason}
                       onClick={asyncHandler(handleLaunchRun)}
                     >
-                      {runSaving ? 'Starting…' : runError ? 'Retry check' : 'Run check'}
+                      {runSaving ? 'Starting…' : runError ? 'Retry check' : panel ? 'Run first check' : 'Run check'}
                     </Button>
                   )}
                 </div>
@@ -2105,28 +1967,30 @@ function ReadySetupPage({
               </div>
             ) : !terminal ? (
               <div className="space-y-5">
-                <div>
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                    <p className="text-copy-14-strong text-heading">{run?.startedAt ? 'Asking each engine your queries' : 'Waiting for the check to start'}</p>
-                    {run ? <p className="text-label-14 tabular-nums text-secondary" role="status">
-                      {plannedResults !== null && snapshots.length <= plannedResults
-                        ? `${snapshots.length} of ${plannedResults} engine ${plannedResults === 1 ? 'result' : 'results'} saved`
-                        : `${snapshots.length} engine ${snapshots.length === 1 ? 'result' : 'results'} saved`}
-                    </p> : null}
-                  </div>
-                  {run && plannedResults ? <EngineResultsProgress saved={snapshots.length} planned={plannedResults} /> : null}
-                  <p className="mt-3 text-label-14 text-secondary">
-                    {run ? <>{run.startedAt ? 'Started' : 'Queued'}{' '}<time dateTime={run.startedAt ?? run.createdAt}>{formatSweepInstant(run.startedAt ?? run.createdAt, new Date().toISOString())}</time>. </> : null}
-                    You can leave this page; the check keeps running.
-                  </p>
-                </div>
+                <JobProgress
+                  label="AI Visibility check progress"
+                  noun="check"
+                  phase={run?.startedAt ? 'Asking engines' : 'Waiting to start'}
+                  count={run
+                    ? plannedResults !== null && snapshots.length <= plannedResults
+                      ? `${snapshots.length} of ${plannedResults} ${plannedResults === 1 ? 'answer' : 'answers'} saved`
+                      : `${snapshots.length} ${snapshots.length === 1 ? 'answer' : 'answers'} saved`
+                    : null}
+                  done={run ? snapshots.length : null}
+                  total={plannedResults}
+                  startedAt={run?.startedAt}
+                  queuedAt={run?.createdAt}
+                />
                 {/* An engine failing now, said before the check ends rather than after minutes of waiting. */}
                 {Object.entries(run?.providerFailures ?? {}).map(([provider, failure]) => (
-                  <div key={provider} role="status" className="rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
-                    <p className="text-label-14-strong">
+                  <div key={provider} role="status" className="rounded-md border border-caution px-3 py-2">
+                    <p className="text-copy-14 text-primary">
                       {providerDisplayName(provider)}: {failure.failedQueries} {failure.failedQueries === 1 ? 'query' : 'queries'} failed{failure.stopped ? ', so this check stopped asking it' : ''}.
                     </p>
-                    <p className="mt-1 break-words">{failure.message}</p>
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-label-13 text-secondary">Engine message</summary>
+                      <p className="mt-1 break-words text-copy-13 text-secondary">{failure.message}</p>
+                    </details>
                   </div>
                 ))}
                 {launchedRun.isError && (
@@ -2137,10 +2001,9 @@ function ReadySetupPage({
                     </Button>
                   </div>
                 )}
-                {agentReadinessOffer('running')}
                 <div className="flex flex-wrap justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => finishSetup()}>
-                    {siteHealthOnboarding ? 'Finish setup' : 'Watch on project page'}
+                  <Button type="button" variant="ghost" onClick={() => finishSetup()}>
+                    Open project dashboard →
                   </Button>
                 </div>
               </div>
@@ -2175,52 +2038,21 @@ function ReadySetupPage({
               <div className="compact-stack">
                 <p className="text-copy-14 text-secondary">
                   <span className="text-label-14-strong text-heading">{displayName || createdProjectName}</span>
-                  {' · '}{snapshots.length} engine {snapshots.length === 1 ? 'result' : 'results'}
+                  {' · '}{snapshots.length} {snapshots.length === 1 ? 'answer' : 'answers'}
                 </p>
                 {/* Branded and non-brand queries never share a denominator, so each class is its own row. */}
-                <table className="w-full text-left">
-                  <caption className="sr-only">First AI Visibility check by query class</caption>
-                  <thead>
-                    <tr className="text-label-14 text-secondary">
-                      <th scope="col" className="py-2 pr-4 font-normal">Queries</th>
-                      <th scope="col" className="py-2 pr-4 font-normal">Mentioned</th>
-                      <th scope="col" className="py-2 font-normal">Cited</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-default border-t border-default">
-                    {resultRows.map(row => (
-                      <tr key={row.label}>
-                        <th scope="row" className="py-3 pr-4 text-label-14-strong text-heading">{row.label}</th>
-                        <td className="py-3 pr-4"><QueryShare count={row.counts?.mentionedQueries} total={row.counts?.totalQueries} /></td>
-                        <td className="py-3">
-                          {/* Out of the queries some answer's sources were checked for: an engine that returns no sources is not measured, never 0. */}
-                          {citationUnmeasured(row.counts)
-                            ? <span className="inline-flex items-center gap-1 text-label-14 text-secondary">{CITATION_NOT_MEASURED.label}<InfoTooltip text={CITATION_NOT_MEASURED.sources} /></span>
-                            : <QueryShare count={row.counts?.citedQueries} total={row.counts ? row.counts.totalQueries - (row.counts.citationNotMeasuredQueries ?? 0) : undefined} />}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {unclassifiedQueries > 0 ? <p className="text-label-14 text-secondary">{unclassifiedQueries} {unclassifiedQueries === 1 ? 'query has' : 'queries have'} no single query class and {unclassifiedQueries === 1 ? 'is' : 'are'} not counted above.</p> : null}
-                {featured ? <section className="mt-3 border-t border-default pt-4" aria-label="Your first saved answer">
-                  <div className="mb-3 flex flex-wrap items-center gap-2"><ProviderBadge provider={featured.provider} displayName={providerDisplayName(featured.provider)} /><ToneBadge tone={featured.answerMentioned ? 'positive' : 'neutral'}>{featured.answerMentioned === true ? 'Mentioned' : featured.answerMentioned === false ? 'Not mentioned' : 'Mention not measured'}</ToneBadge><ToneBadge tone={featured.citationState === CitationStates.cited ? 'positive' : 'neutral'}>{ANSWER_CITATION_LABEL[featured.citationState]}</ToneBadge></div>
-                  {featured.query ? <h3 className="text-heading-16 text-heading">{featured.query}</h3> : null}
-                  {/* A preview that shows the whole answer carries its copy action; a cut one leaves it to the full answer. */}
-                  <div className="mt-3 text-copy-14 text-secondary"><AnswerMarkdown previewLength={FIRST_ANSWER_PREVIEW_LENGTH} copyable={!answerPreviewTruncated}>{featuredAnswer}</AnswerMarkdown></div>
-                  {answerPreviewTruncated ? <details className="mt-3"><summary className="cursor-pointer text-label-14 text-link">Read full answer</summary><div className="mt-3 text-copy-14 text-secondary"><AnswerMarkdown copyable>{featuredAnswer}</AnswerMarkdown></div></details> : null}
-                </section> : null}
-                {!onboardingFinish && createdProjectName ? <details><summary className="cursor-pointer py-2 text-label-14 text-link">More setup options</summary><NextSteps projectName={createdProjectName} /></details> : null}
-                {agentReadinessOffer('done')}
+                <FirstResultTable byClass={run?.queryCountsByClass} pooled={run?.queryCounts} />
+                {featured ? <section className="mt-3 border-t border-default pt-4" aria-label="Your first saved answer"><FeaturedAnswer answer={featured} /></section> : null}
+                {createdProjectName ? <details><summary className="cursor-pointer py-2 text-label-14 text-link">More setup options</summary><NextSteps projectName={createdProjectName} /></details> : null}
                 <div className="setup-nav">
                   <span />
                   <Button type="button" onClick={() => finishSetup()}>
-                    {siteHealthOnboarding ? 'Finish setup' : 'Open project dashboard →'}
+                    Open project dashboard →
                   </Button>
                 </div>
               </div>
             )}
-          </Card>
+          </CheckSurface>
         )
       }
 
@@ -2235,9 +2067,24 @@ function ReadySetupPage({
     ? stepIndicatorLabels.length
     : isProjectScoped ? (step === 4 ? 1 : 0) : step
 
+  const changeEngines = step === 4 && !runTriggered && isAdmin && openRouterConnected && setupEngineProject && !inlineModelPicker
+    ? <details className="mb-4"><summary className="cursor-pointer py-2 text-label-14 text-link">Change engines</summary><ProjectEngineSettingsSection project={setupEngineProject} onSave={saveSetupEngines} /></details>
+    : null
+
+  // The tracker's AI Visibility row: its steps only, inside the row.
+  if (panel) {
+    return (
+      <div ref={panelRef}>
+        {providerSetup}
+        {changeEngines}
+        <div ref={stepContentRef}>{stepContent}</div>
+        {providerGuard.dialog}
+      </div>
+    )
+  }
+
   return (
     <div className={isProjectScoped ? 'page-container visibility-setup' : 'page-container'}>
-      {siteHealthOnboarding ? <OnboardingProgress current="visibility" outcomes={{ site: scanOutcome, fixes: scanOutcome }} /> : null}
       <div className="page-header">
         <div className="page-header-left">
           <h1
@@ -2257,21 +2104,18 @@ function ReadySetupPage({
               : 'Create a project and run its first AI Visibility check.'}
           </p> : null}
         </div>
-        {!showingSuccessfulRun && (siteHealthOnboarding || step !== 4) ? (
+        {!showingSuccessfulRun && step !== 4 ? (
           <div className="page-header-right">
-            {step !== 4 ? <Button type="button" variant="ghost" size="sm" disabled={(Boolean(resumeProjectName) && !resumeQueriesQuery.isSuccess) || projectSaving || queriesSaving || competitorsSaving || runSaving} onClick={resetDraft}>Reset unsaved fields</Button> : null}
-            {siteHealthOnboarding ? <Button type="button" variant="outline" className={TOUCH_TARGET} onClick={skipToFinish}>
-              Skip AI Visibility
-            </Button> : null}
+            <Button type="button" variant="ghost" size="sm" disabled={(Boolean(resumeProjectName) && !resumeQueriesQuery.isSuccess) || projectSaving || queriesSaving || competitorsSaving || runSaving} onClick={resetDraft}>Reset unsaved fields</Button>
           </div>
         ) : null}
       </div>
 
-      {!siteHealthOnboarding ? <SetupStepIndicator current={stepIndicatorCurrent} labels={stepIndicatorLabels} /> : null}
+      <SetupStepIndicator current={stepIndicatorCurrent} labels={stepIndicatorLabels} />
 
       <section className="setup-wizard">
         {providerSetup}
-        {step === 4 && !runTriggered && isAdmin && openRouterConnected && setupEngineProject && !inlineModelPicker && <details className="mb-4"><summary className="cursor-pointer py-2 text-label-14 text-link">Change engines</summary><ProjectEngineSettingsSection project={setupEngineProject} onSave={saveSetupEngines} /></details>}
+        {changeEngines}
         <div ref={stepContentRef}>{stepContent}</div>
       </section>
       {providerGuard.dialog}

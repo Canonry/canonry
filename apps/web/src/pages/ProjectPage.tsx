@@ -1882,8 +1882,8 @@ function ProjectPageContent({
     void navigate({
       to: '/setup',
       search: {
-        experience: 'legacy',
-        setupProject: projectName,
+        project: projectName,
+        track: 'ai-visibility',
       },
     })
   }

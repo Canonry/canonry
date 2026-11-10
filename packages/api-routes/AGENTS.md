@@ -18,6 +18,8 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 
 Every API operation carries `x-canonry-access` metadata and responses expose the same value in the `x-canonry-access` header. When adding a live provider GET or other live operation, update `LIVE_READ_OPERATIONS` in `@canonry/canonry-contracts` and its route-map test.
 | `src/projects.ts` / `src/runs.ts` | Project CRUD routes (largest route file); run trigger, status, and list routes |
+| `src/project-setup.ts` | `GET /projects/:name/setup`, the first-run setup tracker (see "Project setup read") |
+| `src/run-query-counts.ts` | `summarizeRunQueryCounts` / `readRunAnswerSignals`: a run's observed query counts, pooled and by class, shared by the run detail and the setup read |
 | `src/query-replace.ts` | `replaceProjectQueries`, the declarative tracked-query replace (see "Declarative query replacement") |
 | `src/competitor-writes.ts` | The one path that adds competitors or changes their curated aliases: `planCompetitorSet` / `syncCompetitorSet` (see "Competitor aliases") |
 | `src/competitor-auto-aliases.ts` | Answer-derived competitor aliases over stored answers: the bounded scan, dry run and apply (see "Competitor aliases") |
@@ -203,6 +205,15 @@ A clarifying answer ("which X do you mean?") names a Property only when the answ
 The optional `marketKey` intersects a project, group, or property selection with exact market edges before every report section and answer read. It participates in cursor identity. Explicit `reportingScopes.groupKey` links navigation; never infer it from overlapping properties.
 Display-only revisions and additive reporting scopes use the comparable chain only when every existing market population and all other measurement semantics remain exact. Material changes read prior evidence through its own frozen plan.
 Never infer a market from a group label or reuse the browser's global run drawer parameter.
+
+### Project setup read
+
+`src/project-setup.ts`: `GET /projects/:name/setup` (`ProjectSetupDto`) is the one read behind the dashboard's setup tracker, `cnry project setup` and `canonry_project_setup`. It is stored-only: no provider call, crawl or write.
+
+- Each track's `state` is the status of the project's latest non-probe run of its kind (`site-audit`, `answer-visibility`; `createdAt, id` descending), or `not_started`. No setup-only states and no browser state.
+- Agent Readiness progress is the scan's own progress read (latest attempt, `siteAuditRunPhase`) plus the page budget frozen in `site_crawl_run_requests`; its result is that run's scorecard, with no score when it scored no page; its error is the stored text.
+- AI Visibility `blockedBy` is `previewManualRun`'s `blockedReason` (Simple and Advanced), forced to null while the check is queued or running; `run-in-progress` (a probe) blocks nothing. Progress reads the saved answers and `runs.planned_answers`; `result` counts come from `summarizeRunQueryCounts`, as the run detail's do; `error` is `formatRunErrorOneLine` of the stored error.
+- `nextAction` follows row order: the scan (`run_agent_readiness`, `retry_agent_readiness`), then the check (its blocker's action, `run_ai_visibility`, `repair_ai_visibility`), then `wait`, then `open_project`. Tests: `test/project-setup.test.ts`.
 
 ### Declarative query replacement
 

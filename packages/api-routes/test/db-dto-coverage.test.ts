@@ -273,6 +273,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       providerDispatchModes: 'Exposed as `dispatchModes` on the run DTO ({} when null).',
       pendingProviderErrors: 'Sync-provider errors held while finalization waits on a provider batch; folded into `error` at finalize.',
       providerFailures: 'Exposed as `providerFailures` on the run detail while the run is queued or running; a finished run reports them in `error`.',
+      plannedAnswers: 'Exposed as `plannedAnswers` on the run detail once a sweep records it, and as `progress.answersPlanned` on the setup read.',
     },
   },
   runFills: {

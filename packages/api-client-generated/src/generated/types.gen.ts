@@ -9836,6 +9836,7 @@ export type LatestProjectRunDto = {
                 stopped: boolean;
             };
         } | null;
+        plannedAnswers?: number;
         providerBatches?: Array<{
             id: string;
             provider: string;
@@ -15123,6 +15124,7 @@ export type ProjectOverviewDto = {
                     stopped: boolean;
                 };
             } | null;
+            plannedAnswers?: number;
             providerBatches?: Array<{
                 id: string;
                 provider: string;
@@ -15531,6 +15533,90 @@ export type ProjectOverviewDto = {
     };
     dateRangeLabel: string;
     contextLabel: string;
+};
+
+export type ProjectSetupDto = {
+    project: {
+        name: string;
+        displayName: string | null;
+        canonicalDomain: string;
+    };
+    complete: boolean;
+    firstResultAt: string | null;
+    nextAction: 'run_agent_readiness' | 'retry_agent_readiness' | 'connect_engine' | 'add_queries' | 'publish_plan' | 'run_ai_visibility' | 'repair_ai_visibility' | 'wait' | 'open_project';
+    tracks: {
+        agentReadiness: {
+            state: 'not_started' | 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+            runId: string | null;
+            startedAt: string | null;
+            finishedAt: string | null;
+            progress: {
+                phase: 'queued' | 'discovering' | 'checking' | 'arranging-map' | 'completed' | 'partial' | 'failed' | 'cancelled';
+                pagesFound: number | null;
+                pagesChecked: number;
+                pageLimit: number | null;
+                linksFound: number | null;
+                pagesFailed: number | null;
+            } | null;
+            result: {
+                score: number | null;
+                pagesScored: number;
+            } | null;
+            error: string | null;
+        };
+        aiVisibility: {
+            state: 'not_started' | 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+            runId: string | null;
+            startedAt: string | null;
+            finishedAt: string | null;
+            mode?: 'simple' | 'advanced';
+            blockedBy: 'no_engine' | 'no_queries' | 'plan_unpublished' | 'engines_failing' | null;
+            engines: Array<string>;
+            queries: {
+                total: number;
+                nonBrand: number;
+                branded: number;
+                unclassified: number;
+            };
+            progress: {
+                answersSaved: number;
+                answersPlanned: number | null;
+            } | null;
+            providerFailures: {
+                [key: string]: {
+                    message: string;
+                    failedQueries: number;
+                    stopped: boolean;
+                };
+            } | null;
+            result: {
+                answers: number;
+                engines: number;
+                queryCounts: {
+                    totalQueries: number;
+                    citedQueries: number;
+                    mentionedQueries: number;
+                    citationNotMeasuredQueries?: number;
+                } | null;
+                queryCountsByClass: {
+                    nonBrand: {
+                        totalQueries: number;
+                        citedQueries: number;
+                        mentionedQueries: number;
+                        citationNotMeasuredQueries?: number;
+                    };
+                    branded: {
+                        totalQueries: number;
+                        citedQueries: number;
+                        mentionedQueries: number;
+                        citationNotMeasuredQueries?: number;
+                    };
+                    unclassifiedQueries: number;
+                } | null;
+            } | null;
+            error: string | null;
+        };
+    };
 };
 
 export type TrafficAnalyticsResponse = {
@@ -16403,6 +16489,7 @@ export type RunDetailDto = {
             stopped: boolean;
         };
     } | null;
+    plannedAnswers?: number;
     providerBatches?: Array<{
         id: string;
         provider: string;
@@ -26474,6 +26561,40 @@ export type GetApiV1ProjectsByNameRunPreviewResponses = {
 };
 
 export type GetApiV1ProjectsByNameRunPreviewResponse = GetApiV1ProjectsByNameRunPreviewResponses[keyof GetApiV1ProjectsByNameRunPreviewResponses];
+
+export type GetApiV1ProjectsByNameSetupData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/setup';
+};
+
+export type GetApiV1ProjectsByNameSetupErrors = {
+    /**
+     * Published plan or saved location is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSetupError = GetApiV1ProjectsByNameSetupErrors[keyof GetApiV1ProjectsByNameSetupErrors];
+
+export type GetApiV1ProjectsByNameSetupResponses = {
+    /**
+     * Setup status returned.
+     */
+    200: ProjectSetupDto;
+};
+
+export type GetApiV1ProjectsByNameSetupResponse = GetApiV1ProjectsByNameSetupResponses[keyof GetApiV1ProjectsByNameSetupResponses];
 
 export type GetApiV1ProjectsByNameRunAdmissionData = {
     body?: never;

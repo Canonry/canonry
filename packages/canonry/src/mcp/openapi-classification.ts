@@ -177,6 +177,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   // so a third tool would only repeat those decisions.
   'GET /api/v1/projects/{name}/run-admission': 'deferred',
   'GET /api/v1/projects/{name}/run-preview': 'included',
+  'GET /api/v1/projects/{name}/setup': 'included',
   'GET /api/v1/runs': 'deferred',
   'POST /api/v1/runs': 'deferred',
   'GET /api/v1/runs/{id}': 'included',

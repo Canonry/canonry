@@ -10,9 +10,8 @@ import { describe, expect, it } from 'vitest'
  *
  * This is the check that was missing. A redesign repointed `/setup` from the
  * instrumented `SetupPage` to a new `OnboardingSetupPage` with zero emit call
- * sites, and because `resolveOnboardingSurface` sends an install with NO
- * projects to the new surface, the flow went blind for exactly the first-run
- * user onboarding exists to measure. Every suite stayed green: nothing asserted
+ * sites, and because the new surface took every install with NO projects, the
+ * flow went blind for exactly the first-run user onboarding exists to measure. Every suite stayed green: nothing asserted
  * that the route's component was instrumented, and the only coverage naming a
  * run-step event was a schema-shape check in the contracts package.
  *
@@ -52,16 +51,17 @@ describe('onboarding surfaces are instrumented', () => {
     // A surface that renders no telemetry is invisible in the funnel, and the
     // funnel then describes only the surfaces that do — which reads as data
     // rather than as a gap.
-    for (const page of ['pages/OnboardingSetupPage.tsx', 'pages/SetupPage.tsx']) {
+    for (const page of ['pages/OnboardingSetupPage.tsx', 'pages/ProjectSetupTracker.tsx', 'pages/SetupPage.tsx']) {
       expect(read(page), `${page} should emit onboarding telemetry`).toContain(TELEMETRY_MODULE)
     }
   })
 
   it('tags each surface so two different funnels never pool into one number', () => {
+    // The rescue wizard is its own funnel; the website form and the project's
+    // tracker it opens are one first-run funnel.
     expect(read('pages/SetupPage.tsx')).toContain("surface: 'wizard'")
-    const onboarding = read('pages/OnboardingSetupPage.tsx')
-    expect(onboarding).toContain("useOnboardingTelemetry('platform')")
-    expect(onboarding).toContain("useOnboardingTelemetry('site_health')")
+    expect(read('pages/OnboardingSetupPage.tsx')).toContain("useOnboardingTelemetry('platform')")
+    expect(read('pages/ProjectSetupTracker.tsx')).toContain("useOnboardingTelemetry('platform')")
   })
 
   it('keeps the run step recordable after a reload, and scoped to one project', () => {
@@ -74,14 +74,5 @@ describe('onboarding surfaces are instrumented', () => {
     expect(setup).toContain("markOnboardingRunLaunched(createdProjectName, run.id, RunKinds['answer-visibility'])")
     expect(setup).toContain('readOnboardingLaunchedRun(resumeProjectName)')
     expect(setup).toContain('markOnboardingRunHandled')
-  })
-
-  it('gives the site-health surface a terminal event, not just a start', () => {
-    // A funnel whose last surface only ever emits `onboarding.started` cannot
-    // distinguish a scan that finished from one that died.
-    const onboarding = read('pages/OnboardingSetupPage.tsx')
-    expect(onboarding).toContain("event: 'onboarding.started'")
-    expect(onboarding).toContain("event: 'onboarding.step_completed'")
-    expect(onboarding).toContain("event: 'onboarding.blocked'")
   })
 })

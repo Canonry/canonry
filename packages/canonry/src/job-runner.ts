@@ -973,10 +973,13 @@ export class JobRunner {
       // Model routes keep separate reservations against their shared connection budget.
       const todayPeriod = getCurrentUsageDay()
 
+      // The answers this sweep sets out to collect: the work it reserves below.
+      let plannedAnswers = 0
       for (const p of calledProviders) {
         const queriesPerProvider = planExecution
           ? planExecution.unitsByProvider.get(p.adapter.name)?.length ?? 0
           : projectQueries.length
+        plannedAnswers += queriesPerProvider
         const providerScope = `${projectId}:${adapterConnectionName(p.adapter)}`
         const limit = p.config.quotaPolicy.maxRequestsPerDay
         const quota = reserveDailyQueryQuota(this.db, { scope: providerScope, period: todayPeriod, count: queriesPerProvider, limit })
@@ -988,6 +991,9 @@ export class JobRunner {
         }
         providerReservations.set(p.adapter.name, { scope: providerScope, period: todayPeriod, reserved: queriesPerProvider })
       }
+      // Saved before the first call, so a reader can show progress against it
+      // without remembering what was launched.
+      this.db.update(runs).set({ plannedAnswers }).where(eq(runs.id, runId)).run()
 
       // One gate per provider NAME, shared process-wide (see
       // `getSharedProviderExecutionGate`) — not one per run. Two runs for two

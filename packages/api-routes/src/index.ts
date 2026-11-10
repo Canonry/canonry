@@ -37,6 +37,8 @@ import { competitorSuggestionRoutes } from './competitor-suggestions.js'
 import { competitorChangePreviewRoutes } from './competitor-change-preview.js'
 import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
+import { projectSetupRoutes } from './project-setup.js'
+import type { ProjectSetupRoutesOptions } from './project-setup.js'
 import { measurementPlanRoutes } from './measurement-plan.js'
 import type { MeasurementPlanRoutesOptions } from './measurement-plan.js'
 import { measurementServiceRoutes } from './measurement-service.js'
@@ -728,6 +730,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getBatchEligibleProviderNames: opts.getBatchEligibleProviderNames,
       providerAdapters: opts.providerAdapters,
     } satisfies RunRoutesOptions)
+    await api.register(projectSetupRoutes, {
+      getRunnableProviderNames: opts.getRunnableProviderNames,
+      getEffectiveProviderModels: opts.getEffectiveProviderModels,
+      providerAdapters: opts.providerAdapters,
+    } satisfies ProjectSetupRoutesOptions)
     await api.register(measurementPlanRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
       providerRouteFamilies,

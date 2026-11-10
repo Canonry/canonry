@@ -229,3 +229,16 @@ describe('GET /runs/:id provider failures', () => {
     expect(body.providerFailures).toBeNull()
   })
 })
+
+describe('GET /runs/:id planned answers', () => {
+  it('reports the answers a sweep planned once it recorded them, and omits the field before then', async () => {
+    db.insert(runs).values([
+      { id: 'planned', projectId: 'counts-project', kind: RunKinds['answer-visibility'], status: RunStatuses.running, trigger: RunTriggers.manual, plannedAnswers: 6, createdAt: NOW },
+      { id: 'unplanned', projectId: 'counts-project', kind: RunKinds['answer-visibility'], status: RunStatuses.queued, trigger: RunTriggers.manual, createdAt: NOW },
+    ]).run()
+    const planned = (await app.inject({ method: 'GET', url: '/api/v1/runs/planned' })).json<RunDetailDto>()
+    expect(planned.plannedAnswers).toBe(6)
+    const unplanned = (await app.inject({ method: 'GET', url: '/api/v1/runs/unplanned' })).json<RunDetailDto>()
+    expect(unplanned).not.toHaveProperty('plannedAnswers')
+  })
+})

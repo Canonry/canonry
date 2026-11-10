@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type ProjectOverviewDto, type VisibilityReportResponse } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type ProjectOverviewDto, type ProjectSetupDto, type VisibilityReportResponse } from '@canonry/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -375,6 +375,31 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     expect(status).toBe(200)
     expect(body.contextMetrics.latestRunId).toBe(ctx.realRunId)
     expect(body.targets.map(target => target.query)).not.toContain(poisonQuery)
+  })
+
+  it('setup tracks the real scan and check, not newer probes, and dates its first result by a real run', async () => {
+    const realScanId = crypto.randomUUID()
+    const scans = [
+      // A probe scan that finished before every real result: it must not date setup.
+      { id: crypto.randomUUID(), status: 'completed', trigger: 'probe', createdAt: '2026-10-01T00:00:00.000Z', finishedAt: '2026-10-01T00:05:00.000Z' },
+      { id: realScanId, status: 'completed', trigger: 'manual', createdAt: '2026-10-11T12:00:00.000Z', finishedAt: '2026-10-11T12:05:00.000Z' },
+      // A newer probe scan that failed: a leak would ask to retry the scan.
+      { id: crypto.randomUUID(), status: 'failed', trigger: 'probe', createdAt: new Date().toISOString(), finishedAt: new Date().toISOString(), error: 'probe-only failure' },
+    ]
+    for (const scan of scans) ctx.db.insert(runs).values({ projectId: ctx.projectId, kind: 'site-audit', ...scan }).run()
+    // A probe check still running: a leak would read the check as in progress.
+    ctx.db.insert(runs).values({ id: crypto.randomUUID(), projectId: ctx.projectId, kind: 'answer-visibility', status: 'running', trigger: 'probe', createdAt: new Date().toISOString() }).run()
+
+    const { status, body } = await get<ProjectSetupDto>('/api/v1/projects/probe-excl/setup')
+    expect(status).toBe(200)
+    expect(body.tracks.agentReadiness).toMatchObject({ state: 'completed', runId: realScanId, error: null })
+    // The newer completed probe check does not cite the brand; the real one does.
+    expect(body.tracks.aiVisibility).toMatchObject({
+      state: 'completed', runId: ctx.realRunId, progress: null,
+      result: { answers: 1, engines: 1, queryCounts: { totalQueries: 1, citedQueries: 1, mentionedQueries: 1, citationNotMeasuredQueries: 0 } },
+    })
+    expect(body.firstResultAt).toBe('2026-10-11T12:05:00.000Z')
+    expect({ complete: body.complete, nextAction: body.nextAction }).toEqual({ complete: true, nextAction: 'open_project' })
   })
 })
 

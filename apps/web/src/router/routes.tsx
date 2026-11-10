@@ -107,6 +107,10 @@ type SearchParams = {
   siteScan?: 'skip' | 'scan'
   /** Exact project handed from Agent Readiness into the original visibility wizard. */
   setupProject?: string
+  /** The project whose setup tracker `/setup` shows. */
+  project?: string
+  /** The setup tracker row a link opens. Holds which row is open, never progress. */
+  track?: 'agent-readiness' | 'ai-visibility'
   /**
    * Advanced-measurement view state, in the URL so a market is a place you can
    * link, bookmark, and reload. `all` (the default) is omitted rather than
@@ -171,6 +175,8 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     siteScan: search.siteScan === 'skip' || search.siteScan === 'scan' ? search.siteScan : undefined,
     skipped: search.skipped === 'visibility' ? 'visibility' : undefined,
     setupProject: typeof search.setupProject === 'string' ? search.setupProject : undefined,
+    project: typeof search.project === 'string' && search.project ? search.project : undefined,
+    track: search.track === 'agent-readiness' || search.track === 'ai-visibility' ? search.track : undefined,
     scope: typeof search.scope === 'string' ? search.scope : undefined,
     class: typeof search.class === 'string' ? search.class : undefined,
     ...Object.fromEntries([

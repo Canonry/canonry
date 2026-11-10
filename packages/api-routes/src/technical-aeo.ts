@@ -137,7 +137,8 @@ export function surfaceableSiteAuditFilters(projectId: string): SQL[] {
   ]
 }
 
-function siteAuditRunPhase(
+/** The stored lifecycle stage of one scan, as its progress read and the setup read report it. */
+export function siteAuditRunPhase(
   status: RunStatus,
   attempt: typeof siteCrawlAttempts.$inferSelect | undefined,
   layoutState: 'pending' | 'ready' | 'unavailable',

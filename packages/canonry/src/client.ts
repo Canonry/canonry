@@ -1,4 +1,4 @@
-import { getApiV1ProjectsByNameRunPreview } from '@canonry/canonry-api-client'
+import { getApiV1ProjectsByNameRunPreview, getApiV1ProjectsByNameSetup } from '@canonry/canonry-api-client'
 import { postApiV1ProjectsByNameSchedulePreview } from '@canonry/canonry-api-client'
 import type { BingSubmitSitemapResponseDto, SitemapCoverageResponseDto, BingCrawlStatsResponseDto, BingFetchedUrlsResponseDto, BingKeywordDemandResponseDto, BingKeywordResearchResponseDto, BingLinksResponseDto, BingPageQueriesResponseDto, BingPageTotalsResponseDto, BingQueryHistoryResponseDto, BingQueryPagesResponseDto, BingQueryTotalsResponseDto, BingSiteResponseDto, BingSitemapsResponseDto, BingTrafficResponseDto, BingUrlChildrenResponseDto, BingUrlTrafficResponseDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameBingCrawlStats, getApiV1ProjectsByNameBingFetchedUrls, getApiV1ProjectsByNameBingKeywordDemand, getApiV1ProjectsByNameBingKeywords, getApiV1ProjectsByNameBingLinks, getApiV1ProjectsByNameBingPageQueries, getApiV1ProjectsByNameBingPages, getApiV1ProjectsByNameBingQueries, getApiV1ProjectsByNameBingQueryHistory, getApiV1ProjectsByNameBingQueryPages, getApiV1ProjectsByNameBingSite, getApiV1ProjectsByNameBingSitemaps, getApiV1ProjectsByNameBingTraffic, getApiV1ProjectsByNameBingUrlChildren, getApiV1ProjectsByNameBingUrlTraffic, getApiV1ProjectsByNameSitemaps, postApiV1ProjectsByNameBingSitemaps, postApiV1ProjectsByNameBingSync } from '@canonry/canonry-api-client'
@@ -43,7 +43,7 @@ import {
   postApiV1ProjectsByNameSentimentBackfills, getApiV1ProjectsByNameSentimentJobs, getApiV1ProjectsByNameSentimentJobsByJobId,
 } from '@canonry/canonry-api-client'
 import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@canonry/canonry-contracts'
-import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto, RunPreviewDto } from '@canonry/canonry-contracts'
+import type { ProjectSetupDto, RunCompletenessDto, RunFillRequest, RunFillResponseDto, RunPreviewDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { detectAgentRuntime, normalizeAgentSlug, USAGE_TELEMETRY_HEADERS, type OutcomeSurface } from '@canonry/canonry-contracts'
@@ -1405,6 +1405,11 @@ export class ApiClient {
 
   async getProject(name: string): Promise<ProjectDto> {
     return this.invoke<ProjectDto>(() => getApiV1ProjectsByName({ client: this.heyClient, path: { name } }))
+  }
+
+  /** The project's first-run setup status: both tracks and the server's next action. Stored reads only. */
+  async getProjectSetup(name: string): Promise<ProjectSetupDto> {
+    return this.invoke<ProjectSetupDto>(() => getApiV1ProjectsByNameSetup({ client: this.heyClient, path: { name } }))
   }
 
   async deleteProject(name: string): Promise<void> {

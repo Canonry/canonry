@@ -393,6 +393,13 @@ export const runs = sqliteTable('runs', {
    */
   providerFailures: text('provider_failures', { mode: 'json' }).$type<Record<string, RunProviderFailure>>(),
   /**
+   * Answers an answer-visibility sweep set out to collect, written when it
+   * starts from its actual work list: every query times every engine it calls,
+   * or a published plan's slots for those engines. Null until then, on runs
+   * from before it was recorded, and on other run kinds.
+   */
+  plannedAnswers: integer('planned_answers'),
+  /**
    * What a sync run did and why it stopped (counts and stop reason), written
    * when the run finishes. Only syncs that report one set it (a Cloudflare
    * Queue traffic sync); null on every other run.

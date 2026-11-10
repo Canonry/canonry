@@ -304,6 +304,7 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'project.locations': 'stored',
   'project.remove-location': 'write',
   'project.set-default-location': 'write',
+  'project.setup': 'stored',
   'project.show': 'stored',
   'project.update': 'write',
   'query': 'write',

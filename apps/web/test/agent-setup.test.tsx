@@ -350,6 +350,66 @@ test.each([true, false])('leads with the README setup request and plugin command
   expect(request.includes('github.com')).toBe(showResourceLinks)
 })
 
+test('the README carries the same setup request the dashboard copies', () => {
+  // Two hand-maintained copies of the same instructions, and they had already
+  // drifted: the README's was missing the bounded page budget and the
+  // scan-reuse rule. Whichever one an operator finds has to be the live one.
+  const text = readme()
+  const fence = '```'
+  const start = text.indexOf(`${fence}text\nHelp me set up Canonry for my public site.`)
+  expect(start).toBeGreaterThan(-1)
+  const body = text.slice(start + fence.length + 'text\n'.length)
+  expect(body.slice(0, body.indexOf(`\n${fence}`))).toBe(AGENT_SETUP_REQUEST)
+})
+
+test('the setup request asks before it acts, bounds the first scan, and never asks for secrets', () => {
+  // It learns what to set up before it touches the install.
+  expect(AGENT_SETUP_REQUEST.indexOf('Ask for my public domain')).toBeLessThan(AGENT_SETUP_REQUEST.indexOf('cnry start'))
+  expect(AGENT_SETUP_REQUEST).toContain('propose `npm install -g @canonry/canonry` and wait for approval')
+  // It reuses what exists instead of creating or scanning twice.
+  expect(AGENT_SETUP_REQUEST).toContain('cnry project list --format json')
+  expect(AGENT_SETUP_REQUEST).toContain('read that scan instead of starting a new one')
+  // The crawl is its own approval, and the first one is bounded.
+  expect(AGENT_SETUP_REQUEST).toContain('wait for separate approval before scanning')
+  expect(AGENT_SETUP_REQUEST).toContain('--max-pages 100')
+  expect(AGENT_SETUP_REQUEST).toContain('never ask me to paste passwords, API keys, OAuth credentials, or command output')
+  expect(AGENT_SETUP_REQUEST).toContain('Tell me the termination reason in plain words')
+})
+
+test('the setup request cannot strand an agent or point it at the wrong install', () => {
+  // Each of these is a failure a fresh agent actually hit when following an
+  // earlier version of this text.
+  // A connected tool cannot see a shell env var, so "prefer connected tools"
+  // silently acted on the operator's real install.
+  expect(AGENT_SETUP_REQUEST).toContain('never sees `CANONRY_CONFIG_DIR`')
+  // `bootstrap` is not interactive; handing it over and waiting deadlocks.
+  expect(AGENT_SETUP_REQUEST).toContain('run `cnry bootstrap` yourself')
+  expect(AGENT_SETUP_REQUEST).toContain('The interactive command is `cnry init`')
+  expect(AGENT_SETUP_REQUEST).not.toContain('tell me to run `cnry bootstrap`')
+  // `cnry --version` succeeds on an unconfigured install, so it cannot detect
+  // missing config; `doctor` is the command that can.
+  expect(AGENT_SETUP_REQUEST).toContain('cnry doctor --format json')
+  expect(AGENT_SETUP_REQUEST).toContain('does not read config')
+  // The product's own CONNECTION_ERROR text recommends the foreground command.
+  expect(AGENT_SETUP_REQUEST).toContain('not `cnry serve`, which runs in the foreground')
+  // `score` reports aggregateScore 0 with hasData false for a never-scanned
+  // project, which reads as a real score of zero.
+  expect(AGENT_SETUP_REQUEST).toContain('Read the `hasData` field, not the score')
+  // Neither `score` nor `pages` carries the termination reason.
+  expect(AGENT_SETUP_REQUEST).toContain('agent-readiness overview')
+  expect(AGENT_SETUP_REQUEST).toContain('only one of these commands that carries `termination`')
+  // `--wait` gives up after 15 minutes and exits 0 with a non-terminal status,
+  // which must not read as a finished scan. Rerunning is the wrong recovery.
+  expect(AGENT_SETUP_REQUEST).toContain('polls for up to 15 minutes')
+  expect(AGENT_SETUP_REQUEST).toContain('the scan has not finished')
+  expect(AGENT_SETUP_REQUEST).not.toContain('no timeout')
+  expect(AGENT_SETUP_REQUEST).toContain('agent-readiness progress')
+  expect(AGENT_SETUP_REQUEST).toContain('do not rerun it')
+  // A time limit needs a SMALLER scan, which is the counterintuitive direction.
+  expect(AGENT_SETUP_REQUEST).toContain('a time limit needs a smaller scan')
+  expect(AGENT_SETUP_REQUEST).toContain('never present it as a full-site result')
+})
+
 test.each([
   { label: 'needs attention', hosted: { status: 'unavailable', reason: 'account-required' }, badge: 'Hosted setup needs attention' },
   { label: 'is ready', hosted: { status: 'ready', url: HOSTED_URL }, badge: 'Hosted setup configured' },

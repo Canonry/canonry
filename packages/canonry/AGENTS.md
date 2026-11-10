@@ -149,6 +149,8 @@ Their MCP equivalents live in monitoring: `canonry_content_dismissals` (read),
 
 `run preview <project>` and MCP `canonry_run_preview` read the stored-only `/projects/:name/run-preview`. They describe the default full manual sweep, not scoped, forced, or all-location overrides. Preserve both planned answer slots and currently runnable requests, each class's own assignment count, published revision, and account holds. The read never reserves work or grants launch authority.
 
+`project setup <project>` (`src/commands/project-setup.ts`) and MCP `canonry_project_setup` read the stored-only `/projects/:name/setup`: both setup tracks (the Agent Readiness audit scan and the AI Visibility check) and the server's `nextAction`. JSON (and JSONL) is the DTO unchanged. Text prints one row per track and a `Next:` line naming the real `cnry` command for `nextAction`; result lines keep non-brand and branded counts apart, and a project with no class prints one line labelled pooled. Never derive a track's state or the next step in the CLI: they are the server's. An unknown project exits 1, an unreachable or failing server exits 2.
+
 `run list <project>` aliases `runs <project>` with one handler and option table.
 The optional `--since` forwards an inclusive timestamp without imposing a default
 window or limit. Both forms include probes; traffic rows expose stored `sourceId`.
@@ -253,6 +255,8 @@ are not the resource contract.
 Boot recovery fails every queued/running run and its active crawl attempts;
 it does not resume interrupted work. The one exception is a running sweep that
 wrote provider batches (see "Finalizing a sweep" below).
+
+After it reserves quota and before the first provider call, `executeRun` writes `runs.planned_answers`: the answers the sweep sets out to collect, from the work it reserves (every query times every engine it calls, or the plan's slots for those engines; engines it skips are left out). The run detail (`plannedAnswers`) and the setup read (`progress.answersPlanned`) report it, so no surface needs to remember the launch.
 
 Before provider dispatch, `JobRunner` captures the resolved inputs of each official simple run.
 The frozen definition records exact query text, identity (including the project's sentiment-only qualified aliases, omitted when empty), classification, location, and requested models.

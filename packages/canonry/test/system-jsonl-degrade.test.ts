@@ -262,7 +262,7 @@ describe('serve jsonl degrade', () => {
     const { serveCommand } = await import('../src/commands/serve.js')
     const logs = await withLog(() => serveCommand('text'))
     expect(logs.join('\n')).toContain('Canonry server running at')
-    expect(logs.join('\n')).toContain('/setup to map your site and run your first Agent Readiness audit scan')
+    expect(logs.join('\n')).toContain('/setup to set up your first project: a free Agent Readiness audit scan, then AI Visibility')
     expect(logs.some(l => l.trim().startsWith('{'))).toBe(false)
   })
 

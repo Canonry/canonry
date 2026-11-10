@@ -49,6 +49,8 @@ function queuedDetailForRun(projectLabel: string | undefined, kind: string) {
 function queueTrackedRunToast(run: ApiRun, options: {
   projectLabel?: string
   sourceAction: TrackedRunSourceAction
+  /** The caller shows the queued run itself; its finish is still announced. */
+  quiet?: boolean
 }) {
   trackRun({
     id: run.id,
@@ -58,6 +60,7 @@ function queueTrackedRunToast(run: ApiRun, options: {
     sourceAction: options.sourceAction,
     lastAnnouncedStatus: run.status,
   })
+  if (options.quiet) return
 
   addToast({
     title: queuedTitleForRun(run),
@@ -177,11 +180,14 @@ export function useTriggerRun() {
       opts?: Parameters<typeof triggerRun>[1]
       projectLabel?: string
       sourceAction: TrackedRunSourceAction
+      /** The caller shows the queued run itself, so a queued toast would repeat it. */
+      suppressQueuedToast?: boolean
     }) => triggerRun(projectName, opts),
     onSuccess: (run, variables) => {
       queueTrackedRunToast(run, {
         projectLabel: variables.projectLabel ?? variables.projectName,
         sourceAction: variables.sourceAction,
+        quiet: variables.suppressQueuedToast,
       })
     },
     onError: (error, variables) => {
@@ -223,6 +229,8 @@ export function useTriggerSiteAudit() {
       projectId: string
       projectLabel?: string
       suppressErrorToast?: boolean
+      /** The caller shows the queued scan itself, so a queued toast would repeat it. */
+      suppressQueuedToast?: boolean
       body?: Parameters<typeof triggerSiteAudit>[1]
     }) => triggerSiteAudit(projectName, body),
     onSuccess: (result, variables) => {
@@ -234,6 +242,7 @@ export function useTriggerSiteAudit() {
         sourceAction: 'site-audit',
         lastAnnouncedStatus: result.status,
       })
+      if (variables.suppressQueuedToast) return
       addToast({
         title: result.status === 'running' ? 'Agent Readiness audit scan already running' : 'Agent Readiness audit scan queued',
         detail: `${variables.projectLabel ?? variables.projectName} will refresh automatically when the scan finishes.`,

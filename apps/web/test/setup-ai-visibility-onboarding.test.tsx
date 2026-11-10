@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameQueriesQueryKey, getApiV1ProjectsByNameRunPreviewQueryKey, getApiV1RunsByIdQueryKey, getApiV1RunsQueryKey } from '@canonry/canonry-api-client/react-query'
 import type { ReactNode } from 'react'
-import { onboardingTelemetryEventSchema, querySnapshotDtoSchema, runDetailDtoSchema, type ProviderConnectionLastTestDto, type RunDetailDto } from '@canonry/canonry-contracts'
+import { querySnapshotDtoSchema, runDetailDtoSchema, type ProviderConnectionLastTestDto, type RunDetailDto } from '@canonry/canonry-contracts'
 
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { AccountProvider, type ApiKeyAccess } from '../src/contexts/account-context.js'
@@ -12,8 +12,7 @@ import { createDashboardFixture } from '../src/mock-data.js'
 import { clearOnboardingRunLaunched, readOnboardingLaunchedRun } from '../src/lib/onboarding-telemetry.js'
 import { getToasts } from '../src/lib/toast-store.js'
 import { formatSweepInstant } from '../src/lib/format-helpers.js'
-import { SetupPage } from '../src/pages/SetupPage.js'
-import { markOnboardingScanSkipped, wasOnboardingScanSkipped } from '../src/lib/onboarding-draft.js'
+import { SetupPage, type SetupPanelStep } from '../src/pages/SetupPage.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import { connectionFixture, settingsFixture } from './provider-settings-fixtures.js'
 import { PROVIDER_CONNECTION_TEST_COPY } from '../src/components/settings/ProviderConnectionTest.js'
@@ -57,9 +56,14 @@ function runPreviewFixture(queryCount: number, canStart = true) {
 }
 
 function renderProjectSetup(options: {
-  onboarding: boolean
+  /**
+   * Render the setup tracker's AI Visibility panel, with spy callbacks, instead
+   * of the page (the project-scoped page, or the whole wizard without a project).
+   */
+  panel: boolean
+  /** Where the panel opens: the tracker picks it from the server's blocker. */
+  panelStep?: SetupPanelStep
   projectScoped?: boolean
-  onboardingFinish?: boolean
   complete?: boolean
   providerReady?: boolean
   projectProviders?: string[]
@@ -171,14 +175,18 @@ function renderProjectSetup(options: {
   onTestFinished(restore)
 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const panel = {
+    initialStep: options.panelStep ?? 'engines-and-queries',
+    onClose: vi.fn<() => void>(),
+    onLaunched: vi.fn<(runId: string) => void>(),
+  }
   const content = () => (
     <QueryClientProvider client={queryClient}>
       <AccountProvider account={null} apiKey={options.apiKey}>
         <DashboardProvider value={fixture}>
           <SetupPage
             visibilityProjectName={options.projectScoped === false ? undefined : project.project.name}
-            siteHealthOnboarding={options.onboarding}
-            {...(options.onboardingFinish === undefined ? {} : { onboardingFinish: options.onboardingFinish })}
+            {...(options.panel ? { panel } : {})}
           />
         </DashboardProvider>
       </AccountProvider>
@@ -192,6 +200,7 @@ function renderProjectSetup(options: {
     domain: project.project.canonicalDomain,
     queryClient,
     requests,
+    panel,
     switchProjectName: (name: string) => {
       project.project.name = name
       rendered.rerender(content())
@@ -206,9 +215,9 @@ function renderProjectSetup(options: {
 }
 
 test('picks and saves several OpenRouter models in the provider step before allowing the first sweep', async () => {
-  const { requests, projectName } = renderProjectSetup({ onboarding: true, openRouter: true, projectProviders: [], readyProviderNames: [], queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]) })
+  const { requests, projectName } = renderProjectSetup({ panel: true, openRouter: true, projectProviders: [], readyProviderNames: [], queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]) })
   fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-  const launch = screen.getByRole('button', { name: 'Run check' }) as HTMLButtonElement
+  const launch = screen.getByRole('button', { name: 'Run first check' }) as HTMLButtonElement
   await waitFor(() => expect(launch.disabled).toBe(true))
   expect(await screen.findByText('Choose models')).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'AI engines' })).toBeTruthy()
@@ -247,7 +256,7 @@ test('a corrected OpenRouter key refreshes the model list without leaving the st
   // models in right away, not after the settings read goes stale.
   let models: Array<{ id: string; displayName: string }> = []
   renderProjectSetup({
-    onboarding: true, openRouter: true, projectProviders: [], readyProviderNames: [], queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]),
+    panel: true, openRouter: true, projectProviders: [], readyProviderNames: [], queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]),
     settingsResponse: () => jsonResponse(openRouterSettings(models)),
     providerResponse: () => jsonResponse(connectionFixture({ name: 'openrouter', displayName: 'OpenRouter', kind: 'model-gateway' })),
   })
@@ -272,7 +281,7 @@ test('a corrected OpenRouter key refreshes the model list without leaving the st
 test('shows the model list loading, and a failed read offers Retry', async () => {
   let respond: () => Response | Promise<Response> = () => new Promise<Response>(() => {})
   renderProjectSetup({
-    onboarding: true, openRouter: true, projectProviders: [], readyProviderNames: [], queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]),
+    panel: true, openRouter: true, projectProviders: [], readyProviderNames: [], queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]),
     settingsResponse: () => respond(),
   })
   fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
@@ -281,7 +290,7 @@ test('shows the model list loading, and a failed read offers Retry', async () =>
 
   respond = () => jsonResponse({ error: { code: 'INTERNAL', message: 'boom' } }, 500)
   renderProjectSetup({
-    onboarding: true, openRouter: true, projectProviders: [], readyProviderNames: [], queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]),
+    panel: true, openRouter: true, projectProviders: [], readyProviderNames: [], queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]),
     settingsResponse: () => respond(),
   })
   fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
@@ -292,36 +301,72 @@ test('shows the model list loading, and a failed read offers Retry', async () =>
   expect(await within(picker).findByRole('checkbox', { name: 'Model A' })).toBeTruthy()
 })
 
-test('marks AI Visibility as the optional final onboarding stage and can skip to the finish step', async () => {
-  const { projectName } = renderProjectSetup({ onboarding: true })
+test('the tracker panel holds only the steps, under the row: no page header, stepper, reset or skip', async () => {
+  const { panel } = renderProjectSetup({ panel: true, providerReady: false })
 
-  expect(await screen.findByRole('heading', { name: 'Set up AI Visibility' })).toBeTruthy()
-  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
-  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
-  expect(screen.queryByText('System check')).toBeNull()
-  expect(screen.queryByText('Create project')).toBeNull()
-  expect(screen.queryByText('Competitors')).toBeNull()
-  const progress = screen.getByRole('list', { name: 'Onboarding progress' })
-  expect(within(progress).getByText('AI Visibility').closest('[aria-current="step"]')).toBeTruthy()
+  // The tracker row is the panel's heading, so its sections sit one level below it.
+  expect(await screen.findByRole('heading', { level: 3, name: 'Add queries' })).toBeTruthy()
+  const engines = screen.getByRole('heading', { level: 3, name: 'AI engines' })
+  // The panel replaced the button that opened it, so its first heading takes the focus.
+  await waitFor(() => expect(document.activeElement).toBe(engines))
+  expect(screen.queryAllByRole('heading', { level: 1 })).toEqual([])
+  expect(screen.queryByRole('list', { name: 'Setup progress' })).toBeNull()
+  // The step's own actions, once its saved queries have loaded.
+  const back = await screen.findByRole('button', { name: 'Back' })
+  expect(screen.getByRole('textbox', { name: 'Queries (one per line)' })).toBeTruthy()
+  // Not starting AI Visibility is the skip, so the panel offers none.
+  for (const name of ['Reset unsaved fields', 'Finish without AI Visibility', 'Skip for now']) {
+    expect(screen.queryByRole('button', { name })).toBeNull()
+  }
 
-  fireEvent.click(screen.getByRole('button', { name: 'Skip AI Visibility' }))
+  // Back from the first step hands the row back to the tracker; nothing navigates.
+  fireEvent.click(back)
+  expect(panel.onClose).toHaveBeenCalledTimes(1)
+  expect(navigate).not.toHaveBeenCalled()
+})
 
-  await waitFor(() => {
-    expect(navigate).toHaveBeenCalledWith({
-      to: '/setup',
-      search: { onboarding: 'complete', setupProject: projectName, skipped: 'visibility' },
-      replace: true,
-    })
+test.each([false, true])('the tracker panel opened at the first check shows its review and nothing to skip (saved baseline: %s)', async complete => {
+  const { panel } = renderProjectSetup({ panel: true, panelStep: 'first-check', complete, queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]) })
+
+  expect(await screen.findByRole('heading', { level: 3, name: 'Run your first AI Visibility check' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Run first check' })).toBeTruthy()
+  // A saved baseline does not turn the review into an exit: the tracker asked for a check.
+  expect(screen.queryByText(/has saved AI Visibility results/)).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Finish without running' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Add queries' })).toBeNull()
+
+  // Back moves between the panel's steps before it closes the panel.
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  expect(await screen.findByRole('heading', { level: 3, name: 'Add queries' })).toBeTruthy()
+  expect(panel.onClose).not.toHaveBeenCalled()
+})
+
+test('launching from the tracker panel hands the queued run to the tracker', async () => {
+  const { panel, requests } = renderProjectSetup({
+    panel: true,
+    panelStep: 'first-check',
+    queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]),
+    runResponse: init => jsonResponse(runDetailDtoSchema.parse({ id: 'panel-run', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'queued', createdAt: '2026-09-05T12:00:00Z' }), init?.method === 'POST' ? 202 : 200),
   })
+  const launch = await screen.findByRole('button', { name: 'Run first check' })
+  await waitFor(() => expect(launch).toHaveProperty('disabled', false))
+  expect(panel.onLaunched).not.toHaveBeenCalled()
+
+  fireEvent.click(launch)
+
+  await waitFor(() => expect(panel.onLaunched).toHaveBeenCalledWith('panel-run'))
+  expect(panel.onLaunched).toHaveBeenCalledTimes(1)
+  expect(requests.filter(request => request.method === 'POST' && request.path.endsWith('/runs'))).toHaveLength(1)
+  expect(panel.onClose).not.toHaveBeenCalled()
+  expect(navigate).not.toHaveBeenCalled()
 })
 
 test('setup actions stay compact beside a mouse and are 44px targets under a finger', async () => {
-  renderProjectSetup({ onboarding: true, providerReady: false })
+  renderProjectSetup({ panel: true, providerReady: false })
   // Main's calmer onboarding names the provider step "AI engines".
   await screen.findByRole('heading', { name: 'AI engines' })
   fireEvent.click(await screen.findByText('Research queries with your agent', { selector: 'summary' }))
   const targets = [
-    screen.getByRole('button', { name: 'Skip AI Visibility' }),
     screen.getByRole('button', { name: 'Refresh connections' }),
     screen.getByRole('button', { name: 'Copy research prompt' }),
   ]
@@ -331,12 +376,12 @@ test('setup actions stay compact beside a mouse and are 44px targets under a fin
     const value = compiledElementProperty(rules, element, 'min-height', context)
     return value === undefined ? 0 : cssLengthPx(value, rules)
   }))
-  expect(minHeights).toEqual([[0, 44, 44], [0, 44, 44], [0, 44, 44]])
+  expect(minHeights).toEqual([[0, 44, 44], [0, 44, 44]])
 })
 
 test('allows a project-scoped write key to configure its exact project', async () => {
   renderProjectSetup({
-    onboarding: true,
+    panel: true,
     apiKey: {
       id: 'project-writer',
       scopes: ['*'],
@@ -345,8 +390,7 @@ test('allows a project-scoped write key to configure its exact project', async (
     },
   })
 
-  expect(await screen.findByRole('heading', { name: 'Set up AI Visibility' })).toBeTruthy()
-  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Add queries' })).toBeTruthy()
   expect(screen.queryByText(/for administrators/i)).toBeNull()
   expect(screen.getByRole('button', { name: /administrator/ })).toBeTruthy()
   expect(screen.queryByText('Not connected')).toBeNull()
@@ -357,8 +401,9 @@ test('allows a project-scoped write key to configure its exact project', async (
 })
 
 test('keeps Gemini onboarding guidance out of administrator-only setup for a read-only key', async () => {
+  // The tracker never opens its panel for a key that cannot write; the page is where this account lands.
   renderProjectSetup({
-    onboarding: true,
+    panel: false,
     providerReady: false,
     apiKey: { id: 'read-only-key', scopes: ['read'], projectId: null, readOnly: true },
   })
@@ -369,7 +414,7 @@ test('keeps Gemini onboarding guidance out of administrator-only setup for a rea
 })
 
 test('introduces Gemini free-tier setup before the API key field with its limits and official links', async () => {
-  renderProjectSetup({ onboarding: true, providerReady: false })
+  renderProjectSetup({ panel: true, providerReady: false })
   const heading = await screen.findByRole('heading', { name: 'Connect Gemini' })
   const keyInput = screen.getByLabelText('API key')
   expect(heading.compareDocumentPosition(keyInput) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -385,7 +430,7 @@ test('introduces Gemini free-tier setup before the API key field with its limits
 })
 
 test('switches Gemini free-tier guidance with the selected provider and preserves other key links', async () => {
-  const { requests } = renderProjectSetup({ onboarding: true, providerReady: false })
+  const { requests } = renderProjectSetup({ panel: true, providerReady: false })
   expect(await screen.findByRole('heading', { name: 'Connect Gemini' })).toBeTruthy()
   const provider = screen.getByLabelText('Provider to connect')
   fireEvent.change(provider, { target: { value: 'Claude' } })
@@ -402,7 +447,7 @@ test('switches Gemini free-tier guidance with the selected provider and preserve
 })
 
 test('keeps provider-switch keyboard focus while resetting credentials and advanced fields', async () => {
-  const { requests } = renderProjectSetup({ onboarding: true, providerReady: false, includeLocalProvider: true })
+  const { requests } = renderProjectSetup({ panel: true, providerReady: false, includeLocalProvider: true })
   const queries = await screen.findByLabelText('Queries (one per line)')
   fireEvent.change(queries, { target: { value: 'keep this query draft' } })
   fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'synthetic-gemini-key' } })
@@ -476,7 +521,7 @@ function renderColdScopedSetup(readinessResponse: () => Response | Promise<Respo
   render(
     <QueryClientProvider client={queryClient}>
       <AccountProvider account={null} apiKey={{ id: 'scoped-writer', scopes: ['*'], projectId: project.id, readOnly: false }}>
-        <SetupPage visibilityProjectName={project.name} siteHealthOnboarding />
+        <SetupPage visibilityProjectName={project.name} />
       </AccountProvider>
     </QueryClientProvider>,
   )
@@ -624,48 +669,9 @@ test.each([
   expect(screen.getByRole('button', { name: 'Open project dashboard →' })).toBeTruthy()
 })
 
-test('keeps a stale project-list handoff scoped to the exact onboarding project', async () => {
-  const fixture = createDashboardFixture()
-  fixture.dashboard.projects = []
-  fixture.dashboard.runs = []
-  const projectName = 'newly-created-project'
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+test('project-scoped setup with a saved baseline exits to the project dashboard in its place', async () => {
+  const { projectName } = renderProjectSetup({ panel: false, complete: true })
 
-  render(
-    <QueryClientProvider client={queryClient}>
-      <DashboardProvider value={fixture}>
-        <SetupPage visibilityProjectName={projectName} siteHealthOnboarding />
-      </DashboardProvider>
-    </QueryClientProvider>,
-  )
-
-  fireEvent.click(screen.getByRole('button', { name: 'Skip AI Visibility' }))
-
-  expect(navigate).toHaveBeenCalledWith({
-    to: '/setup',
-    search: { onboarding: 'complete', setupProject: projectName, skipped: 'visibility' },
-    replace: true,
-  })
-})
-
-test('finishing the project-scoped onboarding lands on the finish step', async () => {
-  const { projectName } = renderProjectSetup({ onboarding: true, complete: true })
-
-  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-  fireEvent.click(await screen.findByRole('button', { name: 'Finish setup' }))
-
-  expect(navigate).toHaveBeenCalledWith({
-    to: '/setup',
-    search: { onboarding: 'complete', setupProject: projectName },
-    replace: true,
-  })
-})
-
-test('keeps the existing project-scoped setup destination outside Agent Readiness onboarding', async () => {
-  const { projectName } = renderProjectSetup({ onboarding: false, complete: true })
-
-  expect(screen.queryByRole('list', { name: 'Onboarding progress' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Skip AI Visibility' })).toBeNull()
   fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
   fireEvent.click(await screen.findByRole('button', { name: /Open project dashboard/ }))
 
@@ -677,7 +683,7 @@ test('keeps the existing project-scoped setup destination outside Agent Readines
 })
 
 test('lets an existing query list be refined with researched queries before continuing', async () => {
-  const { projectName, requests } = renderProjectSetup({ onboarding: true, complete: true })
+  const { projectName, requests } = renderProjectSetup({ panel: true, complete: true })
   expect(await screen.findByText('best local dentist')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Edit queries' }))
   const input = screen.getByLabelText('Queries (one per line)') as HTMLTextAreaElement
@@ -691,7 +697,7 @@ test('lets an existing query list be refined with researched queries before cont
 })
 
 test('lets a project save queries before a provider is configured', async () => {
-  renderProjectSetup({ onboarding: true, providerReady: false })
+  renderProjectSetup({ panel: true, providerReady: false })
 
   const queries = await screen.findByLabelText('Queries (one per line)')
   fireEvent.change(queries, { target: { value: 'best local dentist' } })
@@ -699,12 +705,12 @@ test('lets a project save queries before a provider is configured', async () => 
 
   expect(await screen.findByRole('heading', { name: 'Run your first AI Visibility check' })).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'AI engines' })).toBeTruthy()
-  expect((screen.getByRole('button', { name: 'Run check' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Run first check' }) as HTMLButtonElement).disabled).toBe(true)
   expect(screen.queryByRole('heading', { name: 'System check' })).toBeNull()
 })
 
 test('offers provider setup before queries and keeps the draft after saving and refreshing readiness', async () => {
-  const { requests, markProviderReady } = renderProjectSetup({ onboarding: true, providerReady: false })
+  const { requests, markProviderReady } = renderProjectSetup({ panel: true, providerReady: false })
   expect(await screen.findByText('Not connected')).toBeTruthy()
   const providerHeading = screen.getByRole('heading', { name: 'AI engines' })
   const queryHeading = screen.getByRole('heading', { name: 'Add queries' })
@@ -712,9 +718,6 @@ test('offers provider setup before queries and keeps the draft after saving and 
   const saveConnection = screen.getByRole('button', { name: 'Save connection' }) as HTMLButtonElement
   expect(saveConnection.disabled).toBe(true)
   expect(saveConnection.parentElement).toBe(screen.getByRole('button', { name: 'Refresh connections' }).parentElement)
-  expect(screen.getByRole('region', { name: 'Add queries' }).tagName).toBe('SECTION')
-  expect(screen.getByRole('list', { name: 'Onboarding progress' })).toBeTruthy()
-  expect(screen.queryByRole('list', { name: 'Setup progress' })).toBeNull()
   expect(screen.getByText('Advanced provider settings').closest('details')?.open).toBe(false)
   // This is a provider secret, not the dashboard login password.
   const apiKeyField = screen.getByLabelText('API key')
@@ -762,7 +765,7 @@ test.each([
 ])('the engine step tests the saved connection and reads $badge when the test $outcome', async ({ result, badge, line }) => {
   const tested: string[] = []
   renderProjectSetup({
-    onboarding: true,
+    panel: true,
     readyProviderNames: ['gemini'],
     providerTestResponse: name => {
       tested.push(name)
@@ -784,7 +787,7 @@ test('the engine step reads a stored passing test as Connected without testing a
   const tested: string[] = []
   const checkedAt = '2026-01-05T09:30:00.000Z'
   renderProjectSetup({
-    onboarding: true,
+    panel: true,
     readyProviderNames: ['gemini'],
     providerLastTests: { gemini: { status: 'connected', ok: true, message: 'gemini api key verified', model: 'gemini-2.5-flash', checkedAt, durationMs: 800 } },
     providerTestResponse: name => { tested.push(name); return jsonResponse({}) },
@@ -801,7 +804,7 @@ test('the engine step reads a stored passing test as Connected without testing a
 test('tests each saved connection behind the listed engines once, and says first what that sends', async () => {
   const tested: string[] = []
   renderProjectSetup({
-    onboarding: true,
+    panel: true,
     openRouter: true,
     readyProviderNames: ['gemini'],
     projectProviders: ['gemini', 'openrouter:vendor/model-a', 'openrouter:vendor/model-b'],
@@ -828,7 +831,7 @@ test.each([
   { settings: 'unknown to setup when it tested them', tested: undefined, revision: 'gemini-saved', badge: PROVIDER_CONNECTION_TEST_COPY.savedNotVerified, stale: PROVIDER_CONNECTION_TEST_COPY.connected },
 ])('a pass in setup reads $badge in Settings when the saved settings are $settings', async ({ tested, revision, badge, stale }) => {
   const { queryClient } = renderProjectSetup({
-    onboarding: true,
+    panel: true,
     readyProviderNames: ['gemini'],
     ...(tested ? { providerRevisions: { gemini: tested } } : {}),
     providerTestResponse: name => jsonResponse({ provider: name, displayName: 'Gemini', status: 'connected', ok: true, message: 'gemini api key verified', model: 'gemini-2.5-flash', checkedAt: '2026-11-08T10:00:00.000Z', durationMs: 900 }),
@@ -852,7 +855,7 @@ test.each([
 test('keeps failed provider setup retryable without losing queries', async () => {
   let attempt = 0
   renderProjectSetup({
-    onboarding: true,
+    panel: true,
     providerReady: false,
     providerResponse: () => ++attempt === 1
       ? jsonResponse({ error: { message: 'Key could not be saved', code: 'VALIDATION_ERROR' } }, 400)
@@ -870,7 +873,7 @@ test('keeps failed provider setup retryable without losing queries', async () =>
 })
 
 test('requires the local endpoint, not an API key, when Local is selected', async () => {
-  const { requests } = renderProjectSetup({ onboarding: true, providerReady: false, projectProviders: ['local'], includeLocalProvider: true })
+  const { requests } = renderProjectSetup({ panel: true, providerReady: false, projectProviders: ['local'], includeLocalProvider: true })
   const baseUrl = await screen.findByLabelText('Base URL')
   expect(screen.queryByRole('heading', { name: 'Connect Gemini' })).toBeNull()
   expect(screen.queryByRole('link', { name: 'Get a key in Google AI Studio ↗' })).toBeNull()
@@ -890,7 +893,7 @@ test('requires the local endpoint, not an API key, when Local is selected', asyn
 test('keeps unknown browser readiness distinct from missing configuration', async () => {
   let resolveCdp: ((response: Response) => void) | undefined
   renderProjectSetup({
-    onboarding: true, providerReady: false,
+    panel: true, providerReady: false,
     cdpResponse: () => new Promise<Response>(resolve => { resolveCdp = resolve }),
   })
   expect(await screen.findByText('Checking')).toBeTruthy()
@@ -909,7 +912,7 @@ test('copies a project-specific Research request without starting provider work 
     if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor)
     else Reflect.deleteProperty(navigator, 'clipboard')
   })
-  const { projectName, domain, requests } = renderProjectSetup({ onboarding: true, providerReady: false })
+  const { projectName, domain, requests } = renderProjectSetup({ panel: true, providerReady: false })
   fireEvent.click(await screen.findByText('Research queries with your agent', { selector: 'summary' }))
   fireEvent.click(screen.getByRole('button', { name: 'Copy research prompt' }))
   expect(await screen.findByRole('button', { name: 'Research prompt copied' })).toBeTruthy()
@@ -935,7 +938,7 @@ test('offers a selectable research prompt if clipboard access fails', async () =
     if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor)
     else Reflect.deleteProperty(navigator, 'clipboard')
   })
-  renderProjectSetup({ onboarding: true })
+  renderProjectSetup({ panel: true })
   fireEvent.click(await screen.findByText('Research queries with your agent', { selector: 'summary' }))
   fireEvent.click(screen.getByRole('button', { name: 'Copy research prompt' }))
   expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Could not copy. Select and copy the prompt above.')
@@ -944,7 +947,7 @@ test('offers a selectable research prompt if clipboard access fails', async () =
 
 test('blocks launch when the ready provider is outside the project allowlist', async () => {
   renderProjectSetup({
-    onboarding: true,
+    panel: true,
     projectProviders: ['claude'],
     readyProviderNames: ['gemini'],
   })
@@ -960,13 +963,13 @@ test('blocks launch when the ready provider is outside the project allowlist', a
   expect(within(screen.getByLabelText('Provider to connect')).queryByRole('option', { name: 'Gemini' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Connect Gemini' })).toBeNull()
   expect(screen.queryByRole('link', { name: 'Get a key in Google AI Studio ↗' })).toBeNull()
-  expect((screen.getByRole('button', { name: 'Run check' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Run first check' }) as HTMLButtonElement).disabled).toBe(true)
 })
 
 test('treats a registered project-selected CDP provider as runnable', async () => {
   let savedQueries: Array<{ id: string; query: string }> = []
   renderProjectSetup({
-    onboarding: true,
+    panel: true,
     providerReady: false,
     projectProviders: ['cdp:chatgpt'],
     cdpStatus: { connected: false, browserVersion: 'Chrome/140' },
@@ -982,14 +985,14 @@ test('treats a registered project-selected CDP provider as runnable', async () =
   fireEvent.click(screen.getByRole('button', { name: 'Save 1 query' }))
 
   expect(await screen.findByRole('heading', { name: 'Run your first AI Visibility check' })).toBeTruthy()
-  const launch = screen.getByRole('button', { name: 'Run check' }) as HTMLButtonElement
+  const launch = screen.getByRole('button', { name: 'Run first check' }) as HTMLButtonElement
   await waitFor(() => expect(launch.disabled).toBe(false))
   expect(screen.queryByRole('link', { name: 'Connect another engine' })).toBeNull()
 })
 
 test('invalidates project query and dashboard caches after project-scoped query setup', async () => {
   const { projectId, projectName, queryClient } = renderProjectSetup({
-    onboarding: true,
+    panel: true,
     providerReady: false,
   })
   const queriesKey = getApiV1ProjectsByNameQueriesQueryKey({
@@ -1014,7 +1017,7 @@ test('invalidates project query and dashboard caches after project-scoped query 
 test.each([true, false])('keeps reset blocked until saved queries are confirmed (project-scoped: %s)', async projectScoped => {
   let resolveQueries: ((response: Response) => void) | undefined
   renderProjectSetup({
-    onboarding: projectScoped,
+    panel: false,
     projectScoped,
     readyProviderNames: ['gemini'],
     queryResponse: () => new Promise<Response>((resolve) => { resolveQueries = resolve }),
@@ -1069,7 +1072,7 @@ test.each(['queued', 'running', 'failed', 'completed'] as const)('managed setup 
   if (status === 'completed') {
     await screen.findByRole('table', { name: RESULT_TABLE })
     expect(resultRows()).toEqual([['All queries', 'Unavailable', 'Unavailable']])
-    expect(resultSummary('City Point Dental · 1 engine result')).toBeTruthy()
+    expect(resultSummary('City Point Dental · 1 answer')).toBeTruthy()
   } else if (status === 'failed') {
     expect(await screen.findByText('Provider quota exceeded')).toBeTruthy()
   } else {
@@ -1098,7 +1101,7 @@ function setupResultSnapshot(overrides: Record<string, unknown>) {
 /** The first result's summary row as [label, value], including each value's screen-reader class text. */
 const RESULT_TABLE = 'First AI Visibility check by query class'
 /** The running check's reassurance, after its start time. */
-const RUNNING_NOTE = /You can leave this page; the check keeps running\./
+const RUNNING_NOTE = /You can leave this page\. The check keeps running\./
 
 /** The first result's rows as [query class, mentioned, cited]. */
 function resultRows() {
@@ -1109,7 +1112,7 @@ function resultRows() {
   ])
 }
 
-/** The line above the table: the project and how many engine results the run saved. */
+/** The line above the table: the project and how many answers the run saved. */
 function resultSummary(text: string) {
   return screen.getByText((_, element) => element?.tagName === 'P' && element.textContent === text)
 }
@@ -1194,7 +1197,7 @@ test.each([
   const resultHeading = await screen.findByRole('heading', { name: 'Saved answers', level: 2 })
 
   // A server without the class split gives pooled counts, so the one row says it is all queries.
-  expect(resultSummary(`City Point Dental · ${checks} engine ${checks === '1' ? 'result' : 'results'}`)).toBeTruthy()
+  expect(resultSummary(`City Point Dental · ${checks} ${checks === '1' ? 'answer' : 'answers'}`)).toBeTruthy()
   expect(resultRows()).toEqual([['All queries', mentioned, cited]])
   // In view on arrival, not behind a disclosure.
   const summary = screen.getByRole('table', { name: RESULT_TABLE })
@@ -1338,66 +1341,9 @@ test.each([
   expect(copy[0]!.closest('details') !== null).toBe(truncated)
 })
 
-test('AI-first setup records the direct project handoff once after its first result', async () => {
-  const { projectName, requests } = renderProjectSetup({ onboarding: false, onboardingFinish: true, complete: true })
-  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-  const finish = await screen.findByRole('button', { name: 'Open project dashboard →' })
-  fireEvent.click(finish)
-  fireEvent.click(finish)
-
-  expect(navigate).toHaveBeenCalledWith({
-    to: '/projects/$projectName',
-    params: { projectName },
-    replace: true,
-  })
-  await waitFor(() => {
-    const events = requests.filter(request => request.path.endsWith('/telemetry/onboarding')).map(request => onboardingTelemetryEventSchema.parse(JSON.parse(String(request.body))))
-    const started = events.find(event => event.event === 'onboarding.started')
-    expect(started).toBeDefined()
-    expect(events.filter(event => event.event === 'onboarding.step_completed' && event.step === 'finish')).toEqual([
-      expect.objectContaining({
-        onboardingSessionId: started!.onboardingSessionId,
-        surface: 'wizard',
-        event: 'onboarding.step_completed',
-        step: 'finish',
-        method: 'manual',
-        nextAction: 'open_project',
-      }),
-    ])
-  })
-})
-
-test('AI-first setup hands a skipped AI Visibility step to the Agent Readiness audit scan walkthrough', async () => {
-  const { projectName, requests } = renderProjectSetup({ onboarding: false, onboardingFinish: true, complete: false })
-  const scanInstead = await screen.findByRole('button', { name: 'Check Agent Readiness instead' })
-  expect(screen.queryByRole('button', { name: 'Finish without AI Visibility' })).toBeNull()
-  // Choosing AI Visibility first noted the scan as skipped; the walkthrough must not say so now.
-  markOnboardingScanSkipped(projectName)
-  fireEvent.click(scanInstead)
-  expect(wasOnboardingScanSkipped(projectName)).toBe(false)
-
-  // The scan walkthrough for this same project, where Run first scan approves the crawl.
-  expect(navigate).toHaveBeenCalledTimes(1)
-  expect(navigate).toHaveBeenCalledWith({
-    to: '/setup',
-    search: { onboarding: 'site-health', setupProject: projectName },
-    replace: true,
-  })
-  await waitFor(() => {
-    const events = requests.filter(request => request.path.endsWith('/telemetry/onboarding')).map(request => onboardingTelemetryEventSchema.parse(JSON.parse(String(request.body))))
-    expect(events.filter(event => event.event === 'onboarding.step_completed' && event.step === 'queries')).toEqual([
-      expect.objectContaining({ method: 'skipped', countBucket: '0' }),
-    ])
-    // Setup goes on in the walkthrough, which records its own steps, so this page claims no finish.
-    expect(events.filter(event => event.event === 'onboarding.step_completed' && event.step === 'finish')).toEqual([])
-  })
-})
-
-test('a project-scoped skip outside first-run setup still returns to the project', async () => {
-  const { projectName } = renderProjectSetup({ onboarding: false })
-  const finish = await screen.findByRole('button', { name: 'Finish without AI Visibility' })
-  expect(screen.queryByRole('button', { name: 'Check Agent Readiness instead' })).toBeNull()
-  fireEvent.click(finish)
+test('finishing project-scoped setup without AI Visibility returns to the project', async () => {
+  const { projectName } = renderProjectSetup({ panel: false })
+  fireEvent.click(await screen.findByRole('button', { name: 'Finish without AI Visibility' }))
   expect(navigate).toHaveBeenCalledWith({
     to: '/projects/$projectName',
     params: { projectName },
@@ -1407,7 +1353,7 @@ test('a project-scoped skip outside first-run setup still returns to the project
 
 
 test('restores unsaved setup queries after reload and resets to saved queries without retaining credentials', async () => {
-  const options = { onboarding: true, providerReady: false, queryResponse: () => jsonResponse([{ id: 'saved-query', query: 'saved customer query' }]) }
+  const options = { panel: false, providerReady: false, queryResponse: () => jsonResponse([{ id: 'saved-query', query: 'saved customer query' }]) }
   renderProjectSetup(options)
   fireEvent.click(await screen.findByRole('button', { name: 'Edit queries' }))
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries (one per line)' }), { target: { value: 'saved customer query\nunsaved customer query' } })
@@ -1426,7 +1372,7 @@ test('restores unsaved setup queries after reload and resets to saved queries wi
 
 
 test('switching setup projects isolates the unsaved query draft', async () => {
-  const { switchProjectName } = renderProjectSetup({ onboarding: true, providerReady: false })
+  const { switchProjectName } = renderProjectSetup({ panel: true, providerReady: false })
   fireEvent.change(await screen.findByRole('textbox', { name: 'Queries (one per line)' }), { target: { value: 'first project unsaved query' } })
   switchProjectName('another-fictional-project')
   expect((await screen.findByRole('textbox', { name: 'Queries (one per line)' }) as HTMLTextAreaElement).value).toBe('')
@@ -1436,7 +1382,7 @@ test('switching setup projects isolates the unsaved query draft', async () => {
 test('global setup reset preserves queries saved during this visit', async () => {
   let saved = [{ id: 'saved-a', query: 'saved query A' }]
   const { requests } = renderProjectSetup({
-    onboarding: false,
+    panel: false,
     projectScoped: false,
     readyProviderNames: ['gemini'],
     queryResponse: init => {
@@ -1461,7 +1407,7 @@ test('global setup reset preserves queries saved during this visit', async () =>
 test('counts and saves a pasted repeat once, then reviews the canonical saved queries', async () => {
   let saved: Array<{ id: string; query: string }> = []
   const { requests } = renderProjectSetup({
-    onboarding: true,
+    panel: false,
     queryResponse: init => {
       if (init?.method === 'PUT') saved = [{ id: 'canonical-query', query: 'best local dentist' }]
       return jsonResponse(saved)
@@ -1488,7 +1434,7 @@ test('counts and saves a pasted repeat once, then reviews the canonical saved qu
 test('repairs a failed connection inline and retries without repeating project or query setup', async () => {
   let attempts = 0
   const { requests } = renderProjectSetup({
-    onboarding: true,
+    panel: false,
     projectProviders: ['gemini'],
     readyProviderNames: ['gemini'],
     queryResponse: () => jsonResponse([{ id: 'saved-query', query: 'best local dentist' }]),
@@ -1547,7 +1493,7 @@ test('keeps the first saved answer mounted while a completed run refreshes the p
   await waitFor(() => expect(resolveOverview).toBeTypeOf('function'))
   expect(screen.getByRole('heading', { name: 'Saved answers' })).toBeTruthy()
   expect(within(screen.getByRole('region', { name: 'Your first saved answer' })).getByText('Local')).toBeTruthy()
-  expect(resultSummary('City Point Dental · 1 engine result')).toBeTruthy()
+  expect(resultSummary('City Point Dental · 1 answer')).toBeTruthy()
   expect(resultRows()).toEqual([['All queries', 'Unavailable', 'Unavailable']])
   expect(screen.queryByRole('heading', { name: 'Add queries' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Reset unsaved fields' })).toBeNull()
@@ -1560,7 +1506,7 @@ test('keeps the first saved answer mounted while a completed run refreshes the p
 test.each([false, true])('refuses a stale successful preview after a failed refresh and allows recovery (retry: %s)', async retry => {
   let previewFailed = false
   const { queryClient, projectName, requests } = renderProjectSetup({
-    onboarding: false,
+    panel: false,
     queryResponse: () => jsonResponse([{ id: 'saved-query', query: 'best local dentist' }]),
     previewResponse: () => previewFailed
       ? jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Preview unavailable' } }, 503)
@@ -1593,7 +1539,7 @@ test.each([false, true])('refuses a stale successful preview after a failed refr
 
 test('names the engine step and marks the first check complete once it saves answers', async () => {
   renderProjectSetup({
-    onboarding: false,
+    panel: false,
     queryResponse: () => jsonResponse([{ id: 'saved-query', query: 'best local dentist' }]),
     runResponse: () => jsonResponse(runDetailDtoSchema.parse({
       id: 'first-check', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'completed', createdAt: '2026-09-05T12:00:00Z',
@@ -1622,7 +1568,7 @@ test('appends only new generated queries, says how many repeats it skipped, and 
   ]
   let attempt = 0
   const { requests } = renderProjectSetup({
-    onboarding: true,
+    panel: false,
     queryResponse: init => jsonResponse(init?.method === 'PUT'
       ? (JSON.parse(String(init.body)) as { queries: string[] }).queries.map((query, index) => ({ id: `query-${index}`, query }))
       : []),
@@ -1658,7 +1604,7 @@ test('appends only new generated queries, says how many repeats it skipped, and 
 })
 
 test('reviews the website, market and location as one list before the first check', async () => {
-  const { domain } = renderProjectSetup({ onboarding: false, queryResponse: () => jsonResponse([{ id: 'saved-query', query: 'best local dentist' }]) })
+  const { domain } = renderProjectSetup({ panel: false, queryResponse: () => jsonResponse([{ id: 'saved-query', query: 'best local dentist' }]) })
   fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
   const details = await screen.findByRole('region', { name: 'Check details' })
   const values = within(details).getAllByRole('definition')
@@ -1669,11 +1615,12 @@ test('reviews the website, market and location as one list before the first chec
   ])
 })
 
-test('counts saved engine results against the requests previewed for the check launched here', async () => {
-  let snapshots: RunDetailDto['snapshots'] = []
+test('counts saved answers against the previewed requests until the run records its own total', async () => {
+  // What the run detail reports: the answers saved so far, and its own total once the sweep records one.
+  const reported: { snapshots: RunDetailDto['snapshots']; plannedAnswers?: number } = { snapshots: [] }
   const startedAt = '2026-09-05T12:00:30Z'
   const { queryClient } = renderProjectSetup({
-    onboarding: false,
+    panel: false,
     queryResponse: () => jsonResponse([
       { id: 'query-1', query: 'best local dentist' },
       { id: 'query-2', query: 'emergency dentist' },
@@ -1681,62 +1628,46 @@ test('counts saved engine results against the requests previewed for the check l
     ]),
     runResponse: init => jsonResponse(runDetailDtoSchema.parse(init?.method === 'POST'
       ? { id: 'progress-run', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'queued', createdAt: '2026-09-05T12:00:00Z' }
-      : { id: 'progress-run', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'running', createdAt: '2026-09-05T12:00:00Z', startedAt, snapshots })),
+      : { id: 'progress-run', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'running', createdAt: '2026-09-05T12:00:00Z', startedAt, ...reported })),
   })
   fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
   // The preview counts 3 provider requests: three queries on one engine.
   await waitFor(() => expect(screen.getByRole('button', { name: 'Run check' })).toHaveProperty('disabled', false))
   fireEvent.click(screen.getByRole('button', { name: 'Run check' }))
-  const progress = (text: string) => (_: string, element: Element | null) => element?.getAttribute('role') === 'status' && element.textContent === text
-  expect(await screen.findByText(progress('0 of 3 engine results saved'))).toBeTruthy()
-  const bar = screen.getByRole('progressbar', { name: 'Engine results saved' })
+  // The count is plain text, not a live region: it changes every few seconds.
+  expect(await screen.findByText('0 of 3 answers saved')).toBeTruthy()
+  const bar = screen.getByRole('progressbar', { name: 'AI Visibility check progress' })
   expect([bar.getAttribute('aria-valuenow'), bar.getAttribute('aria-valuemax')]).toEqual(['0', '3'])
-  expect(screen.getByText(RUNNING_NOTE).textContent).toBe(`Started ${formatSweepInstant(startedAt, new Date().toISOString())}. You can leave this page; the check keeps running.`)
-  // Outside first-run setup the project may already have a scan, so no scan is offered here.
-  expect(screen.queryByRole('button', { name: 'Check Agent Readiness' })).toBeNull()
+  expect(screen.getByText(RUNNING_NOTE).textContent).toBe(`Started ${formatSweepInstant(startedAt, new Date().toISOString())}. You can leave this page. The check keeps running.`)
 
-  snapshots = [setupResultSnapshot({ runId: 'progress-run' })]
+  // The sweep records what it set out to collect (one engine it could not reach
+  // is left out), and that total replaces the preview's.
+  reported.plannedAnswers = 2
+  reported.snapshots = [setupResultSnapshot({ runId: 'progress-run' })]
   await queryClient.invalidateQueries({ queryKey: getApiV1RunsByIdQueryKey({ client: heyClient, path: { id: 'progress-run' } }) })
-  expect(await screen.findByText(progress('1 of 3 engine results saved'))).toBeTruthy()
-  expect(screen.getByRole('progressbar', { name: 'Engine results saved' }).getAttribute('aria-valuenow')).toBe('1')
+  expect(await screen.findByText('1 of 2 answers saved')).toBeTruthy()
+  const filled = screen.getByRole('progressbar', { name: 'AI Visibility check progress' })
+  expect([filled.getAttribute('aria-valuenow'), filled.getAttribute('aria-valuemax')]).toEqual(['1', '2'])
+  // Running is not a success: the fill stays neutral, never success green.
+  const fill = filled.firstElementChild!
+  const fillColor = compiledElementProperty(parseCompiledCss(await compileAppStyles([...fill.classList])), fill, 'background-color')
+  expect(fillColor).toBeDefined()
+  expect(fillColor).not.toMatch(/positive|success|green/)
 })
 
-test('first-run setup offers the Agent Readiness audit scan while the first check runs', async () => {
-  const { projectName } = renderProjectSetup({
-    onboarding: false,
-    onboardingFinish: true,
-    complete: false,
-    queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]),
-    runResponse: init => jsonResponse(runDetailDtoSchema.parse(init?.method === 'POST'
-      ? { id: 'offer-run', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'queued', createdAt: '2026-09-05T12:00:00Z' }
-      : { id: 'offer-run', projectId: 'project_citypoint', kind: 'answer-visibility', status: 'running', createdAt: '2026-09-05T12:00:00Z', startedAt: '2026-09-05T12:00:30Z', snapshots: [] })),
-  })
-  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Run check' })).toHaveProperty('disabled', false))
-  fireEvent.click(screen.getByRole('button', { name: 'Run check' }))
-  await screen.findByText(RUNNING_NOTE)
-  expect(screen.getByRole('heading', { name: 'Your first AI Visibility check' })).toBeTruthy()
-  expect(screen.getByRole('heading', { name: 'Agent Readiness audit scan' })).toBeTruthy()
-  navigate.mockClear()
-  fireEvent.click(screen.getByRole('button', { name: 'Check Agent Readiness' }))
-  // The scan walkthrough for this project, where Run first scan approves the crawl.
-  expect(navigate).toHaveBeenCalledWith({
-    to: '/setup',
-    search: { onboarding: 'site-health', setupProject: projectName },
-    replace: true,
-  })
-})
-
-test('a check resumed from an earlier visit shows its saved results without a planned total', async () => {
+test.each([
+  { scenario: 'without a recorded total pulses instead of filling', plannedAnswers: undefined, count: '1 answer saved', scale: [null, null] },
+  { scenario: 'counts against the total its run recorded', plannedAnswers: 4, count: '1 of 4 answers saved', scale: ['1', '4'] },
+])('a check resumed from an earlier visit $scenario', async ({ plannedAnswers, count, scale }) => {
   const startedAt = '2026-09-05T12:00:30Z'
-  renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), { status: 'running', startedAt, snapshots: [setupResultSnapshot({})] })
-  expect(await screen.findByText((_, element) => element?.getAttribute('role') === 'status'
-    && element.textContent === '1 engine result saved')).toBeTruthy()
-  // Without a planned total there is no bounded scale, so no progress bar.
-  expect(screen.queryByRole('progressbar', { name: 'Engine results saved' })).toBeNull()
+  renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), { status: 'running', startedAt, snapshots: [setupResultSnapshot({})], plannedAnswers })
+  expect(await screen.findByText(count)).toBeTruthy()
+  // A bounded scale only against a total the server sent; this visit previewed nothing.
+  const bar = screen.getByRole('progressbar', { name: 'AI Visibility check progress' })
+  expect([bar.getAttribute('aria-valuenow'), bar.getAttribute('aria-valuemax')]).toEqual(scale)
 })
 
-test('a running check says which engine is failing before it ends', async () => {
+test('a running check says which engine is failing before it ends, with its message one step away', async () => {
   renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), {
     status: 'running', startedAt: '2026-09-05T12:00:30Z', snapshots: [],
     providerFailures: {
@@ -1744,13 +1675,18 @@ test('a running check says which engine is failing before it ends', async () => 
     },
   })
   await screen.findByText(RUNNING_NOTE)
-  const note = screen.getByText('OpenRouter request failed (HTTP 402): Insufficient credits.').closest('[role="status"]')!
-  expect(note.textContent).toMatch(/: 2 queries failed, so this check stopped asking it\.OpenRouter request failed \(HTTP 402\): Insufficient credits\.$/)
+  const message = screen.getByText('OpenRouter request failed (HTTP 402): Insufficient credits.')
+  const note = message.closest('[role="status"]')!
+  // One line per engine; the engine's own message waits behind a closed disclosure.
+  expect(note.querySelector('p')!.textContent).toMatch(/: 2 queries failed, so this check stopped asking it\.$/)
+  const disclosure = message.closest('details')!
+  expect(disclosure.open).toBe(false)
+  expect(within(disclosure).getByText('Engine message', { selector: 'summary' })).toBeTruthy()
 })
 
 test('says what each provider to connect is and what connecting it takes', async () => {
   renderProjectSetup({
-    onboarding: true,
+    panel: true,
     providerReady: false,
     includeLocalProvider: true,
     extraProviders: [
@@ -1782,7 +1718,7 @@ test('names every engine it can connect, and that more can follow, until one is 
     { name: 'muse', displayName: 'Muse' },
     { name: 'openrouter', displayName: 'OpenRouter' },
   ]
-  renderProjectSetup({ onboarding: true, providerReady: false, includeLocalProvider: true, extraProviders })
+  renderProjectSetup({ panel: true, providerReady: false, includeLocalProvider: true, extraProviders })
   // The form opens on Gemini, so this line is where the others show up: the
   // server's own list, OpenRouter's one key spelled out, local models last.
   const engines = await screen.findByRole('region', { name: 'AI engines' })
@@ -1791,7 +1727,7 @@ test('names every engine it can connect, and that more can follow, until one is 
   )).toBeTruthy()
   cleanup()
 
-  renderProjectSetup({ onboarding: true, includeLocalProvider: true, extraProviders })
+  renderProjectSetup({ panel: true, includeLocalProvider: true, extraProviders })
   const connected = await screen.findByRole('region', { name: 'AI engines' })
   // Connected: the step offers another engine instead of a first connection.
   expect(await within(connected).findByRole('button', { name: 'Connect another engine' })).toBeTruthy()
@@ -1800,7 +1736,7 @@ test('names every engine it can connect, and that more can follow, until one is 
 
 test('offers to connect another engine only while one this project can use is unconnected', async () => {
   // Gemini is connected and others are not: the button adds one, opening on the next.
-  renderProjectSetup({ onboarding: true, projectProviders: [], readyProviderNames: ['gemini'] })
+  renderProjectSetup({ panel: true, projectProviders: [], readyProviderNames: ['gemini'] })
   const engines = await screen.findByRole('region', { name: 'AI engines' })
   fireEvent.click(await within(engines).findByRole('button', { name: 'Connect another engine' }))
   expect((screen.getByRole('combobox', { name: 'Provider to connect' }) as HTMLSelectElement).value).toBe('OpenAI')
@@ -1808,7 +1744,7 @@ test('offers to connect another engine only while one this project can use is un
 
   // The project may only use Gemini, and Gemini is connected: the form can only
   // edit that saved connection, so the button does not promise another engine.
-  renderProjectSetup({ onboarding: true, projectProviders: ['gemini'], readyProviderNames: ['gemini'] })
+  renderProjectSetup({ panel: true, projectProviders: ['gemini'], readyProviderNames: ['gemini'] })
   const limited = await screen.findByRole('region', { name: 'AI engines' })
   fireEvent.click(await within(limited).findByRole('button', { name: 'Change engine settings' }))
   expect(within(limited).queryByRole('button', { name: 'Connect another engine' })).toBeNull()
@@ -1820,7 +1756,7 @@ test('offers to connect another engine only while one this project can use is un
 test('says saving a first OpenRouter key leads to choosing its models, and only then', async () => {
   const openRouter = [{ name: 'openrouter', displayName: 'OpenRouter' }]
   // No engine is connected yet, so saving OpenRouter opens its model picker in this step.
-  renderProjectSetup({ onboarding: true, providerReady: false, extraProviders: openRouter })
+  renderProjectSetup({ panel: true, providerReady: false, extraProviders: openRouter })
   const provider = await screen.findByRole('combobox', { name: 'Provider to connect' })
   expect(screen.getByRole('button', { name: 'Save connection' })).toBeTruthy()
   fireEvent.change(provider, { target: { value: 'openrouter' } })
@@ -1829,7 +1765,7 @@ test('says saving a first OpenRouter key leads to choosing its models, and only 
   cleanup()
 
   // Gemini is already connected, so OpenRouter's models are chosen later and the button only saves.
-  renderProjectSetup({ onboarding: true, projectProviders: [], readyProviderNames: ['gemini'], extraProviders: openRouter })
+  renderProjectSetup({ panel: true, projectProviders: [], readyProviderNames: ['gemini'], extraProviders: openRouter })
   fireEvent.click(await screen.findByRole('button', { name: 'Connect another engine' }))
   fireEvent.change(screen.getByRole('combobox', { name: 'Provider to connect' }), { target: { value: 'openrouter' } })
   expect(await screen.findByRole('button', { name: 'Save connection' })).toBeTruthy()

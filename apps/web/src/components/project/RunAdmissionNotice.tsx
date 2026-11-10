@@ -193,17 +193,17 @@ export function RunPreviewSummary({ preview, pending, failed, onRetry, details =
     <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 text-copy-14 text-secondary">
       <p><strong className="text-heading">{preview.queryCount}</strong> {preview.queryCount === 1 ? 'query' : 'queries'}</p>
       {preview.assignmentCount !== null && <p><strong className="text-heading">{preview.assignmentCount}</strong> {preview.assignmentCount === 1 ? 'Property assignment' : 'Property assignments'}</p>}
-      <p><strong className="text-heading">{preview.requestCount}</strong> provider {preview.requestCount === 1 ? 'request' : 'requests'}</p>
+      <p><strong className="text-heading">{preview.requestCount}</strong> {preview.requestCount === 1 ? 'answer' : 'answers'}</p>
     </div>
     {classSplit && <p className="text-copy-13 text-secondary">{classSplit}</p>}
     {preview.revision !== null && <p className="text-copy-14 text-secondary">Published plan · revision {preview.revision}. Unpublished changes are not included.</p>}
-    {preview.engines.length > 0 && <div className="overflow-x-auto"><table className="evidence-table"><thead><tr><th>Engine</th><th className="text-right">Requests</th></tr></thead><tbody>{preview.engines.map(engine => {
+    {preview.engines.length > 0 && <div className="overflow-x-auto"><table className="evidence-table"><thead><tr><th>Engine</th><th className="text-right">Answers</th></tr></thead><tbody>{preview.engines.map(engine => {
       const hold = preview.admission.providers[engine.provider]
       const models = engine.models.filter(model => model !== openRouterRouteModel(engine.provider)).map(model => openRouterRouteModel(engine.provider) ? formatModelName(model) : model)
       return <tr key={engine.provider}><td>{providerDisplayName(engine.provider)}{(models.length > 0 || !openRouterRouteModel(engine.provider)) && <span className="block break-words text-copy-13 text-secondary">{models.join(', ') || 'Default model'}</span>}{hold ? <span className="block text-copy-13 text-caution">Skipped: {accountFailure(hold.code).label}. On hold until <When iso={hold.retryAfter} />.</span> : !engine.available && <span className="block text-copy-13 text-caution">Not available</span>}</td><td className="text-right tabular-nums">{engine.requestCount}</td></tr>
     })}</tbody></table></div>}
     <RunPreviewDetails rows={rows} />
-    {preview.requestCount !== preview.expectedRequestCount && <p className="text-copy-14 text-caution">{preview.requestCount} of {preview.expectedRequestCount} planned requests can run.</p>}
+    {preview.requestCount !== preview.expectedRequestCount && <p className="text-copy-14 text-caution">{preview.requestCount} of {preview.expectedRequestCount} planned answers can run.</p>}
     {preview.blockedReason && <p role="alert" className="text-copy-14 text-caution">{RUN_PREVIEW_BLOCKED_COPY[preview.blockedReason]}</p>}
     {preview.activeRunId && <Link to="/runs" search={{ runId: preview.activeRunId }} className="text-label-14 text-link underline">View running check</Link>}
   </section>
