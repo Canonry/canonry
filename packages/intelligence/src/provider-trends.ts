@@ -1,4 +1,4 @@
-import { CitationStates, percentOf } from '@canonry/canonry-contracts'
+import { CitationStates, percentOf, RetrievalStatuses, type RetrievalStatus } from '@canonry/canonry-contracts'
 
 export interface ProviderTrendRun {
   id: string
@@ -10,6 +10,8 @@ export interface ProviderTrendSnapshot {
   model: string | null
   queryId: string
   citationState: string
+  /** Absent / null for rows written before retrieval was recorded: they stay in the cited denominator. */
+  retrievalStatus?: RetrievalStatus | null
 }
 
 export interface ProviderTrendPoint {
@@ -28,6 +30,13 @@ export interface ProviderTrendPoint {
  * dashboard a per-model row with both a headline score AND a trend chip.
  * A run with no snapshots for a (provider, model) contributes a 0-rate
  * point so the sparkline length matches across rows.
+ *
+ * A run whose snapshots for a (provider, model) were all written with no
+ * retrieval step (`retrievalStatus = 'not-used'`) likewise contributes a
+ * 0-rate point: the run measured no searched citation for that key, the
+ * same "no evidence" reading as a run with no snapshots. The headline row
+ * from `buildProviderScores` carries the `excludedNoRetrieval` count, so
+ * the loss is visible there rather than in the per-point rate.
  *
  * The key shape `${provider}::${model ?? 'unknown'}` matches the key used
  * by `buildProviderScores` so the dashboard can zip them without re-deriving.
@@ -50,6 +59,11 @@ export function buildProviderTrends(
     const snaps = snapshotsByRunId.get(run.id) ?? []
     const perKey = new Map<string, Map<string, boolean>>()
     for (const snap of snaps) {
+      // An answer written with no retrieval step cites nothing by
+      // construction (#1161): it leaves the cited denominator rather than
+      // counting as a searched miss. Rows that predate retrieval recording
+      // stay in — an unobserved absence is not an observed one.
+      if (snap.retrievalStatus === RetrievalStatuses['not-used']) continue
       const key = providerKey(snap.provider, snap.model)
       const queryMap = perKey.get(key) ?? new Map<string, boolean>()
       if (!queryMap.has(snap.queryId)) queryMap.set(snap.queryId, false)

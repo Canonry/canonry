@@ -15,6 +15,22 @@ export interface ProjectOverviewQueryCountsDto {
   citedQueries: number
   notCitedQueries: number
   citedRate: number
+  /**
+   * Queries with at least one searched answer, the denominator of `citedRate`
+   * and `notCitedQueries`. Present only when it differs from `totalQueries`:
+   * answers written with no web search (`retrievalStatus = 'not-used'`) cite
+   * nothing by construction, so they leave the cited population rather than
+   * count as searched misses; see `excludedNoRetrieval`. The mention figures
+   * still read `totalQueries` — brand recall does not need search.
+   */
+  citedTotalQueries?: number
+  /**
+   * Queries whose answers were all written with no web search
+   * (`retrievalStatus = 'not-used'`), excluded from the cited population.
+   * Present only when above zero, so a smaller cited denominator is always
+   * visible next to the rate it shrank.
+   */
+  excludedNoRetrieval?: number
   // Mention is a distinct signal from cited (see AGENTS.md "Vocabulary"): a
   // query is `mentioned` when its brand/domain appears in the AI answer text
   // (`answerMentioned`) on at least one snapshot — computed independently of
@@ -29,6 +45,12 @@ export interface ProjectOverviewProviderEntryDto {
   citedRate: number
   cited: number
   total: number
+  /**
+   * Snapshots this provider answered with no web search
+   * (`retrievalStatus = 'not-used'`), excluded from `total`. Present only
+   * when above zero.
+   */
+  excludedNoRetrieval?: number
 }
 
 // `since` is the createdAt of the run before `latestRun`, so callers can render
@@ -63,6 +85,12 @@ export interface ScoreSummaryDto {
   trend: number[]
   progress?: number
   providerCoverage?: string
+  /**
+   * Citation gauges only: queries whose answers were all written with no
+   * web search (`retrievalStatus = 'not-used'`), excluded from the rate the
+   * gauge shows. Present only when above zero.
+   */
+  excludedNoRetrieval?: number
 }
 
 // The score gauges shown at the top of the project page. Each is a
@@ -155,6 +183,14 @@ export interface MovementSummaryDto {
   gainedQueries?: string[]
   /** Query strings that lost the named signal. */
   lostQueries?: string[]
+  /**
+   * Citation movement only: comparable queries that could not be judged
+   * because neither run holds a searched answer for them (every snapshot
+   * `retrievalStatus = 'not-used'`). They are in neither `gained` nor `lost`.
+   * Present only when above zero. Never set on mention movement — brand
+   * recall does not need search.
+   */
+  excludedNoRetrieval?: number
 }
 
 /** Describes whether latest-vs-previous movement compares the same tracked
@@ -208,6 +244,12 @@ export interface ProjectOverviewProviderScoreDto {
   score: number
   cited: number
   total: number
+  /**
+   * Snapshots this (provider, model) answered with no web search
+   * (`retrievalStatus = 'not-used'`), excluded from `total`. Present only
+   * when above zero.
+   */
+  excludedNoRetrieval?: number
   /** Per-recent-run citation rate (0-100, at wire precision) for this (provider, model), oldest first. Up to 12 points. Omitted when only a single run exists. */
   trend?: number[]
 }
@@ -230,6 +272,12 @@ export interface AttentionItemDto {
 // answer text mentioned the brand. They are independent — never derive one
 // from the other — so the portfolio sparkline can track whichever the
 // headline metric uses.
+//
+// The two rates have different denominators when the run holds answers
+// written with no web search: `citationRate` reads the searched population
+// (`citedTotalCount`, present only when it differs from `totalCount`),
+// while `mentionRate` reads every query in `totalCount`, since brand recall
+// does not need search.
 export interface RunHistoryPointDto {
   runId: string
   createdAt: string
@@ -239,6 +287,17 @@ export interface RunHistoryPointDto {
   mentionedCount: number
   mentionRate: number
   status: string
+  /**
+   * Queries with at least one searched answer, the denominator of
+   * `citationRate`. Present only when it differs from `totalCount`.
+   */
+  citedTotalCount?: number
+  /**
+   * Queries whose answers were all written with no web search
+   * (`retrievalStatus = 'not-used'`), excluded from the citation population.
+   * Present only when above zero.
+   */
+  excludedNoRetrieval?: number
 }
 
 /** One row in the "Track new queries" panel — a GSC query the project is
@@ -339,6 +398,7 @@ const scoreSummarySchema = z.object({
   trend: z.array(percent()),
   progress: percent().optional(),
   providerCoverage: z.string().optional(),
+  excludedNoRetrieval: z.number().int().nonnegative().optional(),
 })
 
 const mentionShareBreakdownSchema = z.object({
@@ -385,6 +445,7 @@ const movementSummarySchema = z.object({
   hasPreviousRun: z.boolean(),
   gainedQueries: z.array(z.string()).optional(),
   lostQueries: z.array(z.string()).optional(),
+  excludedNoRetrieval: z.number().int().nonnegative().optional(),
 })
 
 const movementComparisonSchema = z.object({
@@ -477,6 +538,8 @@ export const projectOverviewDtoSchema = z.object({
     citedQueries: z.number().int().nonnegative(),
     notCitedQueries: z.number().int().nonnegative(),
     citedRate: fraction(),
+    citedTotalQueries: z.number().int().nonnegative().optional(),
+    excludedNoRetrieval: z.number().int().nonnegative().optional(),
     mentionedQueries: z.number().int().nonnegative(),
     notMentionedQueries: z.number().int().nonnegative(),
     mentionRate: fraction(),
@@ -486,6 +549,7 @@ export const projectOverviewDtoSchema = z.object({
     citedRate: fraction(),
     cited: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+    excludedNoRetrieval: z.number().int().nonnegative().optional(),
   })),
   transitions: z.object({
     since: z.string().nullable(),
@@ -523,6 +587,7 @@ export const projectOverviewDtoSchema = z.object({
     score: percent(),
     cited: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+    excludedNoRetrieval: z.number().int().nonnegative().optional(),
     trend: z.array(percent()).optional(),
   })),
   attentionItems: z.array(z.object({
@@ -542,6 +607,8 @@ export const projectOverviewDtoSchema = z.object({
     mentionedCount: z.number().int().nonnegative(),
     mentionRate: percent(),
     status: z.string(),
+    citedTotalCount: z.number().int().nonnegative().optional(),
+    excludedNoRetrieval: z.number().int().nonnegative().optional(),
   })),
   suggestedQueries: z.object({
     rows: z.array(z.object({

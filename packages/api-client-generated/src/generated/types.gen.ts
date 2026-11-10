@@ -14945,6 +14945,8 @@ export type ProjectOverviewDto = {
         citedQueries: number;
         notCitedQueries: number;
         citedRate: number;
+        citedTotalQueries?: number;
+        excludedNoRetrieval?: number;
         mentionedQueries: number;
         notMentionedQueries: number;
         mentionRate: number;
@@ -14954,6 +14956,7 @@ export type ProjectOverviewDto = {
         citedRate: number;
         cited: number;
         total: number;
+        excludedNoRetrieval?: number;
     }>;
     transitions: {
         since: string | null;
@@ -14972,6 +14975,7 @@ export type ProjectOverviewDto = {
             trend: Array<number>;
             progress?: number;
             providerCoverage?: string;
+            excludedNoRetrieval?: number;
         };
         visibility: {
             label: string;
@@ -14983,6 +14987,7 @@ export type ProjectOverviewDto = {
             trend: Array<number>;
             progress?: number;
             providerCoverage?: string;
+            excludedNoRetrieval?: number;
         };
         mentionShare: {
             label: string;
@@ -14994,6 +14999,7 @@ export type ProjectOverviewDto = {
             trend: Array<number>;
             progress?: number;
             providerCoverage?: string;
+            excludedNoRetrieval?: number;
             breakdown: {
                 projectMentionSnapshots: number;
                 competitorMentionSnapshots: number;
@@ -15044,6 +15050,7 @@ export type ProjectOverviewDto = {
             trend: Array<number>;
             progress?: number;
             providerCoverage?: string;
+            excludedNoRetrieval?: number;
         };
         mentionGaps: {
             label: string;
@@ -15055,6 +15062,7 @@ export type ProjectOverviewDto = {
             trend: Array<number>;
             progress?: number;
             providerCoverage?: string;
+            excludedNoRetrieval?: number;
         };
         indexCoverage: {
             label: string;
@@ -15066,6 +15074,7 @@ export type ProjectOverviewDto = {
             trend: Array<number>;
             progress?: number;
             providerCoverage?: string;
+            excludedNoRetrieval?: number;
         };
         competitorPressure: {
             label: string;
@@ -15077,6 +15086,7 @@ export type ProjectOverviewDto = {
             trend: Array<number>;
             progress?: number;
             providerCoverage?: string;
+            excludedNoRetrieval?: number;
         };
         runStatus: {
             label: string;
@@ -15088,6 +15098,7 @@ export type ProjectOverviewDto = {
             trend: Array<number>;
             progress?: number;
             providerCoverage?: string;
+            excludedNoRetrieval?: number;
         };
     };
     movementSummary: {
@@ -15097,6 +15108,7 @@ export type ProjectOverviewDto = {
         hasPreviousRun: boolean;
         gainedQueries?: Array<string>;
         lostQueries?: Array<string>;
+        excludedNoRetrieval?: number;
     };
     citationMovement: {
         gained: number;
@@ -15105,6 +15117,7 @@ export type ProjectOverviewDto = {
         hasPreviousRun: boolean;
         gainedQueries?: Array<string>;
         lostQueries?: Array<string>;
+        excludedNoRetrieval?: number;
     };
     mentionMovement: {
         gained: number;
@@ -15113,6 +15126,7 @@ export type ProjectOverviewDto = {
         hasPreviousRun: boolean;
         gainedQueries?: Array<string>;
         lostQueries?: Array<string>;
+        excludedNoRetrieval?: number;
     };
     movementComparison: {
         hasPreviousRun: boolean;
@@ -15143,6 +15157,7 @@ export type ProjectOverviewDto = {
         score: number;
         cited: number;
         total: number;
+        excludedNoRetrieval?: number;
         trend?: Array<number>;
     }>;
     attentionItems: Array<{
@@ -15162,6 +15177,8 @@ export type ProjectOverviewDto = {
         mentionedCount: number;
         mentionRate: number;
         status: string;
+        citedTotalCount?: number;
+        excludedNoRetrieval?: number;
     }>;
     suggestedQueries: {
         rows: Array<{

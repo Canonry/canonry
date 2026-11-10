@@ -135,4 +135,52 @@ describe('buildVisibilityScore', () => {
     })
     expect(result.providerCoverage).toBeUndefined()
   })
+
+  it('excludes queries whose answers were all written with no web search (#1161)', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', citationState: 'cited', retrievalStatus: 'used' }),
+      snap({ queryId: 'q2', citationState: 'not-cited', retrievalStatus: 'used' }),
+      snap({ queryId: 'q3', citationState: 'not-cited', retrievalStatus: 'not-used' }),
+    ]
+    const result = buildVisibilityScore(snapshots, { configuredApiProviders: ['gemini'] })
+    // 1 of 2 searched queries cited — the unsearched query is not a miss.
+    expect(result.value).toBe('50.0%')
+    expect(result.progress).toBe(50)
+    expect(result.delta).toBe('1 of 2 queries cited')
+    expect(result.excludedNoRetrieval).toBe(1)
+  })
+
+  it('keeps a query cited when one searched snapshot cites it and another did not search', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', provider: 'gemini', citationState: 'not-cited', retrievalStatus: 'not-used' }),
+      snap({ queryId: 'q1', provider: 'openai', citationState: 'cited', retrievalStatus: 'used' }),
+    ]
+    const result = buildVisibilityScore(snapshots, { configuredApiProviders: ['gemini', 'openai'] })
+    expect(result.value).toBe('100%')
+    expect(result.excludedNoRetrieval).toBeUndefined()
+  })
+
+  it('keeps legacy rows with no recorded retrieval status in the denominator', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', citationState: 'cited', retrievalStatus: null }),
+      snap({ queryId: 'q2', citationState: 'not-cited', retrievalStatus: 'not-used' }),
+    ]
+    const result = buildVisibilityScore(snapshots, { configuredApiProviders: ['gemini'] })
+    expect(result.value).toBe('100%')
+    expect(result.delta).toBe('1 of 1 queries cited')
+    expect(result.excludedNoRetrieval).toBe(1)
+  })
+
+  it('reads "No data" rather than a false 0% when every answer went unsearched', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', citationState: 'not-cited', retrievalStatus: 'not-used' }),
+      snap({ queryId: 'q2', citationState: 'not-cited', retrievalStatus: 'not-used' }),
+    ]
+    const result = buildVisibilityScore(snapshots, { configuredApiProviders: ['gemini'] })
+    expect(result.value).toBe('No data')
+    expect(result.delta).toBe('No searched answers to score')
+    expect(result.tone).toBe('neutral')
+    expect(result.progress).toBeUndefined()
+    expect(result.excludedNoRetrieval).toBe(2)
+  })
 })

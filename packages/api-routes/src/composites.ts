@@ -26,6 +26,7 @@ import {
   PROJECT_OVERVIEW_QUERY_CLASS_SCOPE,
   parseRunError,
   RatioUnits,
+  RetrievalStatuses,
   roundRatio,
   RunKinds,
   RunStatuses,
@@ -33,6 +34,7 @@ import {
   type AttentionItemDto,
   type CitationState,
   type MentionIdentity,
+  type RetrievalStatus,
   type RunKind,
   type HealthSnapshotDto,
   type InsightDto,
@@ -540,6 +542,13 @@ interface OverviewSnapshot {
   model: string | null
   citationState: CitationState
   answerMentioned: boolean | null
+  /**
+   * Whether this answer ran a retrieval step. Null for rows written before
+   * retrieval was recorded: they stay in the cited denominators. The
+   * intelligence builders read it to leave `not-used` answers out of the
+   * cited populations (#1161).
+   */
+  retrievalStatus: RetrievalStatus | null
   /** Sentiment's stored identity verdict; `wrong-subject` keeps a name match from counting. */
   mentionIdentity: MentionIdentity | null
   /** Raw LLM answer text — needed by Mention Share to scan for competitor
@@ -568,6 +577,7 @@ function loadSnapshotsByRunIds(
       model: querySnapshots.model,
       citationState: querySnapshots.citationState,
       answerMentioned: querySnapshots.answerMentioned,
+      retrievalStatus: querySnapshots.retrievalStatus,
       mentionIdentity: querySnapshots.mentionIdentity,
       answerText: querySnapshots.answerText,
       rawResponse: querySnapshots.rawResponse,
@@ -611,6 +621,7 @@ function loadSnapshotsByRunIds(
       model: row.model,
       citationState: row.citationState as CitationState,
       answerMentioned: row.answerMentioned,
+      retrievalStatus: row.retrievalStatus,
       mentionIdentity: row.mentionIdentity,
       answerText: row.answerText,
       groundingSources: parseOverviewGroundingSources(row.rawResponse),
@@ -650,37 +661,55 @@ function summarizeFromSnapshots(
   }
   if (snapshots.length === 0) return empty
 
-  const { totalQueries, citedQueries, mentionedQueries } = summarizeObservedQueryCounts(snapshots)
-  const perProvider = new Map<string, { cited: number; total: number }>()
+  const { totalQueries, mentionedQueries } = summarizeObservedQueryCounts(snapshots)
+  // The cited figures read the SEARCHED population only (#1161): an answer
+  // written with no retrieval step cites nothing by construction, so its
+  // query leaves the cited denominator rather than counting as a searched
+  // miss. The mention figures still read every query — brand recall does
+  // not need search. Rows that predate retrieval recording stay in.
+  const checkedSnapshots = snapshots.filter(snap => snap.retrievalStatus !== RetrievalStatuses['not-used'])
+  const { totalQueries: citedTotalQueries, citedQueries: citedCheckedQueries } = summarizeObservedQueryCounts(checkedSnapshots)
+  const excludedNoRetrieval = totalQueries - citedTotalQueries
+  const perProvider = new Map<string, { cited: number; total: number; excludedNoRetrieval: number }>()
   for (const snap of snapshots) {
-    const cited = snap.citationState === CitationStates.cited
-    const bucket = perProvider.get(snap.provider) ?? { cited: 0, total: 0 }
-    bucket.total += 1
-    if (cited) bucket.cited += 1
+    const bucket = perProvider.get(snap.provider) ?? { cited: 0, total: 0, excludedNoRetrieval: 0 }
+    if (snap.retrievalStatus === RetrievalStatuses['not-used']) {
+      bucket.excludedNoRetrieval += 1
+    } else {
+      bucket.total += 1
+      if (snap.citationState === CitationStates.cited) bucket.cited += 1
+    }
     perProvider.set(snap.provider, bucket)
   }
 
-  const notCitedQueries = totalQueries - citedQueries
-  const citedRate = totalQueries === 0 ? 0 : Number((citedQueries / totalQueries).toFixed(4))
+  const notCitedQueries = citedTotalQueries - citedCheckedQueries
+  const citedRate = citedTotalQueries === 0 ? 0 : Number((citedCheckedQueries / citedTotalQueries).toFixed(4))
 
   const notMentionedQueries = totalQueries - mentionedQueries
   const mentionRate = totalQueries === 0 ? 0 : Number((mentionedQueries / totalQueries).toFixed(4))
 
   const providers: ProjectOverviewProviderEntryDto[] = [...perProvider.entries()]
-    .map(([provider, { cited, total }]) => ({
+    .map(([provider, { cited, total, excludedNoRetrieval: providerExcluded }]) => ({
       provider,
       cited,
       total,
       citedRate: total === 0 ? 0 : Number((cited / total).toFixed(4)),
+      // Present only when nonzero, so a smaller cited denominator is always
+      // visible next to the rate it shrank.
+      ...(providerExcluded > 0 ? { excludedNoRetrieval: providerExcluded } : {}),
     }))
     .sort((a, b) => a.provider.localeCompare(b.provider))
 
   return {
     queryCounts: {
       totalQueries,
-      citedQueries,
+      citedQueries: citedCheckedQueries,
       notCitedQueries,
       citedRate,
+      // Present only when the cited population differs from the whole
+      // basket, so a smaller cited denominator is always visible next to
+      // the rate it shrank.
+      ...(excludedNoRetrieval > 0 ? { citedTotalQueries, excludedNoRetrieval } : {}),
       mentionedQueries,
       notMentionedQueries,
       mentionRate,
@@ -700,6 +729,10 @@ function summarizeTransitionsFromSnapshots(
   const buildMap = (snaps: readonly OverviewSnapshot[]): Map<string, boolean> => {
     const m = new Map<string, boolean>()
     for (const s of snaps) {
+      // A no-search answer never had a chance to cite (#1161): its query
+      // must not read as a transition either way. Rows that predate
+      // retrieval recording stay in.
+      if (s.retrievalStatus === RetrievalStatuses['not-used']) continue
       const cited = s.citationState === CitationStates.cited
       if (!m.has(s.queryId) || cited) m.set(s.queryId, cited)
     }

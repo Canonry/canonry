@@ -15,8 +15,9 @@ function snap(
   queryId: string,
   citationState: string = 'cited',
   answerMentioned: boolean = false,
+  retrievalStatus?: RunHistorySnapshot['retrievalStatus'],
 ): RunHistorySnapshot {
-  return { queryId, citationState, answerMentioned }
+  return { queryId, citationState, answerMentioned, retrievalStatus }
 }
 
 describe('buildRunHistory', () => {
@@ -167,5 +168,74 @@ describe('buildRunHistory', () => {
     ])
     const result = buildRunHistory(runs, snapshots)
     expect(result[0]).toMatchObject({ citedCount: 1, mentionedCount: 249, totalCount: 250, citationRate: 0.4, mentionRate: 99.6 })
+  })
+
+  it('excludes answers written with no web search from the citation rate only (#1161)', () => {
+    const runs = [run('r1', '2026-01-01T00:00:00Z')]
+    const snapshots = new Map([
+      ['r1', [
+        snap('r1', 'q1', 'cited', false, 'used'),
+        snap('r1', 'q2', 'not-cited', false, 'used'),
+        // q3 was answered with no search but still named the brand: it
+        // leaves the citation population while staying in the mention one.
+        snap('r1', 'q3', 'not-cited', true, 'not-used'),
+      ]],
+    ])
+    const result = buildRunHistory(runs, snapshots)
+    expect(result[0]).toMatchObject({
+      citedCount: 1,
+      totalCount: 3,
+      citedTotalCount: 2,
+      citationRate: 50,
+      mentionedCount: 1,
+      mentionRate: 33.333333,
+      excludedNoRetrieval: 1,
+    })
+  })
+
+  it('reads a zero citation rate for a run whose answers all went unsearched, with the count beside it', () => {
+    const runs = [run('r1', '2026-01-01T00:00:00Z')]
+    const snapshots = new Map([
+      ['r1', [
+        snap('r1', 'q1', 'not-cited', true, 'not-used'),
+        snap('r1', 'q2', 'not-cited', false, 'not-used'),
+      ]],
+    ])
+    const result = buildRunHistory(runs, snapshots)
+    expect(result[0]).toMatchObject({
+      citedCount: 0,
+      totalCount: 2,
+      citedTotalCount: 0,
+      citationRate: 0,
+      mentionedCount: 1,
+      mentionRate: 50,
+      excludedNoRetrieval: 2,
+    })
+  })
+
+  it('keeps legacy rows with no recorded retrieval status in the citation rate', () => {
+    const runs = [run('r1', '2026-01-01T00:00:00Z')]
+    const snapshots = new Map([
+      ['r1', [
+        snap('r1', 'q1', 'cited', false, null),
+        snap('r1', 'q2', 'not-cited', false, 'not-used'),
+      ]],
+    ])
+    const result = buildRunHistory(runs, snapshots)
+    expect(result[0]).toMatchObject({
+      citedCount: 1,
+      totalCount: 2,
+      citedTotalCount: 1,
+      citationRate: 100,
+      excludedNoRetrieval: 1,
+    })
+  })
+
+  it('omits the cited denominator fields when nothing was excluded', () => {
+    const runs = [run('r1', '2026-01-01T00:00:00Z')]
+    const snapshots = new Map([['r1', [snap('r1', 'q1', 'cited', true)]]])
+    const result = buildRunHistory(runs, snapshots)
+    expect(result[0]).not.toHaveProperty('citedTotalCount')
+    expect(result[0]).not.toHaveProperty('excludedNoRetrieval')
   })
 })
