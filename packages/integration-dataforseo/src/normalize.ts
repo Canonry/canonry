@@ -62,7 +62,37 @@ const serpItemTypeSchema = z.object({ type: z.string() })
 const serpItemSchema = z.object({
   type: z.literal('organic'), domain: z.string().nullish(), url: z.string().nullish(),
   rank_group: z.number().int().positive().nullish(), rank_absolute: z.number().int().positive().nullish(),
+  /** The address Google shows above the title, such as `https://www.example.com › homes`. */
+  breadcrumb: z.string().nullish(),
 })
+
+/** A Google redirect such as `https://google.com/goto?url=…`, which hides the result's own address. */
+function isGoogleRedirect(url: string | null | undefined): boolean {
+  if (!url) return false
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
+    return /^google\.[a-z]{2,3}(?:\.[a-z]{2})?$/.test(host) && (parsed.pathname === '/goto' || parsed.pathname === '/url')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The site and address of one organic result. Google can wrap a result's link in its own
+ * redirect (`https://google.com/goto?url=…`), and the provider then reports google.com as
+ * the result's domain. The breadcrumb above the title still names the site, so the host
+ * comes from there and the page address stays unknown. A breadcrumb that is not an address
+ * ("1 week ago" on a social post) leaves the site unknown, and the result names no one.
+ */
+function resultSite(item: z.infer<typeof serpItemSchema>): { host: string | null; url: string | null } {
+  if (!isGoogleRedirect(item.url)) return { host: item.domain ? normalizeHostname(item.domain) : null, url: item.url ?? null }
+  try {
+    return { host: normalizeHostname(new URL(item.breadcrumb?.trim().split(/[\s\u203a]/)[0] ?? '').hostname), url: null }
+  } catch {
+    return { host: null, url: null }
+  }
+}
 
 function provenance(request: SeoAdapterRequest, collectedAt: string, sourceUpdatedAt: string | null): SeoProvenance {
   const serp = request.capability === SeoCapabilities['market-rankings']
@@ -87,6 +117,7 @@ const searchIdentity = (text: string) => text.replace(/\s+/g, ' ').trim().toLowe
  * last organic result, and the rows say so rather than claiming the requested depth. A page with
  * no organic result checked nothing, complete or partial, so it is a failed search: read as "not
  * in the top N" it would claim the site and every tracked rival are absent from results never seen.
+ * The same holds for a page whose organic results all hide their site (see `resultSite`).
  */
 function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collectedAt: string, partial: boolean): SeoMarketRanking[] {
   const search = request.search
@@ -101,15 +132,17 @@ function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collecte
   const organic = (result.items ?? []).filter(item => serpItemTypeSchema.safeParse(item).data?.type === 'organic')
     .map(item => serpItemSchema.parse(item)).filter(item => item.rank_group != null)
   if (organic.length === 0) throw new Error('SEO provider returned no organic results.')
+  const sites = organic.map(item => ({ item, ...resultSite(item) }))
+  // Results that name no site checked nothing either, so they never read as "not in the top N".
+  if (!sites.some(site => site.host)) throw new Error('SEO provider returned no organic result with a known site.')
   const depth = partial ? Math.min(search.depth, organic.reduce((deepest, item) => Math.max(deepest, item.rank_group!), 0)) : search.depth
-  let best: z.infer<typeof serpItemSchema> | null = null
+  let best: { rank: number; rankAbsolute: number | null; url: string | null } | null = null
   const competitorRanks = new Map<string, number>()
   const competitors = new Set(search.markets.flatMap(market => market.competitors))
-  for (const item of organic) {
-    const host = item.domain ? normalizeHostname(item.domain) : null
+  for (const { item, host, url } of sites) {
     if (!host) continue
     if (hostBelongsTo(host, target)) {
-      if (!best || item.rank_group! < best.rank_group!) best = item
+      if (!best || item.rank_group! < best.rank) best = { rank: item.rank_group!, rankAbsolute: item.rank_absolute ?? null, url }
       continue
     }
     const domain = registrableDomain(host)
@@ -124,7 +157,7 @@ function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collecte
     return {
       ...market.context, searchText, locationLabel: search.locationLabel, target,
       searchStatus: partial ? SeoMarketRankingSearchStatuses.partial : SeoMarketRankingSearchStatuses.completed,
-      rankOrganic: best?.rank_group ?? null, rankAbsolute: best?.rank_absolute ?? null, url: best?.url ?? null,
+      rankOrganic: best?.rank ?? null, rankAbsolute: best?.rankAbsolute ?? null, url: best?.url ?? null,
       depth, competitors: ranked.filter(competitor => tracked.has(competitor.domain)), provenance: source,
     }
   })
