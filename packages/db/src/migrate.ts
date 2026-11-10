@@ -5498,6 +5498,24 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE runs ADD COLUMN planned_answers INTEGER`,
     ],
   },
+  {
+    version: 218,
+    name: 'site-health-notify-state-repair',
+    // v214 again. Before this release merged the one that shipped v214, its
+    // provider-connection-tests, run-provider-failures and run-planned-answers
+    // migrations were numbered 214-216 (now 215-217). A database that applied
+    // them under those numbers skipped v214, since only versions above the
+    // highest applied one run. Everywhere else the table exists: a no-op.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS site_health_notify_state (
+        project_id     TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        reported_keys  TEXT NOT NULL DEFAULT '[]',
+        run_id         TEXT NOT NULL,
+        updated_at     TEXT NOT NULL,
+        notified_at    TEXT
+      )`,
+    ],
+  },
 ]
 
 /**
