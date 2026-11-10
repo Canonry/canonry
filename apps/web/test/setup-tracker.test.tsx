@@ -355,6 +355,38 @@ test('a running check stops through the same confirmation, which says it keeps n
   expect(requests.filter(request => request.method === 'POST' && request.path === '/api/v1/runs/run-ai/cancel')).toHaveLength(1)
 })
 
+test('a check started elsewhere after one launched here shows its own progress and result, never stuck at Queued', async () => {
+  const reads = [
+    setupRead({ aiVisibility: { blockedBy: null, engines: ['openrouter'] } }),
+    // The launch from the panel, before the read lists it.
+    setupRead({ aiVisibility: { blockedBy: null, engines: ['openrouter'] } }),
+    // A newer check, started from the CLI or an agent.
+    setupRead({ aiVisibility: { state: 'running', runId: 'cli-run', blockedBy: null, engines: ['openrouter'], progress: { answersSaved: 2, answersPlanned: 5 } } }),
+    setupRead({
+      aiVisibility: {
+        state: 'completed', runId: 'cli-run', blockedBy: null, engines: ['openrouter'],
+        result: { answers: 5, engines: 1, queryCounts: { totalQueries: 5, citedQueries: 1, mentionedQueries: 2 }, queryCountsByClass: null },
+      },
+    }),
+  ]
+  let read = 0
+  const { queryClient } = renderTracker({ setup: () => jsonResponse(reads[Math.min(read++, reads.length - 1)]!) })
+  const setupKey = getApiV1ProjectsByNameSetupQueryKey({ client: heyClient, path: { name: PROJECT } })
+
+  fireEvent.click(await within(await findRow('AI Visibility')).findByRole('button', { name: 'Review first check' }))
+  fireEvent.click(await within(row('AI Visibility')).findByRole('button', { name: 'Run first check' }))
+  await waitFor(() => expect(within(row('AI Visibility')).getByText('Queued')).toBeTruthy())
+
+  await queryClient.invalidateQueries({ queryKey: setupKey })
+  await waitFor(() => expect(within(row('AI Visibility')).getByText('2 of 5 answers saved')).toBeTruthy())
+  expect(within(row('AI Visibility')).getByText('Running')).toBeTruthy()
+  expect(within(row('AI Visibility')).getByRole('button', { name: 'Cancel check' })).toBeTruthy()
+
+  await queryClient.invalidateQueries({ queryKey: setupKey })
+  await waitFor(() => expect(within(row('AI Visibility')).getByText('Complete')).toBeTruthy())
+  expect(statusLines()[1]).toBe('AI Visibility check complete. 5 answers from 1 engine.')
+})
+
 test('a scan or check that finishes here reads the runs list again, so the top bar never lags the row', async () => {
   let reads = 0
   const { queryClient } = renderTracker({

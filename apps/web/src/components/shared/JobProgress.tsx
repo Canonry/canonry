@@ -47,9 +47,10 @@ export function JobProgress({
         aria-valuemax={bounded ? total : undefined}
         aria-valuenow={bounded ? Math.min(done, total) : undefined}
       >
+        {/* Keyed apart: the fill mounts fresh at its share, never animating down from the full-width pulse. */}
         {bounded && done > 0
-          ? <div className="h-full rounded-full bg-accent transition-[width] duration-500 motion-reduce:transition-none" style={{ width: `${Math.max(2, share * 100)}%` }} />
-          : <div className="h-full w-full rounded-full bg-accent/25 motion-safe:animate-pulse" />}
+          ? <div key="fill" className="h-full rounded-full bg-accent transition-[width] duration-500 motion-reduce:transition-none" style={{ width: `${Math.max(2, share * 100)}%` }} />
+          : <div key="pulse" className="h-full w-full rounded-full bg-accent/25 motion-safe:animate-pulse" />}
       </div>
       <p className="mt-2 text-copy-13 text-secondary">
         {since ? <>{startedAt ? 'Started' : 'Queued'} <time dateTime={since}>{formatSweepInstant(since, new Date().toISOString())}</time>. </> : null}

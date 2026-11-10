@@ -101,8 +101,13 @@ export function ProjectSetupTracker({
     retry: false,
   })
   const [aiPanelStep, setAiPanelStep] = useState<SetupPanelStep | null>(null)
-  /** A check queued from the panel that the setup read does not list yet. */
-  const [pendingCheckRunId, setPendingCheckRunId] = useState<string | null>(null)
+  /**
+   * A check queued from the panel, with the run the setup read listed when it
+   * was queued. It reads as starting only while the read still lists that
+   * run: once it lists any other (this check, or a newer one started from the
+   * CLI or an agent), the read is current again.
+   */
+  const [pendingCheck, setPendingCheck] = useState<{ runId: string; listedRunId: string | null } | null>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const deepLinkHandled = useRef(false)
   const aiTrack = setupQuery.data?.tracks.aiVisibility
@@ -169,7 +174,7 @@ export function ProjectSetupTracker({
   const locale = project ? formatLocaleLabel(project.country, project.language) : null
   const scan = setup.tracks.agentReadiness
   const ai = setup.tracks.aiVisibility
-  const checkStarting = pendingCheckRunId !== null && ai.runId !== pendingCheckRunId
+  const checkStarting = pendingCheck !== null && ai.runId === pendingCheck.listedRunId && ai.runId !== pendingCheck.runId
   const aiPanelOpen = canWrite && aiPanelStep !== null && !isActive(ai.state)
   // One primary per view: the open panel owns it; otherwise the first row, in
   // order, whose next step starts something.
@@ -236,7 +241,7 @@ export function ProjectSetupTracker({
           starting={checkStarting}
           onLaunched={(runId) => {
             reportRunStarted(runId, RunKinds['answer-visibility'])
-            setPendingCheckRunId(runId)
+            setPendingCheck({ runId, listedRunId: ai.runId })
             closeAiPanel()
             void refreshSetup()
           }}
