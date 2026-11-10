@@ -22,3 +22,14 @@ export function uncheckedSourcesLabel(value: { denominator?: number | null; unch
   const total = value.denominator + value.unchecked
   return `${value.unchecked} of ${total} ${total === 1 ? 'answer' : 'answers'} had sources that could not be checked`
 }
+
+/**
+ * Name the answers a cited rate left out beside its denominator: written
+ * with no web search, so they cite nothing by construction and leave the
+ * cited denominator rather than count as a searched miss. They remain in
+ * the mention denominator, since brand recall does not need search.
+ */
+export function excludedNoRetrievalLabel(value: { excludedNoRetrieval?: number }): string | null {
+  if (value.excludedNoRetrieval === undefined || value.excludedNoRetrieval <= 0) return null
+  return `Excluded from the cited rate: ${value.excludedNoRetrieval} answer(s) written without a web search`
+}

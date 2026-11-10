@@ -1896,6 +1896,8 @@ export const getApiV1ProjectsByNameTimeline = <ThrowOnError extends boolean = fa
 
 /**
  * Get citation trend analytics
+ *
+ * Citation + mention rates over the window, overall, per provider, and per time bucket. The cited rate leaves out answers written with no web search (`retrievalStatus = 'not-used'`, counted as `excludedNoRetrieval`): they cite nothing by construction, so counting them would read an unsearched answer as a searched miss. `total` is every snapshot observed — the mention denominator, since brand recall does not need search — so `cited / total` is not the cited rate when `excludedNoRetrieval` is nonzero.
  */
 export const getApiV1ProjectsByNameAnalyticsMetrics = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameAnalyticsMetricsData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameAnalyticsMetricsResponses, GetApiV1ProjectsByNameAnalyticsMetricsErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameAnalyticsMetricsResponses, GetApiV1ProjectsByNameAnalyticsMetricsErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
