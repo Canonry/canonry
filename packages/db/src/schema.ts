@@ -1048,6 +1048,23 @@ export const doctorHealthState = sqliteTable('doctor_health_state', {
 })
 
 /**
+ * What the `site-health.issue.new` webhook already reported, one row per project
+ * (migration 214). `reportedKeys` is the sorted set of `code|page` keys, the page
+ * as the first 16 hex characters of the SHA-256 of its URL. Written only by
+ * `Notifier.onSiteAuditCompleted`: after a subscriber accepts an alert, and after a
+ * complete scan clears problems it no longer finds.
+ */
+export const siteHealthNotifyState = sqliteTable('site_health_notify_state', {
+  projectId: text('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  reportedKeys: text('reported_keys', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  /** The audit run last applied. */
+  runId: text('run_id').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  /** When a subscriber last accepted an alert. Null until then. */
+  notifiedAt: text('notified_at'),
+})
+
+/**
  * Website liveness, kept apart from doctor_health_state on purpose. The liveness
  * schedule checks one thing every few minutes; the doctor pass grades everything
  * every 6h. Sharing one row would let a quick "site is up" pass overwrite a GA

@@ -5445,6 +5445,22 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_run ON ga_search_landing_pages(sync_run_id)`,
     ],
   },
+  {
+    version: 214,
+    name: 'site-health-notify-state',
+    // What the site-health.issue.new webhook already reported, one row per
+    // project. No backfill: a project without a row reports what its next
+    // audit finds, once.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS site_health_notify_state (
+        project_id     TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        reported_keys  TEXT NOT NULL DEFAULT '[]',
+        run_id         TEXT NOT NULL,
+        updated_at     TEXT NOT NULL,
+        notified_at    TEXT
+      )`,
+    ],
+  },
 ]
 
 /**
