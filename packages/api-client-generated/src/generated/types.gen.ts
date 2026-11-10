@@ -15569,6 +15569,7 @@ export type ProjectSetupDto = {
             runId: string | null;
             startedAt: string | null;
             finishedAt: string | null;
+            baselineRunId: string | null;
             mode?: 'simple' | 'advanced';
             blockedBy: 'no_engine' | 'no_queries' | 'plan_unpublished' | 'engines_failing' | null;
             engines: Array<string>;

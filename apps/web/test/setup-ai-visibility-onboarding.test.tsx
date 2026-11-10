@@ -64,6 +64,8 @@ function renderProjectSetup(options: {
   panel: boolean
   /** Where the panel opens: the tracker picks it from the server's blocker. */
   panelStep?: SetupPanelStep
+  /** The tracker's `hasBaseline`: the setup read names a baseline run. */
+  panelHasBaseline?: boolean
   projectScoped?: boolean
   complete?: boolean
   providerReady?: boolean
@@ -186,7 +188,7 @@ function renderProjectSetup(options: {
       <AccountProvider account={null} apiKey={options.apiKey}>
         <DashboardProvider value={fixture}>
           {options.panel
-            ? <AiVisibilitySetupPanel projectName={project.project.name} initialStep={panel.initialStep} onClose={panel.onClose} onLaunched={panel.onLaunched} />
+            ? <AiVisibilitySetupPanel projectName={project.project.name} initialStep={panel.initialStep} hasBaseline={options.panelHasBaseline} onClose={panel.onClose} onLaunched={panel.onLaunched} />
             : <SetupPage visibilityProjectName={options.projectScoped === false ? undefined : project.project.name} />}
         </DashboardProvider>
       </AccountProvider>
@@ -341,11 +343,16 @@ test('the tracker panel shows one step at a time under the row: the AI engine, t
   expect(navigate).not.toHaveBeenCalled()
 })
 
-test.each([false, true])('the tracker panel opened at the first check shows its review and nothing to skip (saved baseline: %s)', async complete => {
-  const { panel } = renderProjectSetup({ panel: true, panelStep: 'first-check', complete, queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]) })
+test.each([
+  { complete: false, heading: 'Run your first AI Visibility check', run: 'Run first check', step: '·3First check' },
+  // A project with a baseline reviews a later check, not its first.
+  { complete: true, heading: 'Run an AI Visibility check', run: 'Run check', step: '·3Check' },
+])('the tracker panel opened at the check review shows it and nothing to skip (saved baseline: $complete)', async ({ complete, heading, run, step }) => {
+  const { panel } = renderProjectSetup({ panel: true, panelStep: 'first-check', complete, panelHasBaseline: complete, queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]) })
 
-  expect(await screen.findByRole('heading', { level: 3, name: 'Run your first AI Visibility check' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Run first check' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { level: 3, name: heading })).toBeTruthy()
+  expect(screen.getByRole('button', { name: run })).toBeTruthy()
+  expect(within(screen.getByRole('list', { name: 'AI Visibility steps' })).getAllByRole('listitem').at(-1)?.textContent).toBe(step)
   // A saved baseline does not turn the review into an exit: the tracker asked for a check.
   expect(screen.queryByText(/has saved AI Visibility results/)).toBeNull()
   expect(screen.queryByRole('button', { name: 'Finish without running' })).toBeNull()

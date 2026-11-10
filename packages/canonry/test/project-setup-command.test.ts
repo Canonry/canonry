@@ -23,7 +23,7 @@ const scanning: ProjectSetupDto = {
       result: null, error: null,
     },
     aiVisibility: {
-      state: 'not_started', runId: null, startedAt: null, finishedAt: null, mode: 'simple', blockedBy: 'no_engine',
+      state: 'not_started', runId: null, startedAt: null, finishedAt: null, baselineRunId: null, mode: 'simple', blockedBy: 'no_engine',
       engines: [], queries: NO_QUERIES, progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
     },
   },
@@ -41,7 +41,7 @@ const finished: ProjectSetupDto = {
       progress: null, result: { score: 72, pagesScored: 58 }, error: null,
     },
     aiVisibility: {
-      state: 'completed', runId: 'check-1', startedAt: '2026-11-10T09:05:00.000Z', finishedAt: '2026-11-10T09:09:00.000Z',
+      state: 'completed', runId: 'check-1', startedAt: '2026-11-10T09:05:00.000Z', finishedAt: '2026-11-10T09:09:00.000Z', baselineRunId: 'check-1',
       mode: 'simple', blockedBy: null, engines: ['gemini', 'openai'], queries: { total: 3, nonBrand: 2, branded: 1, unclassified: 0 },
       progress: null, providerFailures: null,
       result: {
@@ -69,7 +69,7 @@ const checking: ProjectSetupDto = {
   tracks: {
     agentReadiness: finished.tracks.agentReadiness,
     aiVisibility: {
-      ...finished.tracks.aiVisibility, state: 'running', finishedAt: null, result: null,
+      ...finished.tracks.aiVisibility, state: 'running', finishedAt: null, baselineRunId: null, result: null,
       progress: { answersSaved: 5, answersPlanned: 12 },
       providerFailures: { gemini: { message: 'Gemini rate limit reached.', failedQueries: 2, stopped: true } },
     },
@@ -84,7 +84,7 @@ const failedCheck: ProjectSetupDto = {
   tracks: {
     agentReadiness: finished.tracks.agentReadiness,
     aiVisibility: {
-      ...finished.tracks.aiVisibility, state: 'failed', finishedAt: '2026-11-10T09:06:00.000Z', result: null,
+      ...finished.tracks.aiVisibility, state: 'failed', finishedAt: '2026-11-10T09:06:00.000Z', baselineRunId: null, result: null,
       error: 'gemini: Unexpected token < in JSON • openrouter:vendor/model-a: OpenRouter request failed (HTTP 402): Insufficient credits',
       failedEngines: [
         { provider: 'gemini', code: 'PARSE_ERROR', message: 'Unexpected token < in JSON', skipped: false },

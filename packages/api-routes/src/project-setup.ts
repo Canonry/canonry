@@ -224,6 +224,7 @@ function aiVisibilityTrack(
     runId: run?.id ?? null,
     startedAt: run?.startedAt ?? null,
     finishedAt: run?.finishedAt ?? null,
+    baselineRunId: firstCheckId ?? null,
     mode: preview.mode,
     blockedBy: activeRun ? null : setupBlockerOf(preview.blockedReason, engineReady),
     engines: activeRun ? activeCheckEngines(db, activeRun) ?? nextCheckEngines : nextCheckEngines,

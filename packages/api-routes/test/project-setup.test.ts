@@ -54,7 +54,7 @@ const FIRST_SCAN_REQUEST: SiteAuditEffectiveRequest = {
 const TRACKED = { total: 3, nonBrand: 2, branded: 1, unclassified: 0 }
 const NOT_STARTED_SCAN = { state: 'not_started', runId: null, startedAt: null, finishedAt: null, progress: null, result: null, error: null }
 const READY_CHECK = {
-  state: 'not_started', runId: null, startedAt: null, finishedAt: null, mode: 'simple', blockedBy: null,
+  state: 'not_started', runId: null, startedAt: null, finishedAt: null, baselineRunId: null, mode: 'simple', blockedBy: null,
   engines: ['gemini', 'openai'], queries: TRACKED, progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
 }
 
@@ -293,7 +293,7 @@ describe('GET /projects/:name/setup', () => {
     answer('check', 'branded', 'openai', false, 'Northstar gets good reviews.')
     const completed = await setup()
     expect(completed.tracks.aiVisibility).toEqual({
-      ...READY_CHECK, state: 'completed', runId: 'check', startedAt: at(5), finishedAt: at(6),
+      ...READY_CHECK, state: 'completed', runId: 'check', startedAt: at(5), finishedAt: at(6), baselineRunId: 'check',
       result: {
         first: true,
         answers: 6,
@@ -318,7 +318,7 @@ describe('GET /projects/:name/setup', () => {
     check('partial-check', RunStatuses.partial, 0, { error: serializeRunError(buildProviderRunError([['openai', AUTH]])) })
     answer('partial-check', 'generic-a', 'gemini', true, 'Northstar is a top pick.')
     expect((await setup()).tracks.aiVisibility).toEqual({
-      ...READY_CHECK, state: 'partial', runId: 'partial-check', startedAt: at(0), finishedAt: at(1),
+      ...READY_CHECK, state: 'partial', runId: 'partial-check', startedAt: at(0), finishedAt: at(1), baselineRunId: 'partial-check',
       result: {
         first: true,
         answers: 1,
@@ -334,7 +334,7 @@ describe('GET /projects/:name/setup', () => {
 
     check('failed-check', RunStatuses.failed, 10, { error: serializeRunError(buildProviderRunError([['gemini', GEMINI_BAD_KEY], ['openai', AUTH]])) })
     expect((await setup()).tracks.aiVisibility).toEqual({
-      ...READY_CHECK, state: 'failed', runId: 'failed-check', startedAt: at(10), finishedAt: at(11),
+      ...READY_CHECK, state: 'failed', runId: 'failed-check', startedAt: at(10), finishedAt: at(11), baselineRunId: 'partial-check',
       error: 'gemini: API key not valid. Please pass a valid API key. • openai: 401 Incorrect API key provided',
       // Each engine keeps the failure kind classified when it failed, so a client can say what to do.
       failedEngines: [
@@ -401,19 +401,27 @@ describe('GET /projects/:name/setup', () => {
     expect((await setup()).complete).toBe(false)
   })
 
-  it('calls only the project\'s first check with a result its baseline: failures and probes never count', async () => {
+  it('names the project\'s first check with a result as its baseline in every state: failures and probes never count', async () => {
     const { setup, check } = await harness()
+    const track = async () => {
+      const ai = (await setup()).tracks.aiVisibility
+      return { state: ai.state, runId: ai.runId, baselineRunId: ai.baselineRunId, first: ai.result?.first ?? null }
+    }
     // Neither a failed check nor a probe is a result the project measures from.
     check('failed-check', RunStatuses.failed, 0)
     check('probe-check', RunStatuses.completed, 5, { trigger: RunTriggers.probe })
-    check('first-check', RunStatuses.partial, 10)
-    const first = (await setup()).tracks.aiVisibility
-    expect([first.runId, first.result?.first]).toEqual(['first-check', true])
+    expect(await track()).toEqual({ state: 'failed', runId: 'failed-check', baselineRunId: null, first: null })
 
-    // The track shows the latest check, which is no longer the baseline.
+    check('first-check', RunStatuses.partial, 10)
+    expect(await track()).toEqual({ state: 'partial', runId: 'first-check', baselineRunId: 'first-check', first: true })
+
+    // The track shows the latest check; the baseline stays the first one, whatever the latest check's state.
     check('later-check', RunStatuses.completed, 20)
-    const later = (await setup()).tracks.aiVisibility
-    expect([later.runId, later.result?.first]).toEqual(['later-check', false])
+    expect(await track()).toEqual({ state: 'completed', runId: 'later-check', baselineRunId: 'first-check', first: false })
+    check('running-check', RunStatuses.running, 30)
+    expect(await track()).toEqual({ state: 'running', runId: 'running-check', baselineRunId: 'first-check', first: null })
+    check('failed-later', RunStatuses.failed, 40)
+    expect(await track()).toEqual({ state: 'failed', runId: 'failed-later', baselineRunId: 'first-check', first: null })
   })
 
   it('dates the first result by the earliest finished completed or partial run of either kind', async () => {
@@ -475,7 +483,7 @@ describe('GET /projects/:name/setup', () => {
       tracks: {
         agentReadiness: { state: 'completed', runId: 'scan', startedAt: at(0), finishedAt: at(1), progress: null, result: { score: 64, pagesScored: 40 }, error: null },
         aiVisibility: {
-          ...READY_CHECK, mode: 'advanced', queries: portfolioQueries, state: 'completed', runId, startedAt: at(40), finishedAt: at(50),
+          ...READY_CHECK, mode: 'advanced', queries: portfolioQueries, state: 'completed', runId, startedAt: at(40), finishedAt: at(50), baselineRunId: runId,
           result: {
             first: true,
             answers: 4,

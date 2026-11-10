@@ -29,8 +29,8 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 // setup-ai-visibility-onboarding.test.tsx. Here it only hands the row back the
 // way the panel does: Back closes it, and a launch reports the queued run.
 vi.mock('../src/components/setup/AiVisibilitySetupPanel.js', () => ({
-  AiVisibilitySetupPanel: ({ initialStep, onClose, onLaunched }: { initialStep: string; onClose: () => void; onLaunched: (runId: string) => void }) => (
-    <div data-testid="setup-panel" data-initial-step={initialStep}>
+  AiVisibilitySetupPanel: ({ initialStep, hasBaseline, onClose, onLaunched }: { initialStep: string; hasBaseline?: boolean; onClose: () => void; onLaunched: (runId: string) => void }) => (
+    <div data-testid="setup-panel" data-initial-step={initialStep} data-has-baseline={String(Boolean(hasBaseline))}>
       <h3>Panel step</h3>
       <button type="button" onClick={() => onClose()}>Back</button>
       <button type="button" onClick={() => onLaunched('panel-run')}>Run first check</button>
@@ -62,7 +62,7 @@ function setupRead(overrides: SetupOverrides = {}): ProjectSetupDto {
     tracks: {
       agentReadiness: { state: 'not_started', runId: null, startedAt: null, finishedAt: null, progress: null, result: null, error: null, ...overrides.agentReadiness },
       aiVisibility: {
-        state: 'not_started', runId: null, startedAt: null, finishedAt: null, blockedBy: 'no_engine', engines: [],
+        state: 'not_started', runId: null, startedAt: null, finishedAt: null, baselineRunId: null, blockedBy: 'no_engine', engines: [],
         queries: { total: 0, nonBrand: 0, branded: 0, unclassified: 0 },
         progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
         ...overrides.aiVisibility,
@@ -226,7 +226,7 @@ test('with both results, setup reads complete, the exit is primary, and the firs
       complete: true,
       agentReadiness: { state: 'completed', runId: 'run-scan', finishedAt: '2026-11-10T04:03:00.000Z', result: { score: 83.6, pagesScored: 75 } },
       aiVisibility: {
-        state: 'completed', runId: 'run-ai', finishedAt: '2026-11-10T04:04:00.000Z', blockedBy: null,
+        state: 'completed', runId: 'run-ai', finishedAt: '2026-11-10T04:04:00.000Z', baselineRunId: 'run-ai', blockedBy: null,
         engines: ['gemini'], queries: { total: 5, nonBrand: 4, branded: 1, unclassified: 0 },
         result: {
           first: true, answers: 5, engines: 1,
@@ -265,7 +265,7 @@ test('a later check reads as the latest check, never as the baseline', async () 
       complete: true,
       agentReadiness: { state: 'completed', runId: 'run-scan', result: { score: 80, pagesScored: 40 } },
       aiVisibility: {
-        state: 'completed', runId: 'run-ai-2', finishedAt: '2026-11-12T04:04:00.000Z', blockedBy: null, engines: ['gemini'],
+        state: 'completed', runId: 'run-ai-2', finishedAt: '2026-11-12T04:04:00.000Z', baselineRunId: 'run-ai-1', blockedBy: null, engines: ['gemini'],
         result: { first: false, answers: 5, engines: 1, queryCounts: { totalQueries: 5, citedQueries: 1, mentionedQueries: 2 }, queryCountsByClass: null },
       },
     }),
@@ -277,18 +277,25 @@ test('a later check reads as the latest check, never as the baseline', async () 
   expect(within(ai).queryByText(/baseline/i)).toBeNull()
 })
 
-test('a check that failed says so and offers to run it again', async () => {
+test.each([
+  { baselineRunId: null, summary: 'The check did not finish. No baseline was saved.' },
+  // A later check that fails leaves the project's results as they were.
+  { baselineRunId: 'run-ai-1', summary: 'The check did not finish. Earlier results are unchanged.' },
+] as const)('a check that failed says so and offers to run it again (baseline $baselineRunId)', async ({ baselineRunId, summary }) => {
   renderTracker({
     setup: setupRead({
       agentReadiness: { state: 'completed', runId: 'run-scan', result: { score: 70, pagesScored: 12 } },
-      aiVisibility: { state: 'failed', runId: 'run-ai', blockedBy: null, engines: ['openrouter'], error: 'OpenRouter request failed (HTTP 402): Insufficient credits' },
+      aiVisibility: { state: 'failed', runId: 'run-ai', baselineRunId, blockedBy: null, engines: ['openrouter'], error: 'OpenRouter request failed (HTTP 402): Insufficient credits' },
     }),
   })
 
   const ai = await findRow('AI Visibility')
-  expect(within(ai).getByText('The check did not finish. No baseline was saved.')).toBeTruthy()
+  expect(within(ai).getByText(summary)).toBeTruthy()
   expect(within(ai).getByText(/Insufficient credits/)).toBeTruthy()
   expect(primaryActions().map(action => action.textContent)).toEqual(['Run check again'])
+  // The panel it reopens words its review by the same baseline.
+  fireEvent.click(within(ai).getByRole('button', { name: 'Run check again' }))
+  expect((await screen.findByTestId('setup-panel')).getAttribute('data-has-baseline')).toBe(String(baselineRunId !== null))
 })
 
 test('a failed check says what to do engine by engine, with each engine\'s own message one step away', async () => {
@@ -353,12 +360,16 @@ test('a running scan stops only after a confirmation that says it keeps no score
   expect(within(row('Agent Readiness')).getByRole('button', { name: 'Run audit scan again' })).toBeTruthy()
 })
 
-test('a running check stops through the same confirmation, which says it keeps no baseline', async () => {
+test.each([
+  { baselineRunId: null, note: 'Stop the check? It saves no baseline.', next: 'Review first check' },
+  // Stopping a later check keeps the project's results; the next check is not its first.
+  { baselineRunId: 'run-ai-1', note: 'Stop the check? Earlier results stay as they are.', next: 'Review check' },
+] as const)('a running check stops through the same confirmation, which says what stopping keeps (baseline $baselineRunId)', async ({ baselineRunId, note, next }) => {
   let cancelled = false
   const { requests } = renderTracker({
     setup: () => jsonResponse(cancelled
-      ? setupRead({ aiVisibility: { state: 'cancelled', runId: 'run-ai', blockedBy: null, engines: ['openrouter'] } })
-      : setupRead({ aiVisibility: { state: 'running', runId: 'run-ai', blockedBy: null, engines: ['openrouter'], progress: { answersSaved: 2, answersPlanned: 8 } } })),
+      ? setupRead({ aiVisibility: { state: 'cancelled', runId: 'run-ai', baselineRunId, blockedBy: null, engines: ['openrouter'] } })
+      : setupRead({ aiVisibility: { state: 'running', runId: 'run-ai', baselineRunId, blockedBy: null, engines: ['openrouter'], progress: { answersSaved: 2, answersPlanned: 8 } } })),
     onRequest: (path, init) => {
       if (path !== '/api/v1/runs/run-ai/cancel' || init?.method !== 'POST') return undefined
       cancelled = true
@@ -367,9 +378,10 @@ test('a running check stops through the same confirmation, which says it keeps n
   })
 
   fireEvent.click(await within(await findRow('AI Visibility')).findByRole('button', { name: 'Cancel check' }))
-  expect(within(row('AI Visibility')).getByText('Stop the check? It saves no baseline.')).toBeTruthy()
+  expect(within(row('AI Visibility')).getByText(note)).toBeTruthy()
   fireEvent.click(within(row('AI Visibility')).getByRole('button', { name: 'Stop check' }))
   await waitFor(() => expect(within(row('AI Visibility')).getByText(/^The last check was cancelled\./)).toBeTruthy())
+  expect(within(row('AI Visibility')).getByRole('button', { name: next })).toBeTruthy()
   expect(requests.filter(request => request.method === 'POST' && request.path === '/api/v1/runs/run-ai/cancel')).toHaveLength(1)
 })
 
@@ -382,7 +394,7 @@ test('a check started elsewhere after one launched here shows its own progress a
     setupRead({ aiVisibility: { state: 'running', runId: 'cli-run', blockedBy: null, engines: ['openrouter'], progress: { answersSaved: 2, answersPlanned: 5 } } }),
     setupRead({
       aiVisibility: {
-        state: 'completed', runId: 'cli-run', blockedBy: null, engines: ['openrouter'],
+        state: 'completed', runId: 'cli-run', baselineRunId: 'cli-run', blockedBy: null, engines: ['openrouter'],
         result: { first: true, answers: 5, engines: 1, queryCounts: { totalQueries: 5, citedQueries: 1, mentionedQueries: 2 }, queryCountsByClass: null },
       },
     }),
@@ -524,10 +536,13 @@ test.each([
   expect((await screen.findByTestId('setup-panel')).getAttribute('data-initial-step')).toBe(step)
 })
 
-test('an Advanced project waiting on its published plan links to the measurement plan', async () => {
-  renderTracker({ setup: setupRead({ agentReadiness: { state: 'completed', result: { score: 70, pagesScored: 12 } }, aiVisibility: { mode: 'advanced', blockedBy: 'plan_unpublished' } }) })
+test.each([
+  { baselineRunId: null, line: 'Publish the measurement plan before the first check.' },
+  { baselineRunId: 'run-ai-1', line: 'Publish the measurement plan before the next check.' },
+] as const)('an Advanced project waiting on its published plan links to the measurement plan (baseline $baselineRunId)', async ({ baselineRunId, line }) => {
+  renderTracker({ setup: setupRead({ agentReadiness: { state: 'completed', result: { score: 70, pagesScored: 12 } }, aiVisibility: { mode: 'advanced', baselineRunId, blockedBy: 'plan_unpublished' } }) })
   const ai = await findRow('AI Visibility')
-  expect(within(ai).getByText('Publish the measurement plan before the first check.')).toBeTruthy()
+  expect(within(ai).getByText(line)).toBeTruthy()
   expect(within(ai).getByRole('link', { name: 'Open measurement plan' }).getAttribute('href')).toBe('/projects/$projectName/portfolio')
 })
 
@@ -579,7 +594,7 @@ test.each([
   const read = setupRead({
     agentReadiness: { state: 'completed', runId: 'run-scan', result: { score: 80, pagesScored: 40 } },
     aiVisibility: {
-      state: track.state, runId: 'run-ai', blockedBy: null,
+      state: track.state, runId: 'run-ai', baselineRunId: track.answers === null ? null : 'run-ai', blockedBy: null,
       result: track.answers === null ? null : { first: true, answers: track.answers, engines: 1, queryCounts: null, queryCountsByClass: null },
       error: track.state === 'failed' ? 'gemini: Quota exceeded' : null,
     },

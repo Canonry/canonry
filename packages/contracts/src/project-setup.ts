@@ -86,6 +86,13 @@ export const aiVisibilitySetupTrackSchema = z.object({
   startedAt: z.string().nullable(),
   finishedAt: z.string().nullable(),
   /**
+   * The project's baseline: its first check with a result (the earliest
+   * completed or partial non-probe check), whatever state the latest check is
+   * in; null before any. Clients word a failed, stopped or new check by it,
+   * and `result.first` is true when the latest check is this one.
+   */
+  baselineRunId: z.string().nullable(),
+  /**
    * How the project measures: `simple` asks its tracked queries, `advanced`
    * measures its published Advanced Measurement plan, or an edited draft that
    * must be published first. Omitted by older servers.

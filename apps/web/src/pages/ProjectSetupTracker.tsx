@@ -359,10 +359,10 @@ function useRunsListRefreshOnFinish(setup: ProjectSetupDto | undefined) {
 
 /**
  * Stops a queued or running scan or check once the operator confirms in place.
- * Stopping is final and keeps no result, so the confirmation says so and its
- * first button keeps the job running.
+ * Stopping is final, so the confirmation says what it means for results (the
+ * caller's `note`) and its first button keeps the job running.
  */
-function CancelRunAction({ runId, noun, onCancelled }: { runId: string; noun: 'scan' | 'check'; onCancelled: () => Promise<unknown> }) {
+function CancelRunAction({ runId, noun, note, onCancelled }: { runId: string; noun: 'scan' | 'check'; note: string; onCancelled: () => Promise<unknown> }) {
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const cancel = useMutation({ ...postApiV1RunsByIdCancelMutation({ client: heyClient }), meta: { skipGlobalErrorToast: true } })
@@ -398,7 +398,7 @@ function CancelRunAction({ runId, noun, onCancelled }: { runId: string; noun: 's
   }
   return (
     <div role="group" aria-label={`Stop the ${noun}`} className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
-      <p className="text-copy-14 text-secondary">Stop the {noun}? {noun === 'scan' ? 'It saves no score.' : 'It saves no baseline.'}</p>
+      <p className="text-copy-14 text-secondary">Stop the {noun}? {note}</p>
       {/* Stay focusable while stopping (aria-disabled), so focus never drops to the page. */}
       <div className="flex gap-2 max-sm:w-full max-sm:[&>*]:flex-1">
         <Button ref={keepRef} type="button" variant="ghost" aria-disabled={cancel.isPending || undefined} onClick={() => { if (!cancel.isPending) toggle(false) }}>Keep running</Button>
@@ -658,7 +658,7 @@ function AgentReadinessRow({
           ) : null}
         </>
       )
-      action = canWrite && track.runId ? <CancelRunAction key={track.runId} runId={track.runId} noun="scan" onCancelled={onCancelled} /> : null
+      action = canWrite && track.runId ? <CancelRunAction key={track.runId} runId={track.runId} noun="scan" note="It saves no score." onCancelled={onCancelled} /> : null
       break
     }
     case SetupTrackStates.completed:
@@ -732,20 +732,22 @@ function panelStepFor(blockedBy: AiVisibilitySetupBlocker | null): SetupPanelSte
 /** The AI Visibility row's line and action when no check is running. */
 function aiVisibilityNextStep(track: AiVisibilitySetupTrack, brand: string, domain: string): { line: string; action: string; step: SetupPanelStep | 'plan' } {
   const purpose = `Whether AI answers mention ${brand} and cite ${domain}.`
+  // Once a check has a result, the next one is no longer the first.
+  const first = track.baselineRunId === null
   switch (track.blockedBy) {
     case AiVisibilitySetupBlockers.no_engine:
       return { line: `${purpose} Needs an AI engine.`, action: 'Connect an AI engine', step: 'engine' }
     case AiVisibilitySetupBlockers.no_queries:
       return { line: `${purpose} Add queries to check.`, action: 'Add queries', step: 'queries' }
     case AiVisibilitySetupBlockers.plan_unpublished:
-      return { line: 'Publish the measurement plan before the first check.', action: 'Open measurement plan', step: 'plan' }
+      return { line: `Publish the measurement plan before the ${first ? 'first' : 'next'} check.`, action: 'Open measurement plan', step: 'plan' }
     case AiVisibilitySetupBlockers.engines_failing:
       return { line: `${purpose} The AI engine connection needs attention.`, action: 'Repair connection', step: 'engine' }
     case null: {
       const engines = track.engines.length
       return {
         line: `Asks ${plural(engines, 'engine', 'engines')} your ${plural(track.queries.total, 'query', 'queries')}.`,
-        action: 'Review first check',
+        action: first ? 'Review first check' : 'Review check',
         step: 'first-check',
       }
     }
@@ -794,6 +796,7 @@ function AiVisibilityRow({
         <AiVisibilitySetupPanel
           projectName={projectName}
           initialStep={panelStep}
+          hasBaseline={track.baselineRunId !== null}
           onClose={onClosePanel}
           onLaunched={onLaunched}
         />
@@ -866,7 +869,9 @@ function AiVisibilityRow({
         </>
       )
       // A check queued here and not listed yet has no run of its own to stop.
-      action = canWrite && !starting && track.runId ? <CancelRunAction key={track.runId} runId={track.runId} noun="check" onCancelled={onCancelled} /> : null
+      action = canWrite && !starting && track.runId
+        ? <CancelRunAction key={track.runId} runId={track.runId} noun="check" note={track.baselineRunId === null ? 'It saves no baseline.' : 'Earlier results stay as they are.'} onCancelled={onCancelled} />
+        : null
       break
     }
     case SetupTrackStates.completed:
@@ -898,7 +903,7 @@ function AiVisibilityRow({
       break
     }
     case SetupTrackStates.failed: {
-      summary = 'The check did not finish. No baseline was saved.'
+      summary = track.baselineRunId === null ? 'The check did not finish. No baseline was saved.' : 'The check did not finish. Earlier results are unchanged.'
       const adminNote = isAdmin ? null : <p className="text-copy-14 text-secondary">Ask an administrator to check the AI engine connection.</p>
       const failedEngines = track.failedEngines ?? []
       // Engine by engine: what to do first, the engine's own words one step away.

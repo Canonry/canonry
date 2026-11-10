@@ -52,7 +52,7 @@ function setupRead(project: ProjectFixture, aiVisibility: Partial<ProjectSetupDt
     tracks: {
       agentReadiness: { state: 'not_started', runId: null, startedAt: null, finishedAt: null, progress: null, result: null, error: null },
       aiVisibility: {
-        state: 'not_started', runId: null, startedAt: null, finishedAt: null, blockedBy: 'no_queries', engines: ['gemini'],
+        state: 'not_started', runId: null, startedAt: null, finishedAt: null, baselineRunId: null, blockedBy: 'no_queries', engines: ['gemini'],
         queries: { total: 0, nonBrand: 0, branded: 0, unclassified: 0 },
         progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
         ...aiVisibility,

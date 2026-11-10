@@ -26,7 +26,7 @@ import { SetupQueriesForm } from './SetupQueriesForm.js'
 import { firstCheckReadiness, useAiEngineSetup } from './use-ai-engine-setup.js'
 import { refreshSavedQueries, setupSavedQueriesKey, useSetupQueries } from './use-setup-queries.js'
 
-/** The tracker's AI Visibility panel, one step at a time: connect an AI engine, add queries, review the first check. */
+/** The tracker's AI Visibility panel, one step at a time: connect an AI engine, add queries, review the check (the first, until the project has a baseline). */
 export type SetupPanelStep = 'engine' | 'queries' | 'first-check'
 
 const PANEL_STEPS: ReadonlyArray<{ id: SetupPanelStep; label: string }> = [
@@ -36,7 +36,7 @@ const PANEL_STEPS: ReadonlyArray<{ id: SetupPanelStep; label: string }> = [
 ]
 
 /** Where the panel stands: the current step named, steps already done checked. */
-function PanelStepLine({ current, done }: { current: SetupPanelStep; done: Readonly<Record<SetupPanelStep, boolean>> }) {
+function PanelStepLine({ current, done, hasBaseline }: { current: SetupPanelStep; done: Readonly<Record<SetupPanelStep, boolean>>; hasBaseline: boolean }) {
   return (
     <ol aria-label="AI Visibility steps" className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-label-14 text-secondary">
       {PANEL_STEPS.map((step, index) => {
@@ -48,7 +48,7 @@ function PanelStepLine({ current, done }: { current: SetupPanelStep; done: Reado
             {isDone
               ? <Check className="size-3.5 text-positive" aria-hidden="true" />
               : <span className="tabular-nums" aria-hidden="true">{index + 1}</span>}
-            {step.label}
+            {step.id === 'first-check' && hasBaseline ? 'Check' : step.label}
             {isDone ? <span className="sr-only">, done</span> : null}
           </li>
         )
@@ -94,13 +94,15 @@ function usePanelReads(projectName: string) {
  * tracker shows the check's progress and result from the server, so the panel
  * ends once the check is queued.
  */
-export function AiVisibilitySetupPanel({ projectName, initialStep, onClose, onLaunched }: {
+export function AiVisibilitySetupPanel({ projectName, initialStep, hasBaseline = false, onClose, onLaunched }: {
   projectName: string
   /** Where the panel opens: the step that clears the server's blocker. */
   initialStep: SetupPanelStep
+  /** The project already has a baseline (the setup read's `baselineRunId`), so this check is not its first. */
+  hasBaseline?: boolean
   /** Back from the AI engine step: the tracker closes the panel. */
   onClose: () => void
-  /** The first check was queued. */
+  /** The check was queued. */
   onLaunched: (runId: string) => void
 }) {
   const reads = usePanelReads(projectName)
@@ -124,18 +126,20 @@ export function AiVisibilitySetupPanel({ projectName, initialStep, onClose, onLa
       health={reads.health}
       refresh={reads.refresh}
       initialStep={initialStep}
+      hasBaseline={hasBaseline}
       onClose={onClose}
       onLaunched={onLaunched}
     />
   )
 }
 
-function PanelSteps({ project, settings, health, refresh, initialStep, onClose, onLaunched }: {
+function PanelSteps({ project, settings, health, refresh, initialStep, hasBaseline, onClose, onLaunched }: {
   project: ApiProject
   settings: SettingsVm
   health: HealthSnapshot
   refresh: () => Promise<void>
   initialStep: SetupPanelStep
+  hasBaseline: boolean
   onClose: () => void
   onLaunched: (runId: string) => void
 }) {
@@ -309,7 +313,7 @@ function PanelSteps({ project, settings, health, refresh, initialStep, onClose, 
   const needsEngine = engines.providerReadiness === false && !runError
   return (
     <div ref={panelRef}>
-      <PanelStepLine current={step} done={{ engine: engines.providerReadiness === true, queries: savedQueryCount > 0, 'first-check': false }} />
+      <PanelStepLine current={step} done={{ engine: engines.providerReadiness === true, queries: savedQueryCount > 0, 'first-check': false }} hasBaseline={hasBaseline} />
       <div ref={stepContentRef}>
         {step === 'engine' ? (
           <div className="space-y-5">
@@ -348,7 +352,7 @@ function PanelSteps({ project, settings, health, refresh, initialStep, onClose, 
             <div className="space-y-3">
               <div className="section-head">
                 <div>
-                  <div className="flex items-center gap-2"><h3 className="text-heading-16 text-heading">{managedSweeps ? 'AI Visibility' : 'Run your first AI Visibility check'}</h3>{managedSweeps ? null : <InfoTooltip text={firstCheckHelp(brandLabel, firstCheckUsesAccount)} />}</div>
+                  <div className="flex items-center gap-2"><h3 className="text-heading-16 text-heading">{managedSweeps ? 'AI Visibility' : hasBaseline ? 'Run an AI Visibility check' : 'Run your first AI Visibility check'}</h3>{managedSweeps ? null : <InfoTooltip text={firstCheckHelp(brandLabel, firstCheckUsesAccount)} />}</div>
                 </div>
               </div>
               {managedSweeps ? (
@@ -380,7 +384,7 @@ function PanelSteps({ project, settings, health, refresh, initialStep, onClose, 
                           title={launchBlockedReason}
                           onClick={asyncHandler(handleLaunchRun)}
                         >
-                          {runSaving ? 'Starting…' : runError ? 'Retry check' : 'Run first check'}
+                          {runSaving ? 'Starting…' : runError ? 'Retry check' : hasBaseline ? 'Run check' : 'Run first check'}
                         </Button>
                       )}
                     </>
