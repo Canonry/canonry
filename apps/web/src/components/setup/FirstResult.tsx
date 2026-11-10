@@ -70,23 +70,27 @@ function QueryShare({ count, total }: { count: number | undefined; total: number
 }
 
 /**
- * Mentioned and cited for the first check, one row per query class. Branded and
+ * Mentioned and cited for one check (the first, unless the caption names
+ * another), one row per query class. Branded and
  * non-brand queries never share a denominator, and "cited" counts only the
  * queries some answer's sources were checked for.
  */
 export function FirstResultTable({
   byClass,
   pooled,
+  caption = 'First AI Visibility check by query class',
 }: {
   byClass: RunQueryCountsByClass | null | undefined
   pooled: ObservedQueryCounts | null | undefined
+  /** The table's accessible name, for a check that is not the first. */
+  caption?: string
 }) {
   const rows = firstResultRows(byClass, pooled)
   const unclassifiedQueries = byClass?.unclassifiedQueries ?? 0
   return (
     <div>
       <table className="w-full text-left">
-        <caption className="sr-only">First AI Visibility check by query class</caption>
+        <caption className="sr-only">{caption}</caption>
         <thead>
           <tr className="text-label-14 text-secondary">
             <th scope="col" className="py-2 pr-4 font-normal">Queries</th>

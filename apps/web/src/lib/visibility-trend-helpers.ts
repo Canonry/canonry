@@ -1,4 +1,4 @@
-import { formatModelName, openRouterRouteModel } from '@canonry/canonry-contracts'
+import { defaultProviderDisplayName, formatModelName, openRouterRouteModel } from '@canonry/canonry-contracts'
 import type {
   BasketChangeEvent,
   BrandMetricsDto,
@@ -176,17 +176,6 @@ export function competitorFrameKey(
     .join('\n')
 }
 
-/** Human-friendly engine names (data keys are lowercase). */
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  claude: 'Claude',
-  openai: 'OpenAI',
-  gemini: 'Gemini',
-  perplexity: 'Perplexity',
-  muse: 'Muse',
-  local: 'Local',
-  openrouter: 'OpenRouter',
-}
-
 /**
  * An engine's name as people read it ("OpenAI", "Perplexity"). Pass the
  * server's provider catalog where it is loaded: its display names come from
@@ -201,9 +190,7 @@ export function providerDisplayName(name: string, catalog?: ReadonlyArray<{ name
     return `${formatModelName(routedModel, models)} via OpenRouter`
   }
   const listed = catalog?.find(entry => entry.name === name)?.displayName?.trim()
-  if (listed) return listed
-  const key = normalizeProviderKey(name)
-  return PROVIDER_DISPLAY_NAMES[key] ?? name.charAt(0).toUpperCase() + name.slice(1)
+  return listed || defaultProviderDisplayName(name)
 }
 
 /** Presentation-only: 0-1 rate → 0-100 axis value, one decimal. */

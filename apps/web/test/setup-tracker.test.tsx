@@ -229,7 +229,7 @@ test('with both results, setup reads complete, the exit is primary, and the firs
         state: 'completed', runId: 'run-ai', finishedAt: '2026-11-10T04:04:00.000Z', blockedBy: null,
         engines: ['gemini'], queries: { total: 5, nonBrand: 4, branded: 1, unclassified: 0 },
         result: {
-          answers: 5, engines: 1,
+          first: true, answers: 5, engines: 1,
           queryCounts: { totalQueries: 5, citedQueries: 1, mentionedQueries: 2 },
           queryCountsByClass: {
             nonBrand: { totalQueries: 4, citedQueries: 0, mentionedQueries: 1 },
@@ -257,6 +257,24 @@ test('with both results, setup reads complete, the exit is primary, and the firs
   expect(screen.getByRole('heading', { name: 'What else this project can do' })).toBeTruthy()
   // What a screen reader hears when each track finishes: the score, and the answers and engines.
   expect(statusLines()).toEqual(['Agent Readiness audit scan complete. Score 84 of 100.', 'AI Visibility check complete. 5 answers from 1 engine.'])
+})
+
+test('a later check reads as the latest check, never as the baseline', async () => {
+  renderTracker({
+    setup: setupRead({
+      complete: true,
+      agentReadiness: { state: 'completed', runId: 'run-scan', result: { score: 80, pagesScored: 40 } },
+      aiVisibility: {
+        state: 'completed', runId: 'run-ai-2', finishedAt: '2026-11-12T04:04:00.000Z', blockedBy: null, engines: ['gemini'],
+        result: { first: false, answers: 5, engines: 1, queryCounts: { totalQueries: 5, citedQueries: 1, mentionedQueries: 2 }, queryCountsByClass: null },
+      },
+    }),
+  })
+
+  const ai = await findRow('AI Visibility')
+  expect(within(ai).getByText(/^Latest check · 5 answers from 1 engine/)).toBeTruthy()
+  expect(within(ai).getByRole('table', { name: 'Latest AI Visibility check by query class' })).toBeTruthy()
+  expect(within(ai).queryByText(/baseline/i)).toBeNull()
 })
 
 test('a check that failed says so and offers to run it again', async () => {
@@ -365,7 +383,7 @@ test('a check started elsewhere after one launched here shows its own progress a
     setupRead({
       aiVisibility: {
         state: 'completed', runId: 'cli-run', blockedBy: null, engines: ['openrouter'],
-        result: { answers: 5, engines: 1, queryCounts: { totalQueries: 5, citedQueries: 1, mentionedQueries: 2 }, queryCountsByClass: null },
+        result: { first: true, answers: 5, engines: 1, queryCounts: { totalQueries: 5, citedQueries: 1, mentionedQueries: 2 }, queryCountsByClass: null },
       },
     }),
   ]
@@ -562,7 +580,7 @@ test.each([
     agentReadiness: { state: 'completed', runId: 'run-scan', result: { score: 80, pagesScored: 40 } },
     aiVisibility: {
       state: track.state, runId: 'run-ai', blockedBy: null,
-      result: track.answers === null ? null : { answers: track.answers, engines: 1, queryCounts: null, queryCountsByClass: null },
+      result: track.answers === null ? null : { first: true, answers: track.answers, engines: 1, queryCounts: null, queryCountsByClass: null },
       error: track.state === 'failed' ? 'gemini: Quota exceeded' : null,
     },
   })

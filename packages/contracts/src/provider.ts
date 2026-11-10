@@ -81,6 +81,27 @@ export function openRouterRouteName(model: string): string {
   return route
 }
 
+/** Engine names as people read them; provider keys are lowercase. */
+const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  claude: 'Claude',
+  openai: 'OpenAI',
+  gemini: 'Gemini',
+  perplexity: 'Perplexity',
+  muse: 'Muse',
+  local: 'Local',
+  openrouter: 'OpenRouter',
+}
+
+/**
+ * A provider's name as people read it ("OpenAI", "OpenRouter") where the
+ * server's provider catalog is not loaded: the built-in name, else the key with
+ * a capital first letter. For the account behind a routed model, pass its
+ * `providerConnectionName` first.
+ */
+export function defaultProviderDisplayName(name: string): string {
+  return PROVIDER_DISPLAY_NAMES[name.trim().toLowerCase()] ?? name.charAt(0).toUpperCase() + name.slice(1)
+}
+
 /**
  * Connection credentials, quotas and account holds are shared by its routes.
  * Pass the families of the adapters in scope; the default knows OpenRouter.

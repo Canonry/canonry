@@ -132,9 +132,13 @@ export const aiVisibilitySetupTrackSchema = z.object({
    * the distinct engines that answered, and its observed query counts exactly as
    * the run detail reports them. `queryCountsByClass` keeps non-brand and branded
    * apart; it is null when no observed query has a class (no usable brand name),
-   * and both are null when an answer lacks query identity. Null in every other state.
+   * and both are null when an answer lacks query identity. `first` is true when
+   * this is the project's first check with a result (no earlier completed or
+   * partial non-probe check), the baseline later checks start from. Null in
+   * every other state.
    */
   result: z.object({
+    first: z.boolean(),
     answers: countSchema,
     engines: countSchema,
     queryCounts: observedQueryCountsSchema.nullable(),

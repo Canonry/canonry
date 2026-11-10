@@ -45,6 +45,7 @@ const finished: ProjectSetupDto = {
       mode: 'simple', blockedBy: null, engines: ['gemini', 'openai'], queries: { total: 3, nonBrand: 2, branded: 1, unclassified: 0 },
       progress: null, providerFailures: null,
       result: {
+        first: true,
         answers: 6,
         engines: 2,
         queryCounts: { totalQueries: 3, citedQueries: 2, mentionedQueries: 3, citationNotMeasuredQueries: 0 },
@@ -160,7 +161,7 @@ describe('project setup transports', () => {
       '                               gemini: Unexpected token < in JSON',
       '                               openrouter:vendor/model-a: OpenRouter request failed (HTTP 402): Insufficient credits',
       // The credit belongs to the OpenRouter connection, not the model routed through it.
-      '                               Your openrouter account is out of credit. Add credit at openrouter, then run the check again.',
+      '                               Your OpenRouter account is out of credit. Add credit at OpenRouter, then run the check again.',
       'Next: see why the check failed, then fix the engine: cnry run show check-1',
     ].join('\n'))
   })
@@ -170,11 +171,17 @@ describe('project setup transports', () => {
     expect(cli.stdout).toBe([
       'Canonry (canonry.ai) · setup complete',
       '  Agent Readiness   Complete   Score 72/100 · 58 pages scored',
-      '  AI Visibility     Complete   6 answers from 2 engines',
+      '  AI Visibility     Complete   Baseline · 6 answers from 2 engines',
       '                               Non-brand queries: mentioned in 2 of 2, cited in 1 of 2',
       '                               Branded queries: mentioned in 1 of 1, cited in 1 of 1',
       'Next: read the results: cnry overview canonry-ai',
     ].join('\n'))
+
+    // A later check is the latest, not the baseline.
+    const ai = finished.tracks.aiVisibility
+    const later: ProjectSetupDto = { ...finished, tracks: { ...finished.tracks, aiVisibility: { ...ai, result: ai.result && { ...ai.result, first: false } } } }
+    const laterCli = await invokeCliRead(['project', 'setup', 'canonry-ai'], later, { pathname: SETUP_PATH })
+    expect(laterCli.stdout.split('\n')[2]).toBe('  AI Visibility     Complete   Latest check · 6 answers from 2 engines')
   })
 
   it('exits 1 for an unknown project and 2 when the server fails', async () => {

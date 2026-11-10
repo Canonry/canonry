@@ -3,6 +3,7 @@ import {
   ProjectSetupNextActions,
   SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
   SetupTrackStates,
+  defaultProviderDisplayName,
   providerConnectionName,
   providerFailureRemedy,
   shellQuote,
@@ -111,7 +112,8 @@ function signalCounts(counts: ObservedQueryCounts): string {
 }
 
 function resultLines(result: NonNullable<AiVisibilitySetupTrack['result']>): string[] {
-  const lines = [`${result.answers} ${result.answers === 1 ? 'answer' : 'answers'} from ${result.engines} ${result.engines === 1 ? 'engine' : 'engines'}`]
+  // The latest check is the baseline only when it is the project's first, as the dashboard says.
+  const lines = [`${result.first ? 'Baseline' : 'Latest check'} · ${result.answers} ${result.answers === 1 ? 'answer' : 'answers'} from ${result.engines} ${result.engines === 1 ? 'engine' : 'engines'}`]
   if (result.queryCountsByClass) {
     // Branded and non-brand never share a denominator: each is its own line.
     lines.push(`Non-brand queries: ${signalCounts(result.queryCountsByClass.nonBrand)}`)
@@ -158,7 +160,7 @@ function aiVisibilityLines(track: AiVisibilitySetupTrack): string[] {
       // Each engine's message, then what to do about it. The account belongs to
       // the connection, so a routed model names OpenRouter, not the model.
       return ['The check did not finish.', ...engines.flatMap((engine) => {
-        const remedy = providerFailureRemedy(engine.code, providerConnectionName(engine.provider))
+        const remedy = providerFailureRemedy(engine.code, defaultProviderDisplayName(providerConnectionName(engine.provider)))
         return [`${engine.provider}: ${engine.message}`, ...(remedy ? [remedy] : [])]
       })]
     }

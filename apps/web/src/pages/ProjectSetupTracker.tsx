@@ -872,13 +872,18 @@ function AiVisibilityRow({
     case SetupTrackStates.completed:
     case SetupTrackStates.partial: {
       const result = track.result
+      // The row shows the latest check: the baseline only when the server says it is the project's first.
       summary = result
-        ? `${state === SetupTrackStates.partial ? 'Partial results' : 'Baseline'} · ${plural(result.answers, 'answer', 'answers')} from ${plural(result.engines, 'engine', 'engines')}${track.finishedAt ? ` · ${formatSweepInstant(track.finishedAt)}` : ''}`
+        ? `${state === SetupTrackStates.partial ? 'Partial results' : result.first ? 'Baseline' : 'Latest check'} · ${plural(result.answers, 'answer', 'answers')} from ${plural(result.engines, 'engine', 'engines')}${track.finishedAt ? ` · ${formatSweepInstant(track.finishedAt)}` : ''}`
         : 'The check finished.'
       body = result ? (
         <>
-          <FirstResultTable byClass={result.queryCountsByClass} pooled={result.queryCounts} />
-          <p className="mt-3 text-copy-13 text-secondary">Later checks are compared with this baseline.</p>
+          <FirstResultTable
+            byClass={result.queryCountsByClass}
+            pooled={result.queryCounts}
+            caption={result.first ? undefined : 'Latest AI Visibility check by query class'}
+          />
+          {result.first ? <p className="mt-3 text-copy-13 text-secondary">Later checks are compared with this baseline.</p> : null}
           {track.runId ? <ExampleAnswer runId={track.runId} projectName={projectName} /> : null}
         </>
       ) : null
@@ -955,7 +960,7 @@ function AiVisibilityRow({
   )
 }
 
-/** One saved answer from the first check, read only when the operator opens it. */
+/** One saved answer from the check the row shows, read only when the operator opens it. */
 function ExampleAnswer({ runId, projectName }: { runId: string; projectName: string }) {
   const [open, setOpen] = useState(false)
   const run = useQuery({

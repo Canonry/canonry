@@ -295,6 +295,7 @@ describe('GET /projects/:name/setup', () => {
     expect(completed.tracks.aiVisibility).toEqual({
       ...READY_CHECK, state: 'completed', runId: 'check', startedAt: at(5), finishedAt: at(6),
       result: {
+        first: true,
         answers: 6,
         engines: 2,
         queryCounts: { totalQueries: 3, citedQueries: 2, mentionedQueries: 3, citationNotMeasuredQueries: 0 },
@@ -319,6 +320,7 @@ describe('GET /projects/:name/setup', () => {
     expect((await setup()).tracks.aiVisibility).toEqual({
       ...READY_CHECK, state: 'partial', runId: 'partial-check', startedAt: at(0), finishedAt: at(1),
       result: {
+        first: true,
         answers: 1,
         engines: 1,
         queryCounts: { totalQueries: 1, citedQueries: 1, mentionedQueries: 1, citationNotMeasuredQueries: 0 },
@@ -399,6 +401,21 @@ describe('GET /projects/:name/setup', () => {
     expect((await setup()).complete).toBe(false)
   })
 
+  it('calls only the project\'s first check with a result its baseline: failures and probes never count', async () => {
+    const { setup, check } = await harness()
+    // Neither a failed check nor a probe is a result the project measures from.
+    check('failed-check', RunStatuses.failed, 0)
+    check('probe-check', RunStatuses.completed, 5, { trigger: RunTriggers.probe })
+    check('first-check', RunStatuses.partial, 10)
+    const first = (await setup()).tracks.aiVisibility
+    expect([first.runId, first.result?.first]).toEqual(['first-check', true])
+
+    // The track shows the latest check, which is no longer the baseline.
+    check('later-check', RunStatuses.completed, 20)
+    const later = (await setup()).tracks.aiVisibility
+    expect([later.runId, later.result?.first]).toEqual(['later-check', false])
+  })
+
   it('dates the first result by the earliest finished completed or partial run of either kind', async () => {
     const { setup, scan, check } = await harness()
     // A failure is not a result, however early it finished.
@@ -460,6 +477,7 @@ describe('GET /projects/:name/setup', () => {
         aiVisibility: {
           ...READY_CHECK, mode: 'advanced', queries: portfolioQueries, state: 'completed', runId, startedAt: at(40), finishedAt: at(50),
           result: {
+            first: true,
             answers: 4,
             engines: 2,
             queryCounts: { totalQueries: 2, citedQueries: 1, mentionedQueries: 2, citationNotMeasuredQueries: 0 },

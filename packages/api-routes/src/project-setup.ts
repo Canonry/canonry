@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, min } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, min } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import {
@@ -90,7 +90,8 @@ function readProjectSetup(db: DatabaseClient, project: ProjectRow, readiness: Ch
     runnableProviders: readiness.runnableProviders,
     routeFamilies: readiness.routeFamilies,
   }).runnableProviders.length > 0
-  const aiVisibility = aiVisibilityTrack(db, project, latestRun(db, project.id, RunKinds['answer-visibility']), preview, engineReady)
+  const firstCheckId = firstResultRunId(db, project.id, RunKinds['answer-visibility'])
+  const aiVisibility = aiVisibilityTrack(db, project, latestRun(db, project.id, RunKinds['answer-visibility']), preview, engineReady, firstCheckId)
   return {
     project: {
       name: project.name,
@@ -99,7 +100,7 @@ function readProjectSetup(db: DatabaseClient, project: ProjectRow, readiness: Ch
     },
     // Setup is done once each track produced a result; a later scheduled scan or
     // check that is still running does not undo it.
-    complete: hasResultRun(db, project.id, RunKinds['site-audit']) && hasResultRun(db, project.id, RunKinds['answer-visibility']),
+    complete: firstResultRunId(db, project.id, RunKinds['site-audit']) !== undefined && firstCheckId !== undefined,
     firstResultAt: firstResultAt(db, project.id),
     nextAction: nextActionOf(agentReadiness.state, aiVisibility.state, aiVisibility.blockedBy),
     tracks: { agentReadiness, aiVisibility },
@@ -207,7 +208,14 @@ function scanResult(db: DatabaseClient, projectId: string, runId: string): NonNu
   return { score: scorecard.score, pagesScored: scorecard.pagesAudited }
 }
 
-function aiVisibilityTrack(db: DatabaseClient, project: ProjectRow, run: RunRow | undefined, preview: RunPreviewDto, engineReady: boolean): AiVisibilitySetupTrack {
+function aiVisibilityTrack(
+  db: DatabaseClient,
+  project: ProjectRow,
+  run: RunRow | undefined,
+  preview: RunPreviewDto,
+  engineReady: boolean,
+  firstCheckId: string | undefined,
+): AiVisibilitySetupTrack {
   const state: SetupTrackState = run ? runStatusOf(run) : SetupTrackStates.not_started
   const activeRun = run && isActive(state) ? run : undefined
   const nextCheckEngines = preview.engines.filter(engine => engine.requestCount > 0).map(engine => engine.provider)
@@ -227,7 +235,7 @@ function aiVisibilityTrack(db: DatabaseClient, project: ProjectRow, run: RunRow 
     providerFailures: activeRun?.providerFailures && Object.keys(activeRun.providerFailures).length > 0
       ? activeRun.providerFailures
       : null,
-    result: run && hasResult(state) ? checkResult(db, project, run.id) : null,
+    result: run && hasResult(state) ? checkResult(db, project, run.id, run.id === firstCheckId) : null,
     error: run && state === RunStatuses.failed ? checkErrorText(run.error) : null,
     failedEngines: run && state === RunStatuses.failed ? failedEnginesOf(run.error) : null,
   }
@@ -307,17 +315,21 @@ function savedAnswerCount(db: DatabaseClient, runId: string): number {
 }
 
 /** What a finished check saved, with its query counts exactly as the run detail reports them. */
-function checkResult(db: DatabaseClient, project: ProjectRow, runId: string): NonNullable<AiVisibilitySetupTrack['result']> {
+function checkResult(db: DatabaseClient, project: ProjectRow, runId: string, first: boolean): NonNullable<AiVisibilitySetupTrack['result']> {
   const answers = readRunAnswerSignals(db, runId, project)
   return {
+    first,
     answers: answers.length,
     engines: new Set(answers.map(answer => answer.provider)).size,
     ...summarizeRunQueryCounts(db, project, answers),
   }
 }
 
-/** Whether one track ever produced a result: any completed or partial non-probe run of its kind. */
-function hasResultRun(db: DatabaseClient, projectId: string, kind: RunKind): boolean {
+/**
+ * One track's first result: its earliest completed or partial non-probe run,
+ * in the order `latestRun` reads. Undefined while the track has none.
+ */
+function firstResultRunId(db: DatabaseClient, projectId: string, kind: RunKind): string | undefined {
   return db.select({ id: runs.id }).from(runs)
     .where(and(
       eq(runs.projectId, projectId),
@@ -325,8 +337,9 @@ function hasResultRun(db: DatabaseClient, projectId: string, kind: RunKind): boo
       inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
       notProbeRun(),
     ))
+    .orderBy(asc(runs.createdAt), asc(runs.id))
     .limit(1)
-    .get() !== undefined
+    .get()?.id
 }
 
 /** When the first result of either track arrived: the earliest finished completed or partial non-probe run. */

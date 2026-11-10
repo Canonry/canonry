@@ -15590,6 +15590,7 @@ export type ProjectSetupDto = {
                 };
             } | null;
             result: {
+                first: boolean;
                 answers: number;
                 engines: number;
                 queryCounts: {

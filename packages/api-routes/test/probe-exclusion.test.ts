@@ -396,7 +396,8 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     // The newer completed probe check does not cite the brand; the real one does.
     expect(body.tracks.aiVisibility).toMatchObject({
       state: 'completed', runId: ctx.realRunId, progress: null,
-      result: { answers: 1, engines: 1, queryCounts: { totalQueries: 1, citedQueries: 1, mentionedQueries: 1, citationNotMeasuredQueries: 0 } },
+      // The real check is the project's first result: the newer probe never counts.
+      result: { first: true, answers: 1, engines: 1, queryCounts: { totalQueries: 1, citedQueries: 1, mentionedQueries: 1, citationNotMeasuredQueries: 0 } },
     })
     expect(body.firstResultAt).toBe('2026-10-11T12:05:00.000Z')
     expect({ complete: body.complete, nextAction: body.nextAction }).toEqual({ complete: true, nextAction: 'open_project' })
