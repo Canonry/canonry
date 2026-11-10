@@ -197,6 +197,12 @@ export interface ProjectOverviewCompetitorDto {
   totalQueries: number
   pressureLabel: 'None' | 'Low' | 'Moderate' | 'High'
   citedQueries: string[]
+  /**
+   * Citation figures only: queries whose answers were all written with no
+   * web search (`retrievalStatus = 'not-used'`), excluded from the rate the
+   * row shows. Present only when above zero.
+   */
+  excludedNoRetrieval?: number
 }
 
 // Per-(provider, model) score from the latest run. Different from
@@ -516,6 +522,7 @@ export const projectOverviewDtoSchema = z.object({
     totalQueries: z.number().int().nonnegative(),
     pressureLabel: z.enum(['None', 'Low', 'Moderate', 'High']),
     citedQueries: z.array(z.string()),
+    excludedNoRetrieval: z.number().int().nonnegative().optional(),
   })),
   providerScores: z.array(z.object({
     provider: z.string(),
