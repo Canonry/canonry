@@ -25,6 +25,17 @@ describe('detectFirstCitations', () => {
     expect(result[0]!.runId).toBe('r2')
   })
 
+  it('does NOT flag a query whose previous answer was written without web search', () => {
+    const prev = makeRun('r1', [
+      { query: 'k1', provider: 'gemini', cited: false, retrievalStatus: 'not-used' },
+    ])
+    const curr = makeRun('r2', [
+      { query: 'k1', provider: 'gemini', cited: true, citationUrl: 'https://a.com' },
+    ])
+
+    expect(detectFirstCitations(curr, prev)).toEqual([])
+  })
+
   it('emits one entry per cited provider when multiple providers light up at once', () => {
     const prev = makeRun('r1', [
       { query: 'k1', provider: 'gemini', cited: false },

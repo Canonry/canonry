@@ -27,6 +27,21 @@ describe('absence of an observation is not a negative observation', () => {
       expect(detectGains(current, previous)).toHaveLength(0)
     })
 
+    it('does not report a gain when the baseline was written without web search', () => {
+      // Baseline answer ran without search (not-used) — not a negative observation
+      const previous = run('r1', [{ ...snap('q1', 'openai', false), retrievalStatus: 'not-used' }])
+      const current = run('r2', [snap('q1', 'openai', true)])
+
+      expect(detectGains(current, previous)).toHaveLength(0)
+    })
+
+    it('does not report a gain when the current answer was written without web search', () => {
+      const previous = run('r1', [snap('q1', 'openai', false)])
+      const current = run('r2', [{ ...snap('q1', 'openai', true), retrievalStatus: 'not-used' }])
+
+      expect(detectGains(current, previous)).toHaveLength(0)
+    })
+
     it('still reports a gain when the baseline measured the pair and found it uncited', () => {
       const previous = run('r1', [snap('q1', 'openai', false)])
       const current = run('r2', [snap('q1', 'openai', true)])
@@ -41,6 +56,16 @@ describe('absence of an observation is not a negative observation', () => {
     it('does not report a pickup for a provider the baseline never asked', () => {
       // gemini cited q1 both runs; openai errored in the baseline.
       const previous = run('r1', [snap('q1', 'gemini', true)])
+      const current = run('r2', [snap('q1', 'gemini', true), snap('q1', 'openai', true)])
+
+      expect(detectProviderPickups(current, previous)).toHaveLength(0)
+    })
+
+    it('does not report a pickup when the baseline answer was not-used', () => {
+      const previous = run('r1', [
+        snap('q1', 'gemini', true),
+        { ...snap('q1', 'openai', false), retrievalStatus: 'not-used' },
+      ])
       const current = run('r2', [snap('q1', 'gemini', true), snap('q1', 'openai', true)])
 
       expect(detectProviderPickups(current, previous)).toHaveLength(0)
@@ -61,6 +86,13 @@ describe('absence of an observation is not a negative observation', () => {
       // q2 is newly added (or every provider errored on it) — no baseline rows.
       const previous = run('r1', [snap('q1', 'gemini', true)])
       const current = run('r2', [snap('q1', 'gemini', true), snap('q2', 'gemini', true)])
+
+      expect(detectFirstCitations(current, previous)).toHaveLength(0)
+    })
+
+    it('does not report a first citation when the baseline answer was not-used', () => {
+      const previous = run('r1', [{ ...snap('q2', 'gemini', false), retrievalStatus: 'not-used' }])
+      const current = run('r2', [snap('q2', 'gemini', true)])
 
       expect(detectFirstCitations(current, previous)).toHaveLength(0)
     })
@@ -88,10 +120,24 @@ describe('absence of an observation is not a negative observation', () => {
       expect(detectCompetitorGains(current, previous, tracked)).toHaveLength(0)
     })
 
+    it('does not report a competitor gain on a query whose baseline was not-used', () => {
+      const previous = run('r1', [{ ...snap('q2', 'gemini', false), retrievalStatus: 'not-used' }])
+      const current = run('r2', [snap('q2', 'gemini', false, ['rival.com'])])
+
+      expect(detectCompetitorGains(current, previous, tracked)).toHaveLength(0)
+    })
+
     it('does not report a competitor loss on a query the CURRENT run failed to ask', () => {
       // The mirror case: a loss is claimed from absence on the current side.
       const previous = run('r1', [snap('q1', 'gemini', false, ['rival.com'])])
       const current = run('r2', [])
+
+      expect(detectCompetitorLosses(current, previous, tracked)).toHaveLength(0)
+    })
+
+    it('does not report a competitor loss on a query whose CURRENT answer was not-used', () => {
+      const previous = run('r1', [snap('q1', 'gemini', false, ['rival.com'])])
+      const current = run('r2', [{ ...snap('q1', 'gemini', false), retrievalStatus: 'not-used' }])
 
       expect(detectCompetitorLosses(current, previous, tracked)).toHaveLength(0)
     })
@@ -117,6 +163,13 @@ describe('absence of an observation is not a negative observation', () => {
       expect(detectRegressions(current, previous)).toHaveLength(0)
     })
 
+    it('does not report a regression when the current answer was written without web search', () => {
+      const previous = run('r1', [snap('q1', 'gemini', true)])
+      const current = run('r2', [{ ...snap('q1', 'gemini', false), retrievalStatus: 'not-used' }])
+
+      expect(detectRegressions(current, previous)).toHaveLength(0)
+    })
+
     it('still reports a real regression', () => {
       const previous = run('r1', [snap('q1', 'gemini', true)])
       const current = run('r2', [snap('q1', 'gemini', false)])
@@ -129,6 +182,14 @@ describe('absence of an observation is not a negative observation', () => {
     it('counts a row regardless of whether it was cited', () => {
       const r = run('r1', [snap('q1', 'gemini', true), snap('q2', 'gemini', false)])
       expect(observedKeys(r, s => s.query)).toEqual(new Set(['q1', 'q2']))
+    })
+
+    it('excludes rows where retrievalStatus is not-used', () => {
+      const r = run('r1', [
+        snap('q1', 'gemini', true),
+        { ...snap('q2', 'gemini', false), retrievalStatus: 'not-used' },
+      ])
+      expect(observedKeys(r, s => s.query)).toEqual(new Set(['q1']))
     })
 
     it('is empty for a run that measured nothing', () => {

@@ -38,6 +38,23 @@ describe('detectGains', () => {
     })
   })
 
+  it('does not flag a gain when the previous answer was written without web search', () => {
+    const prev = makeRun({
+      runId: 'run_001',
+      snapshots: [
+        { query: 'roof coating', provider: 'chatgpt', cited: false, retrievalStatus: 'not-used' },
+      ],
+    })
+    const curr = makeRun({
+      runId: 'run_002',
+      snapshots: [
+        { query: 'roof coating', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/coating', position: 3 },
+      ],
+    })
+
+    expect(detectGains(curr, prev)).toEqual([])
+  })
+
   it('returns empty when no gains occurred', () => {
     const run = makeRun({
       snapshots: [

@@ -10,9 +10,12 @@ export function detectGains(currentRun: RunData, previousRun: RunData): Gain[] {
   const gains: Gain[] = []
 
   // What the baseline OBSERVED, separately from what it found cited. A pair
-  // its provider errored on has no row at all, and no row is not a "not
-  // cited" reading to have gained against. See `observation-coverage.ts`.
+  // its provider errored on has no row at all, and an answer written without
+  // web search (`not-used`) cites nothing by construction — neither is an
+  // observation of "not cited" to have gained against (#1161).
+  // See `observation-coverage.ts`.
   const previousObserved = observedKeys(previousRun, snapshotKey)
+
   const previousCited = new Set<string>()
   for (const snap of previousRun.snapshots) {
     if (snap.cited) {
@@ -21,6 +24,10 @@ export function detectGains(currentRun: RunData, previousRun: RunData): Gain[] {
   }
 
   for (const snap of currentRun.snapshots) {
+    if (snap.retrievalStatus === 'not-used') {
+      continue
+    }
+
     const key = snapshotKey(snap)
     if (snap.cited && previousObserved.has(key) && !previousCited.has(key)) {
       gains.push({

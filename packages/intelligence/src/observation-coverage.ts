@@ -4,9 +4,13 @@ import type { RunData, Snapshot } from './types.js'
  * The set of things a run actually OBSERVED, keyed however the caller keys them.
  *
  * A run's snapshots record observations, not truth. A provider call that throws
- * writes no snapshot row at all — that is precisely what `status='partial'`
+ * writes no snapshot row at all — that is what `status='partial'`
  * means — so a sweep can be missing whole (query × provider) pairs. **Absence
  * of a row is absence of evidence, never an observation of "not cited".**
+ *
+ * Answers written without a web search (`retrievalStatus = 'not-used'`) cite
+ * nothing by construction; they are not an observation of citation presence
+ * or absence (#1161).
  *
  * Every detector that claims a TRANSITION ("started being cited", "dropped
  * off") must therefore confirm the relevant side observed the thing before
@@ -21,6 +25,9 @@ import type { RunData, Snapshot } from './types.js'
  */
 export function observedKeys<K>(run: RunData, keyOf: (snap: Snapshot) => K): Set<K> {
   const observed = new Set<K>()
-  for (const snap of run.snapshots) observed.add(keyOf(snap))
+  for (const snap of run.snapshots) {
+    if (snap.retrievalStatus === 'not-used') continue
+    observed.add(keyOf(snap))
+  }
   return observed
 }

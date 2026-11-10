@@ -23,6 +23,12 @@ export function detectRegressions(currentRun: RunData, previousRun: RunData): Re
   }
 
   for (const snap of currentRun.snapshots) {
+    // An answer written without a web search (`not-used`) cites nothing by
+    // construction, so it must not be counted as a lost citation (#1161).
+    if (snap.retrievalStatus === 'not-used') {
+      continue
+    }
+
     const key = snapshotKey(snap)
     if (!snap.cited && previousCited.has(key)) {
       const prev = previousCited.get(key)!
