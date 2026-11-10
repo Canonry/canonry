@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import {
   getApiV1ProjectsByNameRunsQueryKey,
-  getApiV1ProjectsByNameAgentReadinessCrawlPagesAuditQueryKey,
   getApiV1ProjectsByNameAgentReadinessPagesQueryKey,
   getApiV1ProjectsByNameAgentReadinessQueryKey,
   getApiV1ProjectsByNameAgentReadinessTrendQueryKey,
@@ -334,33 +333,6 @@ test.each([
   await waitFor(() => expect(scoreCalls).toBeGreaterThan(callsBeforeRetry))
 })
 
-test('adds the caller recovery path when the integrated score cannot be read', async () => {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-  })
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"not found"}', {
-    status: 404,
-    headers: { 'content-type': 'application/json' },
-  })))
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <TechnicalAeoSection
-        projectName={projectName}
-        projectId={projectId}
-        runId="audit_partial"
-        integrated
-        afterSummary={<p>Continue after a successful score</p>}
-        unavailableFooter={<p>Continue setup without a score</p>}
-      />
-    </QueryClientProvider>,
-  )
-
-  expect(await screen.findByText('Score could not load')).not.toBeNull()
-  expect(screen.getByText('Continue setup without a score')).not.toBeNull()
-  expect(screen.queryByText('Continue after a successful score')).toBeNull()
-})
-
 test('a partial crawl scores the pages it reached, and never claims the site', () => {
   // `partial` is the normal outcome of a bounded first scan, not an exception.
   // Labelling it "Agent Readiness score / Pass" makes exactly the claim the agent setup
@@ -454,8 +426,6 @@ test('distills the integrated view to a score and its actionable findings', asyn
         projectName={projectName}
         projectId={projectId}
         integrated
-        afterSummary={<p>Continue after the score summary</p>}
-        unavailableFooter={<p>Recover an unavailable score</p>}
       />
     </QueryClientProvider>,
   )
@@ -472,11 +442,6 @@ test('distills the integrated view to a score and its actionable findings', asyn
   expect(findingsHeading).not.toBeNull()
   expect(screen.getByText('Select a check to see affected pages and recommended fixes.')).not.toBeNull()
   expect(screen.getByText('Pages affected')).not.toBeNull()
-  const nextAction = screen.getByText('Continue after the score summary')
-  const scoreSummary = screen.getByLabelText('Agent Readiness score 52 out of 100')
-  expect(Boolean(scoreSummary.compareDocumentPosition(nextAction) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
-  expect(Boolean(nextAction.compareDocumentPosition(findingsHeading) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
-  expect(screen.queryByText('Recover an unavailable score')).toBeNull()
 
   const failingFactor = screen.getByRole('button', { name: 'AI Crawler Access' })
   expect(failingFactor.getAttribute('aria-expanded')).toBe('false')
@@ -558,131 +523,6 @@ test('keeps the integrated findings table readable while affected pages load', a
   expect(screen.getByRole('table').className).toContain('min-w-[42rem]')
   expect(screen.queryByText('Page details are not available in the loaded page sample.')).toBeNull()
   expect(screen.queryByText(/Showing the worst 0 audited pages/)).toBeNull()
-})
-
-test('uses compact findings copy only when the onboarding parent requests it', () => {
-  const queryClient = makeClient()
-  queryClient.setQueryData(scoreKey, scoreWithFinding())
-  queryClient.setQueryData(pagesKey, { project: projectName, pages: [], total: 0 })
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated compactCopy />
-    </QueryClientProvider>,
-  )
-
-  // Onboarding heads this view "Agent Readiness score", so the number reads "Score"
-  // rather than repeating the heading; its spoken label still names the feature.
-  const scoreSummary = screen.getByLabelText('Agent Readiness score 52 out of 100')
-  expect(scoreSummary.parentElement?.previousElementSibling?.textContent).toBe('Score')
-  expect(screen.queryByText('Agent Readiness score')).toBeNull()
-  expect(screen.getByText('All site checks').closest('details')?.open).toBe(false)
-  expect(screen.getByText('Allow GPTBot in robots.txt')).not.toBeNull()
-  fireEvent.click(screen.getByText('All site checks'))
-  expect(screen.getByRole('heading', { name: 'Checks' })).not.toBeNull()
-  expect(screen.getByText('Open a check to see affected pages and recommended fixes.')).not.toBeNull()
-  expect(screen.queryByRole('heading', { name: 'Findings' })).toBeNull()
-  const check = screen.getByRole('button', { name: 'AI Crawler Access' })
-  expect(check.getAttribute('aria-expanded')).toBe('false')
-  fireEvent.click(check)
-  expect(check.getAttribute('aria-expanded')).toBe('true')
-  expect(screen.getAllByText('Allow GPTBot in robots.txt')).toHaveLength(2)
-})
-
-test('shows one exact page finding in onboarding when aggregate recommendations are unavailable', async () => {
-  const queryClient = makeClient()
-  queryClient.setQueryData(scoreKey, {
-    ...scoreWithFinding(),
-    crossCuttingIssues: [{
-      ...scoreWithFinding().crossCuttingIssues[0],
-      topRecommendations: [],
-    }],
-  })
-  queryClient.setQueryData(pagesKey, {
-    project: projectName,
-    runId: 'audit_old',
-    auditedAt: '2026-07-14T18:16:33.000Z',
-    total: 1,
-    pages: [{
-      url: 'https://citypoint.example/services',
-      status: 'success',
-      overallScore: 42,
-      factors: [{ id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 20, score: 30 }],
-    }],
-  })
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessCrawlPagesAuditQueryKey({
-    client: heyClient,
-    path: { name: projectName },
-    query: { url: 'https://citypoint.example/services' },
-  }), {
-    state: 'ready',
-    project: projectName,
-    runId: 'audit_old',
-    complete: true,
-    termination: null,
-    nodeKey: 'page_services',
-    url: 'https://citypoint.example/services',
-    auditState: 'complete',
-    auditScore: 42,
-    evidenceState: 'complete',
-    factors: [{
-      id: 'content-depth',
-      name: 'Content depth',
-      weight: 12,
-      score: 20,
-      status: 'fail',
-      applicable: true,
-      findings: [{ type: 'missing', code: 'content-depth.word-count.low', message: 'Only 120 words were found.' }],
-      recommendations: ['Answer the key questions visitors ask on this page.'],
-    }],
-    criticalDefects: [],
-  })
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated compactCopy />
-    </QueryClientProvider>,
-  )
-
-  expect(screen.getByText('All site checks').closest('details')?.open).toBe(false)
-  expect(screen.getByRole('heading', { name: 'First page to fix' })).not.toBeNull()
-  expect(screen.getAllByRole('link', { name: 'https://citypoint.example/services' })).toHaveLength(1)
-  expect(screen.getByRole('heading', { name: 'Findings and fixes for this page' })).not.toBeNull()
-  expect(await screen.findByText('Content depth')).not.toBeNull()
-  expect(screen.getByText('42/100')).not.toBeNull()
-})
-
-test('does not call a healthy fallback page the first page to fix', () => {
-  const queryClient = makeClient()
-  queryClient.setQueryData(scoreKey, {
-    ...scoreWithFinding(),
-    crossCuttingIssues: [{
-      ...scoreWithFinding().crossCuttingIssues[0],
-      topRecommendations: [],
-    }],
-  })
-  queryClient.setQueryData(pagesKey, {
-    project: projectName,
-    runId: 'audit_old',
-    auditedAt: '2026-07-14T18:16:33.000Z',
-    total: 1,
-    pages: [{
-      url: 'https://citypoint.example/',
-      status: 'success',
-      overallScore: 92,
-      factors: [{ id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 20, score: 100 }],
-    }],
-  })
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated compactCopy />
-    </QueryClientProvider>,
-  )
-
-  expect(screen.getByRole('heading', { name: 'Example audited page' })).not.toBeNull()
-  expect(screen.getByText('Page-level evidence for one audited page appears below.', { exact: false })).not.toBeNull()
-  expect(screen.queryByRole('heading', { name: 'First page to fix' })).toBeNull()
 })
 
 test('shows a focused retry when integrated affected pages fail to load', async () => {

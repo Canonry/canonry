@@ -89,10 +89,7 @@ import { RUNS_STALE_MS } from './queries/query-client.js'
 import { invalidateQueriesForRunKind } from './queries/run-invalidations.js'
 import { formatTrackedRunKind } from './lib/run-labels.js'
 import { toRunListItem } from './build-dashboard.js'
-import type {
-  HealthSnapshot,
-  ServiceStatus,
-} from './view-models.js'
+import { CHECKING_HEALTH_SNAPSHOT } from './lib/health-helpers.js'
 
 import { Outlet, Link, useLocation, useNavigate } from '@tanstack/react-router'
 
@@ -101,17 +98,6 @@ const resources: { label: string; href: string; Icon: LucideIcon }[] = [
   { label: 'Docs', href: 'https://github.com/Canonry/canonry/tree/main/docs', Icon: BookOpen },
   { label: 'Changelog', href: 'https://github.com/Canonry/canonry/releases', Icon: FileText },
 ]
-
-const checkingStatus = (label: string): ServiceStatus => ({
-  label,
-  state: 'checking',
-  detail: 'Checking service health',
-})
-
-const defaultHealthSnapshot: HealthSnapshot = {
-  apiStatus: checkingStatus('API'),
-  workerStatus: checkingStatus('Worker'),
-}
 
 function terminalToneForRun(status: string): ToastTone {
   if (status === 'completed') return 'positive'
@@ -381,7 +367,7 @@ export function RootLayout() {
   }, [isLoading])
   const enableLiveStatus = !contextDashboard
   const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
-  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
+  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? CHECKING_HEALTH_SNAPSHOT
 
   // ── Router state ──
   const { runId, evidenceId, closeDrawer } = useDrawer()

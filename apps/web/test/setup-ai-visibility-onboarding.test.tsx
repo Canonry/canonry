@@ -12,7 +12,8 @@ import { createDashboardFixture } from '../src/mock-data.js'
 import { clearOnboardingRunLaunched, readOnboardingLaunchedRun } from '../src/lib/onboarding-telemetry.js'
 import { getToasts } from '../src/lib/toast-store.js'
 import { formatSweepInstant } from '../src/lib/format-helpers.js'
-import { SetupPage, type SetupPanelStep } from '../src/pages/SetupPage.js'
+import { SetupPage } from '../src/pages/SetupPage.js'
+import { AiVisibilitySetupPanel, type SetupPanelStep } from '../src/components/setup/AiVisibilitySetupPanel.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import { connectionFixture, settingsFixture } from './provider-settings-fixtures.js'
 import { PROVIDER_CONNECTION_TEST_COPY } from '../src/components/settings/ProviderConnectionTest.js'
@@ -184,10 +185,9 @@ function renderProjectSetup(options: {
     <QueryClientProvider client={queryClient}>
       <AccountProvider account={null} apiKey={options.apiKey}>
         <DashboardProvider value={fixture}>
-          <SetupPage
-            visibilityProjectName={options.projectScoped === false ? undefined : project.project.name}
-            {...(options.panel ? { panel } : {})}
-          />
+          {options.panel
+            ? <AiVisibilitySetupPanel projectName={project.project.name} initialStep={panel.initialStep} onClose={panel.onClose} onLaunched={panel.onLaunched} />
+            : <SetupPage visibilityProjectName={options.projectScoped === false ? undefined : project.project.name} />}
         </DashboardProvider>
       </AccountProvider>
     </QueryClientProvider>

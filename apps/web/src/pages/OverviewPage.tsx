@@ -8,7 +8,7 @@ import { Card } from '../components/ui/card.js'
 import { SentimentOverviewMetric, showsSentimentOverview } from '../components/project/SentimentSection.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { buildSystemHealthCards, serviceStatusTooltip } from '../lib/health-helpers.js'
+import { CHECKING_HEALTH_SNAPSHOT, buildSystemHealthCards, serviceStatusTooltip } from '../lib/health-helpers.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { RunDetailLink } from '../components/shared/RunDetailLink.js'
@@ -164,7 +164,7 @@ export function OverviewPage() {
   // and the run list's runs in progress (`build-dashboard.ts`).
   const attentionItems = model.attentionItems
 
-  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }
+  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? CHECKING_HEALTH_SNAPSHOT
   const systemHealth = buildSystemHealthCards(model.systemHealth.filter(card => isAdmin || card.id === 'api' || card.id === 'worker'), healthSnapshot, safeDashboard.settings)
 
   return (

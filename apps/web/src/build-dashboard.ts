@@ -23,6 +23,7 @@ import type {
   RunHistoryPoint,
   RunListItemVm,
   ScoreSummaryVm,
+  SettingsVm,
 } from './view-models.js'
 import { mapInsightDtosToVms } from './mappers/insight-mapper.js'
 import { formatSweepInstant } from './lib/format-helpers.js'
@@ -877,40 +878,45 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
         summary: hasProjects ? 'Ready to run.' : 'Create a project first to launch a run.',
       },
     },
-    settings: {
-      providerStatuses: (apiSettings?.providers ?? []).map(p => {
-        // Present only for an install administrator: the connection's revision and stored last test.
-        const connection = apiSettings?.providerConnections?.find(entry => entry.name === p.name)
-        return {
-          name: p.name,
-          displayName: p.displayName,
-          ...(p.kind ? { kind: p.kind } : {}),
-          keyUrl: p.keyUrl,
-          modelHint: p.modelHint,
-          model: p.model,
-          defaultModel: p.defaultModel,
-          state: (p.configured ? 'configured' : 'needs-config') as 'configured' | 'needs-config',
-          detail: p.configured
-            ? 'Configuration saved.'
-            : p.name.toLowerCase() === 'local'
-              ? 'Base URL is missing.'
-              : 'API key is missing.',
-          quota: p.quota,
-          ...(connection ? { revision: connection.revision, lastTest: connection.lastTest ?? null } : {}),
-        }
-      }),
-      google: { state: apiSettings?.google?.configured ? 'ready' : 'needs-config' },
-      bing: { state: apiSettings?.bing?.configured ? 'ready' : 'needs-config' },
-      selfHostNotes: [
-        // Paths name the folder by how it is chosen: a server started with
-        // CANONRY_CONFIG_DIR keeps everything in that folder instead.
-        'Configuration is stored in config.yaml in the config folder: ~/.canonry, or the folder CANONRY_CONFIG_DIR names when the server starts.',
-        'The local config file is the source of truth for authentication credentials.',
-        'Google OAuth app credentials and per-domain Google tokens are stored in local config, not the database.',
-        'The SQLite database is the path config.yaml names, data.db in the config folder by default.',
-        'The API key in config.yaml was generated when this install was set up.',
-      ],
-      bootstrapNote: 'Use the UI, the CLI, or config.yaml to manage settings. Authentication credentials persist to local config.',
-    },
+    settings: buildSettingsVm(apiSettings),
+  }
+}
+
+/** Instance settings as the dashboard shows them; a read that was refused or not made lists no providers. */
+export function buildSettingsVm(apiSettings?: ApiSettings | null): SettingsVm {
+  return {
+    providerStatuses: (apiSettings?.providers ?? []).map(p => {
+      // Present only for an install administrator: the connection's revision and stored last test.
+      const connection = apiSettings?.providerConnections?.find(entry => entry.name === p.name)
+      return {
+        name: p.name,
+        displayName: p.displayName,
+        ...(p.kind ? { kind: p.kind } : {}),
+        keyUrl: p.keyUrl,
+        modelHint: p.modelHint,
+        model: p.model,
+        defaultModel: p.defaultModel,
+        state: (p.configured ? 'configured' : 'needs-config') as 'configured' | 'needs-config',
+        detail: p.configured
+          ? 'Configuration saved.'
+          : p.name.toLowerCase() === 'local'
+            ? 'Base URL is missing.'
+            : 'API key is missing.',
+        quota: p.quota,
+        ...(connection ? { revision: connection.revision, lastTest: connection.lastTest ?? null } : {}),
+      }
+    }),
+    google: { state: apiSettings?.google?.configured ? 'ready' : 'needs-config' },
+    bing: { state: apiSettings?.bing?.configured ? 'ready' : 'needs-config' },
+    selfHostNotes: [
+      // Paths name the folder by how it is chosen: a server started with
+      // CANONRY_CONFIG_DIR keeps everything in that folder instead.
+      'Configuration is stored in config.yaml in the config folder: ~/.canonry, or the folder CANONRY_CONFIG_DIR names when the server starts.',
+      'The local config file is the source of truth for authentication credentials.',
+      'Google OAuth app credentials and per-domain Google tokens are stored in local config, not the database.',
+      'The SQLite database is the path config.yaml names, data.db in the config folder by default.',
+      'The API key in config.yaml was generated when this install was set up.',
+    ],
+    bootstrapNote: 'Use the UI, the CLI, or config.yaml to manage settings. Authentication credentials persist to local config.',
   }
 }

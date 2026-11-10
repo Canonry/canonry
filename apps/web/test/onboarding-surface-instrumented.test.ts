@@ -51,7 +51,7 @@ describe('onboarding surfaces are instrumented', () => {
     // A surface that renders no telemetry is invisible in the funnel, and the
     // funnel then describes only the surfaces that do — which reads as data
     // rather than as a gap.
-    for (const page of ['pages/OnboardingSetupPage.tsx', 'pages/ProjectSetupTracker.tsx', 'pages/SetupPage.tsx']) {
+    for (const page of ['pages/OnboardingSetupPage.tsx', 'pages/ProjectSetupTracker.tsx', 'pages/SetupPage.tsx', 'components/setup/AiVisibilitySetupPanel.tsx']) {
       expect(read(page), `${page} should emit onboarding telemetry`).toContain(TELEMETRY_MODULE)
     }
   })
@@ -62,6 +62,8 @@ describe('onboarding surfaces are instrumented', () => {
     expect(read('pages/SetupPage.tsx')).toContain("surface: 'wizard'")
     expect(read('pages/OnboardingSetupPage.tsx')).toContain("useOnboardingTelemetry('platform')")
     expect(read('pages/ProjectSetupTracker.tsx')).toContain("useOnboardingTelemetry('platform')")
+    // The tracker's AI Visibility panel reports where the check's outcome lands: the wizard funnel.
+    expect(read('components/setup/AiVisibilitySetupPanel.tsx')).toContain("useOnboardingTelemetry('wizard')")
   })
 
   it('keeps the run step recordable after a reload, and scoped to one project', () => {
