@@ -30,7 +30,7 @@ export function detectPersistentGaps(
     let streak = 0
     for (let i = runs.length - 1; i >= 0; i--) {
       const run = runs[i]!
-      const snaps = run.snapshots.filter(s => s.query === query)
+      const snaps = run.snapshots.filter(s => s.query === query && s.retrievalStatus !== 'not-used')
       if (snaps.length === 0) break
       const anyCited = snaps.some(s => s.cited)
       if (anyCited) break

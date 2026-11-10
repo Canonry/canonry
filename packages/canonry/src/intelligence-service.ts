@@ -1106,6 +1106,7 @@ export class IntelligenceService {
         citedDomains: querySnapshots.citedDomains,
         rawResponse: querySnapshots.rawResponse,
         snapshotLocation: querySnapshots.location,
+        retrievalStatus: querySnapshots.retrievalStatus,
       })
       .from(querySnapshots)
       .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
@@ -1154,6 +1155,7 @@ export class IntelligenceService {
         // sources). Cause analysis uses it to name the displacing source
         // when no tracked competitor appears in the response.
         citedDomains: domains,
+        retrievalStatus: r.retrievalStatus,
       })
     }
 

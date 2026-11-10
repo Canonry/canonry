@@ -9,8 +9,9 @@ import { observedKeys } from './observation-coverage.js'
  */
 export function detectFirstCitations(currentRun: RunData, previousRun: RunData): FirstCitation[] {
   // "Had not been cited by any provider" is only knowable for a query the
-  // baseline actually measured. A newly-added query, or one every provider
-  // errored on, has no rows — that is not evidence of a first citation.
+  // baseline actually measured. A newly-added query, one every provider
+  // errored on, or an answer written without web search (`not-used`), has no
+  // search evidence — that is not evidence of a first citation (#1161).
   // See `observation-coverage.ts`.
   const previousObservedQueries = observedKeys(previousRun, snap => snap.query)
   const previousCitedQueries = new Set<string>()
@@ -21,6 +22,7 @@ export function detectFirstCitations(currentRun: RunData, previousRun: RunData):
   const result: FirstCitation[] = []
   const seen = new Set<string>()
   for (const snap of currentRun.snapshots) {
+    if (snap.retrievalStatus === 'not-used') continue
     if (!snap.cited) continue
     if (!previousObservedQueries.has(snap.query)) continue
     if (previousCitedQueries.has(snap.query)) continue

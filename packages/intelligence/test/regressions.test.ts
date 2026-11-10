@@ -38,6 +38,23 @@ describe('detectRegressions', () => {
     })
   })
 
+  it('does not flag a regression when the current answer was written without web search', () => {
+    const prev = makeRun({
+      runId: 'run_001',
+      snapshots: [
+        { query: 'roof repair', provider: 'chatgpt', cited: true, citationUrl: 'https://example.com/roof', position: 2 },
+      ],
+    })
+    const curr = makeRun({
+      runId: 'run_002',
+      snapshots: [
+        { query: 'roof repair', provider: 'chatgpt', cited: false, retrievalStatus: 'not-used' },
+      ],
+    })
+
+    expect(detectRegressions(curr, prev)).toEqual([])
+  })
+
   it('returns empty when nothing changed', () => {
     const run = makeRun({
       snapshots: [

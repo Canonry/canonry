@@ -37,6 +37,12 @@ export interface Snapshot {
    * "audit who's winning."
    */
   citedDomains?: readonly string[]
+  /**
+   * Whether this answer ran a retrieval step. An answer written without a web
+   * search (`not-used`) cites nothing by construction; it is not an observation
+   * of citation absence or presence (#1161). Null / absent for legacy rows.
+   */
+  retrievalStatus?: string | null
 }
 
 export interface RunData {

@@ -40,6 +40,15 @@ describe('detectPersistentGaps', () => {
     expect(detectPersistentGaps([r1, r2, r3, r4])).toEqual([])
   })
 
+  it('breaks the streak on a run where the query was answered without web search (retrievalStatus: not-used)', () => {
+    const r1 = makeRun('r1', [{ query: 'k1', provider: 'gemini', cited: false }])
+    const r2 = makeRun('r2', [{ query: 'k1', provider: 'gemini', cited: false, retrievalStatus: 'not-used' }])
+    const r3 = makeRun('r3', [{ query: 'k1', provider: 'gemini', cited: false }])
+
+    // r2 provided no search evidence, so the streak breaks: only r3 trailing
+    expect(detectPersistentGaps([r1, r2, r3])).toEqual([])
+  })
+
   it('returns empty when fewer runs than threshold are provided', () => {
     const r1 = makeRun('r1', [{ query: 'k1', provider: 'gemini', cited: false }])
     const r2 = makeRun('r2', [{ query: 'k1', provider: 'gemini', cited: false }])
