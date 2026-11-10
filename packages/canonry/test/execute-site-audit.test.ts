@@ -6,6 +6,7 @@ import { and, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createClient,
+  measurementPlanVersions,
   migrate,
   projects,
   runs,
@@ -48,6 +49,7 @@ import { isNonPageMedia,
 import { hashDomain } from '../src/run-telemetry.js'
 import { resolveSiteAuditRootUrl } from '../src/site-audit-root.js'
 import { SITE_CRAWL_GRAPH_LAYOUT_VERSION } from '../src/site-crawl-graph-layout.js'
+import { entityPlan, storePlanRevision } from './site-audit-entity-plan-fixture.js'
 import { deriveSiteHealthState } from '@canonry/canonry-contracts'
 
 const NOW = '2026-08-08T00:00:00.000Z'
@@ -274,6 +276,34 @@ describe('executeSiteAudit', () => {
     })
     expect(db.select().from(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).get()).toMatchObject({ aggregateScore: 88 })
     expect(db.select().from(siteAuditPages).where(eq(siteAuditPages.runId, runId)).all()).toHaveLength(2)
+  })
+
+  it("checks pages against the active plan's Properties and records the plan revision", async () => {
+    storePlanRevision(db, projectId, entityPlan(), 4)
+    vi.mocked(runSiteCrawl).mockImplementation(async (url, options) => emitCompleteGraph(options, true, url))
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+
+    expect(runSiteCrawl).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ entityRegistry: { entities: [
+      expect.objectContaining({ key: 'harbor-point', names: ['Harbor Point', 'Harbor Point Apartments', 'Harbor Point Austin'] }),
+      expect.objectContaining({ key: 'ridge-view', names: ['Ridge View'] }),
+    ] } }))
+    expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.runId, runId)).get()?.effectiveOptions).toMatchObject({ entityPlanRevision: 4 })
+  })
+
+  it('scans without Properties when the project has no plan or its plan cannot be read', async () => {
+    vi.mocked(runSiteCrawl).mockImplementation(async (url, options) => emitCompleteGraph(options, true, url))
+    const withoutPlan = seedRun()
+    await executeSiteAudit(db, withoutPlan, projectId)
+    expect(vi.mocked(runSiteCrawl).mock.calls[0]?.[1]).not.toHaveProperty('entityRegistry')
+    expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.runId, withoutPlan)).get()?.effectiveOptions).toMatchObject({ entityPlanRevision: null })
+
+    const versionId = storePlanRevision(db, projectId, entityPlan(), 1)
+    db.update(measurementPlanVersions).set({ canonicalJson: '{' }).where(eq(measurementPlanVersions.id, versionId)).run()
+    const unreadable = seedRun()
+    await executeSiteAudit(db, unreadable, projectId)
+    expect(vi.mocked(runSiteCrawl).mock.calls[1]?.[1]).not.toHaveProperty('entityRegistry')
+    expect(db.select().from(runs).where(eq(runs.id, unreadable)).get()?.status).toBe('completed')
   })
 
   it('asks the crawl to stop fetching proven URL versions and stores how many it skipped', async () => {

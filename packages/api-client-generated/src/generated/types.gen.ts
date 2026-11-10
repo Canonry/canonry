@@ -16788,6 +16788,13 @@ export type SiteCrawlPageAuditDto = {
         severity: 'critical' | 'warning';
         detail: string;
         recommendation: string;
+        evidence?: Array<{
+            field: string;
+            question?: string;
+            entityKey: string;
+            entityName: string;
+            snippet: string;
+        }>;
     }>;
 } | {
     project: string;
@@ -16834,6 +16841,13 @@ export type SiteCrawlPageAuditDto = {
         severity: 'critical' | 'warning';
         detail: string;
         recommendation: string;
+        evidence?: Array<{
+            field: string;
+            question?: string;
+            entityKey: string;
+            entityName: string;
+            snippet: string;
+        }>;
     }>;
 };
 

@@ -61,6 +61,7 @@ import {
 import { classifySiteCrawlTemplateLinks } from './site-crawl-template-links.js'
 import { computeFactorAverages, recordedSharePct } from './site-audit-factors.js'
 import { buildSiteCrawlIssueEvidence } from './site-audit-issues.js'
+import { activePlanEntityRegistry } from './site-audit-entity-registry.js'
 
 const log = createLogger('SiteAudit')
 
@@ -758,6 +759,14 @@ export async function executeSiteAudit(
     })
     const crawlRootUrl = resolvedRoot.effectiveUrl
     if (opts.sitemapUrl) await assertSiteAuditUrlAllowed(opts.sitemapUrl, 'sitemapUrl')
+    // An Advanced project's Properties let the engine flag a page that names
+    // another Property. A plan that cannot be read never stops the scan.
+    let entities: ReturnType<typeof activePlanEntityRegistry> = null
+    try {
+      entities = activePlanEntityRegistry(db, projectId)
+    } catch (error) {
+      log.warn('entity-registry.unavailable', { runId, projectId, error: describeError(error) })
+    }
 
     log.info('start', {
       runId,
@@ -768,6 +777,7 @@ export async function executeSiteAudit(
       maxPages,
       maxEdges,
       maxDepth: opts.maxDepth ?? null,
+      entityPlanRevision: entities?.planRevision ?? null,
     })
     // The engine (>= 7.1.0) derives maxFetches / maxDurationMs / maxBytes /
     // maxEdges from the page budget natively, so passing only the two limits
@@ -784,6 +794,7 @@ export async function executeSiteAudit(
       includeGeo: opts.includeGeo ?? false,
       includeAgentSkills: opts.includeAgentSkills ?? true,
       skipUrlVersionsAfter: SITE_AUDIT_SKIP_URL_VERSIONS_AFTER,
+      ...(entities ? { entityRegistry: entities.registry } : {}),
       signal: opts.signal,
       onEvent: persistEvent,
     })
@@ -948,6 +959,8 @@ export async function executeSiteAudit(
           mode: 'summary', sitemapUrl: opts.sitemapUrl ?? null, maxPages, maxEdges: maxEdges ?? null,
           maxDepth: opts.maxDepth ?? null, checkDeadLinks: opts.checkDeadLinks ?? false,
           includeGeo: opts.includeGeo ?? false, includeAgentSkills: opts.includeAgentSkills ?? true,
+          // The plan revision whose Properties pages were checked against; null when none were.
+          entityPlanRevision: entities?.planRevision ?? null,
         },
         pageBudget: maxPages,
         edgeBudget: maxEdges ?? null,

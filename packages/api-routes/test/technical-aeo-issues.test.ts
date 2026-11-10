@@ -117,6 +117,29 @@ describe('stored audit issue feed', () => {
     expect(retained.issues[0]).toMatchObject({ stableIdentity: false, code: 'future.check', disposition: 'informational' })
   })
 
+  it('titles a page-specific defect by what it is, keeps each page its own detail, and returns the mentions on the page read', async () => {
+    const scope = seed()
+    const names = (owner: string, other: string) => ({ schemaVersion: '1.0', factors: [], criticalDefects: [{
+      id: 'names-another-entity', severity: 'critical', detail: `The FAQ answer names another entity, ${other}.`,
+      recommendation: `This page belongs to ${owner}. Replace each mention with ${owner}'s own details, or remove it.`,
+      evidence: [{ field: 'faq-answer', question: 'Do apartments come with a washer and dryer?', entityKey: other.toLowerCase().replace(' ', '-'),
+        entityName: other, snippet: `Yes, every home at ${other} has a washer and dryer.` }],
+    }] })
+    page(scope, 'harbor-point', names('Harbor Point', 'Ridge View'))
+    page(scope, 'ridge-view', names('Ridge View', 'Harbor Point'))
+    const issue = (await list()).issues.find(value => value.code === 'names-another-entity')!
+    // The issue reads the same whichever page is listed first.
+    expect(issue).toMatchObject({ source: 'critical-defect', severity: 'critical', affectedPages: 2,
+      message: "The page's FAQ, title or H1 names another Property.", messageTruncated: false })
+    expect(issue.examples.map(example => example.message)).toEqual([
+      'The FAQ answer names another entity, Ridge View.', 'The FAQ answer names another entity, Harbor Point.',
+    ])
+    const read = await app.inject(`/api/v1/projects/issues/technical-aeo/crawl/pages/audit?nodeKey=harbor-point`)
+    expect(read.statusCode).toBe(200)
+    expect(read.json()).toMatchObject({ state: 'ready', evidenceState: 'complete', criticalDefects: [{ id: 'names-another-entity',
+      evidence: [{ field: 'faq-answer', question: 'Do apartments come with a washer and dryer?', entityKey: 'ridge-view', entityName: 'Ridge View' }] }] })
+  })
+
   it('binds cursors to evidence, run, project and endpoint while retaining published-attempt isolation', async () => {
     const scope = seed()
     page(scope, 'a', evidence([finding('a'), finding('b')]))
