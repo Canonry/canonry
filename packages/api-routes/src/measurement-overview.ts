@@ -245,6 +245,8 @@ function coverageMetric(rate: MeasurementRate): MetricValue {
     ...(rate.unattributed === undefined ? {} : { unattributed: rate.unattributed }),
     // Saved answers the citation rate left out because their source capture was incomplete.
     ...(rate.unchecked === undefined ? {} : { unchecked: rate.unchecked }),
+    // Saved answers the citation rate left out because the provider wrote them with no web search.
+    ...(rate.excludedNoRetrieval === undefined ? {} : { excludedNoRetrieval: rate.excludedNoRetrieval }),
   }
 }
 

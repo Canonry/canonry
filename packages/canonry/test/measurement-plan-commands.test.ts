@@ -715,6 +715,51 @@ describe('measurement-plan CLI commands', () => {
     ])
   })
 
+  it('discloses answers written without a web search beside every citation rate, under the Cited column on engine rows', async () => {
+    // 2 engines x 2 queries = 4 answers. One per engine ran no retrieval step,
+    // so citation reads 1 of the 2 searched answers.
+    getMeasurementOverview.mockResolvedValueOnce({
+      ...OVERVIEW,
+      properties: {
+        ...OVERVIEW.properties,
+        items: [{
+          ...OVERVIEW.properties.items[0]!,
+          mentionCoverage: { state: 'available', value: 1, numerator: 4, denominator: 4 },
+          citationCoverage: { state: 'available', value: 0.5, numerator: 1, denominator: 2, excludedNoRetrieval: 2 },
+          providers: [
+            {
+              provider: 'gemini',
+              mentionCoverage: { state: 'available', value: 1, numerator: 2, denominator: 2 },
+              citationCoverage: { state: 'available', value: 0, numerator: 0, denominator: 1, excludedNoRetrieval: 1 },
+            },
+            {
+              provider: 'openai',
+              mentionCoverage: { state: 'available', value: 1, numerator: 2, denominator: 2 },
+              citationCoverage: { state: 'available', value: 1, numerator: 1, denominator: 1, excludedNoRetrieval: 1 },
+            },
+          ],
+        }],
+      },
+    })
+    const logged: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation(line => { logged.push(String(line)) })
+
+    await command('measurement-plan property').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view' }, format: 'text', dryRun: false,
+    })
+
+    log.mockRestore()
+    const lines = logged.join('\n').split('\n')
+    expect(lines).toContain('Cited      1 of 2 (50.0%) · Excluded from the cited rate: 2 answer(s) written without a web search')
+    const gemini = lines.findIndex(line => line.startsWith('gemini'))
+    expect(lines.slice(gemini)).toEqual([
+      `${'gemini'.padEnd(14)}${'2 of 2 (100%)'.padEnd(34)}0 of 1 (0%)`,
+      `${''.padEnd(48)}Excluded from the cited rate: 1 answer(s) written without a web search`,
+      `${'openai'.padEnd(14)}${'2 of 2 (100%)'.padEnd(34)}1 of 1 (100%)`,
+      `${''.padEnd(48)}Excluded from the cited rate: 1 answer(s) written without a web search`,
+    ])
+  })
+
   it('names an all-unattributable Property as not measured, never as zero', async () => {
     const ambiguous = { state: 'unavailable', reason: 'identity_ambiguous' }
     getMeasurementOverview.mockResolvedValueOnce({

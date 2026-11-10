@@ -33,6 +33,7 @@ function metric(rate: ReportTarget['mentionCoverage']): AdvancedMeasurementMetri
     denominator: rate.denominator,
     ...(rate.unattributed === undefined ? {} : { unattributed: rate.unattributed }),
     ...(rate.unchecked === undefined ? {} : { unchecked: rate.unchecked }),
+    ...(rate.excludedNoRetrieval === undefined ? {} : { excludedNoRetrieval: rate.excludedNoRetrieval }),
   }
 }
 

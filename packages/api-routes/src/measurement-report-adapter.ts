@@ -313,6 +313,10 @@ function observationInputs(
       citedUrlsComplete: !sources.historical && sources.complete,
       ...(sources.historical ? { historicalCitedUrls: sources.urls, historicalCitedUrlsComplete: sources.complete } : {}),
       ...(snapshot.wrongSubjectTargetKeys?.length ? { wrongSubjectTargetIds: snapshot.wrongSubjectTargetKeys } : {}),
+      // Whether the provider ran a retrieval step: the kernel leaves an
+      // explicit `not-used` answer out of the cited denominator (#1161).
+      // Legacy rows that never recorded it stay null and stay counted.
+      retrievalStatus: snapshot.retrievalStatus ?? null,
     }]
   })
 }
