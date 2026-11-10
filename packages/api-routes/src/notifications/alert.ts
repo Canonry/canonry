@@ -7,6 +7,7 @@ import type {
   NotificationEvent,
   RatingWebhookPayload,
   ReviewWebhookPayload,
+  SiteHealthIssueWebhookPayload,
   UnrecognizedAgentWebhookPayload,
   WebhookPayload,
 } from '@canonry/canonry-contracts'
@@ -83,6 +84,7 @@ export type AnyNotificationPayload =
   | ReviewWebhookPayload
   | RatingWebhookPayload
   | UnrecognizedAgentWebhookPayload
+  | SiteHealthIssueWebhookPayload
 
 const HEALTH_EVENTS: ReadonlySet<NotificationEvent> = new Set([
   'health.degraded', 'health.recovered', 'health.urgent', 'health.urgent-resolved',
@@ -365,11 +367,34 @@ function unrecognizedAgentView(payload: UnrecognizedAgentWebhookPayload): AlertV
   }
 }
 
+function siteHealthView(payload: SiteHealthIssueWebhookPayload): AlertView {
+  const { project, issues } = payload
+  const pages = (count: number) => `${count} page${count === 1 ? '' : 's'}`
+  const line = (issue: SiteHealthIssueWebhookPayload['issues'][number]): string => {
+    const total = issue.affectedPages > issue.newPages ? `, ${issue.affectedPages} in all` : ''
+    const example = issue.examples[0] ? `, e.g. ${snippet(issue.examples[0], 120)}` : ''
+    return `${issue.title}: ${pages(issue.newPages)} new${total}${example}`
+  }
+  const single = issues.length === 1 ? issues[0]! : null
+  const scope = payload.scanComplete ? '' : ' The scan was partial, so other pages may have it too.'
+  return {
+    severity: AlertSeverities.critical,
+    category: CANONRY_ALERT_CATEGORY,
+    title: single ? `${project.name}: ${single.title} on ${pages(single.newPages)}` : `${project.name}: ${issues.length} new Site Health problems`,
+    body: `A site audit found problems that were not reported before.${scope}\n${single ? line(single) : bulletList(issues.map(line))}`,
+    fields: [{ label: AlertFieldLabels.next, value: `cnry technical-aeo issues ${project.name} --run-id ${payload.run.id}` }],
+    url: payload.dashboardUrl,
+    footer: project.canonicalDomain,
+    ...(payload.run.finishedAt ? { timestamp: payload.run.finishedAt } : {}),
+  }
+}
+
 /** Project any notification payload onto the neutral view. */
 export function toAlertView(payload: AnyNotificationPayload): AlertView {
   if (isHealth(payload)) return healthView(payload)
   if (payload.event === 'review.negative') return reviewView(payload as ReviewWebhookPayload)
   if (payload.event === 'review.rating-dropped') return ratingView(payload as RatingWebhookPayload)
   if (payload.event === 'traffic.agent.discovered') return unrecognizedAgentView(payload as UnrecognizedAgentWebhookPayload)
+  if (payload.event === 'site-health.issue.new') return siteHealthView(payload as SiteHealthIssueWebhookPayload)
   return runView(payload as WebhookPayload | InsightWebhookPayload)
 }
