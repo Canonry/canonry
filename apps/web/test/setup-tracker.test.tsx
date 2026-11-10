@@ -23,15 +23,15 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
   }
 })
 
-// The panel's own steps run against the real page in
+// The panel's own steps run against the real panel in
 // setup-ai-visibility-onboarding.test.tsx. Here it only hands the row back the
-// way the page does: Back closes it, and a launch reports the queued run.
-vi.mock('../src/pages/SetupPage.js', () => ({
-  SetupPage: ({ panel }: { panel?: { initialStep: string; onClose: () => void; onLaunched: (runId: string) => void } }) => (
-    <div data-testid="setup-panel" data-initial-step={panel?.initialStep}>
+// way the panel does: Back closes it, and a launch reports the queued run.
+vi.mock('../src/components/setup/AiVisibilitySetupPanel.js', () => ({
+  AiVisibilitySetupPanel: ({ initialStep, onClose, onLaunched }: { initialStep: string; onClose: () => void; onLaunched: (runId: string) => void }) => (
+    <div data-testid="setup-panel" data-initial-step={initialStep}>
       <h3>Panel step</h3>
-      <button type="button" onClick={() => panel?.onClose()}>Back</button>
-      <button type="button" onClick={() => panel?.onLaunched('panel-run')}>Run first check</button>
+      <button type="button" onClick={() => onClose()}>Back</button>
+      <button type="button" onClick={() => onLaunched('panel-run')}>Run first check</button>
     </div>
   ),
 }))

@@ -11,18 +11,12 @@ import { SettingsConnectionRow } from '../components/settings/SettingsConnection
 import { asyncHandler } from '../lib/async-handler.js'
 import { feedbackPanelAvailable, openFeedbackPanel } from '../lib/feedback-panel.js'
 import { useAccount } from '../contexts/account-context.js'
-import { serviceStatusTooltip } from '../lib/health-helpers.js'
+import { CHECKING_HEALTH_SNAPSHOT, serviceStatusTooltip } from '../lib/health-helpers.js'
 import { toneFromService } from '../lib/tone-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
-import type { HealthSnapshot } from '../view-models.js'
-
-const defaultHealthSnapshot: HealthSnapshot = {
-  apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' },
-  workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' },
-}
 
 /**
  * Settings holds provider credentials, the Google/Bing connections and the API
@@ -44,7 +38,7 @@ function SettingsPageBody() {
   const settings = dashboard?.settings ?? contextDashboard?.dashboard?.settings
   const enableLiveStatus = !contextDashboard
   const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
-  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
+  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? CHECKING_HEALTH_SNAPSHOT
 
   const [configuringGoogle, setConfiguringGoogle] = useState(false)
   const [configuringBing, setConfiguringBing] = useState(false)

@@ -11,6 +11,12 @@ function isSweepReadyProvider(provider: SettingsVm['providerStatuses'][number]):
   return provider.state !== 'needs-config' && makesInstallMeasurable(provider)
 }
 
+/** Service health before the first health read lands: both services still being checked. */
+export const CHECKING_HEALTH_SNAPSHOT: HealthSnapshot = {
+  apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' },
+  workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' },
+}
+
 /** Display name comes from the API (adapter.displayName). Capitalize as fallback. */
 function providerDisplayName(p: { name: string; displayName?: string }): string {
   return p.displayName ?? p.name.charAt(0).toUpperCase() + p.name.slice(1)

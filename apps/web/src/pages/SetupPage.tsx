@@ -1,23 +1,16 @@
 import { RunPreviewSummary, useRunPreview } from '../components/project/RunAdmissionNotice.js'
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type RefCallback } from 'react'
-import { Check } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
-import { isDashboardManagedSweeps, type ApiProject } from '../api.js'
-import { ManagedSweepStatus, MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
+import { isDashboardManagedSweeps } from '../api.js'
+import { MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ONBOARDING_FLOW_VERSION,
-  ProviderNames,
   RunKinds,
   RunStatuses,
   bucketOnboardingCount,
   formatLocaleLabel,
-  isOpenRouterRoute,
-  normalizeQueryText,
-  openRouterRouteModel,
-  providerConnectionName,
-  uniqueQueryTexts,
   type OnboardingTelemetryEvent,
 } from '@canonry/canonry-contracts'
 
@@ -27,49 +20,35 @@ import { AdminOnly } from '../components/shared/AccessControls.js'
 import { NextSteps } from '../components/shared/NextSteps.js'
 import { JobProgress } from '../components/shared/JobProgress.js'
 import { FeaturedAnswer, FirstResultTable, featuredSetupAnswer } from '../components/setup/FirstResult.js'
+import { AiEnginesSection, ChangeEngines } from '../components/setup/AiEnginesSection.js'
+import { FirstCheckReview, ManagedFirstCheck, firstCheckHelp, previewUsesProviderAccount } from '../components/setup/FirstCheckReview.js'
+import { SetupQueriesForm } from '../components/setup/SetupQueriesForm.js'
+import { firstCheckReadiness, useAiEngineSetup } from '../components/setup/use-ai-engine-setup.js'
+import { refreshSavedQueries, setupSavedQueriesKey, useSetupQueries } from '../components/setup/use-setup-queries.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
-import { PROVIDER_CONNECTION_TEST_COPY, ProviderConnectionTestLine, connectionUsesProviderAccount, providerConnectionStatus } from '../components/settings/ProviderConnectionTest.js'
-import { useProviderConnectionTests } from '../queries/provider-connection-tests.js'
-import { catalogRouteFamilies } from '../lib/provider-routes.js'
-import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
-import { OpenRouterModelPicker } from '../components/shared/OpenRouterModelPicker.js'
 import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import {
   createProject,
-  setQueries,
   setCompetitors,
-  generateQueries as apiGenerateQueries,
   updateProviderConfig,
-  updateProject,
   fetchQueries,
-  fetchSettings,
   heyClient,
   recordOnboardingEvent,
 } from '../api.js'
-import {
-  getApiV1CdpStatusOptions,
-  getApiV1ProjectsByNameMeasurementSetupOptions,
-  getApiV1ProjectsByNameQueriesQueryKey,
-  getApiV1RunsByIdOptions,
-} from '@canonry/canonry-api-client/react-query'
-import { isProjectDetailQuery, useTriggerRun } from '../queries/mutations.js'
+import { getApiV1RunsByIdOptions } from '@canonry/canonry-api-client/react-query'
+import { useTriggerRun } from '../queries/mutations.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useAccount } from '../contexts/account-context.js'
-import { buildSetupModel, serviceStatusTooltip } from '../lib/health-helpers.js'
+import type { PendingOnboardingTelemetryEvent } from '../hooks/use-onboarding-telemetry.js'
+import { CHECKING_HEALTH_SNAPSHOT, buildSetupModel, serviceStatusTooltip } from '../lib/health-helpers.js'
 import { clearOnboardingDraft, readOnboardingDraft, writeOnboardingDraft } from '../lib/onboarding-draft.js'
-import { useUnsavedChanges } from '../hooks/use-unsaved-changes.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { summarizeRunError } from '../lib/format-helpers.js'
-import {
-  CDP_PROVIDER_NAME,
-  normalizeProviderName,
-  resolveAiVisibilityProviderReadiness,
-} from '../lib/ai-visibility-provider-readiness.js'
 import {
   createOnboardingEventId,
   getOrCreateOnboardingSessionId,
@@ -79,13 +58,9 @@ import {
   markOnboardingRunLaunched,
   onboardingErrorReason,
   onboardingStepFromIndex,
-  onboardingSystemBlockReason,
   readOnboardingLaunchedRun,
 } from '../lib/onboarding-telemetry.js'
 import type { DashboardVm, HealthSnapshot, ProjectCommandCenterVm, RunListItemVm } from '../view-models.js'
-
-/** Compact for a mouse on a desktop; 44px tall for touch and narrow screens. */
-const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
 
 const SETUP_STEPS = [
   { label: 'System check', description: 'Verify your instance is ready' },
@@ -101,68 +76,7 @@ const PROJECT_VISIBILITY_STEPS = [
   { label: 'First check' },
 ] as const
 
-/**
- * What each provider is and what connecting it takes, as its adapter
- * (`packages/provider-*`) and `docs/providers/` describe it.
- */
-const PROVIDER_CONNECT_GUIDANCE: Readonly<Partial<Record<string, string>>> = {
-  [ProviderNames.gemini]: "Google's Gemini models, answering with Google Search. Needs an API key.",
-  [ProviderNames.openai]: "OpenAI's GPT models, answering with web search. Needs an API key.",
-  [ProviderNames.claude]: "Anthropic's Claude models, answering with web search. Needs an API key.",
-  [ProviderNames.perplexity]: 'Perplexity, answering with web search. Needs an API key.',
-  [ProviderNames.muse]: "Meta's Muse models, answering with web search. Needs a Meta Model API key.",
-  [ProviderNames.openrouter]: 'Models from several makers through one API key. Save the key, then choose which models to check.',
-  [ProviderNames.local]: 'A model you run on an OpenAI-compatible server, without web search. Needs its base URL; an API key is optional.',
-}
-
-/**
- * Every engine the first connection can choose, as one line. The form opens on
- * one engine, so this says the others exist and that more can follow.
- */
-function engineChoicesHint(providers: readonly { name: string; displayName?: string }[]): string | null {
-  if (providers.length < 2) return null
-  const names = providers
-    .filter(provider => normalizeProviderName(provider.name) !== ProviderNames.local)
-    .map(provider => normalizeProviderName(provider.name) === ProviderNames.openrouter
-      ? `${provider.displayName ?? provider.name} (many models with one key)`
-      : provider.displayName ?? provider.name)
-  if (providers.some(provider => normalizeProviderName(provider.name) === ProviderNames.local)) names.push('models you run yourself')
-  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join('')
-  return `Works with ${list}. Start with one and add more any time in Settings.`
-}
-
-/**
- * The queries in a one-per-line list, each once. Lines match as the server's
- * query replace matches them (`normalizeQueryText`), keeping the first
- * spelling, so a count read from this is the number Save stores.
- */
-function uniqueQueryLines(text: string): string[] {
-  return uniqueQueryTexts(text.split('\n'))
-}
-
-/** Generated suggestions the list does not hold yet, and how many it already held. */
-function newQuerySuggestions(currentText: string, suggestions: readonly string[]): { added: string[]; skipped: number } {
-  const known = new Set(uniqueQueryLines(currentText).map(normalizeQueryText))
-  const added: string[] = []
-  let skipped = 0
-  for (const suggestion of suggestions) {
-    const query = suggestion.trim()
-    const key = normalizeQueryText(query)
-    if (!key) continue
-    if (known.has(key)) {
-      skipped += 1
-      continue
-    }
-    known.add(key)
-    added.push(query)
-  }
-  return { added, skipped }
-}
-
 type SetupStep = 0 | 1 | 2 | 3 | 4
-// `surface` is stamped centrally in `emitOnboardingEvent`, so no call site
-// supplies it.
-type PendingOnboardingTelemetryEvent<T> = T extends unknown ? Omit<T, 'eventId' | 'surface'> : never
 
 export function isSuccessfulSetupRun(
   status: RunListItemVm['status'],
@@ -226,76 +140,29 @@ function SetupStepIndicator({ current, labels }: { current: number; labels: read
   )
 }
 
-/**
- * The setup wizard exists to CREATE things — a project, its queries, its
- * first sweep. There is nothing in it for a view-only account.
- */
-/** The setup tracker's AI Visibility panel, one step at a time: connect an AI engine, add queries, review the first check. */
-export type SetupPanelStep = 'engine' | 'queries' | 'first-check'
-
-const PANEL_STEPS: ReadonlyArray<{ id: SetupPanelStep; label: string }> = [
-  { id: 'engine', label: 'AI engine' },
-  { id: 'queries', label: 'Queries' },
-  { id: 'first-check', label: 'First check' },
-]
-
-/** Where the panel stands: the current step named, steps already done checked. */
-function PanelStepLine({ current, done }: { current: SetupPanelStep; done: Readonly<Record<SetupPanelStep, boolean>> }) {
-  return (
-    <ol aria-label="AI Visibility steps" className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-label-14 text-secondary">
-      {PANEL_STEPS.map((step, index) => {
-        const isCurrent = step.id === current
-        const isDone = !isCurrent && done[step.id]
-        return (
-          <li key={step.id} aria-current={isCurrent ? 'step' : undefined} className={isCurrent ? 'inline-flex items-center gap-1.5 text-heading' : 'inline-flex items-center gap-1.5'}>
-            {index > 0 ? <span aria-hidden="true">·</span> : null}
-            {isDone
-              ? <Check className="size-3.5 text-positive" aria-hidden="true" />
-              : <span className="tabular-nums" aria-hidden="true">{index + 1}</span>}
-            {step.label}
-            {isDone ? <span className="sr-only">, done</span> : null}
-          </li>
-        )
-      })}
-    </ol>
-  )
-}
-
-/**
- * The AI Visibility steps without page chrome, for the setup tracker's AI
- * Visibility row. The tracker shows the check's progress and result from the
- * server, so the panel ends once the check is queued.
- */
-export interface SetupPanel {
-  initialStep: SetupPanelStep
-  /** Back from the AI engine step: the tracker closes the panel. */
-  onClose: () => void
-  /** The first check was queued. */
-  onLaunched: (runId: string) => void
-}
-
 interface SetupPageProps {
+  /** The project-scoped Set up AI Visibility page; without one, the whole setup wizard. */
   visibilityProjectName?: string
-  /** Render only the AI Visibility steps for the setup tracker. Needs `visibilityProjectName`. */
-  panel?: SetupPanel
 }
 
-export function SetupPage({
-  visibilityProjectName,
-  panel,
-}: SetupPageProps = {}) {
+/**
+ * The established setup wizard (`/setup?experience=legacy`), or one project's
+ * Set up AI Visibility page. The wizard exists to CREATE things — a project,
+ * its queries, its first sweep. There is nothing in it for a view-only account.
+ */
+export function SetupPage({ visibilityProjectName }: SetupPageProps = {}) {
   const { canWrite } = useAccount()
   if (visibilityProjectName && canWrite) {
-    return <SetupPageBody visibilityProjectName={visibilityProjectName} panel={panel} />
+    return <SetupPageBody visibilityProjectName={visibilityProjectName} />
   }
   return (
     <AdminOnly title={visibilityProjectName ? 'Set up AI Visibility' : 'Setup'}>
-      <SetupPageBody visibilityProjectName={visibilityProjectName} panel={panel} />
+      <SetupPageBody visibilityProjectName={visibilityProjectName} />
     </AdminOnly>
   )
 }
 
-function SetupPageBody({ visibilityProjectName, panel }: SetupPageProps) {
+function SetupPageBody({ visibilityProjectName }: SetupPageProps) {
   const contextDashboard = useInitialDashboard()
   const { isAdmin } = useAccount()
   // RootLayout and this page are separate observers of the same project query.
@@ -316,8 +183,6 @@ function SetupPageBody({ visibilityProjectName, panel }: SetupPageProps) {
   }, [visibilityProjectName])
 
   if (!safeDashboard) {
-    // Inside a tracker row, a page skeleton would draw a second page header.
-    if (panel) return <p role="status" className="text-copy-14 text-secondary">Loading AI engines and queries…</p>
     return (
       <div className="page-skeleton">
         <div className="page-skeleton-header">
@@ -343,14 +208,6 @@ function SetupPageBody({ visibilityProjectName, panel }: SetupPageProps) {
   }
 
   if (visibilityProjectName && !safeDashboard.projects.some(project => project.project.name === visibilityProjectName)) {
-    if (panel) {
-      return (
-        <div role="alert" className="rounded-md border border-caution px-3 py-2">
-          <p className="text-copy-14 text-primary">Canonry could not find {visibilityProjectName} in the project list.</p>
-          <Button type="button" variant="secondary" size="sm" className="mt-2" onClick={() => { void refetch() }}>Retry</Button>
-        </div>
-      )
-    }
     return (
       <div className="page-container">
         <div className="page-header">
@@ -382,7 +239,6 @@ function SetupPageBody({ visibilityProjectName, panel }: SetupPageProps) {
       refetch={refetch}
       visibilityProjectName={visibilityProjectName}
       visibilityHeadingRef={visibilityHeadingRef}
-      panel={panel}
     />
   )
 }
@@ -394,7 +250,6 @@ function ReadySetupPage({
   refetch,
   visibilityProjectName,
   visibilityHeadingRef,
-  panel,
 }: {
   dashboard: DashboardVm
   initialHealth?: HealthSnapshot
@@ -402,16 +257,13 @@ function ReadySetupPage({
   refetch: () => Promise<void>
   visibilityProjectName?: string
   visibilityHeadingRef: RefCallback<HTMLHeadingElement>
-  panel?: SetupPanel
 }) {
   const settings = safeDashboard.settings
   const { isAdmin } = useAccount()
 
   const healthQuery = useHealth(enableLiveStatus, initialHealth)
-  const healthSnapshot = healthQuery.data ?? initialHealth ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }
+  const healthSnapshot = healthQuery.data ?? initialHealth ?? CHECKING_HEALTH_SNAPSHOT
   const model = buildSetupModel(safeDashboard.setup, healthSnapshot, settings)
-  const openRouterConnected = settings.providerStatuses.some(provider => provider.name === 'openrouter' && (provider.state === 'ready' || provider.state === 'configured'))
-  const connectionSetupReady = model.launchState.enabled || (openRouterConnected && model.healthChecks.every(check => check.state === 'ready' || check.id === 'provider'))
   const isProjectScoped = Boolean(visibilityProjectName)
 
   const navigate = useNavigate()
@@ -448,7 +300,7 @@ function ReadySetupPage({
   const snapshotQueryCount = resumeProject?.queryCounts.total ?? 0
   const resumeProjectName = resumeProject?.project.name
   const resumeQueriesQuery = useQuery({
-    queryKey: ['setup', 'resume-queries', resumeProjectName],
+    queryKey: setupSavedQueriesKey(resumeProjectName),
     queryFn: () => resumeProjectName ? fetchQueries(resumeProjectName) : Promise.resolve([]),
     enabled: !!resumeProjectName,
   })
@@ -471,12 +323,16 @@ function ReadySetupPage({
     && (!sessionLaunchedRun.handled || answerVisibilityRunIds.has(sessionLaunchedRun.runId))
     ? sessionLaunchedRun.runId
     : null
+  const engines = useAiEngineSetup({
+    settings,
+    project: resumeProject?.project ?? null,
+    projectScoped: isProjectScoped,
+    refresh: refetch,
+  })
+  const connectionSetupReady = model.launchState.enabled || (engines.openRouterConnected && model.healthChecks.every(check => check.state === 'ready' || check.id === 'provider'))
   // Project-scoped AI Visibility setup starts with the measurement input, not
   // instance or project ceremony. Provider readiness gates only the paid run.
-  // The tracker's panel opens where the server's blocker says to.
-  const initialResumeStep: SetupStep = panel
-    ? (panel.initialStep === 'first-check' ? 4 : 2)
-    : isProjectScoped
+  const initialResumeStep: SetupStep = isProjectScoped
     ? (resumableLaunchedRunId || (resumeProjectRuns.length > 0 && !hasExistingSuccessfulBaseline) ? 4 : 2)
     : deriveSetupStep({
         launchReady: connectionSetupReady,
@@ -496,40 +352,17 @@ function ReadySetupPage({
   const [draftScope] = useState(() => `wizard:${resumeProjectName ?? 'new'}`)
   const [draft] = useState(() => readOnboardingDraft(draftScope))
   const [step, setStep] = useState<SetupStep>(initialResumeStep)
-  // In the tracker's panel, the wizard's queries step is two steps: the AI
-  // engine first, then the queries.
-  const [panelOnEngine, setPanelOnEngine] = useState(panel?.initialStep === 'engine')
-  const panelStep: SetupPanelStep | null = panel ? (step === 4 ? 'first-check' : panelOnEngine ? 'engine' : 'queries') : null
   const stepContentRef = useRef<HTMLDivElement>(null)
-  const stepKey = panelStep ?? step
-  const previousStep = useRef(stepKey)
+  const previousStep = useRef(step)
   useEffect(() => {
-    if (previousStep.current === stepKey) return
-    previousStep.current = stepKey
+    if (previousStep.current === step) return
+    previousStep.current = step
     const heading = stepContentRef.current?.querySelector<HTMLElement>('h2, h3')
     if (heading) {
       heading.tabIndex = -1
       heading.focus()
     }
-  }, [stepKey])
-  const panelRef = useRef<HTMLDivElement>(null)
-  const panelFocusPending = useRef(panel !== undefined)
-  useEffect(() => {
-    // The tracker replaces the button that opened this panel with the panel, so
-    // focus left on nothing moves to the panel's first heading once it shows.
-    // Focus the operator already moved elsewhere stays where it is.
-    if (!panelFocusPending.current) return
-    const active = document.activeElement
-    if (active && active !== document.body) {
-      panelFocusPending.current = false
-      return
-    }
-    const heading = panelRef.current?.querySelector<HTMLElement>('h3')
-    if (!heading) return
-    panelFocusPending.current = false
-    heading.tabIndex = -1
-    heading.focus()
-  })
+  }, [step])
   const [resumeApplied, setResumeApplied] = useState(!resumeLoading)
   const queriesHydrating = isProjectScoped && (resumeLoading || !resumeApplied)
 
@@ -540,7 +373,6 @@ function ReadySetupPage({
   const [language, setLanguage] = useState(resumeProject?.project.language ?? draft.language ?? 'en')
   const [autoExtractBacklinks, setAutoExtractBacklinks] = useState(resumeProject?.project.autoExtractBacklinks ?? false)
   const [createdProjectName, setCreatedProjectName] = useState<string | null>(resumeProject?.project.name ?? null)
-  const [setupEngineProject, setSetupEngineProject] = useState(resumeProject?.project ?? null)
   const [projectError, setProjectError] = useState<string | null>(null)
   const [projectSaving, setProjectSaving] = useState(false)
 
@@ -559,175 +391,16 @@ function ReadySetupPage({
   }
   const finishSetup = () => openProjectDashboard()
 
-  const [queriesText, setQueriesText] = useState(draft.queriesText ?? durableQueries.map(query => query.query).join('\n'))
-  const [queriesSaved, setQueriesSaved] = useState(draft.queriesText === undefined && durableQueryCount > 0)
-  const [queriesError, setQueriesError] = useState<string | null>(null)
-  const [queriesSaving, setQueriesSaving] = useState(false)
-  const [queriesGenerated, setQueriesGenerated] = useState(false)
-  // Suggestions the last Generate left out because the list already held them.
-  const [generatedDuplicates, setGeneratedDuplicates] = useState(0)
-  // Generate appends after a provider round trip; read the list as it is then.
-  const latestQueriesText = useRef(queriesText)
-  useEffect(() => { latestQueriesText.current = queriesText }, [queriesText])
-
-  const projectProviders = (setupEngineProject?.providers ?? resumeProject?.project.providers ?? []).map(normalizeProviderName)
-  // OpenRouter routes are named from OpenRouter's catalog (the administrator
-  // settings read), so setup shows a readable model name via OpenRouter rather
-  // than the raw model ID.
-  const settingsCatalogQuery = useQuery({
-    queryKey: ['settings'],
-    queryFn: fetchSettings,
-    staleTime: 60_000,
-    enabled: isAdmin && openRouterConnected && projectProviders.some(isOpenRouterRoute),
+  const queries = useSetupQueries({
+    projectName: createdProjectName,
+    initialText: draft.queriesText ?? durableQueries.map(query => query.query).join('\n'),
+    initialSaved: draft.queriesText === undefined && durableQueryCount > 0,
+    generateProviders: engines.runnableApiProviders,
+    research: { projectName: createdProjectName ?? projectName, domain },
+    telemetry: { emit: emitOnboardingEvent, onboardingSessionId },
+    refreshAfterSave: name => isProjectScoped ? refreshSavedQueries(queryClient, name) : refetch(),
+    onContinue: () => setStep(isProjectScoped ? 4 : 3),
   })
-  const readyProviders = [
-    // A search answer service runs only where a project picks its profiles, so it never makes setup ready.
-    ...settings.providerStatuses.filter(provider => (provider.state === 'ready' || provider.state === 'configured') && provider.name !== 'openrouter' && provider.kind !== 'answer-service'),
-    ...(openRouterConnected ? projectProviders.filter(isOpenRouterRoute).map(name => ({ name, displayName: providerDisplayName(name, settingsCatalogQuery.data?.providerCatalog), model: openRouterRouteModel(name), state: 'ready' as const, detail: 'OpenRouter model configured.' })) : []),
-  ]
-  const runnableApiProviders = readyProviders.filter(provider => (
-    projectProviders.length === 0 || projectProviders.includes(normalizeProviderName(provider.name))
-  ))
-  const configuredApiProviders = readyProviders.map(provider => normalizeProviderName(provider.name))
-  const selectedApiProviderReady = runnableApiProviders.length > 0
-  const selectionCanUseCdp = projectProviders.length === 0 || projectProviders.includes(CDP_PROVIDER_NAME)
-  // Scoped writers cannot read the administrator's provider catalog. The
-  // project-readable setup response exposes readiness without credentials or
-  // instance capability inventory, using the server's exact run preflight.
-  const usesProjectProviderReadiness = isProjectScoped && !isAdmin
-  const projectProviderQuery = useQuery({
-    ...getApiV1ProjectsByNameMeasurementSetupOptions({
-      client: heyClient,
-      path: { name: resumeProjectName ?? '' },
-    }),
-    enabled: usesProjectProviderReadiness && Boolean(resumeProjectName),
-    staleTime: 0,
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: 'always',
-    retry: false,
-  })
-  const projectProviderReady = projectProviderQuery.data?.answerVisibilityProviderReady
-  const providerReadinessFailed = usesProjectProviderReadiness && (
-    projectProviderQuery.isError
-    || (projectProviderQuery.isSuccess && typeof projectProviderReady !== 'boolean')
-  )
-  const cdpStatusQuery = useQuery({
-    ...getApiV1CdpStatusOptions({ client: heyClient }),
-    enabled: !usesProjectProviderReadiness && selectionCanUseCdp && !selectedApiProviderReady,
-    staleTime: 60_000,
-    retry: false,
-  })
-  // A registered CDP adapter remains a runnable provider when Chrome is
-  // temporarily disconnected. `browserVersion` is absent only when no adapter
-  // was registered, matching the project-page readiness contract.
-  const cdpConfigured = !selectionCanUseCdp
-    ? false
-    : cdpStatusQuery.isSuccess
-      ? typeof cdpStatusQuery.data.browserVersion === 'string'
-      : cdpStatusQuery.isError ? false : undefined
-  const providerReadiness = usesProjectProviderReadiness
-    ? projectProviderQuery.isSuccess && projectProviderQuery.isFetchedAfterMount && !projectProviderQuery.isFetching
-      ? projectProviderReady
-      : undefined
-    : resolveAiVisibilityProviderReadiness({
-      projectProviders,
-      configuredApiProviders,
-      cdpConfigured,
-    })
-  const openRouterModelsNeeded = openRouterConnected && projectProviders.length === 0 && providerReadiness === false
-  const providerNeedsConnection = providerReadiness === false && !openRouterModelsNeeded
-  // An administrator picks OpenRouter models right in the provider step, so
-  // connecting OpenRouter finishes here as a direct provider does. The catalog
-  // is the administrator settings read the project Answer engines section uses.
-  const inlineModelPicker = isProjectScoped && isAdmin && openRouterModelsNeeded
-  // Saving a first OpenRouter key opens that picker in this step; with another
-  // engine already connected, the models are chosen later instead.
-  const openRouterModelsFollowSave = isProjectScoped && isAdmin && projectProviders.length === 0 && providerReadiness === false
-  const openRouterSettingsQuery = useQuery({
-    queryKey: ['settings'],
-    queryFn: fetchSettings,
-    staleTime: 60_000,
-    enabled: inlineModelPicker,
-  })
-  const openRouterCatalog = (openRouterSettingsQuery.data?.providerCatalog ?? []).find(provider => provider.name === 'openrouter')
-  const runnableProviderCount = runnableApiProviders.length + (cdpConfigured === true ? 1 : 0)
-  // The saved connections behind the listed engines: every route of a routed
-  // family (OpenRouter models, answer-service profiles) shares its connection.
-  const engineRouteFamilies = catalogRouteFamilies(settingsCatalogQuery.data?.providerCatalog ?? [])
-  const engineConnectionNames = [...new Set([
-    ...runnableApiProviders.map(provider => providerConnectionName(normalizeProviderName(provider.name), engineRouteFamilies)),
-    ...(runnableApiProviders.length === 0 && cdpConfigured === true ? [CDP_PROVIDER_NAME] : []),
-  ])]
-  const engineConnectionStatusOf = (name: string) => settings.providerStatuses.find(provider => normalizeProviderName(provider.name) === name)
-  // An administrator's settings read carries each connection's revision and stored last test.
-  const engineConnectionTests = useProviderConnectionTests(engineConnectionNames.map(name => {
-    const status = engineConnectionStatusOf(name)
-    return {
-      name,
-      ...(status?.revision !== undefined ? { revision: status.revision } : {}),
-      ...(status?.lastTest !== undefined ? { lastTest: status.lastTest } : {}),
-    }
-  }))
-  const engineConnectionLabel = (name: string): string => {
-    if (name === CDP_PROVIDER_NAME) return 'ChatGPT in Chrome'
-    const status = engineConnectionStatusOf(name)
-    return status?.displayName ?? status?.name ?? name
-  }
-  // A test of an API connection reaches the provider on the operator's account; Chrome's does not.
-  const engineConnectionTestNoticeId = useId()
-  const engineConnectionTestNotice = engineConnectionNames.includes(CDP_PROVIDER_NAME)
-    ? null
-    : PROVIDER_CONNECTION_TEST_COPY.sends(engineConnectionNames.map(name => ({ label: engineConnectionLabel(name), usesAccount: connectionUsesProviderAccount(name) })))
-  // Connected only after a passing test of every listed connection; saved settings alone prove nothing.
-  const engineConnectionStatus = providerConnectionStatus(engineConnectionTests.results)
-  const [selectedProvider, setSelectedProvider] = useState(runnableApiProviders[0]?.name ?? '')
-  const [generateCount, setGenerateCount] = useState(5)
-  const [generatingQueries, setGeneratingQueries] = useState(false)
-  const [generateError, setGenerateError] = useState<string | null>(null)
-  const [configuringProvider, setConfiguringProvider] = useState('')
-  const restoreProviderFocus = useRef(false)
-  const scrollProviderFocus = useRef(false)
-  const providerSelectorRef = useCallback<RefCallback<HTMLSelectElement>>((node) => {
-    if (!node || !restoreProviderFocus.current) return
-    // The keyed form must reset credentials and advanced fields on switch.
-    // Restore only focus the user already had, not focus after background reads.
-    restoreProviderFocus.current = false
-    node.focus({ preventScroll: !scrollProviderFocus.current })
-    scrollProviderFocus.current = false
-  }, [])
-  const [showProviderConfig, setShowProviderConfig] = useState(false)
-  const [providerDirty, setProviderDirty] = useState(false)
-  const [providerBusy, setProviderBusy] = useState(false)
-  const providerGuard = useUnsavedChanges(providerDirty, providerBusy)
-  const [researchPromptCopied, setResearchPromptCopied] = useState(false)
-  const [researchCopyError, setResearchCopyError] = useState(false)
-  const configurableProviders = settings.providerStatuses.filter(provider => (
-    normalizeProviderName(provider.name) !== CDP_PROVIDER_NAME
-    && provider.kind !== 'answer-service'
-    && (projectProviders.length === 0 || projectProviders.includes(normalizeProviderName(provider.name)) || (provider.name === 'openrouter' && projectProviders.some(isOpenRouterRoute)))
-  ))
-  const engineChoices = engineChoicesHint(configurableProviders)
-  const isUnconnected = (provider: { state: string }) => provider.state !== 'ready' && provider.state !== 'configured'
-  // The provider form opens on an unconnected engine when there is one; with
-  // none left it can only edit a saved connection, and its button says so.
-  const canConnectAnotherEngine = configurableProviders.some(isUnconnected)
-  const providerToConfigure = configurableProviders.find(provider => provider.name === configuringProvider)
-    ?? configurableProviders.find(isUnconnected)
-    ?? configurableProviders.at(0)
-  const providerGuidance = providerToConfigure ? PROVIDER_CONNECT_GUIDANCE[normalizeProviderName(providerToConfigure.name)] : undefined
-  const researchPrompt = `Help me choose AI Visibility queries for Canonry project ${JSON.stringify(createdProjectName ?? projectName)} (${domain}).
-1. Read the project, its existing tracked queries, and Agent Readiness findings. Ask about my customers, services, and locations if needed, then propose relevant customer queries.
-2. Check the configured connection's capabilities, then use Canonry's Research flow to test a small approved batch. Retrieve saved answers and any available sources. Compare brand mentions separately from site citations; unavailable citation evidence is not a "not cited" result. Text-only routes can inform query research but cannot establish an AI Visibility baseline. Research does not add queries to tracking. If more candidates are needed, propose ICP Discovery separately.
-3. Recommend a short list with reasons. Ask before provider usage. Once I approve, preserve existing queries and return the combined list, one query per line, for me to paste into setup. Do not change tracked queries or launch an AI Visibility check.`
-  const copyResearchPrompt = async () => {
-    setResearchCopyError(false)
-    try {
-      await navigator.clipboard.writeText(researchPrompt)
-      setResearchPromptCopied(true)
-    } catch {
-      setResearchCopyError(true)
-    }
-  }
 
   const [competitorsText, setCompetitorsText] = useState(draft.competitorsText ?? durableCompetitors.join('\n'))
   const [competitorsSaved, setCompetitorsSaved] = useState(draft.competitorsText === undefined && durableCompetitors.length > 0)
@@ -739,11 +412,11 @@ function ReadySetupPage({
     const activeScope = createdProjectName ? `wizard:${createdProjectName}` : draftScope
     writeOnboardingDraft(activeScope, {
       ...(!createdProjectName ? { projectName, displayName, domain, country, language } : {}),
-      ...(!queriesSaved && queriesText !== durableQueries.map(query => query.query).join('\n') ? { queriesText } : {}),
+      ...(!queries.saved && queries.text !== durableQueries.map(query => query.query).join('\n') ? { queriesText: queries.text } : {}),
       ...(!competitorsSaved && competitorsText !== durableCompetitors.join('\n') ? { competitorsText } : {}),
     })
     if (activeScope !== draftScope) clearOnboardingDraft(draftScope)
-  }, [competitorsSaved, competitorsText, country, createdProjectName, displayName, domain, draftScope, durableCompetitors, durableQueries, language, projectName, queriesSaved, queriesText, resumeApplied])
+  }, [competitorsSaved, competitorsText, country, createdProjectName, displayName, domain, draftScope, durableCompetitors, durableQueries, language, projectName, queries.saved, queries.text, resumeApplied])
 
   const resetDraft = () => {
     clearOnboardingDraft(draftScope)
@@ -755,11 +428,11 @@ function ReadySetupPage({
       setCountry('US')
       setLanguage('en')
     }
-    setQueriesText(durableQueries.map(query => query.query).join('\n'))
-    setQueriesSaved(durableQueryCount > 0)
+    queries.setText(durableQueries.map(query => query.query).join('\n'))
+    queries.setSaved(durableQueryCount > 0)
     setCompetitorsText(durableCompetitors.join('\n'))
     setCompetitorsSaved(durableCompetitors.length > 0)
-    setQueriesError(null)
+    queries.setError(null)
     setCompetitorsError(null)
   }
 
@@ -790,8 +463,7 @@ function ReadySetupPage({
   )
   const triggerRunMutation = useTriggerRun()
   const runPreview = useRunPreview(createdProjectName, step === 4 && !isDashboardManagedSweeps())
-  // The first check spends a provider account unless every planned engine is a Local model server.
-  const firstCheckUsesAccount = runPreview.data ? runPreview.data.engines.some(engine => connectionUsesProviderAccount(engine.provider)) : true
+  const firstCheckUsesAccount = previewUsesProviderAccount(runPreview.data)
   // The provider requests the server previewed for the check launched here:
   // one engine result each. A check resumed from an earlier visit has none.
   const [launchedRunPlan, setLaunchedRunPlan] = useState<{ runId: string; requestCount: number } | null>(null)
@@ -829,26 +501,9 @@ function ReadySetupPage({
   const [geminiError, setGeminiError] = useState<string | null>(null)
 
   const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
-  const parsedQueries = uniqueQueryLines(queriesText)
   const parsedCompetitors = competitorsText.split('\n').map(c => c.trim()).filter(Boolean)
   const effectiveQueryCount = durableQueryCount
-  const systemBlockReason = onboardingSystemBlockReason({
-    apiReady: healthSnapshot.apiStatus.state === 'ok',
-    databaseConfigured: healthSnapshot.apiStatus.databaseConfigured,
-    workerReady: healthSnapshot.workerStatus.state === 'ok',
-    // A pending CDP read is not yet a confirmed provider failure. The explicit
-    // readiness message below keeps launch disabled until it settles.
-    providerReady: providerReadiness !== false,
-  })
-  const readinessBlockedReason = systemBlockReason && systemBlockReason !== 'no_provider'
-    ? model.launchState.blockedReason
-    : providerReadinessFailed
-      ? 'Provider connections could not be checked. Try again.'
-      : providerReadiness === undefined
-      ? 'Checking provider connections before launch.'
-      : systemBlockReason === 'no_provider'
-        ? 'Launch is blocked until a provider allowed by this project is configured.'
-        : undefined
+  const { systemBlockReason, blockedReason: readinessBlockedReason } = firstCheckReadiness(healthSnapshot, settings, engines)
   const launchBlockedReason = readinessBlockedReason
     ?? (!createdProjectName
       ? 'Create a project before launching the first check.'
@@ -856,6 +511,7 @@ function ReadySetupPage({
         ? 'Add at least one query before launching the first check.'
         : undefined)
 
+  const { setText: setQueriesText, setSaved: setQueriesSaved } = queries
   useEffect(() => {
     if (resumeApplied || resumeLoading) return
     // Query hydration must not reset a user who has already advanced or resumed a run.
@@ -865,17 +521,7 @@ function ReadySetupPage({
       setQueriesSaved(true)
     }
     setResumeApplied(true)
-  }, [draft.queriesText, durableQueries, initialResumeStep, isProjectScoped, resumeApplied, resumeLoading])
-
-  useEffect(() => {
-    if (runnableApiProviders.length === 0) {
-      setSelectedProvider('')
-      return
-    }
-    if (!runnableApiProviders.some(provider => provider.name === selectedProvider)) {
-      setSelectedProvider(runnableApiProviders[0]!.name)
-    }
-  }, [runnableApiProviders, selectedProvider])
+  }, [draft.queriesText, durableQueries, initialResumeStep, isProjectScoped, resumeApplied, resumeLoading, setQueriesSaved, setQueriesText])
 
   useEffect(() => {
     if (!resumeApplied) return
@@ -980,7 +626,7 @@ function ReadySetupPage({
         autoExtractBacklinks,
       })
       setCreatedProjectName(slug)
-      setSetupEngineProject(project)
+      engines.setEngineProject(project)
       addToast({
         title: 'Project created',
         detail: `${project.displayName || project.name} is ready for setup.`,
@@ -1014,86 +660,6 @@ function ReadySetupPage({
       }, 'onboarding.blocked:project:project_create_failed')
     } finally {
       setProjectSaving(false)
-    }
-  }
-
-  const handleSaveQueries = async () => {
-    if (!createdProjectName) return
-    const queries = parsedQueries
-    if (queries.length === 0) return
-    setQueriesSaving(true)
-    setQueriesError(null)
-    try {
-      const savedQueries = await setQueries(createdProjectName, queries)
-      queryClient.setQueryData(['setup', 'resume-queries', createdProjectName], savedQueries)
-      setQueriesText(savedQueries.map(query => query.query).join('\n'))
-      setQueriesSaved(true)
-      if (isProjectScoped) {
-        await Promise.all([
-          queryClient.invalidateQueries({
-            queryKey: getApiV1ProjectsByNameQueriesQueryKey({
-              client: heyClient,
-              path: { name: createdProjectName },
-            }),
-          }),
-          queryClient.invalidateQueries({ predicate: isProjectDetailQuery }),
-          queryClient.invalidateQueries({
-            queryKey: ['setup', 'resume-queries', createdProjectName],
-          }),
-        ])
-      } else {
-        await refetch()
-      }
-      emitOnboardingEvent({
-        flowVersion: ONBOARDING_FLOW_VERSION,
-        onboardingSessionId,
-        event: 'onboarding.step_completed',
-        step: 'queries',
-        method: queriesGenerated ? 'generated' : 'manual',
-        countBucket: bucketOnboardingCount(savedQueries.length),
-      }, 'onboarding.step_completed:queries')
-      setStep(isProjectScoped ? 4 : 3)
-    } catch (err) {
-      setQueriesError(err instanceof Error ? err.message : 'Failed to save queries')
-      emitOnboardingEvent({
-        flowVersion: ONBOARDING_FLOW_VERSION,
-        onboardingSessionId,
-        event: 'onboarding.blocked',
-        step: 'queries',
-        action: 'save',
-        reasonCode: 'query_save_failed',
-      }, 'onboarding.blocked:queries:query_save_failed')
-    } finally {
-      setQueriesSaving(false)
-    }
-  }
-
-  const handleGenerateQueries = async () => {
-    if (!createdProjectName || !selectedProvider) return
-    setGeneratingQueries(true)
-    setGenerateError(null)
-    setGeneratedDuplicates(0)
-    try {
-      const result = await apiGenerateQueries(createdProjectName, selectedProvider, generateCount)
-      const currentText = latestQueriesText.current
-      const { added, skipped } = newQuerySuggestions(currentText, result.queries)
-      if (added.length > 0) {
-        setQueriesText(currentText.trim() ? `${currentText.trimEnd()}\n${added.join('\n')}` : added.join('\n'))
-        setQueriesGenerated(true)
-      }
-      setGeneratedDuplicates(skipped)
-    } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : 'Failed to generate queries')
-      emitOnboardingEvent({
-        flowVersion: ONBOARDING_FLOW_VERSION,
-        onboardingSessionId,
-        event: 'onboarding.blocked',
-        step: 'queries',
-        action: 'generate_queries',
-        reasonCode: onboardingErrorReason(err, 'unknown'),
-      }, 'onboarding.blocked:queries:generate')
-    } finally {
-      setGeneratingQueries(false)
     }
   }
 
@@ -1150,7 +716,7 @@ function ReadySetupPage({
       // newly-saved configuration. Select Gemini immediately so query
       // generation is ready when the operator reaches Step 3.
       await refetch()
-      setSelectedProvider(
+      queries.setSelectedProvider(
         settings.providerStatuses.find(provider => provider.name.toLowerCase() === 'gemini')?.name
           ?? 'gemini',
       )
@@ -1176,16 +742,6 @@ function ReadySetupPage({
     }
   }
 
-  // The project's engines, saved through the same project update the Answer
-  // engines section uses. The returned project drives provider readiness here.
-  const saveSetupEngines = async (next: Pick<ApiProject, 'providers' | 'providerModels'>) => {
-    const name = setupEngineProject?.name ?? createdProjectName
-    if (!name) throw new Error('Create a project before choosing models.')
-    const project = await updateProject(name, next)
-    setSetupEngineProject(project)
-    await refetch()
-  }
-
   const handleLaunchRun = async () => {
     if (isDashboardManagedSweeps()) return
     if (runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true) return
@@ -1194,14 +750,14 @@ function ReadySetupPage({
       const reasonCode = systemBlockReason
         ?? (!createdProjectName ? 'unknown' : effectiveQueryCount === 0 ? 'no_queries' : 'run_rejected')
       // Project-readable readiness is a boolean, not an inventory we can count.
-      if (!usesProjectProviderReadiness) {
+      if (!engines.usesProjectProviderReadiness) {
         emitOnboardingEvent({
           flowVersion: ONBOARDING_FLOW_VERSION,
           onboardingSessionId,
           event: 'run.requested',
           origin: 'dashboard_setup',
           result: 'rejected',
-          providerCountBucket: bucketOnboardingCount(runnableProviderCount),
+          providerCountBucket: bucketOnboardingCount(engines.runnableProviderCount),
           queryCountBucket: bucketOnboardingCount(effectiveQueryCount),
           reasonCode,
         })
@@ -1217,38 +773,34 @@ function ReadySetupPage({
         projectName: createdProjectName,
         projectLabel: displayName || projectName || createdProjectName,
         sourceAction: 'setup-launch',
-        // The tracker's row shows the queued check.
-        suppressQueuedToast: Boolean(panel),
       })
       setLaunchedRunPlan({ runId: run.id, requestCount: plannedRequests })
       setLaunchedRunId(run.id)
       setRunTriggered(true)
       markOnboardingRunLaunched(createdProjectName, run.id, RunKinds['answer-visibility'])
       launchedThisSessionRunId.current = run.id
-      // The tracker's row shows the queued check from the server from here on.
-      panel?.onLaunched(run.id)
-      if (!usesProjectProviderReadiness) {
+      if (!engines.usesProjectProviderReadiness) {
         emitOnboardingEvent({
           flowVersion: ONBOARDING_FLOW_VERSION,
           onboardingSessionId,
           event: 'run.requested',
           origin: 'dashboard_setup',
           result: 'queued',
-          providerCountBucket: bucketOnboardingCount(runnableProviderCount),
+          providerCountBucket: bucketOnboardingCount(engines.runnableProviderCount),
           queryCountBucket: bucketOnboardingCount(effectiveQueryCount),
         })
       }
       await refetch()
     } catch (err) {
       setRunError(err instanceof Error ? err.message : 'Failed to queue the AI Visibility check. Retry when the instance is ready.')
-      if (!usesProjectProviderReadiness) {
+      if (!engines.usesProjectProviderReadiness) {
         emitOnboardingEvent({
           flowVersion: ONBOARDING_FLOW_VERSION,
           onboardingSessionId,
           event: 'run.requested',
           origin: 'dashboard_setup',
           result: 'rejected',
-          providerCountBucket: bucketOnboardingCount(runnableProviderCount),
+          providerCountBucket: bucketOnboardingCount(engines.runnableProviderCount),
           queryCountBucket: bucketOnboardingCount(effectiveQueryCount),
           reasonCode: onboardingErrorReason(err, 'run_rejected'),
         })
@@ -1263,7 +815,7 @@ function ReadySetupPage({
     return Math.max(0, s - 1) as SetupStep
   })
   const completeExistingStep = (
-    completedStep: 'project' | 'queries' | 'competitors',
+    completedStep: 'project' | 'competitors',
     nextStep: SetupStep,
     count?: number,
   ) => {
@@ -1306,206 +858,11 @@ function ReadySetupPage({
     setStep(4)
   }
 
-  // The tracker's row is the panel's surface and heading; its sections sit one level below.
-  const StepSurface = panel ? 'div' : isProjectScoped ? 'section' : Card
-  const StepHeading = panel ? 'h3' : 'h2'
-  // In the panel, Back from the queries goes to the AI engine step.
-  const leaveFirstStep = panel ? () => setPanelOnEngine(true) : isProjectScoped ? openProjectDashboard : goBack
-  // The panel's AI engine step is a step of its own, so its section needs no rule below it.
-  const providerSectionRule = panel ? '' : ' border-b border-default pb-6 mb-6'
-  const providerRefreshAction = providerReadiness !== true || cdpConfigured === true ? (
-    <Button type="button" variant="ghost" size="sm" className={TOUCH_TARGET} onClick={() => {
-      void refetch()
-      if (selectionCanUseCdp) void cdpStatusQuery.refetch()
-      if (inlineModelPicker) void openRouterSettingsQuery.refetch()
-    }}>
-      Refresh connections
-    </Button>
-  ) : null
-  const providerFormVisible = (providerNeedsConnection || showProviderConfig) && !!providerToConfigure
-  const providerSetup = (isProjectScoped && step === 2) || (step === 4 && (showProviderConfig || providerReadiness !== true)) ? (
-    !isAdmin ? (
-      <section aria-labelledby="setup-provider-heading" className={`space-y-2${providerSectionRule}`}>
-        <div className="flex flex-wrap items-center gap-3">
-          <StepHeading id="setup-provider-heading" className={panel ? 'text-heading-16 text-heading' : 'text-heading-20 text-heading'}>AI engines</StepHeading>
-          {providerReadinessFailed ? null : (
-            <span role="status" className="flex items-center gap-2">
-              <ToneBadge tone={providerReadiness === true ? engineConnectionStatus.tone : 'neutral'}>
-                {providerReadiness === true ? engineConnectionStatus.label : providerReadiness === false ? 'Not connected' : 'Checking'}
-              </ToneBadge>
-              <InfoTooltip text={providerReadiness === true
-                ? 'Connection settings are saved. An administrator can test the connection, and a successful check also confirms access.'
-                : providerReadiness === false
-                  ? 'Ask an administrator to connect an AI engine for this project. You can save queries now.'
-                  : 'Checking for a connected AI engine. An administrator manages provider settings. You can save queries now.'} />
-            </span>
-          )}
-        </div>
-        {providerReadinessFailed ? (
-          <p role="alert" className="text-copy-14 text-negative">Provider connections could not be checked. Try again.</p>
-        ) : null}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className={TOUCH_TARGET}
-          disabled={projectProviderQuery.isFetching}
-          onClick={() => { void projectProviderQuery.refetch() }}
-        >
-          {providerReadinessFailed ? 'Retry provider check' : 'Refresh connections'}
-        </Button>
-      </section>
-    ) : (
-    <section aria-labelledby="setup-provider-heading" className={`space-y-3${providerSectionRule}`}>
-      <div className="flex flex-wrap items-center gap-3">
-        <StepHeading id="setup-provider-heading" className={panel ? 'text-heading-16 text-heading' : 'text-heading-20 text-heading'}>AI engines</StepHeading>
-        <ToneBadge tone={openRouterModelsNeeded ? 'caution' : providerReadiness === true ? engineConnectionStatus.tone : 'neutral'}>
-          {providerReadiness === true ? engineConnectionStatus.label : openRouterModelsNeeded ? 'Choose models' : providerNeedsConnection ? 'Not connected' : 'Checking'}
-        </ToneBadge>
-        <InfoTooltip text={providerReadiness === true
-          ? runnableApiProviders.length > 0
-            ? engineConnectionTests.allConnected
-              ? 'A test reached each provider with the saved settings. Checks and Research use your provider account and its quota.'
-              : 'Connection settings are saved, but access and quota are not verified. Test the connection before your first check. Checks and Research use your provider account.'
-            : 'ChatGPT in Chrome runs AI Visibility checks. Query Research needs an API provider.'
-          : openRouterModelsNeeded
-            ? 'OpenRouter is connected. Choose the models your AI Visibility checks ask. You can save queries now.'
-          : providerNeedsConnection
-            ? 'AI Visibility checks need an AI engine. You can save queries now and connect one later.'
-            : 'Checking connected AI engines. You can choose queries meanwhile.'} />
-      </div>
-      {providerNeedsConnection && engineChoices ? <p className="max-w-prose text-copy-14 text-secondary">{engineChoices}</p> : null}
-      {providerReadiness === true && (runnableApiProviders.length > 0 || cdpConfigured === true) ? (
-        <ul aria-label="Saved AI engines" className="divide-y divide-default">
-          {runnableApiProviders.map(provider => {
-            const routed = isOpenRouterRoute(provider.name)
-            const label = provider.displayName ?? provider.name
-            const effectiveModel = setupEngineProject?.providerModels?.[provider.name] ?? resumeProject?.project.providerModels?.[provider.name] ?? provider.model
-            return (
-              <li key={provider.name} className="flex min-h-11 items-center justify-between gap-3 px-3.5 py-2 text-label-14" title={routed ? openRouterRouteModel(provider.name) : undefined}>
-                <span className="min-w-0 truncate text-heading">{routed ? label.replace(/ via OpenRouter$/, '') : label}</span>
-                <span className="shrink-0 text-secondary">{routed ? 'OpenRouter' : effectiveModel ?? ''}</span>
-              </li>
-            )
-          })}
-          {runnableApiProviders.length === 0 ? <li className="flex min-h-11 items-center px-3.5 py-2 text-label-14 text-heading">ChatGPT in Chrome</li> : null}
-        </ul>
-      ) : null}
-      {providerReadiness === true && engineConnectionNames.length > 0 && !providerFormVisible ? (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <Button type="button" variant="outline" size="sm" className={TOUCH_TARGET} disabled={engineConnectionTests.testing} aria-describedby={engineConnectionTestNotice ? engineConnectionTestNoticeId : undefined} onClick={engineConnectionTests.test}>
-              {engineConnectionTests.testing
-                ? PROVIDER_CONNECTION_TEST_COPY.testing
-                : engineConnectionNames.length > 1 ? PROVIDER_CONNECTION_TEST_COPY.testMany : PROVIDER_CONNECTION_TEST_COPY.testOne}
-            </Button>
-            {engineConnectionTestNotice ? <p id={engineConnectionTestNoticeId} className="text-copy-14 text-secondary">{engineConnectionTestNotice}</p> : null}
-          </div>
-          <div role="status">
-            {engineConnectionTests.records.some(record => record !== undefined) ? (
-              <ul aria-label={PROVIDER_CONNECTION_TEST_COPY.results} className="space-y-1">
-                {engineConnectionNames.map((name, index) => {
-                  const record = engineConnectionTests.records[index]
-                  return record ? <li key={name}><ProviderConnectionTestLine record={record} label={engineConnectionLabel(name)} /></li> : null
-                })}
-              </ul>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-      {inlineModelPicker ? (
-        openRouterCatalog ? (
-          <OpenRouterModelPicker
-            inline
-            catalog={openRouterCatalog}
-            selected={projectProviders}
-            // Explicit engines keep no model override for engines left out, as
-            // Save engines does, and an OpenRouter model takes none of its own.
-            onAdd={routes => saveSetupEngines({ providers: routes, providerModels: {} })}
-          />
-        ) : openRouterSettingsQuery.isPending ? (
-          <p role="status" className="text-copy-14 text-secondary">Loading OpenRouter models…</p>
-        ) : (
-          <div className="flex flex-wrap items-center gap-2">
-            <p role="alert" className="text-copy-14 text-negative">Couldn't load OpenRouter's model list.</p>
-            <Button type="button" variant="outline" size="sm" onClick={() => { void openRouterSettingsQuery.refetch() }}>Retry</Button>
-          </div>
-        )
-      ) : null}
-      {providerNeedsConnection || showProviderConfig ? (
-        providerToConfigure ? (
-          <div>
-            <ProviderConfigForm
-              key={providerToConfigure.name}
-              compact
-              configured={providerToConfigure.state === 'configured' || providerToConfigure.state === 'ready'}
-              onDirtyChange={setProviderDirty}
-              onBusyChange={setProviderBusy}
-              onCancel={() => providerGuard.request(() => { setProviderDirty(false); setShowProviderConfig(false) })}
-              leadingField={(
-                <div className="min-w-0 space-y-1.5">
-                  <label className="block text-label-14-strong text-secondary" htmlFor="setup-provider">Provider to connect</label>
-                  <select
-                    ref={providerSelectorRef}
-                    id="setup-provider"
-                    className="setup-input"
-                    aria-describedby={providerGuidance ? 'setup-provider-guidance' : undefined}
-                    value={providerToConfigure.name}
-                    onChange={event => {
-                      if (event.target.value === providerToConfigure.name) return
-                      const nextProvider = event.target.value
-                      providerGuard.request(() => {
-                        restoreProviderFocus.current = true
-                        setProviderDirty(false)
-                        setConfiguringProvider(nextProvider)
-                      })
-                    }}
-                  >
-                    {configurableProviders.map(provider => (
-                      <option key={provider.name} value={provider.name}>{provider.displayName ?? provider.name}</option>
-                    ))}
-                  </select>
-                  {providerGuidance ? <p id="setup-provider-guidance" className="text-copy-13 text-secondary">{providerGuidance}</p> : null}
-                </div>
-              )}
-              secondaryActions={providerRefreshAction}
-              offerFreeTier={providerNeedsConnection}
-              saveLabel={openRouterModelsFollowSave && normalizeProviderName(providerToConfigure.name) === ProviderNames.openrouter ? 'Save and choose models' : undefined}
-              providerName={providerToConfigure.name}
-              keyUrl={providerToConfigure.keyUrl}
-              modelHint={providerToConfigure.modelHint}
-              defaultModel={providerToConfigure.defaultModel}
-              onSaved={() => {
-                setProviderDirty(false)
-                setShowProviderConfig(false)
-                void refetch()
-              }}
-            />
-          </div>
-        ) : (
-          <p className="max-w-prose text-copy-14 text-secondary">
-            {projectProviders.length > 0
-              ? `This project's provider selection is ${projectProviders.join(', ')}. Configure an allowed provider in Settings, or change the selection in project Settings.`
-              : 'Provider configuration is unavailable here. Open Settings to connect an answer engine, then check again.'}
-          </p>
-        )
-      ) : null}
-      <div className="flex flex-wrap items-center gap-2">
-        {(providerReadiness === true || openRouterModelsNeeded) && !showProviderConfig && providerToConfigure ? (
-          <Button type="button" variant="ghost" size="sm" className="-ml-3 text-button-14" onClick={() => setShowProviderConfig(true)}>
-            {canConnectAnotherEngine ? 'Connect another engine' : 'Change engine settings'}
-          </Button>
-        ) : null}
-        {!providerToConfigure || cdpConfigured === true ? (
-          <Button type="button" variant="outline" size="sm" asChild>
-            <Link to="/settings" target="_blank" rel="noopener noreferrer">Open provider settings</Link>
-          </Button>
-        ) : null}
-        {!providerFormVisible && !inlineModelPicker ? providerRefreshAction : null}
-      </div>
-    </section>
-    )
-  ) : null
+  const StepSurface = isProjectScoped ? 'section' : Card
+  const leaveFirstStep = isProjectScoped ? openProjectDashboard : goBack
+  const providerSetup = (isProjectScoped && step === 2) || (step === 4 && (engines.showProviderConfig || engines.providerReadiness !== true))
+    ? <AiEnginesSection engines={engines} headingLevel="h2" separated />
+    : null
 
   const stepContent = (() => {
     switch (step) {
@@ -1523,7 +880,7 @@ function ReadySetupPage({
                 <div key={check.id} className="health-check-row">
                   <div>
                     <p className="run-row-title">{check.label}</p>
-                    <p className="supporting-copy">{check.id === 'provider' && openRouterConnected ? 'OpenRouter connected. Choose models before your first check.' : check.detail}</p>
+                    <p className="supporting-copy">{check.id === 'provider' && engines.openRouterConnected ? 'OpenRouter connected. Choose models before your first check.' : check.detail}</p>
                     {check.id === 'provider' && check.state !== 'ready' && (
                       <div className="mt-3 space-y-2">
                         <p className="text-copy-13 text-secondary">
@@ -1576,7 +933,7 @@ function ReadySetupPage({
                     )}
                   </div>
                   <ToneBadge
-                    tone={check.state === 'ready' ? check.id === 'provider' ? engineConnectionStatus.tone : 'positive' : 'caution'}
+                    tone={check.state === 'ready' ? check.id === 'provider' ? engines.connectionStatus.tone : 'positive' : 'caution'}
                     title={
                       check.id === 'api'
                         ? serviceStatusTooltip(healthSnapshot.apiStatus)
@@ -1585,7 +942,7 @@ function ReadySetupPage({
                           : check.detail
                     }
                   >
-                    {check.state === 'ready' ? check.id === 'provider' ? engineConnectionStatus.label : 'Ready' : 'Attention'}
+                    {check.state === 'ready' ? check.id === 'provider' ? engines.connectionStatus.label : 'Ready' : 'Attention'}
                   </ToneBadge>
                 </div>
               ))}
@@ -1690,128 +1047,22 @@ function ReadySetupPage({
 
       case 2:
         return (
-          <StepSurface className={panel ? 'space-y-3' : isProjectScoped ? 'visibility-setup-section step-card' : 'surface-card step-card'} aria-labelledby="setup-queries-heading">
-            <div className="section-head">
-              <div>
-                <div className="flex items-center gap-2"><StepHeading id="setup-queries-heading" className={panel ? 'text-heading-16 text-heading' : undefined}>Add queries</StepHeading><InfoTooltip text="Queries your customers ask AI assistants, one per line. You can refine the list later." /></div>
-              </div>
-              {queriesHydrating ? (
-                <ToneBadge tone="neutral">Loading</ToneBadge>
-              ) : resumeQueriesQuery.isError ? (
-                <ToneBadge tone="negative">Load failed</ToneBadge>
-              ) : queriesSaved ? (
-                <ToneBadge tone="positive">{parsedQueries.length} saved</ToneBadge>
-              ) : (
-                <ToneBadge tone="neutral">{parsedQueries.length} quer{parsedQueries.length !== 1 ? 'ies' : 'y'}</ToneBadge>
+          <StepSurface className={isProjectScoped ? 'visibility-setup-section step-card' : 'surface-card step-card'} aria-labelledby="setup-queries-heading">
+            <SetupQueriesForm
+              queries={queries}
+              headingLevel="h2"
+              loading={queriesHydrating}
+              loadFailed={resumeQueriesQuery.isError}
+              onRetryLoad={() => { void resumeQueriesQuery.refetch() }}
+              onBack={leaveFirstStep}
+              skipAction={(
+                <Button type="button" variant="ghost" onClick={skipQueries}>
+                  {isProjectScoped ? 'Finish without AI Visibility' : 'Skip for now'}
+                </Button>
               )}
-            </div>
-            {queriesHydrating ? (
-              <div className="material-base p-4 text-label-14 text-secondary" role="status">
-                Loading saved queries…
-              </div>
-            ) : resumeQueriesQuery.isError ? (
-              <div className="compact-stack">
-                <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
-                  Saved queries could not be loaded. Retry before changing the query basket.
-                </div>
-                <div className="setup-nav">
-                  <Button type="button" variant="outline" onClick={leaveFirstStep}>Back</Button>
-                  <Button type="button" onClick={() => { void resumeQueriesQuery.refetch() }}>
-                    Retry loading queries
-                  </Button>
-                </div>
-              </div>
-            ) : queriesSaved ? (
-              <div className="compact-stack">
-                <ul className="detail-list">
-                  {parsedQueries.map((q) => <li key={q}>{q}</li>)}
-                </ul>
-                <div className="setup-nav">
-                  <Button type="button" variant="outline" onClick={leaveFirstStep}>Back</Button>
-                  <Button type="button" variant="outline" onClick={() => setQueriesSaved(false)}>Edit queries</Button>
-                  <Button type="button" onClick={() => completeExistingStep('queries', isProjectScoped ? 4 : 3, parsedQueries.length)}>Continue</Button>
-                </div>
-              </div>
-            ) : (
-              <div className="compact-stack">
-                <div className="setup-field">
-                  <label className="setup-label" htmlFor="queries">Queries (one per line)</label>
-                  <textarea
-                    id="queries"
-                    className="setup-textarea text-copy-14"
-                    rows={6}
-                    placeholder="One query per line"
-                    value={queriesText}
-                    onChange={(e) => setQueriesText(e.target.value)}
-                  />
-                </div>
-                {panel ? <p className="text-copy-13 text-secondary">Queries naming {displayName || createdProjectName || 'your brand'} are branded. Results keep branded and non-brand queries apart.</p> : null}
-                {runnableApiProviders.length > 0 ? (
-                  <details className="compact-stack"><summary className="cursor-pointer py-2 text-label-14 text-link">Generate query suggestions</summary>
-                    <div className="flex items-end gap-2">
-                      <div className="setup-field flex-1">
-                        <label className="setup-label" htmlFor="gen-provider">Provider</label>
-                        <select
-                          id="gen-provider"
-                          className="setup-input"
-                          value={selectedProvider}
-                          onChange={(e) => setSelectedProvider(e.target.value)}
-                        >
-                          {runnableApiProviders.map((p) => (
-                            <option key={p.name} value={p.name}>{p.displayName ?? p.name}{p.model && !isOpenRouterRoute(p.name) ? ` (${p.model})` : ''}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="setup-field">
-                        <label className="setup-label" htmlFor="gen-count">Count</label>
-                        <select
-                          id="gen-count"
-                          className="setup-input"
-                          value={generateCount}
-                          onChange={(e) => setGenerateCount(Number(e.target.value))}
-                        >
-                          {[3, 5, 10, 15, 20].map((n) => (
-                            <option key={n} value={n}>{n}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={generatingQueries || !selectedProvider}
-                        onClick={asyncHandler(handleGenerateQueries)}
-                      >
-                        {generatingQueries ? 'Analyzing site…' : 'Generate'}
-                      </Button>
-                    </div>
-                    {generateError ? <p role="alert" className="text-negative-400 text-copy-14">{generateError}</p> : null}
-                    {/* Always mounted, so the count is announced when it appears. */}
-                    <p role="status" className={generatedDuplicates > 0 ? 'pt-2 text-copy-13 text-secondary' : undefined}>
-                      {generatedDuplicates > 0 ? `${generatedDuplicates} ${generatedDuplicates === 1 ? 'duplicate' : 'duplicates'} skipped` : ''}
-                    </p>
-                  </details>
-                ) : null}
-                <details open={researchCopyError || undefined} className="space-y-2">
-                  <summary className="cursor-pointer py-2 text-label-14 text-link">Research queries with your agent</summary>
-                  <textarea aria-label="Agent query research prompt" readOnly className="setup-textarea w-full text-copy-14" rows={8} value={researchPrompt} />
-                  <Button type="button" variant="outline" size="sm" className={`shrink-0 self-start ${TOUCH_TARGET}`} onClick={asyncHandler(copyResearchPrompt)}>
-                    {researchPromptCopied ? 'Research prompt copied' : 'Copy research prompt'}
-                  </Button>
-                  {researchCopyError ? <p role="alert" className="text-copy-14 text-negative">Could not copy. Select and copy the prompt above.</p> : null}
-                </details>
-                {queriesError ? <p role="alert" className="text-negative-400 text-copy-14">{queriesError}</p> : null}
-                <div className="setup-nav">
-                  <Button type="button" variant="outline" onClick={leaveFirstStep}>Back</Button>
-                  {/* In the tracker, not starting AI Visibility is the skip: the panel's Back closes it. */}
-                  {panel ? null : <Button type="button" variant="ghost" onClick={skipQueries}>
-                    {isProjectScoped ? 'Finish without AI Visibility' : 'Skip for now'}
-                  </Button>}
-                  <Button type="button" variant={providerFormVisible && !panel ? 'secondary' : 'default'} disabled={parsedQueries.length === 0 || queriesSaving} onClick={asyncHandler(handleSaveQueries)}>
-                    {queriesSaving ? 'Saving…' : `Save ${parsedQueries.length} quer${parsedQueries.length !== 1 ? 'ies' : 'y'}`}
-                  </Button>
-                </div>
-              </div>
-            )}
+              // The provider form above carries the primary action until it is saved.
+              saveVariant={engines.providerFormVisible ? 'secondary' : 'default'}
+            />
           </StepSurface>
         )
 
@@ -1902,8 +1153,6 @@ function ReadySetupPage({
                 : latestPersistedRun?.statusDetail
                   || 'The check did not produce a baseline.')
 
-        // Queries were saved without an engine: the next step is to connect one.
-        const panelNeedsEngine = Boolean(panel) && providerReadiness === false && !runError
         let stepBadge: ReactNode = null
         if (persistedSetupComplete || successfulRun) {
           stepBadge = <ToneBadge tone="positive">Complete</ToneBadge>
@@ -1917,16 +1166,15 @@ function ReadySetupPage({
           stepBadge = <ToneBadge tone="caution">{runStatus === RunStatuses.queued ? 'Queued' : 'Running'}</ToneBadge>
         }
 
-        const CheckSurface = panel ? 'div' : Card
         return (
-          <CheckSurface className={panel ? 'space-y-3' : 'surface-card step-card'}>
+          <Card className="surface-card step-card">
             <div className="section-head">
               <div>
-                <div className="flex items-center gap-2"><StepHeading className={panel ? 'text-heading-16 text-heading' : undefined}>{successfulRun ? 'Saved answers' : isDashboardManagedSweeps() ? 'AI Visibility' : runTriggered ? 'Your first AI Visibility check' : 'Run your first AI Visibility check'}</StepHeading>{successfulRun || isDashboardManagedSweeps() ? null : <InfoTooltip text={`Asks each AI engine your queries and records whether answers mention ${brandLabel} and whether they cite its site.${firstCheckUsesAccount ? ' It uses your provider account.' : ''}`} />}</div>
+                <div className="flex items-center gap-2"><h2>{successfulRun ? 'Saved answers' : isDashboardManagedSweeps() ? 'AI Visibility' : runTriggered ? 'Your first AI Visibility check' : 'Run your first AI Visibility check'}</h2>{successfulRun || isDashboardManagedSweeps() ? null : <InfoTooltip text={firstCheckHelp(brandLabel, firstCheckUsesAccount)} />}</div>
               </div>
-              {panel ? null : stepBadge}
+              {stepBadge}
             </div>
-            {!panel && persistedSetupComplete ? (
+            {persistedSetupComplete ? (
               <div className="compact-stack">
                 <p className="text-secondary">
                   <span className="text-strong text-label-14-strong">{createdProjectName}</span> has saved AI Visibility results.
@@ -1939,65 +1187,46 @@ function ReadySetupPage({
                 </div>
               </div>
             ) : !runTriggered && isDashboardManagedSweeps() ? (
-              <div className="compact-stack">
-                {createdProjectName ? <ManagedSweepStatus projectName={createdProjectName} /> : <p className="text-copy-14 text-secondary">{MANAGED_SWEEPS_COPY}</p>}
-                {runError && <p role="alert" className="text-copy-14 text-negative">{runError}</p>}
-                <div className="setup-nav">
-                  <span />
-                  <Button type="button" onClick={() => finishSetup()}>Open project dashboard →</Button>
-                </div>
-              </div>
+              <ManagedFirstCheck
+                projectName={createdProjectName}
+                error={runError}
+                actions={<><span /><Button type="button" onClick={() => finishSetup()}>Open project dashboard →</Button></>}
+              />
             ) : !runTriggered ? (
-              <div className="compact-stack">
-                <RunPreviewSummary
-                  preview={runPreview.data}
-                  pending={runPreview.isFetching}
-                  failed={runPreview.isError}
-                  onRetry={() => { void runPreview.refetch() }}
-                  details={[
-                    { label: 'Website', value: domain },
-                    { label: 'Market', value: formatLocaleLabel(country, language) },
-                  ]}
-                />
-                <details>
-                  <summary className="cursor-pointer py-2 text-label-14 text-link">Review saved queries</summary>
-                  <ul className="detail-list mt-2" aria-label="Queries in this check">
-                    {durableQueries.map(query => <li key={query.id}>{query.query}</li>)}
-                  </ul>
-                </details>
-                <p className="text-copy-13 text-secondary">{firstCheckUsesAccount ? 'Runs once using your provider account. No schedule is created.' : 'Runs once. No schedule is created.'}</p>
-                {/* In the panel, a missing engine is the AI engine step's job; the preview above already names it. */}
-                {(launchBlockedReason || runError) && !panelNeedsEngine && (
-                  <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
-                    <p>{runError ?? launchBlockedReason}</p>
-                  </div>
-                )}
-                <div className="setup-nav">
-                  <Button type="button" variant="outline" onClick={goBack}>Back</Button>
-                  {/* In the tracker, leaving the check unstarted is the skip. */}
-                  {panel ? null : <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={finishSetup}
-                  >
-                    Finish without running
-                  </Button>}
-                  {panelNeedsEngine ? (
-                    <Button type="button" onClick={() => { setPanelOnEngine(true); setStep(2) }}>Connect an AI engine</Button>
-                  ) : systemBlockReason === 'no_provider' && !isProjectScoped ? (
-                    <Button type="button" onClick={() => setShowProviderConfig(true)}>Connect an AI engine</Button>
-                  ) : (
+              <FirstCheckReview
+                preview={runPreview}
+                details={[
+                  { label: 'Website', value: domain },
+                  { label: 'Market', value: formatLocaleLabel(country, language) },
+                ]}
+                queries={durableQueries}
+                usesAccount={firstCheckUsesAccount}
+                alert={runError ?? launchBlockedReason ?? null}
+                actions={(
+                  <>
+                    <Button type="button" variant="outline" onClick={goBack}>Back</Button>
                     <Button
                       type="button"
-                      disabled={runSaving || !!launchBlockedReason || runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true}
-                      title={launchBlockedReason}
-                      onClick={asyncHandler(handleLaunchRun)}
+                      variant="ghost"
+                      onClick={finishSetup}
                     >
-                      {runSaving ? 'Starting…' : runError ? 'Retry check' : panel ? 'Run first check' : 'Run check'}
+                      Finish without running
                     </Button>
-                  )}
-                </div>
-              </div>
+                    {systemBlockReason === 'no_provider' && !isProjectScoped ? (
+                      <Button type="button" onClick={() => engines.setShowProviderConfig(true)}>Connect an AI engine</Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        disabled={runSaving || !!launchBlockedReason || runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true}
+                        title={launchBlockedReason}
+                        onClick={asyncHandler(handleLaunchRun)}
+                      >
+                        {runSaving ? 'Starting…' : runError ? 'Retry check' : 'Run check'}
+                      </Button>
+                    )}
+                  </>
+                )}
+              />
             ) : awaitingRunDetails ? (
               <div className="compact-stack">
                 <p role={launchedRun.isError ? 'alert' : 'status'} className="text-copy-14 text-secondary">
@@ -2063,12 +1292,7 @@ function ReadySetupPage({
                 {runPreview.isError && !isDashboardManagedSweeps() ? <RunPreviewSummary preview={runPreview.data} pending={runPreview.isFetching} failed onRetry={() => { void runPreview.refetch() }} /> : null}
                 <div className="setup-nav">
                   {isAdmin && !isDashboardManagedSweeps() ? (
-                    <Button type="button" variant="outline" onClick={() => {
-                      restoreProviderFocus.current = true
-                      scrollProviderFocus.current = true
-                      setConfiguringProvider(runnableApiProviders[0]?.name ?? providerToConfigure?.name ?? '')
-                      setShowProviderConfig(true)
-                    }}>Repair connection</Button>
+                    <Button type="button" variant="outline" onClick={engines.repairConnection}>Repair connection</Button>
                   ) : <span />}
                   {isDashboardManagedSweeps() || !isAdmin ? (
                     <Button type="button" onClick={() => finishSetup()}>Open project dashboard →</Button>
@@ -2095,7 +1319,7 @@ function ReadySetupPage({
                 </div>
               </div>
             )}
-          </CheckSurface>
+          </Card>
         )
       }
 
@@ -2110,49 +1334,7 @@ function ReadySetupPage({
     ? stepIndicatorLabels.length
     : isProjectScoped ? (step === 4 ? 1 : 0) : step
 
-  const changeEngines = step === 4 && !runTriggered && isAdmin && openRouterConnected && setupEngineProject && !inlineModelPicker
-    ? <details className="mb-4"><summary className="cursor-pointer py-2 text-label-14 text-link">Change engines</summary><ProjectEngineSettingsSection project={setupEngineProject} onSave={saveSetupEngines} /></details>
-    : null
-
-  // The tracker's AI Visibility row: one step at a time, inside the row.
-  if (panel && panelStep) {
-    const closePanel = panel.onClose
-    // A provider form or OpenRouter's model picker carries the step's own primary action.
-    const engineStepHasOwnAction = isAdmin && (providerFormVisible || inlineModelPicker)
-    return (
-      <div ref={panelRef}>
-        <PanelStepLine current={panelStep} done={{ engine: providerReadiness === true, queries: durableQueryCount > 0, 'first-check': false }} />
-        <div ref={stepContentRef}>
-          {panelStep === 'engine' ? (
-            <div className="space-y-5">
-              {providerSetup}
-              <div className="setup-nav">
-                <Button type="button" variant="outline" onClick={() => providerGuard.request(closePanel)}>Back</Button>
-                {/* Queries can be saved before an engine is connected. */}
-                <Button
-                  type="button"
-                  variant={engineStepHasOwnAction ? 'secondary' : 'default'}
-                  onClick={() => providerGuard.request(() => {
-                    setProviderDirty(false)
-                    setShowProviderConfig(false)
-                    setPanelOnEngine(false)
-                  })}
-                >
-                  Continue
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <>
-              {changeEngines}
-              {stepContent}
-            </>
-          )}
-        </div>
-        {providerGuard.dialog}
-      </div>
-    )
-  }
+  const changeEngines = step === 4 && !runTriggered ? <ChangeEngines engines={engines} /> : null
 
   return (
     <div className={isProjectScoped ? 'page-container visibility-setup' : 'page-container'}>
@@ -2169,7 +1351,7 @@ function ReadySetupPage({
             {visibilityProjectName
               ? step === 4
                 ? 'Review the queries and engines for your first check.'
-                : providerReadiness === true
+                : engines.providerReadiness === true
                   ? 'Choose the queries you want to track.'
                   : 'Connect an AI engine and add the queries you want to track.'
               : 'Create a project and run its first AI Visibility check.'}
@@ -2177,7 +1359,7 @@ function ReadySetupPage({
         </div>
         {!showingSuccessfulRun && step !== 4 ? (
           <div className="page-header-right">
-            <Button type="button" variant="ghost" size="sm" disabled={(Boolean(resumeProjectName) && !resumeQueriesQuery.isSuccess) || projectSaving || queriesSaving || competitorsSaving || runSaving} onClick={resetDraft}>Reset unsaved fields</Button>
+            <Button type="button" variant="ghost" size="sm" disabled={(Boolean(resumeProjectName) && !resumeQueriesQuery.isSuccess) || projectSaving || queries.saving || competitorsSaving || runSaving} onClick={resetDraft}>Reset unsaved fields</Button>
           </div>
         ) : null}
       </div>
@@ -2189,7 +1371,7 @@ function ReadySetupPage({
         {changeEngines}
         <div ref={stepContentRef}>{stepContent}</div>
       </section>
-      {providerGuard.dialog}
+      {engines.providerGuard.dialog}
     </div>
   )
 }

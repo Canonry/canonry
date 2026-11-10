@@ -35,6 +35,7 @@ import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { JobProgress } from '../components/shared/JobProgress.js'
 import { NextSteps } from '../components/shared/NextSteps.js'
 import { SetupTrackBadge, SetupTrackerList, SetupTrackerRow, setupRowMark } from '../components/setup/SetupTracker.js'
+import { AiVisibilitySetupPanel, type SetupPanelStep } from '../components/setup/AiVisibilitySetupPanel.js'
 import { FeaturedAnswer, FirstResultTable, featuredSetupAnswer } from '../components/setup/FirstResult.js'
 import { useAccount } from '../contexts/account-context.js'
 import { useOnboardingTelemetry } from '../hooks/use-onboarding-telemetry.js'
@@ -42,7 +43,6 @@ import { formatSweepInstant } from '../lib/format-helpers.js'
 import { markOnboardingRunHandled, markOnboardingRunLaunched, onboardingErrorReason, readOnboardingLaunchedRun } from '../lib/onboarding-telemetry.js'
 import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import { useTriggerSiteAudit } from '../queries/mutations.js'
-import { SetupPage, type SetupPanelStep } from './SetupPage.js'
 
 /** The tracker row a link opens: the URL holds which row is open, never progress. */
 export type SetupTrackName = 'agent-readiness' | 'ai-visibility'
@@ -699,9 +699,11 @@ function AiVisibilityRow({
   if (panelStep !== null) {
     return (
       <SetupTrackerRow id="setup-ai-visibility" title="AI Visibility" mark={setupRowMark(state)} trailing={<SetupTrackBadge state={state} />} childrenManageFocus>
-        <SetupPage
-          visibilityProjectName={projectName}
-          panel={{ initialStep: panelStep, onClose: onClosePanel, onLaunched }}
+        <AiVisibilitySetupPanel
+          projectName={projectName}
+          initialStep={panelStep}
+          onClose={onClosePanel}
+          onLaunched={onLaunched}
         />
       </SetupTrackerRow>
     )
