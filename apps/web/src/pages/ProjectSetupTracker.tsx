@@ -14,6 +14,7 @@ import {
   normalizeProjectDomain,
   siteAuditRunPhaseSchema,
   type AgentReadinessSetupTrack,
+  type AiVisibilitySetupBlocker,
   type AiVisibilitySetupTrack,
   type ProjectSetupDto,
   type RunKind,
@@ -114,7 +115,7 @@ export function ProjectSetupTracker({
     // the server's blocker calls for.
     if (track === 'ai-visibility' && !deepLinkHandled.current) {
       deepLinkHandled.current = true
-      setAiPanelStep(aiTrack.blockedBy === null ? 'first-check' : 'engines-and-queries')
+      setAiPanelStep(panelStepFor(aiTrack.blockedBy))
     }
   }, [track, aiTrack])
 
@@ -619,18 +620,37 @@ function AgentReadinessRow({
   )
 }
 
+/** The AI Visibility panel step that clears the server's blocker; an unpublished plan is published elsewhere. */
+function panelStepFor(blockedBy: AiVisibilitySetupBlocker | null): SetupPanelStep | null {
+  switch (blockedBy) {
+    case null:
+      return 'first-check'
+    case AiVisibilitySetupBlockers.no_engine:
+    case AiVisibilitySetupBlockers.engines_failing:
+      return 'engine'
+    case AiVisibilitySetupBlockers.no_queries:
+      return 'queries'
+    case AiVisibilitySetupBlockers.plan_unpublished:
+      return null
+    default: {
+      const exhaustive: never = blockedBy
+      return exhaustive
+    }
+  }
+}
+
 /** The AI Visibility row's line and action when no check is running. */
 function aiVisibilityNextStep(track: AiVisibilitySetupTrack, brand: string, domain: string): { line: string; action: string; step: SetupPanelStep | 'plan' } {
   const purpose = `Whether AI answers mention ${brand} and cite ${domain}.`
   switch (track.blockedBy) {
     case AiVisibilitySetupBlockers.no_engine:
-      return { line: `${purpose} Needs an AI engine.`, action: 'Connect an AI engine', step: 'engines-and-queries' }
+      return { line: `${purpose} Needs an AI engine.`, action: 'Connect an AI engine', step: 'engine' }
     case AiVisibilitySetupBlockers.no_queries:
-      return { line: `${purpose} Add queries to check.`, action: 'Add queries', step: 'engines-and-queries' }
+      return { line: `${purpose} Add queries to check.`, action: 'Add queries', step: 'queries' }
     case AiVisibilitySetupBlockers.plan_unpublished:
       return { line: 'Publish the measurement plan before the first check.', action: 'Open measurement plan', step: 'plan' }
     case AiVisibilitySetupBlockers.engines_failing:
-      return { line: `${purpose} The AI engine connection needs attention.`, action: 'Repair connection', step: 'engines-and-queries' }
+      return { line: `${purpose} The AI engine connection needs attention.`, action: 'Repair connection', step: 'engine' }
     case null: {
       const engines = track.engines.length
       return {
@@ -787,7 +807,7 @@ function AiVisibilityRow({
       if (canWrite) {
         action = (
           <>
-            {isAdmin ? <Button type="button" variant="ghost" onClick={() => onOpenPanel('engines-and-queries')}>Change AI engines</Button> : null}
+            {isAdmin ? <Button type="button" variant="ghost" onClick={() => onOpenPanel('engine')}>Change AI engines</Button> : null}
             <Button type="button" variant={variant} onClick={() => onOpenPanel('first-check')}>Run check again</Button>
           </>
         )

@@ -1,5 +1,6 @@
 import { RunPreviewSummary, useRunPreview } from '../components/project/RunAdmissionNotice.js'
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type RefCallback } from 'react'
+import { Check } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { isDashboardManagedSweeps, type ApiProject } from '../api.js'
@@ -229,8 +230,36 @@ function SetupStepIndicator({ current, labels }: { current: number; labels: read
  * The setup wizard exists to CREATE things — a project, its queries, its
  * first sweep. There is nothing in it for a view-only account.
  */
-/** Where the setup tracker's AI Visibility panel opens. */
-export type SetupPanelStep = 'engines-and-queries' | 'first-check'
+/** The setup tracker's AI Visibility panel, one step at a time: connect an AI engine, add queries, review the first check. */
+export type SetupPanelStep = 'engine' | 'queries' | 'first-check'
+
+const PANEL_STEPS: ReadonlyArray<{ id: SetupPanelStep; label: string }> = [
+  { id: 'engine', label: 'AI engine' },
+  { id: 'queries', label: 'Queries' },
+  { id: 'first-check', label: 'First check' },
+]
+
+/** Where the panel stands: the current step named, steps already done checked. */
+function PanelStepLine({ current, done }: { current: SetupPanelStep; done: Readonly<Record<SetupPanelStep, boolean>> }) {
+  return (
+    <ol aria-label="AI Visibility steps" className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-label-14 text-secondary">
+      {PANEL_STEPS.map((step, index) => {
+        const isCurrent = step.id === current
+        const isDone = !isCurrent && done[step.id]
+        return (
+          <li key={step.id} aria-current={isCurrent ? 'step' : undefined} className={isCurrent ? 'inline-flex items-center gap-1.5 text-heading' : 'inline-flex items-center gap-1.5'}>
+            {index > 0 ? <span aria-hidden="true">·</span> : null}
+            {isDone
+              ? <Check className="size-3.5 text-positive" aria-hidden="true" />
+              : <span className="tabular-nums" aria-hidden="true">{index + 1}</span>}
+            {step.label}
+            {isDone ? <span className="sr-only">, done</span> : null}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
 
 /**
  * The AI Visibility steps without page chrome, for the setup tracker's AI
@@ -239,7 +268,7 @@ export type SetupPanelStep = 'engines-and-queries' | 'first-check'
  */
 export interface SetupPanel {
   initialStep: SetupPanelStep
-  /** Back from the first step: the tracker closes the panel. */
+  /** Back from the AI engine step: the tracker closes the panel. */
   onClose: () => void
   /** The first check was queued. */
   onLaunched: (runId: string) => void
@@ -467,17 +496,22 @@ function ReadySetupPage({
   const [draftScope] = useState(() => `wizard:${resumeProjectName ?? 'new'}`)
   const [draft] = useState(() => readOnboardingDraft(draftScope))
   const [step, setStep] = useState<SetupStep>(initialResumeStep)
+  // In the tracker's panel, the wizard's queries step is two steps: the AI
+  // engine first, then the queries.
+  const [panelOnEngine, setPanelOnEngine] = useState(panel?.initialStep === 'engine')
+  const panelStep: SetupPanelStep | null = panel ? (step === 4 ? 'first-check' : panelOnEngine ? 'engine' : 'queries') : null
   const stepContentRef = useRef<HTMLDivElement>(null)
-  const previousStep = useRef(step)
+  const stepKey = panelStep ?? step
+  const previousStep = useRef(stepKey)
   useEffect(() => {
-    if (previousStep.current === step) return
-    previousStep.current = step
+    if (previousStep.current === stepKey) return
+    previousStep.current = stepKey
     const heading = stepContentRef.current?.querySelector<HTMLElement>('h2, h3')
     if (heading) {
       heading.tabIndex = -1
       heading.focus()
     }
-  }, [step])
+  }, [stepKey])
   const panelRef = useRef<HTMLDivElement>(null)
   const panelFocusPending = useRef(panel !== undefined)
   useEffect(() => {
@@ -1275,7 +1309,10 @@ function ReadySetupPage({
   // The tracker's row is the panel's surface and heading; its sections sit one level below.
   const StepSurface = panel ? 'div' : isProjectScoped ? 'section' : Card
   const StepHeading = panel ? 'h3' : 'h2'
-  const leaveFirstStep = panel ? panel.onClose : isProjectScoped ? openProjectDashboard : goBack
+  // In the panel, Back from the queries goes to the AI engine step.
+  const leaveFirstStep = panel ? () => setPanelOnEngine(true) : isProjectScoped ? openProjectDashboard : goBack
+  // The panel's AI engine step is a step of its own, so its section needs no rule below it.
+  const providerSectionRule = panel ? '' : ' border-b border-default pb-6 mb-6'
   const providerRefreshAction = providerReadiness !== true || cdpConfigured === true ? (
     <Button type="button" variant="ghost" size="sm" className={TOUCH_TARGET} onClick={() => {
       void refetch()
@@ -1288,7 +1325,7 @@ function ReadySetupPage({
   const providerFormVisible = (providerNeedsConnection || showProviderConfig) && !!providerToConfigure
   const providerSetup = (isProjectScoped && step === 2) || (step === 4 && (showProviderConfig || providerReadiness !== true)) ? (
     !isAdmin ? (
-      <section aria-labelledby="setup-provider-heading" className="space-y-2 border-b border-default pb-6 mb-6">
+      <section aria-labelledby="setup-provider-heading" className={`space-y-2${providerSectionRule}`}>
         <div className="flex flex-wrap items-center gap-3">
           <StepHeading id="setup-provider-heading" className={panel ? 'text-heading-16 text-heading' : 'text-heading-20 text-heading'}>AI engines</StepHeading>
           {providerReadinessFailed ? null : (
@@ -1319,7 +1356,7 @@ function ReadySetupPage({
         </Button>
       </section>
     ) : (
-    <section aria-labelledby="setup-provider-heading" className="space-y-3 border-b border-default pb-6 mb-6">
+    <section aria-labelledby="setup-provider-heading" className={`space-y-3${providerSectionRule}`}>
       <div className="flex flex-wrap items-center gap-3">
         <StepHeading id="setup-provider-heading" className={panel ? 'text-heading-16 text-heading' : 'text-heading-20 text-heading'}>AI engines</StepHeading>
         <ToneBadge tone={openRouterModelsNeeded ? 'caution' : providerReadiness === true ? engineConnectionStatus.tone : 'neutral'}>
@@ -1708,6 +1745,7 @@ function ReadySetupPage({
                     onChange={(e) => setQueriesText(e.target.value)}
                   />
                 </div>
+                {panel ? <p className="text-copy-13 text-secondary">Queries naming {displayName || createdProjectName || 'your brand'} are branded. Results keep branded and non-brand queries apart.</p> : null}
                 {runnableApiProviders.length > 0 ? (
                   <details className="compact-stack"><summary className="cursor-pointer py-2 text-label-14 text-link">Generate query suggestions</summary>
                     <div className="flex items-end gap-2">
@@ -1768,7 +1806,7 @@ function ReadySetupPage({
                   {panel ? null : <Button type="button" variant="ghost" onClick={skipQueries}>
                     {isProjectScoped ? 'Finish without AI Visibility' : 'Skip for now'}
                   </Button>}
-                  <Button type="button" variant={providerFormVisible ? 'secondary' : 'default'} disabled={parsedQueries.length === 0 || queriesSaving} onClick={asyncHandler(handleSaveQueries)}>
+                  <Button type="button" variant={providerFormVisible && !panel ? 'secondary' : 'default'} disabled={parsedQueries.length === 0 || queriesSaving} onClick={asyncHandler(handleSaveQueries)}>
                     {queriesSaving ? 'Saving…' : `Save ${parsedQueries.length} quer${parsedQueries.length !== 1 ? 'ies' : 'y'}`}
                   </Button>
                 </div>
@@ -1864,6 +1902,8 @@ function ReadySetupPage({
                 : latestPersistedRun?.statusDetail
                   || 'The check did not produce a baseline.')
 
+        // Queries were saved without an engine: the next step is to connect one.
+        const panelNeedsEngine = Boolean(panel) && providerReadiness === false && !runError
         let stepBadge: ReactNode = null
         if (persistedSetupComplete || successfulRun) {
           stepBadge = <ToneBadge tone="positive">Complete</ToneBadge>
@@ -1926,7 +1966,8 @@ function ReadySetupPage({
                   </ul>
                 </details>
                 <p className="text-copy-13 text-secondary">{firstCheckUsesAccount ? 'Runs once using your provider account. No schedule is created.' : 'Runs once. No schedule is created.'}</p>
-                {(launchBlockedReason || runError) && (
+                {/* In the panel, a missing engine is the AI engine step's job; the preview above already names it. */}
+                {(launchBlockedReason || runError) && !panelNeedsEngine && (
                   <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
                     <p>{runError ?? launchBlockedReason}</p>
                   </div>
@@ -1941,7 +1982,9 @@ function ReadySetupPage({
                   >
                     Finish without running
                   </Button>}
-                  {systemBlockReason === 'no_provider' && !isProjectScoped ? (
+                  {panelNeedsEngine ? (
+                    <Button type="button" onClick={() => { setPanelOnEngine(true); setStep(2) }}>Connect an AI engine</Button>
+                  ) : systemBlockReason === 'no_provider' && !isProjectScoped ? (
                     <Button type="button" onClick={() => setShowProviderConfig(true)}>Connect an AI engine</Button>
                   ) : (
                     <Button
@@ -2071,13 +2114,41 @@ function ReadySetupPage({
     ? <details className="mb-4"><summary className="cursor-pointer py-2 text-label-14 text-link">Change engines</summary><ProjectEngineSettingsSection project={setupEngineProject} onSave={saveSetupEngines} /></details>
     : null
 
-  // The tracker's AI Visibility row: its steps only, inside the row.
-  if (panel) {
+  // The tracker's AI Visibility row: one step at a time, inside the row.
+  if (panel && panelStep) {
+    const closePanel = panel.onClose
+    // A provider form or OpenRouter's model picker carries the step's own primary action.
+    const engineStepHasOwnAction = isAdmin && (providerFormVisible || inlineModelPicker)
     return (
       <div ref={panelRef}>
-        {providerSetup}
-        {changeEngines}
-        <div ref={stepContentRef}>{stepContent}</div>
+        <PanelStepLine current={panelStep} done={{ engine: providerReadiness === true, queries: durableQueryCount > 0, 'first-check': false }} />
+        <div ref={stepContentRef}>
+          {panelStep === 'engine' ? (
+            <div className="space-y-5">
+              {providerSetup}
+              <div className="setup-nav">
+                <Button type="button" variant="outline" onClick={() => providerGuard.request(closePanel)}>Back</Button>
+                {/* Queries can be saved before an engine is connected. */}
+                <Button
+                  type="button"
+                  variant={engineStepHasOwnAction ? 'secondary' : 'default'}
+                  onClick={() => providerGuard.request(() => {
+                    setProviderDirty(false)
+                    setShowProviderConfig(false)
+                    setPanelOnEngine(false)
+                  })}
+                >
+                  Continue
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {changeEngines}
+              {stepContent}
+            </>
+          )}
+        </div>
         {providerGuard.dialog}
       </div>
     )

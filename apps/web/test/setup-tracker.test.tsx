@@ -27,8 +27,8 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 // setup-ai-visibility-onboarding.test.tsx. Here it only hands the row back the
 // way the page does: Back closes it, and a launch reports the queued run.
 vi.mock('../src/pages/SetupPage.js', () => ({
-  SetupPage: ({ panel }: { panel?: { onClose: () => void; onLaunched: (runId: string) => void } }) => (
-    <div>
+  SetupPage: ({ panel }: { panel?: { initialStep: string; onClose: () => void; onLaunched: (runId: string) => void } }) => (
+    <div data-testid="setup-panel" data-initial-step={panel?.initialStep}>
       <h3>Panel step</h3>
       <button type="button" onClick={() => panel?.onClose()}>Back</button>
       <button type="button" onClick={() => panel?.onLaunched('panel-run')}>Run first check</button>
@@ -72,6 +72,8 @@ function setupRead(overrides: SetupOverrides = {}): ProjectSetupDto {
 function renderTracker(options: {
   setup: ProjectSetupDto | (() => Response)
   firstRun?: boolean
+  /** The row a link named, as `?track=` carries it. */
+  track?: 'agent-readiness' | 'ai-visibility'
   onRequest?: (path: string, init?: RequestInit) => Response | undefined
 }) {
   const requests: Array<{ path: string; method?: string; body?: RequestInit['body'] }> = []
@@ -94,7 +96,7 @@ function renderTracker(options: {
     <QueryClientProvider client={queryClient}>
       <AccountProvider account={null}>
         <DashboardProvider value={createDashboardFixture()}>
-          <ProjectSetupTracker projectName={PROJECT} firstRun={options.firstRun ?? true} />
+          <ProjectSetupTracker projectName={PROJECT} firstRun={options.firstRun ?? true} track={options.track} />
         </DashboardProvider>
       </AccountProvider>
     </QueryClientProvider>,
@@ -338,6 +340,32 @@ test('a scan that cannot start says why in its row', async () => {
   })
   fireEvent.click(await findScanStart())
   expect((await within(row('Agent Readiness')).findByRole('alert')).textContent).toBe('The audit scan could not start. A scan is already running.')
+})
+
+test.each([
+  { blockedBy: 'no_engine', action: 'Connect an AI engine', step: 'engine' },
+  { blockedBy: 'engines_failing', action: 'Repair connection', step: 'engine' },
+  { blockedBy: 'no_queries', action: 'Add queries', step: 'queries' },
+  { blockedBy: null, action: 'Review first check', step: 'first-check' },
+] as const)('the AI Visibility action for blocker $blockedBy opens the panel at its $step step', async ({ blockedBy, action, step }) => {
+  renderTracker({ setup: setupRead({ aiVisibility: { blockedBy, engines: blockedBy === 'no_engine' ? [] : ['openrouter'] } }) })
+  fireEvent.click(await within(await findRow('AI Visibility')).findByRole('button', { name: action }))
+  expect((await screen.findByTestId('setup-panel')).getAttribute('data-initial-step')).toBe(step)
+})
+
+test.each([
+  { blockedBy: 'no_queries', step: 'queries' },
+  { blockedBy: null, step: 'first-check' },
+  // A plan is published on the measurement plan, so the link opens no panel.
+  { blockedBy: 'plan_unpublished', step: null },
+] as const)('a link to the AI Visibility row with blocker $blockedBy opens the panel at step $step', async ({ blockedBy, step }) => {
+  renderTracker({ setup: setupRead({ aiVisibility: { blockedBy, engines: ['openrouter'] } }), track: 'ai-visibility' })
+  await findRow('AI Visibility')
+  if (step === null) {
+    expect(screen.queryByTestId('setup-panel')).toBeNull()
+    return
+  }
+  expect((await screen.findByTestId('setup-panel')).getAttribute('data-initial-step')).toBe(step)
 })
 
 test('an Advanced project waiting on its published plan links to the measurement plan', async () => {
