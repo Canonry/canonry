@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 import { HEALTH_NO_LONGER_URGENT } from '@canonry/canonry-contracts'
-import type { HealthWebhookPayload, RatingWebhookPayload, ReviewWebhookPayload, UnrecognizedAgentWebhookPayload, WebhookPayload } from '@canonry/canonry-contracts'
+import type { HealthWebhookPayload, RatingWebhookPayload, ReviewWebhookPayload, SiteHealthIssueWebhookPayload, UnrecognizedAgentWebhookPayload, WebhookPayload } from '@canonry/canonry-contracts'
 import { AlertSeverities, AlertFieldLabels, CANONRY_ALERT_CATEGORY, toAlertView } from '../src/notifications/alert.js'
 import {
   DESTINATION_ADAPTERS,
@@ -522,4 +522,34 @@ test('a website outage keeps its own title on the urgent events', () => {
   const outage = health({ status: 'fail', code: 'site.reachability.down', summary: 'https://harborline.test/ is not responding: HTTP 503.', previousStatus: 'ok', failing: [] })
   expect(toAlertView({ ...outage, event: 'health.urgent' }).title).toBe('harborline-hotel: Website down (urgent)')
   expect(toAlertView({ ...outage, event: 'health.urgent-resolved' }).title).toBe('harborline-hotel: Website is back up')
+})
+
+test('a Site Health alert names each new problem, how many pages it newly reached, and where to look', () => {
+  const payload: SiteHealthIssueWebhookPayload = {
+    source: 'canonry',
+    event: 'site-health.issue.new',
+    project: { name: 'harborline', canonicalDomain: 'harborline.test' },
+    run: { id: 'run_audit', status: 'partial', finishedAt: '2026-11-01T06:48:33.154Z' },
+    scanComplete: false,
+    issues: [
+      { code: 'names-another-entity', title: 'Names another property', severity: 'critical', affectedPages: 3, newPages: 3, examples: ['https://harborline.test/homes/ridge/'] },
+      { code: 'multiple-h1', title: 'Multiple H1 tags', severity: 'critical', affectedPages: 9, newPages: 1, examples: ['https://harborline.test/homes/'] },
+    ],
+    dashboardUrl: 'https://canonry.test/projects/harborline/technical-aeo',
+  }
+  expect(toAlertView(payload)).toEqual({
+    severity: AlertSeverities.critical,
+    category: CANONRY_ALERT_CATEGORY,
+    title: 'harborline: 2 new Site Health problems',
+    body: 'A site audit found problems that were not reported before. The scan was partial, so other pages may have it too.\n'
+      + '• Names another property: 3 pages new, e.g. https://harborline.test/homes/ridge/\n'
+      + '• Multiple H1 tags: 1 page new, 9 in all, e.g. https://harborline.test/homes/',
+    fields: [{ label: AlertFieldLabels.next, value: 'cnry technical-aeo issues harborline --run-id run_audit' }],
+    url: 'https://canonry.test/projects/harborline/technical-aeo',
+    footer: 'harborline.test',
+    timestamp: '2026-11-01T06:48:33.154Z',
+  })
+  const single = toAlertView({ ...payload, scanComplete: true, issues: [payload.issues[1]!] })
+  expect(single.title).toBe('harborline: Multiple H1 tags on 1 page')
+  expect(single.body).toBe('A site audit found problems that were not reported before.\nMultiple H1 tags: 1 page new, 9 in all, e.g. https://harborline.test/homes/')
 })

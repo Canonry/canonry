@@ -230,6 +230,13 @@ export class RunCoordinator {
     } catch (err) {
       log.error('notifier.failed', { runId, error: describeError(err) })
     }
+    if (kind === RunKinds['site-audit']) {
+      try {
+        await this.notifier.onSiteAuditCompleted(runId, projectId)
+      } catch (err) {
+        log.error('site-health-webhook.failed', { runId, error: describeError(err) })
+      }
+    }
 
     // 3. Aero — enqueue + drain so the built-in agent wakes up unprompted.
     if (this.onAeroEvent) {

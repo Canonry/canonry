@@ -76,6 +76,16 @@ export const notificationEventSchema = z.enum([
    * alert, and nothing is held for a webhook added later.
    */
   'traffic.agent.discovered',
+  /**
+   * A site audit found a critical Site Health problem nobody was told about
+   * yet: a critical page defect (no H1, several H1s, no title, a page naming
+   * another property) on a page where it was not reported before. Sent only to
+   * webhooks that list it, and only when something is new, so a problem that
+   * stays unfixed is reported once. A partial scan can add problems but never
+   * forgets one; only a complete scan that no longer finds a problem clears
+   * it, so the problem is reported again if it comes back.
+   */
+  'site-health.issue.new',
 ])
 export type NotificationEvent = z.infer<typeof notificationEventSchema>
 
@@ -218,6 +228,36 @@ export interface UnrecognizedAgentWebhookPayload {
     sampleUserAgent: string | null
     samplePath: string | null
   }>
+  dashboardUrl: string
+}
+
+/** One critical Site Health problem in a `site-health.issue.new` payload. */
+export interface SiteHealthIssueAlert {
+  /** The audit engine's critical defect id, e.g. `multiple-h1` or `names-another-entity`. */
+  code: string
+  /** Short label, e.g. "Multiple H1 tags". */
+  title: string
+  severity: 'critical'
+  /** Pages this scan found with the problem. */
+  affectedPages: number
+  /** Of those, the pages where it was not reported before. */
+  newPages: number
+  /** Up to five of the new pages, sorted. */
+  examples: string[]
+}
+
+/**
+ * New critical problems from a site audit. Carries the audit's `run` like the
+ * run events, and only the problems that are new, most new pages first.
+ */
+export interface SiteHealthIssueWebhookPayload {
+  source: 'canonry'
+  event: 'site-health.issue.new'
+  project: { name: string; canonicalDomain: string }
+  run: { id: string; status: string; finishedAt: string | null }
+  /** Whether the scan reached every page it found. A partial scan can miss pages. */
+  scanComplete: boolean
+  issues: SiteHealthIssueAlert[]
   dashboardUrl: string
 }
 

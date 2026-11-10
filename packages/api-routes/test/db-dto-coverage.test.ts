@@ -618,6 +618,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Last graded website probe per project, plus the consecutive-failure count and whether the current outage was paged. It exists only so site-down alerting can wait for two failed passes and send one recovery for a paged outage. Alerting bookkeeping, not a measurement: the probe result is served live by GET /projects/:name/doctor?check=site.reachability, and exposing a cached copy would invite readers to trust a stale up or down verdict.',
   },
+  siteHealthNotifyState: {
+    kind: 'internal-only',
+    reason: 'Which critical page problems the site-health.issue.new webhook already reported, per project, so an unfixed problem is reported once. Alerting bookkeeping in the sense doctorHealthState is, not a measurement: the problems themselves are served live by GET /projects/:name/technical-aeo/issues from the stored crawl.',
+  },
   doctorHealthState: {
     kind: 'internal-only',
     reason: 'Last observed doctor outcome per project, kept only so health alerting can fire on transitions rather than on every scheduled pass. It is alerting bookkeeping, not a measurement: the report itself is served live by GET /projects/:name/doctor, and exposing a cached copy would invite readers to trust a stale health verdict.',
