@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ChevronDown, ChevronRight, LoaderCircle, Play, RefreshCw, ScanSearch } from 'lucide-react'
 import type { MetricTone } from '../../view-models.js'
@@ -6,7 +6,6 @@ import { formatPercent, RatioUnits, RunKinds, SiteAuditFactorStatuses, TrendUnit
 
 import { heyClient, isDashboardManagedRunKind, isEmbed } from '../../api.js'
 import {
-  getApiV1ProjectsByNameAgentReadinessCrawlPagesAuditOptions,
   getApiV1ProjectsByNameAgentReadinessOptions,
   getApiV1ProjectsByNameAgentReadinessPagesOptions,
   getApiV1ProjectsByNameAgentReadinessTrendOptions,
@@ -48,7 +47,7 @@ import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { TrendCard, isTrendFigureInteractive, levelTrendChange, sharedLevelBasis, trendCardPoints, trendSpanLabel, type TrendCardFigure } from '../shared/TrendCard.js'
 import { useTriggerSiteAudit } from '../../queries/mutations.js'
 import { getRunTrackerState, subscribeRunTracker } from '../../lib/run-tracker-store.js'
-import { PageAuditEvidence, factorShareOfScoreLabel } from './PageAuditEvidence.js'
+import { factorShareOfScoreLabel } from './PageAuditEvidence.js'
 import { SITE_HEALTH_CHECK_HELP } from './site-health-check-help.js'
 
 /** Read beside the dash in a scorecard row whose scan recorded no share of the score. */
@@ -141,9 +140,6 @@ export function TechnicalAeoSection({
   projectId,
   runId,
   integrated = false,
-  compactCopy = false,
-  afterSummary,
-  unavailableFooter,
 }: {
   projectName: string
   projectId: string
@@ -151,12 +147,6 @@ export function TechnicalAeoSection({
   runId?: string | null
   /** Hide duplicate history and run controls when rendered inside Agent Readiness. */
   integrated?: boolean
-  /** Use concise findings copy in the explicit onboarding flow. */
-  compactCopy?: boolean
-  /** Next action below the loaded score summary, before the detailed checks. */
-  afterSummary?: ReactNode
-  /** Rendered after an unavailable/error state so a parent flow can recover. */
-  unavailableFooter?: ReactNode
 }) {
   const { isAdmin } = useAccount()
   const managedScanForViewer = isDashboardManagedRunKind(RunKinds['site-audit']) && !isAdmin
@@ -295,27 +285,6 @@ export function TechnicalAeoSection({
 
   const score = scoreQuery.data
   const allPages = pagesQuery.data?.pages ?? EMPTY_SITE_AUDIT_PAGES
-  const onboardingEvidencePage = compactCopy
-    ? allPages.find((page) => page.status === 'success' && page.overallScore < 70)
-      ?? allPages.find((page) => page.status === 'success')
-    : undefined
-  const onboardingEvidenceNeedsFix = Boolean(
-    onboardingEvidencePage && onboardingEvidencePage.overallScore < 70,
-  )
-  const onboardingPageAuditQuery = useQuery({
-    ...getApiV1ProjectsByNameAgentReadinessCrawlPagesAuditOptions({
-      client: heyClient,
-      path: { name: projectName },
-      query: {
-        ...(effectiveRunId ? { runId: effectiveRunId } : {}),
-        url: onboardingEvidencePage?.url ?? '',
-      },
-    }),
-    // Onboarding needs one concrete proof, not the full graph and inventory.
-    // The pages read is already worst-first, so this bounded request opens the
-    // first actionable page without enabling the heavy Agent Readiness explorer.
-    enabled: compactCopy && Boolean(onboardingEvidencePage),
-  })
   const hasErrors = (score?.pagesErrored ?? 0) > 0
   const showErrorsOnly = errorsOnly && hasErrors
   const tableSourcePages = useMemo(
@@ -332,7 +301,7 @@ export function TechnicalAeoSection({
     // Every check begins closed. Its table row already gives the
     // score, status, and affected-page count needed to choose what to inspect.
     setExpandedFactor(null)
-  }, [compactCopy, effectiveRunId, integrated])
+  }, [effectiveRunId, integrated])
 
   if (scoreQuery.isLoading) {
     return (
@@ -345,36 +314,33 @@ export function TechnicalAeoSection({
 
   if (scoreQuery.error) {
     return (
-      <>
-        <section
-          className={`flex flex-col gap-4 rounded-md border border-negative bg-negative-soft px-5 py-5 sm:flex-row sm:items-center sm:justify-between ${integrated ? '' : 'mt-6'}`}
-          role="alert"
-        >
-          <div className="flex min-w-0 gap-3">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-negative" aria-hidden="true" />
-            <div>
-              {integrated ? (
-                <h3 className="text-heading-14 text-negative">Score could not load</h3>
-              ) : (
-                <h2 className="text-heading-14 text-negative">Score could not load</h2>
-              )}
-              <p className="mt-1 text-copy-14 text-secondary">The saved scan could not be read. Try loading it again.</p>
-            </div>
+      <section
+        className={`flex flex-col gap-4 rounded-md border border-negative bg-negative-soft px-5 py-5 sm:flex-row sm:items-center sm:justify-between ${integrated ? '' : 'mt-6'}`}
+        role="alert"
+      >
+        <div className="flex min-w-0 gap-3">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-negative" aria-hidden="true" />
+          <div>
+            {integrated ? (
+              <h3 className="text-heading-14 text-negative">Score could not load</h3>
+            ) : (
+              <h2 className="text-heading-14 text-negative">Score could not load</h2>
+            )}
+            <p className="mt-1 text-copy-14 text-secondary">The saved scan could not be read. Try loading it again.</p>
           </div>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="shrink-0"
-            onClick={() => void handleManualRefresh()}
-            disabled={isManualRefreshing}
-          >
-            <RefreshCw className={`size-4 ${isManualRefreshing ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true" />
-            {isManualRefreshing ? 'Trying again…' : 'Try again'}
-          </Button>
-        </section>
-        {unavailableFooter}
-      </>
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="shrink-0"
+          onClick={() => void handleManualRefresh()}
+          disabled={isManualRefreshing}
+        >
+          <RefreshCw className={`size-4 ${isManualRefreshing ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true" />
+          {isManualRefreshing ? 'Trying again…' : 'Try again'}
+        </Button>
+      </section>
     )
   }
 
@@ -382,16 +348,13 @@ export function TechnicalAeoSection({
   if (!score || !score.hasData) {
     if (integrated) {
       return (
-        <>
-          <section className="material-base px-5 py-7 text-center">
-            <ScanSearch className="mx-auto size-7 text-muted" aria-hidden="true" />
-            <h2 className="mt-3 text-heading-16 text-heading">Score unavailable</h2>
-            <p className="mx-auto mt-2 max-w-md text-copy-14 text-secondary">
-              {managedScanForViewer ? MANAGED_SCANS_COPY : 'Run a new Agent Readiness audit scan to calculate page-level findings.'}
-            </p>
-          </section>
-          {unavailableFooter}
-        </>
+        <section className="material-base px-5 py-7 text-center">
+          <ScanSearch className="mx-auto size-7 text-muted" aria-hidden="true" />
+          <h2 className="mt-3 text-heading-16 text-heading">Score unavailable</h2>
+          <p className="mx-auto mt-2 max-w-md text-copy-14 text-secondary">
+            {managedScanForViewer ? MANAGED_SCANS_COPY : 'Run a new Agent Readiness audit scan to calculate page-level findings.'}
+          </p>
+        </section>
       )
     }
     return (
@@ -438,8 +401,6 @@ export function TechnicalAeoSection({
   // `partial` is what a run that hit any crawl budget lands as, which is the
   // normal outcome of a bounded first scan rather than an exceptional one.
   const partialScan = score.runStatus === 'partial'
-  const ChecksContainer = compactCopy ? 'details' : 'section'
-  const firstOnboardingFix = compactCopy ? score.crossCuttingIssues.find(issue => issue.topRecommendations.length > 0) : undefined
   const hasAnyRecommendations = score.crossCuttingIssues.some(
     (issue) => issue.topRecommendations.length > 0,
   )
@@ -465,9 +426,7 @@ export function TechnicalAeoSection({
                 the agent instructions forbid ("never present a bounded first
                 scan as a full-site result"), so the label carries the caveat
                 rather than leaving it to a separate banner. */}
-            {/* Onboarding (compact) heads this view with "Agent Readiness score"
-                already, so the number's own label does not repeat it. */}
-            <p className="text-copy-14-strong text-secondary">{partialScan ? 'Score so far' : compactCopy ? 'Score' : 'Agent Readiness score'}</p>
+            <p className="text-copy-14-strong text-secondary">{partialScan ? 'Score so far' : 'Agent Readiness score'}</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span
                 aria-label={partialScan
@@ -573,47 +532,7 @@ export function TechnicalAeoSection({
       </section>
       )}
 
-      {firstOnboardingFix && <section className="border-t border-default py-5" aria-labelledby="first-site-fix-heading">
-        <p className="text-label-12 text-muted">Start here · {firstOnboardingFix.affectedPages} affected pages</p>
-        <h3 id="first-site-fix-heading" className="mt-1 text-heading-16 text-heading">{firstOnboardingFix.factorName}</h3>
-        <p className="mt-2 max-w-2xl text-copy-14 text-secondary">{firstOnboardingFix.topRecommendations[0]}</p>
-      </section>}
-
-
-      {afterSummary}
-
-      {compactCopy && onboardingEvidencePage ? (
-        <details open={!firstOnboardingFix} className="border-t border-default pt-5"><summary className="cursor-pointer text-label-14 text-secondary">Inspect an audited page</summary><div className="mt-3">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-            <div className="min-w-0">
-              <h3 id="onboarding-page-evidence-heading" className="text-heading-16 text-heading">
-                {onboardingEvidenceNeedsFix ? 'First page to fix' : 'Example audited page'}
-              </h3>
-              <a
-                href={onboardingEvidencePage.url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-1 block max-w-2xl truncate text-label-14-mono text-link outline-none hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-400"
-                title={onboardingEvidencePage.url}
-              >
-                {onboardingEvidencePage.url}
-              </a>
-            </div>
-            <ToneBadge tone={scoreTone(onboardingEvidencePage.overallScore)}>
-              {Math.round(onboardingEvidencePage.overallScore)}/100
-            </ToneBadge>
-          </div>
-          <PageAuditEvidence
-            audit={onboardingPageAuditQuery.data}
-            isLoading={onboardingPageAuditQuery.isLoading}
-            error={onboardingPageAuditQuery.error}
-            onRetry={() => { void onboardingPageAuditQuery.refetch() }}
-          />
-        </div></details>
-      ) : null}
-
-
-      {integrated && !compactCopy ? <SiteHealthTrend trend={siteTrendQuery.data} /> : null}
+      {integrated ? <SiteHealthTrend trend={siteTrendQuery.data} /> : null}
 
       {/* Trend */}
       {!integrated && trendRows.length >= 2 ? (
@@ -669,28 +588,17 @@ export function TechnicalAeoSection({
       ) : null}
 
       {/* Factor scorecard — expandable rows reveal which pages fail + how to fix */}
-      <ChecksContainer className={integrated ? 'pt-5' : 'page-section-divider'}>
-        {compactCopy && <summary className="cursor-pointer text-label-14 text-secondary">All site checks</summary>}
+      <section className={integrated ? 'pt-5' : 'page-section-divider'}>
         {integrated ? (
           <div>
             <div className="flex items-center gap-1.5">
-              <h3 className="text-heading-16 text-heading">
-                {compactCopy ? 'Checks' : 'Findings'}
-              </h3>
+              <h3 className="text-heading-16 text-heading">Findings</h3>
               <InfoTooltip text={FACTOR_STATUS_HELP} />
             </div>
             <p className="mt-1 max-w-2xl text-copy-14 text-secondary">
-              {compactCopy
-                ? hasAnyRecommendations
-                  ? 'Open a check to see affected pages and recommended fixes.'
-                  : onboardingEvidencePage
-                    ? onboardingEvidenceNeedsFix
-                      ? 'Open a check to see affected pages. Page-level evidence for the first page to fix appears below.'
-                      : 'Open a check to see affected pages. Page-level evidence for one audited page appears below.'
-                    : 'Open a check to see affected pages and score details.'
-                : hasAnyRecommendations
-                  ? 'Select a check to see affected pages and recommended fixes.'
-                  : 'Select a check to see affected pages and score details.'}
+              {hasAnyRecommendations
+                ? 'Select a check to see affected pages and recommended fixes.'
+                : 'Select a check to see affected pages and score details.'}
             </p>
           </div>
         ) : (
@@ -864,7 +772,7 @@ export function TechnicalAeoSection({
             </tbody>
           </table>
         </div>
-      </ChecksContainer>
+      </section>
 
 
       {/* Opportunities — one structured block per cross-cutting factor */}

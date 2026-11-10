@@ -15,18 +15,12 @@ import {
   getApiV1ProjectsByNameAgentReadinessGraphQueryKey,
   getApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsQueryKey,
   getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey,
-  getApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewQueryKey,
   getApiV1ProjectsByNameAgentReadinessStructureInfiniteQueryKey,
   getApiV1ProjectsByNameAgentReadinessStructureQueryKey,
 } from '@canonry/canonry-api-client/react-query'
 
-import {
-  LivePageHealthFindings,
-  SiteHealthSection,
-  type LivePageHealthPreviewView,
-} from '../src/components/project/SiteHealthSection.js'
+import { SiteHealthSection } from '../src/components/project/SiteHealthSection.js'
 import { compileAppStyles, parseCompiledCss, compiledElementProperty, cssLengthPx } from './compiled-app-css.js'
-import { markOnboardingScanSkipped } from '../src/lib/onboarding-draft.js'
 import { heyClient } from '../src/api.js'
 import { SITE_HEALTH_CHECK_HELP } from '../src/components/project/site-health-check-help.js'
 import type { SiteCrawlPageDto, SiteCrawlSummaryDto } from '@canonry/canonry-contracts'
@@ -37,7 +31,6 @@ const mutationMock = vi.hoisted(() => ({
   isPending: false,
   data: undefined as { runId: string; status: 'queued' | 'running' } | undefined,
 }))
-const technicalAeoMock = vi.hoisted(() => ({ state: 'success' as 'success' | 'unavailable' }))
 
 vi.mock('../src/queries/mutations.js', () => ({
   useTriggerSiteAudit: () => ({
@@ -70,19 +63,12 @@ vi.mock('../src/components/project/TechnicalAeoSection.js', () => ({
   TechnicalAeoSection: ({
     runId,
     integrated,
-    compactCopy,
-    afterSummary,
-    unavailableFooter,
   }: {
     runId?: string | null
     integrated?: boolean
-    compactCopy?: boolean
-    afterSummary?: React.ReactNode
-    unavailableFooter?: React.ReactNode
   }) => (
-    <div data-integrated={integrated ? 'true' : 'false'} data-compact-copy={compactCopy ? 'true' : 'false'}>
+    <div data-integrated={integrated ? 'true' : 'false'}>
       Score view for {runId ?? 'latest'}
-      {technicalAeoMock.state === 'success' ? afterSummary : unavailableFooter}
     </div>
   ),
 }))
@@ -164,32 +150,6 @@ function scanHistoryKey() {
 
 function scanHistory(...scans: ReturnType<typeof scan>[]) {
   return { project: projectName, scans }
-}
-
-function livePreview(
-  pagesAudited: number,
-  examples: LivePageHealthPreviewView['examples'] = [],
-  state: LivePageHealthPreviewView['state'] = 'collecting',
-): LivePageHealthPreviewView {
-  return { state, pagesAudited, examples }
-}
-
-function livePageHealthPreviewResponse(
-  runId: string,
-  state: 'waiting' | 'collecting' | 'terminal',
-  pagesAudited: number,
-  examples: LivePageHealthPreviewView['examples'] = [],
-) {
-  return {
-    project: projectName,
-    runId,
-    status: state === 'waiting' ? 'queued' as const : state === 'collecting' ? 'running' as const : 'completed' as const,
-    state,
-    attemptId: state === 'waiting' ? null : 'attempt_live',
-    pagesAudited,
-    updatedAt: state === 'waiting' ? null : '2026-08-09T12:00:00.000Z',
-    examples,
-  }
 }
 
 function summary(runId: string, pagesDiscovered: number, complete = true): SiteCrawlSummaryDto {
@@ -571,7 +531,6 @@ beforeEach(() => {
   mutationMock.mutate.mockReset()
   mutationMock.isPending = false
   mutationMock.data = undefined
-  technicalAeoMock.state = 'success'
   Reflect.deleteProperty(window, '__CANONRY_CONFIG__')
 })
 
@@ -614,175 +573,6 @@ test('public demo hides Agent Readiness audit scan controls and skips the unavai
   expect(screen.queryByText('Scan settings')).toBeNull()
   await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Scans are run by your Canonry team'))
   expect(request.mock.calls.some(([request]) => new URL((request as Request).url).pathname.endsWith('/schedule'))).toBe(false)
-})
-
-test('keeps three fixed live-finding slots while examples grow from zero to one to three', async () => {
-  const { rerender } = render(
-    <LivePageHealthFindings runId="run_live" preview={livePreview(0)} />,
-  )
-
-  const section = screen.getByRole('region', { name: 'Findings so far' })
-  const firstSlots = within(section).getAllByTestId('live-page-health-slot')
-  expect(firstSlots).toHaveLength(3)
-  const slotCss = await renderedCss(...firstSlots)
-  for (const slot of firstSlots) expect(cssLengthPx(compiledElementProperty(slotCss, slot, 'height') ?? '', slotCss)).toBe(56)
-  expect(within(section).getByText('Checks that need attention will appear here.')).not.toBeNull()
-  expect(within(section).getAllByRole('listitem')).toHaveLength(1)
-
-  rerender(
-    <LivePageHealthFindings
-      runId="run_live"
-      preview={livePreview(1, [{
-        nodeKey: 'home',
-        url: 'https://example.com/',
-        auditScore: 63,
-        checksNeedingAttention: 2,
-      }])}
-    />,
-  )
-
-  await waitFor(() => expect(within(section).getByText('https://example.com/')).not.toBeNull())
-  const firstFilledSlot = within(section).getAllByTestId('live-page-health-slot')[0]
-  expect(firstFilledSlot).toBe(firstSlots[0])
-  expect(compiledElementProperty(slotCss, firstFilledSlot, 'display')).toBe('grid')
-  expect(compiledElementProperty(slotCss, firstFilledSlot, 'grid-template-columns')?.replace(/,\s*/g, ',')).toBe('minmax(0,1fr) auto')
-  expect(cssLengthPx(compiledElementProperty(slotCss, firstFilledSlot, 'gap') ?? '', slotCss)).toBe(8)
-  expect(within(section).getAllByRole('listitem')).toHaveLength(1)
-  expect(within(section).getByText('2 checks').getAttribute('aria-hidden')).toBe('true')
-  expect(within(section).getAllByText('2 checks need attention').some((node) => node.classList.contains('sr-only'))).toBe(true)
-
-  rerender(
-    <LivePageHealthFindings
-      runId="run_live"
-      preview={livePreview(3, [
-        {
-          nodeKey: 'contact',
-          url: 'https://example.com/contact',
-          auditScore: 44,
-          checksNeedingAttention: 1,
-        },
-        {
-          nodeKey: 'home',
-          url: 'https://example.com/',
-          auditScore: 63,
-          checksNeedingAttention: 3,
-        },
-        {
-          nodeKey: 'about',
-          url: 'https://example.com/about',
-          auditScore: 51,
-          checksNeedingAttention: 4,
-        },
-      ])}
-    />,
-  )
-
-  await waitFor(() => expect(within(section).getByText('https://example.com/contact')).not.toBeNull())
-  const finalSlots = within(section).getAllByTestId('live-page-health-slot')
-  expect(finalSlots).toEqual(firstSlots)
-  const finalUrls = finalSlots.map((slot) => slot.querySelector<HTMLElement>('[title]'))
-  expect(finalUrls.map((url) => url?.textContent)).toEqual([
-    'https://example.com/',
-    'https://example.com/contact',
-    'https://example.com/about',
-  ])
-  const urlCss = await renderedCss(...finalUrls.filter((url): url is HTMLElement => url !== null))
-  for (const url of finalUrls) {
-    expect(url).not.toBeNull()
-    expect(compiledElementProperty(urlCss, url!, 'overflow')).toBe('hidden')
-    expect(compiledElementProperty(urlCss, url!, 'text-overflow')).toBe('ellipsis')
-    expect(compiledElementProperty(urlCss, url!, 'white-space')).toBe('nowrap')
-  }
-  expect(within(section).getAllByRole('listitem')).toHaveLength(3)
-})
-
-test('retains latched live findings during a temporary preview error without a focusable changing row', async () => {
-  const stableFocus = document.createElement('button')
-  document.body.append(stableFocus)
-  const { rerender } = render(
-    <LivePageHealthFindings
-      runId="run_live"
-      preview={livePreview(1, [{
-        nodeKey: 'home',
-        url: 'https://example.com/',
-        auditScore: 63,
-        checksNeedingAttention: 2,
-      }])}
-    />,
-  )
-
-  await waitFor(() => expect(screen.getByText('https://example.com/')).not.toBeNull())
-  stableFocus.focus()
-  const row = screen.getByText('https://example.com/').closest('li')
-
-  rerender(
-    <LivePageHealthFindings
-      runId="run_live"
-      preview={livePreview(1, [{
-        nodeKey: 'home',
-        url: 'https://example.com/',
-        auditScore: 63,
-        checksNeedingAttention: 2,
-      }])}
-      error
-    />,
-  )
-
-  expect(screen.getByText('Live findings paused. The scan is still running.')).not.toBeNull()
-  expect(screen.getByText('https://example.com/').closest('li')).toBe(row)
-  expect(document.activeElement).toBe(stableFocus)
-  expect(within(screen.getByRole('region', { name: 'Findings so far' })).queryAllByRole('button')).toHaveLength(0)
-  stableFocus.remove()
-})
-
-test('clears the latched live examples when the exact onboarding run changes', async () => {
-  const { rerender } = render(
-    <LivePageHealthFindings
-      runId="run_first"
-      preview={livePreview(9, [{
-        nodeKey: 'home',
-        url: 'https://example.com/',
-        auditScore: 63,
-        checksNeedingAttention: 2,
-      }])}
-    />,
-  )
-  await waitFor(() => expect(screen.getByText('https://example.com/')).not.toBeNull())
-
-  rerender(<LivePageHealthFindings runId="run_second" preview={livePreview(0)} />)
-
-  await waitFor(() => expect(screen.queryByText('https://example.com/')).toBeNull())
-  expect(screen.getByText('Checks that need attention will appear here.')).not.toBeNull()
-})
-
-test('clears provisional examples as soon as the same run reports a terminal preview', async () => {
-  const collectingPreview = {
-    ...livePreview(9, [{
-      nodeKey: 'home',
-      url: 'https://example.com/',
-      auditScore: 63,
-      checksNeedingAttention: 2,
-    }]),
-    state: 'collecting' as const,
-  }
-  const { rerender } = render(<LivePageHealthFindings runId="run_live" preview={collectingPreview} />)
-
-  await waitFor(() => expect(screen.getByText('https://example.com/')).not.toBeNull())
-  const slots = screen.getAllByTestId('live-page-health-slot')
-
-  rerender(<LivePageHealthFindings runId="run_live" preview={{ ...livePreview(9), state: 'terminal' }} />)
-
-  expect(screen.queryByText('https://example.com/')).toBeNull()
-  expect(screen.getByText('Checks that need attention will appear here.')).not.toBeNull()
-  expect(screen.getAllByTestId('live-page-health-slot')).toEqual(slots)
-})
-
-test('keeps live findings outside an aria-live region', () => {
-  render(<LivePageHealthFindings runId="run_live" preview={livePreview(2)} />)
-
-  const section = screen.getByRole('region', { name: 'Findings so far' })
-  expect(section.hasAttribute('aria-live')).toBe(false)
-  expect(section.querySelector('[aria-live], [role="status"], [role="alert"]')).toBeNull()
 })
 
 test('leads with the map, truthful crawl metrics, and an explicit disabled dead-link state', async () => {
@@ -931,22 +721,6 @@ test('shows the requested and effective hosts when the site moves to a different
   expect(within(banner).getByText('citypoint.example')).not.toBeNull()
   expect(within(banner).getByText('new-citypoint.example')).not.toBeNull()
   expect(within(banner).getByText(/The map and inventory use the new address/)).not.toBeNull()
-})
-
-test('describes a moved host in score language during explicit onboarding', () => {
-  const queryClient = makeClient()
-  seedRun(queryClient, 'run_1', {
-    ...summary('run_1', 42),
-    requestedRootUrl: 'https://citypoint.example/',
-    rootUrl: 'https://new-citypoint.example/',
-  })
-
-  renderSection(queryClient, { showOnboardingActions: true })
-
-  const banner = screen.getByText('Site address changed during this scan.').closest('[role="status"]')
-  expect(banner).not.toBeNull()
-  expect(banner!.textContent).toContain('The score uses the new address.')
-  expect(banner!.textContent).not.toMatch(/map|inventory/i)
 })
 
 test('does not warn when the submitted site redirects between apex and www', () => {
@@ -1371,73 +1145,6 @@ test('releases a pinned onboarding scan before the header starts its replacement
   expect(history.value).toBe('')
 })
 
-test('uses the exact active run for a first scan instead of showing stale-map copy', () => {
-  const queryClient = makeClient()
-  queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_active', 'running', false)))
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessCrawlQueryKey({
-    client: heyClient,
-    path: { name: projectName },
-    query: { runId: 'run_active' },
-  }), {
-    project: projectName,
-    hasCrawlData: false,
-    legacyAuditAvailable: false,
-    runId: 'run_active',
-    runStatus: 'running',
-  })
-
-  renderSection(queryClient, { showOnboardingActions: true })
-
-  const scanProgress = screen.getByRole('region', { name: 'Current scan progress' })
-  expect(scanProgress.textContent).toContain('Checking your site')
-  expect(scanProgress.textContent).toContain('Your score appears after the scan finishes')
-  expect(scanProgress.textContent).not.toContain('map appears')
-  expect(screen.getByRole('list', { name: 'Onboarding progress' }).querySelector('[aria-current="step"]')?.textContent).toContain('Audit scan')
-  expect(screen.queryByRole('tablist', { name: 'Agent Readiness views' })).toBeNull()
-  expect(screen.queryByRole('tabpanel')).toBeNull()
-  expect(scanProgress.textContent).toContain('Checking your site')
-  expect(screen.queryByText(/latest completed results remain/i)).toBeNull()
-  expect(screen.queryByText('Full-site map not available')).toBeNull()
-  expect(queryClient.getQueryState(getApiV1ProjectsByNameAgentReadinessCrawlQueryKey({
-    client: heyClient,
-    path: { name: projectName },
-    query: { runId: 'run_active' },
-  }))).not.toBeUndefined()
-})
-
-test('states the bounded first-run budget during onboarding and not on a regular scan', () => {
-  for (const surface of ['onboarding', 'regular'] as const) {
-    const queryClient = makeClient()
-    queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_active', 'running', false)))
-    queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessCrawlQueryKey({
-      client: heyClient,
-      path: { name: projectName },
-      query: { runId: 'run_active' },
-    }), {
-      project: projectName,
-      hasCrawlData: false,
-      legacyAuditAvailable: false,
-      runId: 'run_active',
-      runStatus: 'running',
-    })
-
-    renderSection(queryClient, surface === 'onboarding' ? { showOnboardingActions: true } : {})
-
-    const scanProgress = screen.getByRole('region', { name: 'Current scan progress' })
-    if (surface === 'onboarding') {
-      expect(within(scanProgress).getByRole('button', { name: /^A quick scan to find your first fixes\./ })).toBeTruthy()
-      // A pinned run may have come from the CLI with any budget, so the
-      // banner must not claim this section's 100-page first look.
-      expect(scanProgress.innerHTML).not.toContain('reads up to 100 pages')
-    } else {
-      expect(scanProgress.textContent).not.toContain('A quick scan to find your first fixes.')
-    }
-
-    cleanup()
-    queryClient.clear()
-  }
-})
-
 test('sends the chosen crawl budget and optional checks', () => {
   // The only way to change either budget used to be the CLI, which the
   // dashboard never mentions, so "this scan ran out of time" was a dead end.
@@ -1550,7 +1257,6 @@ test('names no number for the no-budget choice before the project read lands', a
 })
 
 test.each([
-  { surface: 'onboarding', props: { showOnboardingActions: true }, role: undefined },
   { surface: 'managed viewer', props: {}, role: 'viewer' as const },
 ])('reads no project for a hidden Scan settings ($surface)', async ({ surface, props, role }) => {
   if (surface === 'managed viewer') window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
@@ -1562,134 +1268,6 @@ test.each([
 
   expect(screen.queryByRole('combobox', { name: 'Page budget' })).toBeNull()
   expect(reads.filter(read => read.path === '/api/v1/projects/citypoint')).toEqual([])
-})
-
-test('offers the onboarding continuation only after the selected active scan reaches its persisted 20-second threshold', () => {
-  vi.useFakeTimers()
-  vi.setSystemTime(new Date('2026-08-08T18:15:19.999Z'))
-  const queryClient = makeClient()
-  const onContinueOnboarding = vi.fn()
-  const onSkipOnboarding = vi.fn()
-  queryClient.setQueryData(scanHistoryKey(), scanHistory({
-    ...scan('run_active', 'running', false),
-    createdAt: '2026-08-08T18:15:00.000Z',
-  }))
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_active' },
-  }), {
-    project: projectName,
-    runId: 'run_active',
-    status: 'running',
-    phase: 'discovering',
-    attempt: null,
-    layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
-    error: null,
-  })
-
-  renderSection(queryClient, {
-    showOnboardingActions: true,
-    onContinueOnboarding,
-    onSkipOnboarding,
-  })
-
-  expect(screen.queryByRole('heading', { name: 'Continue while the Agent Readiness audit scan finishes' })).toBeNull()
-
-  act(() => {
-    vi.advanceTimersByTime(1)
-  })
-
-  expect(screen.getByRole('heading', { name: 'Continue while the Agent Readiness audit scan finishes' })).not.toBeNull()
-  expect(screen.getByText('Canonry will finish this scan locally. Saved results will appear in Agent Readiness.')).not.toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Set up AI Visibility' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }))
-  expect(onContinueOnboarding).toHaveBeenCalledOnce()
-  expect(onSkipOnboarding).toHaveBeenCalledOnce()
-})
-
-test('uses the persisted selected-run timestamp after reload instead of restarting the continuation timer', () => {
-  vi.useFakeTimers()
-  vi.setSystemTime(new Date('2026-08-08T18:17:00.000Z'))
-  const queryClient = makeClient()
-  queryClient.setQueryData(scanHistoryKey(), scanHistory({
-    ...scan('run_handoff', 'running', false),
-    createdAt: '2026-08-08T18:15:00.000Z',
-  }))
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_handoff' },
-  }), {
-    project: projectName,
-    runId: 'run_handoff',
-    status: 'running',
-    phase: 'checking',
-    attempt: null,
-    layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
-    error: null,
-  })
-
-  renderSection(queryClient, {
-    initialRunId: 'run_handoff',
-    showOnboardingActions: true,
-    onContinueOnboarding: vi.fn(),
-    onSkipOnboarding: vi.fn(),
-  })
-
-  expect(screen.getByRole('heading', { name: 'Continue while the Agent Readiness audit scan finishes' })).not.toBeNull()
-})
-
-test('resets the continuation threshold when the selected active run changes', async () => {
-  vi.useFakeTimers()
-  vi.setSystemTime(new Date('2026-08-08T18:15:19.000Z'))
-  const queryClient = makeClient()
-  queryClient.setQueryData(scanHistoryKey(), scanHistory({
-    ...scan('run_old', 'running', false),
-    createdAt: '2026-08-08T18:15:00.000Z',
-  }))
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_old' },
-  }), {
-    project: projectName,
-    runId: 'run_old',
-    status: 'running',
-    phase: 'checking',
-    attempt: null,
-    layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
-    error: null,
-  })
-
-  renderSection(queryClient, {
-    showOnboardingActions: true,
-    onContinueOnboarding: vi.fn(),
-    onSkipOnboarding: vi.fn(),
-  })
-  expect(screen.queryByRole('heading', { name: 'Continue while the Agent Readiness audit scan finishes' })).toBeNull()
-
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_new' },
-  }), {
-    project: projectName,
-    runId: 'run_new',
-    status: 'running',
-    phase: 'discovering',
-    attempt: null,
-    layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
-    error: null,
-  })
-  await act(async () => {
-    queryClient.setQueryData(scanHistoryKey(), scanHistory(
-      { ...scan('run_new', 'running', false), createdAt: '2026-08-08T18:15:19.000Z' },
-      { ...scan('run_old', 'completed'), createdAt: '2026-08-08T18:15:00.000Z' },
-    ))
-    await vi.advanceTimersByTimeAsync(0)
-  })
-
-  act(() => {
-    vi.advanceTimersByTime(1_000)
-  })
-  expect(screen.queryByRole('heading', { name: 'Continue while the Agent Readiness audit scan finishes' })).toBeNull()
 })
 
 test('defers the terminal-only crawl read for an active exact run and keeps progress visible', async () => {
@@ -1855,10 +1433,10 @@ test('releases the final score as soon as exact progress is terminal despite sta
     error: null,
   })
 
-  renderSection(queryClient, { showOnboardingActions: true, initialRunId: 'run_handoff' })
+  renderSection(queryClient, { initialRunId: 'run_handoff' })
 
   expect(screen.queryByRole('region', { name: 'Current scan progress' })).toBeNull()
-  expect(screen.getByRole('heading', { name: 'Agent Readiness score' })).not.toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: 'Score' }))
   expect(screen.getByText('Score view for run_handoff')).not.toBeNull()
 })
 
@@ -1915,7 +1493,7 @@ test('shows exact stored scan progress as raw stages and counts, never a fabrica
   expect(progress.textContent).not.toMatch(/\d+%/)
 })
 
-test('reserves live counters and finding space before the scan attempt has persisted', async () => {
+test('reserves live counters before the scan attempt has persisted', async () => {
   const queryClient = makeClient()
   queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_queued', 'queued', false)))
   queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
@@ -1931,15 +1509,13 @@ test('reserves live counters and finding space before the scan attempt has persi
     error: null,
   })
 
-  renderSection(queryClient, { showOnboardingActions: true, initialRunId: 'run_queued' })
+  renderSection(queryClient, { initialRunId: 'run_queued' })
 
   const progress = screen.getByRole('region', { name: 'Current scan progress' })
   const phase = screen.getByRole('status', { name: 'Current scan progress' })
   const counters = within(progress).getByLabelText('Live scan counters')
-  const findings = within(progress).getByRole('region', { name: 'Findings so far' })
 
   expect(within(counters).getAllByText('—')).toHaveLength(4)
-  expect(within(findings).getAllByTestId('live-page-health-slot')).toHaveLength(3)
   expect(phase.getAttribute('aria-live')).toBe('polite')
   expect(phase.getAttribute('aria-atomic')).toBe('true')
   // The phase is announced, not shown: the visible progress is the fixed-height step bar.
@@ -1947,129 +1523,6 @@ test('reserves live counters and finding space before the scan attempt has persi
   expect(within(progress).getByRole('progressbar', { name: 'Scan progress' }).getAttribute('aria-valuetext')).toBe('Find pages')
   expect(progress.hasAttribute('aria-live')).toBe(false)
   expect(counters.querySelector('[aria-live], [role="status"], [role="alert"]')).toBeNull()
-  expect(findings.querySelector('[aria-live], [role="status"], [role="alert"]')).toBeNull()
-})
-
-test('uses the selected active onboarding run for provisional score evidence', async () => {
-  const queryClient = makeClient()
-  queryClient.setQueryData(scanHistoryKey(), scanHistory(
-    scan('run_newer', 'running', false),
-    scan('run_selected', 'running', false),
-  ))
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_selected' },
-  }), {
-    project: projectName,
-    runId: 'run_selected',
-    status: 'running',
-    phase: 'checking',
-    attempt: null,
-    layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
-    error: null,
-  })
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_selected' },
-  }), livePageHealthPreviewResponse('run_selected', 'collecting', 12, [{
-    nodeKey: 'selected-page',
-    url: 'https://example.com/selected',
-    auditScore: 42,
-    checksNeedingAttention: 3,
-  }]))
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_newer' },
-  }), livePageHealthPreviewResponse('run_newer', 'collecting', 9, [{
-    nodeKey: 'wrong-page',
-    url: 'https://example.com/wrong',
-    auditScore: 20,
-    checksNeedingAttention: 9,
-  }]))
-
-  renderSection(queryClient, { showOnboardingActions: true, initialRunId: 'run_selected' })
-
-  const findings = await screen.findByRole('region', { name: 'Findings so far' })
-  expect(within(findings).getByText('Based on 12 audited pages. Results may change until the scan finishes.')).not.toBeNull()
-  expect(within(findings).getByText('https://example.com/selected')).not.toBeNull()
-  expect(within(findings).getAllByText('3 checks need attention')).not.toHaveLength(0)
-  expect(within(findings).queryByText('https://example.com/wrong')).toBeNull()
-})
-
-test('does not request provisional score evidence outside explicit onboarding', async () => {
-  const queryClient = makeClient()
-  queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_active', 'running', false)))
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_active' },
-  }), {
-    project: projectName,
-    runId: 'run_active',
-    status: 'running',
-    phase: 'checking',
-    attempt: null,
-    layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
-    error: null,
-  })
-  const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } }))
-  vi.stubGlobal('fetch', fetchMock)
-
-  renderSection(queryClient, { initialRunId: 'run_active' })
-
-  await screen.findByRole('status', { name: 'Current scan progress' })
-  await act(async () => {})
-  expect(fetchMock.mock.calls.map(([input]) => new URL(input instanceof Request ? input.url : String(input)).pathname)
-    .filter(path => path.endsWith('/page-health-preview'))).toHaveLength(0)
-  expect(screen.queryByRole('region', { name: 'Findings so far' })).toBeNull()
-})
-
-test('stops the onboarding score preview poll when the server reports its terminal state', async () => {
-  vi.useFakeTimers({ shouldAdvanceTime: true })
-  const queryClient = makeClient()
-  queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_active', 'running', false)))
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_active' },
-  }), {
-    project: projectName,
-    runId: 'run_active',
-    status: 'running',
-    phase: 'checking',
-    attempt: null,
-    layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
-    error: null,
-  })
-  let previewCalls = 0
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-    const url = input instanceof Request ? input.url : String(input)
-    if (url.includes('/page-health-preview')) {
-      previewCalls++
-      return new Response(JSON.stringify(livePageHealthPreviewResponse(
-        'run_active',
-        previewCalls === 1 ? 'collecting' : 'terminal',
-        3,
-        previewCalls === 1 ? [{
-          nodeKey: 'home',
-          url: 'https://example.com/',
-          auditScore: 45,
-          checksNeedingAttention: 2,
-        }] : [],
-      )), { status: 200, headers: { 'content-type': 'application/json' } })
-    }
-    return new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } })
-  }))
-
-  renderSection(queryClient, { showOnboardingActions: true, initialRunId: 'run_active' })
-
-  await waitFor(() => expect(previewCalls).toBe(1))
-  await screen.findByText('https://example.com/')
-  await vi.advanceTimersByTimeAsync(3_100)
-  await waitFor(() => expect(previewCalls).toBeGreaterThanOrEqual(2))
-  expect(screen.queryByText('https://example.com/')).toBeNull()
-  const callsAtTerminal = previewCalls
-
-  await vi.advanceTimersByTimeAsync(9_500)
-  expect(previewCalls).toBe(callsAtTerminal)
 })
 
 test('keeps the exact onboarding run in arranging-map state until its terminal layout is published', () => {
@@ -2176,7 +1629,7 @@ test('waits for arranging-map to finish before loading the large graph payload',
   expect(graphRequests).toHaveLength(1)
 })
 
-test('offers rerun recovery when a pinned onboarding scan is cancelled before a map exists', async () => {
+test('offers rerun recovery when a pinned scan is cancelled before a map exists', async () => {
   const queryClient = makeClient()
   const onReleaseInitialRun = vi.fn()
   queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_handoff', 'cancelled', false)))
@@ -2204,21 +1657,17 @@ test('offers rerun recovery when a pinned onboarding scan is cancelled before a 
   renderSection(queryClient, {
     initialRunId: 'run_handoff',
     onReleaseInitialRun,
-    showOnboardingActions: true,
   })
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalled())
   const recovery = screen.getByRole('alert', { name: 'Audit scan recovery' })
   expect(recovery.textContent).toContain('Scan cancelled')
-  expect(recovery.textContent).toContain('before Canonry could publish its score')
-  expect(recovery.textContent).not.toContain('site map')
-  expect(screen.queryByRole('tablist', { name: 'Agent Readiness views' })).toBeNull()
-  expect(screen.getByRole('list', { name: 'Onboarding progress' }).querySelector('[aria-current="step"]')?.textContent).toContain('Audit scan')
+  expect(recovery.textContent).toContain('before Canonry could publish a site map')
   fireEvent.click(within(recovery).getByRole('button', { name: 'Run scan again' }))
   expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
     projectName,
     projectId,
-    body: { checkDeadLinks: true, maxPages: 100 },
+    body: { checkDeadLinks: false },
   }))
   expect(onReleaseInitialRun).toHaveBeenCalledOnce()
 })
@@ -2230,295 +1679,18 @@ test('keeps measurement-plan setup out of Agent Readiness', () => {
   expect(screen.queryByRole('region', { name: 'Define what to measure' })).toBeNull()
 })
 
-test('moves explicit onboarding into the score before the optional AI Visibility handoff', () => {
-  const onContinueOnboarding = vi.fn()
-  const onSkipOnboarding = vi.fn()
-  renderSection(makeClient(), {
-    showOnboardingActions: true,
-    onContinueOnboarding,
-    onSkipOnboarding,
-  })
-
-  expect(screen.queryByRole('dialog')).toBeNull()
-  const onboardingProgress = screen.getByRole('list', { name: 'Onboarding progress' })
-  expect(onboardingProgress.querySelector('[aria-current="step"]')?.textContent).toBe('2Score')
-  expect(within(onboardingProgress).getByText('AI Visibility').closest('li')?.getAttribute('aria-current')).toBeNull()
-  expect(screen.queryByRole('combobox', { name: 'View an Agent Readiness audit scan' })).toBeNull()
-  expect(screen.queryByRole('heading', { name: 'Agent Readiness' })).toBeNull()
-  expect(screen.queryByRole('heading', { name: 'Site audit complete' })).toBeNull()
-  expect(screen.queryByRole('tablist', { name: 'Agent Readiness views' })).toBeNull()
-  expect(screen.queryByText('Dead-link check')).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Review fixes' })).toBeNull()
-  expect(screen.getByText('Score view for run_1').getAttribute('data-compact-copy')).toBe('true')
-
-  const pageHealthHeading = screen.getByRole('heading', { name: 'Agent Readiness score' })
-  const pageHealth = screen.getByText('Score view for run_1')
-  const handoffHeading = screen.getByRole('heading', { name: 'Next: Set up AI Visibility' })
-  const handoff = handoffHeading.closest('section')
-  expect(handoff).not.toBeNull()
-  expect(Boolean(pageHealthHeading.compareDocumentPosition(handoff!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
-  expect(Boolean(pageHealth.compareDocumentPosition(handoff!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
-  expect(screen.getByText('See whether answer engines mention your brand and cite your pages.')).not.toBeNull()
-  expect(screen.queryByText(/shows the onsite fixes/i)).toBeNull()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Set up AI Visibility' }))
-  expect(onContinueOnboarding).toHaveBeenCalledOnce()
-  fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }))
-  expect(onSkipOnboarding).toHaveBeenCalledOnce()
-})
-
-test('does not expose explicit onboarding actions in regular Agent Readiness', () => {
-  renderSection()
-
-  expect(screen.queryByRole('heading', { name: 'Site audit complete' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Review fixes' })).toBeNull()
-  expect(screen.getByRole('tablist', { name: 'Agent Readiness views' })).not.toBeNull()
-  expect(screen.getByRole('tab', { name: 'Map' })).not.toBeNull()
-  expect(screen.getByText('Dead-link check')).not.toBeNull()
-
-  fireEvent.click(screen.getByRole('tab', { name: 'Score' }))
-  expect(screen.queryByRole('heading', { name: 'Agent Readiness score' })).toBeNull()
-  expect(screen.getByText('Score view for run_1').getAttribute('data-compact-copy')).toBe('false')
-})
-
-test('labels a usable partial onboarding audit without claiming full completion', () => {
+test('names the remedy beside the stop reason of a partial scan', () => {
   const queryClient = makeClient()
   queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_partial', 'partial')))
   seedRun(queryClient, 'run_partial', summary('run_partial', 18, false))
 
-  renderSection(queryClient, { showOnboardingActions: true })
+  renderSection(queryClient)
 
-  expect(screen.getByText('Score view for run_partial')).not.toBeNull()
-  const stoppedBanner = screen.getByRole('status')
+  const stoppedBanner = screen.getByText(/stopped at the page limit/i)
+  expect(stoppedBanner.getAttribute('role')).toBe('status')
   expect(stoppedBanner.textContent).toContain('This scan stopped at the page limit, so some pages were not checked.')
   // Naming the limit without naming the remedy leaves nothing to act on.
-  // Onboarding hides Scan settings (its first-look budget is fixed), so the
-  // remedy points at where the setting lives after setup.
-  expect(stoppedBanner.textContent).toContain('Raise the page budget in Scan settings on the Agent Readiness tab after setup.')
-  expect(screen.queryByText('Scan settings', { selector: 'summary' })).toBeNull()
-  expect(screen.queryByRole('combobox', { name: 'Page budget' })).toBeNull()
-  expect(screen.queryByRole('heading', { name: 'Site audit finished with partial coverage' })).toBeNull()
-  expect(screen.queryByRole('heading', { name: 'Site audit complete' })).toBeNull()
-  expect(screen.queryByRole('tablist', { name: 'Agent Readiness views' })).toBeNull()
-})
-
-test('keeps a partial crawl recoverable when it publishes no score', () => {
-  const onContinueOnboarding = vi.fn()
-  const onSkipOnboarding = vi.fn()
-  const queryClient = makeClient()
-  queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_partial', 'partial')))
-  seedRun(queryClient, 'run_partial', summary('run_partial', 18, false))
-  technicalAeoMock.state = 'unavailable'
-
-  renderSection(queryClient, {
-    showOnboardingActions: true,
-    onContinueOnboarding,
-    onSkipOnboarding,
-  })
-
-  expect(screen.getByRole('region', { name: 'Score recovery' })).not.toBeNull()
-  expect(screen.queryByRole('button', { name: 'Set up AI Visibility' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Skip for now' })).toBeNull()
-  expect(onContinueOnboarding).not.toHaveBeenCalled()
-  expect(onSkipOnboarding).not.toHaveBeenCalled()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Run Agent Readiness audit scan again' }))
-  expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
-    projectName,
-    projectId,
-    body: { checkDeadLinks: true, maxPages: 100 },
-  }))
-})
-
-test('keeps explicit onboarding recoverable and follows the active replacement after a terminal scan publishes no crawl data', async () => {
-  const queryClient = makeClient()
-  seedRun(queryClient, 'run_1', {
-    ...summary('run_1', 0),
-    hasCrawlData: false,
-    detailsAvailable: false,
-    counts: { pagesDiscovered: 0, pagesFetched: 0, pagesEligible: 0, edges: 0, findings: 0 },
-  })
-
-  renderSection(queryClient, { showOnboardingActions: true })
-
-  expect(screen.getByRole('heading', { name: 'Score unavailable' })).not.toBeNull()
-  expect(screen.getByText('This scan did not produce a score. Run it again to continue setup.')).not.toBeNull()
-  expect(screen.queryByText(/map|graph|inventory/i)).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Run scan again' }))
-  expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
-    projectName,
-    projectId,
-    body: { checkDeadLinks: true, maxPages: 100 },
-  }))
-
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_2' },
-  }), {
-    project: projectName,
-    runId: 'run_2',
-    status: 'running',
-    phase: 'discovering',
-    attempt: null,
-    layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
-    error: null,
-  })
-  act(() => {
-    queryClient.setQueryData(
-      scanHistoryKey(),
-      scanHistory(scan('run_2', 'running', false), scan('run_1', 'completed', false)),
-    )
-  })
-
-  expect((await screen.findByRole('status', { name: 'Current scan progress' })).textContent).toContain('Discovering pages')
-  expect(screen.queryByRole('heading', { name: 'Full-site map not available' })).toBeNull()
-})
-
-test('does not request map, inventory, or dead-link data for ready explicit onboarding', () => {
-  const queryClient = makeClient()
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessCrawlQueryKey({
-    client: heyClient,
-    path: { name: projectName },
-    query: { runId: 'run_1' },
-  }), {
-    ...summary('run_1', 42),
-    deadLinks: { state: 'complete' as const, checked: 42, found: 0 },
-  })
-  queryClient.removeQueries({
-    queryKey: getApiV1ProjectsByNameAgentReadinessGraphQueryKey({
-      client: heyClient,
-      path: { name: projectName },
-      query: { runId: 'run_1', maxNodes: 20_000, maxEdges: 50_000 },
-    }),
-  })
-  const pagesInput = {
-    client: heyClient,
-    path: { name: projectName },
-    query: { runId: 'run_1', urlVersions: 'exclude', limit: 200, sort: 'path' as const },
-  }
-  queryClient.removeQueries({
-    queryKey: getApiV1ProjectsByNameAgentReadinessCrawlPagesInfiniteQueryKey(pagesInput),
-  })
-  queryClient.removeQueries({
-    queryKey: getApiV1ProjectsByNameAgentReadinessDeadLinksQueryKey({
-      client: heyClient,
-      path: { name: projectName },
-      query: { runId: 'run_1', limit: 50 },
-    }),
-  })
-  const fetchMock = vi.fn(async () => new Response('{"error":"unavailable"}', {
-    status: 503,
-    headers: { 'content-type': 'application/json' },
-  }))
-  vi.stubGlobal('fetch', fetchMock)
-
-  renderSection(queryClient, { showOnboardingActions: true })
-
-  expect(screen.getByText('Score view for run_1')).not.toBeNull()
-  expect(screen.getByRole('heading', { name: 'Next: Set up AI Visibility' })).not.toBeNull()
-  expect(fetchMock).not.toHaveBeenCalled()
-  expect(screen.queryByText('The interactive map could not be loaded.')).toBeNull()
-  expect(screen.queryByRole('tablist', { name: 'Agent Readiness views' })).toBeNull()
-})
-
-test('keeps the scan state visible while an onboarding retry mutation is pending', () => {
-  mutationMock.isPending = true
-
-  renderSection(makeClient(), { showOnboardingActions: true })
-
-  expect(screen.getByRole('status', { name: 'Current scan progress' }).textContent).toContain('Your score appears after the scan finishes')
-  expect(screen.queryByText('Score view for run_1')).toBeNull()
-  expect(screen.queryByRole('heading', { name: 'Next: Set up AI Visibility' })).toBeNull()
-  expect(screen.queryByRole('tabpanel')).toBeNull()
-})
-
-test('uses the mutation run id until scan history contains the newly queued onboarding run', () => {
-  const queryClient = makeClient()
-  mutationMock.data = { runId: 'run_2', status: 'queued' }
-  queryClient.setQueryData(
-    scanHistoryKey(),
-    scanHistory(scan('run_stale', 'running', false), scan('run_1')),
-  )
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_stale' },
-  }), {
-    project: projectName,
-    runId: 'run_stale',
-    status: 'running',
-    phase: 'fetching-pages',
-    attempt: null,
-    layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
-    error: null,
-  })
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_2' },
-  }), {
-    project: projectName,
-    runId: 'run_2',
-    status: 'queued',
-    phase: 'queued',
-    attempt: null,
-    layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
-    error: null,
-  })
-
-  renderSection(queryClient, { showOnboardingActions: true })
-
-  expect(screen.getByRole('status', { name: 'Current scan progress' }).textContent).toContain('Waiting to start')
-  expect(screen.queryByText('Score view for run_1')).toBeNull()
-  expect(screen.queryByRole('heading', { name: 'Next: Set up AI Visibility' })).toBeNull()
-})
-
-test.each([
-  ['queued', 'failed', 'Scan failed'],
-  ['running', 'cancelled', 'Scan cancelled'],
-] as const)('keeps the replacement scan selected when it transitions from %s to %s', async (startStatus, status, heading) => {
-  const queryClient = makeClient()
-  mutationMock.data = { runId: 'run_2', status: startStatus }
-  queryClient.setQueryData(
-    scanHistoryKey(),
-    scanHistory(scan('run_2', startStatus, false), scan('run_1')),
-  )
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressQueryKey({
-    client: heyClient,
-    path: { name: projectName, runId: 'run_2' },
-  }), {
-    project: projectName,
-    runId: 'run_2',
-    status: startStatus,
-    phase: startStatus === 'queued' ? 'queued' : 'fetching-pages',
-    attempt: null,
-    layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
-    error: null,
-  })
-
-  renderSection(queryClient, { showOnboardingActions: true })
-  expect(screen.getByRole('status', { name: 'Current scan progress' })).not.toBeNull()
-
-  queryClient.setQueryData(
-    scanHistoryKey(),
-    scanHistory(scan('run_2', status, false), scan('run_1')),
-  )
-
-  const recovery = await screen.findByRole('alert', { name: 'Audit scan recovery' })
-  expect(within(recovery).getByRole('heading', { name: heading })).not.toBeNull()
-  expect(screen.queryByText('Score view for run_1')).toBeNull()
-  expect(screen.queryByRole('heading', { name: 'Next: Set up AI Visibility' })).toBeNull()
-})
-
-test('hides graph-only detail copy when an onboarding crawl has no explorer payload', () => {
-  const queryClient = makeClient()
-  seedRun(queryClient, 'run_1', {
-    ...summary('run_1', 42),
-    detailsAvailable: false,
-  })
-
-  renderSection(queryClient, { showOnboardingActions: true })
-
-  expect(screen.getByText('Score view for run_1')).not.toBeNull()
-  expect(screen.queryByText(/page graph|map|inventory/i)).toBeNull()
+  expect(stoppedBanner.textContent).toContain('Raise the page budget in Scan settings.')
 })
 
 test('loads the complete inventory in 200-page batches', async () => {
@@ -3876,14 +3048,14 @@ function seedExactProgress(queryClient: QueryClient, phase: 'failed' | 'cancelle
   })
 }
 
-test.each(['failed', 'cancelled'] as const)('managed scans hide %s recovery in regular, embedded and onboarding views', phase => {
-  for (const surface of ['regular', 'embed', 'onboarding'] as const) {
+test.each(['failed', 'cancelled'] as const)('managed scans hide %s recovery in regular and embedded views', phase => {
+  for (const surface of ['regular', 'embed'] as const) {
     window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] },
       ...(surface === 'embed' ? { embed: { enabled: true } } : {}),
     }
     const queryClient = makeClient()
     seedExactProgress(queryClient, phase)
-    renderSection(queryClient, { initialRunId: 'run_selected', showOnboardingActions: surface === 'onboarding' }, 'viewer')
+    renderSection(queryClient, { initialRunId: 'run_selected' }, 'viewer')
     expect(screen.getByRole('alert', { name: 'Audit scan recovery' }).textContent).toContain(phase === 'failed' ? 'Scan failed' : 'Scan cancelled')
     expect(screen.queryByRole('button', { name: /Run scan|Run Agent Readiness audit scan/ })).toBeNull()
     cleanup()
@@ -3905,7 +3077,7 @@ test('managed scans guard the dispatcher before releasing a pinned run', () => {
   expect(screen.getByRole('alert', { name: 'Audit scan recovery' })).not.toBeNull()
 })
 
-test.each(['header', 'failed', 'no crawl', 'no score', 'no details'] as const)('managed scans preserve admin launches and remove viewer launches: %s', state => {
+test.each(['header', 'failed'] as const)('managed scans preserve admin launches and remove viewer launches: %s', state => {
   for (const role of ['admin', 'viewer'] as const) {
     window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
     const queryClient = makeClient()
@@ -3913,14 +3085,6 @@ test.each(['header', 'failed', 'no crawl', 'no score', 'no details'] as const)('
     if (state === 'failed') {
       seedExactProgress(queryClient, 'failed')
       props = { initialRunId: 'run_selected' }
-    } else if (state !== 'header') {
-      props = { showOnboardingActions: true }
-      if (state === 'no crawl') {
-        seedRun(queryClient, 'run_1', { ...summary('run_1', 0), hasCrawlData: false })
-      } else {
-        technicalAeoMock.state = 'unavailable'
-        seedRun(queryClient, 'run_1', { ...summary('run_1', 42), detailsAvailable: state !== 'no details' })
-      }
     }
     renderSection(queryClient, props, role)
     const buttons = screen.queryAllByRole('button', { name: /Run scan|Run Agent Readiness audit scan/ })
@@ -3934,10 +3098,7 @@ test.each(['header', 'failed', 'no crawl', 'no score', 'no details'] as const)('
       expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({
         projectName,
         projectId,
-        body: {
-          checkDeadLinks: Boolean(props.showOnboardingActions),
-          ...(props.showOnboardingActions ? { maxPages: 100 } : {}),
-        },
+        body: { checkDeadLinks: false },
       }))
     }
     cleanup()
@@ -4004,50 +3165,4 @@ test('the default crawl depth says what it is, and deeper limits exist', async (
   fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
   expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectName, projectId, body: { checkDeadLinks: false, maxDepth: 100 } }))
 
-})
-
-
-test.each([false, true])('returning to an unstarted scan is neutral and recoverable (skipped: %s)', skipped => {
-  const queryClient = makeClient()
-  queryClient.setQueryData(scanHistoryKey(), scanHistory())
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessCrawlQueryKey({ client: heyClient, path: { name: projectName } }), {
-    ...summary('unused', 0), hasCrawlData: false, legacyAuditAvailable: false, runId: null, detailsAvailable: false,
-  })
-  if (skipped) markOnboardingScanSkipped(projectName)
-  const onContinueOnboarding = vi.fn()
-  const onSkipOnboarding = vi.fn()
-  renderSection(queryClient, { showOnboardingActions: true, onContinueOnboarding, onSkipOnboarding })
-  expect(screen.getByRole('heading', { name: skipped ? 'Agent Readiness audit scan skipped' : 'No Agent Readiness audit scan yet' })).toBeTruthy()
-  expect(screen.queryByText('This scan did not produce a score. Run it again to continue setup.')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Continue without scanning' }))
-  expect(onContinueOnboarding).toHaveBeenCalledOnce()
-  expect(mutationMock.mutate).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole('button', { name: 'Run first scan' }))
-  expect(mutationMock.mutate).toHaveBeenCalledWith(expect.objectContaining({ projectName, projectId, body: { checkDeadLinks: true, maxPages: 100 } }))
-})
-
-
-test('empty onboarding waits for scan history and recovers a failed history read without inventing a failed scan', async () => {
-  const queryClient = makeClient()
-  queryClient.removeQueries({ queryKey: scanHistoryKey() })
-  queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessCrawlQueryKey({ client: heyClient, path: { name: projectName } }), {
-    ...summary('unused', 0), hasCrawlData: false, legacyAuditAvailable: false, runId: null, detailsAvailable: false,
-  })
-  const history = deferredResponse()
-  const receipts: Record<string, unknown> = { '/agent-readiness/runs': history.promise }
-  installSiteReads(receipts)
-  const onContinueOnboarding = vi.fn()
-  renderSection(queryClient, { showOnboardingActions: true, onContinueOnboarding })
-  expect(screen.getByRole('heading', { name: 'Checking scan history…' })).toBeTruthy()
-  expect(screen.queryByRole('button', { name: /Run (first )?scan/ })).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Continue setup' }))
-  expect(onContinueOnboarding).toHaveBeenCalledOnce()
-  history.resolve(jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'History unavailable' } }, 503))
-  expect(await screen.findByRole('heading', { name: 'Scan history could not be loaded' })).toBeTruthy()
-  expect(screen.queryByText('This scan did not produce a score. Run it again to continue setup.')).toBeNull()
-  expect(mutationMock.mutate).not.toHaveBeenCalled()
-  receipts['/agent-readiness/runs'] = scanHistory()
-  fireEvent.click(screen.getByRole('button', { name: 'Retry scan history' }))
-  expect(await screen.findByRole('heading', { name: 'No Agent Readiness audit scan yet' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Run first scan' })).toBeTruthy()
 })

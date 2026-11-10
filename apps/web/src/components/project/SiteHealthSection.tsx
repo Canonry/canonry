@@ -1,4 +1,3 @@
-import { wasOnboardingScanSkipped } from '../../lib/onboarding-draft.js'
 import { usePublishAeroView } from '../../contexts/aero-view-context.js'
 import {
   useEffect,
@@ -27,7 +26,6 @@ import {
   RunKinds,
   RunStatuses,
   SITE_AUDIT_DEFAULT_MAX_DEPTH,
-  SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
   SITE_CRAWL_GRAPH_MAX_EDGES,
   SITE_CRAWL_GRAPH_MAX_NODES,
   SiteCrawlIndexabilityReasons,
@@ -58,7 +56,6 @@ import {
   getApiV1ProjectsByNameAgentReadinessGraphOptions,
   getApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsOptions,
   getApiV1ProjectsByNameAgentReadinessRunsOptions,
-  getApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewOptions,
   getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressOptions,
   getApiV1ProjectsByNameAgentReadinessStructureInfiniteOptions,
 } from '@canonry/canonry-api-client/react-query'
@@ -83,7 +80,6 @@ import { PageAuditEvidence } from './PageAuditEvidence.js'
 import { SITE_HEALTH_CHECK_HELP } from './site-health-check-help.js'
 import { TechnicalAeoSection } from './TechnicalAeoSection.js'
 import { WriteButton } from '../shared/AccessControls.js'
-import { OnboardingProgress } from '../shared/OnboardingProgress.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { Button } from '../ui/button.js'
@@ -197,8 +193,6 @@ const NEIGHBOR_LIMIT = 100
 const DEAD_LINK_LIMIT = 50
 const GRAPH_NODE_LIMIT = SITE_CRAWL_GRAPH_MAX_NODES
 const GRAPH_EDGE_LIMIT = SITE_CRAWL_GRAPH_MAX_EDGES
-const ONBOARDING_CONTINUATION_DELAY_MS = 20_000
-const LIVE_PAGE_HEALTH_SLOT_COUNT = 3
 
 const numberFormatter = new Intl.NumberFormat()
 const scanDateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -442,14 +436,9 @@ const TERMINATION_REMEDY: Partial<Record<SiteCrawlTermination, string>> = {
   'max-depth': 'Raise the crawl depth in Scan settings.',
 }
 
-function terminationRemedy(termination: string | null, onboarding = false): string | null {
+function terminationRemedy(termination: string | null): string | null {
   if (!termination) return null
-  const remedy = TERMINATION_REMEDY[termination as SiteCrawlTermination] ?? null
-  // Onboarding hides Scan settings because its first-look budget is fixed, so
-  // point at where the setting lives once setup is done.
-  return remedy && onboarding
-    ? `${remedy.replace(/ in Scan settings\.$/, '')} in Scan settings on the Agent Readiness tab after setup.`
-    : remedy
+  return TERMINATION_REMEDY[termination as SiteCrawlTermination] ?? null
 }
 
 function terminationCopy(termination: string | null): string {
@@ -1317,35 +1306,28 @@ function scanStepIndex(phase: SiteAuditProgressSnapshot['phase'] | 'running' | '
 }
 
 /**
- * The scan as three steps. Finished steps are full; the current step fills
- * from real counts only (pages checked against the scan's page limit, when
- * the limit is known) and otherwise pulses, so the bar never shows a guessed
- * percentage.
+ * The scan as three steps. Finished steps are full and the current step
+ * pulses: a scan's page budget is not known here, so the bar never shows a
+ * guessed percentage.
  */
-function ScanPhaseBar({ phase, pagesChecked, pageLimit, finalStep }: {
+function ScanPhaseBar({ phase, pagesChecked }: {
   phase: SiteAuditProgressSnapshot['phase'] | 'running' | 'queued' | null | undefined
   pagesChecked: number | null
-  pageLimit: number | null
-  finalStep: string
 }) {
   const current = scanStepIndex(phase)
-  const checkedShare = current === 1 && pagesChecked !== null && pageLimit ? Math.min(1, pagesChecked / pageLimit) : null
   const labels = [
     'Find pages',
-    current === 1 && pagesChecked !== null
-      ? `Check pages · ${metricValue(pagesChecked)}${pageLimit ? ` of up to ${metricValue(pageLimit)}` : ''}`
-      : 'Check pages',
-    finalStep,
+    current === 1 && pagesChecked !== null ? `Check pages · ${metricValue(pagesChecked)}` : 'Check pages',
+    'Build map',
   ]
   return (
-    <div className="mt-4" role="progressbar" aria-label="Scan progress" aria-valuemin={0} aria-valuemax={SCAN_STEP_COUNT} aria-valuenow={current + (checkedShare ?? 0)} aria-valuetext={labels[current]}>
+    <div className="mt-4" role="progressbar" aria-label="Scan progress" aria-valuemin={0} aria-valuemax={SCAN_STEP_COUNT} aria-valuenow={current} aria-valuetext={labels[current]}>
       <div className="grid grid-cols-[1fr_2fr_1fr] gap-1.5" aria-hidden="true">
         {labels.map((label, index) => (
           <div key={label} className="h-2 overflow-hidden rounded-full bg-surface-inset">
             {index < current ? <div className="h-full w-full rounded-full bg-positive-400" />
-              : index === current && checkedShare !== null ? <div className="h-full rounded-full bg-positive-400 transition-[width] duration-500" style={{ width: `${Math.max(4, checkedShare * 100)}%` }} />
-                : index === current ? <div className="h-full w-full rounded-full bg-positive-400/40 motion-safe:animate-pulse" />
-                  : null}
+              : index === current ? <div className="h-full w-full rounded-full bg-positive-400/40 motion-safe:animate-pulse" />
+                : null}
           </div>
         ))}
       </div>
@@ -1393,87 +1375,18 @@ function queryErrorCode(error: unknown): string | null {
   return null
 }
 
-function onboardingContinuationDeadline(createdAt: string | undefined): number | null {
-  if (!createdAt) return null
-  const createdAtMs = Date.parse(createdAt)
-  if (!Number.isFinite(createdAtMs) || createdAtMs > Date.now()) return null
-  return createdAtMs + ONBOARDING_CONTINUATION_DELAY_MS
-}
-
-/**
- * This is deliberately keyed to the server-persisted run timestamp. A reload
- * resumes the same wait, while a replacement run starts with its own window.
- */
-function useOnboardingContinuationThreshold({
-  active,
-  runId,
-  createdAt,
-}: {
-  active: boolean
-  runId: string | null
-  createdAt: string | undefined
-}): boolean {
-  const deadline = onboardingContinuationDeadline(createdAt)
-  const [elapsedForRun, setElapsedForRun] = useState<{ runId: string; deadline: number } | null>(null)
-
-  useEffect(() => {
-    if (!active || !runId || deadline == null) {
-      setElapsedForRun(null)
-      return
-    }
-
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) {
-      setElapsedForRun({ runId, deadline })
-      return
-    }
-
-    setElapsedForRun(null)
-    const timeoutId = window.setTimeout(() => setElapsedForRun({ runId, deadline }), remaining)
-    return () => window.clearTimeout(timeoutId)
-  }, [active, deadline, runId])
-
-  return active
-    && runId != null
-    && deadline != null
-    && (Date.now() >= deadline || (elapsedForRun?.runId === runId && elapsedForRun.deadline === deadline))
-}
-
-function OnboardingContinuationActions({
-  onContinueOnboarding,
-  onSkipOnboarding,
-}: {
-  onContinueOnboarding?: () => void
-  onSkipOnboarding?: () => void
-}) {
-  return (
-    <section aria-labelledby="site-health-continuation-heading" className="mt-5 flex flex-col gap-3 border-t border-default pt-5 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h3 id="site-health-continuation-heading" className="text-heading-16 text-heading">Continue while the Agent Readiness audit scan finishes</h3>
-        <p className="mt-1 text-copy-14 text-secondary">Canonry will finish this scan locally. Saved results will appear in Agent Readiness.</p>
-      </div>
-      <div className="flex shrink-0 flex-wrap gap-2">
-        <Button type="button" onClick={onContinueOnboarding}>Set up AI Visibility</Button>
-        <Button type="button" variant="secondary" onClick={onSkipOnboarding}>Skip for now</Button>
-      </div>
-    </section>
-  )
-}
-
 function TransientSiteHealthPanel({
   view,
-  tabbed = true,
   children,
 }: {
   view: Exclude<SiteHealthView, 'technical'>
-  tabbed?: boolean
   children: ReactNode
 }) {
   return (
     <div
-      id={tabbed ? `site-health-${view}-panel` : undefined}
-      role={tabbed ? 'tabpanel' : undefined}
-      aria-labelledby={tabbed ? `site-health-${view}-tab` : undefined}
+      id={`site-health-${view}-panel`}
+      role="tabpanel"
+      aria-labelledby={`site-health-${view}-tab`}
       className="min-w-0"
     >
       {children}
@@ -1486,30 +1399,11 @@ function ActiveScanState({
   progress,
   progressError,
   onRetryProgress,
-  pageHealthDestination = false,
-  firstLook = false,
-  boundedPageLimit,
-  livePageHealthPreview,
-  livePageHealthError = false,
-  livePageHealthRunId = null,
-  continuation,
 }: {
   status: SiteAuditProgressSnapshot['phase'] | 'running'
   progress?: SiteAuditProgressSnapshot | null
   progressError?: boolean
   onRetryProgress?: () => void
-  pageHealthDestination?: boolean
-  /** Onboarding: this result is an introduction, not a full audit. */
-  firstLook?: boolean
-  /**
-   * Set only when the scan is known to have been dispatched with the smaller
-   * first-run budget. A scan pinned from the CLI may have run with any budget.
-   */
-  boundedPageLimit?: number
-  livePageHealthPreview?: LivePageHealthPreviewView | null
-  livePageHealthError?: boolean
-  livePageHealthRunId?: string | null
-  continuation?: ReactNode
 }) {
   const attempt = progress?.attempt ?? null
   const phase = progress?.phase ?? status
@@ -1522,27 +1416,15 @@ function ActiveScanState({
     >
       <div className="flex min-h-6 items-center gap-2">
         <h2 className="text-heading-16 text-heading">
-          {arrangingMap && pageHealthDestination ? 'Preparing your score' : arrangingMap ? 'Preparing site map' : firstLook ? 'Checking your site' : 'Scanning site'}
+          {arrangingMap ? 'Preparing site map' : 'Scanning site'}
         </h2>
-        {firstLook ? (
-          // Said to someone who may not know what Canonry is yet: name what the
-          // scan is FOR. The tooltip names the time limit too, since a first
-          // scan on a real site usually stops there before the page budget.
-          <InfoTooltip text={boundedPageLimit
-            ? `A quick scan to find your first fixes. Reads up to ${boundedPageLimit} pages, or stops sooner at the time limit, so results come back fast. You can run a larger scan from Agent Readiness later.`
-            : 'A quick scan to find your first fixes. Stops at its page budget or the time limit, so results come back fast. You can run a larger scan from Agent Readiness later.'} />
-        ) : null}
       </div>
       <p aria-atomic="true" aria-label="Current scan progress" aria-live="polite" role="status" className="sr-only">
-        {pageHealthDestination
-          ? arrangingMap
-            ? 'Finalizing your score. The scan is complete and its findings are being published.'
-            : `${scanPhaseCopy(phase)}. Your score appears after the scan finishes.`
-          : arrangingMap
-            ? 'Arranging map. The scan is complete and its map is being published.'
-            : `${scanPhaseCopy(phase)}. The map appears after the scan finishes.`}
+        {arrangingMap
+          ? 'Arranging map. The scan is complete and its map is being published.'
+          : `${scanPhaseCopy(phase)}. The map appears after the scan finishes.`}
       </p>
-      <ScanPhaseBar phase={phase} pagesChecked={attempt?.pagesFetched ?? null} pageLimit={boundedPageLimit ?? null} finalStep={pageHealthDestination ? 'Build report' : 'Build map'} />
+      <ScanPhaseBar phase={phase} pagesChecked={attempt?.pagesFetched ?? null} />
       <dl aria-label="Live scan counters" className="mt-5 grid grid-cols-2 divide-x divide-y divide-default material-base sm:grid-cols-4 sm:divide-y-0">
           <div className="px-4 py-3">
             <dt className="text-label-14 text-secondary">Pages found</dt>
@@ -1564,164 +1446,11 @@ function ActiveScanState({
       {progressError && (
         <div className="mt-4 flex flex-wrap items-center gap-3 text-label-14 text-secondary">
           <span>{arrangingMap
-            ? pageHealthDestination ? 'Score publishing status could not load.' : 'Map publishing status could not load.'
+            ? 'Map publishing status could not load.'
             : 'Live scan counts could not load. The scan is still running.'}</span>
           {onRetryProgress && <Button type="button" variant="secondary" size="sm" onClick={onRetryProgress}>Retry progress</Button>}
         </div>
       )}
-      {pageHealthDestination ? (
-        <LivePageHealthFindings
-          runId={livePageHealthRunId}
-          preview={livePageHealthPreview}
-          error={livePageHealthError}
-        />
-      ) : null}
-      {continuation}
-    </section>
-  )
-}
-
-export type LivePageHealthExampleView = {
-  nodeKey: string
-  url: string
-  auditScore: number | null
-  checksNeedingAttention: number
-}
-
-export type LivePageHealthPreviewView = {
-  state: 'waiting' | 'collecting' | 'terminal'
-  pagesAudited: number
-  examples: readonly LivePageHealthExampleView[]
-}
-
-type LivePageHealthSlots = ReadonlyArray<LivePageHealthExampleView | null>
-
-function emptyLivePageHealthSlots(): LivePageHealthSlots {
-  return Array.from({ length: LIVE_PAGE_HEALTH_SLOT_COUNT }, () => null)
-}
-
-function sameLivePageHealthExample(
-  left: LivePageHealthExampleView | null,
-  right: LivePageHealthExampleView | null,
-): boolean {
-  return left === right || (left != null
-    && right != null
-    && left.nodeKey === right.nodeKey
-    && left.url === right.url
-    && left.auditScore === right.auditScore
-    && left.checksNeedingAttention === right.checksNeedingAttention)
-}
-
-function sameLivePageHealthSlots(left: LivePageHealthSlots, right: LivePageHealthSlots): boolean {
-  return left.length === right.length && left.every((slot, index) => sameLivePageHealthExample(slot, right[index] ?? null))
-}
-
-/**
- * An in-progress audit only returns a small, changeable sample. Once an
- * example has occupied a row, keep it there for this run. That avoids visual
- * churn when a later poll sorts the sample differently or no longer includes
- * a previously seen page.
- */
-function latchLivePageHealthExamples(
-  current: LivePageHealthSlots,
-  examples: readonly LivePageHealthExampleView[],
-): LivePageHealthSlots {
-  const next = [...current]
-
-  for (const example of examples) {
-    const existingIndex = next.findIndex((slot) => slot?.nodeKey === example.nodeKey)
-    if (existingIndex >= 0) {
-      next[existingIndex] = example
-      continue
-    }
-
-    const emptyIndex = next.findIndex((slot) => slot == null)
-    if (emptyIndex < 0) break
-    next[emptyIndex] = example
-  }
-
-  return next
-}
-
-/**
- * Provisional examples are intentionally not a mini score table. The
- * fixed three-row sample is enough to establish that useful evidence is
- * arriving, while keeping the scan panel from moving on every three-second
- * poll. A different run starts with a clean set of slots.
- */
-export function LivePageHealthFindings({
-  runId,
-  preview,
-  error = false,
-}: {
-  runId: string | null
-  preview?: LivePageHealthPreviewView | null
-  error?: boolean
-}) {
-  const [latched, setLatched] = useState<{
-    runId: string | null
-    slots: LivePageHealthSlots
-  }>(() => ({ runId, slots: emptyLivePageHealthSlots() }))
-  // A terminal preview is the handoff to the immutable score. Hide the
-  // sample in the same render that terminal state arrives, rather than
-  // waiting for scan history or progress to refetch.
-  const terminal = preview?.state === 'terminal'
-  const slots = terminal || latched.runId !== runId ? emptyLivePageHealthSlots() : latched.slots
-
-  useEffect(() => {
-    setLatched((current) => {
-      const baseline = current.runId === runId ? current.slots : emptyLivePageHealthSlots()
-      const nextSlots = terminal
-        ? emptyLivePageHealthSlots()
-        : latchLivePageHealthExamples(baseline, preview?.examples ?? [])
-      if (current.runId === runId && sameLivePageHealthSlots(current.slots, nextSlots)) return current
-      return { runId, slots: nextSlots }
-    })
-  }, [preview?.examples, runId, terminal])
-
-  const pagesAudited = preview?.pagesAudited ?? 0
-  const hasExamples = slots.some((slot) => slot != null)
-
-  return (
-    <section aria-labelledby="live-page-health-findings-heading" className="mt-5 border-t border-default pt-5">
-      <h3 id="live-page-health-findings-heading" className="text-heading-16 text-heading">Findings so far</h3>
-      <div className="relative mt-1 min-h-[5.25rem] text-label-14 text-secondary sm:min-h-[3.5rem]">
-        <p>Based on {numberFormatter.format(pagesAudited)} audited pages. Results may change until the scan finishes.</p>
-        <p className={cn('absolute bottom-0 text-caution', error ? 'visible' : 'invisible')}>
-          Live findings paused. The scan is still running.
-        </p>
-      </div>
-      <ul
-        aria-label="Live findings"
-        className="mt-3 grid h-[10.5rem] grid-rows-3 divide-y divide-default overflow-hidden material-base"
-      >
-        {slots.map((example, index) => {
-          const placeholder = example == null && index === 0 && !hasExamples
-          const emptySlot = example == null && !placeholder
-
-          return (
-            <li
-              key={`live-page-health-slot-${index}`}
-              aria-hidden={emptySlot || undefined}
-              data-testid="live-page-health-slot"
-              className="grid h-14 min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-4 sm:gap-4"
-            >
-              {example ? (
-                <>
-                  <span className="min-w-0 truncate text-label-14-strong text-strong" title={example.url}>{example.url}</span>
-                  <span className="shrink-0 whitespace-nowrap text-label-14 tabular-nums text-secondary">
-                    <span aria-hidden="true" className="sm:hidden">{numberFormatter.format(example.checksNeedingAttention)} checks</span>
-                    <span className="hidden sm:inline">{numberFormatter.format(example.checksNeedingAttention)} checks need attention</span>
-                    <span className="sr-only sm:hidden">{numberFormatter.format(example.checksNeedingAttention)} checks need attention</span>
-                  </span>
-                </>
-              ) : placeholder ? (
-                <span className="text-label-14 text-secondary">Checks that need attention will appear here.</span>
-              ) : null}
-            </li>
-          )
-        })}
-      </ul>
     </section>
   )
 }
@@ -1730,12 +1459,10 @@ function TerminalScanRecoveryState({
   phase,
   progress,
   onRunAgain,
-  pageHealthDestination = false,
 }: {
   phase: 'failed' | 'cancelled'
   progress?: SiteAuditProgressSnapshot | null
   onRunAgain?: () => void
-  pageHealthDestination?: boolean
 }) {
   const cancelled = phase === 'cancelled'
   const error = progress?.error ?? progress?.attempt?.error
@@ -1748,13 +1475,9 @@ function TerminalScanRecoveryState({
     >
       <h2 className="text-heading-16 text-negative">{cancelled ? 'Scan cancelled' : 'Scan failed'}</h2>
       <p className="mt-1 text-copy-14 text-secondary">
-        {pageHealthDestination
-          ? cancelled
-            ? 'The scan was cancelled before Canonry could publish its score.'
-            : 'The scan did not complete, so its score is unavailable.'
-          : cancelled
-            ? 'The scan was cancelled before Canonry could publish a site map.'
-            : 'The scan did not complete, so there is no site map for this run.'}
+        {cancelled
+          ? 'The scan was cancelled before Canonry could publish a site map.'
+          : 'The scan did not complete, so there is no site map for this run.'}
       </p>
       {error && <p className="mt-3 text-copy-14 text-negative">{error}</p>}
       {onRunAgain && <Button type="button" className="mt-4" onClick={onRunAgain}>Run scan again</Button>}
@@ -1767,22 +1490,13 @@ export function SiteHealthSection({
   projectId,
   initialRunId,
   onReleaseInitialRun,
-  showOnboardingActions = false,
-  onContinueOnboarding,
-  onSkipOnboarding,
 }: {
   projectName: string
   projectId: string
   /** The durable route handoff wins over a derived latest scan after reload. */
   initialRunId?: string
-  /** Clears an onboarding handoff from durable route state before a replacement scan. */
+  /** Clears the durable route handoff before a replacement scan. */
   onReleaseInitialRun?: () => void
-  /** Reserved for the explicit post-scan onboarding flow. */
-  showOnboardingActions?: boolean
-  /** Continues the explicit onboarding flow. */
-  onContinueOnboarding?: () => void
-  /** Leaves the explicit onboarding flow. */
-  onSkipOnboarding?: () => void
 }) {
   const scanHistoryId = useId()
   const [view, setView] = useState<SiteHealthView>('map')
@@ -1809,8 +1523,6 @@ export function SiteHealthSection({
   // page budget (else the full site) and the crawler's default depth.
   const [pageBudget, setPageBudget] = useState<number | null>(null)
   const [crawlDepth, setCrawlDepth] = useState<number | null>(null)
-  // True once this section dispatched an onboarding scan, so its budget is known.
-  const [dispatchedBoundedScan, setDispatchedBoundedScan] = useState(false)
   const [inventoryFilter, setInventoryFilter] = useState<InventoryFilterId>('all')
   /**
    * The map opens on content links only. Nav and footer links repeat on every
@@ -1823,12 +1535,11 @@ export function SiteHealthSection({
   const { isAdmin } = useAccount()
   const publicDemo = isPublicDemo()
   const managedScanForViewer = (publicDemo || isDashboardManagedRunKind(RunKinds['site-audit'])) && !isAdmin
-  const explicitOnboarding = showOnboardingActions && !embedded
   const runMutation = useTriggerSiteAudit()
   // Scan settings names the project's saved page budget. This is the project
   // page's own cached project read (same key and freshness), so it adds no
   // request there, and it stays off wherever Scan settings is not shown.
-  const scanSettingsShown = !explicitOnboarding && !embedded && !managedScanForViewer
+  const scanSettingsShown = !embedded && !managedScanForViewer
   const projectQuery = useQuery({
     ...getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: projectName } }),
     enabled: scanSettingsShown,
@@ -1860,20 +1571,19 @@ export function SiteHealthSection({
   const activeAudit = auditScans.find((scan) => scan.status === 'queued' || scan.status === 'running')
   const latestTerminalAudit = auditScans
     .find((scan) => scan.status === 'completed' || scan.status === 'partial')
-  const mutationRunId = explicitOnboarding ? runMutation.data?.runId ?? null : null
   // The default is the API's preferred scan, which can be an earlier, fuller
   // scan from the same day. A scan started here is the result the operator is
   // waiting for, so once it finishes it is shown until they pick another scan.
-  const rescanRunId = explicitOnboarding ? null : runMutation.data?.runId ?? null
+  const rescanRunId = runMutation.data?.runId ?? null
   const finishedRescanRunId = rescanRunId && rescanRunId !== releasedRescanRunId && auditScans.some(
     (scan) => scan.runId === rescanRunId && (scan.status === 'completed' || scan.status === 'partial'),
   ) ? rescanRunId : null
-  // During explicit setup, a replacement scan remains the current work through
-  // every status transition. Its own terminal evidence or recovery must replace
-  // the prior result; merely appearing in scan history does not release it.
-  const requestedRunId = selectedRunId ?? (explicitOnboarding
-    ? mutationRunId ?? activeAudit?.runId ?? latestTerminalAudit?.runId
-    : finishedRescanRunId ?? auditRunsQuery.data?.preferredRunId ?? latestTerminalAudit?.runId ?? activeAudit?.runId) ?? null
+  const requestedRunId = selectedRunId
+    ?? finishedRescanRunId
+    ?? auditRunsQuery.data?.preferredRunId
+    ?? latestTerminalAudit?.runId
+    ?? activeAudit?.runId
+    ?? null
   // Scan history is eventually consistent. Keep its active state only until
   // the exact progress read for this selected run can say otherwise.
   const activeRequestedRun = activeAudit?.runId === requestedRunId ? activeAudit : null
@@ -1881,10 +1591,8 @@ export function SiteHealthSection({
     ? auditScans.find((scan) => scan.runId === requestedRunId)
     : undefined
   const isInitialRunSelection = Boolean(initialRunId && requestedRunId === initialRunId)
-  const isMutationRunSelection = Boolean(mutationRunId && requestedRunId === mutationRunId)
-  const mutationNeedsExactProgress = isMutationRunSelection && !requestedAuditRun
   const exactProgressRunId = activeRequestedRun?.runId
-    ?? (isInitialRunSelection || mutationNeedsExactProgress ? requestedRunId : null)
+    ?? (isInitialRunSelection ? requestedRunId : null)
 
   const activeProgressQuery = useQuery({
     ...getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressOptions({
@@ -1893,12 +1601,9 @@ export function SiteHealthSection({
     }),
     enabled: Boolean(exactProgressRunId),
     refetchInterval: (query) => shouldPollSiteAuditProgress(query.state.data?.phase) ? 3_000 : false,
-    // Same reason as the live page-health preview beside it: react-query
-    // suspends interval refetches while the window is unfocused or occluded,
-    // and onboarding explicitly invites the operator to go and do something
-    // else ("Continue while the Agent Readiness audit scan finishes"). Without this the counters
-    // freeze on whatever they read at mount, which is zero, while the findings
-    // line beside them keeps counting up from a query that does set it.
+    // react-query suspends interval refetches while the window is unfocused or
+    // occluded. A scan runs for minutes, so the operator often looks away;
+    // without this the counters freeze on whatever they read at mount.
     refetchIntervalInBackground: true,
   })
   useEffect(() => {
@@ -1912,29 +1617,11 @@ export function SiteHealthSection({
   const exactProgressTerminal = isTerminalSiteAuditPhase(activeProgressQuery.data?.phase)
   // A terminal exact run is authoritative over stale `running` scan history.
   // Without this, the active-history guard can withhold a persisted crawl and
-  // leave onboarding on provisional progress after the scan has finished.
+  // leave the view on provisional progress after the scan has finished.
   const activeRunWithoutPublishedMap = exactProgressTerminal ? null : activeRequestedRun
   const exactProgressPending = Boolean(exactProgressRunId && activeProgressQuery.isPending)
-  const exactProgressNeedsAuthority = Boolean(
-    (isInitialRunSelection || isMutationRunSelection) && !requestedAuditRun,
-  )
+  const exactProgressNeedsAuthority = Boolean(isInitialRunSelection && !requestedAuditRun)
   const exactProgressUnavailable = Boolean(exactProgressNeedsAuthority && activeProgressQuery.isError)
-  const livePageHealthPreviewEnabled = Boolean(
-    explicitOnboarding
-    && exactProgressRunId
-    && (activeRunWithoutPublishedMap?.runId === exactProgressRunId || exactProgressActive),
-  )
-  const livePageHealthPreviewQuery = useQuery({
-    ...getApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewOptions({
-      client: heyClient,
-      path: { name: projectName, runId: exactProgressRunId ?? '' },
-    }),
-    // This is onboarding-only evidence. Normal Agent Readiness retains its
-    // terminal, immutable result model and never fetches this live sample.
-    enabled: livePageHealthPreviewEnabled,
-    refetchInterval: (query) => query.state.data?.state === 'terminal' ? false : 3_000,
-    refetchIntervalInBackground: true,
-  })
   const deferTerminalEvidence = Boolean(
     activeRunWithoutPublishedMap
     || exactProgressActive
@@ -1943,7 +1630,7 @@ export function SiteHealthSection({
   )
   const recoveryPhase = activeProgressQuery.data?.phase === 'failed' || activeProgressQuery.data?.phase === 'cancelled'
     ? activeProgressQuery.data.phase
-    : (isInitialRunSelection || isMutationRunSelection)
+    : isInitialRunSelection
       && (requestedAuditRun?.status === 'failed' || requestedAuditRun?.status === 'cancelled')
       ? requestedAuditRun.status
       : null
@@ -1961,7 +1648,6 @@ export function SiteHealthSection({
   const crawl = crawlQuery.data
   const resolvedRunId = requestedRunId ?? crawl?.runId ?? null
   const detailsEnabled = Boolean(resolvedRunId && crawl?.hasCrawlData && crawl.detailsAvailable)
-  const siteExplorerEnabled = detailsEnabled && !explicitOnboarding
   const scopedRunQuery = resolvedRunId ? { runId: resolvedRunId } : {}
 
   const graphQuery = useQuery({
@@ -1972,7 +1658,7 @@ export function SiteHealthSection({
     }),
     // Layout publication is terminal. Fetch this large payload once after the
     // exact progress route leaves `arranging-map`, never while it is pending.
-    enabled: siteExplorerEnabled && !deferTerminalEvidence,
+    enabled: detailsEnabled && !deferTerminalEvidence,
   })
   // The chip narrows on the server, so `total` and the cursor stay truthful
   // instead of describing an unfiltered list.
@@ -1993,7 +1679,7 @@ export function SiteHealthSection({
   }
   const pagesQuery = useInfiniteQuery({
     ...getApiV1ProjectsByNameAgentReadinessCrawlPagesInfiniteOptions(pagesInput),
-    enabled: siteExplorerEnabled,
+    enabled: detailsEnabled,
     initialPageParam: pagesInput,
     getNextPageParam: (lastPage) => lastPage.nextCursor
       ? {
@@ -2002,7 +1688,7 @@ export function SiteHealthSection({
         }
       : undefined,
   })
-  const deadLinkDetailsEnabled = siteExplorerEnabled
+  const deadLinkDetailsEnabled = detailsEnabled
     && (crawl?.deadLinks.state === 'complete' || crawl?.deadLinks.state === 'partial')
   const deadLinksQuery = useQuery({
     ...getApiV1ProjectsByNameAgentReadinessDeadLinksOptions({
@@ -2120,7 +1806,7 @@ export function SiteHealthSection({
         limit: NEIGHBOR_LIMIT,
       },
     }),
-    enabled: siteExplorerEnabled && Boolean(effectiveSelectedNodeKey),
+    enabled: detailsEnabled && Boolean(effectiveSelectedNodeKey),
   })
   const pageAuditQuery = useQuery({
     ...getApiV1ProjectsByNameAgentReadinessCrawlPagesAuditOptions({
@@ -2131,7 +1817,7 @@ export function SiteHealthSection({
         nodeKey: effectiveSelectedNodeKey ?? undefined,
       },
     }),
-    enabled: siteExplorerEnabled && Boolean(effectiveSelectedNodeKey),
+    enabled: detailsEnabled && Boolean(effectiveSelectedNodeKey),
   })
 
   // The server already orders scans newest first, so the dropdown does not
@@ -2172,9 +1858,8 @@ export function SiteHealthSection({
   // The header leads with the shown scan's score on every view. This is the
   // Score view's own read (same key, pinned to the same scan), so the two
   // share one cache entry and can never disagree. Only a finished scan has a
-  // score to read; onboarding has no header.
-  const headerScoreReadable = !explicitOnboarding
-    && Boolean(resolvedRunId)
+  // score to read.
+  const headerScoreReadable = Boolean(resolvedRunId)
     && (status === RunStatuses.completed || status === RunStatuses.partial)
   const headerScoreQuery = useQuery({
     ...getApiV1ProjectsByNameAgentReadinessOptions({
@@ -2216,43 +1901,14 @@ export function SiteHealthSection({
   )
   // A crawl that is in flight for some OTHER run than the selected one still
   // blocks a new one. The route consolidates only onto an in-flight request
-  // with identical options and rejects everything else with a conflict, and
-  // onboarding's bounded budget guarantees different options. Without this the
-  // button reads "Scan running" (it already keys that copy on `activeAudit`)
-  // while staying enabled, and pressing it produces a bare error toast.
+  // with identical options and rejects everything else with a conflict, and a
+  // scan started elsewhere (the CLI, another tab) can carry different options.
+  // Without this the button reads "Scan running" (it already keys that copy on
+  // `activeAudit`) while staying enabled, and pressing it produces a bare error
+  // toast.
   const conflictingActiveAudit = activeAudit && activeAudit.runId !== requestedRunId ? activeAudit : null
   const scanBusy = runMutation.isPending || Boolean(activeRunWithoutPublishedMap) || Boolean(conflictingActiveAudit) || exactProgressActive || exactProgressPending
-  const showProgressState = deferTerminalEvidence || (explicitOnboarding && runMutation.isPending)
-  const requestedRunIsActive = requestedAuditRun?.status === 'queued' || requestedAuditRun?.status === 'running'
-  const hasOnboardingContinuationActions = Boolean(onContinueOnboarding && onSkipOnboarding)
-  const showOnboardingContinuation = useOnboardingContinuationThreshold({
-    active: explicitOnboarding
-      && showProgressState
-      && hasOnboardingContinuationActions
-      && Boolean(requestedRunIsActive || (exactProgressRunId === requestedRunId && exactProgressActive)),
-    runId: requestedRunId,
-    createdAt: requestedAuditRun?.createdAt,
-  })
-  const scanHistoryUnconfirmed = explicitOnboarding && !requestedRunId && !auditRunsQuery.isSuccess
-  const scanNotStarted = explicitOnboarding && auditRunsQuery.isSuccess && auditScans.length === 0 && !requestedRunId && !runMutation.isPending
-  const scanSkipped = scanNotStarted && wasOnboardingScanSkipped(projectName)
-  const onboardingEmptyHeading = scanHistoryUnconfirmed
-    ? auditRunsQuery.isError ? 'Scan history could not be loaded' : 'Checking scan history…'
-    : scanNotStarted
-      ? scanSkipped ? 'Agent Readiness audit scan skipped' : 'No Agent Readiness audit scan yet'
-      : 'Score unavailable'
-  const onboardingEmptyDescription = scanHistoryUnconfirmed
-    ? 'Scan status is not confirmed. Check scan history before starting a scan.'
-    : scanNotStarted
-      ? 'No scan has been started for this project. Run a first scan or continue without scanning.'
-      : 'This scan did not produce a score. Run it again to continue setup.'
-  const siteAuditReady = Boolean(crawl?.hasCrawlData && !showProgressState && !recoveryPhase)
-  // Explicit onboarding has one task per state. A usable terminal crawl opens
-  // the score immediately; active and recovery states stay on the scan view.
-  const currentView: SiteHealthView = explicitOnboarding
-    ? siteAuditReady ? 'technical' : 'map'
-    : view
-  const transientView = currentView === 'technical' ? 'map' : currentView
+  const transientView = view === 'technical' ? 'map' : view
   const selectRun = (runId: string) => {
     setSelectedRunId(runId || null)
     setReleasedRescanRunId(rescanRunId)
@@ -2270,24 +1926,19 @@ export function SiteHealthSection({
     setSelectedRunId(null)
     setSelectedNodeKey(null)
     if (initialRunId) onReleaseInitialRun?.()
-    if (explicitOnboarding) setDispatchedBoundedScan(true)
     runMutation.mutate({
       projectName,
       projectId,
       projectLabel: projectQuery.data?.displayName || projectName,
       body: {
-        checkDeadLinks: explicitOnboarding || checkDeadLinks,
+        checkDeadLinks,
         ...(includeGeo ? { includeGeo: true } : {}),
         ...(!includeAgentSkills ? { includeAgentSkills: false } : {}),
-        // Onboarding is a bounded first look, so it does not spend the full
-        // crawl budget before the operator has seen any result. Everywhere
-        // else the budget is whatever Scan settings says, and an unset budget
-        // is omitted so the server applies the project's saved budget, else
-        // the full site.
-        ...(explicitOnboarding
-          ? { maxPages: SITE_AUDIT_ONBOARDING_PAGE_LIMIT }
-          : pageBudget === null ? {} : { maxPages: pageBudget }),
-        ...(explicitOnboarding || crawlDepth === null ? {} : { maxDepth: crawlDepth }),
+        // The budget is whatever Scan settings says. An unset budget is
+        // omitted so the server applies the project's saved budget, else the
+        // full site.
+        ...(pageBudget === null ? {} : { maxPages: pageBudget }),
+        ...(crawlDepth === null ? {} : { maxDepth: crawlDepth }),
       },
     })
   }
@@ -2316,14 +1967,13 @@ export function SiteHealthSection({
 
   return (
     <div className="space-y-5">
-      {explicitOnboarding ? <OnboardingProgress current={siteAuditReady ? 'fixes' : 'site'} /> : null}
-      {!explicitOnboarding && <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+      <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
         <div>
           {/* The selected tab already says "Agent Readiness", so this row is
               named for what it reports: the shown scan's state, score and date. */}
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-heading-20 text-heading">Audit scan</h2>
-            <InfoTooltip text={SITE_HEALTH_VIEW_DESCRIPTIONS[currentView]} />
+            <InfoTooltip text={SITE_HEALTH_VIEW_DESCRIPTIONS[view]} />
             <ToneBadge tone={scanTone(status)}>{statusLabel}</ToneBadge>
             {headerScore && (
               <span className="text-label-14-strong tabular-nums text-heading">{headerScore}</span>
@@ -2461,13 +2111,13 @@ export function SiteHealthSection({
             </div>
           )}
         </div>
-      </header>}
+      </header>
       {managedScanForViewer && <ManagedSweepStatus projectName={projectName} kind={RunKinds['site-audit']} loadSchedule={!publicDemo} />}
 
       {/* The scan's counts stay put across Map, Pages and Score, so each view's
           own counts ("72 pages", "70 pages scored") read against the same four
-          numbers. Onboarding's score step keeps to the score alone. */}
-      {crawl?.hasCrawlData && !(explicitOnboarding && currentView === 'technical') && (
+          numbers. */}
+      {crawl?.hasCrawlData && (
         <div className="grid grid-cols-2 divide-x divide-y divide-default material-base sm:grid-cols-4 sm:divide-y-0">
           <div className="px-4 py-3">
             <div className="flex items-center gap-1 text-label-12 text-muted">
@@ -2497,7 +2147,7 @@ export function SiteHealthSection({
         </div>
       )}
 
-      {!explicitOnboarding && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default">
         <div role="tablist" aria-label="Agent Readiness views" aria-orientation="horizontal" className="flex min-w-0 gap-5">
           {SITE_HEALTH_VIEWS.map((item, index) => (
             <button
@@ -2505,14 +2155,14 @@ export function SiteHealthSection({
               type="button"
               role="tab"
               id={`site-health-${item.id}-tab`}
-              aria-selected={currentView === item.id}
+              aria-selected={view === item.id}
               aria-controls={`site-health-${item.id}-panel`}
-              tabIndex={currentView === item.id ? 0 : -1}
+              tabIndex={view === item.id ? 0 : -1}
               ref={(element) => { tabRefs.current[index] = element }}
               onClick={() => selectView(item.id)}
               onKeyDown={(event) => handleViewKeyDown(event, index)}
               className={`min-h-11 border-b-2 px-0.5 text-button-14 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-50 ${
-                currentView === item.id
+                view === item.id
                   ? 'border-strong text-heading'
                   : 'border-transparent text-secondary hover:border-base hover:text-primary'
               }`}
@@ -2521,13 +2171,13 @@ export function SiteHealthSection({
             </button>
           ))}
         </div>
-        {crawl?.hasCrawlData && currentView !== 'technical' && (
+        {crawl?.hasCrawlData && view !== 'technical' && (
           <div className="flex items-center gap-2 pb-2">
             <span className="text-label-12 text-muted">Dead-link check</span>
             <ToneBadge tone={deadLinkStatus.tone}>{deadLinkStatus.label}</ToneBadge>
           </div>
         )}
-      </div>}
+      </div>
 
       {!selectedRunId && activeAudit && !activeRunWithoutPublishedMap && (
         <div className="rounded-md border border-caution bg-caution-soft px-4 py-3 text-label-14 text-caution" role="status">
@@ -2539,9 +2189,7 @@ export function SiteHealthSection({
           <span className="text-label-14-strong text-heading">Site address changed during this scan.</span>{' '}
           The scan started at <span className="font-mono text-primary">{movedSite.requested}</span> and continued at{' '}
           <span className="font-mono text-primary">{movedSite.effective}</span>.{' '}
-          {explicitOnboarding
-            ? 'The score uses the new address.'
-            : 'The map and inventory use the new address.'}
+          The map and inventory use the new address.
         </div>
       )}
       {crawl?.hasCrawlData && !crawl.complete && (
@@ -2550,7 +2198,7 @@ export function SiteHealthSection({
           {/* Naming the limit without naming the remedy leaves the operator
               looking at a result they have been told is incomplete with
               nothing to do about it. The budget lives in Scan settings. */}
-          {!embedded && !managedScanForViewer ? terminationRemedy(crawl.termination, explicitOnboarding) : null}
+          {!embedded && !managedScanForViewer ? terminationRemedy(crawl.termination) : null}
         </div>
       )}
       {!activeAudit && newestRunStatus === 'failed' && !selectedRunId && (
@@ -2563,90 +2211,45 @@ export function SiteHealthSection({
       )}
 
       {recoveryPhase ? (
-        <TransientSiteHealthPanel view={transientView} tabbed={!explicitOnboarding}>
+        <TransientSiteHealthPanel view={transientView}>
           <TerminalScanRecoveryState
             phase={recoveryPhase}
             progress={activeProgressQuery.data}
             onRunAgain={managedScanForViewer ? undefined : startScan}
-            pageHealthDestination={explicitOnboarding}
           />
         </TransientSiteHealthPanel>
-      ) : showProgressState ? (
-        <TransientSiteHealthPanel view={transientView} tabbed={!explicitOnboarding}>
+      ) : deferTerminalEvidence ? (
+        <TransientSiteHealthPanel view={transientView}>
           <ActiveScanState
             status={activeProgressQuery.data?.phase ?? (activeRunWithoutPublishedMap?.status === 'running' ? 'running' : 'queued')}
             progress={activeProgressQuery.data}
             progressError={activeProgressQuery.isError}
             onRetryProgress={() => { void activeProgressQuery.refetch() }}
-            pageHealthDestination={explicitOnboarding}
-            firstLook={explicitOnboarding}
-            boundedPageLimit={explicitOnboarding && dispatchedBoundedScan ? SITE_AUDIT_ONBOARDING_PAGE_LIMIT : undefined}
-            livePageHealthPreview={livePageHealthPreviewQuery.data}
-            livePageHealthError={livePageHealthPreviewQuery.isError}
-            livePageHealthRunId={exactProgressRunId}
-            continuation={showOnboardingContinuation ? (
-              <OnboardingContinuationActions
-                onContinueOnboarding={onContinueOnboarding}
-                onSkipOnboarding={onSkipOnboarding}
-              />
-            ) : null}
           />
         </TransientSiteHealthPanel>
-      ) : currentView === 'technical' ? (
+      ) : view === 'technical' ? (
         <div
           id="site-health-technical-panel"
-          role={explicitOnboarding ? undefined : 'tabpanel'}
-          aria-labelledby={explicitOnboarding ? undefined : 'site-health-technical-tab'}
+          role="tabpanel"
+          aria-labelledby="site-health-technical-tab"
           className="min-w-0 space-y-6"
         >
-          {explicitOnboarding ? (
-            <h2 className="text-heading-20 text-heading">Agent Readiness score</h2>
-          ) : null}
           <TechnicalAeoSection
             projectName={projectName}
             projectId={projectId}
             runId={resolvedRunId}
             integrated
-            compactCopy={explicitOnboarding}
-            afterSummary={explicitOnboarding && siteAuditReady ? (
-              <section aria-labelledby="ai-visibility-next-heading" className="flex flex-col gap-3 border-b border-default py-5 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 id="ai-visibility-next-heading" className="text-heading-16 text-heading">Next: Set up AI Visibility</h2>
-                  <p className="mt-1 text-copy-14 text-secondary">
-                    See whether answer engines mention your brand and cite your pages.
-                  </p>
-                </div>
-                <div className="flex shrink-0 flex-wrap gap-2">
-                  <Button type="button" onClick={onContinueOnboarding}>Set up AI Visibility</Button>
-                  <Button type="button" variant="secondary" onClick={onSkipOnboarding}>Skip for now</Button>
-                </div>
-              </section>
-            ) : undefined}
-            unavailableFooter={explicitOnboarding && siteAuditReady && !managedScanForViewer ? (
-              <section aria-label="Score recovery" className="mt-4">
-                <Button
-                  type="button"
-                  disabled={scanBusy}
-                  onClick={() => {
-                    setView('map')
-                    startScan()
-                  }}
-                >
-                  Run Agent Readiness audit scan again
-                </Button>
-              </section>
-            ) : undefined}
           />
         </div>
       ) : crawlQuery.isLoading ? (
-        <TransientSiteHealthPanel view={currentView} tabbed={!explicitOnboarding}>
+        <TransientSiteHealthPanel view={view}>
           <div className="flex min-h-72 items-center justify-center gap-2 text-label-14 text-secondary" role="status">
             <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
             Loading Agent Readiness…
           </div>
         </TransientSiteHealthPanel>
       ) : crawlQuery.error ? (
-        <TransientSiteHealthPanel view={currentView} tabbed={!explicitOnboarding}>
+        <TransientSiteHealthPanel view={view}>
           <section className="rounded-md border border-negative bg-negative-soft px-5 py-6" role="alert">
             <h2 className="text-heading-14 text-negative">Agent Readiness could not load</h2>
             <p className="mt-1 text-copy-14 text-negative">Try loading the crawl again.</p>
@@ -2654,57 +2257,35 @@ export function SiteHealthSection({
           </section>
         </TransientSiteHealthPanel>
       ) : !crawl?.hasCrawlData ? (
-        <TransientSiteHealthPanel view={currentView} tabbed={!explicitOnboarding}>
+        <TransientSiteHealthPanel view={view}>
           <section className="material-base px-5 py-8 text-center">
-            <h2 className="text-heading-16 text-heading">
-              {explicitOnboarding ? onboardingEmptyHeading : 'Full-site map not available'}
-            </h2>
+            <h2 className="text-heading-16 text-heading">Full-site map not available</h2>
             <p className="mx-auto mt-2 max-w-xl text-copy-14 text-secondary">
               {managedScanForViewer
                 ? MANAGED_SCANS_COPY
-                : explicitOnboarding
-                ? onboardingEmptyDescription
                 : crawl?.legacyAuditAvailable
                 ? 'The existing score is preserved. Run a new scan to build the page and internal-link map.'
                 : embedded
                   ? 'An Agent Readiness audit scan has not been run for this project.'
                   : 'Run a scan to discover pages, site sections, and internal links.'}
             </p>
-            {explicitOnboarding && !scanHistoryUnconfirmed ? <p className="mt-2 text-copy-14 text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages.</p> : null}
-            {(crawl?.legacyAuditAvailable || explicitOnboarding) && (
+            {crawl?.legacyAuditAvailable && (
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {crawl?.legacyAuditAvailable && !explicitOnboarding && (
-                  <Button variant="secondary" size="sm" onClick={() => setView('technical')}>View score</Button>
-                )}
-                {scanHistoryUnconfirmed && auditRunsQuery.isError ? <Button type="button" size="sm" onClick={() => { void auditRunsQuery.refetch() }}>Retry scan history</Button> : null}
-                {explicitOnboarding && !scanHistoryUnconfirmed && !managedScanForViewer && (
-                  <Button type="button" size="sm" disabled={scanBusy} onClick={startScan}>{scanNotStarted ? 'Run first scan' : 'Run scan again'}</Button>
-                )}
-                {explicitOnboarding && onContinueOnboarding ? <Button type="button" variant="secondary" size="sm" onClick={onContinueOnboarding}>{scanHistoryUnconfirmed ? 'Continue setup' : 'Continue without scanning'}</Button> : null}
-                {explicitOnboarding && onSkipOnboarding ? <Button type="button" variant="ghost" size="sm" onClick={onSkipOnboarding}>Skip for now</Button> : null}
+                <Button variant="secondary" size="sm" onClick={() => setView('technical')}>View score</Button>
               </div>
             )}
           </section>
         </TransientSiteHealthPanel>
       ) : !crawl.detailsAvailable ? (
-        <TransientSiteHealthPanel view={currentView} tabbed={!explicitOnboarding}>
+        <TransientSiteHealthPanel view={view}>
           <section className="rounded-md border border-caution bg-caution-soft px-5 py-6">
-            <h2 className="text-heading-14 text-caution">
-              {explicitOnboarding ? 'Score unavailable' : 'Page details unavailable'}
-            </h2>
+            <h2 className="text-heading-14 text-caution">Page details unavailable</h2>
             <p className="mt-1 text-copy-14 text-caution">
-              {managedScanForViewer && explicitOnboarding
-                ? 'This scan did not publish page-level results.'
-                : explicitOnboarding
-                ? 'This scan did not publish page-level results. Run it again to continue setup.'
-                : 'Summary metrics are preserved for this scan, but its page graph cannot be opened.'}
+              Summary metrics are preserved for this scan, but its page graph cannot be opened.
             </p>
-            {explicitOnboarding && !managedScanForViewer ? (
-              <Button type="button" size="sm" className="mt-4" onClick={startScan}>Run scan again</Button>
-            ) : null}
           </section>
         </TransientSiteHealthPanel>
-      ) : currentView === 'inventory' ? (
+      ) : view === 'inventory' ? (
         <div id="site-health-inventory-panel" role="tabpanel" aria-labelledby="site-health-inventory-tab" className="space-y-5">
           {pagesQuery.isLoading ? (
             <div className="flex min-h-56 items-center justify-center gap-2 text-label-14 text-secondary" role="status">
