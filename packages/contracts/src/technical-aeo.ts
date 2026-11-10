@@ -1319,12 +1319,31 @@ export const siteCrawlAuditFactorSchema = siteAuditPageFactorSchema.extend({
 })
 export type SiteCrawlAuditFactorDto = z.infer<typeof siteCrawlAuditFactorSchema>
 
+/**
+ * One place a page names a Property it does not belong to. `field` is where the
+ * name appears: `faq-question`, `faq-answer`, `title` or `h1` today, kept a plain
+ * string so a place a newer engine adds never hides the defect.
+ */
+export const siteCrawlEntityMentionSchema = z.object({
+  field: z.string().min(1),
+  /** The FAQ question, for FAQ places. */
+  question: z.string().optional(),
+  /** The named Property's plan key. */
+  entityKey: z.string().min(1),
+  entityName: z.string().min(1),
+  /** Up to 160 characters of the text around the name. */
+  snippet: z.string(),
+})
+export type SiteCrawlEntityMentionDto = z.infer<typeof siteCrawlEntityMentionSchema>
+
 /** High-impact page defect detected independently of the weighted score. */
 export const siteCrawlCriticalDefectSchema = z.object({
   id: z.string().min(1),
   severity: z.enum(['critical', 'warning']),
   detail: z.string().min(1),
   recommendation: z.string().min(1),
+  /** Each place the page names another Property, at most 25; only on `names-another-entity`. */
+  evidence: z.array(siteCrawlEntityMentionSchema).optional(),
 })
 export type SiteCrawlCriticalDefectDto = z.infer<typeof siteCrawlCriticalDefectSchema>
 
