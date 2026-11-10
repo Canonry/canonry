@@ -161,6 +161,19 @@ function batchTone(summary: ReturnType<typeof summarizeBatchStatuses>): ToastTon
   return 'positive'
 }
 
+/**
+ * The /setup crumb names the page as its heading does: adding a project, one
+ * project's setup, or setup itself (the first setup and the legacy wizard).
+ */
+function setupBreadcrumb(
+  search: { project?: string; setupProject?: string; onboarding?: string; experience?: string },
+  projectCount: number,
+): string {
+  if (search.experience === 'legacy') return 'Setup'
+  if (search.project ?? search.setupProject) return search.onboarding === undefined ? 'Project setup' : 'Setup'
+  return search.experience === 'platform' && projectCount > 0 ? 'Add a project' : 'Setup'
+}
+
 export function RunNotificationObserver() {
   const queryClient = useQueryClient()
   const trackedState = useSyncExternalStore(subscribeRunTracker, getRunTrackerState, getRunTrackerState)
@@ -551,7 +564,7 @@ export function RootLayout() {
     if (path === '/runs') return 'Runs'
     if (path === '/history') return 'History'
     if (path === '/settings') return 'Settings'
-    if (path === '/setup') return 'Setup'
+    if (path === '/setup') return setupBreadcrumb(location.search, safeDashboard?.projects.length ?? 0)
     if (path === '/agent-setup') return 'Agent setup'
     if (path === '/backlinks') return 'Backlink data'
     if (path === '/traffic') return 'Traffic sources'

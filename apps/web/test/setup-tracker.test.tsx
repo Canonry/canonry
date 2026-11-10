@@ -3,7 +3,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { RunKinds, onboardingTelemetryEventSchema, projectSetupDtoSchema, type ProjectSetupDto } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameSetupQueryKey, getApiV1RunsQueryKey } from '@canonry/canonry-api-client/react-query'
 
+import { heyClient } from '../src/api.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { createDashboardFixture } from '../src/mock-data.js'
@@ -62,7 +64,7 @@ function setupRead(overrides: SetupOverrides = {}): ProjectSetupDto {
       aiVisibility: {
         state: 'not_started', runId: null, startedAt: null, finishedAt: null, blockedBy: 'no_engine', engines: [],
         queries: { total: 0, nonBrand: 0, branded: 0, unclassified: 0 },
-        progress: null, providerFailures: null, result: null, error: null,
+        progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
         ...overrides.aiVisibility,
       },
     },
@@ -101,7 +103,7 @@ function renderTracker(options: {
       </AccountProvider>
     </QueryClientProvider>,
   )
-  return { requests }
+  return { requests, queryClient }
 }
 
 function rowOf(heading: HTMLElement, name: string): HTMLElement {
@@ -271,6 +273,108 @@ test('a check that failed says so and offers to run it again', async () => {
   expect(primaryActions().map(action => action.textContent)).toEqual(['Run check again'])
 })
 
+test('a failed check says what to do engine by engine, with each engine\'s own message one step away', async () => {
+  renderTracker({
+    setup: setupRead({
+      agentReadiness: { state: 'completed', runId: 'run-scan', result: { score: 70, pagesScored: 12 } },
+      aiVisibility: {
+        state: 'failed', runId: 'run-ai', blockedBy: null, engines: ['gemini', 'openrouter:vendor/model-a'],
+        error: 'gemini: Unexpected token < in JSON • openrouter:vendor/model-a: OpenRouter request failed (HTTP 402): Insufficient credits',
+        failedEngines: [
+          { provider: 'gemini', code: 'PARSE_ERROR', message: 'Unexpected token < in JSON', skipped: false },
+          { provider: 'openrouter:vendor/model-a', code: 'PROVIDER_BILLING', message: 'OpenRouter request failed (HTTP 402): Insufficient credits', skipped: false },
+        ],
+      },
+    }),
+  })
+
+  const ai = await findRow('AI Visibility')
+  expect(within(ai).getByText('The check did not finish. No baseline was saved.')).toBeTruthy()
+  // The credit belongs to the OpenRouter connection, not the model routed through it.
+  const remedy = within(ai).getByText('Your OpenRouter account is out of credit. Add credit at OpenRouter, then run the check again.')
+  const message = remedy.parentElement!.querySelector('details')!
+  expect(message.open).toBe(false)
+  expect(within(message).getByText('Engine message', { selector: 'summary' })).toBeTruthy()
+  expect(within(message).getByText(/: OpenRouter request failed \(HTTP 402\): Insufficient credits$/)).toBeTruthy()
+  // A failure with no step of its own shows the engine's words directly.
+  expect(within(ai).getByText('Gemini: Unexpected token < in JSON')).toBeTruthy()
+  // The one-line error is not repeated beside them.
+  expect(within(ai).queryByText(/ • /)).toBeNull()
+  expect(primaryActions().map(action => action.textContent)).toEqual(['Run check again'])
+})
+
+test('a running scan stops only after a confirmation that says it keeps no score', async () => {
+  let cancelled = false
+  const { requests } = renderTracker({
+    setup: () => jsonResponse(cancelled
+      ? setupRead({ agentReadiness: { state: 'cancelled', runId: 'run-scan' } })
+      : setupRead({ agentReadiness: { state: 'running', runId: 'run-scan', progress: { phase: 'checking', pagesFound: 40, pagesChecked: 10, pageLimit: 100, linksFound: 80, pagesFailed: 0 } } })),
+    onRequest: (path, init) => {
+      if (path !== '/api/v1/runs/run-scan/cancel' || init?.method !== 'POST') return undefined
+      cancelled = true
+      return jsonResponse({ id: 'run-scan', status: 'cancelled' })
+    },
+  })
+
+  const ask = await within(await findRow('Agent Readiness')).findByRole('button', { name: 'Cancel scan' })
+  ask.focus()
+  fireEvent.click(ask)
+  const confirm = within(row('Agent Readiness')).getByRole('group', { name: 'Stop the scan' })
+  expect(within(confirm).getByText('Stop the scan? It saves no score.')).toBeTruthy()
+  // Focus lands on Keep running, so a stray Enter keeps the scan.
+  expect(document.activeElement).toBe(within(confirm).getByRole('button', { name: 'Keep running' }))
+  fireEvent.click(within(confirm).getByRole('button', { name: 'Keep running' }))
+  // Keeping it running puts focus back on the question.
+  expect(document.activeElement).toBe(within(row('Agent Readiness')).getByRole('button', { name: 'Cancel scan' }))
+  expect(requests.some(request => request.path.endsWith('/cancel'))).toBe(false)
+
+  fireEvent.click(within(row('Agent Readiness')).getByRole('button', { name: 'Cancel scan' }))
+  fireEvent.click(within(row('Agent Readiness')).getByRole('button', { name: 'Stop scan' }))
+  await waitFor(() => expect(within(row('Agent Readiness')).getByText('Cancelled')).toBeTruthy())
+  expect(requests.filter(request => request.method === 'POST' && request.path === '/api/v1/runs/run-scan/cancel')).toHaveLength(1)
+  expect(within(row('Agent Readiness')).getByRole('button', { name: 'Run audit scan again' })).toBeTruthy()
+})
+
+test('a running check stops through the same confirmation, which says it keeps no baseline', async () => {
+  let cancelled = false
+  const { requests } = renderTracker({
+    setup: () => jsonResponse(cancelled
+      ? setupRead({ aiVisibility: { state: 'cancelled', runId: 'run-ai', blockedBy: null, engines: ['openrouter'] } })
+      : setupRead({ aiVisibility: { state: 'running', runId: 'run-ai', blockedBy: null, engines: ['openrouter'], progress: { answersSaved: 2, answersPlanned: 8 } } })),
+    onRequest: (path, init) => {
+      if (path !== '/api/v1/runs/run-ai/cancel' || init?.method !== 'POST') return undefined
+      cancelled = true
+      return jsonResponse({ id: 'run-ai', status: 'cancelled' })
+    },
+  })
+
+  fireEvent.click(await within(await findRow('AI Visibility')).findByRole('button', { name: 'Cancel check' }))
+  expect(within(row('AI Visibility')).getByText('Stop the check? It saves no baseline.')).toBeTruthy()
+  fireEvent.click(within(row('AI Visibility')).getByRole('button', { name: 'Stop check' }))
+  await waitFor(() => expect(within(row('AI Visibility')).getByText(/^The last check was cancelled\./)).toBeTruthy())
+  expect(requests.filter(request => request.method === 'POST' && request.path === '/api/v1/runs/run-ai/cancel')).toHaveLength(1)
+})
+
+test('a scan or check that finishes here reads the runs list again, so the top bar never lags the row', async () => {
+  let reads = 0
+  const { queryClient } = renderTracker({
+    setup: () => {
+      reads += 1
+      return jsonResponse(reads === 1
+        ? setupRead({ agentReadiness: { state: 'running', runId: 'run-scan', progress: null } })
+        : setupRead({ agentReadiness: { state: 'failed', runId: 'run-scan', error: 'Site audit root URL rejected.' } }))
+    },
+  })
+  const runsKey = getApiV1RunsQueryKey({ client: heyClient })
+  queryClient.setQueryData(runsKey, [])
+
+  await within(await findRow('Agent Readiness')).findByText('Running')
+  expect(queryClient.getQueryState(runsKey)?.isInvalidated).toBe(false)
+  await queryClient.invalidateQueries({ queryKey: getApiV1ProjectsByNameSetupQueryKey({ client: heyClient, path: { name: PROJECT } }) })
+  await within(row('Agent Readiness')).findByText('Failed')
+  await waitFor(() => expect(queryClient.getQueryState(runsKey)?.isInvalidated).toBe(true))
+})
+
 test('closing the AI Visibility panel returns focus to the button that opened it', async () => {
   renderTracker({ setup: setupRead({ aiVisibility: { blockedBy: 'no_queries', engines: ['openrouter'] } }) })
 
@@ -301,6 +405,8 @@ test('a check launched from the panel leaves focus on the AI Visibility row, whi
   expect(within(row('AI Visibility')).getByText('Queued')).toBeTruthy()
   expect(within(row('AI Visibility')).getByRole('progressbar', { name: 'AI Visibility check progress' })).toBeTruthy()
   expect(statusLines()).toEqual(['', 'AI Visibility check queued.'])
+  // The server does not list the check yet, so there is no run to stop.
+  expect(within(row('AI Visibility')).queryByRole('button', { name: 'Cancel check' })).toBeNull()
 })
 
 test('starting the audit scan sends the first-scan cap, raises no queued toast, and reads setup again', async () => {

@@ -3,6 +3,8 @@ import {
   ProjectSetupNextActions,
   SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
   SetupTrackStates,
+  providerConnectionName,
+  providerFailureRemedy,
   shellQuote,
   siteAuditRunPhaseSchema,
   type AgentReadinessSetupTrack,
@@ -150,8 +152,16 @@ function aiVisibilityLines(track: AiVisibilitySetupTrack): string[] {
     case SetupTrackStates.completed:
     case SetupTrackStates.partial:
       return track.result ? resultLines(track.result) : ['Result unavailable']
-    case SetupTrackStates.failed:
-      return [`The check did not finish.${track.error ? ` ${track.error}` : ''}`]
+    case SetupTrackStates.failed: {
+      const engines = track.failedEngines ?? []
+      if (engines.length === 0) return [`The check did not finish.${track.error ? ` ${track.error}` : ''}`]
+      // Each engine's message, then what to do about it. The account belongs to
+      // the connection, so a routed model names OpenRouter, not the model.
+      return ['The check did not finish.', ...engines.flatMap((engine) => {
+        const remedy = providerFailureRemedy(engine.code, providerConnectionName(engine.provider))
+        return [`${engine.provider}: ${engine.message}`, ...(remedy ? [remedy] : [])]
+      })]
+    }
     case SetupTrackStates.cancelled:
       return ['The check was cancelled.', ...(track.blockedBy ? [blockerLine(track.blockedBy)] : [])]
   }

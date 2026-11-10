@@ -24,7 +24,7 @@ const scanning: ProjectSetupDto = {
     },
     aiVisibility: {
       state: 'not_started', runId: null, startedAt: null, finishedAt: null, mode: 'simple', blockedBy: 'no_engine',
-      engines: [], queries: NO_QUERIES, progress: null, providerFailures: null, result: null, error: null,
+      engines: [], queries: NO_QUERIES, progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
     },
   },
 }
@@ -55,6 +55,7 @@ const finished: ProjectSetupDto = {
         },
       },
       error: null,
+      failedEngines: null,
     },
   },
 }
@@ -70,6 +71,24 @@ const checking: ProjectSetupDto = {
       ...finished.tracks.aiVisibility, state: 'running', finishedAt: null, result: null,
       progress: { answersSaved: 5, answersPlanned: 12 },
       providerFailures: { gemini: { message: 'Gemini rate limit reached.', failedQueries: 2, stopped: true } },
+    },
+  },
+}
+
+/** A failed check: a routed OpenRouter model out of credit, and an engine whose failure names no step. */
+const failedCheck: ProjectSetupDto = {
+  ...finished,
+  complete: false,
+  nextAction: 'repair_ai_visibility',
+  tracks: {
+    agentReadiness: finished.tracks.agentReadiness,
+    aiVisibility: {
+      ...finished.tracks.aiVisibility, state: 'failed', finishedAt: '2026-11-10T09:06:00.000Z', result: null,
+      error: 'gemini: Unexpected token < in JSON • openrouter:vendor/model-a: OpenRouter request failed (HTTP 402): Insufficient credits',
+      failedEngines: [
+        { provider: 'gemini', code: 'PARSE_ERROR', message: 'Unexpected token < in JSON', skipped: false },
+        { provider: 'openrouter:vendor/model-a', code: 'PROVIDER_BILLING', message: 'OpenRouter request failed (HTTP 402): Insufficient credits', skipped: false },
+      ],
     },
   },
 }
@@ -129,6 +148,20 @@ describe('project setup transports', () => {
       '  AI Visibility     Running    Asking gemini, openai · 5 of 12 answers saved',
       '                               gemini: 2 queries failed, so this check stopped asking it. Gemini rate limit reached.',
       'Next: wait for the work in progress, then check again: cnry project setup canonry-ai',
+    ].join('\n'))
+  })
+
+  it('prints a failed check engine by engine, with the step that fixes each failure it can name', async () => {
+    const cli = await invokeCliRead(['project', 'setup', 'canonry-ai'], failedCheck, { pathname: SETUP_PATH })
+    expect(cli.stdout).toBe([
+      'Canonry (canonry.ai)',
+      '  Agent Readiness   Complete   Score 72/100 · 58 pages scored',
+      '  AI Visibility     Failed     The check did not finish.',
+      '                               gemini: Unexpected token < in JSON',
+      '                               openrouter:vendor/model-a: OpenRouter request failed (HTTP 402): Insufficient credits',
+      // The credit belongs to the OpenRouter connection, not the model routed through it.
+      '                               Your openrouter account is out of credit. Add credit at openrouter, then run the check again.',
+      'Next: see why the check failed, then fix the engine: cnry run show check-1',
     ].join('\n'))
   })
 

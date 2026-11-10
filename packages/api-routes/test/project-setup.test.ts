@@ -15,6 +15,7 @@ import {
   RunStatuses,
   RunTriggers,
   serializeRunError,
+  withSkippedProviders,
   type ProjectSetupDto,
   type RunDetailDto,
   type RunStatus,
@@ -54,7 +55,7 @@ const TRACKED = { total: 3, nonBrand: 2, branded: 1, unclassified: 0 }
 const NOT_STARTED_SCAN = { state: 'not_started', runId: null, startedAt: null, finishedAt: null, progress: null, result: null, error: null }
 const READY_CHECK = {
   state: 'not_started', runId: null, startedAt: null, finishedAt: null, mode: 'simple', blockedBy: null,
-  engines: ['gemini', 'openai'], queries: TRACKED, progress: null, providerFailures: null, result: null, error: null,
+  engines: ['gemini', 'openai'], queries: TRACKED, progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
 }
 
 const FINISHED = new Set<RunStatus>([RunStatuses.completed, RunStatuses.partial, RunStatuses.failed, RunStatuses.cancelled])
@@ -311,7 +312,7 @@ describe('GET /projects/:name/setup', () => {
     })
   })
 
-  it('reports a partial check by what it saved and a failed check by its error as one line', async () => {
+  it('reports a partial check by what it saved, and a failed check by its error as one line and engine by engine', async () => {
     const { db, setup, check, answer } = await harness()
     check('partial-check', RunStatuses.partial, 0, { error: serializeRunError(buildProviderRunError([['openai', AUTH]])) })
     answer('partial-check', 'generic-a', 'gemini', true, 'Northstar is a top pick.')
@@ -333,10 +334,28 @@ describe('GET /projects/:name/setup', () => {
     expect((await setup()).tracks.aiVisibility).toEqual({
       ...READY_CHECK, state: 'failed', runId: 'failed-check', startedAt: at(10), finishedAt: at(11),
       error: 'gemini: API key not valid. Please pass a valid API key. • openai: 401 Incorrect API key provided',
+      // Each engine keeps the failure kind classified when it failed, so a client can say what to do.
+      failedEngines: [
+        { provider: 'gemini', code: 'PROVIDER_AUTH', message: 'API key not valid. Please pass a valid API key.', skipped: false },
+        { provider: 'openai', code: 'PROVIDER_AUTH', message: '401 Incorrect API key provided', skipped: false },
+      ],
     })
-    // An error stored as plain text before errors were structured reads as that text.
+
+    // An engine out of credit, and one the check skipped because it kept failing on its account.
+    const outOfCredit = buildProviderRunError([['openrouter', 'OpenRouter request failed (HTTP 402): Insufficient credits']])
+    const skipped = withSkippedProviders(outOfCredit, { gemini: { code: 'PROVIDER_AUTH', consecutiveRuns: 3, since: at(0), latestRunId: 'older-check', retryAfter: at(30) } })
+    db.update(runs).set({ error: serializeRunError(skipped) }).where(eq(runs.id, 'failed-check')).run()
+    const failedEngines = (await setup()).tracks.aiVisibility.failedEngines
+    expect(failedEngines?.map(engine => [engine.provider, engine.code, engine.skipped])).toEqual([
+      ['gemini', 'PROVIDER_AUTH', true],
+      ['openrouter', 'PROVIDER_BILLING', false],
+    ])
+    expect(failedEngines?.[1]?.message).toBe('OpenRouter request failed (HTTP 402): Insufficient credits')
+
+    // An error stored as plain text before errors were structured reads as that text, and names no engine.
     db.update(runs).set({ error: 'Server restarted while run was in progress' }).where(eq(runs.id, 'failed-check')).run()
-    expect((await setup()).tracks.aiVisibility.error).toBe('Server restarted while run was in progress')
+    const plain = (await setup()).tracks.aiVisibility
+    expect([plain.error, plain.failedEngines]).toEqual(['Server restarted while run was in progress', null])
   })
 
   it.each([

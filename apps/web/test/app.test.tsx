@@ -227,6 +227,17 @@ test('the root destination is named Overview in the sidebar, breadcrumb, page ti
   expect(runs.querySelector('#desktop-sidebar a.sidebar-link[href="/"]')?.textContent).toBe('Overview')
 })
 
+test('the setup breadcrumb names the page as its heading does', async () => {
+  const crumb = async (path: string) => new DOMParser().parseFromString(await renderApp(path), 'text/html')
+    .querySelector('nav[aria-label="Breadcrumb"] .breadcrumb-current')?.textContent
+  expect(await crumb('/setup?experience=platform')).toBe('Add a project')
+  expect(await crumb('/setup?project=citypoint-dental')).toBe('Project setup')
+  // The first setup and the established wizard keep the plain crumb.
+  expect(await crumb('/setup?project=citypoint-dental&onboarding=first-run')).toBe('Setup')
+  expect(await crumb('/setup?experience=legacy')).toBe('Setup')
+  expect(await crumb('/setup')).toBe('Setup')
+})
+
 test('the sidebar shows the version once, in the brand lockup, and keeps the product links', async () => {
   const doc = new DOMParser().parseFromString(await renderApp('/'), 'text/html')
   const sidebar = doc.querySelector('#desktop-sidebar')!

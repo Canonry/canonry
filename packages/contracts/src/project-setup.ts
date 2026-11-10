@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { providerErrorCodeSchema } from './provider-errors.js'
 import { observedQueryCountsSchema, runPreviewDtoSchema, runProviderFailureSchema, runQueryCountsByClassSchema, runStatusSchema } from './run.js'
 import { siteAuditRunPhaseSchema } from './technical-aeo.js'
 
@@ -141,6 +142,19 @@ export const aiVisibilitySetupTrackSchema = z.object({
   }).strict().nullable(),
   /** Why the check failed, null in every other state. */
   error: z.string().nullable(),
+  /**
+   * Why a failed check failed, engine by engine, from its stored error and
+   * sorted by engine. `code` is the failure kind classified when it happened,
+   * null on errors stored before kinds were recorded. `skipped` marks an engine
+   * the check did not call because it kept failing on its account. Null in
+   * every other state, and when the stored error names no engine.
+   */
+  failedEngines: z.array(z.object({
+    provider: z.string(),
+    code: providerErrorCodeSchema.nullable(),
+    message: z.string(),
+    skipped: z.boolean(),
+  }).strict()).nullable(),
 }).strict()
 export type AiVisibilitySetupTrack = z.infer<typeof aiVisibilitySetupTrackSchema>
 

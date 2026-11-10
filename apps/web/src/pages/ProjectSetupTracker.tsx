@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight } from 'lucide-react'
 import {
   AiVisibilitySetupBlockers,
@@ -12,6 +12,8 @@ import {
   describeError,
   formatLocaleLabel,
   normalizeProjectDomain,
+  providerConnectionName,
+  providerFailureRemedy,
   siteAuditRunPhaseSchema,
   type AgentReadinessSetupTrack,
   type AiVisibilitySetupBlocker,
@@ -26,6 +28,8 @@ import {
   getApiV1ProjectsByNameSetupOptions,
   getApiV1ProjectsByNameSetupQueryKey,
   getApiV1RunsByIdOptions,
+  getApiV1RunsQueryKey,
+  postApiV1RunsByIdCancelMutation,
 } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../api.js'
@@ -123,6 +127,7 @@ export function ProjectSetupTracker({
     queryKey: getApiV1ProjectsByNameSetupQueryKey({ client: heyClient, path: { name: projectName } }),
   })
   const reportRunStarted = useRunOutcomeTelemetry(projectName, setupQuery.data)
+  useRunsListRefreshOnFinish(setupQuery.data)
   const loaded = setupQuery.isSuccess
   useEffect(() => {
     if (loaded) headingRef.current?.focus({ preventScroll: true })
@@ -218,6 +223,7 @@ export function ProjectSetupTracker({
             reportRunStarted(runId, RunKinds['site-audit'])
             await refreshSetup()
           }}
+          onCancelled={refreshSetup}
         />
         <AiVisibilityRow
           projectName={projectName}
@@ -234,6 +240,7 @@ export function ProjectSetupTracker({
             closeAiPanel()
             void refreshSetup()
           }}
+          onCancelled={refreshSetup}
           primary={primaryRow === 'ai-visibility'}
           canWrite={canWrite}
           isAdmin={isAdmin}
@@ -322,6 +329,81 @@ function useRunOutcomeTelemetry(projectName: string, setup: ProjectSetupDto | un
       }, `onboarding.started:${runId}`)
     }
   }
+}
+
+/**
+ * The top bar's task list and the run notices read the runs list on their own
+ * clock. When this tracker sees a scan or check finish, read the list now, so
+ * the top bar never says Running beside a row that already finished.
+ */
+function useRunsListRefreshOnFinish(setup: ProjectSetupDto | undefined) {
+  const queryClient = useQueryClient()
+  const scan = setup?.tracks.agentReadiness.state
+  const check = setup?.tracks.aiVisibility.state
+  const previous = useRef<{ scan?: SetupTrackState; check?: SetupTrackState }>({})
+  useEffect(() => {
+    const before = previous.current
+    previous.current = { scan, check }
+    const finished = (from: SetupTrackState | undefined, to: SetupTrackState | undefined) =>
+      from !== undefined && to !== undefined && isActive(from) && !isActive(to)
+    if (finished(before.scan, scan) || finished(before.check, check)) {
+      void queryClient.invalidateQueries({ queryKey: getApiV1RunsQueryKey({ client: heyClient }) })
+    }
+  }, [scan, check, queryClient])
+}
+
+/**
+ * Stops a queued or running scan or check once the operator confirms in place.
+ * Stopping is final and keeps no result, so the confirmation says so and its
+ * first button keeps the job running.
+ */
+function CancelRunAction({ runId, noun, onCancelled }: { runId: string; noun: 'scan' | 'check'; onCancelled: () => Promise<unknown> }) {
+  const [confirming, setConfirming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const cancel = useMutation({ ...postApiV1RunsByIdCancelMutation({ client: heyClient }), meta: { skipGlobalErrorToast: true } })
+  // The question and its answers swap places in this component alone, so it
+  // moves focus itself: to Keep running when asked, back to the question after.
+  const askRef = useRef<HTMLButtonElement>(null)
+  const keepRef = useRef<HTMLButtonElement>(null)
+  const moveFocus = useRef(false)
+  useEffect(() => {
+    if (!moveFocus.current) return
+    moveFocus.current = false
+    ;(confirming ? keepRef : askRef).current?.focus()
+  }, [confirming])
+  const toggle = (next: boolean) => {
+    moveFocus.current = true
+    setError(null)
+    setConfirming(next)
+  }
+  const stop = async () => {
+    if (cancel.isPending) return
+    setError(null)
+    try {
+      await cancel.mutateAsync({ path: { id: runId } })
+    } catch (cause) {
+      setError(`The ${noun} could not be stopped. ${describeError(cause)}`)
+    }
+    // Read setup either way: a job that could not be stopped may have just finished.
+    await onCancelled()
+  }
+  if (!confirming) {
+    // The row never lands focus here on its own: after a start, a stray Enter must not begin stopping the job.
+    return <Button ref={askRef} type="button" variant="ghost" data-focus-skip onClick={() => toggle(true)}>Cancel {noun}</Button>
+  }
+  return (
+    <div role="group" aria-label={`Stop the ${noun}`} className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+      <p className="text-copy-14 text-secondary">Stop the {noun}? {noun === 'scan' ? 'It saves no score.' : 'It saves no baseline.'}</p>
+      {/* Stay focusable while stopping (aria-disabled), so focus never drops to the page. */}
+      <div className="flex gap-2 max-sm:w-full max-sm:[&>*]:flex-1">
+        <Button ref={keepRef} type="button" variant="ghost" aria-disabled={cancel.isPending || undefined} onClick={() => { if (!cancel.isPending) toggle(false) }}>Keep running</Button>
+        <Button type="button" variant="secondary" aria-disabled={cancel.isPending || undefined} onClick={() => { void stop() }}>
+          {cancel.isPending ? 'Stopping…' : `Stop ${noun}`}
+        </Button>
+      </div>
+      {error ? <p role="alert" className="w-full text-right text-copy-14 text-negative">{error}</p> : null}
+    </div>
+  )
 }
 
 function SetupTrackerSkeleton() {
@@ -445,6 +527,7 @@ function AgentReadinessRow({
   primary,
   canWrite,
   onStarted,
+  onCancelled,
 }: {
   projectName: string
   projectId: string | null
@@ -453,6 +536,7 @@ function AgentReadinessRow({
   primary: boolean
   canWrite: boolean
   onStarted: (runId: string) => Promise<void>
+  onCancelled: () => Promise<unknown>
 }) {
   const siteAudit = useTriggerSiteAudit()
   const { onboardingSessionId, emit } = useOnboardingTelemetry('platform')
@@ -569,6 +653,7 @@ function AgentReadinessRow({
           ) : null}
         </>
       )
+      action = canWrite && track.runId ? <CancelRunAction key={track.runId} runId={track.runId} noun="scan" onCancelled={onCancelled} /> : null
       break
     }
     case SetupTrackStates.completed:
@@ -675,6 +760,7 @@ function AiVisibilityRow({
   onOpenPanel,
   onClosePanel,
   onLaunched,
+  onCancelled,
   starting,
   primary,
   canWrite,
@@ -688,6 +774,7 @@ function AiVisibilityRow({
   onOpenPanel: (step: SetupPanelStep) => void
   onClosePanel: () => void
   onLaunched: (runId: string) => void
+  onCancelled: () => Promise<unknown>
   /** A check queued here that the setup read does not list yet. */
   starting: boolean
   primary: boolean
@@ -771,6 +858,8 @@ function AiVisibilityRow({
           </details>
         </>
       )
+      // A check queued here and not listed yet has no run of its own to stop.
+      action = canWrite && !starting && track.runId ? <CancelRunAction key={track.runId} runId={track.runId} noun="check" onCancelled={onCancelled} /> : null
       break
     }
     case SetupTrackStates.completed:
@@ -796,12 +885,37 @@ function AiVisibilityRow({
       )
       break
     }
-    case SetupTrackStates.failed:
+    case SetupTrackStates.failed: {
       summary = 'The check did not finish. No baseline was saved.'
-      body = track.error ? (
+      const adminNote = isAdmin ? null : <p className="text-copy-14 text-secondary">Ask an administrator to check the AI engine connection.</p>
+      const failedEngines = track.failedEngines ?? []
+      // Engine by engine: what to do first, the engine's own words one step away.
+      body = failedEngines.length > 0 ? (
+        <div className="space-y-2">
+          {failedEngines.map((engine) => {
+            const name = providerDisplayName(engine.provider)
+            // The account belongs to the connection: a routed model's credit is OpenRouter's.
+            const remedy = providerFailureRemedy(engine.code, providerDisplayName(providerConnectionName(engine.provider)))
+            return (
+              <div key={engine.provider} className="rounded-md border border-caution px-3 py-2">
+                {remedy ? (
+                  <>
+                    <p className="text-copy-14 text-primary">{remedy}</p>
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-label-13 text-secondary">Engine message</summary>
+                      <p className="mt-1 break-words text-copy-13 text-secondary">{name}: {engine.message}</p>
+                    </details>
+                  </>
+                ) : <p className="break-words text-copy-14 text-primary">{name}: {engine.message}</p>}
+              </div>
+            )
+          })}
+          {adminNote}
+        </div>
+      ) : track.error ? (
         <div className="rounded-md border border-caution px-3 py-2">
           <p className="break-words text-copy-14 text-primary">{track.error}</p>
-          {!isAdmin ? <p className="mt-1 text-copy-14 text-secondary">Ask an administrator to check the AI engine connection.</p> : null}
+          {adminNote ? <div className="mt-1">{adminNote}</div> : null}
         </div>
       ) : null
       if (canWrite) {
@@ -813,6 +927,7 @@ function AiVisibilityRow({
         )
       }
       break
+    }
     default: {
       const exhaustive: never = state
       return exhaustive

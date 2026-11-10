@@ -119,7 +119,8 @@ export function SetupTrackerRow({
     if (childrenManageFocus || !last || last.isConnected) return
     const active = document.activeElement
     if (active && active !== document.body) return
-    const target = actionsRef.current?.querySelector<HTMLElement>('button:not([disabled]), a[href]') ?? titleRef.current
+    // An action marked data-focus-skip (stopping a job) is never where focus lands unasked.
+    const target = actionsRef.current?.querySelector<HTMLElement>('button:not([disabled]):not([data-focus-skip]), a[href]:not([data-focus-skip])') ?? titleRef.current
     target?.focus()
   })
   return (

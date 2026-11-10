@@ -565,6 +565,12 @@ function NewProjectSetupBody({ firstRun }: { firstRun: boolean }) {
 
             <div className="flex flex-wrap items-center justify-end gap-2 max-sm:[&>*]:w-full">
               {dirty ? <Button type="button" variant="ghost" disabled={creating} onClick={resetDraft}>Reset unsaved fields</Button> : null}
+              {/* Adding a project can be abandoned; the first setup has nowhere else to go. Cancel drops the draft. */}
+              {firstRun ? null : (
+                <Button asChild variant="ghost" className={TOUCH_TARGET}>
+                  <Link to="/projects" onClick={() => clearOnboardingDraft('platform')}>Cancel</Link>
+                </Button>
+              )}
               <Button className={TOUCH_TARGET} type="submit" disabled={!identity || !localeValid || creating}>
                 {creating ? <><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> Creating project…</> : 'Continue'}
               </Button>

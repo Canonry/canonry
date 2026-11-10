@@ -136,6 +136,19 @@ function checkErrorText(raw: string | null): string | null {
   return parsed ? formatRunErrorOneLine(parsed) : null
 }
 
+/**
+ * A failed check's stored error, engine by engine: each engine's failure kind,
+ * message, and whether the check skipped it. Null when the error names no
+ * engine (a top-level message, plain text on older rows, or none at all).
+ */
+function failedEnginesOf(raw: string | null): AiVisibilitySetupTrack['failedEngines'] {
+  const entries = Object.entries(parseRunError(raw)?.providers ?? {})
+  if (entries.length === 0) return null
+  return entries
+    .map(([provider, detail]) => ({ provider, code: detail.code ?? null, message: detail.message, skipped: detail.skipped === true }))
+    .sort((a, b) => a.provider.localeCompare(b.provider))
+}
+
 function agentReadinessTrack(db: DatabaseClient, projectId: string, run: RunRow | undefined): AgentReadinessSetupTrack {
   if (!run) {
     return { state: SetupTrackStates.not_started, runId: null, startedAt: null, finishedAt: null, progress: null, result: null, error: null }
@@ -216,6 +229,7 @@ function aiVisibilityTrack(db: DatabaseClient, project: ProjectRow, run: RunRow 
       : null,
     result: run && hasResult(state) ? checkResult(db, project, run.id) : null,
     error: run && state === RunStatuses.failed ? checkErrorText(run.error) : null,
+    failedEngines: run && state === RunStatuses.failed ? failedEnginesOf(run.error) : null,
   }
 }
 

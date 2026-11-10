@@ -15615,6 +15615,12 @@ export type ProjectSetupDto = {
                 } | null;
             } | null;
             error: string | null;
+            failedEngines: Array<{
+                provider: string;
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN' | null;
+                message: string;
+                skipped: boolean;
+            }> | null;
         };
     };
 };

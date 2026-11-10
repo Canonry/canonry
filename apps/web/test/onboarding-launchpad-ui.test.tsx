@@ -54,7 +54,7 @@ function setupRead(project: ProjectFixture, aiVisibility: Partial<ProjectSetupDt
       aiVisibility: {
         state: 'not_started', runId: null, startedAt: null, finishedAt: null, blockedBy: 'no_queries', engines: ['gemini'],
         queries: { total: 0, nonBrand: 0, branded: 0, unclassified: 0 },
-        progress: null, providerFailures: null, result: null, error: null,
+        progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
         ...aiVisibility,
       },
     },
@@ -214,6 +214,25 @@ test.each([
   expect(screen.queryByRole('link', { name: 'Set up with an agent' })).toBeNull()
   // The visit stays where it asked to be: no project's setup opens in its place.
   expect(router.state.location.href).toBe(pathname)
+})
+
+test('adding a project can be cancelled back to Projects, which drops its draft; the first setup offers no Cancel', async () => {
+  mockSetupApi({ projects: [EXAMPLE] })
+  const { router } = await renderSetup('/setup?experience=platform', { dashboardProjects: [EXAMPLE.name] })
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'cedar.example' } })
+  fireEvent.click(screen.getByRole('link', { name: 'Cancel' }))
+  await waitFor(() => expect(router.state.location.pathname).toBe('/projects'))
+  cleanup()
+
+  // Cancelling is not leaving by accident: the half-typed website does not come back.
+  await renderSetup('/setup?experience=platform', { dashboardProjects: [EXAMPLE.name] })
+  expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('')
+  cleanup()
+
+  mockSetupApi()
+  await renderSetup('/setup')
+  expect(await screen.findByRole('heading', { level: 1, name: 'Set up Canonry' })).toBeTruthy()
+  expect(screen.queryByRole('link', { name: 'Cancel' })).toBeNull()
 })
 
 test('a bare /setup on an install with one project opens that project’s setup', async () => {
