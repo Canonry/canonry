@@ -84,7 +84,9 @@ const searchIdentity = (text: string) => text.replace(/\s+/g, ' ').trim().toLowe
 /**
  * One results page into one ranking row per market the search answers. A `partial` page set
  * holds only the first pages the source could collect, so the check reached only as deep as its
- * last organic result, and the rows say so rather than claiming the requested depth.
+ * last organic result, and the rows say so rather than claiming the requested depth. A page with
+ * no organic result checked nothing, complete or partial, so it is a failed search: read as "not
+ * in the top N" it would claim the site and every tracked rival are absent from results never seen.
  */
 function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collectedAt: string, partial: boolean): SeoMarketRanking[] {
   const search = request.search
@@ -98,8 +100,8 @@ function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collecte
   if (searchIdentity(result.keyword) !== searchIdentity(searchText)) throw new Error('SEO provider returned a different search.')
   const organic = (result.items ?? []).filter(item => serpItemTypeSchema.safeParse(item).data?.type === 'organic')
     .map(item => serpItemSchema.parse(item)).filter(item => item.rank_group != null)
+  if (organic.length === 0) throw new Error('SEO provider returned no organic results.')
   const depth = partial ? Math.min(search.depth, organic.reduce((deepest, item) => Math.max(deepest, item.rank_group!), 0)) : search.depth
-  if (depth === 0) throw new Error('SEO provider returned no organic results for a partly collected search.')
   let best: z.infer<typeof serpItemSchema> | null = null
   const competitorRanks = new Map<string, number>()
   const competitors = new Set(search.markets.flatMap(market => market.competitors))
