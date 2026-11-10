@@ -54,7 +54,7 @@ const FIRST_SCAN_REQUEST: SiteAuditEffectiveRequest = {
 const TRACKED = { total: 3, nonBrand: 2, branded: 1, unclassified: 0 }
 const NOT_STARTED_SCAN = { state: 'not_started', runId: null, startedAt: null, finishedAt: null, progress: null, result: null, error: null }
 const READY_CHECK = {
-  state: 'not_started', runId: null, startedAt: null, finishedAt: null, baselineRunId: null, mode: 'simple', blockedBy: null,
+  state: 'not_started', runId: null, runIds: [], startedAt: null, finishedAt: null, baselineRunId: null, mode: 'simple', blockedBy: null,
   engines: ['gemini', 'openai'], queries: TRACKED, progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
 }
 
@@ -245,7 +245,7 @@ describe('GET /projects/:name/setup', () => {
     }).run()
     const body = await setup()
     expect(body.tracks.aiVisibility).toEqual({
-      ...READY_CHECK, state: 'cancelled', runId: 'cancelled-check', finishedAt: cancelledAt, blockedBy: 'engines_failing', engines: [],
+      ...READY_CHECK, state: 'cancelled', runId: 'cancelled-check', runIds: ['cancelled-check'], finishedAt: cancelledAt, blockedBy: 'engines_failing', engines: [],
     })
     expect(body.nextAction).toBe('repair_ai_visibility')
   })
@@ -255,7 +255,7 @@ describe('GET /projects/:name/setup', () => {
     scan('scan', RunStatuses.completed, 0)
     check('check', RunStatuses.queued, 5)
     // Queued: nothing planned yet, and the engines are those a new check would call.
-    expect((await setup()).tracks.aiVisibility).toEqual({ ...READY_CHECK, state: 'queued', runId: 'check', progress: { answersSaved: 0, answersPlanned: null } })
+    expect((await setup()).tracks.aiVisibility).toEqual({ ...READY_CHECK, state: 'queued', runId: 'check', runIds: ['check'], progress: { answersSaved: 0, answersPlanned: null } })
 
     const failures = { gemini: { message: 'Gemini rate limit reached.', failedQueries: 1, stopped: false } }
     db.update(runs).set({
@@ -275,7 +275,7 @@ describe('GET /projects/:name/setup', () => {
     answer('check', 'generic-b', 'gemini', false, 'Try a local directory.')
     // The check calls gemini only: it skips openai, which its frozen roster lists.
     expect((await setup()).tracks.aiVisibility).toEqual({
-      ...READY_CHECK, state: 'running', runId: 'check', startedAt: at(6), engines: ['gemini'],
+      ...READY_CHECK, state: 'running', runId: 'check', runIds: ['check'], startedAt: at(6), engines: ['gemini'],
       progress: { answersSaved: 2, answersPlanned: 3 }, providerFailures: failures,
     })
   })
@@ -293,9 +293,8 @@ describe('GET /projects/:name/setup', () => {
     answer('check', 'branded', 'openai', false, 'Northstar gets good reviews.')
     const completed = await setup()
     expect(completed.tracks.aiVisibility).toEqual({
-      ...READY_CHECK, state: 'completed', runId: 'check', startedAt: at(5), finishedAt: at(6), baselineRunId: 'check',
+      ...READY_CHECK, state: 'completed', runId: 'check', runIds: ['check'], startedAt: at(5), finishedAt: at(6), baselineRunId: 'check',
       result: {
-        first: true,
         answers: 6,
         engines: 2,
         queryCounts: { totalQueries: 3, citedQueries: 2, mentionedQueries: 3, citationNotMeasuredQueries: 0 },
@@ -318,9 +317,8 @@ describe('GET /projects/:name/setup', () => {
     check('partial-check', RunStatuses.partial, 0, { error: serializeRunError(buildProviderRunError([['openai', AUTH]])) })
     answer('partial-check', 'generic-a', 'gemini', true, 'Northstar is a top pick.')
     expect((await setup()).tracks.aiVisibility).toEqual({
-      ...READY_CHECK, state: 'partial', runId: 'partial-check', startedAt: at(0), finishedAt: at(1), baselineRunId: 'partial-check',
+      ...READY_CHECK, state: 'partial', runId: 'partial-check', runIds: ['partial-check'], startedAt: at(0), finishedAt: at(1), baselineRunId: 'partial-check',
       result: {
-        first: true,
         answers: 1,
         engines: 1,
         queryCounts: { totalQueries: 1, citedQueries: 1, mentionedQueries: 1, citationNotMeasuredQueries: 0 },
@@ -334,7 +332,7 @@ describe('GET /projects/:name/setup', () => {
 
     check('failed-check', RunStatuses.failed, 10, { error: serializeRunError(buildProviderRunError([['gemini', GEMINI_BAD_KEY], ['openai', AUTH]])) })
     expect((await setup()).tracks.aiVisibility).toEqual({
-      ...READY_CHECK, state: 'failed', runId: 'failed-check', startedAt: at(10), finishedAt: at(11), baselineRunId: 'partial-check',
+      ...READY_CHECK, state: 'failed', runId: 'failed-check', runIds: ['failed-check'], startedAt: at(10), finishedAt: at(11), baselineRunId: 'partial-check',
       error: 'gemini: API key not valid. Please pass a valid API key. • openai: 401 Incorrect API key provided',
       // Each engine keeps the failure kind classified when it failed, so a client can say what to do.
       failedEngines: [
@@ -405,34 +403,76 @@ describe('GET /projects/:name/setup', () => {
     const { setup, check } = await harness()
     const track = async () => {
       const ai = (await setup()).tracks.aiVisibility
-      return { state: ai.state, runId: ai.runId, baselineRunId: ai.baselineRunId, first: ai.result?.first ?? null }
+      return { state: ai.state, runId: ai.runId, baselineRunId: ai.baselineRunId }
     }
     // Neither a failed check nor a probe is a result the project measures from.
     check('failed-check', RunStatuses.failed, 0)
     check('probe-check', RunStatuses.completed, 5, { trigger: RunTriggers.probe })
-    expect(await track()).toEqual({ state: 'failed', runId: 'failed-check', baselineRunId: null, first: null })
+    expect(await track()).toEqual({ state: 'failed', runId: 'failed-check', baselineRunId: null })
 
     check('first-check', RunStatuses.partial, 10)
-    expect(await track()).toEqual({ state: 'partial', runId: 'first-check', baselineRunId: 'first-check', first: true })
+    expect(await track()).toEqual({ state: 'partial', runId: 'first-check', baselineRunId: 'first-check' })
 
     // The track shows the latest check; the baseline stays the first one, whatever the latest check's state.
     check('later-check', RunStatuses.completed, 20)
-    expect(await track()).toEqual({ state: 'completed', runId: 'later-check', baselineRunId: 'first-check', first: false })
+    expect(await track()).toEqual({ state: 'completed', runId: 'later-check', baselineRunId: 'first-check' })
     check('running-check', RunStatuses.running, 30)
-    expect(await track()).toEqual({ state: 'running', runId: 'running-check', baselineRunId: 'first-check', first: null })
+    expect(await track()).toEqual({ state: 'running', runId: 'running-check', baselineRunId: 'first-check' })
     check('failed-later', RunStatuses.failed, 40)
-    expect(await track()).toEqual({ state: 'failed', runId: 'failed-later', baselineRunId: 'first-check', first: null })
+    expect(await track()).toEqual({ state: 'failed', runId: 'failed-later', baselineRunId: 'first-check' })
   })
 
-  it('dates the first result by the earliest finished completed or partial run of either kind', async () => {
+  it('dates the first result and names the baseline by the result that finished first', async () => {
     const { setup, scan, check } = await harness()
     // A failure is not a result, however early it finished.
     scan('failed-scan', RunStatuses.failed, 0)
-    // Created first, finished last.
+    // Created first, finished last: neither date nor baseline goes by creation.
     scan('slow-scan', RunStatuses.completed, 10, { finishedAt: at(50) })
+    check('slow-check', RunStatuses.completed, 15, { finishedAt: at(60) })
     check('quick-check', RunStatuses.partial, 20, { finishedAt: at(30) })
     check('later-check', RunStatuses.completed, 40, { finishedAt: at(45) })
-    expect((await setup()).firstResultAt).toBe(at(30))
+    const body = await setup()
+    expect({ firstResultAt: body.firstResultAt, baselineRunId: body.tracks.aiVisibility.baselineRunId })
+      .toEqual({ firstResultAt: at(30), baselineRunId: 'quick-check' })
+  })
+
+  it('reads a sweep over every location as one check: all its runs, their combined progress and results, and the state of the whole', async () => {
+    const { db, setup, check, answer } = await harness()
+    // One run per location, created together.
+    check('north-run', RunStatuses.completed, 0, { location: 'north', plannedAnswers: 2 })
+    check('south-run', RunStatuses.running, 0, { location: 'south', plannedAnswers: 2 })
+    answer('north-run', 'generic-a', 'gemini', true, 'Northstar is a top pick.')
+    answer('north-run', 'generic-b', 'gemini', false, 'Search a local directory.')
+    answer('south-run', 'generic-a', 'gemini', false, 'Several services operate nearby.')
+    const running = (await setup()).tracks.aiVisibility
+    // Running while any run is; stopping it stops every run, and the finished location is already the baseline.
+    expect({ state: running.state, runId: running.runId, runIds: running.runIds, progress: running.progress, baselineRunId: running.baselineRunId, result: running.result })
+      .toEqual({ state: 'running', runId: 'south-run', runIds: ['south-run', 'north-run'], progress: { answersSaved: 3, answersPlanned: 4 }, baselineRunId: 'south-run', result: null })
+
+    db.update(runs).set({ status: RunStatuses.completed, finishedAt: at(2) }).where(eq(runs.id, 'south-run')).run()
+    const done = (await setup()).tracks.aiVisibility
+    // Each query counts once across locations: generic-a was mentioned and cited in the north.
+    expect({ state: done.state, startedAt: done.startedAt, finishedAt: done.finishedAt, result: done.result }).toEqual({
+      state: 'completed', startedAt: at(0), finishedAt: at(2),
+      result: {
+        answers: 3,
+        engines: 1,
+        queryCounts: { totalQueries: 2, citedQueries: 1, mentionedQueries: 1, citationNotMeasuredQueries: 0 },
+        queryCountsByClass: {
+          nonBrand: { totalQueries: 2, citedQueries: 1, mentionedQueries: 1, citationNotMeasuredQueries: 0 },
+          branded: { totalQueries: 0, citedQueries: 0, mentionedQueries: 0, citationNotMeasuredQueries: 0 },
+          unclassifiedQueries: 0,
+        },
+      },
+    })
+
+    // A later sweep where one location failed saved part of its work.
+    check('west-run', RunStatuses.failed, 10, { location: 'west', error: serializeRunError(buildProviderRunError([['gemini', AUTH]])) })
+    check('east-run', RunStatuses.completed, 10, { location: 'east' })
+    answer('east-run', 'branded', 'gemini', false, 'Northstar is reliable.')
+    const partial = (await setup()).tracks.aiVisibility
+    expect({ state: partial.state, runIds: partial.runIds, answers: partial.result?.answers, baselineRunId: partial.baselineRunId, failedEngines: partial.failedEngines })
+      .toEqual({ state: 'partial', runIds: ['west-run', 'east-run'], answers: 1, baselineRunId: 'south-run', failedEngines: null })
   })
 
   it('reads a custom portfolio by its published plan: plan classes, frozen engines, planned answers and per-class results', async () => {
@@ -465,7 +505,7 @@ describe('GET /projects/:name/setup', () => {
     answer(runId, 'q-nearby', 'gemini', true, 'Northstar Harbor Homes is close by.')
     const running = await setup()
     expect(running.tracks.aiVisibility).toEqual({
-      ...READY_CHECK, mode: 'advanced', queries: portfolioQueries, state: 'running', runId, startedAt: at(40),
+      ...READY_CHECK, mode: 'advanced', queries: portfolioQueries, state: 'running', runId, runIds: [runId], startedAt: at(40),
       engines: ['gemini', 'openai'], progress: { answersSaved: 1, answersPlanned: 4 },
     })
     expect(running.nextAction).toBe('wait')
@@ -483,9 +523,8 @@ describe('GET /projects/:name/setup', () => {
       tracks: {
         agentReadiness: { state: 'completed', runId: 'scan', startedAt: at(0), finishedAt: at(1), progress: null, result: { score: 64, pagesScored: 40 }, error: null },
         aiVisibility: {
-          ...READY_CHECK, mode: 'advanced', queries: portfolioQueries, state: 'completed', runId, startedAt: at(40), finishedAt: at(50), baselineRunId: runId,
+          ...READY_CHECK, mode: 'advanced', queries: portfolioQueries, state: 'completed', runId, runIds: [runId], startedAt: at(40), finishedAt: at(50), baselineRunId: runId,
           result: {
-            first: true,
             answers: 4,
             engines: 2,
             queryCounts: { totalQueries: 2, citedQueries: 1, mentionedQueries: 2, citationNotMeasuredQueries: 0 },

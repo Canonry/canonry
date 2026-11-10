@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, ChevronDown, LoaderCircle } from 'lucide-react'
 import {
+  getApiV1ProjectsByNameSetupOptions,
   getApiV1ProjectsOptions,
   getApiV1ProjectsQueryKey,
   getApiV1TelemetryOptions,
@@ -200,10 +201,16 @@ export function OnboardingSetupPage() {
       ?? (search.onboarding === 'site-health' ? 'agent-readiness' : undefined)
     return <ProjectSetupTracker key={projectName} projectName={projectName} firstRun={search.onboarding !== undefined} track={track} />
   }
-  return <SetupEntry addProject={search.experience === 'platform'} />
+  // Keyed by the address, so the entry decides afresh after it moves to Add a project.
+  const addProject = search.experience === 'platform'
+  return <SetupEntry key={addProject ? 'add-project' : 'entry'} addProject={addProject} />
 }
 
-/** A bare `/setup`: the first setup, the one project's setup, or adding a project. */
+/**
+ * A bare `/setup`: the first setup, the setup of the install's only project
+ * while it is unfinished, or else adding a project, at `?experience=platform` so
+ * the address, title and breadcrumb all name the page.
+ */
 function SetupEntry({ addProject }: { addProject: boolean }) {
   const navigate = useNavigate()
   const projectsQuery = useQuery({
@@ -216,23 +223,42 @@ function SetupEntry({ addProject }: { addProject: boolean }) {
   // Decided once, on the first fresh read. A later refetch (the form refreshes
   // the list after a name conflict) must not swap the form for a redirect and
   // hide the conflict it is reporting.
-  const [entry, setEntry] = useState<{ redirectTo: string } | { firstRun: boolean } | null>(null)
+  const onlyProject = !addProject && fresh && projectsQuery.data.length === 1 ? projectsQuery.data[0] : undefined
+  // Whether the only project finished setup decides where a bare /setup goes.
+  const onlySetupQuery = useQuery({
+    ...getApiV1ProjectsByNameSetupOptions({ client: heyClient, path: { name: onlyProject?.name ?? '' } }),
+    enabled: onlyProject !== undefined,
+    retry: false,
+  })
+  const [entry, setEntry] = useState<{ redirectTo: string } | { addProject: true } | { firstRun: boolean } | null>(null)
   useEffect(() => {
     if (entry || !fresh) return
     const projects = projectsQuery.data
-    // The install's only project continues its own setup. An agent or the CLI
-    // may have created it, and the tracker shows exactly where it stands.
-    setEntry(!addProject && projects.length === 1 && projects[0]
-      ? { redirectTo: projects[0].name }
-      : { firstRun: projects.length === 0 })
-  }, [addProject, entry, fresh, projectsQuery.data])
+    if (addProject || projects.length === 0) {
+      setEntry({ firstRun: projects.length === 0 })
+      return
+    }
+    if (onlyProject) {
+      // The install's only project continues its own setup until it is
+      // complete. An agent or the CLI may have created it, and the tracker
+      // shows exactly where it stands; a read that fails opens it too.
+      if (onlySetupQuery.isPending) return
+      setEntry(onlySetupQuery.data?.complete === true ? { addProject: true } : { redirectTo: onlyProject.name })
+      return
+    }
+    setEntry({ addProject: true })
+  }, [addProject, entry, fresh, onlyProject, onlySetupQuery.data, onlySetupQuery.isPending, projectsQuery.data])
   useEffect(() => {
-    if (!entry || !('redirectTo' in entry)) return
-    void navigate({ to: '/setup', search: { project: entry.redirectTo, onboarding: 'first-run' }, replace: true })
+    if (!entry) return
+    if ('redirectTo' in entry) {
+      void navigate({ to: '/setup', search: { project: entry.redirectTo, onboarding: 'first-run' }, replace: true })
+    } else if ('addProject' in entry) {
+      void navigate({ to: '/setup', search: { experience: 'platform' }, replace: true })
+    }
   }, [entry, navigate])
 
   if (!entry && projectsQuery.isError) return <SetupRetry onRetry={() => { void projectsQuery.refetch() }} />
-  if (!entry || 'redirectTo' in entry) return <SetupLoading />
+  if (!entry || 'redirectTo' in entry || 'addProject' in entry) return <SetupLoading />
   return <NewProjectSetup firstRun={entry.firstRun} />
 }
 

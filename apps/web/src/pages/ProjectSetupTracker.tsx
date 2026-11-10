@@ -90,11 +90,14 @@ export function ProjectSetupTracker({
   const setupQuery = useQuery({
     ...getApiV1ProjectsByNameSetupOptions({ client: heyClient, path: { name: projectName } }),
     retry: false,
-    // Fast while a job runs; slowly otherwise, so work started from the CLI or
-    // an agent shows up without a reload.
-    refetchInterval: ({ state }) => state.data && (isActive(state.data.tracks.agentReadiness.state) || isActive(state.data.tracks.aiVisibility.state))
-      ? 3_000
-      : 15_000,
+    // Fast while a job runs; slowly while setup is unfinished, so work started
+    // from the CLI or an agent shows up without a reload. A finished setup reads
+    // again when the window regains focus.
+    refetchInterval: ({ state }) => {
+      const data = state.data
+      if (data && (isActive(data.tracks.agentReadiness.state) || isActive(data.tracks.aiVisibility.state))) return 3_000
+      return data?.complete ? false : 15_000
+    },
   })
   const projectQuery = useQuery({
     ...getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: projectName } }),
@@ -358,11 +361,12 @@ function useRunsListRefreshOnFinish(setup: ProjectSetupDto | undefined) {
 }
 
 /**
- * Stops a queued or running scan or check once the operator confirms in place.
+ * Stops a queued or running scan or check once the operator confirms in place:
+ * every one of its runs, so a sweep over every location stops as one check.
  * Stopping is final, so the confirmation says what it means for results (the
  * caller's `note`) and its first button keeps the job running.
  */
-function CancelRunAction({ runId, noun, note, onCancelled }: { runId: string; noun: 'scan' | 'check'; note: string; onCancelled: () => Promise<unknown> }) {
+function CancelRunAction({ runIds, noun, note, onCancelled }: { runIds: readonly string[]; noun: 'scan' | 'check'; note: string; onCancelled: () => Promise<unknown> }) {
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const cancel = useMutation({ ...postApiV1RunsByIdCancelMutation({ client: heyClient }), meta: { skipGlobalErrorToast: true } })
@@ -384,11 +388,11 @@ function CancelRunAction({ runId, noun, note, onCancelled }: { runId: string; no
   const stop = async () => {
     if (cancel.isPending) return
     setError(null)
-    try {
-      await cancel.mutateAsync({ path: { id: runId } })
-    } catch (cause) {
-      setError(`The ${noun} could not be stopped. ${describeError(cause)}`)
-    }
+    const outcomes = await Promise.allSettled(runIds.map(id => cancel.mutateAsync({ path: { id } })))
+    // A run of the check that already finished needs no stopping.
+    const failure = outcomes.find((outcome): outcome is PromiseRejectedResult =>
+      outcome.status === 'rejected' && extractApiErrorInfo(outcome.reason).code !== 'RUN_NOT_CANCELLABLE')
+    if (failure) setError(`The ${noun} could not be stopped. ${describeError(failure.reason)}`)
     // Read setup either way: a job that could not be stopped may have just finished.
     await onCancelled()
   }
@@ -658,7 +662,7 @@ function AgentReadinessRow({
           ) : null}
         </>
       )
-      action = canWrite && track.runId ? <CancelRunAction key={track.runId} runId={track.runId} noun="scan" note="It saves no score." onCancelled={onCancelled} /> : null
+      action = canWrite && track.runId ? <CancelRunAction key={track.runId} runIds={[track.runId]} noun="scan" note="It saves no score." onCancelled={onCancelled} /> : null
       break
     }
     case SetupTrackStates.completed:
@@ -870,25 +874,26 @@ function AiVisibilityRow({
       )
       // A check queued here and not listed yet has no run of its own to stop.
       action = canWrite && !starting && track.runId
-        ? <CancelRunAction key={track.runId} runId={track.runId} noun="check" note={track.baselineRunId === null ? 'It saves no baseline.' : 'Earlier results stay as they are.'} onCancelled={onCancelled} />
+        ? <CancelRunAction key={track.runId} runIds={track.runIds} noun="check" note={track.baselineRunId === null ? 'It saves no baseline.' : 'Earlier results stay as they are.'} onCancelled={onCancelled} />
         : null
       break
     }
     case SetupTrackStates.completed:
     case SetupTrackStates.partial: {
       const result = track.result
-      // The row shows the latest check: the baseline only when the server says it is the project's first.
+      // The row shows the latest check: the baseline only when the server names it so.
+      const isBaseline = track.runId !== null && track.runId === track.baselineRunId
       summary = result
-        ? `${state === SetupTrackStates.partial ? 'Partial results' : result.first ? 'Baseline' : 'Latest check'} · ${plural(result.answers, 'answer', 'answers')} from ${plural(result.engines, 'engine', 'engines')}${track.finishedAt ? ` · ${formatSweepInstant(track.finishedAt)}` : ''}`
+        ? `${state === SetupTrackStates.partial ? 'Partial results' : isBaseline ? 'Baseline' : 'Latest check'} · ${plural(result.answers, 'answer', 'answers')} from ${plural(result.engines, 'engine', 'engines')}${track.finishedAt ? ` · ${formatSweepInstant(track.finishedAt)}` : ''}`
         : 'The check finished.'
       body = result ? (
         <>
           <FirstResultTable
             byClass={result.queryCountsByClass}
             pooled={result.queryCounts}
-            caption={result.first ? undefined : 'Latest AI Visibility check by query class'}
+            caption={isBaseline ? undefined : 'Latest AI Visibility check by query class'}
           />
-          {result.first ? <p className="mt-3 text-copy-13 text-secondary">Later checks are compared with this baseline.</p> : null}
+          {isBaseline ? <p className="mt-3 text-copy-13 text-secondary">Later checks are compared with this baseline.</p> : null}
           {track.runId ? <ExampleAnswer runId={track.runId} projectName={projectName} /> : null}
         </>
       ) : null

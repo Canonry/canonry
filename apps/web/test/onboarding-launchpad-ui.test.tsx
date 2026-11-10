@@ -52,7 +52,7 @@ function setupRead(project: ProjectFixture, aiVisibility: Partial<ProjectSetupDt
     tracks: {
       agentReadiness: { state: 'not_started', runId: null, startedAt: null, finishedAt: null, progress: null, result: null, error: null },
       aiVisibility: {
-        state: 'not_started', runId: null, startedAt: null, finishedAt: null, baselineRunId: null, blockedBy: 'no_queries', engines: ['gemini'],
+        state: 'not_started', runId: null, runIds: [], startedAt: null, finishedAt: null, baselineRunId: null, blockedBy: 'no_queries', engines: ['gemini'],
         queries: { total: 0, nonBrand: 0, branded: 0, unclassified: 0 },
         progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
         ...aiVisibility,
@@ -202,18 +202,23 @@ test('a fresh install leads with its website, then two tracks that have not star
 })
 
 test.each([
-  { scenario: 'Add project on an install with one project', pathname: '/setup?experience=platform', projects: [EXAMPLE] },
-  { scenario: 'a bare /setup on an install with several projects', pathname: '/setup', projects: [EXAMPLE, HARBOR] },
-])('$scenario adds a project without the first-run framing', async ({ pathname, projects }) => {
-  mockSetupApi({ projects })
+  { scenario: 'Add project on an install with one project', pathname: '/setup?experience=platform', projects: [EXAMPLE], finished: false },
+  { scenario: 'a bare /setup on an install with several projects', pathname: '/setup', projects: [EXAMPLE, HARBOR], finished: false },
+  // A finished project's setup is done; the sidebar's Setup link adds a project instead of reopening it as the first setup.
+  { scenario: 'a bare /setup on an install whose only project finished setup', pathname: '/setup', projects: [EXAMPLE], finished: true },
+])('$scenario adds a project without the first-run framing', async ({ pathname, projects, finished }) => {
+  mockSetupApi({
+    projects,
+    route: path => finished && path === `/api/v1/projects/${EXAMPLE.name}/setup` ? jsonResponse({ ...setupRead(EXAMPLE), complete: true }) : undefined,
+  })
   const { router } = await renderSetup(pathname, { dashboardProjects: projects.map(project => project.name) })
 
   expect(await screen.findByRole('heading', { level: 1, name: 'Add a project' })).toBeTruthy()
   expect(screen.getByRole('textbox', { name: 'Website URL' })).toBeTruthy()
   expect(screen.queryByText(/Add your first website/)).toBeNull()
   expect(screen.queryByRole('link', { name: 'Set up with an agent' })).toBeNull()
-  // The visit stays where it asked to be: no project's setup opens in its place.
-  expect(router.state.location.href).toBe(pathname)
+  // No project's setup opens in its place, and the address names the page, so its breadcrumb does too.
+  expect(router.state.location.href).toBe('/setup?experience=platform')
 })
 
 test('adding a project can be cancelled back to Projects, which drops its draft; the first setup offers no Cancel', async () => {

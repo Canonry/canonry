@@ -15567,6 +15567,7 @@ export type ProjectSetupDto = {
         aiVisibility: {
             state: 'not_started' | 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
             runId: string | null;
+            runIds: Array<string>;
             startedAt: string | null;
             finishedAt: string | null;
             baselineRunId: string | null;
@@ -15591,7 +15592,6 @@ export type ProjectSetupDto = {
                 };
             } | null;
             result: {
-                first: boolean;
                 answers: number;
                 engines: number;
                 queryCounts: {

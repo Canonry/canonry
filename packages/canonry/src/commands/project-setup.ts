@@ -111,9 +111,9 @@ function signalCounts(counts: ObservedQueryCounts): string {
   return `mentioned in ${counts.mentionedQueries} of ${counts.totalQueries}, ${cited}`
 }
 
-function resultLines(result: NonNullable<AiVisibilitySetupTrack['result']>): string[] {
-  // The latest check is the baseline only when it is the project's first, as the dashboard says.
-  const lines = [`${result.first ? 'Baseline' : 'Latest check'} · ${result.answers} ${result.answers === 1 ? 'answer' : 'answers'} from ${result.engines} ${result.engines === 1 ? 'engine' : 'engines'}`]
+function resultLines(result: NonNullable<AiVisibilitySetupTrack['result']>, isBaseline: boolean): string[] {
+  // The latest check is the baseline only when the server names it so, as the dashboard says.
+  const lines = [`${isBaseline ? 'Baseline' : 'Latest check'} · ${result.answers} ${result.answers === 1 ? 'answer' : 'answers'} from ${result.engines} ${result.engines === 1 ? 'engine' : 'engines'}`]
   if (result.queryCountsByClass) {
     // Branded and non-brand never share a denominator: each is its own line.
     lines.push(`Non-brand queries: ${signalCounts(result.queryCountsByClass.nonBrand)}`)
@@ -153,7 +153,7 @@ function aiVisibilityLines(track: AiVisibilitySetupTrack): string[] {
     }
     case SetupTrackStates.completed:
     case SetupTrackStates.partial:
-      return track.result ? resultLines(track.result) : ['Result unavailable']
+      return track.result ? resultLines(track.result, track.runId !== null && track.runId === track.baselineRunId) : ['Result unavailable']
     case SetupTrackStates.failed: {
       const engines = track.failedEngines ?? []
       if (engines.length === 0) return [`The check did not finish.${track.error ? ` ${track.error}` : ''}`]

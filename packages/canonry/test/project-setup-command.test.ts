@@ -23,7 +23,7 @@ const scanning: ProjectSetupDto = {
       result: null, error: null,
     },
     aiVisibility: {
-      state: 'not_started', runId: null, startedAt: null, finishedAt: null, baselineRunId: null, mode: 'simple', blockedBy: 'no_engine',
+      state: 'not_started', runId: null, runIds: [], startedAt: null, finishedAt: null, baselineRunId: null, mode: 'simple', blockedBy: 'no_engine',
       engines: [], queries: NO_QUERIES, progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
     },
   },
@@ -41,11 +41,10 @@ const finished: ProjectSetupDto = {
       progress: null, result: { score: 72, pagesScored: 58 }, error: null,
     },
     aiVisibility: {
-      state: 'completed', runId: 'check-1', startedAt: '2026-11-10T09:05:00.000Z', finishedAt: '2026-11-10T09:09:00.000Z', baselineRunId: 'check-1',
+      state: 'completed', runId: 'check-1', runIds: ['check-1'], startedAt: '2026-11-10T09:05:00.000Z', finishedAt: '2026-11-10T09:09:00.000Z', baselineRunId: 'check-1',
       mode: 'simple', blockedBy: null, engines: ['gemini', 'openai'], queries: { total: 3, nonBrand: 2, branded: 1, unclassified: 0 },
       progress: null, providerFailures: null,
       result: {
-        first: true,
         answers: 6,
         engines: 2,
         queryCounts: { totalQueries: 3, citedQueries: 2, mentionedQueries: 3, citationNotMeasuredQueries: 0 },
@@ -178,8 +177,7 @@ describe('project setup transports', () => {
     ].join('\n'))
 
     // A later check is the latest, not the baseline.
-    const ai = finished.tracks.aiVisibility
-    const later: ProjectSetupDto = { ...finished, tracks: { ...finished.tracks, aiVisibility: { ...ai, result: ai.result && { ...ai.result, first: false } } } }
+    const later: ProjectSetupDto = { ...finished, tracks: { ...finished.tracks, aiVisibility: { ...finished.tracks.aiVisibility, baselineRunId: 'check-0' } } }
     const laterCli = await invokeCliRead(['project', 'setup', 'canonry-ai'], later, { pathname: SETUP_PATH })
     expect(laterCli.stdout.split('\n')[2]).toBe('  AI Visibility     Complete   Latest check · 6 answers from 2 engines')
   })

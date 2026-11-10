@@ -956,7 +956,7 @@ function mergeSimpleSweep(members: ReadonlyArray<{ run: typeof runs.$inferSelect
  * sibling runs that share `createdAt`, each measuring its own location. Two
  * runs of one location at the same instant are two sweeps, the lower id first.
  */
-function simpleSweeps<T extends { createdAt: string; location: string | null }>(ordered: readonly T[]): T[][] {
+export function simpleSweeps<T extends { createdAt: string; location: string | null }>(ordered: readonly T[]): T[][] {
   const sweeps: T[][] = []
   let current: T[] = []
   let locations = new Set<string | null>()

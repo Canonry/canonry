@@ -79,17 +79,27 @@ export const agentReadinessSetupTrackSchema = z.object({
 }).strict()
 export type AgentReadinessSetupTrack = z.infer<typeof agentReadinessSetupTrackSchema>
 
-/** The AI Visibility check track: the latest non-probe `answer-visibility` run. */
+/**
+ * The AI Visibility check track: the latest non-probe `answer-visibility`
+ * check. A check that measured every location is one sweep of sibling runs
+ * that share `createdAt`, one per location, and the track reads the sweep as
+ * one check: queued or running while any run is, then completed, partial (some
+ * runs saved results), cancelled or failed.
+ */
 export const aiVisibilitySetupTrackSchema = z.object({
   state: setupTrackStateSchema,
+  /** The latest check's run (for a sweep, its newest run id); null before any. */
   runId: z.string().nullable(),
+  /** Every run of the latest check, newest first: one per location for a sweep, otherwise `[runId]`. Empty before any. */
+  runIds: z.array(z.string()),
+  /** When the check's first run started, and, once none is active, when its last run finished. */
   startedAt: z.string().nullable(),
   finishedAt: z.string().nullable(),
   /**
-   * The project's baseline: its first check with a result (the earliest
-   * completed or partial non-probe check), whatever state the latest check is
-   * in; null before any. Clients word a failed, stopped or new check by it,
-   * and `result.first` is true when the latest check is this one.
+   * The project's baseline: the first check to finish with a result (completed
+   * or partial, never a probe), named as `runId` names a check, whatever state
+   * the latest check is in; null before any. The latest check is the baseline
+   * when `runId` equals it. Clients word a failed, stopped or new check by it.
    */
   baselineRunId: z.string().nullable(),
   /**
@@ -126,26 +136,24 @@ export const aiVisibilitySetupTrackSchema = z.object({
   /**
    * While the check is queued or running: answers saved so far, and the answers
    * it set out to collect, recorded when it started (null until then, and on
-   * checks from before it was recorded). Null otherwise.
+   * checks from before it was recorded). A sweep sums its runs, and its planned
+   * answers stay null until every run recorded them. Null otherwise.
    */
   progress: z.object({
     answersSaved: countSchema,
     answersPlanned: countSchema.nullable(),
   }).strict().nullable(),
-  /** While the check is queued or running: each engine failing so far, as the run detail reports it. Null otherwise. */
+  /** While the check is queued or running: each engine failing so far, as the run detail reports it (a sweep sums each engine's failed queries across its runs). Null otherwise. */
   providerFailures: z.record(z.string(), runProviderFailureSchema).nullable(),
   /**
    * Once the check completed or stopped partway (partial): the answers it saved,
    * the distinct engines that answered, and its observed query counts exactly as
    * the run detail reports them. `queryCountsByClass` keeps non-brand and branded
    * apart; it is null when no observed query has a class (no usable brand name),
-   * and both are null when an answer lacks query identity. `first` is true when
-   * this is the project's first check with a result (no earlier completed or
-   * partial non-probe check), the baseline later checks start from. Null in
-   * every other state.
+   * and both are null when an answer lacks query identity. A sweep counts every
+   * run that saved results, each query once. Null in every other state.
    */
   result: z.object({
-    first: z.boolean(),
     answers: countSchema,
     engines: countSchema,
     queryCounts: observedQueryCountsSchema.nullable(),
@@ -157,7 +165,8 @@ export const aiVisibilitySetupTrackSchema = z.object({
    * Why a failed check failed, engine by engine, from its stored error and
    * sorted by engine. `code` is the failure kind classified when it happened,
    * null on errors stored before kinds were recorded. `skipped` marks an engine
-   * the check did not call because it kept failing on its account. Null in
+   * the check did not call because it kept failing on its account. A sweep
+   * lists each engine once, from its newest failed run that names it. Null in
    * every other state, and when the stored error names no engine.
    */
   failedEngines: z.array(z.object({
@@ -182,7 +191,7 @@ export const projectSetupDtoSchema = z.object({
   }).strict(),
   /** Each track has produced a result (a completed or partial non-probe run) at least once. A newer run in progress does not undo it. */
   complete: z.boolean(),
-  /** `finishedAt` of the earliest completed or partial non-probe audit scan or AI Visibility check; null before any. */
+  /** When the first result arrived: `finishedAt` of the first completed or partial non-probe audit scan or AI Visibility check to finish; null before any. */
   firstResultAt: z.string().nullable(),
   nextAction: projectSetupNextActionSchema,
   tracks: z.object({

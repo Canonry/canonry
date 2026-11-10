@@ -65,6 +65,8 @@ function setupRead(overrides: SetupOverrides = {}): ProjectSetupDto {
         state: 'not_started', runId: null, startedAt: null, finishedAt: null, baselineRunId: null, blockedBy: 'no_engine', engines: [],
         queries: { total: 0, nonBrand: 0, branded: 0, unclassified: 0 },
         progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
+        // A check is its one run unless a test names a sweep's runs.
+        runIds: overrides.aiVisibility?.runId ? [overrides.aiVisibility.runId] : [],
         ...overrides.aiVisibility,
       },
     },
@@ -229,7 +231,7 @@ test('with both results, setup reads complete, the exit is primary, and the firs
         state: 'completed', runId: 'run-ai', finishedAt: '2026-11-10T04:04:00.000Z', baselineRunId: 'run-ai', blockedBy: null,
         engines: ['gemini'], queries: { total: 5, nonBrand: 4, branded: 1, unclassified: 0 },
         result: {
-          first: true, answers: 5, engines: 1,
+          answers: 5, engines: 1,
           queryCounts: { totalQueries: 5, citedQueries: 1, mentionedQueries: 2 },
           queryCountsByClass: {
             nonBrand: { totalQueries: 4, citedQueries: 0, mentionedQueries: 1 },
@@ -266,7 +268,7 @@ test('a later check reads as the latest check, never as the baseline', async () 
       agentReadiness: { state: 'completed', runId: 'run-scan', result: { score: 80, pagesScored: 40 } },
       aiVisibility: {
         state: 'completed', runId: 'run-ai-2', finishedAt: '2026-11-12T04:04:00.000Z', baselineRunId: 'run-ai-1', blockedBy: null, engines: ['gemini'],
-        result: { first: false, answers: 5, engines: 1, queryCounts: { totalQueries: 5, citedQueries: 1, mentionedQueries: 2 }, queryCountsByClass: null },
+        result: { answers: 5, engines: 1, queryCounts: { totalQueries: 5, citedQueries: 1, mentionedQueries: 2 }, queryCountsByClass: null },
       },
     }),
   })
@@ -385,6 +387,54 @@ test.each([
   expect(requests.filter(request => request.method === 'POST' && request.path === '/api/v1/runs/run-ai/cancel')).toHaveLength(1)
 })
 
+test('stopping a sweep over every location stops each of its runs, and a run that already finished is no error', async () => {
+  let cancelled = false
+  const { requests } = renderTracker({
+    setup: () => jsonResponse(cancelled
+      ? setupRead({ aiVisibility: { state: 'partial', runId: 'run-south', runIds: ['run-south', 'run-north'], baselineRunId: 'run-south', blockedBy: null, engines: ['openrouter'], result: { answers: 2, engines: 1, queryCounts: null, queryCountsByClass: null } } })
+      : setupRead({ aiVisibility: { state: 'running', runId: 'run-south', runIds: ['run-south', 'run-north'], blockedBy: null, engines: ['openrouter'], progress: { answersSaved: 2, answersPlanned: 4 } } })),
+    onRequest: (path, init) => {
+      if (init?.method !== 'POST') return undefined
+      if (path === '/api/v1/runs/run-north/cancel') {
+        return jsonResponse({ error: { code: 'RUN_NOT_CANCELLABLE', message: "Run 'run-north' is already in terminal state 'completed' and cannot be cancelled" } }, 409)
+      }
+      if (path !== '/api/v1/runs/run-south/cancel') return undefined
+      cancelled = true
+      return jsonResponse({ id: 'run-south', status: 'cancelled' })
+    },
+  })
+
+  fireEvent.click(await within(await findRow('AI Visibility')).findByRole('button', { name: 'Cancel check' }))
+  fireEvent.click(within(row('AI Visibility')).getByRole('button', { name: 'Stop check' }))
+  await waitFor(() => expect(within(row('AI Visibility')).getByText('Partial results')).toBeTruthy())
+  expect(requests.filter(request => request.method === 'POST' && request.path.endsWith('/cancel')).map(request => request.path).sort())
+    .toEqual(['/api/v1/runs/run-north/cancel', '/api/v1/runs/run-south/cancel'])
+  expect(within(row('AI Visibility')).queryByRole('alert')).toBeNull()
+})
+
+test.each([
+  { complete: false, polls: true },
+  // A finished setup stops polling; it reads again when the window regains focus.
+  { complete: true, polls: false },
+])('an idle tracker polls for work started elsewhere only while setup is unfinished (complete: $complete)', async ({ complete, polls }) => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  onTestFinished(() => { vi.useRealTimers() })
+  const { requests } = renderTracker({
+    setup: setupRead(complete
+      ? {
+        complete: true,
+        agentReadiness: { state: 'completed', runId: 'run-scan', result: { score: 80, pagesScored: 40 } },
+        aiVisibility: { state: 'completed', runId: 'run-ai', baselineRunId: 'run-ai', blockedBy: null, engines: ['gemini'], result: { answers: 5, engines: 1, queryCounts: null, queryCountsByClass: null } },
+      }
+      : {}),
+  })
+  await findRow('AI Visibility')
+  const setupReads = () => requests.filter(request => request.path === `/api/v1/projects/${PROJECT}/setup`).length
+  const before = setupReads()
+  await vi.advanceTimersByTimeAsync(16_000)
+  expect(setupReads() > before).toBe(polls)
+})
+
 test('a check started elsewhere after one launched here shows its own progress and result, never stuck at Queued', async () => {
   const reads = [
     setupRead({ aiVisibility: { blockedBy: null, engines: ['openrouter'] } }),
@@ -395,7 +445,7 @@ test('a check started elsewhere after one launched here shows its own progress a
     setupRead({
       aiVisibility: {
         state: 'completed', runId: 'cli-run', baselineRunId: 'cli-run', blockedBy: null, engines: ['openrouter'],
-        result: { first: true, answers: 5, engines: 1, queryCounts: { totalQueries: 5, citedQueries: 1, mentionedQueries: 2 }, queryCountsByClass: null },
+        result: { answers: 5, engines: 1, queryCounts: { totalQueries: 5, citedQueries: 1, mentionedQueries: 2 }, queryCountsByClass: null },
       },
     }),
   ]
@@ -595,7 +645,7 @@ test.each([
     agentReadiness: { state: 'completed', runId: 'run-scan', result: { score: 80, pagesScored: 40 } },
     aiVisibility: {
       state: track.state, runId: 'run-ai', baselineRunId: track.answers === null ? null : 'run-ai', blockedBy: null,
-      result: track.answers === null ? null : { first: true, answers: track.answers, engines: 1, queryCounts: null, queryCountsByClass: null },
+      result: track.answers === null ? null : { answers: track.answers, engines: 1, queryCounts: null, queryCountsByClass: null },
       error: track.state === 'failed' ? 'gemini: Quota exceeded' : null,
     },
   })

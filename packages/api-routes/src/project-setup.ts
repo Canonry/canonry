@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, min } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import {
@@ -34,6 +34,7 @@ import {
   type RunKind,
   type RunPreviewBlockedReason,
   type RunPreviewDto,
+  type RunProviderFailure,
   type RunStatus,
   type SetupTrackState,
 } from '@canonry/canonry-contracts'
@@ -44,6 +45,7 @@ import { readRunAnswerSignals, summarizeRunQueryCounts } from './run-query-count
 import { previewManualRun, resolveRunnableProviderSelection } from './run-queue.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { siteAuditRunPhase } from './technical-aeo.js'
+import { simpleSweeps } from './visibility-report.js'
 
 export interface ProjectSetupRoutesOptions {
   /** Providers this host can run; the AI Visibility track's readiness is the run preview's. */
@@ -90,8 +92,18 @@ function readProjectSetup(db: DatabaseClient, project: ProjectRow, readiness: Ch
     runnableProviders: readiness.runnableProviders,
     routeFamilies: readiness.routeFamilies,
   }).runnableProviders.length > 0
-  const firstCheckId = firstResultRunId(db, project.id, RunKinds['answer-visibility'])
-  const aiVisibility = aiVisibilityTrack(db, project, latestRun(db, project.id, RunKinds['answer-visibility']), preview, engineReady, firstCheckId)
+  const firstScan = firstResultRun(db, project.id, RunKinds['site-audit'])
+  const firstCheck = firstResultRun(db, project.id, RunKinds['answer-visibility'])
+  const latestCheck = latestRun(db, project.id, RunKinds['answer-visibility'])
+  const aiVisibility = aiVisibilityTrack(
+    db,
+    project,
+    latestCheck ? checkRunsOf(db, latestCheck) : [],
+    preview,
+    engineReady,
+    // The baseline is named as the track names a check: its newest run.
+    firstCheck ? checkRunsOf(db, firstCheck)[0]!.id : null,
+  )
   return {
     project: {
       name: project.name,
@@ -100,8 +112,8 @@ function readProjectSetup(db: DatabaseClient, project: ProjectRow, readiness: Ch
     },
     // Setup is done once each track produced a result; a later scheduled scan or
     // check that is still running does not undo it.
-    complete: firstResultRunId(db, project.id, RunKinds['site-audit']) !== undefined && firstCheckId !== undefined,
-    firstResultAt: firstResultAt(db, project.id),
+    complete: firstScan !== undefined && firstCheck !== undefined,
+    firstResultAt: [firstScan?.finishedAt, firstCheck?.finishedAt].filter((at): at is string => !!at).sort()[0] ?? null,
     nextAction: nextActionOf(agentReadiness.state, aiVisibility.state, aiVisibility.blockedBy),
     tracks: { agentReadiness, aiVisibility },
   }
@@ -129,25 +141,33 @@ function hasResult(state: SetupTrackState): boolean {
 }
 
 /**
- * A check's stored error (a JSON `RunErrorDto`, or plain text on older rows)
- * as the one line `run show` prints; null when the check stored none.
+ * A failed check's stored errors (a JSON `RunErrorDto`, or plain text on older
+ * rows) as the one line `run show` prints, each distinct line once for a sweep;
+ * null when its runs stored none.
  */
-function checkErrorText(raw: string | null): string | null {
-  const parsed = parseRunError(raw)
-  return parsed ? formatRunErrorOneLine(parsed) : null
+function checkErrorText(failedRuns: readonly RunRow[]): string | null {
+  const lines = failedRuns.flatMap(run => {
+    const parsed = parseRunError(run.error)
+    return parsed ? [formatRunErrorOneLine(parsed)] : []
+  })
+  return lines.length > 0 ? [...new Set(lines)].join(' • ') : null
 }
 
 /**
- * A failed check's stored error, engine by engine: each engine's failure kind,
- * message, and whether the check skipped it. Null when the error names no
- * engine (a top-level message, plain text on older rows, or none at all).
+ * A failed check's stored errors, engine by engine: each engine's failure kind,
+ * message, and whether the check skipped it, once per engine for a sweep (from
+ * its newest run that names it). Null when no error names an engine (a
+ * top-level message, plain text on older rows, or none at all).
  */
-function failedEnginesOf(raw: string | null): AiVisibilitySetupTrack['failedEngines'] {
-  const entries = Object.entries(parseRunError(raw)?.providers ?? {})
-  if (entries.length === 0) return null
-  return entries
-    .map(([provider, detail]) => ({ provider, code: detail.code ?? null, message: detail.message, skipped: detail.skipped === true }))
-    .sort((a, b) => a.provider.localeCompare(b.provider))
+function failedEnginesOf(failedRuns: readonly RunRow[]): AiVisibilitySetupTrack['failedEngines'] {
+  const engines = new Map<string, NonNullable<AiVisibilitySetupTrack['failedEngines']>[number]>()
+  for (const run of failedRuns) {
+    for (const [provider, detail] of Object.entries(parseRunError(run.error)?.providers ?? {})) {
+      if (!engines.has(provider)) engines.set(provider, { provider, code: detail.code ?? null, message: detail.message, skipped: detail.skipped === true })
+    }
+  }
+  if (engines.size === 0) return null
+  return [...engines.values()].sort((a, b) => a.provider.localeCompare(b.provider))
 }
 
 function agentReadinessTrack(db: DatabaseClient, projectId: string, run: RunRow | undefined): AgentReadinessSetupTrack {
@@ -208,38 +228,100 @@ function scanResult(db: DatabaseClient, projectId: string, runId: string): NonNu
   return { score: scorecard.score, pagesScored: scorecard.pagesAudited }
 }
 
+/**
+ * The AI Visibility track from the latest check's runs, newest first: one run,
+ * or a sweep over every location (one run per location), read as one check.
+ */
 function aiVisibilityTrack(
   db: DatabaseClient,
   project: ProjectRow,
-  run: RunRow | undefined,
+  checkRuns: readonly RunRow[],
   preview: RunPreviewDto,
   engineReady: boolean,
-  firstCheckId: string | undefined,
+  baselineRunId: string | null,
 ): AiVisibilitySetupTrack {
-  const state: SetupTrackState = run ? runStatusOf(run) : SetupTrackStates.not_started
-  const activeRun = run && isActive(state) ? run : undefined
+  const statuses = checkRuns.map(runStatusOf)
+  const state: SetupTrackState = checkRuns.length > 0 ? checkStateOf(statuses) : SetupTrackStates.not_started
+  const active = isActive(state)
   const nextCheckEngines = preview.engines.filter(engine => engine.requestCount > 0).map(engine => engine.provider)
+  const rosters = checkRuns
+    .filter((_, index) => isActive(statuses[index]!))
+    .map(run => activeCheckEngines(db, run))
+    .filter((roster): roster is string[] => roster !== null)
+  const failedRuns = checkRuns.filter((_, index) => statuses[index] === RunStatuses.failed)
   return {
     state,
-    runId: run?.id ?? null,
-    startedAt: run?.startedAt ?? null,
-    finishedAt: run?.finishedAt ?? null,
-    baselineRunId: firstCheckId ?? null,
+    runId: checkRuns[0]?.id ?? null,
+    runIds: checkRuns.map(run => run.id),
+    startedAt: checkRuns.map(run => run.startedAt).filter((at): at is string => !!at).sort()[0] ?? null,
+    finishedAt: active ? null : checkRuns.map(run => run.finishedAt).filter((at): at is string => !!at).sort().at(-1) ?? null,
+    baselineRunId,
     mode: preview.mode,
-    blockedBy: activeRun ? null : setupBlockerOf(preview.blockedReason, engineReady),
-    engines: activeRun ? activeCheckEngines(db, activeRun) ?? nextCheckEngines : nextCheckEngines,
+    blockedBy: active ? null : setupBlockerOf(preview.blockedReason, engineReady),
+    engines: active && rosters.length > 0 ? sortedUnique(rosters.flat()) : nextCheckEngines,
     queries: trackedQueryCounts(db, project),
-    progress: activeRun
-      ? { answersSaved: savedAnswerCount(db, activeRun.id), answersPlanned: activeRun.plannedAnswers }
+    progress: active ? checkProgress(db, checkRuns) : null,
+    // As the run detail reports them while the check is active.
+    providerFailures: active ? checkProviderFailures(checkRuns) : null,
+    result: hasResult(state)
+      ? checkResult(db, project, checkRuns.filter((_, index) => hasResult(statuses[index]!)))
       : null,
-    // As the run detail reports them while the run is active.
-    providerFailures: activeRun?.providerFailures && Object.keys(activeRun.providerFailures).length > 0
-      ? activeRun.providerFailures
-      : null,
-    result: run && hasResult(state) ? checkResult(db, project, run.id, run.id === firstCheckId) : null,
-    error: run && state === RunStatuses.failed ? checkErrorText(run.error) : null,
-    failedEngines: run && state === RunStatuses.failed ? failedEnginesOf(run.error) : null,
+    error: state === SetupTrackStates.failed ? checkErrorText(failedRuns) : null,
+    failedEngines: state === SetupTrackStates.failed ? failedEnginesOf(failedRuns) : null,
   }
+}
+
+/**
+ * The runs of the check `run` belongs to, newest first: the sibling runs of a
+ * sweep over every location (they share `createdAt`, one per location, grouped
+ * as the visibility report groups them), otherwise the run alone.
+ */
+function checkRunsOf(db: DatabaseClient, run: RunRow): RunRow[] {
+  const siblings = db.select().from(runs)
+    .where(and(eq(runs.projectId, run.projectId), eq(runs.kind, run.kind), eq(runs.createdAt, run.createdAt), notProbeRun()))
+    .orderBy(desc(runs.id))
+    .all()
+  return simpleSweeps(siblings).find(sweep => sweep.some(member => member.id === run.id)) ?? [run]
+}
+
+/** A check's state from its runs: active while any run is, then by what its runs saved. */
+function checkStateOf(statuses: readonly RunStatus[]): SetupTrackState {
+  if (statuses.includes(RunStatuses.running)) return SetupTrackStates.running
+  if (statuses.includes(RunStatuses.queued)) return SetupTrackStates.queued
+  const results = statuses.filter(status => status === RunStatuses.completed || status === RunStatuses.partial).length
+  if (results === statuses.length) {
+    return statuses.every(status => status === RunStatuses.completed) ? SetupTrackStates.completed : SetupTrackStates.partial
+  }
+  // Some locations saved results and others did not: the check saved part of its work.
+  if (results > 0) return SetupTrackStates.partial
+  return statuses.every(status => status === RunStatuses.cancelled) ? SetupTrackStates.cancelled : SetupTrackStates.failed
+}
+
+/** Answers a check saved so far against the answers its runs set out to collect, known once every run recorded them. */
+function checkProgress(db: DatabaseClient, checkRuns: readonly RunRow[]): NonNullable<AiVisibilitySetupTrack['progress']> {
+  const planned = checkRuns.map(run => run.plannedAnswers)
+  return {
+    answersSaved: db.select({ value: count() }).from(querySnapshots)
+      .where(inArray(querySnapshots.runId, checkRuns.map(run => run.id)))
+      .get()?.value ?? 0,
+    answersPlanned: planned.every((value): value is number => value !== null)
+      ? planned.reduce((sum, value) => sum + value, 0)
+      : null,
+  }
+}
+
+/** Each engine failing in a check's runs: its first reason, its failed queries summed, stopped if any run stopped it. */
+function checkProviderFailures(checkRuns: readonly RunRow[]): AiVisibilitySetupTrack['providerFailures'] {
+  const merged: Record<string, RunProviderFailure> = {}
+  for (const run of checkRuns) {
+    for (const [provider, failure] of Object.entries(run.providerFailures ?? {})) {
+      const earlier = merged[provider]
+      merged[provider] = earlier
+        ? { message: earlier.message, failedQueries: earlier.failedQueries + failure.failedQueries, stopped: earlier.stopped || failure.stopped }
+        : failure
+    }
+  }
+  return Object.keys(merged).length > 0 ? merged : null
 }
 
 /**
@@ -311,15 +393,13 @@ function trackedQueryCounts(db: DatabaseClient, project: ProjectRow): AiVisibili
   return counts
 }
 
-function savedAnswerCount(db: DatabaseClient, runId: string): number {
-  return db.select({ value: count() }).from(querySnapshots).where(eq(querySnapshots.runId, runId)).get()?.value ?? 0
-}
-
-/** What a finished check saved, with its query counts exactly as the run detail reports them. */
-function checkResult(db: DatabaseClient, project: ProjectRow, runId: string, first: boolean): NonNullable<AiVisibilitySetupTrack['result']> {
-  const answers = readRunAnswerSignals(db, runId, project)
+/**
+ * What a finished check saved, with its query counts as the run detail reports
+ * them; a sweep counts every run that saved results, each query once.
+ */
+function checkResult(db: DatabaseClient, project: ProjectRow, resultRuns: readonly RunRow[]): NonNullable<AiVisibilitySetupTrack['result']> {
+  const answers = resultRuns.flatMap(run => readRunAnswerSignals(db, run.id, project))
   return {
-    first,
     answers: answers.length,
     engines: new Set(answers.map(answer => answer.provider)).size,
     ...summarizeRunQueryCounts(db, project, answers),
@@ -327,32 +407,22 @@ function checkResult(db: DatabaseClient, project: ProjectRow, runId: string, fir
 }
 
 /**
- * One track's first result: its earliest completed or partial non-probe run,
- * in the order `latestRun` reads. Undefined while the track has none.
+ * One track's first result: its completed or partial non-probe run that
+ * finished first (a run with no finish time sorts by its creation). It decides
+ * `complete`, dates `firstResultAt` and names the baseline, so "first" means
+ * one thing. Undefined while the track has none.
  */
-function firstResultRunId(db: DatabaseClient, projectId: string, kind: RunKind): string | undefined {
-  return db.select({ id: runs.id }).from(runs)
+function firstResultRun(db: DatabaseClient, projectId: string, kind: RunKind): RunRow | undefined {
+  return db.select().from(runs)
     .where(and(
       eq(runs.projectId, projectId),
       eq(runs.kind, kind),
       inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
       notProbeRun(),
     ))
-    .orderBy(asc(runs.createdAt), asc(runs.id))
+    .orderBy(asc(sql`coalesce(${runs.finishedAt}, ${runs.createdAt})`), asc(runs.id))
     .limit(1)
-    .get()?.id
-}
-
-/** When the first result of either track arrived: the earliest finished completed or partial non-probe run. */
-function firstResultAt(db: DatabaseClient, projectId: string): string | null {
-  return db.select({ value: min(runs.finishedAt) }).from(runs)
-    .where(and(
-      eq(runs.projectId, projectId),
-      inArray(runs.kind, [RunKinds['site-audit'], RunKinds['answer-visibility']]),
-      inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
-      notProbeRun(),
-    ))
-    .get()?.value ?? null
+    .get()
 }
 
 /**
