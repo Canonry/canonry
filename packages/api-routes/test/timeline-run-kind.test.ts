@@ -172,3 +172,42 @@ describe('timeline run window counts sweeps, not runs of every kind', () => {
     expect(unlimited[0]?.runs.map(r => r.runId)).toEqual([ctx.sweepRunId])
   })
 })
+
+describe('timeline transitions ignore answers written without retrieval (#1161)', () => {
+  async function seedSecondRun(retrievalStatus: 'used' | 'not-used'): Promise<string> {
+    const queryRow = ctx.db.select().from(queriesTable).all()[0]!
+    const runId = crypto.randomUUID()
+    const createdAt = new Date().toISOString()
+    ctx.db.insert(runs).values({
+      id: runId, projectId: queryRow.projectId, kind: 'answer-visibility',
+      status: 'completed', trigger: 'manual', createdAt, finishedAt: createdAt,
+    }).run()
+    ctx.db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId, queryId: queryRow.id, queryText: 'best AEO platform',
+      provider: 'openai', citationState: 'not-cited', answerMentioned: false,
+      retrievalStatus, citedDomains: [], competitorOverlap: [], recommendedCompetitors: [],
+      createdAt,
+    }).run()
+    return runId
+  }
+
+  it('a not-used answer after a cited one is not a lost citation', async () => {
+    const secondRunId = await seedSecondRun('not-used')
+    const body = await getTimeline('')
+    const runs = body[0]!.runs as Array<{ runId: string; citationState: string; transition: string }>
+    expect(runs.map(r => r.runId)).toEqual([ctx.sweepRunId, secondRunId])
+    expect(runs[0]!.transition).toBe('new')
+    // The answer was written without a search, so it never had a citation to
+    // lose: the raw state stays, but no directional 'lost' is claimed.
+    expect(runs[1]!.citationState).toBe('not-cited')
+    expect(runs[1]!.transition).toBe('not-cited')
+  })
+
+  it('a searched not-cited answer after a cited one is still a lost citation', async () => {
+    const secondRunId = await seedSecondRun('used')
+    const body = await getTimeline('')
+    const runs = body[0]!.runs as Array<{ runId: string; citationState: string; transition: string }>
+    expect(runs.map(r => r.runId)).toEqual([ctx.sweepRunId, secondRunId])
+    expect(runs[1]!.transition).toBe('lost')
+  })
+})

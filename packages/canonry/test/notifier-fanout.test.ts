@@ -85,11 +85,13 @@ function notificationHarness(
     runId: string, createdAt: string, citationState: CitationState,
     context: LocationContext = LOCATION, provider = 'gemini',
     executionId: string | null = planned ? 'roof-execution' : null,
+    retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null = null,
   ) {
     db.insert(querySnapshots).values({
       id: `${runId}${provider === 'gemini' ? '' : `-${provider}`}-snapshot`,
       runId, queryId: 'roof-query', queryText: 'roof coating', provider,
       location: context.label, citationState, answerMentioned: false,
+      retrievalStatus,
       citedDomains: citationState === CitationStates.cited ? ['coatings.example'] : [],
       measurementExecutionId: executionId, requestedContext: context, createdAt,
     }).run()
@@ -99,7 +101,7 @@ function notificationHarness(
     id: string, createdAt: string, citationState: CitationState,
     trigger: RunTrigger = RunTriggers.manual, status: RunStatus = RunStatuses.completed,
     finishedAt: string | null = createdAt,
-    slot: { context?: LocationContext; provider?: string } = {},
+    slot: { context?: LocationContext; provider?: string; retrievalStatus?: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null } = {},
   ) {
     const context = slot.context ?? LOCATION
     const provider = slot.provider ?? 'gemini'
@@ -111,7 +113,7 @@ function notificationHarness(
         expectedSlots: [{ executionId: 'roof-execution', queryText: 'roof coating', provider, context }],
       } : null,
     }).run()
-    if (status === RunStatuses.completed) snapshot(id, createdAt, citationState, context, provider)
+    if (status === RunStatuses.completed) snapshot(id, createdAt, citationState, context, provider, planned ? 'roof-execution' : null, slot.retrievalStatus ?? null)
   }
 
   async function complete(runId = 'current', origin?: 'fill') {
@@ -252,6 +254,20 @@ it.each(MODES.flatMap(mode => HISTORY_CASES.map(row => ({ mode, ...row }))))(
     await dispatch(event)
   },
 )
+
+it.each(MODES)('%s sends no citation.lost when the current answer ran without retrieval (#1161)', async mode => {
+  const { seed, dispatch } = notificationHarness(mode === 'Advanced')
+  seed('z-previous', PREVIOUS_AT, CitationStates.cited)
+  seed('current', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT, { retrievalStatus: 'not-used' })
+  await dispatch(null)
+})
+
+it.each(MODES)('%s still sends citation.lost when the current answer searched and found nothing (#1161)', async mode => {
+  const { seed, dispatch } = notificationHarness(mode === 'Advanced')
+  seed('z-previous', PREVIOUS_AT, CitationStates.cited)
+  seed('current', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT, { retrievalStatus: 'used' })
+  await dispatch('citation.lost')
+})
 
 const GROUP_CASES = ['pending sibling', 'completed winner', 'previous population', 'current population'] as const
 it.each(MODES.flatMap(mode => GROUP_CASES.map(poison => ({ mode, poison }))))(

@@ -82,6 +82,59 @@ describe('computeVisibilityStats (pure)', () => {
     expect(totals.mentionRate).toBe(0.5) // 1/2
   })
 
+  it('excludes answers written without retrieval from the cited rate and reports them (#1161)', () => {
+    const snapshots = [
+      snap({ citationState: 'cited', answerMentioned: true, retrievalStatus: 'used' }),
+      snap({ citationState: 'not-cited', answerMentioned: false, retrievalStatus: 'used' }),
+      snap({ citationState: 'not-cited', answerMentioned: true, retrievalStatus: 'not-used' }),
+      snap({ citationState: 'not-cited', answerMentioned: false, retrievalStatus: 'unknown' }),
+    ]
+    const { totals } = computeVisibilityStats({ queries: Q, snapshots, groupBy: null })
+    // The not-used answer cites nothing by construction, so it leaves the
+    // cited numerator AND denominator rather than counting as a searched miss.
+    expect(totals.total).toBe(3)
+    expect(totals.cited).toBe(1)
+    expect(totals.citedRate).toBe(0.33333333) // 1/3 at wire precision, not 1/4
+    expect(totals.excludedNoRetrieval).toBe(1)
+    // Mention still counts the unsearched answer: brand recall needs no search.
+    expect(totals.checked).toBe(4)
+    expect(totals.mentioned).toBe(2)
+    expect(totals.mentionRate).toBe(0.5)
+  })
+
+  it('returns a null cited rate when every snapshot ran without retrieval, but keeps the mention rate (#1161)', () => {
+    const snapshots = [
+      snap({ citationState: 'not-cited', answerMentioned: true, retrievalStatus: 'not-used' }),
+      snap({ citationState: 'not-cited', answerMentioned: false, retrievalStatus: 'not-used' }),
+    ]
+    const { totals } = computeVisibilityStats({ queries: Q, snapshots, groupBy: null })
+    expect(totals.total).toBe(0)
+    expect(totals.citedRate).toBeNull()
+    expect(totals.excludedNoRetrieval).toBe(2)
+    expect(totals.checked).toBe(2)
+    expect(totals.mentionRate).toBe(0.5)
+  })
+
+  it('groupBy=provider reports the excluded count per provider and sums to the pooled count (#1161)', () => {
+    const snapshots = [
+      snap({ provider: 'openai', citationState: 'cited', answerMentioned: true, retrievalStatus: 'used' }),
+      snap({ provider: 'openai', citationState: 'not-cited', answerMentioned: false, retrievalStatus: 'not-used' }),
+      snap({ provider: 'gemini', citationState: 'not-cited', answerMentioned: true, retrievalStatus: 'not-used' }),
+    ]
+    const { totals, byProvider } = computeVisibilityStats({ queries: Q, snapshots, groupBy: 'provider' })
+    expect(totals.total).toBe(1)
+    expect(totals.excludedNoRetrieval).toBe(2)
+    const sum = (key: 'total' | 'excludedNoRetrieval') => byProvider!.reduce((acc, p) => acc + (p[key] ?? 0), 0)
+    expect(sum('total')).toBe(totals.total)
+    expect(sum('excludedNoRetrieval')).toBe(totals.excludedNoRetrieval)
+    const openai = byProvider!.find((p) => p.provider === 'openai')!
+    expect(openai).toMatchObject({ total: 1, cited: 1, excludedNoRetrieval: 1 })
+    expect(openai.citedRate).toBe(1)
+    const gemini = byProvider!.find((p) => p.provider === 'gemini')!
+    expect(gemini).toMatchObject({ total: 0, cited: 0, excludedNoRetrieval: 1 })
+    expect(gemini.citedRate).toBeNull()
+  })
+
   it('returns null rates when the denominator is zero (rate undefined over no samples)', () => {
     // All unchecked → checked = 0 → mentionRate null. No snapshots at all → all null.
     const allNull = computeVisibilityStats({
@@ -269,6 +322,7 @@ function seedRun(opts: {
     cited: boolean
     mentioned: boolean | null
     answerText?: string | null
+    retrievalStatus?: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null
   }>
 }): string {
   const runId = crypto.randomUUID()
@@ -296,6 +350,7 @@ function seedRun(opts: {
         citationState: s.cited ? 'cited' : 'not-cited',
         answerMentioned: s.mentioned,
         answerText: s.answerText ?? null,
+        retrievalStatus: s.retrievalStatus ?? null,
         citedDomains: [],
         competitorOverlap: [],
         recommendedCompetitors: [],
@@ -376,6 +431,26 @@ describe('GET /projects/:name/visibility-stats', () => {
     expect(q.mentioned).toBe(1)
     expect(q.citedRate).toBe(0.5)
     expect(q.mentionRate).toBe(0.5)
+  })
+
+  it('excludes stored not-used answers from the cited rate through the endpoint (#1161)', async () => {
+    seedRun({
+      createdAt: iso(5),
+      snapshots: [
+        { queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: true, mentioned: true, retrievalStatus: 'used' },
+        { queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: true, retrievalStatus: 'not-used' },
+        { queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: false, retrievalStatus: 'unknown' },
+      ],
+    })
+    const { status, body } = await getStats()
+    expect(status).toBe(200)
+    // The stored not-used row leaves the cited denominator; the unknown row stays.
+    expect(body.totals).toMatchObject({ total: 2, cited: 1, citedRate: 0.5, excludedNoRetrieval: 1 })
+    expect(body.totals.checked).toBe(3)
+    expect(body.totals.mentioned).toBe(2)
+    expect(body.totals.mentionRate).toBe(0.66666667)
+    const q = body.queries.find((x) => x.query === 'best AEO platform')!
+    expect(q).toMatchObject({ total: 2, cited: 1, citedRate: 0.5, excludedNoRetrieval: 1 })
   })
 
   it('splits the totals by query class from the project\'s brand names, whatever queryClass asks', async () => {

@@ -9,6 +9,7 @@ import { runFillInProgress,
   type AuditHistoryQuery,
   CitationStates,
   resultsClearRequestSchema,
+  RetrievalStatuses,
   runInProgress,
   type ResultsClearResponse,
   mentionStateFromAnswerMentioned,
@@ -151,6 +152,7 @@ export async function historyRoutes(app: FastifyInstance) {
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
         mentionIdentity: querySnapshots.mentionIdentity,
+        retrievalStatus: querySnapshots.retrievalStatus,
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
         citedUrls: querySnapshots.citedUrls,
@@ -385,10 +387,19 @@ export async function historyRoutes(app: FastifyInstance) {
           mentionTransition = 'new'
         } else {
           const prev = snaps[idx - 1]!
-          if (prev.citationState === CitationStates['not-cited'] && snap.citationState === CitationStates.cited) {
-            transition = 'emerging'
-          } else if (prev.citationState === CitationStates.cited && snap.citationState === CitationStates['not-cited']) {
-            transition = 'lost'
+          // A snapshot written without a search never had a citation to lose
+          // or gain (#1161): no directional citation transition from either
+          // side of it. The raw state label stays; only the 'lost' /
+          // 'emerging' claim is withheld. Mention transitions are untouched:
+          // brand recall in answer text does not need search.
+          const eitherWithoutRetrieval = snap.retrievalStatus === RetrievalStatuses['not-used']
+            || prev.retrievalStatus === RetrievalStatuses['not-used']
+          if (!eitherWithoutRetrieval) {
+            if (prev.citationState === CitationStates['not-cited'] && snap.citationState === CitationStates.cited) {
+              transition = 'emerging'
+            } else if (prev.citationState === CitationStates.cited && snap.citationState === CitationStates['not-cited']) {
+              transition = 'lost'
+            }
           }
 
           if (!prev.answerMentioned && snap.answerMentioned) {
