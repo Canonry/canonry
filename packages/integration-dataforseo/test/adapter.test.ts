@@ -348,6 +348,19 @@ describe('DataForSEO market rankings', () => {
     expect(other).toMatchObject({ outcome: SeoAdapterOutcomes.failed, tasks: [{ costMicros: 10_000 }], results: { marketRankings: [] } })
   })
 
+  it('fails a complete results page with no organic result instead of reading the site and every rival as not in the top 50', async () => {
+    const mapOnly = { type: 'local_pack', rank_group: 0, rank_absolute: 1, domain: 'example.com', title: 'Map results' }
+    const questions = { type: 'people_also_ask', rank_group: 1, rank_absolute: 2, title: 'People also ask' }
+    // Status 20000 and a charge, but nothing ranked was checked: an empty page, no items at all, or only non-organic blocks.
+    for (const page of [serp([]), serp([], { items: null, items_count: 0 }), serp([mapOnly, questions])]) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(page))
+      const result = await createDataForSeoAdapter(credentials).execute(ranking)
+      expect(result).toMatchObject({ outcome: SeoAdapterOutcomes.failed, tasks: [{ remoteTaskId: 'serp-task', statusCode: 20000, costMicros: 10_000 }], results: { marketRankings: [] } })
+      // Not a search-engine error, so the paid search is not sent again.
+      expect(result.retryable).toBeUndefined()
+    }
+  })
+
   it('keeps a partly collected results page, already paid for, and checks only as deep as it reached', async () => {
     // 40106: some results pages could not be retrieved; the rest come back and only they are charged.
     const partial = { status_code: 40106, cost: 0.006 }
