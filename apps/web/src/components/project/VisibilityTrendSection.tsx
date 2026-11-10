@@ -438,6 +438,8 @@ function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHea
 type ReportTrendSeries = 'mentioned' | 'cited'
 /** Under the trend chart when a plotted Cited point left out answers whose sources could not be checked. */
 export const REPORT_TREND_UNCHECKED_NOTE = 'Cited counts only answers whose sources could be checked.'
+/** Under the trend chart when a plotted Cited point left out answers written without a web search. */
+export const REPORT_TREND_EXCLUDED_NOTE = 'Cited counts only answers written with a web search.'
 const REPORT_TREND_SERIES: ReadonlyArray<{ key: ReportTrendSeries; label: string; color: string; dashed: boolean }> = [
   { key: 'mentioned', label: 'Mentioned', color: CHART_SERIES_COLORS[1]!, dashed: false },
   { key: 'cited', label: 'Cited', color: CHART_TONE.positive, dashed: true },
@@ -473,6 +475,8 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
     ...(population.trend.some(point => point.citationCoverage.reason === 'evidence-incomplete') ? ['Missing citation results mean the saved evidence is incomplete.'] : []),
     // A plotted Cited point may leave out answers whose sources could not be checked; the chart says so, the table counts them.
     ...(population.trend.some(point => point.citationCoverage.unchecked !== undefined) ? [REPORT_TREND_UNCHECKED_NOTE] : []),
+    // A plotted Cited point may leave out answers written without a web search; the chart says so, the table counts them.
+    ...(population.trend.some(point => point.citationCoverage.excludedNoRetrieval !== undefined) ? [REPORT_TREND_EXCLUDED_NOTE] : []),
   ]
   if (points.length === 0) return <p className="py-6 text-copy-14 text-secondary">No measured trend for this selection.</p>
   const hasRates = population.trend.some(point => point.mentionCoverage.rate !== null || point.citationCoverage.rate !== null)

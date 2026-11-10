@@ -160,6 +160,22 @@ export const visibilityReportRateSchema = z.object({
    * carry this field.
    */
   unchecked: z.number().int().positive().optional(),
+  /**
+   * Saved answers left out of a citation rate because the provider wrote
+   * them with no web search (`retrievalStatus: 'not-used'`). They cite
+   * nothing by construction, so they leave the numerator AND the denominator
+   * rather than count as a searched miss; a link captured on such an answer
+   * is not counted as cited either, since counting only those positives
+   * would bias the rate up. They stay in the mention denominator, since
+   * brand recall does not need search. Present only on an available rate
+   * that left at least one answer out; absent means none were. When every
+   * answer is not-used the rate is unavailable with reason
+   * `evidence-incomplete`, and a missing answer (no saved observation)
+   * still withholds the rate that way. Never beside `unattributed`: one
+   * rate reads one signal. Only an explicit `not-used` leaves: legacy rows
+   * that never recorded a retrieval status stay in the denominator.
+   */
+  excludedNoRetrieval: z.number().int().positive().optional(),
 }).strict().superRefine((value, ctx) => {
   const unavailable = value.numerator === null || value.denominator === null || value.rate === null
   if (unavailable) {
@@ -172,6 +188,9 @@ export const visibilityReportRateSchema = z.object({
     if (value.unchecked !== undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unchecked'], message: 'Only an available rate can leave answers out' })
     }
+    if (value.excludedNoRetrieval !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['excludedNoRetrieval'], message: 'Only an available rate can leave answers out' })
+    }
     return
   }
   if (value.reason !== undefined) {
@@ -179,6 +198,9 @@ export const visibilityReportRateSchema = z.object({
   }
   if (value.unattributed !== undefined && value.unchecked !== undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unchecked'], message: 'A rate reads one signal: unattributed (mention) and unchecked (citation) cannot share it' })
+  }
+  if (value.unattributed !== undefined && value.excludedNoRetrieval !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['excludedNoRetrieval'], message: 'A rate reads one signal: unattributed (mention) and excludedNoRetrieval (citation) cannot share it' })
   }
   const { numerator, denominator } = value
   if (denominator === null || numerator === null) return

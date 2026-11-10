@@ -1,4 +1,4 @@
-import { formatRunErrorOneLine, normalizeProjectDomain, unattributedAnswersLabel, uncheckedSourcesLabel, type RunErrorDto } from '@canonry/canonry-contracts'
+import { excludedNoRetrievalLabel, formatRunErrorOneLine, normalizeProjectDomain, unattributedAnswersLabel, uncheckedSourcesLabel, type RunErrorDto } from '@canonry/canonry-contracts'
 import type { CitationState } from '../view-models.js'
 
 /** Common search-analytics metrics shared across GSC, Bing, etc. */
@@ -56,16 +56,34 @@ export function excludedAnswersLabel(
 /**
  * The same caveat as a flag beside the rate: a count and one word to show,
  * and the full sentence for its bubble. Null when the rate left nothing out.
+ * A citation rate may leave out two kinds of answer at once (unchecked
+ * sources, and answers written without a web search); the flag names both.
  */
 export function excludedAnswersFlag(
-  value: { denominator?: number | null; unattributed?: number; unchecked?: number },
+  value: { denominator?: number | null; unattributed?: number; unchecked?: number; excludedNoRetrieval?: number },
   signal: CoverageSignal,
 ): { label: string; text: string } | null {
-  const sentence = excludedAnswersLabel(value, signal)
-  const count = signal === 'cited' ? value.unchecked : value.unattributed
-  if (sentence === null || count === undefined) return null
-  const label = `${count} ${signal === 'cited' ? 'unchecked' : 'unattributed'}`
-  return { label, text: `${label}. ${sentence}, so this rate leaves ${count === 1 ? 'it' : 'them'} out.` }
+  if (signal !== 'cited') {
+    const sentence = excludedAnswersLabel(value, signal)
+    const count = value.unattributed
+    if (sentence === null || count === undefined) return null
+    const label = `${count} unattributed`
+    return { label, text: `${label}. ${sentence}, so this rate leaves ${count === 1 ? 'it' : 'them'} out.` }
+  }
+  const parts: { label: string; text: string }[] = []
+  const uncheckedSentence = uncheckedSourcesLabel(value)
+  if (value.unchecked !== undefined && uncheckedSentence !== null) {
+    parts.push({
+      label: `${value.unchecked} unchecked`,
+      text: `${value.unchecked} unchecked. ${uncheckedSentence}, so this rate leaves ${value.unchecked === 1 ? 'it' : 'them'} out.`,
+    })
+  }
+  const excludedSentence = excludedNoRetrievalLabel(value)
+  if (value.excludedNoRetrieval !== undefined && excludedSentence !== null) {
+    parts.push({ label: `${value.excludedNoRetrieval} excluded`, text: `${excludedSentence}.` })
+  }
+  if (parts.length === 0) return null
+  return { label: parts.map(part => part.label).join(' · '), text: parts.map(part => part.text).join(' ') }
 }
 
 /**
