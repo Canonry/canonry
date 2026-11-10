@@ -5447,6 +5447,22 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   },
   {
     version: 214,
+    name: 'site-health-notify-state',
+    // What the site-health.issue.new webhook already reported, one row per
+    // project. No backfill: a project without a row reports what its next
+    // audit finds, once.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS site_health_notify_state (
+        project_id     TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        reported_keys  TEXT NOT NULL DEFAULT '[]',
+        run_id         TEXT NOT NULL,
+        updated_at     TEXT NOT NULL,
+        notified_at    TEXT
+      )`,
+    ],
+  },
+  {
+    version: 215,
     name: 'provider-connection-tests',
     // One row per connection: the latest test result and a keyed hash of the
     // registration it checked. No status CHECK, so a status a later release
@@ -5464,7 +5480,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
-    version: 215,
+    version: 216,
     name: 'run-provider-failures',
     // A running sweep's failures so far, so a reader sees them before the run
     // ends. Nullable: existing runs have none to report.
@@ -5473,7 +5489,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
-    version: 216,
+    version: 217,
     name: 'run-planned-answers',
     // The answers a sweep set out to collect, written when it starts, so a
     // reader can show progress without remembering the launch. Nullable:

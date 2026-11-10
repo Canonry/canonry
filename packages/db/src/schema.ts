@@ -744,7 +744,7 @@ export const dataRepairCompletions = sqliteTable('data_repair_completions', {
 })
 
 /**
- * The latest test of each provider connection (migration 214), as the test
+ * The latest test of each provider connection (migration 215), as the test
  * returned it. `fingerprint` is a keyed hash of the registration the test
  * checked, never a credential; a changed key, endpoint, model or Vertex
  * setting no longer matches it, so the row stops describing the connection.
@@ -1078,6 +1078,23 @@ export const doctorHealthState = sqliteTable('doctor_health_state', {
   urgentNotified: text('urgent_notified'),
   /** Urgent delivery histories by notification id and destination, never inherited by replacements. */
   urgentReceipts: text('urgent_receipts', { mode: 'json' }).$type<Record<string, { url: string; notified: string | null }>>(),
+})
+
+/**
+ * What the `site-health.issue.new` webhook already reported, one row per project
+ * (migration 214). `reportedKeys` is the sorted set of `code|page` keys, the page
+ * as the first 16 hex characters of the SHA-256 of its URL. Written only by
+ * `Notifier.onSiteAuditCompleted`: after a subscriber accepts an alert, and after a
+ * complete scan clears problems it no longer finds.
+ */
+export const siteHealthNotifyState = sqliteTable('site_health_notify_state', {
+  projectId: text('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  reportedKeys: text('reported_keys', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  /** The audit run last applied. */
+  runId: text('run_id').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  /** When a subscriber last accepted an alert. Null until then. */
+  notifiedAt: text('notified_at'),
 })
 
 /**

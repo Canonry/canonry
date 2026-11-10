@@ -103,7 +103,17 @@ multiple Properties; avoid counting the same finding as independent proof
 for each one.
 
 Rank persisted critical defects and fixes using severity and affected-page
-evidence, with business or link importance where available. State the run,
+evidence, with business or link importance where available.
+
+On an Advanced project, the critical defect `names-another-entity` marks a
+page that belongs to one Property whose FAQ, title or H1 names another of the
+plan's Properties, usually text copied between Property pages. The page audit
+read carries up to 25 `evidence` entries: the place (`faq-question`,
+`faq-answer`, `title`, `h1`), the FAQ question, the named Property's key and
+name, and a short snippet. Quote those rather than the issue title, and name
+the Property the page belongs to. The check uses the plan revision in the
+scan's `effectiveOptions.entityPlanRevision`; a null revision means the scan
+did not check names, not that no page names another Property. State the run,
 scope, finding, affected page(s), and supported next step. A technical issue
 can be a hypothesis for an AI-visibility gap, but the crawl alone cannot prove
 why an answer engine omitted a Property. Join the corresponding answer

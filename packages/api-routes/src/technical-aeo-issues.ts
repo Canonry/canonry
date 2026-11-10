@@ -28,6 +28,15 @@ function record(value: unknown): Record<string, unknown> | null {
     ? value as Record<string, unknown> : null
 }
 
+/**
+ * Issue text for a critical defect whose page detail is specific to that page
+ * (it names the Property found there), so the first page's detail never reads
+ * as the whole issue. Each page keeps its own detail.
+ */
+const CRITICAL_ISSUE_MESSAGES: Readonly<Record<string, string>> = {
+  'names-another-entity': "The page's FAQ, title or H1 names another Property.",
+}
+
 function clip(message: string): { message: string; messageTruncated: boolean } {
   return { message: message.slice(0, 400), messageTruncated: message.length > 400 }
 }
@@ -205,7 +214,7 @@ export function readSiteAuditIssues(input: {
           seen.add(id)
           const group = addGroup({ id, stableIdentity: true, code: defect.id, source: 'critical-defect',
             factorId: null, severity: defect.severity, findingType: 'missing', disposition: 'actionable',
-            ...clip(defect.detail), affectedPages: 0, examples: [], examplesTruncated: false })
+            ...clip(CRITICAL_ISSUE_MESSAGES[defect.id] ?? defect.detail), affectedPages: 0, examples: [], examplesTruncated: false })
           if (defect.severity === 'critical') group.severity = 'critical'
           addMember(group, { ...pageEvidence(page.nodeKey, page.url, defect.detail),
             recommendations: [defect.recommendation.slice(0, 400)], recommendationsScope: 'issue',
