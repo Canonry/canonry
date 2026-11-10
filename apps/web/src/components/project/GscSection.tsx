@@ -38,7 +38,6 @@ import { gscActionNeededFromError, type GscActionNeeded } from '../../lib/gsc-re
 import { safeExternalUrl } from '../../lib/safe-url.js'
 import {
   fetchSettings,
-  googleConnect,
   googleDisconnect,
   saveGoogleProperty,
   inspectGscUrl,
@@ -73,6 +72,7 @@ import {
 } from '../../queries/mutations.js'
 import { GSC_STALE_MS } from '../../queries/query-client.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
+import { startGoogleOAuthPopup } from '../../lib/google-oauth-popup.js'
 
 export const GSC_MANAGED_EMPTY_COPY = 'Search Console is not connected yet. Your Canonry team can set this up.'
 
@@ -120,7 +120,6 @@ const GSC_CHART_METRICS = [
 
 type GscChartMetric = (typeof GSC_CHART_METRICS)[number]['key']
 const COVERAGE_PAGE_SIZE = 25
-const GOOGLE_OAUTH_COMPLETE_MESSAGE = 'canonry:google-oauth-complete'
 
 /**
  * The trailing period's change against the equal period before it, as a trend
@@ -886,51 +885,18 @@ export function GscSection({
     setError(null)
     setNotice(null)
     try {
-      const { authUrl, redirectUri } = await googleConnect(projectName, 'gsc')
-      if (!authUrl.startsWith('https://accounts.google.com/')) {
-        setError('Unexpected OAuth redirect URL. Please try again.')
-        return
-      }
-      const popup = window.open(authUrl, '_blank', 'width=600,height=700')
-      if (!popup) {
-        window.location.assign(authUrl)
-        return
-      }
-      const callbackOrigin = redirectUri ? new URL(redirectUri).origin : window.location.origin
-      let refreshStarted = false
-      let timer: number | null = null
-
-      const cleanup = () => {
-        if (timer !== null) window.clearInterval(timer)
-        window.removeEventListener('message', handleOAuthComplete)
-      }
-      const refreshConnection = async (completed: boolean) => {
-        if (refreshStarted) return
-        refreshStarted = true
-        cleanup()
-        setNotice(completed ? 'Google connected. Refreshing access…' : 'Refreshing Google connection…')
-        try {
-          await invalidateProjectQueryDomain(queryClient, 'google')
-          await loadSection()
-        } finally {
-          setNotice(null)
-        }
-      }
-      function handleOAuthComplete(event: MessageEvent) {
-        if (event.source !== popup || event.origin !== callbackOrigin) return
-        if (!event.data || typeof event.data !== 'object') return
-        const message = event.data as { type?: unknown; connectionType?: unknown }
-        if (message.type !== GOOGLE_OAUTH_COMPLETE_MESSAGE || message.connectionType !== 'gsc') return
-        void refreshConnection(true)
-      }
-
-      window.addEventListener('message', handleOAuthComplete)
-      setNotice('Finish the Google consent flow in the popup. This page will refresh automatically.')
-      timer = window.setInterval(() => {
-        if (popup.closed) {
-          void refreshConnection(false)
-        }
-      }, 1000)
+      const opened = await startGoogleOAuthPopup(projectName, 'gsc', (completed) => {
+        void (async () => {
+          setNotice(completed ? 'Google connected. Refreshing access…' : 'Refreshing Google connection…')
+          try {
+            await invalidateProjectQueryDomain(queryClient, 'google')
+            await loadSection()
+          } finally {
+            setNotice(null)
+          }
+        })()
+      })
+      if (opened === 'popup') setNotice('Finish the Google consent flow in the popup. This page will refresh automatically.')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start OAuth flow')
     } finally {

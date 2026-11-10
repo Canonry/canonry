@@ -585,6 +585,18 @@ one row per setting (a value, or a count that opens to its rows); owner-only
 settings read "Owner key needed", never a failure. Every figure and change is the
 API's; the component counts list rows and lays out, nothing more.
 
+### Local presence setup
+
+`components/project/GbpSection.tsx` onboards Google Business Profile from the
+dashboard through the existing endpoints only: Connect starts the shared Google
+OAuth popup (`lib/google-oauth-popup.ts`, also used by GSC) with type `gbp`;
+a connection with no discovered locations loads `GET /gbp/accounts` and offers
+discovery for the chosen account; later discoveries reuse the project's account,
+and switching accounts stays the CLI's `--switch-account`. "Track new locations"
+is the CLI's `--no-select-new`. Disconnect (`DELETE /gbp/connection`) asks for an
+inline confirmation that names the cleared data. None of these controls render in
+embeds or the public demo, where the CLI steps remain the setup guide.
+
 ### Sitemaps (both engines)
 
 Google's and Bing's sitemap cards are one `SitemapsCard` over the stored
