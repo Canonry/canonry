@@ -844,12 +844,12 @@ describe('POST /traffic/cloudflare/ingest', () => {
     expect(forged.statusCode).toBe(401)
 
     expect(h.ingested).toEqual([
-      { sourceType: 'cloudflare', status: 'succeeded', events: 3, crawlerHits: 1, aiUserFetchHits: 1, aiUserFetchBrowserNonPageHits: 0, aiReferralHits: 1, durationMs: expect.any(Number) },
-      { sourceType: 'cloudflare', status: 'failed', events: 0, crawlerHits: 0, aiUserFetchHits: 0, aiUserFetchBrowserNonPageHits: 0, aiReferralHits: 0, durationMs: expect.any(Number), reasonCode: 'VALIDATION' },
+      { sourceType: 'cloudflare', status: 'succeeded', events: 3, crawlerHits: 1, aiUserFetchHits: 1, aiReferralHits: 1, durationMs: expect.any(Number) },
+      { sourceType: 'cloudflare', status: 'failed', events: 0, crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, durationMs: expect.any(Number), reasonCode: 'VALIDATION' },
     ])
   })
 
-  it('reports a browser agent\'s requests other than page loads on the push and in its telemetry, and says on each sample what the request was', async () => {
+  it('reports a browser agent\'s requests other than page loads on the push, and says on each sample what the request was', async () => {
     const at = (second: number) => new Date(Date.now() - 60_000 + second * 1_000).toISOString()
     const agent = { userAgent: GOOGLE_AGENT_UA, remoteIp: null, cf: null }
     const events = [
@@ -865,11 +865,12 @@ describe('POST /traffic/cloudflare/ingest', () => {
 
     expect(res.statusCode, res.payload).toBe(200)
     // Three page loads count. The script, the form post and the preflight go to
-    // no bucket, so the push and its telemetry are where they show.
+    // no bucket, so the push response is where they show. Telemetry keeps the
+    // counts the canonry.ai collector allowlists.
     expect(cloudflareWorkerIngestResponseSchema.parse(JSON.parse(res.payload))).toMatchObject({ acceptedEvents: 6, aiUserFetchBucketRows: 3, aiUserFetchBrowserNonPageHits: 3 })
     expect(h.db.select().from(aiUserFetchEventsHourly).all().reduce((sum, row) => sum + row.hits, 0)).toBe(3)
     expect(h.ingested).toEqual([
-      { sourceType: 'cloudflare', status: 'succeeded', events: 6, crawlerHits: 0, aiUserFetchHits: 3, aiUserFetchBrowserNonPageHits: 3, aiReferralHits: 0, durationMs: expect.any(Number) },
+      { sourceType: 'cloudflare', status: 'succeeded', events: 6, crawlerHits: 0, aiUserFetchHits: 3, aiReferralHits: 0, durationMs: expect.any(Number) },
     ])
 
     // Samples keep no method or query, so each browser-agent sample says what its request was.
