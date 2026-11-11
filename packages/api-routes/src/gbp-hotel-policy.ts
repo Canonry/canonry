@@ -6,9 +6,11 @@ import { createGuardedFetch, type GuardedFetch } from './guarded-fetch.js'
 /**
  * "Offer" and "deal" are also ordinary verbs ("this guide deals with leaks",
  * "does the contractor offer inspections", "what the manufacturer offers",
- * "the company offers free inspections"). These constructions read as verbs and
- * never as a promotion, so they are set aside before the word check. Every
- * promotional phrase is still refused, wherever it appears.
+ * "the company offers free inspections", "polyurea offers greater durability").
+ * These constructions read as verbs and never as a promotion, so they are set
+ * aside before the word check. Only quality comparatives follow "offers" here:
+ * "better", "lower" and "more" can precede rates or prices, so they stay out.
+ * Every promotional phrase is still refused, wherever it appears.
  */
 const WORD = String.raw`[\p{L}\p{N}&.'’-]+`
 const VERB_USES = [
@@ -18,7 +20,7 @@ const VERB_USES = [
     'gu',
   ),
   new RegExp(String.raw`\bwhat\s+(?:${WORD}\s+){0,3}?offers?\b`, 'gu'),
-  /\boffers?(?=\s+(?:a|an|the|free|both|several|written|financing|warrant(?:y|ies)|inspections?|services?|repairs?|coverage|options?|support)\b)/gu,
+  /\boffers?(?=\s+(?:a|an|the|free|both|several|written|financing|warrant(?:y|ies)|inspections?|services?|repairs?|coverage|options?|support|greater|superior|stronger|faster|longer)\b)/gu,
 ]
 function withoutVerbUses(text: string): string {
   return VERB_USES.reduce((value, verb) => value.replace(verb, ' '), text)
