@@ -116,6 +116,10 @@ erDiagram
   projects ||--o{ research_runs : has
   research_runs ||--o{ research_run_queries : contains
   users ||--o{ api_keys : delegates
+  users ||--o| user_external_identities : "signs in with"
+  users ||--o| chatgpt_plan_connections : "funds Aero with"
+  user_external_identities ||--o| chatgpt_plan_connections : grants
+  users ||--o{ user_invitations : accepted
   api_keys ||--o{ dashboard_sessions : authenticates
 ```
 
@@ -428,6 +432,10 @@ Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside 
 | **oauth_authorization_codes** | Single-use authorization codes, 60s TTL, bound to their PKCE challenge and RFC 8707 resource. Key is the SHA-256 of the code. Burned on first redemption even when that attempt fails, so a wrong verifier cannot be retried. FK: clientId → oauth_clients, userId → users |
 | **oauth_grants** | Durable identity of one authorization and its rotated token family. Revocation covers all access/refresh tokens and delegated MCP keys for that grant. Migration 199 groups historical tokens only within the same user, client, audience and scope because historical rotations stored no lineage. It removes only tokens with a missing client or user, and retires old `mcp-session:<delegatedUserId>` keys plus unbound keys under the reserved `mcp-session:` namespace and their dashboard sessions; clients reinitialize with preserved OAuth tokens. Ordinary keys outside that namespace and Aero viewer keys survive. FK: clientId → oauth_clients, userId → users |
 | **oauth_tokens** | Issued access and refresh tokens, stored as SHA-256 digests for the same reason `user_sessions` stores one: the row records that a token exists, it is not a way to become it. `resource` is the audience and is enforced on every resource request. Refresh tokens rotate atomically and retain `grantId`; revoking a valid token revokes its entire family. Explicit revocation of a stale token is a no-op; authenticated reuse of a consumed refresh token at the token endpoint revokes the active family. FK: grantId → oauth_grants, clientId → oauth_clients, userId → users |
+| **user_external_identities** | Sign in with ChatGPT identities linked to accounts (migration 220). Unique: `(issuer, client_id, subject)`, so a new OAuth client ID starts new links; and `(user_id, provider)`, one ChatGPT identity per account. `email` is display only and never decides which account an identity signs in to. FK: `userId` → users (cascade) |
+| **user_invitations** | Email invitations to sign in with ChatGPT. `email_key` is the trimmed lower-cased address a VERIFIED ChatGPT email is matched against; the first match creates the account with `role` and sets `accepted_at` / `accepted_user_id`. Expires after 14 days; re-inviting revokes the pending row. Never attaches to an existing account. FKs: `created_by_id`, `accepted_user_id` → users (set null) |
+| **chatgpt_plan_connections** | One person's ChatGPT plan grant for their own Aero turns. PK `user_id`; `id` is new on every connect. `tokens` is AES-256-GCM ciphertext under `chatgpt.tokenKey` with the connection id and account as associated data, the one credential kept in the database (per person, rotated hourly); `scopes` is what OpenAI granted. Refresh is compare-and-swap on `revision`. `status` is `connected` or `reconnect-required`. FKs: `user_id` → users, `identity_id` → user_external_identities (cascade) |
+| **chatgpt_login_transactions** | In-flight ChatGPT sign-ins, single use, ten minutes. Holds digests of the OAuth `state` and of the browser-binding secret only; the PKCE verifier stays in the browser's HttpOnly cookie. `intent` is `login` or `connect` (with the signed-in `user_id`) |
 
 Health notification migration 183 adds nullable native JSON `urgentReceipts`
 to `doctor_health_state` and `site_liveness_state`. Each notification id stores

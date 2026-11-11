@@ -26,7 +26,7 @@ import {
   type AuthSessionDto,
   type UserRole,
 } from '@canonry/canonry-contracts'
-import { verifyUserPassword } from './user-password.js'
+import { SCRYPT_DIGEST_PREFIX, verifyUserPassword } from './user-password.js'
 import { resolveCallerKey } from './trust-proxy.js'
 import { assertCookieWriteOrigin } from './same-origin.js'
 
@@ -353,6 +353,8 @@ export interface UserSessionRoutesOptions {
   cookie?: UserSessionCookieOptions
   /** See `ApiRoutesOptions.trustProxyConfigured`. */
   trustProxyConfigured?: boolean
+  /** Whether the sign-in screen should offer "Continue with ChatGPT". Read per request. */
+  chatgptSignIn?: () => boolean
 }
 
 /**
@@ -410,7 +412,10 @@ export function createCredentialChecker(opts: {
       }
 
       const account = opts.db.select().from(users).where(eq(users.nameKey, nameKey)).get()
-      const storedHash = account?.passwordHash ?? UNKNOWN_ACCOUNT_DIGEST
+      // An account that signs in only with ChatGPT stores a marker, not a
+      // digest. Verify against the unknown-account digest instead, so it costs
+      // and answers exactly like a name that does not exist.
+      const storedHash = account?.passwordHash.startsWith(SCRYPT_DIGEST_PREFIX) ? account.passwordHash : UNKNOWN_ACCOUNT_DIGEST
       verificationsInFlight++
       if (caller !== null) {
         callerVerificationsInFlight.set(caller, (callerVerificationsInFlight.get(caller) ?? 0) + 1)
@@ -470,6 +475,7 @@ export async function userSessionRoutes(app: FastifyInstance, opts: UserSessionR
   // credential it does not have yet.
   app.get('/auth/session', async (request, reply): Promise<AuthSessionDto> => {
     if (!anyUsersExist(app.db)) return { authRequired: false, user: null }
+    const signInMethods = opts.chatgptSignIn?.() ? { signInMethods: { chatgpt: true } } : {}
 
     const token = cookieSessionId(request)
     const resolved = token ? resolveUserSession(app.db, token) : null
@@ -482,6 +488,7 @@ export async function userSessionRoutes(app: FastifyInstance, opts: UserSessionR
     return {
       authRequired: true,
       user: resolved ? { name: resolved.user.name, role: resolved.user.role } : null,
+      ...signInMethods,
     }
   })
 
@@ -588,5 +595,5 @@ export async function userSessionRoutes(app: FastifyInstance, opts: UserSessionR
  * sign-in form would quietly become an account-name oracle.
  */
 export const UNKNOWN_ACCOUNT_DIGEST =
-  'scrypt$1$AAAAAAAAAAAAAAAAAAAAAA==$'
+  `${SCRYPT_DIGEST_PREFIX}AAAAAAAAAAAAAAAAAAAAAA==$`
   + Buffer.alloc(64, 0).toString('base64')

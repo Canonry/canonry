@@ -5531,6 +5531,71 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_site_crawl_pages_site ON site_crawl_pages(project_id, run_id, attempt_id, site, path)`,
     ],
   },
+  {
+    version: 220,
+    name: 'chatgpt-sign-in',
+    // Sign in with ChatGPT: linked identities, email invitations, each
+    // person's plan grant for their own Aero turns, and in-flight sign-ins.
+    // Additive only. Accounts created through an invitation keep the users
+    // table's NOT NULL password column with a marker no password can match,
+    // so the account table is not rebuilt on large installs.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS user_external_identities (
+        id            TEXT PRIMARY KEY,
+        user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider      TEXT NOT NULL CHECK (provider IN ('chatgpt')),
+        issuer        TEXT NOT NULL,
+        client_id     TEXT NOT NULL,
+        subject       TEXT NOT NULL,
+        email         TEXT,
+        created_at    TEXT NOT NULL,
+        last_login_at TEXT
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_external_identities_subject
+        ON user_external_identities(issuer, client_id, subject)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_external_identities_user_provider
+        ON user_external_identities(user_id, provider)`,
+      `CREATE TABLE IF NOT EXISTS user_invitations (
+        id               TEXT PRIMARY KEY,
+        email            TEXT NOT NULL,
+        email_key        TEXT NOT NULL,
+        role             TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+        created_by_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at       TEXT NOT NULL,
+        expires_at       TEXT NOT NULL,
+        accepted_at      TEXT,
+        accepted_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        revoked_at       TEXT
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_user_invitations_email ON user_invitations(email_key)`,
+      `CREATE TABLE IF NOT EXISTS chatgpt_plan_connections (
+        user_id           TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        id                TEXT NOT NULL UNIQUE,
+        identity_id       TEXT NOT NULL REFERENCES user_external_identities(id) ON DELETE CASCADE,
+        status            TEXT NOT NULL CHECK (status IN ('connected', 'reconnect-required')),
+        scopes            TEXT NOT NULL,
+        tokens            TEXT NOT NULL,
+        access_expires_at TEXT NOT NULL,
+        model_id          TEXT,
+        revision          INTEGER NOT NULL DEFAULT 0,
+        connected_at      TEXT NOT NULL,
+        updated_at        TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS chatgpt_login_transactions (
+        state_hash   TEXT PRIMARY KEY,
+        browser_hash TEXT NOT NULL,
+        intent       TEXT NOT NULL CHECK (intent IN ('login', 'connect')),
+        user_id      TEXT REFERENCES users(id) ON DELETE CASCADE,
+        nonce        TEXT NOT NULL,
+        scopes       TEXT NOT NULL,
+        return_to    TEXT,
+        created_at   TEXT NOT NULL,
+        expires_at   TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chatgpt_login_transactions_expires
+        ON chatgpt_login_transactions(expires_at)`,
+    ],
+  },
 ]
 
 /**
