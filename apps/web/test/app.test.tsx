@@ -268,7 +268,7 @@ test('project route renders a concise visibility summary with progressive detail
     .filter(link => !link.closest('.project-subnav-measure'))
     .map(link => link.textContent?.trim())
   expect(visibleTabs).toEqual([
-    'AI Visibility', 'Queries', 'Search engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'More',
+    'AI Visibility', 'Search engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'Queries', 'More',
   ])
   const projectSettings = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('a.sidebar-link')]
     .find(link => link.textContent?.includes('Project settings'))

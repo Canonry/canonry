@@ -66,6 +66,8 @@ describe('aiReferralMonthlySeries', () => {
     measuredDates: measured,
     range: { startDate: '2026-03-01', endDate: null },
     firstAiDate,
+    // The AI sync reached every day GA4 reported a site total for.
+    aiCoverageStart: '2026-04-27',
     now,
   })
 
@@ -149,6 +151,7 @@ describe('aiReferralMonthlySeries', () => {
       days: fixture.days.filter(day => day.date >= firstMeasuredDate),
       byEngine: { ...fixture.byEngine, days: fixture.byEngine.days.filter(day => day.date >= firstMeasuredDate) },
       measuredDates: fixture.measuredDates.filter(date => date >= firstMeasuredDate),
+      aiCoverageStart: firstMeasuredDate,
     })
     expect(months[0]).toEqual({
       month: '2026-05', sessions: 80, complete: true,
@@ -162,5 +165,74 @@ describe('aiReferralMonthlySeries', () => {
 
   it('has no line with fewer than two complete months', () => {
     expect(aiReferralMonthlySeries(input('2026-10-01')).monthlyTrend).toBeNull()
+  })
+
+  /**
+   * GA4 site totals are kept for longer than the AI sync reaches back. Reading
+   * them as AI coverage turned months the sync never fetched into months with
+   * no AI visits, and made a half-fetched month complete: that half month then
+   * anchored the line and inflated its change.
+   */
+  it('does not read site-total days the AI sync never reached as days without AI visits', () => {
+    const fixture = input('2026-05-18')
+    const fromJune = (date: string) => date >= '2026-06-01'
+    const { months, monthlyTrend } = aiReferralMonthlySeries({
+      ...fixture,
+      days: [{ date: '2026-05-20', sessions: 40 }, ...fixture.days.filter(day => fromJune(day.date))],
+      byEngine: {
+        ...fixture.byEngine,
+        days: [{ date: '2026-05-20', values: { chatgpt: 40 } }, ...fixture.byEngine.days.filter(day => fromJune(day.date))],
+      },
+      measuredDates: calendarDateRange('2026-03-01', '2026-11-06'),
+      aiCoverageStart: '2026-05-18',
+    })
+    expect(months.map(m => [m.month, m.sessions, m.complete])).toEqual([
+      ['2026-03', null, false],
+      ['2026-04', null, false],
+      // Only May 18 onward was fetched: a part month, kept off the line.
+      ['2026-05', 40, false],
+      ['2026-06', 90, true],
+      ['2026-07', 100, true],
+      ['2026-08', 110, true],
+      ['2026-09', 120, true],
+      ['2026-10', 130, true],
+      ['2026-11', 20, false],
+    ])
+    // June to October, 90 rising 10 a month to 130. With the half May in the
+    // line it would have started at 40.
+    expect(monthlyTrend).toEqual({
+      slope: 10, intercept: 60, r2: 1, start: 90, end: 130, n: 5, startIndex: 3, endIndex: 7,
+      startMonth: '2026-06', endMonth: '2026-10', changePct: 44.444444,
+    })
+  })
+
+  it('counts a day the AI sync reached before the first AI visit as no visits', () => {
+    const fixture = input('2026-05-10')
+    const fromMay = (date: string) => date >= '2026-05-01'
+    const { months, monthlyTrend } = aiReferralMonthlySeries({
+      ...fixture,
+      range: { startDate: '2026-04-01', endDate: null },
+      days: fixture.days.filter(day => fromMay(day.date)),
+      byEngine: { ...fixture.byEngine, days: fixture.byEngine.days.filter(day => fromMay(day.date)) },
+      measuredDates: calendarDateRange('2026-04-01', '2026-11-06'),
+      aiCoverageStart: '2026-04-01',
+    })
+    expect(months[0]).toEqual({ month: '2026-04', sessions: 0, complete: true, engines: [] })
+    // The line still starts with the first AI visit.
+    expect(monthlyTrend).toMatchObject({ n: 6, start: 80, end: 130, startMonth: '2026-05', endMonth: '2026-10' })
+  })
+
+  it('has no AI months without AI coverage, even beside site totals', () => {
+    const fixture = input()
+    const { months, monthlyTrend } = aiReferralMonthlySeries({
+      ...fixture,
+      days: [],
+      byEngine: { ...fixture.byEngine, days: [] },
+      firstAiDate: null,
+      aiCoverageStart: null,
+    })
+    expect(months.map(m => m.month)).toEqual(['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11'])
+    for (const month of months) expect(month).toMatchObject({ sessions: null, complete: false })
+    expect(monthlyTrend).toBeNull()
   })
 })

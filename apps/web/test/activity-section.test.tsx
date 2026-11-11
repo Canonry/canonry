@@ -12,9 +12,10 @@ vi.mock('recharts', () => {
   // them. React renders a parent before its children, so this is populated by
   // the time any `Line` below is called.
   let chartRows: Record<string, unknown>[] = []
-  const ComposedChart = ({ children, data }: { children?: React.ReactNode; data?: Record<string, unknown>[] }) => {
+  // Hover sync stays observable: stacked panels must hover together.
+  const ComposedChart = ({ children, data, syncId }: { children?: React.ReactNode; data?: Record<string, unknown>[]; syncId?: string }) => {
     chartRows = data ?? []
-    return <div>{children}</div>
+    return <div data-testid="composed-chart" data-sync={syncId}>{children}</div>
   }
   return {
     ResponsiveContainer: passthrough,
@@ -42,7 +43,9 @@ vi.mock('recharts', () => {
       <div data-testid="reference-area" data-from={x1} data-to={x2}>{label?.value}</div>,
     ReferenceLine: () => null,
     XAxis: () => null,
-    YAxis: () => null,
+    // How a four-digit tick reads: whole in the gutter, or cut down to "000".
+    YAxis: ({ tickFormatter }: { tickFormatter?: (value: number, index: number) => string }) =>
+      <div data-testid="y-axis" data-tick-4000={tickFormatter ? tickFormatter(4000, 0) : '4,000'} />,
     Tooltip: () => null,
     // Rendered as a marker so a test can prove the legend exists at all. The
     // real Legend draws to canvas-ish SVG that jsdom cannot meaningfully assert.
@@ -739,7 +742,7 @@ test('AI traffic history survives an API older than the client', async () => {
  * Without a legend the only thing naming a series is the hover tooltip, so a
  * glance cannot tell the lines apart.
  */
-test('AI traffic charts carry a legend', async () => {
+test('AI traffic charts name their series and keep every y label whole', async () => {
   const restoreFetch = mockFetch((url) => {
     if (url.split('?')[0]!.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
     if (url.split('?')[0]!.endsWith('/projects/test-project/traffic/events')) {
@@ -768,8 +771,13 @@ test('AI traffic charts carry a legend', async () => {
   )
 
   await screen.findByText('AI crawlers')
-  // One per chart: machines, and people arriving.
-  expect(screen.getAllByTestId('chart-legend').length).toBe(2)
+  // The machines chart carries a legend; each visits panel names its count.
+  expect(screen.getAllByTestId('chart-legend').length).toBe(1)
+  expect(within(screen.getByRole('group', { name: 'Visits, server' })).getByText('Visits, server')).toBeTruthy()
+  // GA4 recorded nothing here, so Both draws no empty GA4 panel.
+  expect(screen.queryByRole('group', { name: 'Visits, GA4' })).toBeNull()
+  // Four-digit ticks read compactly on every chart, so the gutter holds them.
+  for (const axis of screen.getAllByTestId('y-axis')) expect(axis.getAttribute('data-tick-4000')).toBe('4.0K')
 })
 
 /**
@@ -818,11 +826,17 @@ test('AI traffic history bands server visits counted by the older rule', async (
       expect(band.getAttribute('data-from')).toBe('2026-10-31')
       expect(band.getAttribute('data-to')).toBe('2026-11-02')
       expect(band.textContent).toBe('')
+      // The older count is its own faded series, keyed as reading high.
+      const serverPanel = screen.getByRole('group', { name: 'Visits, server' })
+      expect(within(serverPanel).getByTestId('line-serverOlder')).toBeTruthy()
+      expect(within(serverPanel).getByText('Older count, may read high')).toBeTruthy()
       fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
       expect(screen.queryAllByTestId('reference-area')).toEqual([])
     } else {
       expect(within(visitorsTile).getByText('arrived from an AI answer')).toBeTruthy()
       expect(screen.queryAllByTestId('reference-area')).toEqual([])
+      expect(screen.queryByTestId('line-serverOlder')).toBeNull()
+      expect(screen.queryByText('Older count, may read high')).toBeNull()
     }
     cleanup()
     restoreFetch()
@@ -1095,6 +1109,95 @@ test('AI traffic history draws the GA4 trend where the GA4 line is', async () =>
   expect(screen.queryByTestId('line-ga4Trend')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
   expect(screen.getByTestId('line-ga4Trend')).toBeTruthy()
+})
+
+/**
+ * The server count and GA4's differ many times over, so on one shared axis the
+ * GA4 line flattened onto zero and its trend vanished. Both draws one panel
+ * per count, each with its own y-axis, over the same buckets and hovering
+ * together; picking one source draws only its panel.
+ */
+test('Both stacks one panel per count, each on its own scale, hovering together', async () => {
+  const days = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']
+  const restoreFetch = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/ga/status')) return jsonResponse({ connected: true, propertyId: 'p', clientEmail: null, lastSyncedAt: null })
+    if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: days.map(date => ({ date, sessions: 4 })) })
+    if (path.endsWith('/projects/test-project/traffic/events')) {
+      return jsonResponse({
+        events: [], eventRows: { total: 0, returned: 0, truncated: false },
+        totals: { crawlerHits: 4, crawlerContentHits: 4, aiUserFetchHits: 0, aiReferralHits: 400, aiReferralLandedHits: 400 },
+        series: {
+          granularity: 'day', coverageStart: '2026-09-01T00:00:00.000Z',
+          trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: days.map(bucket => ({ bucket, crawlerHits: 1, crawlerContentHits: 1, aiUserFetchHits: 0, aiReferralHits: 100, aiReferralLandedHits: 100, measured: true })),
+        },
+      })
+    }
+    return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+    </QueryClientProvider>,
+  )
+
+  const gaPanel = await screen.findByRole('group', { name: 'Visits, GA4' })
+  const serverPanel = screen.getByRole('group', { name: 'Visits, server' })
+  // Each panel draws only its own count, so each axis scales to that count.
+  expect(within(serverPanel).getByTestId('line-aiReferralLandedHits')).toBeTruthy()
+  expect(within(serverPanel).queryByTestId('dots-ga4Visits')).toBeNull()
+  expect(within(gaPanel).getByTestId('dots-ga4Visits')).toBeTruthy()
+  expect(within(gaPanel).queryByTestId('line-aiReferralLandedHits')).toBeNull()
+  // Server above GA4, hovering together.
+  expect(serverPanel.compareDocumentPosition(gaPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  for (const panel of [serverPanel, gaPanel]) {
+    expect(within(panel).getByTestId('composed-chart').getAttribute('data-sync')).toBe('ai-visits')
+  }
+
+  fireEvent.click(screen.getByRole('button', { name: 'Server' }))
+  expect(screen.getByRole('group', { name: 'Visits, server' })).toBeTruthy()
+  expect(screen.queryByRole('group', { name: 'Visits, GA4' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.getByRole('group', { name: 'Visits, GA4' })).toBeTruthy()
+  expect(screen.queryByRole('group', { name: 'Visits, server' })).toBeNull()
+})
+
+/**
+ * A month counted by the older arrival rule reads high beside one counted by
+ * the newer rule, so the two are separate series: the older one faded, and no
+ * line joins them across the change.
+ */
+test('monthly history keeps the older server count apart from the newer one', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-20T12:00:00.000Z'))
+  onTestFinished(() => vi.useRealTimers())
+  renderMonthlyHistory({
+    server: () => jsonResponse({ series: {
+      partialBuckets: ['2026-11'],
+      aiReferralCountingChangedAt: '2026-09-25T01:00:00.000Z',
+      points: [
+        { bucket: '2026-09', aiReferralLandedHits: 3800, measured: true },
+        { bucket: '2026-10', aiReferralLandedHits: 420, measured: true },
+        { bucket: '2026-11', aiReferralLandedHits: 150, measured: true },
+      ],
+    } }),
+    ga: () => jsonResponse({ months: [] }),
+  })
+  await screen.findByText('AI crawlers')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  const serverPanel = await screen.findByRole('group', { name: 'Visits, server' })
+  // September, counted the older way: a point of its own, faded.
+  const older = within(serverPanel).getByTestId('dots-serverOlder').querySelectorAll('circle')
+  expect([...older].map(c => c.getAttribute('fill-opacity'))).toEqual(['0.4'])
+  // October, counted the newer way: the solid series.
+  const newer = within(serverPanel).getByTestId('dots-aiReferralLandedHits').querySelectorAll('circle')
+  expect([...newer].map(c => c.getAttribute('fill-opacity'))).toEqual(['1'])
+  // November is still running: hollow, off both lines.
+  expect(within(serverPanel).getByTestId('dots-serverPartial').querySelectorAll('circle[fill="none"]')).toHaveLength(1)
 })
 
 /**

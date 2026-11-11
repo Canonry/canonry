@@ -38,7 +38,8 @@ moves back to where journeys began. GA4's daily AI series carries its own
 fitted `trend`, which can span the whole window. For the long view, read GA4
 `months` and `monthlyTrend` and server-side `--granularity month`; never chart
 a month listed in `partialBuckets`, or one whose GA4 `complete` is false, as a
-full reading.
+full reading. A GA4 month with `sessions: null` was never fetched by the AI
+sync; it is not a month without AI visits.
 
 ## Check the instrument before you report a zero
 
