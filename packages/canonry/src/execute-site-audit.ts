@@ -30,6 +30,7 @@ import {
   factorStatusFromScore,
   siteCrawlUrlVersionOf,
   isSelfLink,
+  hostOf,
   percentOf,
   type RunStatus,
   type SiteAuditCrossCuttingIssueDto,
@@ -38,6 +39,7 @@ import {
   type SiteAuditRunRequest,
   type SiteCrawlAuditFactorDto,
   type SiteCrawlCriticalDefectDto,
+  type SiteCrawlSiteDto,
   ONBOARDING_FLOW_VERSION,
   RunTriggers,
   bucketOnboardingCount,
@@ -250,6 +252,79 @@ function isLegacyScorecardPage(page: CrawlPageObservation): boolean {
   return isScoredPage(page) || page.state === 'fetch-error'
 }
 
+/** An owned site the scan was asked to cover besides the main domain, as resolved before the crawl. */
+interface ExtraSiteRoot {
+  host: string
+  /** The root the crawl starts this site from; null when it could not be resolved. */
+  rootUrl: string | null
+  error: string | null
+}
+
+/**
+ * Bare host of the site a page belongs to, or null on the main domain. Null
+ * is what every row of a scan made before multi-site scans holds, so the main
+ * domain reads the same in old and new scans.
+ */
+function pageSite(page: Pick<CrawlPageObservation, 'requestedUrl'>, mainHost: string | null): string | null {
+  const host = hostOf(page.requestedUrl)
+  return host === null || host === mainHost ? null : host
+}
+
+/**
+ * Every site the scan covered, main domain first, then the extra sites in the
+ * order asked. Counts are over the page rows stored (media is never stored),
+ * and a site's score is the rounded mean of its scored pages: the headline
+ * score's own formula, applied to one site's pages.
+ */
+function siteRollups(input: {
+  mainHost: string
+  mainRootUrl: string
+  extraSites: readonly ExtraSiteRoot[]
+  pages: Iterable<CrawlPageObservation>
+}): SiteCrawlSiteDto[] {
+  const rollups = new Map<string | null, { pages: number; pagesEligible: number; scored: number[] }>()
+  const rollupOf = (site: string | null) => {
+    const existing = rollups.get(site)
+    if (existing) return existing
+    const created = { pages: 0, pagesEligible: 0, scored: [] as number[] }
+    rollups.set(site, created)
+    return created
+  }
+  for (const page of input.pages) {
+    if (isNonPageMedia(page)) continue
+    const rollup = rollupOf(pageSite(page, input.mainHost))
+    rollup.pages += 1
+    if (isInventoryEligible(page)) rollup.pagesEligible += 1
+    if (isScoredPage(page)) rollup.scored.push(page.audit.overallScore)
+  }
+  const describe = (site: string | null, host: string, rootUrl: string | null, error: string | null): SiteCrawlSiteDto => {
+    const rollup = rollups.get(site)
+    const scored = rollup?.scored ?? []
+    return {
+      host,
+      main: site === null,
+      rootUrl,
+      pages: rollup?.pages ?? 0,
+      pagesEligible: rollup?.pagesEligible ?? 0,
+      pagesAudited: scored.length,
+      aggregateScore: scored.length > 0 ? Math.round(scored.reduce((total, score) => total + score, 0) / scored.length) : null,
+      error,
+    }
+  }
+  const sites = [describe(null, input.mainHost, input.mainRootUrl, null)]
+  const listed = new Set<string>()
+  for (const extra of input.extraSites) {
+    listed.add(extra.host)
+    sites.push(describe(extra.host, extra.host, extra.rootUrl, extra.error))
+  }
+  // A page on a host nobody asked for cannot happen with today's engine; if
+  // one ever does, it is still counted rather than silently dropped.
+  for (const site of [...rollups.keys()].filter((key): key is string => key !== null && !listed.has(key)).sort()) {
+    sites.push(describe(site, site, null, null))
+  }
+  return sites
+}
+
 function emptyCompleteCrawlError(rootUrl: string, finalRootUrl: string | null, pagesObserved: number): Error {
   if (!finalRootUrl) return new Error(`Agent Readiness audit scan could not successfully audit any of ${pagesObserved} observed page(s).`)
   try {
@@ -411,6 +486,8 @@ export async function executeSiteAudit(
 
   const observedPages = new Map<string, CrawlPageObservation>()
   const observedEdges = new Map<string, CrawlEdgeObservation>()
+  // Set before the crawl starts; a page on this host is on the main domain.
+  let mainHost: string | null = null
   const nodeKeyByUrl = new Map<string, string>()
   const nodePriorityByUrl = new Map<string, number>()
 
@@ -507,6 +584,7 @@ export async function executeSiteAudit(
       attemptId,
       nodeKey: page.key,
       url: page.requestedUrl,
+      site: pageSite(page, mainHost),
       path: pagePath(page),
       parentPath: parentPath(page),
       discoverySource: pageDiscoverySource(page),
@@ -546,6 +624,7 @@ export async function executeSiteAudit(
       target: [siteCrawlPages.projectId, siteCrawlPages.runId, siteCrawlPages.attemptId, siteCrawlPages.nodeKey],
       set: {
         url: page.requestedUrl,
+        site: pageSite(page, mainHost),
         path: pagePath(page),
         parentPath: parentPath(page),
         discoverySource: pageDiscoverySource(page),
@@ -758,7 +837,28 @@ export async function executeSiteAudit(
       signal: opts.signal,
     })
     const crawlRootUrl = resolvedRoot.effectiveUrl
+    mainHost = hostOf(crawlRootUrl)
     if (opts.sitemapUrl) await assertSiteAuditUrlAllowed(opts.sitemapUrl, 'sitemapUrl')
+    // Each extra owned site goes through the same public-target gate and
+    // redirect rules as the main root, all at once, so slow sites cost one
+    // timeout rather than one each. One that cannot be reached is recorded
+    // with its reason and skipped; it never fails the main site's scan.
+    const extraSites: ExtraSiteRoot[] = await Promise.all(
+      [...new Set(opts.sites ?? [])].filter((host) => host !== mainHost).map(async (host): Promise<ExtraSiteRoot> => {
+        try {
+          const resolved = await resolveSiteAuditRootUrl(toHomepageUrl(host), {
+            resolveTarget: resolvePublicHttpTarget,
+            signal: opts.signal,
+          })
+          return { host, rootUrl: resolved.effectiveUrl, error: null }
+        } catch (error) {
+          if (isCancelled(error, opts.signal)) throw error
+          log.warn('extra-site.unreachable', { runId, projectId, host, error: describeError(error) })
+          return { host, rootUrl: null, error: describeError(error) }
+        }
+      }),
+    )
+    const additionalRoots = extraSites.flatMap((site) => site.rootUrl ? [site.rootUrl] : [])
     // An Advanced project's Properties let the engine flag a page that names
     // another Property. A plan that cannot be read never stops the scan.
     let entities: ReturnType<typeof activePlanEntityRegistry> = null
@@ -778,6 +878,7 @@ export async function executeSiteAudit(
       maxEdges,
       maxDepth: opts.maxDepth ?? null,
       entityPlanRevision: entities?.planRevision ?? null,
+      extraSites: extraSites.map((site) => site.host),
     })
     // The engine (>= 7.1.0) derives maxFetches / maxDurationMs / maxBytes /
     // maxEdges from the page budget natively, so passing only the two limits
@@ -794,6 +895,7 @@ export async function executeSiteAudit(
       includeGeo: opts.includeGeo ?? false,
       includeAgentSkills: opts.includeAgentSkills ?? true,
       skipUrlVersionsAfter: SITE_AUDIT_SKIP_URL_VERSIONS_AFTER,
+      ...(additionalRoots.length > 0 ? { additionalRoots } : {}),
       ...(entities ? { entityRegistry: entities.registry } : {}),
       signal: opts.signal,
       onEvent: persistEvent,
@@ -866,6 +968,13 @@ export async function executeSiteAudit(
     const deadLinksUnverified = new Set(unverifiedLinks.map((finding) => finding.to)).size
     const legacyIssues = factors.map((factor) => toLegacyIssue(factor, pagesAudited)).filter((issue): issue is SiteAuditCrossCuttingIssueDto => issue !== null)
     const issueEvidence = buildSiteCrawlIssueEvidence(crawlSummary.siteIssues, pageObservations)
+    const finalRootUrl = crawlSummary.finalRootUrl ?? crawlSummary.rootUrl
+    const sites = siteRollups({
+      mainHost: mainHost ?? hostOf(finalRootUrl) ?? new URL(finalRootUrl).hostname,
+      mainRootUrl: finalRootUrl,
+      extraSites,
+      pages: observedPages.values(),
+    })
 
     // Derived layout persistence is isolated from the canonical crawl
     // publication. A worker timeout, package/runtime incompatibility, or row
@@ -961,6 +1070,8 @@ export async function executeSiteAudit(
           includeGeo: opts.includeGeo ?? false, includeAgentSkills: opts.includeAgentSkills ?? true,
           // The plan revision whose Properties pages were checked against; null when none were.
           entityPlanRevision: entities?.planRevision ?? null,
+          // Owned domains asked for besides the main domain, as bare hosts.
+          sites: extraSites.map((site) => site.host),
         },
         pageBudget: maxPages,
         edgeBudget: maxEdges ?? null,
@@ -982,6 +1093,7 @@ export async function executeSiteAudit(
         deadLinksUnverified,
         templateDetection: templateLinks.detection,
         linkPlacementRulesetVersion: placementRulesetVersion,
+        sites,
         createdAt: finishedAt,
         updatedAt: finishedAt,
       }).run()

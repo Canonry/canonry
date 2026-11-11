@@ -565,7 +565,9 @@ function AgentReadinessRow({
         suppressErrorToast: true,
         // The row shows the queued scan; a toast would repeat it.
         suppressQueuedToast: true,
-        body: { checkDeadLinks: true, maxPages: SITE_AUDIT_ONBOARDING_PAGE_LIMIT },
+        // The first look reads the main domain only, so its page budget is not
+        // split across extra sites a project may have saved.
+        body: { checkDeadLinks: true, maxPages: SITE_AUDIT_ONBOARDING_PAGE_LIMIT, sites: [] },
       })
       // A crawl has no engines and no queries, so the zero buckets are honest.
       emit({

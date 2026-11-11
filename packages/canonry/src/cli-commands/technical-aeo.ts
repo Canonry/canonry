@@ -4,6 +4,8 @@ import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import {
   getBoolean,
   getString,
+  getStringArray,
+  multiStringOption,
   parseIntegerOption,
   requireProject,
   requireStringOption,
@@ -39,10 +41,11 @@ function auditIssueSelection(input: CliCommandInput, command: string, usage: str
     runId: getString(input.values, 'run-id'),
     cursor: getString(input.values, 'cursor'),
     limit: limit === undefined ? undefined : Number(limit),
+    site: getString(input.values, 'site'),
   })
   if (!selection.success) {
     throw usageError(`Error: invalid saved audit selection\nUsage: ${usage}`, {
-      message: 'Use non-empty run and cursor IDs, and an integer --limit from 1 to 100.',
+      message: 'Use non-empty run, cursor and site values, and an integer --limit from 1 to 100.',
       details: { command, usage },
     })
   }
@@ -52,12 +55,12 @@ function auditIssueSelection(input: CliCommandInput, command: string, usage: str
 const AGENT_READINESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['agent-readiness', 'issues'],
-    usage: 'canonry agent-readiness issues <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
+    usage: 'canonry agent-readiness issues <project> [--run-id <id>] [--site <domain>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
     access: 'stored',
-    options: { 'run-id': stringOption(), cursor: stringOption(), limit: stringOption() },
+    options: { 'run-id': stringOption(), site: stringOption(), cursor: stringOption(), limit: stringOption() },
     run: async (input) => {
       const { technicalAeoIssues } = await import('../commands/technical-aeo.js')
-      const usage = 'canonry agent-readiness issues <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
+      const usage = 'canonry agent-readiness issues <project> [--run-id <id>] [--site <domain>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'agent-readiness.issues', usage)
       await technicalAeoIssues(project, {
         ...auditIssueSelection(input, 'agent-readiness.issues', usage),
@@ -67,12 +70,12 @@ const AGENT_READINESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['agent-readiness', 'issue-pages'],
-    usage: 'canonry agent-readiness issue-pages <project> --issue-id <id> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
+    usage: 'canonry agent-readiness issue-pages <project> --issue-id <id> [--run-id <id>] [--site <domain>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
     access: 'stored',
-    options: { 'issue-id': stringOption(), 'run-id': stringOption(), cursor: stringOption(), limit: stringOption() },
+    options: { 'issue-id': stringOption(), 'run-id': stringOption(), site: stringOption(), cursor: stringOption(), limit: stringOption() },
     run: async (input) => {
       const { technicalAeoIssuePages } = await import('../commands/technical-aeo.js')
-      const usage = 'canonry agent-readiness issue-pages <project> --issue-id <id> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
+      const usage = 'canonry agent-readiness issue-pages <project> --issue-id <id> [--run-id <id>] [--site <domain>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'agent-readiness.issue-pages', usage)
       const issueId = requireStringOption(input, 'issue-id', { command: 'agent-readiness.issue-pages', usage, message: '--issue-id is required' })
       await technicalAeoIssuePages(project, {
@@ -146,14 +149,15 @@ const AGENT_READINESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['agent-readiness', 'run'],
-    usage: 'canonry agent-readiness run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--check-dead-links] [--include-geo] [--no-agent-skills] [--wait] [--format json]',
-    help: 'Start an Agent Readiness audit scan. No answer-engine provider is required. Without --max-pages the scan uses the project\'s saved page budget (canonry project update <project> --site-audit-max-pages <n|full>), else the full site, up to 50,000 pages. --wait polls for up to 15 minutes, so a large full-site scan can outlast it; follow it with canonry agent-readiness progress <project> --run-id <id>. Dead-link checking is off unless --check-dead-links is set. Add --include-geo for location and service-area checks. Agent integration checks are on by default; use --no-agent-skills to disable them.',
+    usage: 'canonry agent-readiness run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--site <domain>...] [--check-dead-links] [--include-geo] [--no-agent-skills] [--wait] [--format json]',
+    help: 'Start an Agent Readiness audit scan. No answer-engine provider is required. Without --max-pages the scan uses the project\'s saved page budget (canonry project update <project> --site-audit-max-pages <n|full>), else the full site, up to 50,000 pages. Without --site the scan covers the main domain plus the project\'s saved sites (canonry project update <project> --add-site-audit-domain <domain>); each --site names an owned domain to cover instead, and --site with the main domain alone scans just the main domain. The page budget is shared across the sites. --wait polls for up to 15 minutes, so a large full-site scan can outlast it; follow it with canonry agent-readiness progress <project> --run-id <id>. Dead-link checking is off unless --check-dead-links is set. Add --include-geo for location and service-area checks. Agent integration checks are on by default; use --no-agent-skills to disable them.',
     options: {
       'sitemap-url': stringOption(),
       limit: stringOption(),
       'max-pages': stringOption(),
       'max-edges': stringOption(),
       'max-depth': stringOption(),
+      site: multiStringOption(),
       'check-dead-links': { type: 'boolean', default: false },
       'include-geo': { type: 'boolean', default: false },
       'include-agent-skills': { type: 'boolean', default: true },
@@ -162,7 +166,7 @@ const AGENT_READINESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     run: async (input) => {
       const { technicalAeoRun } = await import('../commands/technical-aeo.js')
-      const usage = 'canonry agent-readiness run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--check-dead-links] [--include-geo] [--no-agent-skills] [--wait] [--format json]'
+      const usage = 'canonry agent-readiness run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--site <domain>...] [--check-dead-links] [--include-geo] [--no-agent-skills] [--wait] [--format json]'
       const project = requireProject(input, 'agent-readiness.run', usage)
       await technicalAeoRun(project, {
         sitemapUrl: getString(input.values, 'sitemap-url'),
@@ -180,6 +184,7 @@ const AGENT_READINESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
         maxDepth: parseIntegerOption(input, 'max-depth', {
           command: 'agent-readiness.run', usage, message: '--max-depth must be an integer',
         }),
+        sites: getStringArray(input.values, 'site'),
         checkDeadLinks: getBoolean(input.values, 'check-dead-links'),
         includeGeo: getBoolean(input.values, 'include-geo'),
         includeAgentSkills: getBoolean(input.values, 'include-agent-skills') && !getBoolean(input.values, 'no-agent-skills'),
@@ -310,7 +315,7 @@ const AGENT_READINESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['agent-readiness', 'pages'],
-    usage: 'canonry agent-readiness pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--url-versions include|exclude|only] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
+    usage: 'canonry agent-readiness pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--url-versions include|exclude|only] [--site <domain>] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
     options: {
       'run-id': stringOption(), date: stringOption(),
       'inventory-eligible': stringOption(),
@@ -318,13 +323,14 @@ const AGENT_READINESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'indexability-state': stringOption(),
       'audit-state': stringOption(),
       'url-versions': stringOption(),
+      site: stringOption(),
       sort: stringOption(),
       cursor: stringOption(),
       limit: stringOption(),
     },
     run: async (input) => {
       const { technicalAeoCrawlPages } = await import('../commands/technical-aeo.js')
-      const usage = 'canonry agent-readiness pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--url-versions include|exclude|only] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
+      const usage = 'canonry agent-readiness pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--url-versions include|exclude|only] [--site <domain>] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'agent-readiness.pages', usage)
       const sort = getString(input.values, 'sort')
       if (sort !== undefined && !['url', 'path', 'score-asc', 'score-desc'].includes(sort)) {
@@ -347,6 +353,7 @@ const AGENT_READINESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
         indexabilityState: getString(input.values, 'indexability-state'),
         auditState: getString(input.values, 'audit-state'),
         urlVersions: urlVersions as 'include' | 'exclude' | 'only' | undefined,
+        site: getString(input.values, 'site'),
         sort: sort as 'url' | 'path' | 'score-asc' | 'score-desc' | undefined,
         cursor: getString(input.values, 'cursor'),
         limit: parseIntegerOption(input, 'limit', { command: 'agent-readiness.pages', usage, message: '--limit must be an integer' }),
@@ -384,14 +391,15 @@ const AGENT_READINESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['agent-readiness', 'structure'],
-    usage: 'canonry agent-readiness structure <project> [--run-id <id>] [--parent-path <path>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
-    options: { 'run-id': stringOption(), 'parent-path': stringOption(), cursor: stringOption(), limit: stringOption() },
+    usage: 'canonry agent-readiness structure <project> [--run-id <id>] [--site <domain>] [--parent-path <path>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
+    options: { 'run-id': stringOption(), site: stringOption(), 'parent-path': stringOption(), cursor: stringOption(), limit: stringOption() },
     run: async (input) => {
       const { technicalAeoStructure } = await import('../commands/technical-aeo.js')
-      const usage = 'canonry agent-readiness structure <project> [--run-id <id>] [--parent-path <path>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
+      const usage = 'canonry agent-readiness structure <project> [--run-id <id>] [--site <domain>] [--parent-path <path>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'agent-readiness.structure', usage)
       await technicalAeoStructure(project, {
         runId: getString(input.values, 'run-id'),
+        site: getString(input.values, 'site'),
         parentPath: getString(input.values, 'parent-path'),
         cursor: getString(input.values, 'cursor'),
         limit: parseIntegerOption(input, 'limit', { command: 'agent-readiness.structure', usage, message: '--limit must be an integer' }),

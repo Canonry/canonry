@@ -2053,7 +2053,7 @@ function ProjectPageContent({
     }
   }
 
-  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string>; siteAuditMaxPages?: number | null }) {
+  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string>; siteAuditMaxPages?: number | null; siteAuditDomains?: string[] }) {
     const updated = await apiUpdateProject(pName, updates)
     queryClient.setQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: pName } }), updated)
     // Scoped to the edited project's own cache entries — see the helper.
@@ -2679,7 +2679,7 @@ function ProjectPageContent({
         <>
           <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} />
           <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />
-          <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async siteAuditMaxPages => { await handleUpdateProject(model.project.name, { siteAuditMaxPages }) }} />
+          <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async settings => { await handleUpdateProject(model.project.name, settings) }} />
           {canWrite && !isEmbed() ? (
             <section className="page-section-divider">
               <h2 className="text-heading-20 text-heading">Advanced measurement</h2>

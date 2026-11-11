@@ -38,6 +38,7 @@ import {
   type SiteCrawlIndexabilityReason,
   type SiteCrawlPageAuditDto,
   type SiteCrawlPageDto,
+  type SiteCrawlSiteDto,
   type SiteCrawlStructureChildDto,
   type SiteCrawlStructureResponseDto,
   type SiteCrawlTermination,
@@ -75,7 +76,8 @@ import {
   siteGraphVisualState,
   type SiteGraphVisualState,
 } from './site-graph-sigma.js'
-import { displayPagePath, siteHostFromUrl } from './site-health-paths.js'
+import { displayPagePath, otherSiteAddress, siteHostFromUrl, siteOfUrl } from './site-health-paths.js'
+import { scanSiteChoices, toggleSite } from '../../lib/site-audit-sites.js'
 import { PageAuditEvidence } from './PageAuditEvidence.js'
 import { SITE_HEALTH_CHECK_HELP } from './site-health-check-help.js'
 import { TechnicalAeoSection } from './TechnicalAeoSection.js'
@@ -106,6 +108,9 @@ const SITE_HEALTH_VIEW_DESCRIPTIONS: Record<SiteHealthView, string> = {
  */
 type InventoryFilterId = 'all' | 'hidden'
 
+/** One site a scan covered: the main domain first, then the owned domains it included. */
+type SiteScanSite = Pick<SiteCrawlSiteDto, 'host' | 'pages' | 'error'>
+
 /** Whether the selected page's own row (which carries its reasons) is known. */
 type PageReasonsState = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -130,7 +135,10 @@ const INVENTORY_FILTERS = [
  * the full URL stays in the row's title and in what it opens.
  */
 function inventoryAddress(url: string, fallbackPath: string, rootHost: string | null): { path: string; query: string | null } {
-  const display = displayPagePath(url, rootHost) || fallbackPath
+  return splitAddress(displayPagePath(url, rootHost) || fallbackPath)
+}
+
+function splitAddress(display: string): { path: string; query: string | null } {
   const start = display.indexOf('?')
   if (start < 0) return { path: display, query: null }
   const query = display.slice(start)
@@ -153,8 +161,9 @@ function urlVersionsFound(summary: { urlVersions: number; urlVersionsNotFetched?
 }
 
 /** The caveat beside the page count; its sentence is the tooltip. */
-function urlVersionsSkippedHelp(count: number): { label: string; text: string } {
-  const label = `${metricValue(count)} URL version${count === 1 ? '' : 's'} skipped`
+function urlVersionsSkippedHelp(count: number, wholeScan = false): { label: string; text: string } {
+  // A list narrowed to one site still counts the whole scan's URL versions.
+  const label = `${metricValue(count)} URL version${count === 1 ? '' : 's'} skipped${wholeScan ? ' in this scan' : ''}`
   return {
     label,
     text: `${label}. These addresses add parameters, such as a filter, to a page and name that page as canonical, so they are copies of it. The scan does not score them or list them here.`,
@@ -712,19 +721,55 @@ function ColumnLabel({ label, metric }: { label: string; metric: SiteHealthMetri
   )
 }
 
+/**
+ * A linked page's address. In a scan of more than one site, a page on another
+ * site than the open page's names that site under its path; a page on the open
+ * page's own site needs no site name.
+ */
+function LinkedPageAddress({ url, rootHost, siteHosts, pageSite }: {
+  url: string
+  rootHost: string | null
+  siteHosts: readonly string[]
+  pageSite: string | null
+}) {
+  const linkSite = siteOfUrl(url)
+  if (siteHosts.length < 2 || linkSite === null || !siteHosts.includes(linkSite)) {
+    return <>{displayPagePath(url, rootHost)}</>
+  }
+  let path = url
+  try {
+    const parsed = new URL(url)
+    path = `${parsed.pathname}${parsed.search}` || '/'
+  } catch {
+    // An address that does not parse is shown whole.
+  }
+  return (
+    <>
+      <span className="block truncate">{path}</span>
+      {linkSite !== pageSite && <span className="block truncate text-label-12-mono text-secondary">{linkSite}</span>}
+    </>
+  )
+}
+
 function NeighborTable({
   direction,
   edges,
   truncated,
   rootHost,
   hiddenTemplateCount,
+  siteHosts = [],
+  pageUrl = null,
 }: {
   direction: 'inbound' | 'outbound'
   edges: SiteCrawlEdgeDto[]
   truncated: boolean
   rootHost: string | null
   hiddenTemplateCount: number
+  siteHosts?: readonly string[]
+  /** The inspected page: a linked page on its own site needs no site name. */
+  pageUrl?: string | null
 }) {
+  const pageSite = siteOfUrl(pageUrl)
   const heading = direction === 'inbound' ? 'Links in' : 'Links out'
   return (
     <section className="min-w-0" aria-labelledby={`site-health-${direction}-heading`}>
@@ -755,7 +800,7 @@ function NeighborTable({
                 <tr key={edge.edgeKey}>
                   {/* The path is the display; the full URL stays on hover. */}
                   <td className="max-w-64 truncate font-mono" title={url}>
-                    {displayPagePath(url, rootHost)}
+                    <LinkedPageAddress url={url} rootHost={rootHost} siteHosts={siteHosts} pageSite={pageSite} />
                   </td>
                   <td className="max-w-52 truncate" title={edge.anchors.join(', ') || undefined}>
                     {edge.anchors.join(', ') || 'No anchor text'}
@@ -782,6 +827,17 @@ function indexabilityReasons(page: InspectableCrawlPage | null): readonly string
   return page && 'indexabilityReasons' in page ? page.indexabilityReasons : []
 }
 
+/** The open page's heading: its path, after its site's name when that is not the main domain. */
+function PageHeadingAddress({ url, path, rootHost, siteHosts }: {
+  url: string
+  path: string
+  rootHost: string | null
+  siteHosts: readonly string[]
+}) {
+  const other = otherSiteAddress(url, rootHost, siteHosts)
+  return other ? <><span className="text-secondary">{other.site}</span>{other.path}</> : <>{path}</>
+}
+
 function PageInspector({
   page,
   isLoading,
@@ -799,6 +855,7 @@ function PageInspector({
   reasonsState,
   onRetryReasons,
   showTemplateLinks,
+  siteHosts = [],
 }: {
   page: InspectableCrawlPage | null
   isLoading: boolean
@@ -818,6 +875,7 @@ function PageInspector({
   onRetryReasons: () => void
   /** Mirrors the map, so the two never disagree about one page. */
   showTemplateLinks: boolean
+  siteHosts?: readonly string[]
 }) {
   if (!page) {
     return (
@@ -865,7 +923,7 @@ function PageInspector({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 id="site-health-page-inspector-title" className="break-words font-mono text-heading-16 text-heading">
-              {page.path}
+              <PageHeadingAddress url={page.url} path={page.path} rootHost={rootHost} siteHosts={siteHosts} />
             </h3>
             <ToneBadge tone={status.tone}>{status.label}</ToneBadge>
           </div>
@@ -928,6 +986,8 @@ function PageInspector({
               truncated={inboundTruncated}
               rootHost={rootHost}
               hiddenTemplateCount={hiddenInboundCount}
+              siteHosts={siteHosts}
+              pageUrl={page.url}
             />
             <NeighborTable
               direction="outbound"
@@ -935,6 +995,8 @@ function PageInspector({
               truncated={outboundTruncated}
               rootHost={rootHost}
               hiddenTemplateCount={hiddenOutboundCount}
+              siteHosts={siteHosts}
+              pageUrl={page.url}
             />
           </div>
           )}
@@ -957,6 +1019,9 @@ function InventoryTable({
   filter,
   onFilterChange,
   filterUnavailable,
+  sites,
+  siteFilter,
+  onSiteFilterChange,
 }: {
   pages: SiteCrawlPageDto[]
   total: number
@@ -972,8 +1037,13 @@ function InventoryTable({
   onFilterChange: (filter: InventoryFilterId) => void
   /** This scan predates persisted health state, so it cannot be filtered. */
   filterUnavailable: boolean
+  /** The sites this scan covered, main site first. One site shows no site filter or site names. */
+  sites: readonly SiteScanSite[]
+  siteFilter: string
+  onSiteFilterChange: (site: string) => void
 }) {
   const [search, setSearch] = useState('')
+  const siteHosts = sites.map((site) => site.host)
   const normalizedSearch = search.trim().toLowerCase()
   const visiblePages = useMemo(
     () => normalizedSearch
@@ -998,11 +1068,24 @@ function InventoryTable({
                 : `Showing ${metricValue(pages.length)} of ${metricValue(total)} hidden pages.`}
             </p>
             {skippedUrlVersions != null && skippedUrlVersions > 0 && (
-              <InfoTooltip {...urlVersionsSkippedHelp(skippedUrlVersions)} />
+              <InfoTooltip {...urlVersionsSkippedHelp(skippedUrlVersions, siteFilter !== 'all')} />
             )}
           </div>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto" role="group" aria-label="Page filters">
+          {sites.length > 1 && (
+            <select
+              aria-label="Filter pages by site"
+              value={siteFilter}
+              onChange={(event) => onSiteFilterChange(event.target.value)}
+              className="h-9 rounded-md border border-base bg-bg px-3 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
+            >
+              <option value="all">All sites</option>
+              {sites.map((site) => (
+                <option key={site.host} value={site.host}>{site.host}</option>
+              ))}
+            </select>
+          )}
           <select
             aria-label="Filter pages by status"
             value={filter}
@@ -1016,7 +1099,7 @@ function InventoryTable({
               <option key={option.id} value={option.id}>{option.label}</option>
             ))}
           </select>
-          <label className="relative block min-w-0 flex-1 sm:w-72 sm:flex-none">
+          <label className={cn('relative block min-w-0 flex-1 sm:w-72 sm:flex-none', sites.length > 1 && 'basis-full sm:basis-auto')}>
             <span className="sr-only">Search loaded pages</span>
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" aria-hidden="true" />
             <input
@@ -1046,7 +1129,10 @@ function InventoryTable({
           <tbody>
             {visiblePages.map((page) => {
               const status = crawlStatus(page)
-              const address = inventoryAddress(page.url, page.path, rootHost)
+              const other = otherSiteAddress(page.url, rootHost, siteHosts)
+              const address = other ? splitAddress(other.path) : inventoryAddress(page.url, page.path, rootHost)
+              // A list of one site needs no site name; a mixed list names the other site under the path.
+              const siteLine = other && siteFilter === 'all' ? other.site : null
               return (
                 <tr key={page.nodeKey} className={selectedNodeKey === page.nodeKey ? 'bg-surface-active' : undefined}>
                   <td className="max-w-80">
@@ -1057,6 +1143,7 @@ function InventoryTable({
                       title={page.url}
                     >
                       <span className="block truncate font-mono text-button-14 text-link">{address.path}</span>
+                      {siteLine && <span className="block truncate text-label-12-mono text-secondary">{siteLine}</span>}
                       {address.query && (
                         <span className="line-clamp-2 [overflow-wrap:anywhere] text-label-12-mono text-secondary">{address.query}</span>
                       )}
@@ -1104,13 +1191,16 @@ function InventoryTable({
 function SiteSectionRow({
   projectName,
   runId,
+  site,
   section,
   onSelect,
 }: {
   projectName: string
   runId: string
+  /** The site these folders belong to, in a scan of more than one site. */
+  site?: string
   section: SiteCrawlStructureChildDto
-  onSelect: (path: string) => void
+  onSelect: (path: string, site?: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const descendantCount = section.pageCount - (section.hasPage ? 1 : 0)
@@ -1136,7 +1226,7 @@ function SiteSectionRow({
         )}
         <button
           type="button"
-          onClick={() => onSelect(section.path)}
+          onClick={() => onSelect(section.path, site)}
           className="min-w-0 flex-1 break-words rounded-sm py-2 text-left font-mono text-button-14 text-heading outline-none hover:text-link focus-visible:ring-2 focus-visible:ring-mono-400"
         >
           {section.path}
@@ -1148,6 +1238,7 @@ function SiteSectionRow({
           <SiteSectionChildren
             projectName={projectName}
             runId={runId}
+            site={site}
             parentPath={section.path}
             onSelect={onSelect}
           />
@@ -1182,9 +1273,46 @@ function RootPageRow({ page, onSelect }: {
   )
 }
 
+/**
+ * One site's folders, under the site's name, when a scan covered more than one
+ * site. Closed at first, so no site's folders bury the others. A site the scan
+ * could not reach says so in place of a page count.
+ */
+function SiteBranch({ site, children }: { site: SiteScanSite; children: ReactNode }) {
+  const [expanded, setExpanded] = useState(false)
+  const reachable = site.error === null
+  return (
+    <li>
+      <div className="flex min-h-11 items-center gap-1 px-2 py-1">
+        {reachable ? (
+          <button
+            type="button"
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${site.host}`}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((current) => !current)}
+            className="flex size-8 shrink-0 items-center justify-center rounded-sm text-muted outline-none hover:bg-surface-hover hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-400"
+          >
+            {expanded
+              ? <ChevronDown className="size-3.5" aria-hidden="true" />
+              : <ChevronRight className="size-3.5" aria-hidden="true" />}
+          </button>
+        ) : (
+          <span className="block size-8 shrink-0" aria-hidden="true" />
+        )}
+        <span className="min-w-0 flex-1 break-words py-2 text-label-14-strong text-heading">{site.host}</span>
+        {reachable
+          ? <span className="shrink-0 px-2 text-label-12-mono text-muted">{metricValue(site.pages)}</span>
+          : <span className="shrink-0 px-2 text-label-12 text-secondary" title={site.error ?? undefined}>Not reached</span>}
+      </div>
+      {expanded && <div className="ml-6 border-l border-default pl-1">{children}</div>}
+    </li>
+  )
+}
+
 function SiteSectionChildren({
   projectName,
   runId,
+  site,
   parentPath,
   onSelect,
   rootPage,
@@ -1192,8 +1320,10 @@ function SiteSectionChildren({
 }: {
   projectName: string
   runId: string
+  /** The site whose folders to list, in a scan of more than one site; the main domain when omitted. */
+  site?: string
   parentPath: string
-  onSelect: (path: string) => void
+  onSelect: (path: string, site?: string) => void
   /** Only the top-level list carries it; nested folder lists pass null. */
   rootPage?: Pick<SiteCrawlGraphNodeDto, 'nodeKey' | 'path' | 'inventoryEligible'> | null
   onSelectRootPage?: (nodeKey: string) => void
@@ -1201,7 +1331,7 @@ function SiteSectionChildren({
   const structureInput = {
     client: heyClient,
     path: { name: projectName },
-    query: { runId, parentPath, limit: STRUCTURE_LIMIT },
+    query: { runId, parentPath, limit: STRUCTURE_LIMIT, ...(site ? { site } : {}) },
   } as const
   const structureQuery = useInfiniteQuery({
     ...getApiV1ProjectsByNameAgentReadinessStructureInfiniteOptions(structureInput),
@@ -1240,6 +1370,7 @@ function SiteSectionChildren({
             key={section.path}
             projectName={projectName}
             runId={runId}
+            site={site}
             section={section}
             onSelect={onSelect}
           />
@@ -1524,6 +1655,11 @@ export function SiteHealthSection({
   const [pageBudget, setPageBudget] = useState<number | null>(null)
   const [crawlDepth, setCrawlDepth] = useState<number | null>(null)
   const [inventoryFilter, setInventoryFilter] = useState<InventoryFilterId>('all')
+  // 'all', or one site of the selected scan; a site that scan did not cover reads as 'all'.
+  const [siteFilter, setSiteFilter] = useState('all')
+  // The owned domains the next scan covers. Null until the operator ticks
+  // one, which means the project's saved choice.
+  const [nextScanSiteTicks, setNextScanSiteTicks] = useState<string[] | null>(null)
   /**
    * The map opens on content links only. Nav and footer links repeat on every
    * page, so drawing them buries the structure this view exists to show. The
@@ -1664,12 +1800,19 @@ export function SiteHealthSection({
   // instead of describing an unfiltered list.
   const inventoryHealthState = INVENTORY_FILTERS
     .find((option) => option.id === inventoryFilter)?.healthState
+  // The sites the selected scan covered, main domain first. One site, or a
+  // scan made before scans recorded their sites, shows no site controls.
+  const crawlSites: SiteScanSite[] = crawl?.sites ?? []
+  const crawlSiteHosts = crawlSites.map((site) => site.host)
+  const pageSiteFilter = crawlSites.length > 1 && crawlSiteHosts.includes(siteFilter) ? siteFilter : 'all'
   const pagesInput = {
     client: heyClient,
     path: { name: projectName },
     query: {
       ...scopedRunQuery,
       ...(inventoryHealthState ? { healthState: inventoryHealthState } : {}),
+      // Narrowed on the server too, so the total and the cursor describe one site.
+      ...(pageSiteFilter !== 'all' ? { site: pageSiteFilter } : {}),
       // A URL version is a copy of a page the audit did not score; the list
       // holds pages and the skipped copies are one count beside it.
       urlVersions: 'exclude' as const,
@@ -1733,6 +1876,11 @@ export function SiteHealthSection({
     [pagesQuery.data],
   )
   const inventoryTotal = pagesQuery.data?.pages[0]?.total ?? inventoryPages.length
+  // Scan settings offers each owned domain as a tick, the saved ones ticked.
+  const nextScanSiteChoices = scanSiteChoices(projectQuery.data)
+  // Filtered by this project's choices, so a tick never outlives its owned domain.
+  const nextScanSites = (nextScanSiteTicks ?? projectQuery.data?.siteAuditDomains ?? [])
+    .filter((site) => nextScanSiteChoices.owned.includes(site))
   const loadedInventoryPage = useMemo(
     () => inventoryPages.find((page) => page.nodeKey === selectedNodeKey) ?? null,
     [inventoryPages, selectedNodeKey],
@@ -1939,11 +2087,19 @@ export function SiteHealthSection({
         // full site.
         ...(pageBudget === null ? {} : { maxPages: pageBudget }),
         ...(crawlDepth === null ? {} : { maxDepth: crawlDepth }),
+        // Sent only when there are owned domains to choose from; otherwise
+        // the server applies the project's saved choice, the main domain alone.
+        ...(nextScanSiteChoices.owned.length > 0 ? { sites: nextScanSites } : {}),
       },
     })
+    // Ticks apply to one scan; the next one starts from the saved choice again.
+    setNextScanSiteTicks(null)
   }
-  const selectSection = (path: string) => {
-    const matchingPage = graphPages.find((page) => page.path === path || page.path.startsWith(`${path}/`))
+  const selectSection = (path: string, site?: string) => {
+    // Folder paths carry no host, so in a scan of more than one site the
+    // match is also on the folder's site.
+    const onSite = (url: string) => !site || siteOfUrl(url) === site
+    const matchingPage = graphPages.find((page) => (page.path === path || page.path.startsWith(`${path}/`)) && onSite(page.url))
     if (matchingPage) setSelectedNodeKey(matchingPage.nodeKey)
   }
 
@@ -2022,6 +2178,32 @@ export function SiteHealthSection({
                   <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
                 </summary>
                 <div className="absolute left-0 z-20 mt-2 w-72 material-menu p-4 sm:left-auto sm:right-0">
+                  {/* The sites this scan covers: the main domain always, each owned domain by tick. */}
+                  {nextScanSiteChoices.main && nextScanSiteChoices.owned.length > 0 && (
+                    <fieldset className="mb-4 grid gap-2 border-b border-default pb-4">
+                      <legend className="mb-2 flex items-center gap-1.5 text-label-14-strong text-heading">
+                        Sites
+                        <InfoTooltip text="The main domain is always scanned. Ticks here apply to this scan; the saved choice is in Settings." placement="bottom" />
+                      </legend>
+                      <label className="flex items-center justify-between gap-3" title="The main domain is always scanned">
+                        <span className="min-w-0 truncate text-label-14-mono text-primary">{nextScanSiteChoices.main}</span>
+                        <input type="checkbox" checked disabled aria-label={`Scan ${nextScanSiteChoices.main}`} className="size-4 shrink-0 rounded border-base accent-mono-200" />
+                      </label>
+                      {nextScanSiteChoices.owned.map((site) => (
+                        <label key={site} className="flex items-center justify-between gap-3">
+                          <span className="min-w-0 truncate text-label-14-mono text-primary">{site}</span>
+                          <input
+                            type="checkbox"
+                            aria-label={`Scan ${site}`}
+                            checked={nextScanSites.includes(site)}
+                            disabled={scanBusy}
+                            onChange={(event) => setNextScanSiteTicks(toggleSite(nextScanSiteChoices.owned, nextScanSites, site, event.target.checked))}
+                            className="size-4 shrink-0 rounded border-base accent-mono-200 focus-visible:ring-2 focus-visible:ring-mono-400"
+                          />
+                        </label>
+                      ))}
+                    </fieldset>
+                  )}
                   <div className="flex items-center justify-between gap-3 text-label-14 text-heading">
                     <span className="flex items-center gap-1.5 text-label-14-strong">
                       Check dead links
@@ -2310,6 +2492,9 @@ export function SiteHealthSection({
               onLoadMore={() => void pagesQuery.fetchNextPage()}
               filter={inventoryFilter}
               onFilterChange={setInventoryFilter}
+              sites={crawlSites}
+              siteFilter={pageSiteFilter}
+              onSiteFilterChange={setSiteFilter}
             />
           )}
           <PageInspector
@@ -2329,6 +2514,7 @@ export function SiteHealthSection({
             reasonsState={reasonsState}
             onRetryReasons={() => { void selectedPageQuery.refetch() }}
             showTemplateLinks={showTemplateLinks || templateFilterUnavailable}
+            siteHosts={crawlSiteHosts}
           />
         </div>
       ) : (
@@ -2399,10 +2585,26 @@ export function SiteHealthSection({
               <aside className="material-base" aria-labelledby="site-sections-heading">
                 <div className="border-b border-default px-4 py-3">
                   <h3 id="site-sections-heading" className="text-heading-14 text-heading">Site sections</h3>
-                  <p className="mt-1 text-copy-13 text-muted">Folders in this scan</p>
+                  <p className="mt-1 text-copy-13 text-muted">{crawlSites.length > 1 ? 'Sites and folders in this scan' : 'Folders in this scan'}</p>
                 </div>
                 <div className="max-h-[468px] overflow-auto">
-                  {resolvedRunId && (
+                  {resolvedRunId && crawlSites.length > 1 ? (
+                    <ul className="divide-y divide-default">
+                      {crawlSites.map((site, index) => (
+                        <SiteBranch key={site.host} site={site}>
+                          <SiteSectionChildren
+                            projectName={projectName}
+                            runId={resolvedRunId}
+                            site={site.host}
+                            parentPath="/"
+                            onSelect={selectSection}
+                            rootPage={index === 0 ? rootGraphPage : null}
+                            onSelectRootPage={setSelectedNodeKey}
+                          />
+                        </SiteBranch>
+                      ))}
+                    </ul>
+                  ) : resolvedRunId && (
                     <SiteSectionChildren
                       projectName={projectName}
                       runId={resolvedRunId}
@@ -2464,6 +2666,7 @@ export function SiteHealthSection({
             reasonsState={reasonsState}
             onRetryReasons={() => { void selectedPageQuery.refetch() }}
             showTemplateLinks={showTemplateLinks || templateFilterUnavailable}
+            siteHosts={crawlSiteHosts}
           />
         </div>
       )}

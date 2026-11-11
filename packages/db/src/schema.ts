@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { AgentJourneyCorrelationBasis, AgentTrustReason, StoredAgentTrust, CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, RunProviderFailure, RunSyncSummary, SiteCrawlIssueEvidence, SnapshotUsage, VerificationStatus } from '@canonry/canonry-contracts'
+import type { AgentJourneyCorrelationBasis, AgentTrustReason, StoredAgentTrust, CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, RunProviderFailure, RunSyncSummary, SiteCrawlIssueEvidence, SiteCrawlSiteDto, SnapshotUsage, VerificationStatus } from '@canonry/canonry-contracts'
 import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, SiteAuditScheduleChecks, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GaSearchLandingStatus, GaSearchLandingWindow, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@canonry/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
@@ -18,6 +18,12 @@ export const projects = sqliteTable('projects', {
   qualifiedAliases: text('qualified_aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
   /** Site Health page budget for scans that set none; null means the full site (up to 50,000 pages). */
   siteAuditMaxPages: integer('site_audit_max_pages'),
+  /**
+   * Owned domains every Agent Readiness scan covers besides the main domain,
+   * as bare hosts, unless a scan names its own. Each is one of `ownedDomains`;
+   * empty means the main domain only.
+   */
+  siteAuditDomains: text('site_audit_domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
   /**
    * What the unattended answer-derived competitor alias pass does
    * (`CompetitorAutoAliasMode`), queued after a completed or partial sweep, a
@@ -1501,6 +1507,12 @@ export const siteCrawlSnapshots = sqliteTable('site_crawl_snapshots', {
    * backfilled: a pre-4.7.0 crawl never observed placement.
    */
   linkPlacementRulesetVersion: text('link_placement_ruleset_version'),
+  /**
+   * Every site the scan covered, main domain first, with its page counts and
+   * score, written at publish. NULL for a scan made before scans recorded
+   * their sites: it covered the main domain only.
+   */
+  sites: text('sites', { mode: 'json' }).$type<SiteCrawlSiteDto[]>(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
@@ -1526,6 +1538,12 @@ export const siteCrawlPages = sqliteTable('site_crawl_pages', {
   attemptId: text('attempt_id').notNull(),
   nodeKey: text('node_key').notNull(),
   url: text('url').notNull(),
+  /**
+   * Bare host of another owned site the scan covered (`hostOf`). NULL on the
+   * main domain, which is every row of a scan made before scans covered more
+   * than one site. `path` and `parentPath` never include a host.
+   */
+  site: text('site'),
   path: text('path').notNull(),
   parentPath: text('parent_path').notNull(),
   discoverySource: text('discovery_source').notNull().default('crawl'),
@@ -1575,6 +1593,7 @@ export const siteCrawlPages = sqliteTable('site_crawl_pages', {
   index('idx_site_crawl_pages_parent').on(table.projectId, table.runId, table.attemptId, table.parentPath, table.path),
   index('idx_site_crawl_pages_url').on(table.projectId, table.runId, table.attemptId, table.url),
   index('idx_site_crawl_pages_health').on(table.projectId, table.runId, table.attemptId, table.healthState, table.path, table.nodeKey),
+  index('idx_site_crawl_pages_site').on(table.projectId, table.runId, table.attemptId, table.site, table.path),
   // The in-progress Page Health preview reads only completed audits below its
   // threshold, ordered worst-first. Keep its stable tie-breaker in the index
   // so a growing crawl never needs a transient sort before its small limit.

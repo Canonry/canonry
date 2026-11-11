@@ -34,7 +34,8 @@ receive the selected graph node, so resolve the requested page or ask for it.
 | Which issues need investigation, including on passing pages? | `canonry_agent_readiness_issues` for grouped findings, counts, example URLs and coverage |
 | Which pages have a selected issue? | `canonry_agent_readiness_issue_pages`; pin the list's run and follow the affected-page cursor |
 | Which URLs were discovered and audited? | `canonry_agent_readiness_pages`; filter audit/fetch/indexability state and follow its cursor |
-| How is the site organized? | `canonry_agent_readiness_structure` for one path level |
+| How is the site organized? | `canonry_agent_readiness_structure` for one path level of one site |
+| Which sites did the scan cover, and how does each score? | `sites` on `canonry_agent_readiness_overview` and `canonry_agent_readiness_score` |
 | What links to/from this page? | `canonry_agent_readiness_link_neighbors`; inbound and outbound truncation are independent |
 | What is around this page? | `canonry_agent_readiness_subgraph`; refocus or expand only as needed |
 | Can the root reach this page? | `canonry_agent_readiness_path` for a directed followable path |
@@ -64,6 +65,15 @@ are 25 nodes and 50 edges; a bounded neighborhood is not the whole site.
 - Subgraph `countAccuracy: lower-bound` means counts are minimums. An
   unreachable or truncated path in an incomplete crawl does not prove a
   site-wide orphan. Absence from a bounded result is not absence from the site.
+- A scan can cover owned domains besides the main one. `sites` lists each,
+  main domain first; a site with an `error` was not reached, which is not a
+  site with no problems. Each page carries its `site`, and `path` never
+  includes the host, so two sites can share a path. Pass `site` to the pages,
+  structure and issues reads to stay on one site. The headline score covers
+  every site; quote a site's own score from `sites` when the question is
+  about that site. A scan without `sites` covered the main domain only.
+  `deltaUnavailableReason: sites-changed` means the previous scan scored
+  other sites: report no change between the two scores, not a rise or fall.
 - Crawler-derived indexability is technical eligibility, not Google index
   coverage. Verify Google indexing with its own stored integration evidence.
 - Link score indicates structural importance, not an audit failure. Pair

@@ -4062,7 +4062,7 @@ test.each(['simple', 'advanced'] as const)('%s Settings shows the saved Agent Re
     const select = within(section).getByRole('combobox', { name: 'Page budget' }) as HTMLSelectElement
     expect(select.value, String(saved)).toBe(choice)
     expect((within(section).queryByRole('spinbutton', { name: 'Custom page budget' }) as HTMLInputElement | null)?.value ?? null, String(saved)).toBe(custom)
-    expect(within(section).getByRole('button', { name: 'Save page budget' }).hasAttribute('disabled')).toBe(true)
+    expect(within(section).getByRole('button', { name: 'Save scan settings' }).hasAttribute('disabled')).toBe(true)
     // It sits right after the answer engine settings.
     const engines = section.parentElement!.querySelector('.project-engine-settings')!
     expect(engines).not.toBe(section)
@@ -4125,7 +4125,8 @@ test.each(['simple', 'advanced'] as const)('%s Settings shows the saved page bud
       },
     })
     const section = siteHealthScansSection(html)
-    expect(section.textContent, label).toBe('Agent Readiness audit scansPage budget: 2,500 pages')
+    // Read-only viewers see the sites every scan covers beside the budget.
+    expect(section.textContent, label).toBe('Agent Readiness audit scansSites scanned: citypointdental.comPage budget: 2,500 pages')
     expect(within(section).queryByRole('combobox'), label).toBeNull()
     expect(within(section).queryByRole('button', { name: /Save|Cancel/ }), label).toBeNull()
   }
@@ -4189,8 +4190,8 @@ test.each(['simple', 'advanced'] as const)('%s Settings saves the page budget th
   expect(select.value).toBe('2500')
 
   fireEvent.change(select, { target: { value: '10000' } })
-  fireEvent.click(within(section).getByRole('button', { name: 'Save page budget' }))
-  expect(await within(section).findByText('Page budget saved.')).toBeTruthy()
+  fireEvent.click(within(section).getByRole('button', { name: 'Save scan settings' }))
+  expect(await within(section).findByText('Scan settings saved.')).toBeTruthy()
   expect(puts).toHaveLength(1)
   expect(puts[0]!.siteAuditMaxPages).toBe(10_000)
   // The rest of the project is the stored project, unchanged.
@@ -4202,7 +4203,7 @@ test.each(['simple', 'advanced'] as const)('%s Settings saves the page budget th
 
   // Full site saves null, which the server stores as "no budget".
   fireEvent.change(select, { target: { value: 'full' } })
-  fireEvent.click(within(section).getByRole('button', { name: 'Save page budget' }))
+  fireEvent.click(within(section).getByRole('button', { name: 'Save scan settings' }))
   await waitFor(() => expect(puts).toHaveLength(2))
   expect(puts[1]).toHaveProperty('siteAuditMaxPages', null)
   await waitFor(() => expect(select.value).toBe('full'))

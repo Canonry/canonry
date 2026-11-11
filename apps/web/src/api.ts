@@ -954,6 +954,8 @@ export async function updateProject(projectName: string, updates: {
   providerModels?: Record<string, string>
   /** Agent Readiness page budget; null means the full site. Omitted keeps the stored value. */
   siteAuditMaxPages?: number | null
+  /** Owned domains every Agent Readiness scan covers besides the main domain. Omitted keeps the stored list. */
+  siteAuditDomains?: string[]
 }): Promise<ApiProject> {
   const project = await fetchProject(projectName)
   return createProject(projectName, {
@@ -974,6 +976,8 @@ export async function updateProject(projectName: string, updates: {
     // the field is omitted, so a save of any other setting can neither drop it
     // nor overwrite a budget changed elsewhere since the read above.
     ...(updates.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: updates.siteAuditMaxPages } : {}),
+    // Same rule: an omitted list keeps the stored one, less domains no longer owned.
+    ...(updates.siteAuditDomains !== undefined ? { siteAuditDomains: updates.siteAuditDomains } : {}),
   })
 }
 

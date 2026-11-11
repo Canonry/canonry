@@ -8,6 +8,7 @@ import {
   hasLocationLabel,
   PROJECT_QUALIFIED_ALIAS_LIMIT,
   PROJECT_QUALIFIED_ALIAS_MAX_LENGTH,
+  siteAuditDomainsSchema,
 } from './project.js'
 import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
 import { providerDispatchModesSchema } from './provider-batch.js'
@@ -106,6 +107,12 @@ const configSpecShape = {
    * mentions it cannot undo a budget set in the dashboard.
    */
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  /**
+   * Owned domains every Agent Readiness scan covers besides the main domain.
+   * Each must be one of `ownedDomains`. Absent keeps the stored list, minus
+   * domains no longer owned; `[]` scans the main domain only.
+   */
+  siteAuditDomains: siteAuditDomainsSchema.optional(),
   /**
    * Answer-derived competitor alias detection: `off`, `preview` (log only) or
    * `apply`. Absent leaves the stored mode alone; a new project starts in

@@ -4718,13 +4718,13 @@ export class ApiClient {
   /** Stored findings across audited pages, including score-independent duplicate groups. */
   async getSiteAuditIssues(
     project: string,
-    opts?: { runId?: string; cursor?: string; limit?: number },
+    opts?: { runId?: string; cursor?: string; limit?: number; site?: string },
   ): Promise<SiteAuditIssuesResponseDto> {
     return this.invoke<SiteAuditIssuesResponseDto>(() =>
       getApiV1ProjectsByNameAgentReadinessIssues({
         client: this.heyClient,
         path: { name: project },
-        query: { runId: opts?.runId, cursor: opts?.cursor, limit: opts?.limit },
+        query: { runId: opts?.runId, cursor: opts?.cursor, limit: opts?.limit, site: opts?.site },
       }),
     )
   }
@@ -4733,13 +4733,13 @@ export class ApiClient {
   async getSiteAuditIssuePages(
     project: string,
     issueId: string,
-    opts?: { runId?: string; cursor?: string; limit?: number },
+    opts?: { runId?: string; cursor?: string; limit?: number; site?: string },
   ): Promise<SiteAuditIssuePagesResponseDto> {
     return this.invoke<SiteAuditIssuePagesResponseDto>(() =>
       getApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPages({
         client: this.heyClient,
         path: { name: project, issueId },
-        query: { runId: opts?.runId, cursor: opts?.cursor, limit: opts?.limit },
+        query: { runId: opts?.runId, cursor: opts?.cursor, limit: opts?.limit, site: opts?.site },
       }),
     )
   }
@@ -4821,6 +4821,7 @@ export class ApiClient {
       sort?: 'url' | 'path' | 'score-asc' | 'score-desc'
       cursor?: string
       limit?: number
+      site?: string
     },
   ): Promise<SiteCrawlPagesResponseDto> {
     return this.invoke<SiteCrawlPagesResponseDto>(() =>
@@ -4838,6 +4839,7 @@ export class ApiClient {
           sort: opts?.sort,
           cursor: opts?.cursor,
           limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
+          site: opts?.site,
         } as never,
       }),
     )
@@ -4864,7 +4866,7 @@ export class ApiClient {
   /** One bounded path level from a persisted crawl. */
   async getTechnicalAeoStructure(
     project: string,
-    opts?: { runId?: string; parentPath?: string; cursor?: string; limit?: number },
+    opts?: { runId?: string; parentPath?: string; cursor?: string; limit?: number; site?: string },
   ): Promise<SiteCrawlStructureResponseDto> {
     return this.invoke<SiteCrawlStructureResponseDto>(() =>
       getApiV1ProjectsByNameAgentReadinessStructure({
@@ -4875,6 +4877,7 @@ export class ApiClient {
           parentPath: opts?.parentPath,
           cursor: opts?.cursor,
           limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
+          site: opts?.site,
         } as never,
       }),
     )

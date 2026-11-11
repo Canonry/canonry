@@ -5341,7 +5341,7 @@ export const getApiV1ProjectsByNameTechnicalAeoCrawlPages = <ThrowOnError extend
 /**
  * List one level of Agent Readiness crawl structure
  *
- * Returns immediate children under `parentPath` only. It is deliberately bounded and never emits a full site tree.
+ * Returns immediate children under `parentPath` only. It is deliberately bounded and never emits a full site tree. Paths never include a host, so one read covers one site: the main domain unless `site` names another site the scan covered; `site` in the response says which.
  */
 export const getApiV1ProjectsByNameAgentReadinessStructure = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameAgentReadinessStructureData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameAgentReadinessStructureResponses, GetApiV1ProjectsByNameAgentReadinessStructureErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameAgentReadinessStructureResponses, GetApiV1ProjectsByNameAgentReadinessStructureErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -5448,7 +5448,7 @@ export const getApiV1ProjectsByNameAgentReadinessRuns = <ThrowOnError extends bo
 /**
  * Start an Agent Readiness audit scan (a site-audit run)
  *
- * Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, and optional factor selections match exactly; a semantic mismatch returns 409.
+ * Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links, on the main domain and on each owned domain the scan includes (`sites`, else the project's saved `siteAuditDomains`). An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, sites, and optional factor selections match exactly; a semantic mismatch returns 409.
  */
 export const postApiV1ProjectsByNameAgentReadinessRuns = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameAgentReadinessRunsData, ThrowOnError>): RequestResult<PostApiV1ProjectsByNameAgentReadinessRunsResponses, PostApiV1ProjectsByNameAgentReadinessRunsErrors, ThrowOnError> => (options.client ?? client).post<PostApiV1ProjectsByNameAgentReadinessRunsResponses, PostApiV1ProjectsByNameAgentReadinessRunsErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

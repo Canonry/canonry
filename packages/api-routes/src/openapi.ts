@@ -8475,6 +8475,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'runId', in: 'query', description: 'Stored non-probe audit run. Omit for the standard latest crawl selection.', schema: stringSchema },
       { name: 'cursor', in: 'query', description: 'Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.', schema: { type: 'string', maxLength: 2048 } },
       { name: 'limit', in: 'query', description: 'Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+      { name: 'site', in: 'query', description: 'Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.', schema: { type: 'string', maxLength: 253 } },
     ],
     responses: {
       200: jsonResponse('Stored issue groups and coverage returned.', 'SiteAuditIssuesResponseDto'),
@@ -8494,6 +8495,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'cursor', in: 'query', description: 'Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.', schema: { type: 'string', maxLength: 2048 } },
       { name: 'limit', in: 'query', description: 'Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
       { name: 'issueId', in: 'path', required: true, description: 'Exact issue ID from the stored issue list.', schema: stringSchema },
+      { name: 'site', in: 'query', description: 'Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.', schema: { type: 'string', maxLength: 253 } },
     ],
     responses: {
       200: jsonResponse('Stored affected page evidence and coverage returned.', 'SiteAuditIssuePagesResponseDto'),
@@ -8537,11 +8539,12 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'auditState', in: 'query', description: 'Filter by audit state. A URL version has `url-version`: it was fetched and classified but not scored.', schema: stringSchema },
       { name: 'urlVersions', in: 'query', description: 'URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Once a few addresses with the same parameter pattern prove to be copies, the crawl stops fetching that pattern: those have no rows and `inventorySummary.urlVersionsNotFetched` counts them. Scans made before URL versions were set aside have none.', schema: { type: 'string', enum: ['include', 'exclude', 'only'] } },
       { name: 'sort', in: 'query', description: 'Sort order. Defaults to `url`.', schema: { type: 'string', enum: ['url', 'path', 'score-asc', 'score-desc'] } },
+      { name: 'site', in: 'query', description: 'Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.', schema: { type: 'string', maxLength: 253 } },
       crawlCursorParameter,
       crawlLimitParameter,
     ],
     responses: {
-      400: errorResponse('Invalid date, conflicting runId/date, invalid urlVersions, or invalid cursor identity.'),
+      400: errorResponse('Invalid date, conflicting runId/date, invalid urlVersions, a site the scan did not cover, or invalid cursor identity.'),
       200: jsonResponse('Crawl pages returned.', 'SiteCrawlPagesResponseDto'),
       404: errorResponse('Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.'),
     },
@@ -8550,17 +8553,19 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/agent-readiness/structure',
     summary: 'List one level of Agent Readiness crawl structure',
-    description: 'Returns immediate children under `parentPath` only. It is deliberately bounded and never emits a full site tree.',
+    description: 'Returns immediate children under `parentPath` only. It is deliberately bounded and never emits a full site tree. Paths never include a host, so one read covers one site: the main domain unless `site` names another site the scan covered; `site` in the response says which.',
     tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
+      { name: 'site', in: 'query', description: 'The site whose folders to list: an owned domain the scan included, or the main domain (the default). A site the scan did not cover is a 400 that names the sites it did.', schema: { type: 'string', maxLength: 253 } },
       { name: 'parentPath', in: 'query', description: 'Parent URL path. Defaults to `/`.', schema: stringSchema },
       crawlCursorParameter,
       { name: 'limit', in: 'query', description: 'Maximum immediate children. Defaults to 50; maximum 100.', schema: { type: 'integer', minimum: 1, maximum: 100 } },
     ],
     responses: {
       200: jsonResponse('Immediate crawl children returned.', 'SiteCrawlStructureResponseDto'),
+      400: errorResponse('A site the scan did not cover.'),
       404: errorResponse('Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.'),
     },
   },
@@ -8674,7 +8679,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/agent-readiness/runs',
     summary: 'Start an Agent Readiness audit scan (a site-audit run)',
     description:
-      'Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, and optional factor selections match exactly; a semantic mismatch returns 409.',
+      'Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links, on the main domain and on each owned domain the scan includes (`sites`, else the project\'s saved `siteAuditDomains`). An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, sites, and optional factor selections match exactly; a semantic mismatch returns 409.',
     tags: ['agent-readiness'],
     parameters: [nameParameter],
     requestBody: {
@@ -8692,6 +8697,12 @@ const routeCatalog: OpenApiOperation[] = [
               checkDeadLinks: { ...booleanSchema, default: false, description: 'Enable dead-link checking. Defaults to false.' },
               includeGeo: { ...booleanSchema, default: false, description: 'Opt in to geographic signals for location and service-area businesses. Part of scan identity.' },
               includeAgentSkills: { ...booleanSchema, default: true, description: 'Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.' },
+              sites: {
+                type: 'array',
+                maxItems: 21,
+                items: { type: 'string', minLength: 1, maxLength: 253 },
+                description: 'Owned domains this scan covers besides the main domain, which every scan covers. Each must be one of the project\'s owned domains; naming the main domain changes nothing. When omitted, the project\'s saved siteAuditDomains apply; [] scans the main domain only. The page budget is shared across every site. Part of scan identity.',
+              },
             },
           },
         },
@@ -8699,7 +8710,7 @@ const routeCatalog: OpenApiOperation[] = [
     },
     responses: {
       200: jsonResponse('Site-audit run queued (or the in-flight run returned).', 'SiteAuditRunResponseDto'),
-      400: errorResponse('Invalid site-audit request.'),
+      400: errorResponse('Invalid site-audit request, or a site that is not one of the project\'s owned domains.'),
       409: errorResponse('A crawl with different effective options is already queued or running.'),
       422: errorResponse('The site-audit executor is unavailable on this deployment.'),
       404: errorResponse('Project not found.'),

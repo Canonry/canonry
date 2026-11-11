@@ -541,7 +541,8 @@ test('starting the audit scan sends the first-scan cap, raises no queued toast, 
 
   await waitFor(() => expect(within(row('Agent Readiness')).getByText('Queued')).toBeTruthy())
   const start = requests.find(request => request.method === 'POST' && request.path.endsWith('/agent-readiness/runs'))
-  expect(JSON.parse(String(start?.body))).toEqual({ checkDeadLinks: true, maxPages: 100 })
+  // The first look covers the main domain only, whatever extra sites are saved.
+  expect(JSON.parse(String(start?.body))).toEqual({ checkDeadLinks: true, maxPages: 100, sites: [] })
   expect(setupReads).toBe(2)
   expect(getToasts().some(toast => /queued/i.test(toast.title))).toBe(false)
   // Progress replaced the button that had focus, so focus stays in the row, on its title.

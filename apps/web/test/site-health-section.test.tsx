@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -3165,4 +3165,118 @@ test('the default crawl depth says what it is, and deeper limits exist', async (
   fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
   expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectName, projectId, body: { checkDeadLinks: false, maxDepth: 100 } }))
 
+})
+
+describe('a scan that covered two sites', () => {
+  const LOCATOR = 'apartments.citypoint.example'
+  const locatorPage = {
+    ...servicesPage,
+    nodeKey: 'page_westshore',
+    url: `https://${LOCATOR}/westshore`,
+    finalUrl: `https://${LOCATOR}/westshore`,
+    canonicalUrl: `https://${LOCATOR}/westshore`,
+    path: '/westshore',
+    parentPath: '/',
+    site: LOCATOR,
+  }
+  const sites = [
+    { host: 'citypoint.example', main: true, rootUrl: 'https://citypoint.example/', pages: 40, pagesEligible: 37, pagesAudited: 37, aggregateScore: 84, error: null },
+    { host: LOCATOR, main: false, rootUrl: `https://${LOCATOR}/`, pages: 2, pagesEligible: 2, pagesAudited: 2, aggregateScore: 51, error: null },
+  ]
+
+  function seedTwoSites(queryClient: QueryClient) {
+    const twoSites = { ...summary('run_1', 42), sites }
+    queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessCrawlQueryKey({ client: heyClient, path: { name: projectName } }), twoSites)
+    queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessCrawlQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_1' } }), twoSites)
+    seedInventoryRows(queryClient, 'run_1', [homePage, servicesPage, locatorPage])
+  }
+
+  function seedSiteFolders(queryClient: QueryClient, site: string, children: Array<{ path: string; pageCount: number }>) {
+    const input = { client: heyClient, path: { name: projectName }, query: { runId: 'run_1', parentPath: '/', limit: 100, site } } as const
+    const response = {
+      project: projectName, hasCrawlData: true, runId: 'run_1', complete: true, termination: null, site, parentPath: '/', nextCursor: null,
+      children: children.map(child => ({ ...child, url: null, hasPage: false, inventoryEligibleCount: child.pageCount, fetchedCount: child.pageCount })),
+    }
+    queryClient.setQueryData(getApiV1ProjectsByNameAgentReadinessStructureInfiniteQueryKey(input), { pages: [response], pageParams: [input] })
+  }
+
+  test('names the other site under its pages, and filters the list by site on the server', async () => {
+    const queryClient = makeClient()
+    seedTwoSites(queryClient)
+    const reads = installSiteReads({ '/crawl/pages': {
+      project: projectName, hasCrawlData: true, runId: 'run_1', complete: true, termination: null,
+      // Whole-scan inventory, whatever the site filter.
+      inventorySummary: { scope: 'selected-snapshot', total: 45, eligible: 39, excluded: 6, excludedReasons: [], urlVersions: 3, urlVersionsNotFetched: 0 },
+      total: 1, nextCursor: null, healthStateFilter: null, site: LOCATOR, pages: [locatorPage],
+    } })
+    renderSection(queryClient)
+    fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
+
+    const siteFilter = screen.getByRole('combobox', { name: 'Filter pages by site' }) as HTMLSelectElement
+    expect([...siteFilter.options].map(option => option.textContent)).toEqual(['All sites', 'citypoint.example', LOCATOR])
+    // In the mixed list the locator page reads as its path, its site on a second line.
+    const locatorRow = screen.getByRole('button', { name: /^\/westshore/ })
+    expect(within(locatorRow).getByText(LOCATOR)).not.toBeNull()
+    expect(locatorRow.getAttribute('title')).toBe(locatorPage.url)
+    expect(within(screen.getByRole('button', { name: '/services/roof-repair' })).queryByText('citypoint.example')).toBeNull()
+
+    fireEvent.change(siteFilter, { target: { value: LOCATOR } })
+    await waitFor(() => expect(reads.some(read => read.path.endsWith('/crawl/pages') && read.query.site === LOCATOR)).toBe(true))
+    // A list of one site needs no site name.
+    const filteredRow = await screen.findByRole('button', { name: '/westshore' })
+    expect(within(filteredRow).queryByText(LOCATOR)).toBeNull()
+    // The URL versions beside one site's page count are the whole scan's, and say so.
+    expect(screen.getByRole('button', { name: /^3 URL versions skipped in this scan\. / })).not.toBeNull()
+  })
+
+  test('Site sections list each site closed, and open into that site\'s own folders', async () => {
+    const queryClient = makeClient()
+    seedTwoSites(queryClient)
+    seedSiteFolders(queryClient, 'citypoint.example', [{ path: '/services', pageCount: 14 }])
+    seedSiteFolders(queryClient, LOCATOR, [{ path: '/westshore', pageCount: 2 }])
+    renderSection(queryClient)
+
+    const sections = screen.getByRole('complementary', { name: 'Site sections' })
+    expect(within(sections).getByText('Sites and folders in this scan')).not.toBeNull()
+    expect(within(sections).getByText(LOCATOR)).not.toBeNull()
+    expect(within(sections).queryByRole('button', { name: '/westshore' })).toBeNull()
+    fireEvent.click(within(sections).getByRole('button', { name: `Expand ${LOCATOR}` }))
+    expect(await within(sections).findByRole('button', { name: '/westshore' })).not.toBeNull()
+    expect(within(sections).queryByRole('button', { name: '/services' })).toBeNull()
+  })
+
+  test('Scan settings tick the saved sites and send the ones ticked', () => {
+    const queryClient = makeClient()
+    queryClient.setQueryData(projectKey(), { ...storedProject(null), ownedDomains: [LOCATOR, 'citypoint-careers.example'], siteAuditDomains: [LOCATOR] })
+    renderSection(queryClient)
+
+    fireEvent.click(screen.getByText('Scan settings'))
+    const main = screen.getByRole('checkbox', { name: 'Scan citypoint.example' }) as HTMLInputElement
+    expect(main.checked).toBe(true)
+    expect(main.disabled).toBe(true)
+    expect((screen.getByRole('checkbox', { name: `Scan ${LOCATOR}` }) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByRole('checkbox', { name: 'Scan citypoint-careers.example' }) as HTMLInputElement).checked).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
+    expect(mutationMock.mutate).toHaveBeenLastCalledWith(expect.objectContaining({ body: { checkDeadLinks: false, sites: [LOCATOR] } }))
+
+    fireEvent.click(screen.getByText('Scan settings'))
+    fireEvent.click(screen.getByRole('checkbox', { name: `Scan ${LOCATOR}` }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
+    expect(mutationMock.mutate).toHaveBeenLastCalledWith(expect.objectContaining({ body: { checkDeadLinks: false, sites: [] } }))
+
+    // Ticks apply to one scan: the next one starts from the saved choice again.
+    fireEvent.click(screen.getByText('Scan settings'))
+    expect((screen.getByRole('checkbox', { name: `Scan ${LOCATOR}` }) as HTMLInputElement).checked).toBe(true)
+  })
+
+  test('a scan of one site shows no site controls', () => {
+    const queryClient = makeClient()
+    renderSection(queryClient)
+    expect(within(screen.getByRole('complementary', { name: 'Site sections' })).getByText('Folders in this scan')).not.toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
+    expect(screen.queryByRole('combobox', { name: 'Filter pages by site' })).toBeNull()
+    fireEvent.click(screen.getByText('Scan settings'))
+    expect(screen.queryByRole('checkbox', { name: 'Scan citypoint.example' })).toBeNull()
+  })
 })

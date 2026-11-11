@@ -2986,6 +2986,10 @@ export type ApplyPreviewDto = {
             before: number | null;
             after: number | null;
         };
+        siteAuditDomains?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
         competitorAutoAliases?: {
             before: 'off' | 'preview' | 'apply' | null;
             after: 'off' | 'preview' | 'apply' | null;
@@ -14134,6 +14138,7 @@ export type ProjectCreateRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    siteAuditDomains?: Array<string>;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
      */
@@ -14180,6 +14185,7 @@ export type ProjectDto = {
     autoExtractBacklinks: boolean;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    siteAuditDomains: Array<string>;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
      */
@@ -14231,6 +14237,7 @@ export type ProjectPatchRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    siteAuditDomains?: Array<string>;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
      */
@@ -14274,6 +14281,7 @@ export type ProjectUpsertRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    siteAuditDomains?: Array<string>;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
      */
@@ -14358,6 +14366,7 @@ export type ProjectConfig = {
         autoExtractBacklinks?: boolean;
         negativeReviewMaxStars?: number;
         siteAuditMaxPages?: number | null;
+        siteAuditDomains?: Array<string>;
         /**
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
          */
@@ -14442,6 +14451,7 @@ export type ProjectConfigExport = {
         autoExtractBacklinks?: boolean;
         negativeReviewMaxStars?: number;
         siteAuditMaxPages?: number | null;
+        siteAuditDomains?: Array<string>;
         /**
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
          */
@@ -14846,6 +14856,7 @@ export type ProjectOverviewDto = {
         autoExtractBacklinks: boolean;
         negativeReviewMaxStars?: number | null;
         siteAuditMaxPages?: number | null;
+        siteAuditDomains: Array<string>;
         /**
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
          */
@@ -16924,6 +16935,7 @@ export type SiteAuditIssuePagesResponseDto = {
         }>;
         candidatesTruncated: boolean;
     };
+    site?: string | null;
     state: 'no-crawl' | 'unavailable' | 'partial' | 'available';
     coverage: {
         pageFindings: 'available' | 'partial' | 'unavailable';
@@ -16968,6 +16980,7 @@ export type SiteAuditIssuesResponseDto = {
         }>;
         candidatesTruncated: boolean;
     };
+    site?: string | null;
     state: 'no-crawl' | 'unavailable' | 'partial' | 'available';
     coverage: {
         pageFindings: 'available' | 'partial' | 'unavailable';
@@ -17101,6 +17114,7 @@ export type SiteAuditScoreDto = {
     trend: 'up' | 'down' | 'flat' | null;
     previousScore: number | null;
     previousAuditedAt: string | null;
+    deltaUnavailableReason?: 'sites-changed';
     runSelection?: {
         reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
@@ -17147,6 +17161,12 @@ export type SiteAuditScoreDto = {
         topRecommendations: Array<string>;
     }>;
     prioritizedFixes: Array<string>;
+    sites?: Array<{
+        host: string;
+        main: boolean;
+        aggregateScore: number | null;
+        pagesAudited: number;
+    }>;
 };
 
 export type SiteAuditTrendResponseDto = {
@@ -17684,10 +17704,12 @@ export type SiteCrawlPagesResponseDto = {
     total: number;
     nextCursor: string | null;
     healthStateFilter: 'applied' | 'unavailable-legacy-scan' | null;
+    site?: string | null;
     pages: Array<{
         nodeKey: string;
         url: string;
         finalUrl: string | null;
+        site?: string;
         path: string;
         parentPath: string;
         discoverySource: string;
@@ -17731,6 +17753,7 @@ export type SiteCrawlStructureResponseDto = {
         }>;
         candidatesTruncated: boolean;
     };
+    site?: string | null;
     parentPath: string;
     nextCursor: string | null;
     children: Array<{
@@ -17818,6 +17841,16 @@ export type SiteCrawlSummaryDto = {
         found: number;
         unverified: number;
     };
+    sites?: Array<{
+        host: string;
+        main: boolean;
+        rootUrl: string | null;
+        pages: number;
+        pagesEligible: number;
+        pagesAudited: number;
+        aggregateScore: number | null;
+        error: string | null;
+    }>;
 };
 
 export type SiteHealthChangesResponseDto = {
@@ -17872,6 +17905,7 @@ export type SiteHealthChangesResponseDto = {
             nodeKey: string;
             url: string;
             finalUrl: string | null;
+            site?: string;
             path: string;
             parentPath: string;
             discoverySource: string;
@@ -17898,6 +17932,7 @@ export type SiteHealthChangesResponseDto = {
             nodeKey: string;
             url: string;
             finalUrl: string | null;
+            site?: string;
             path: string;
             parentPath: string;
             discoverySource: string;
@@ -18007,6 +18042,7 @@ export type SiteHealthPathResponseDto = {
         nodeKey: string;
         url: string;
         finalUrl: string | null;
+        site?: string;
         path: string;
         parentPath: string;
         discoverySource: string;
@@ -18095,6 +18131,7 @@ export type SiteHealthSubgraphResponseDto = {
         nodeKey: string;
         url: string;
         finalUrl: string | null;
+        site?: string;
         path: string;
         parentPath: string;
         discoverySource: string;
@@ -39455,6 +39492,10 @@ export type GetApiV1ProjectsByNameAgentReadinessIssuesData = {
          * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
          */
         limit?: number;
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
     };
     url: '/api/v1/projects/{name}/agent-readiness/issues';
 };
@@ -39502,6 +39543,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoIssuesData = {
          * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
          */
         limit?: number;
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
     };
     url: '/api/v1/projects/{name}/technical-aeo/issues';
 };
@@ -39553,6 +39598,10 @@ export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesData = {
          * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
          */
         limit?: number;
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
     };
     url: '/api/v1/projects/{name}/agent-readiness/issues/{issueId}/pages';
 };
@@ -39604,6 +39653,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesData = {
          * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
          */
         limit?: number;
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
     };
     url: '/api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages';
 };
@@ -39774,6 +39827,10 @@ export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesData = {
          */
         sort?: 'url' | 'path' | 'score-asc' | 'score-desc';
         /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
+        /**
          * Opaque cursor from the previous bounded crawl response.
          */
         cursor?: string;
@@ -39787,7 +39844,7 @@ export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesData = {
 
 export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesErrors = {
     /**
-     * Invalid date, conflicting runId/date, invalid urlVersions, or invalid cursor identity.
+     * Invalid date, conflicting runId/date, invalid urlVersions, a site the scan did not cover, or invalid cursor identity.
      */
     400: ErrorEnvelope;
     /**
@@ -39857,6 +39914,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
          */
         sort?: 'url' | 'path' | 'score-asc' | 'score-desc';
         /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
+        /**
          * Opaque cursor from the previous bounded crawl response.
          */
         cursor?: string;
@@ -39870,7 +39931,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesErrors = {
     /**
-     * Invalid date, conflicting runId/date, invalid urlVersions, or invalid cursor identity.
+     * Invalid date, conflicting runId/date, invalid urlVersions, a site the scan did not cover, or invalid cursor identity.
      */
     400: ErrorEnvelope;
     /**
@@ -39904,6 +39965,10 @@ export type GetApiV1ProjectsByNameAgentReadinessStructureData = {
          */
         runId?: string;
         /**
+         * The site whose folders to list: an owned domain the scan included, or the main domain (the default). A site the scan did not cover is a 400 that names the sites it did.
+         */
+        site?: string;
+        /**
          * Parent URL path. Defaults to `/`.
          */
         parentPath?: string;
@@ -39920,6 +39985,10 @@ export type GetApiV1ProjectsByNameAgentReadinessStructureData = {
 };
 
 export type GetApiV1ProjectsByNameAgentReadinessStructureErrors = {
+    /**
+     * A site the scan did not cover.
+     */
+    400: ErrorEnvelope;
     /**
      * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
      */
@@ -39951,6 +40020,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoStructureData = {
          */
         runId?: string;
         /**
+         * The site whose folders to list: an owned domain the scan included, or the main domain (the default). A site the scan did not cover is a 400 that names the sites it did.
+         */
+        site?: string;
+        /**
          * Parent URL path. Defaults to `/`.
          */
         parentPath?: string;
@@ -39967,6 +40040,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoStructureData = {
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoStructureErrors = {
+    /**
+     * A site the scan did not cover.
+     */
+    400: ErrorEnvelope;
     /**
      * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
      */
@@ -40367,6 +40444,10 @@ export type PostApiV1ProjectsByNameAgentReadinessRunsData = {
          * Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.
          */
         includeAgentSkills?: boolean;
+        /**
+         * Owned domains this scan covers besides the main domain, which every scan covers. Each must be one of the project's owned domains; naming the main domain changes nothing. When omitted, the project's saved siteAuditDomains apply; [] scans the main domain only. The page budget is shared across every site. Part of scan identity.
+         */
+        sites?: Array<string>;
     };
     path: {
         /**
@@ -40380,7 +40461,7 @@ export type PostApiV1ProjectsByNameAgentReadinessRunsData = {
 
 export type PostApiV1ProjectsByNameAgentReadinessRunsErrors = {
     /**
-     * Invalid site-audit request.
+     * Invalid site-audit request, or a site that is not one of the project's owned domains.
      */
     400: ErrorEnvelope;
     /**
@@ -40477,6 +40558,10 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
          * Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.
          */
         includeAgentSkills?: boolean;
+        /**
+         * Owned domains this scan covers besides the main domain, which every scan covers. Each must be one of the project's owned domains; naming the main domain changes nothing. When omitted, the project's saved siteAuditDomains apply; [] scans the main domain only. The page budget is shared across every site. Part of scan identity.
+         */
+        sites?: Array<string>;
     };
     path: {
         /**
@@ -40490,7 +40575,7 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
 
 export type PostApiV1ProjectsByNameTechnicalAeoRunsErrors = {
     /**
-     * Invalid site-audit request.
+     * Invalid site-audit request, or a site that is not one of the project's owned domains.
      */
     400: ErrorEnvelope;
     /**

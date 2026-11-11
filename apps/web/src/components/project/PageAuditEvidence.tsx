@@ -3,6 +3,7 @@ import {
   RatioUnits,
   SITE_CRAWL_URL_VERSION_AUDIT_STATE,
   type SiteAuditFactorStatus,
+  type SiteCrawlEntityMentionDto,
   type SiteCrawlPageAuditDto,
 } from '@canonry/canonry-contracts'
 import { ChevronRight } from 'lucide-react'
@@ -12,6 +13,22 @@ import { ToneBadge } from '../shared/ToneBadge.js'
 import { Button } from '../ui/button.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SITE_HEALTH_CHECK_HELP } from './site-health-check-help.js'
+
+/**
+ * Where on the page another Property's name was found, in the words a page
+ * editor uses. An FAQ entry's own heading is just "FAQ", as the audit engine
+ * labels it; an answer names the entry it answers. A place a newer engine
+ * reports is still shown, as page text.
+ */
+export function mentionPlace(mention: SiteCrawlEntityMentionDto): string {
+  switch (mention.field) {
+    case 'faq-answer': return mention.question ? `FAQ answer to “${mention.question}”` : 'FAQ answer'
+    case 'faq-question': return 'FAQ'
+    case 'title': return 'Title'
+    case 'h1': return 'H1'
+    default: return 'Page text'
+  }
+}
 
 /**
  * "Worth 9.7% of the page score": a factor's share of the score as the audit
@@ -143,6 +160,17 @@ function ReadyPageAudit({ audit }: {
                     {defect.severity === 'critical' ? 'Critical' : 'Warning'}
                   </ToneBadge>
                 </div>
+                {/* Each place the page names another Property, quoted, so an editor can find it. */}
+                {(defect.evidence ?? []).length > 0 && (
+                  <ul className="mt-2 space-y-1.5" aria-label="Where the page names it">
+                    {(defect.evidence ?? []).map((mention, index) => (
+                      <li key={`${mention.field}-${index}`} className="text-copy-14 text-secondary">
+                        <span className="text-copy-14-strong text-heading">{mentionPlace(mention)}</span>
+                        {' '}<q className="[overflow-wrap:anywhere]">{mention.snippet}</q>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <p className="mt-1 text-copy-14 text-secondary"><span className="text-copy-14-strong text-heading">Fix:</span> {defect.recommendation}</p>
               </li>
             ))}

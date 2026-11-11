@@ -5516,6 +5516,21 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       )`,
     ],
   },
+  {
+    version: 219,
+    name: 'site-audit-owned-sites',
+    // Agent Readiness scans of more than one owned site. The saved list
+    // defaults to empty, so every project keeps scanning its main domain only.
+    // A page row's `site` is null on the main domain, which is every row
+    // written before, and the bare host on another site. A snapshot's `sites`
+    // is null for every scan made before: it covered the main domain only.
+    statements: [
+      `ALTER TABLE projects ADD COLUMN site_audit_domains TEXT NOT NULL DEFAULT '[]'`,
+      `ALTER TABLE site_crawl_pages ADD COLUMN site TEXT`,
+      `ALTER TABLE site_crawl_snapshots ADD COLUMN sites TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_site_crawl_pages_site ON site_crawl_pages(project_id, run_id, attempt_id, site, path)`,
+    ],
+  },
 ]
 
 /**
