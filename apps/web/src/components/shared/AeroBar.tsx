@@ -37,6 +37,7 @@ import { asyncHandler } from '../../lib/async-handler.js'
 import { useAccount } from '../../contexts/account-context.js'
 import { Button } from '../ui/button.js'
 import { MANAGED_SWEEPS_COPY } from '../project/ManagedSweepStatus.js'
+import { ChatGptConnectPrompt, ChatGptPlanLine, ChatGptTurnErrorAction, parseChatGptTurnError, useChatGptPlan } from './ChatGptPlan.js'
 import { InfoTooltip } from './InfoTooltip.js'
 import { shellQuote, describeError } from '@canonry/canonry-contracts'
 import { playAeroPreview } from '../../lib/aero-preview.js'
@@ -219,6 +220,9 @@ export function AeroBar({ projectName, projectLabel = projectName, context, prev
   // gives them their own read-only conversation; the bar drops everything that
   // belongs to the operator: provider choice, history, sweeps and CLI copy.
   const viewerMode = account?.role === 'viewer'
+  // A viewer's own ChatGPT plan, when the install funds viewer Aero that way.
+  // Null everywhere else, and then nothing below changes.
+  const chatgpt = useChatGptPlan(viewerMode && !preview)
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [messages, setMessages] = useState<AeroMessage[]>([])
@@ -241,6 +245,13 @@ export function AeroBar({ projectName, projectLabel = projectName, context, prev
   const [streamingText, setStreamingText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const chatgptError = parseChatGptTurnError(error)
+  const chatgptRefresh = chatgpt?.refresh
+  useEffect(() => {
+    // A turn refused for the plan changes what this viewer can do next, so
+    // re-read their plan: the bar then offers the connect step.
+    if (chatgptError?.kind === 'connect' || chatgptError?.kind === 'reconnect') chatgptRefresh?.()
+  }, [chatgptError?.kind, chatgptRefresh])
   const [retry, setRetry] = useState<{ prompt: string; context?: AgentViewContext } | null>(null)
   const mounted = useRef(true)
   const [preferredProviderOverride, setProviderOverride] = useState<AgentProviderId | null>(() => {
@@ -852,6 +863,7 @@ export function AeroBar({ projectName, projectLabel = projectName, context, prev
               </div>
             </div>
 
+            {chatgpt?.needsConnect ? <ChatGptConnectPrompt plan={chatgpt} /> : <>
             <div className="flex flex-wrap items-center gap-2 border-b border-subtle px-4 py-2">
               <Button variant="outline" size="sm" disabled={streaming || serverBusy || changingConversation} onClick={asyncHandler(handleNewConversation)} title={viewerMode || preview ? 'Clear this conversation and start fresh.' : 'Save this conversation and start fresh. Shared project notes are kept.'}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" /> New conversation
@@ -921,8 +933,9 @@ export function AeroBar({ projectName, projectLabel = projectName, context, prev
 
               {(error || notice) && (
                 <div role={error ? 'alert' : 'status'} className="mx-3 my-2 flex flex-wrap items-center gap-2 material-base px-3 py-2 text-label-14 text-secondary">
-                  <span className="flex-1">{error ?? notice}</span>
-                  {retry && !streaming && <Button variant="outline" size="sm" onClick={() => {
+                  <span className="flex-1">{chatgptError?.text ?? error ?? notice}</span>
+                  {chatgptError ? <ChatGptTurnErrorAction kind={chatgptError.kind} plan={chatgpt} /> : null}
+                  {retry && !streaming && (!chatgptError || chatgptError.kind === 'unavailable' || chatgptError.kind === 'failed') && <Button variant="outline" size="sm" onClick={() => {
                     if (scope === 'all') { setDraft(retry.prompt); textareaRef.current?.focus() }
                     else void send(retry.prompt, retry.context)
                   }}>{scope === 'all' ? 'Review prompt' : 'Retry'}</Button>}
@@ -1030,7 +1043,9 @@ export function AeroBar({ projectName, projectLabel = projectName, context, prev
                   </Button>
                 )}
               </form>
+              {chatgpt ? <ChatGptPlanLine plan={chatgpt} disabled={streaming} /> : null}
             </div>
+            </>}
           </div>
         ) : (
           <button
@@ -1040,7 +1055,7 @@ export function AeroBar({ projectName, projectLabel = projectName, context, prev
           >
             <span className="flex items-center gap-2">
               <Radio className="h-4 w-4 text-positive-400" aria-hidden="true" />
-              Ask Aero about {projectLabel}…
+              {chatgpt?.needsConnect ? 'Connect ChatGPT to use Aero' : <>Ask Aero about {projectLabel}…</>}
             </span>
           </button>
         )}

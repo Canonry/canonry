@@ -82,6 +82,26 @@ identity, not the email, signs them in.
 API: `GET|POST /api/v1/users/invitations`, `DELETE /api/v1/users/invitations/{id}`
 (administrators or a full-instance key, `users.read` / `users.write`).
 
+## What people see
+
+- **Sign-in screen.** With `signIn` on, **Continue with ChatGPT** is the main
+  action and name and password sit behind **Sign in with a password** for
+  administrators. A refused ChatGPT sign-in comes back with one plain sentence
+  (see Troubleshooting).
+- **Aero bar, for viewers.** One line under the composer says the answers use
+  their ChatGPT plan and which model; its menu changes the model or
+  disconnects, and **Manage usage** opens ChatGPT's usage page. With
+  `requirePlan`, a viewer without a working plan sees **Connect ChatGPT to use
+  Aero** and a connect step in place of the conversation. Without it, a quiet
+  **Use your ChatGPT plan** link sits under the composer.
+- A failed answer shows the plan's problem with its one fix: **Check usage**
+  for a usage limit, **Continue with ChatGPT** to connect again.
+- Administrators' own Aero is unchanged.
+
+The button uses OpenAI's black and white formats through the dashboard's
+primary button. OpenAI's guidelines also call for their logo on it: add the
+official asset from OpenAI before a public launch.
+
 ## Aero on a person's plan
 
 With `planUsage` on, signing in with ChatGPT also asks the person to let the
