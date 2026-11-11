@@ -132,9 +132,10 @@ describe('server traffic backfill and reset outcomes', () => {
     expect(submitted.statusCode).toBe(200)
 
     const [outcome] = await h.settled(1)
-    // The page load is the one hit written; the script and the form post are counted only here.
+    // The page load is the one hit written. The script and the form post stay out of the
+    // outcome counts (the canonry.ai collector allowlists count keys) and reach the log.
     expect(storedHits(h.db)).toEqual({ crawlerHits: 0, aiUserFetchHits: 1, aiReferralHits: 0 })
-    expect(outcome).toEqual({ ...backfilled, status: 'succeeded', counts: { events: 3, ...storedHits(h.db), aiUserFetchBrowserNonPageHits: 2 } })
+    expect(outcome).toEqual({ ...backfilled, status: 'succeeded', counts: { events: 3, ...storedHits(h.db) } })
     // The backfill answered before it wrote, so the log is where an operator sees them.
     expect(logs.withField('aiUserFetchBrowserNonPageHits')).toMatchObject([
       { sourceId: h.sourceId, runId: (submitted.json() as { runId: string }).runId, aiUserFetchBrowserNonPageHits: 2 },

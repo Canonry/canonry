@@ -1,5 +1,9 @@
-import { classifyTrafficPath, pathWithoutQuery, TrafficPathClasses, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
+import { BrowserAgentRequestKinds, classifyTrafficPath, pathWithoutQuery, TrafficPathClasses, type BrowserAgentRequestKind, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import { DEFAULT_AI_CRAWLER_RULES } from './rules.js'
+
+// The kinds live in contracts, beside the sample schema that carries them.
+export { BrowserAgentRequestKinds }
+export type { BrowserAgentRequestKind }
 
 /**
  * Hosted browsers that browse and act for a person (`AiCrawlerRule.browser`:
@@ -8,17 +12,8 @@ import { DEFAULT_AI_CRAWLER_RULES } from './rules.js'
  * prefetches of the links in view and analytics beacons: about twenty
  * requests where a link fetcher such as Claude-User makes one. Logs carry no
  * `Sec-Fetch-Dest`, so which requests the agent made and which its page made
- * by itself is read from the method, path and query.
+ * by itself is read from the method, path and query (`browserAgentRequestKind`).
  */
-export const BrowserAgentRequestKinds = {
-  /** A GET the agent made: opening a page, a document or a download. The only kind counted as an AI user fetch hit. */
-  page: 'page',
-  /** Any other method the agent sent, wherever it went: a form post, a checkout, an API write. Kept in agent journeys, not counted. */
-  action: 'action',
-  /** What its page fetched or sent by itself: files, data and API reads, prefetches, beacons, HEAD and OPTIONS. */
-  resource: 'resource',
-} as const
-export type BrowserAgentRequestKind = (typeof BrowserAgentRequestKinds)[keyof typeof BrowserAgentRequestKinds]
 
 // Query parameters only a page's own fetches carry: Next.js React Server
 // Component payloads (a client-side navigation and the prefetch of every link

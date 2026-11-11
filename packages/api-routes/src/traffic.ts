@@ -310,8 +310,6 @@ export interface TrafficIngestedEvent {
   crawlerHits: number
   aiReferralHits: number
   aiUserFetchHits: number
-  /** Browser-agent requests other than page loads; never in `aiUserFetchHits`. */
-  aiUserFetchBrowserNonPageHits: number
   durationMs: number
   /** Why the push was refused; present only when failed. */
   reasonCode?: OutcomeReasonCode
@@ -1866,9 +1864,6 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
             crawlerHits: report.totals.crawlerHits,
             aiReferralHits: report.totals.aiReferralHits,
             aiUserFetchHits: report.totals.aiUserFetchHits,
-            ...(report.totals.aiUserFetchBrowserNonPageHits > 0
-              ? { aiUserFetchBrowserNonPageHits: report.totals.aiUserFetchBrowserNonPageHits }
-              : {}),
           },
         }
       : {
@@ -2956,12 +2951,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   }, async (request, reply) => {
     const ingestStartedMs = Date.now()
     // Telemetry only after authentication: an unauthenticated caller never reaches it.
-    const reportIngest = (outcome: Pick<TrafficIngestedEvent, 'events' | 'crawlerHits' | 'aiReferralHits' | 'aiUserFetchHits' | 'aiUserFetchBrowserNonPageHits'> | { failure: unknown; reasonCode?: OutcomeReasonCode }) => {
+    const reportIngest = (outcome: Pick<TrafficIngestedEvent, 'events' | 'crawlerHits' | 'aiReferralHits' | 'aiUserFetchHits'> | { failure: unknown; reasonCode?: OutcomeReasonCode }) => {
       try {
         opts.onTrafficIngested?.('failure' in outcome
           ? {
               sourceType: TrafficSourceTypes.cloudflare, status: 'failed', events: 0, crawlerHits: 0, aiReferralHits: 0,
-              aiUserFetchHits: 0, aiUserFetchBrowserNonPageHits: 0, durationMs: Date.now() - ingestStartedMs,
+              aiUserFetchHits: 0, durationMs: Date.now() - ingestStartedMs,
               ...routeOutcomeFailure(outcome.failure, outcome.reasonCode),
             }
           : { sourceType: TrafficSourceTypes.cloudflare, status: 'succeeded', ...outcome, durationMs: Date.now() - ingestStartedMs })
@@ -3072,7 +3067,6 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       crawlerHits: writeResult.crawlerHits,
       aiReferralHits: writeResult.aiReferralHits,
       aiUserFetchHits: writeResult.aiUserFetchHits,
-      aiUserFetchBrowserNonPageHits: writeResult.aiUserFetchBrowserNonPageHits,
     })
 
     const response: CloudflareWorkerIngestResponse = {

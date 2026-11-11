@@ -32,17 +32,16 @@ describe('traffic.synced', () => {
 })
 
 describe('server_traffic ingest', () => {
-  const pushed = { sourceType: 'cloudflare', status: 'succeeded' as const, events: 3, crawlerHits: 1, aiReferralHits: 1, aiUserFetchHits: 1, aiUserFetchBrowserNonPageHits: 0, durationMs: 12 }
+  const pushed = { sourceType: 'cloudflare', status: 'succeeded' as const, events: 3, crawlerHits: 1, aiReferralHits: 1, aiUserFetchHits: 1, durationMs: 12 }
 
   it('reports a push as a sampled push-triggered outcome with its counts, and a refusal with its reason', () => {
-    // A browser agent's requests other than page loads count nowhere else, so the push reports them.
-    trackTrafficIngested({ ...pushed, events: 22, aiUserFetchBrowserNonPageHits: 19 })
+    trackTrafficIngested(pushed)
     trackTrafficIngested({ ...pushed, status: 'failed', events: 0, crawlerHits: 0, aiReferralHits: 0, aiUserFetchHits: 0, reasonCode: 'VALIDATION', errorName: 'AppError' })
 
     expect(trackEvent.mock.calls).toEqual([
       ['feature.completed', {
         feature: 'server_traffic', operation: 'ingest', status: 'succeeded', trigger: 'push', surface: 'api',
-        durationBucket: 'under_1s', counts: { events: 22, crawlerHits: 1, aiReferralHits: 1, aiUserFetchHits: 1, aiUserFetchBrowserNonPageHits: 19 },
+        durationBucket: 'under_1s', counts: { events: 3, crawlerHits: 1, aiReferralHits: 1, aiUserFetchHits: 1 },
       }, undefined],
       ['feature.completed', {
         feature: 'server_traffic', operation: 'ingest', status: 'failed', trigger: 'push', surface: 'api',
@@ -56,8 +55,6 @@ describe('server_traffic ingest', () => {
     for (let i = 0; i < 20; i += 1) trackTrafficIngested(pushed)
     const succeeded = trackEvent.mock.calls.filter(([, properties]) => properties.status === 'succeeded')
     expect(succeeded).toHaveLength(9)
-    // With no browser-agent requests other than page loads, the push sends no such count.
-    expect(succeeded[0]?.[1].counts).toEqual({ events: 3, crawlerHits: 1, aiReferralHits: 1, aiUserFetchHits: 1 })
 
     trackTrafficIngested({ ...pushed, status: 'failed', reasonCode: 'VALIDATION' })
     expect(trackEvent.mock.calls.at(-1)?.[1]).toMatchObject({ status: 'failed', reasonCode: 'VALIDATION' })

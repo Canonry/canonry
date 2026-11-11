@@ -48,7 +48,6 @@ export function trackTrafficIngested(event: TrafficIngestedEvent): void {
             crawlerHits: event.crawlerHits,
             aiReferralHits: event.aiReferralHits,
             aiUserFetchHits: event.aiUserFetchHits,
-            ...(event.aiUserFetchBrowserNonPageHits > 0 ? { aiUserFetchBrowserNonPageHits: event.aiUserFetchBrowserNonPageHits } : {}),
           },
         }
       : { reasonCode: event.reasonCode ?? 'UNKNOWN', ...(event.errorName ? { errorName: event.errorName } : {}) }),

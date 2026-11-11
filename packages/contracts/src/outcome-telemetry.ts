@@ -165,8 +165,6 @@ export const OUTCOME_COUNT_KEYS = [
   'crawlerHits',
   'aiReferralHits',
   'aiUserFetchHits',
-  /** A browser agent's requests other than page loads, which no AI user fetch count holds. */
-  'aiUserFetchBrowserNonPageHits',
   'campaigns',
   'operations',
   'queries',

@@ -153,11 +153,13 @@ export const AgentTrustReasons = agentTrustReasonSchema.enum
 
 /**
  * What a hosted browser agent's request was (Google-Agent, Claude-Agent),
- * read from its method, path and query: a page load it made (`page`), another
- * method it sent to a page, such as a form post (`action`), or something its
- * page fetched by itself (`resource`): a file, a data or API call, a
- * prefetch, a beacon, or a HEAD or OPTIONS request. Of a browser agent's
- * requests, only page loads count as AI user fetch hits.
+ * read from its method, path and query:
+ * - `page`: a GET the agent made, opening a page, a document or a download.
+ *   The only kind counted as an AI user fetch hit.
+ * - `action`: any other method the agent sent, wherever it went: a form post,
+ *   a checkout, an API write. Kept in agent journeys, not counted.
+ * - `resource`: what its page fetched or sent by itself: files, data and API
+ *   reads, prefetches, beacons, and HEAD and OPTIONS requests.
  */
 export const browserAgentRequestKindSchema = z.enum(['page', 'action', 'resource'])
 export type BrowserAgentRequestKind = z.infer<typeof browserAgentRequestKindSchema>
