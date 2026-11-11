@@ -109,6 +109,37 @@ export function classifyProviderErrorMessage(message: string): ProviderErrorCode
   return 'UNKNOWN'
 }
 
+/**
+ * What an operator does about one engine's failed check, as one sentence that
+ * names the engine (pass its display name). Null when the failure kind names
+ * no step of its own: a parse error, an unknown failure, or an error stored
+ * before kinds were recorded. Shared so the dashboard and the CLI say the same.
+ */
+export function providerFailureRemedy(code: ProviderErrorCode | null | undefined, engine: string): string | null {
+  switch (code) {
+    case ProviderErrorCodes.PROVIDER_BILLING:
+      return `Your ${engine} account is out of credit. Add credit at ${engine}, then run the check again.`
+    case ProviderErrorCodes.PROVIDER_AUTH:
+      return `${engine} rejected its key or denied access. Save a working key for ${engine}, then run the check again.`
+    case ProviderErrorCodes.RATE_LIMITED:
+      return `${engine} limited the requests. Wait a few minutes, then run the check again.`
+    case ProviderErrorCodes.PROVIDER_UNAVAILABLE:
+      return `${engine} was unavailable. Run the check again later.`
+    case ProviderErrorCodes.NETWORK:
+    case ProviderErrorCodes.TIMEOUT:
+      return `Canonry could not reach ${engine}. Check the network and the engine's endpoint, then run the check again.`
+    case ProviderErrorCodes.PARSE_ERROR:
+    case ProviderErrorCodes.UNKNOWN:
+    case null:
+    case undefined:
+      return null
+    default: {
+      const exhaustive: never = code
+      return exhaustive
+    }
+  }
+}
+
 /** Collapse a set of per-provider failure messages to one reportable code. */
 export function classifyProviderErrorMessages(
   messages: Iterable<string>,

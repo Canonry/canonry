@@ -162,7 +162,7 @@ export const projectUpsertRequestSchema = z.object({
    */
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
   /**
-   * Site Health page budget for scans that set none, manual or scheduled (1 to
+   * Agent Readiness page budget for scans that set none, manual or scheduled (1 to
    * 50,000). Omit to keep the stored value; null means the full site.
    */
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
@@ -270,7 +270,7 @@ export const projectDtoSchema = z.object({
   autoExtractBacklinks: z.boolean().default(false),
   /** Negative Google review threshold in stars; null means the default of 3. */
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
-  /** Site Health page budget for scans that set none; null means the full site (up to 50,000 pages). */
+  /** Agent Readiness page budget for scans that set none; null means the full site (up to 50,000 pages). */
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
   /**
    * Answer-derived competitor alias detection mode (`competitorAutoAliasModeSchema`).
@@ -555,6 +555,24 @@ export function effectiveBrandNames(project: {
     }
   }
   return names
+}
+
+/**
+ * The brand name to suggest for a new project's website: its domain label in
+ * title case ("summit-roofing.com" gives "Summit Roofing"). A label below the
+ * brand-key floor stays the full domain ("ai.com"), so the suggestion never
+ * adds a short word as a brand name that mention matching does not already use
+ * (`effectiveBrandNames` adds the same label for longer ones).
+ */
+export function suggestedBrandName(domain: string): string {
+  const normalized = normalizeProjectDomain(domain)
+  const label = brandLabelFromDomain(normalized)
+  if (brandKeyFromText(label).length < MIN_DOMAIN_BRAND_KEY_LENGTH) return normalized
+  return label
+    .split('-')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }
 
 /**

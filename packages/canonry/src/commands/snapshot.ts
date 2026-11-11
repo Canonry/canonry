@@ -84,7 +84,7 @@ export function formatSnapshotMarkdown(report: SnapshotReportDto): string {
   lines.push('')
   lines.push(`**Domain:** ${report.domain}`)
   lines.push(`**Generated:** ${new Date(report.generatedAt).toLocaleString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`)
-  lines.push(`**AEO Audit Score:** ${report.audit.overallScore}/100`)
+  lines.push(`**Agent Readiness score:** ${report.audit.overallScore}/100`)
   lines.push('')
 
   lines.push('## Visibility Gap (Citations + Mentions)')
@@ -134,7 +134,7 @@ export function formatSnapshotMarkdown(report: SnapshotReportDto): string {
         continue
       }
       const mentioned = result.mentioned ? 'Yes' : 'No'
-      // Sources not tied to the answer: citation was not measured, which is not "No".
+      // No sources tied to the answer (none at all, or search results only): citation was not measured, which is not "No".
       const cited = result.citationMeasured === false ? 'Not measured' : result.cited ? 'Yes' : 'No'
       const accuracy = result.describedAccurately === 'not-mentioned' ? '-' : result.describedAccurately
       const competitors = result.recommendedCompetitors.length > 0

@@ -645,17 +645,17 @@ describe('server embed mode (#716)', () => {
       projectTabs: ['overview', 'technical-aeo'],
     })
     try {
-      // No header => the boot-wide projectTabs.
+      // No header => the boot-wide projectTabs, with the renamed technical-aeo grant read as agent-readiness.
       const boot = await app.inject({ method: 'GET', url: '/' })
-      expect(boot.body).toContain('"projectTabs":["overview","technical-aeo"]')
+      expect(boot.body).toContain('"projectTabs":["overview","agent-readiness"]')
 
       // Header => THIS request's projectTabs, normalized; the boot value is replaced.
       const scoped = await app.inject({
         method: 'GET',
         url: '/',
-        headers: { 'x-canonry-embed-tabs': 'technical-aeo' },
+        headers: { 'x-canonry-embed-tabs': 'Agent-Readiness' },
       })
-      expect(scoped.body).toContain('"projectTabs":["technical-aeo"]')
+      expect(scoped.body).toContain('"projectTabs":["agent-readiness"]')
       expect(scoped.body).not.toContain('"projectTabs":["overview"')
 
       // The deep-link fallback (the embedded route) honors the header too.
@@ -1046,7 +1046,7 @@ describe('server embed mode (#716)', () => {
         `/api/v1/projects/${name}/runs?kind=content-recommendation`,
         `/api/v1/projects/${otherProjectName}/technical-aeo/runs/run_embed_site_audit/progress`,
         `/api/v1/projects/${otherProjectName}/technical-aeo/runs/run_embed_site_audit/page-health-preview`,
-        // The trends read serves other tabs too; the Site Health tab reaches only its own surface.
+        // The trends read serves other tabs too; the Agent Readiness tab reaches only its own surface.
         `/api/v1/projects/${name}/trends?surface=backlinks`,
         `/api/v1/projects/${name}/trends`,
       ]) {

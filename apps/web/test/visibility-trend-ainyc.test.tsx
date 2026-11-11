@@ -85,7 +85,7 @@ function whatChanged(): HTMLElement {
 }
 
 function bullets(details: Element | null): string[] {
-  return [...(details?.querySelectorAll('li') ?? [])].map(item => item.textContent ?? '')
+  return [...(details?.querySelectorAll(':scope > .av-details-list > li') ?? [])].map(item => item.textContent ?? '')
 }
 
 /** Cell text with its no-break spaces read as spaces: a date never splits across lines. */
@@ -117,6 +117,8 @@ test('reads 25.0% of 100 answers on Sep 29, with its change qualified in view an
 
   // +4.5 comes partly from the 3 branded queries added Sep 29, so a caution
   // sits beside the change where it is read, rather than the change being withheld.
+  // The label names the class, so the figure does not repeat it.
+  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mentioned · all queries')
   expect(readout()).toEqual({ value: '25.0%', change: 'up 4.5 points', caveat: THREE_ADDED })
   expect(card.querySelector('.visibility-trend-current .info-tooltip-trigger-caution')?.textContent).toBe('Queries changed')
   expect(bullets(card.querySelector(':scope > details.av-details'))).toEqual([
@@ -153,6 +155,7 @@ test('qualifies the Cited change too, and keeps mention share\'s plain because o
   expect(bullets(trendCard().querySelector(':scope > details.av-details'))[0]).toBe('Latest point: 27 of 100 answers')
 
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
+  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share in non-brand answers')
   expect(readout()).toEqual({ value: '31.7%', change: 'down 2.9 points', caveat: null })
   expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual(['Latest point: 13 of 41 tracked-brand mentions', 'Base: Mar 13 to Apr 8 point'])
 })
@@ -192,7 +195,7 @@ test('collapses What changed to one line and opens a table by engine, newest fir
   expect(screen.queryByText(/The model behind/)).toBeNull()
   // fast is a Perplexity preset: its served model is the preset working, so no
   // amber row, and the preset's own answer model is named on its row.
-  expect(within(changes).getByRole('button', { name: 'Preset picks its own model. Answered with openai/gpt-6-luna (was sonar).' })).toBeTruthy()
+  expect(within(changes).getByRole('button', { name: 'Preset picks its own model. Answered with GPT-6 Luna (was sonar).' })).toBeTruthy()
   expect(screen.queryByRole('list', { name: 'Model substitutions' })).toBeNull()
 
   // Stored keys are lowercase; Details names the queries as they were written,
@@ -202,7 +205,7 @@ test('collapses What changed to one line and opens a table by engine, newest fir
     'Claude last answered with claude-sonnet-5 on Sep 29',
     'Gemini last answered with gemini-3.5-flash on Sep 29',
     'OpenAI last answered with chat-latest on Sep 29',
-    'Perplexity last answered with openai/gpt-6-luna on Sep 29',
+    'Perplexity last answered with GPT-6 Luna on Sep 29',
   ])
 })
 
@@ -234,7 +237,7 @@ test('dates every model change "on or before" Sep 29 on 7 days, bounded by the J
     'Claude last answered with claude-sonnet-5 on Sep 29',
     'Gemini last answered with gemini-3.5-flash on Sep 29',
     'OpenAI last answered with chat-latest on Sep 29',
-    'Perplexity last answered with openai/gpt-6-luna on Sep 29',
+    'Perplexity last answered with GPT-6 Luna on Sep 29',
   ])
   expect(within(changes).getByRole('button', { name: /Check before: Jul 14\.$/ })).toBeTruthy()
 

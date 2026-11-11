@@ -41,7 +41,7 @@ beforeEach(() => {
 it('prints each engine with what it is missing, and says when one is not read', async () => {
   sitemaps.mockResolvedValue(COVERAGE)
   const out = await capture(() => sitemapsCommand('demo', {}))
-  expect(out).toContain('Site: 2 sitemap files in the Site Health scan of 2026-11-02T00:00:00.000Z')
+  expect(out).toContain('Site: 2 sitemap files in the Agent Readiness audit scan of 2026-11-02T00:00:00.000Z')
   expect(out).toContain('Google: 1 sitemap (2 with files inside indexes), read 2026-11-04T06:00:00.000Z')
   expect(out).toContain(`  Success    ${S}/index.xml (index, 1 file)`)
   expect(out).toContain(`    ${S}/area.xml  (seen in: site)`)

@@ -17,6 +17,7 @@ function bucket(cited: number, total: number, mentioned = cited): TimeBucket {
     citationRate: total > 0 ? Math.round((cited / total) * 10000) / 10000 : 0,
     cited,
     total,
+    citationNotMeasured: 0,
     queryCount: total,
     mentionRate: total > 0 ? Math.round((mentioned / total) * 10000) / 10000 : 0,
     mentionedCount: mentioned,

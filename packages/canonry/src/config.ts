@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
 import { AGENT_REASONING_LEVELS, agentAllowViewersSchema, agentModelSchema, agentProviderSchema, agentReasoningSchema, classificationConfigSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, mcpGatewayConfigSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@canonry/canonry-config'
 import type { AgentReasoningLevel, SentimentInstallConfigInput } from '@canonry/canonry-config'
-import { AGENT_PROVIDER_IDS, isRetiredAgentProviderId } from '@canonry/canonry-contracts'
+import { AGENT_PROVIDER_IDS, ProviderNames, isRetiredAgentProviderId } from '@canonry/canonry-contracts'
 import { seoInstallConfigSchema, type SeoInstallConfig } from '@canonry/canonry-config'
 import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@canonry/canonry-contracts'
 import { isAgentModelAccepted } from './agent/providers.js'
@@ -18,7 +18,7 @@ export interface ProviderConfigEntry {
   apiKey?: string
   baseUrl?: string
   model?: string
-  quota?: ProviderQuotaPolicy
+  quota?: Partial<ProviderQuotaPolicy>
   /** Vertex AI GCP project ID (Gemini provider only) */
   vertexProject?: string
   /** Vertex AI region, e.g. "us-central1" (Gemini provider only) */
@@ -392,7 +392,7 @@ export interface AgentConfigEntry {
 export interface DashboardConfigEntry {
   /**
    * First-open dashboard experience. `legacy` preserves the existing setup
-   * wizard, `platform` enables the domain-first Site Health launchpad, and
+   * wizard, `platform` enables the domain-first Agent Readiness launchpad, and
    * `auto` enables the launchpad only when the authoritative project list is
    * empty. Omitted defaults to `auto`: fresh installs use the launchpad after
    * an authoritative empty project-list response, while existing installs
@@ -644,11 +644,12 @@ export function loadedConfigPath(config: CanonryConfig): string | undefined {
 
 export function loadConfig(configPath = getConfigPath()): CanonryConfig {
   if (!fs.existsSync(configPath)) {
-    throw new Error(
-      `Config not found at ${configPath}.\n` +
-      'Run "canonry bootstrap" to create the local Page Health runtime; provider credentials are optional.\n' +
-      'Use "canonry init" instead only when you want interactive provider/OAuth provisioning.',
-    )
+    // A missing config is a setup step for the operator, not a failure to
+    // retry: exit 1 with the code the other config-less commands use.
+    const message = `Config not found at ${configPath}.\n` +
+      'Run "canonry bootstrap" to create the local Agent Readiness runtime; provider credentials are optional.\n' +
+      'Use "canonry init" instead only when you want interactive provider/OAuth provisioning.'
+    throw new CliError({ code: 'CONFIG_REQUIRED', message, displayMessage: message, details: { configPath } })
   }
   const raw = fs.readFileSync(configPath, 'utf-8')
   const parsed = parse(raw) as CanonryConfig
@@ -985,7 +986,12 @@ export function saveConfig(config: CanonryConfig, configPath = getConfigPath()):
  */
 export function saveConfigPatch(
   patch: Partial<CanonryConfig>,
-  options: { setDashboardPasswordHash?: string, configPath?: string } = {},
+  options: {
+    setDashboardPasswordHash?: string
+    configPath?: string
+    /** Exact replacement for one connection; null removes it, including legacy Gemini credentials. */
+    providerReplacement?: { name: string; entry: ProviderConfigEntry | null }
+  } = {},
 ): void {
   const configPath = options.configPath ?? getConfigPath()
   const configDir = path.dirname(configPath)
@@ -1042,6 +1048,21 @@ export function saveConfigPatch(
     for (const [key, patchEntry] of Object.entries(patch.providers)) {
       const baseEntry = base.providers[key] ?? {}
       merged.providers[key] = { ...baseEntry, ...patchEntry }
+    }
+  }
+
+  // A lifecycle reset removes fields. Ordinary deep merge deliberately keeps
+  // omitted fields, so it cannot implement a reset or disconnect.
+  if (options.providerReplacement) {
+    const { name, entry } = options.providerReplacement
+    merged.providers = { ...merged.providers }
+    if (entry === null) delete merged.providers[name]
+    else merged.providers[name] = entry
+    // Otherwise loadConfig would promote the old credential on restart.
+    if (name === ProviderNames.gemini) {
+      delete merged.geminiApiKey
+      delete merged.geminiModel
+      delete merged.geminiQuota
     }
   }
 

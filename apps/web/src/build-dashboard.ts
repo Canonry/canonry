@@ -1,5 +1,5 @@
 import type { ProjectDto, InsightDto, MentionShareBreakdownDto, ProjectOverviewDto, QueryClassifier, RunErrorDto, RunKind } from '@canonry/canonry-contracts'
-import { RunKinds, RunStatuses, RunTriggers, CitationStates, compileQueryClassifier, effectiveBrandNames, formatRunErrorOneLine } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, CitationStates, compileQueryClassifier, effectiveBrandNames, formatRunErrorOneLine, isWhatChangedActiveRun, portfolioWhatChangedItems } from '@canonry/canonry-contracts'
 import type {
   ApiCompetitor,
   ApiBingCoverageSummary,
@@ -18,12 +18,12 @@ import type {
   ModelTransitionVm,
   CompetitorVm,
   DashboardVm,
-  MetricTone,
   PortfolioProjectVm,
   ProjectCommandCenterVm,
   RunHistoryPoint,
   RunListItemVm,
   ScoreSummaryVm,
+  SettingsVm,
 } from './view-models.js'
 import { mapInsightDtosToVms } from './mappers/insight-mapper.js'
 import { formatSweepInstant } from './lib/format-helpers.js'
@@ -87,7 +87,7 @@ function kindLabel(kind: RunKind): string {
     case RunKinds['bing-inspect']: return 'Bing URL inspection'
     case RunKinds['bing-inspect-sitemap']: return 'Bing sitemap inspection'
     case RunKinds['bing-sync']: return 'Bing data sync'
-    case RunKinds['site-audit']: return 'Technical AEO audit'
+    case RunKinds['site-audit']: return 'Agent Readiness audit scan'
     case RunKinds['backlink-extract']: return 'Backlink extract'
     case RunKinds['aeo-discover-seed']: return 'Discovery (seed phase)'
     case RunKinds['aeo-discover-probe']: return 'Discovery (probe phase)'
@@ -146,9 +146,9 @@ function statusDetailFromRun(run: ApiRun): string {
   if (run.kind === RunKinds['seo-sync']) return 'View the saved scope and task results in SEO.'
   switch (run.status) {
     case RunStatuses.queued: return 'Waiting for execution slot.'
-    case RunStatuses.running: return 'Provider queries in progress.'
-    case RunStatuses.completed: return 'All queries checked.'
-    case RunStatuses.partial: return 'Run completed with some queries skipped.'
+    case RunStatuses.running: return run.kind === RunKinds['answer-visibility'] ? 'Provider queries in progress.' : 'Scan in progress.'
+    case RunStatuses.completed: return run.kind === RunKinds['answer-visibility'] ? 'All queries checked.' : 'Scan completed.'
+    case RunStatuses.partial: return run.kind === RunKinds['answer-visibility'] ? 'Run completed with some queries skipped.' : 'Scan completed with partial results.'
     case RunStatuses.failed: return run.error ? formatRunError(run.error) : 'Run failed.'
     case RunStatuses.cancelled: return 'Run was cancelled.'
     default: return ''
@@ -283,7 +283,7 @@ function buildEvidenceFromTimeline(
           const effectiveTransition = stateHistory
             ? stateHistory.at(-1)!.transition
             : ownStateOnly
-              ? (snap.citationState === CitationStates.cited ? 'cited' : 'not-cited')
+              ? steadyCitationState(snap.citationState)
               : transition
           const effectiveVisibilityTransition = stateHistory
             ? (stateHistory.at(-1)!.visibilityTransition ?? (stateHistory.at(-1)!.visibilityState === 'visible' ? 'visible' : 'not-visible'))
@@ -296,11 +296,13 @@ function buildEvidenceFromTimeline(
           // transition from another provider into this synthetic badge row.
           const latestProviderState = effectiveHistory?.at(-1)?.citationState
           const latestProviderVisibilityState = effectiveHistory?.at(-1)?.visibilityState
+          // An answer without sources is never lost or new: its citation was not measured.
           const snapState: CitationState = snap
-            ? effectiveTransition === 'lost' ? 'lost'
+            ? snap.citationState === CitationStates['not-measured'] ? 'not-measured'
+              : effectiveTransition === 'lost' ? 'lost'
               : effectiveTransition === 'emerging' ? 'emerging'
-              : snap.citationState === CitationStates.cited ? 'cited' : 'not-cited'
-            : latestProviderState === CitationStates.cited ? 'cited' : 'not-cited'
+              : steadyCitationState(snap.citationState)
+            : steadyCitationState(latestProviderState)
           const snapVisibilityState = (snap?.visibilityState as CitationInsightVm['visibilityState'] | undefined)
             ?? (latestProviderVisibilityState === 'visible' ? 'visible' : latestProviderVisibilityState === 'pending' ? 'pending' : 'not-visible')
 
@@ -353,9 +355,9 @@ function buildEvidenceFromTimeline(
             answerMentioned: snap?.answerMentioned,
             visibilityState: snapVisibilityState,
             visibilityChangeLabel: changeLabel(effectiveVisibilityTransition, visibilityStreak, {
-              positive: 'visible',
-              negative: 'not visible',
-              first: 'first visibility',
+              positive: 'mentioned',
+              negative: 'not mentioned',
+              first: 'first mention',
             }),
             changeLabel: changeLabel(effectiveTransition, streak),
             answerSnippet: snap?.answerText ?? '',
@@ -397,8 +399,8 @@ function buildEvidenceFromTimeline(
       location: null,
       citationState: 'pending',
       visibilityState: 'pending',
-      visibilityChangeLabel: 'Awaiting first run',
-      changeLabel: 'Awaiting first run',
+      visibilityChangeLabel: 'Awaiting first check',
+      changeLabel: 'Awaiting first check',
       answerSnippet: '',
       citedDomains: [],
       evidenceUrls: [],
@@ -411,7 +413,7 @@ function buildEvidenceFromTimeline(
       relatedTechnicalSignals: [],
       groundingSources: [],
       searchQueries: [],
-      summary: `"${q.query}" has been added but no visibility run has been triggered yet.`,
+      summary: `"${q.query}" has been added but not checked yet.`,
       runHistory: [],
       historyScope: 'query',
       modelsSeen: [],
@@ -466,7 +468,18 @@ function computeModelTransitions(history: RunHistoryPoint[]): ModelTransitionVm[
   return transitions
 }
 
-/** Count consecutive runs from the end that share the same citationState as the latest run. */
+/**
+ * An answer's own citation state with no change attached. `not-measured` stays
+ * itself (the engine returns no sources); anything else that is not cited reads
+ * not cited, as the timeline's steady states do.
+ */
+function steadyCitationState(state: string | undefined): 'cited' | 'not-cited' | 'not-measured' {
+  if (state === CitationStates.cited) return 'cited'
+  if (state === CitationStates['not-measured']) return 'not-measured'
+  return 'not-cited'
+}
+
+/** Count consecutive checks from the end that share the same citationState as the latest one. */
 function computeStreak(runs: { citationState: string }[]): number {
   if (runs.length === 0) return 0
   const latest = runs[runs.length - 1]!.citationState
@@ -503,12 +516,15 @@ function changeLabel(
     case 'new': return 'First observation'
     case 'cited':
     case 'visible':
-      return streak <= 1 ? `${capitalizeLabel(resolved.positive)} in latest run` : `${capitalizeLabel(resolved.positive)} for ${streak} runs`
-    case 'lost': return 'Lost since last run'
+      return streak <= 1 ? `${capitalizeLabel(resolved.positive)} in the latest check` : `${capitalizeLabel(resolved.positive)} in the last ${streak} checks`
+    case 'lost': return 'Lost since the previous check'
     case 'emerging': return capitalizeLabel(resolved.first)
     case 'not-cited':
     case 'not-visible':
-      return streak <= 1 ? `${capitalizeLabel(resolved.negative)} in latest run` : `${capitalizeLabel(resolved.negative)} across ${streak} runs`
+      return streak <= 1 ? `${capitalizeLabel(resolved.negative)} in the latest check` : `${capitalizeLabel(resolved.negative)} in the last ${streak} checks`
+    // The engine returns no sources: neither cited nor not cited.
+    case 'not-measured':
+      return streak <= 1 ? 'Citation not measured in the latest check' : `Citation not measured in the last ${streak} checks`
     default: return transition
   }
 }
@@ -533,7 +549,7 @@ function visibilityEvidenceSummary(
     case 'visible':
       return `Your brand or domain is mentioned in AI answers for "${query}".`
     case 'pending':
-      return `"${query}" has been added but no run has been triggered yet.`
+      return `"${query}" has been added but not checked yet.`
     case 'not-visible':
     default:
       return `Your brand or domain was not mentioned in AI answers for "${query}".`
@@ -626,9 +642,10 @@ function adaptOverviewToCommandCenter(
     project,
     contextLabel: overview.contextLabel,
     mentionSummary: overview.scores.mention as ScoreSummaryVm,
+    mentionCoverage: overview.mentionCoverage,
     visibilitySummary: overview.scores.visibility as ScoreSummaryVm,
     mentionShareSummary: overview.scores.mentionShare,
-    queryCounts: { cited: overview.queryCounts.citedQueries, total: overview.queryCounts.totalQueries },
+    queryCounts: { cited: overview.queryCounts.citedQueries, total: overview.queryCounts.totalQueries, citationNotMeasured: overview.queryCounts.citationNotMeasuredQueries },
     gapQueries: overview.scores.gapQueries as ScoreSummaryVm,
     mentionGaps: overview.scores.mentionGaps as ScoreSummaryVm,
     indexCoverage: overview.scores.indexCoverage as ScoreSummaryVm,
@@ -701,7 +718,7 @@ function emptyCommandCenter(
       breakdown: emptyMentionShareBreakdown(),
       branded: emptyMentionShareBreakdown(),
     },
-    queryCounts: { cited: 0, total: 0 },
+    queryCounts: { cited: 0, total: 0, citationNotMeasured: 0 },
     gapQueries: { ...placeholder, label: 'Citation Gaps' },
     mentionGaps: { ...placeholder, label: 'Mention Gaps' },
     indexCoverage: { ...placeholder, label: 'Index Coverage' },
@@ -755,44 +772,17 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
     return {
       project: dto,
       hasMeasurement: false,
-      mentionScore: 0,
-      mentionDelta: 'No data',
-      mentionTone: 'neutral',
       lastRun: runItem,
-      insight: 'No runs completed yet.',
-      trend: [],
       competitorPressureLabel: 'None',
     }
   }
 
-  // Mention Coverage is the headline portfolio metric (did the AI actually say
-  // the brand?), not the cited/source signal. Both ride on the overview; we
-  // read `mention`. The gauge's `value` is presentational ("66.7%"/"No data");
-  // `progress` is the same share as 0–100 (at wire precision), so we read that for
-  // the score and the view formats it.
-  const mention = overview.scores.mention
-  const mentionScore = mention.progress ?? 0
-  const mentioned = overview.queryCounts.mentionedQueries
-  const total = overview.queryCounts.totalQueries
-  const providerCount = overview.providers.length
-
   return {
     project: dto,
-    hasMeasurement: total > 0 && mention.progress != null,
-    mentionScore,
-    mentionDelta: total > 0 ? `${mentioned} of ${total} queries` : 'No data',
-    mentionTone: mention.tone as MetricTone,
-    providerCoverage: mention.providerCoverage,
+    hasMeasurement: overview.mentionCoverage?.populations.some(population => population.answerCount > 0),
+    mentionPopulations: overview.mentionCoverage?.populations,
+    providerCoverage: overview.scores.mention.providerCoverage,
     lastRun: runItem,
-    // Subtitle reads the mention signal (answerMentioned) — the word
-    // "mentioned" must be backed by mention data, not the cited count.
-    insight: total > 0
-      ? `${mentioned} of ${total} queries mentioned across ${providerCount} provider${providerCount === 1 ? '' : 's'}.`
-      : 'No runs completed yet.',
-    // Mention-rate-over-time series (0–100, oldest→newest), computed
-    // server-side from runHistory — drives the per-project sparkline so the
-    // trend tracks the same signal as the headline number.
-    trend: mention.trend ?? [],
     competitorPressureLabel: overview.scores.competitorPressure.value,
     sentiment: overview.sentiment,
   }
@@ -839,8 +829,17 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
   return {
     portfolioOverview: {
       projects: portfolioProjects,
+      // Each project's rows come from its overview's counts through the roll-up
+      // `canonry overview --all` prints too. Runs in progress come from the run
+      // list, which is polled while a sweep runs; the overview is read again
+      // only when one completes. A project whose overview failed is named, not
+      // counted as clear.
       attentionItems: hasProjects
-        ? buildAttentionItems(projectCenters)
+        ? portfolioWhatChangedItems(projectDataList.map(data => ({
+            project: data.project,
+            whatChanged: data.overview?.whatChanged ?? null,
+            activeRuns: data.runs.filter(isWhatChangedActiveRun).length,
+          })))
         : [{
             id: 'attention_setup',
             tone: 'neutral',
@@ -879,8 +878,17 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
         summary: hasProjects ? 'Ready to run.' : 'Create a project first to launch a run.',
       },
     },
-    settings: {
-      providerStatuses: (apiSettings?.providers ?? []).map(p => ({
+    settings: buildSettingsVm(apiSettings),
+  }
+}
+
+/** Instance settings as the dashboard shows them; a read that was refused or not made lists no providers. */
+export function buildSettingsVm(apiSettings?: ApiSettings | null): SettingsVm {
+  return {
+    providerStatuses: (apiSettings?.providers ?? []).map(p => {
+      // Present only for an install administrator: the connection's revision and stored last test.
+      const connection = apiSettings?.providerConnections?.find(entry => entry.name === p.name)
+      return {
         name: p.name,
         displayName: p.displayName,
         ...(p.kind ? { kind: p.kind } : {}),
@@ -888,78 +896,27 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
         modelHint: p.modelHint,
         model: p.model,
         defaultModel: p.defaultModel,
-        state: (p.configured ? 'ready' : 'needs-config') as 'ready' | 'needs-config',
+        state: (p.configured ? 'configured' : 'needs-config') as 'configured' | 'needs-config',
         detail: p.configured
-          ? 'Provider is configured.'
+          ? 'Configuration saved.'
           : p.name.toLowerCase() === 'local'
             ? 'Base URL is missing.'
             : 'API key is missing.',
         quota: p.quota,
-      })),
-      google: {
-        state: apiSettings?.google?.configured ? 'ready' : 'needs-config',
-        detail: apiSettings?.google?.configured
-          ? 'Google OAuth app credentials are configured. Project-level GSC connections can be created from the dashboard.'
-          : 'Google OAuth client ID and client secret are not configured yet.',
-      },
-      bing: {
-        state: apiSettings?.bing?.configured ? 'ready' : 'needs-config',
-        detail: apiSettings?.bing?.configured
-          ? 'Bing Webmaster Tools API key is configured. Project-level Bing connections can be created from the dashboard.'
-          : 'Bing Webmaster Tools API key is not configured yet.',
-      },
-      selfHostNotes: [
-        'Configuration is stored in ~/.canonry/config.yaml.',
-        'The local config file is the source of truth for authentication credentials.',
-        'Google OAuth app credentials and per-domain Google tokens are stored in local config, not the database.',
-        'Database is SQLite at ~/.canonry/data.db.',
-        'API key was auto-generated during canonry init.',
-      ],
-      bootstrapNote: 'Use the UI, CLI, or ~/.canonry/config.yaml to manage settings. Authentication credentials persist to local config.',
-    },
+        ...(connection ? { revision: connection.revision, lastTest: connection.lastTest ?? null } : {}),
+      }
+    }),
+    google: { state: apiSettings?.google?.configured ? 'ready' : 'needs-config' },
+    bing: { state: apiSettings?.bing?.configured ? 'ready' : 'needs-config' },
+    selfHostNotes: [
+      // Paths name the folder by how it is chosen: a server started with
+      // CANONRY_CONFIG_DIR keeps everything in that folder instead.
+      'Configuration is stored in config.yaml in the config folder: ~/.canonry, or the folder CANONRY_CONFIG_DIR names when the server starts.',
+      'The local config file is the source of truth for authentication credentials.',
+      'Google OAuth app credentials and per-domain Google tokens are stored in local config, not the database.',
+      'The SQLite database is the path config.yaml names, data.db in the config folder by default.',
+      'The API key in config.yaml was generated when this install was set up.',
+    ],
+    bootstrapNote: 'Use the UI, the CLI, or config.yaml to manage settings. Authentication credentials persist to local config.',
   }
-}
-
-function buildAttentionItems(projectCenters: ProjectCommandCenterVm[]) {
-  const items: DashboardVm['portfolioOverview']['attentionItems'] = []
-
-  for (const pc of projectCenters) {
-    const lostEvidence = pc.visibilityEvidence.filter(e => e.citationState === 'lost')
-    if (lostEvidence.length > 0) {
-      items.push({
-        id: `attention_${pc.project.id}_lost`,
-        tone: 'negative',
-        title: `${pc.project.displayName || pc.project.name} lost citations`,
-        detail: `${lostEvidence.length} quer${lostEvidence.length > 1 ? 'ies' : 'y'} lost citation.`,
-        actionLabel: 'Open project',
-        href: `/projects/${encodeURIComponent(pc.project.name)}`,
-      })
-    }
-
-    const activeRuns = pc.recentRuns.filter(r => r.status === RunStatuses.running || r.status === RunStatuses.queued)
-    if (activeRuns.length > 0) {
-      items.push({
-        id: `attention_${pc.project.id}_active`,
-        tone: 'neutral',
-        title: `${pc.project.displayName || pc.project.name} has active runs`,
-        detail: `${activeRuns.length} run${activeRuns.length > 1 ? 's' : ''} in progress.`,
-        actionLabel: 'View runs',
-        href: '/runs',
-      })
-    }
-  }
-
-  if (items.length === 0) {
-    // Non-actionable positive status: nothing to navigate to (the portfolio
-    // is this very page). Omit href/actionLabel so the renderer shows a
-    // static "all clear" row rather than a link that goes nowhere.
-    items.push({
-      id: 'attention_stable',
-      tone: 'positive',
-      title: 'All projects stable',
-      detail: 'No citation losses or active runs to flag.',
-    })
-  }
-
-  return items
 }

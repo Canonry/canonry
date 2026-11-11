@@ -88,8 +88,8 @@ export const perplexityAdapter: ProviderAdapter = {
     }
   },
 
-  async healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult> {
-    const result = await perplexityHealthcheck(toPerplexityConfig(config))
+  async healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult> {
+    const result = await perplexityHealthcheck(toPerplexityConfig(config), signal)
     return {
       ok: result.ok,
       provider: 'perplexity',

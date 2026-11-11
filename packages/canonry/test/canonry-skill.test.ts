@@ -20,7 +20,7 @@ describe('canonry skill metadata', () => {
     expect(frontmatter.description).toContain('without installing a local runtime or skill')
   })
 
-  it('keeps agent site-readiness guidance score-first and uses overview only for crawl metadata', () => {
+  it('keeps Agent Readiness guidance score-first and uses overview only for crawl metadata', () => {
     const canonrySkillPath = fileURLToPath(new URL('../../../skills/canonry/SKILL.md', import.meta.url))
     const canonryReferencePath = fileURLToPath(new URL('../../../skills/canonry/references/canonry-cli.md', import.meta.url))
     const aeroReferencePath = fileURLToPath(new URL('../../../skills/aero/references/orchestration.md', import.meta.url))
@@ -30,9 +30,9 @@ describe('canonry skill metadata', () => {
 
     expect(canonrySkill).toContain('[CLI commands and JSON return shapes](references/canonry-cli.md)')
     expect(canonrySkill).toContain('[Server-side traffic setup and diagnosis](references/server-side-traffic.md)')
-    expect(canonryReference).toContain('begin with `cnry technical-aeo score <project> --format json`')
+    expect(canonryReference).toContain('begin with `cnry agent-readiness score <project> --format json`')
     expect(canonryReference).toContain('only to add crawl metadata')
-    expect(aeroReference).toContain('then `cnry technical-aeo score <project> --format json` for site readiness')
+    expect(aeroReference).toContain('then `cnry agent-readiness score <project> --format json` for the Agent Readiness score')
     expect(aeroReference).toContain('only to add crawl metadata')
   })
 

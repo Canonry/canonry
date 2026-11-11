@@ -1,9 +1,14 @@
-import type { OnboardingBlockReason, OnboardingStep } from '@canonry/canonry-contracts'
+import {
+  RunKinds,
+  runKindSchema,
+  type OnboardingBlockReason,
+  type OnboardingStep,
+  type RunKind,
+} from '@canonry/canonry-contracts'
 import type { HealthSnapshot } from '../view-models.js'
 
 const SESSION_KEY = 'canonry.onboarding-session.v1'
 const LAUNCHED_RUN_KEY = 'canonry.onboarding-launched-run.v1'
-const HANDOFF_KEY = 'canonry.onboarding-handoff.v1'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const STEP_NAMES: readonly OnboardingStep[] = [
@@ -112,12 +117,16 @@ export function createOnboardingEventId(): string {
  * under a second, always fired. The funnel could record a failure and not a
  * success, which is exactly backwards.
  *
- * Three fields, and each one is load-bearing:
+ * Four fields, and each one is load-bearing:
  *
  * - `projectName` scopes the marker. A bare run id would let a user who
  *   launched a run for project A and then opened setup for project B poll A's
  *   run and attribute its outcome to B's onboarding.
  * - `runId` is what the poll resumes.
+ * - `kind` says which run it is. The Agent Readiness audit scan and the first AI
+ *   Visibility check share this one marker, and the AI setup wizard must never
+ *   poll a running scan as its check. Markers written before the kind was
+ *   recorded have none; `isAiVisibilityLaunchedRun` reads those safely.
  * - `handled` records that the run-step outcome was already emitted, so a
  *   remount cannot double-count it. The per-mount dedupe ref cannot: it is
  *   born empty on every mount, which is the whole problem.
@@ -125,6 +134,7 @@ export function createOnboardingEventId(): string {
 export interface OnboardingLaunchedRun {
   projectName: string
   runId: string
+  kind?: RunKind
   handled: boolean
 }
 
@@ -133,20 +143,35 @@ function isLaunchedRun(value: unknown): value is OnboardingLaunchedRun {
   const candidate = value as Partial<OnboardingLaunchedRun>
   return typeof candidate.projectName === 'string' && candidate.projectName.length > 0
     && typeof candidate.runId === 'string' && candidate.runId.length > 0
+    && (candidate.kind === undefined || runKindSchema.safeParse(candidate.kind).success)
     && typeof candidate.handled === 'boolean'
 }
 
-export function markOnboardingRunLaunched(projectName: string, runId: string): void {
+export function markOnboardingRunLaunched(projectName: string, runId: string, kind: RunKind): void {
   try {
     if (typeof window !== 'undefined') {
       window.sessionStorage.setItem(
         LAUNCHED_RUN_KEY,
-        JSON.stringify({ projectName, runId, handled: false } satisfies OnboardingLaunchedRun),
+        JSON.stringify({ projectName, runId, kind, handled: false } satisfies OnboardingLaunchedRun),
       )
     }
   } catch {
     // A telemetry marker must never break a launch.
   }
+}
+
+/**
+ * Whether `marker` holds a first AI Visibility check, the only run the AI
+ * setup wizard may resume or report. A marker without a kind predates the
+ * field and may hold an Agent Readiness audit scan, so it counts only when its run is one
+ * of the project's AI Visibility runs.
+ */
+export function isAiVisibilityLaunchedRun(
+  marker: OnboardingLaunchedRun,
+  answerVisibilityRunIds: ReadonlySet<string>,
+): boolean {
+  if (marker.kind === undefined) return answerVisibilityRunIds.has(marker.runId)
+  return marker.kind === RunKinds['answer-visibility']
 }
 
 /**
@@ -156,7 +181,7 @@ export function markOnboardingRunLaunched(projectName: string, runId: string): v
  * anything that does not parse — a marker we cannot read is not a marker we
  * should act on.
  */
-export function readOnboardingLaunchedRun(projectName: string | undefined): OnboardingLaunchedRun | null {
+export function readOnboardingLaunchedRun(projectName: string | undefined, includeHandled = false): OnboardingLaunchedRun | null {
   if (!projectName) return null
   try {
     if (typeof window === 'undefined') return null
@@ -165,7 +190,7 @@ export function readOnboardingLaunchedRun(projectName: string | undefined): Onbo
     const parsed: unknown = JSON.parse(raw)
     if (!isLaunchedRun(parsed)) return null
     if (parsed.projectName !== projectName) return null
-    if (parsed.handled) return null
+    if (parsed.handled && !includeHandled) return null
     return parsed
   } catch {
     return null
@@ -186,42 +211,6 @@ export function markOnboardingRunHandled(runId: string): void {
     )
   } catch {
     // Same as above: best effort.
-  }
-}
-
-/**
- * One-shot marker for the launchpad's hand-off into Site Health.
- *
- * Site Health used to report `resumed: Boolean(initialRunId)`, but the
- * launchpad always hands off WITH the run it just started, so every first-run
- * start read as a resume (14 of 14 in the data). The launchpad now marks the
- * run it handed over; the Site Health page consumes the marker on arrival and
- * reports a fresh start. A later reload finds no marker and is a real resume.
- */
-export function markOnboardingHandoff(runId: string): void {
-  try {
-    if (typeof window !== 'undefined') window.sessionStorage.setItem(HANDOFF_KEY, runId)
-  } catch {
-    // A telemetry marker must never break a launch.
-  }
-}
-
-/** Whether `runId` is the run the launchpad just handed over. Read-only. */
-export function isOnboardingHandoff(runId: string | undefined): boolean {
-  if (!runId) return false
-  try {
-    return typeof window !== 'undefined' && window.sessionStorage.getItem(HANDOFF_KEY) === runId
-  } catch {
-    return false
-  }
-}
-
-/** Spend the hand-off marker, so the next arrival for this run is a resume. */
-export function clearOnboardingHandoff(): void {
-  try {
-    if (typeof window !== 'undefined') window.sessionStorage.removeItem(HANDOFF_KEY)
-  } catch {
-    // Best effort.
   }
 }
 

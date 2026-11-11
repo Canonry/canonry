@@ -504,14 +504,16 @@
         "design-tokens/no-literal-palette": "off"
       }
     },
-    // Vocabulary ratchet: web UI copy says "query", never "question". Scoped to
+    // Vocabulary ratchets: web UI copy says "query", never "question", and names
+    // the site crawl and audit "Agent Readiness", never its retired names. Scoped to
     // apps/web/src plus the shared visibility display labels: the frozen route paths
     // and MCP tool names live in packages/api-routes + packages/canonry, so keeping
     // the rule off those trees exempts them structurally instead of by regex.
     {
       "files": ["apps/web/src/**/*.ts","apps/web/src/**/*.tsx","packages/contracts/src/visibility-display.ts"],
       "rules": {
-        "canonry-vocabulary/no-question-ui-copy": "error"
+        "canonry-vocabulary/no-question-ui-copy": "error",
+        "canonry-vocabulary/no-retired-feature-name": "error"
       }
     },
     // Permanent exclusions: DiscoverySection is discovery's GENERATIVE framing

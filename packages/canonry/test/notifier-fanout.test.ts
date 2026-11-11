@@ -270,3 +270,40 @@ it.each(MODES.flatMap(mode => GROUP_CASES.map(poison => ({ mode, poison }))))(
     await dispatch('citation.lost')
   },
 )
+
+// Local (no web access) returns no sources, so its citation is never measured.
+// Its first sweep after the upgrade must not report its older stored misses
+// moving to `not-measured`, while a measured engine's real loss still fires.
+it.each(MODES)('%s reports no transition into or out of a citation that was not measured', async mode => {
+  const { db, seed, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION], ['run.completed', 'citation.gained', 'citation.lost'])
+  seed('previous', PREVIOUS_AT, CitationStates.cited)
+  seed('current', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
+  const local = (runId: string, createdAt: string, citationState: CitationState) => ({
+    id: `${runId}-local-snapshot`, runId, queryId: 'roof-query', queryText: 'roof coating', provider: 'local',
+    location: LOCATION.label, citationState, answerMentioned: true, citedDomains: [],
+    // Recorded by the Local adapter: it has no retrieval step.
+    retrievalStatus: 'not-applicable' as const,
+    measurementExecutionId: mode === 'Advanced' ? 'roof-local-execution' : null, requestedContext: LOCATION, createdAt,
+  })
+  // The older row stored a miss for Local; the new one stores `not-measured`.
+  db.insert(querySnapshots).values([
+    local('previous', PREVIOUS_AT, CitationStates['not-cited']),
+    local('current', CURRENT_AT, CitationStates['not-measured']),
+  ]).run()
+  if (mode === 'Advanced') {
+    for (const runId of ['previous', 'current']) {
+      db.update(runs).set({ measurementManifest: { schemaVersion: 1, expectedSlots: [
+        { executionId: 'roof-execution', queryText: 'roof coating', provider: 'gemini', context: LOCATION },
+        { executionId: 'roof-local-execution', queryText: 'roof coating', provider: 'local', context: LOCATION },
+      ] } }).where(eq(runs.id, runId)).run()
+    }
+  }
+
+  await complete()
+  const finished = { id: 'current', status: 'completed', finishedAt: CURRENT_FINISHED_AT }
+  const geminiLoss = [{ query: 'roof coating', provider: 'gemini', location: 'florida', from: 'cited', to: 'not-cited' }]
+  assertDelivered([
+    expectedPayload('run.completed', finished, geminiLoss),
+    expectedPayload('citation.lost', finished, geminiLoss),
+  ])
+})

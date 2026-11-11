@@ -145,6 +145,20 @@ describe('showSources', () => {
     expect(out).toContain('claude: answered, but no answer named a source')
   })
 
+  it('says how many answers came from an engine without sources, and names that engine', async () => {
+    mockGetAnalyticsSources.mockResolvedValue({
+      ...fixture(),
+      answerTotal: 12,
+      runCount: 1,
+      citationNotMeasuredAnswers: 6,
+      providersCitationNotMeasured: ['local'],
+      filters: { runId: null, queryClass: 'all', queryClassBasis: null, includeByQuery: true },
+    } satisfies SourceBreakdownDto)
+    const out = await capture(() => showSources('p', { byProvider: true }))
+    expect(out).toContain('12 answers · 1 run pooled · branded and non-brand pooled · 6 answers without sources excluded')
+    expect(out).toContain('local: citations not measured, the engine returns no sources')
+  })
+
   it('omits the scope line for an older server that does not report it', async () => {
     const out = await capture(() => showSources('p', {}))
     expect(out).not.toMatch(/pooled/)

@@ -76,7 +76,13 @@ export const healthSnapshotDtoSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   runId: z.string().nullable(),
-  overallCitedRate: fraction(),
+  /**
+   * `citedPairs` over the pairs whose sources were checked (`totalPairs -
+   * citationNotMeasuredPairs`). Null when the engines returned no sources for
+   * any pair, so citation was not measured. Snapshots stored before
+   * `citationNotMeasuredPairs` existed read as stored.
+   */
+  overallCitedRate: fraction().nullable(),
   /**
    * Share of (query × provider) pairs where the project was MENTIONED in the
    * answer text. Independent of `overallCitedRate` — never derived from it.
@@ -86,14 +92,22 @@ export const healthSnapshotDtoSchema = z.object({
   overallMentionRate: fraction(),
   totalPairs: z.number().int().nonnegative(),
   citedPairs: z.number().int().nonnegative(),
+  /**
+   * Pairs whose engine returns no sources (a local model), out of every cited
+   * rate. Snapshots stored before this field existed read 0: they were
+   * computed with those pairs counted as not cited and are not rewritten.
+   */
+  citationNotMeasuredPairs: z.number().int().nonnegative(),
   /** Count of pairs mentioned in the answer text. Legacy rows read back as 0. */
   mentionedPairs: z.number().int().nonnegative(),
   providerBreakdown: z.record(z.string(), z.object({
-    citedRate: fraction(),
+    /** `cited / (total - citationNotMeasured)`; null when none of the engine's pairs carried sources. */
+    citedRate: fraction().nullable(),
     mentionRate: fraction(),
     cited: z.number().int().nonnegative(),
     mentioned: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+    citationNotMeasured: z.number().int().nonnegative(),
   })),
   createdAt: z.string(),
   /**

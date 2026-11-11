@@ -10,10 +10,11 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router'
-import type { ProviderAccountStreak } from '@canonry/canonry-contracts'
-import { RunAdmissionNoticeView, useRunAdmission } from '../src/components/project/RunAdmissionNotice.js'
+import { runPreviewDtoSchema, type ProviderAccountStreak } from '@canonry/canonry-contracts'
+import { RunAdmissionNoticeView, RunPreviewSummary, useRunAdmission } from '../src/components/project/RunAdmissionNotice.js'
 import { formatSweepInstant } from '../src/lib/format-helpers.js'
 import { heyClient } from '../src/api.js'
+import { compileAppStyles, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
 
 // The dashboard's notice for a project whose next sweep is refused, or leaves
 // out providers that keep failing on their accounts. It renders the API's
@@ -157,4 +158,54 @@ test('a provider out of credit is fixed in its own console, so there is no setti
     `It ran out of credit in each of its last 10 runs. Checks run without it until ${formatSweepInstant(LATER)}; add credit in Claude's console before then.`,
   )
   expect(screen.queryByRole('link')).toBeNull()
+})
+
+// The check details the AI Visibility setup review and the project's "Review AI
+// Visibility check" dialog both show, read from `GET /projects/:name/run-preview`.
+const preview = runPreviewDtoSchema.parse({
+  mode: 'advanced', revision: 3, queryCount: 3, assignmentCount: 1,
+  queryClasses: [
+    { queryClass: 'non-brand', queryCount: 2, assignmentCount: 1 },
+    { queryClass: 'branded', queryCount: 1, assignmentCount: 0 },
+    { queryClass: 'unknown', queryCount: 0, assignmentCount: 0 },
+  ],
+  requestCount: 6, expectedRequestCount: 6,
+  engines: [{ provider: 'gemini', models: ['gemini-test'], requestCount: 6, expectedRequestCount: 6, available: true }],
+  locations: [{ location: 'Dallas', requestCount: 3 }, { location: null, requestCount: 3 }],
+  admission: { refused: false, retryAfter: null, providers: {} }, activeRunId: null, canStart: true, blockedReason: null,
+})
+
+/** Each labelled value in the check details, as [label, value]. */
+function detailRows() {
+  const values = screen.queryAllByRole('definition')
+  return screen.queryAllByRole('term').map((term, index) => [term.textContent, values[index]!.textContent])
+}
+
+test('the check details list the location like the rows a caller adds, in every preview state', () => {
+  const view = render(<RunPreviewSummary preview={preview} pending={false} failed={false} onRetry={() => {}} />)
+  // The project dialog adds no rows of its own.
+  expect(detailRows()).toEqual([['Location', 'Dallas · No location targeting']])
+
+  const website = { label: 'Website', value: 'citypoint.example' }
+  const market = { label: 'Market', value: 'United States · English' }
+  view.rerender(<RunPreviewSummary preview={preview} pending={false} failed={false} onRetry={() => {}} details={[website, market]} />)
+  expect(detailRows()).toEqual([['Website', 'citypoint.example'], ['Market', 'United States · English'], ['Location', 'Dallas · No location targeting']])
+
+  // Setup's rows stay in view while the preview loads, and after it fails.
+  view.rerender(<RunPreviewSummary pending failed={false} onRetry={() => {}} details={[website, market]} />)
+  expect(screen.getByRole('status').textContent).toBe('Loading check details…')
+  expect(detailRows()).toEqual([['Website', 'citypoint.example'], ['Market', 'United States · English']])
+  view.rerender(<RunPreviewSummary pending={false} failed onRetry={() => {}} details={[website, market]} />)
+  expect(screen.getByRole('alert').textContent).toContain('Could not load the check details.')
+  expect(detailRows()).toEqual([['Website', 'citypoint.example'], ['Market', 'United States · English']])
+})
+
+test('the preview counts read in agreement, with the query class split as supporting copy', async () => {
+  render(<RunPreviewSummary preview={preview} pending={false} failed={false} onRetry={() => {}} />)
+  expect(screen.getByText((_, element) => element?.tagName === 'P' && element.textContent === '1 Property assignment')).toBeTruthy()
+  // Not tiny muted metadata: the split is meaningful, so it gets the readable preset.
+  const split = screen.getByText('2 non-brand queries · 1 branded query')
+  const rules = parseCompiledCss(await compileAppStyles([...split.classList]))
+  expect(compiledElementProperty(rules, split, 'font-size')).toBe('13px')
+  expect(compiledElementProperty(rules, split, 'color')).toBe('var(--color-text-secondary)')
 })

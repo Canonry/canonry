@@ -1,3 +1,4 @@
+import { formatModelName, openRouterRouteModel } from '@canonry/canonry-contracts'
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import { ChevronDown } from 'lucide-react'
@@ -563,7 +564,7 @@ export function SentimentAnswerOutcome({ queryId, sourceSnapshotIds, queryClass,
       const content = <>{showSubjects && <span>{item.subjectLabel} · </span>}<ToneBadge tone={tone} className="max-w-full shrink-0 rounded-none border-0 bg-transparent p-0 text-label-14 [overflow-wrap:normal]">{label}</ToneBadge></>
       const selection: SentimentEvidenceSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row!.queryClass, queryId: row!.queryId, executionNodeKey: row!.executionNodeKey ?? undefined, assessmentId: item.assessmentId ?? undefined }
       return <div key={JSON.stringify([item.sourceSnapshotId, item.subjectId, item.assessmentId])} className="flex items-center gap-1">
-        {item.assessmentId ? <Button type="button" variant="ghost" className="h-auto pointer-coarse:min-h-11 flex-wrap justify-start whitespace-normal px-1 text-left text-button-14" aria-label={`View ${item.provider} sentiment evidence for ${item.subjectLabel}: ${label}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, `${row!.queryText} · ${item.provider} · ${item.subjectLabel}`, event.currentTarget) }}>{content}</Button> : <span>{content}</span>}
+        {item.assessmentId ? <Button type="button" variant="ghost" className="h-auto pointer-coarse:min-h-11 flex-wrap justify-start whitespace-normal px-1 text-left text-button-14" aria-label={`View ${providerDisplayName(item.provider)} sentiment evidence for ${item.subjectLabel}: ${label}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, `${row!.queryText} · ${providerDisplayName(item.provider)} · ${item.subjectLabel}`, event.currentTarget) }}>{content}</Button> : <span>{content}</span>}
         {item.reason && <InfoTooltip text={item.reason} />}
       </div>
     })}
@@ -573,7 +574,7 @@ export function SentimentAnswerOutcome({ queryId, sourceSnapshotIds, queryClass,
 function SentimentEvidenceContent({ item }: { item: SentimentEvidenceItem }) {
   const engine = providerDisplayName(item.context.provider)
   return <article className="space-y-4 border-b border-default py-5 text-label-14 text-secondary">
-    <div className="flex flex-wrap items-center gap-2"><strong className="text-primary">{item.subject.displayName}</strong><ToneBadge tone={outcomeTone(item.outcome)}>{outcomeLabel(item.outcome)}</ToneBadge><span>{CLASS_LABEL[item.context.queryClass]}</span><span>Answered by <span className="text-primary">{engine}</span>{item.context.servedModel ? ` (${item.context.servedModel})` : ''}</span><span>{item.context.location ?? 'No location'}</span></div>
+    <div className="flex flex-wrap items-center gap-2"><strong className="text-primary">{item.subject.displayName}</strong><ToneBadge tone={outcomeTone(item.outcome)}>{outcomeLabel(item.outcome)}</ToneBadge><span>{CLASS_LABEL[item.context.queryClass]}</span><span>Answered by <span className="text-primary">{engine}</span>{item.context.servedModel && item.context.servedModel !== openRouterRouteModel(item.context.provider) ? ` (${openRouterRouteModel(item.context.provider) ? formatModelName(item.context.servedModel) : item.context.servedModel})` : ''}</span><span>{item.context.location ?? 'No location'}</span></div>
     {item.reason && <p>{item.reason}</p>}
     <section><h3 className="mb-2 text-heading">Conclusion evidence</h3>{item.conclusion.length ? item.conclusion.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No valid conclusion evidence is available.</p>}</section>
     <section><h3 className="mb-2 text-heading">Complaint evidence</h3>{item.complaint?.length ? item.complaint.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No complaint was identified.</p>}</section>
@@ -622,8 +623,8 @@ function skipReasonLabel(reason: string): string { return SENTIMENT_SKIP_REASON_
 /** The view filters that would narrow a backfill: engine, model, location, query, revision and a Property, group or market. */
 function viewBackfillFilters(selection: SentimentBackfillSelection): string[] {
   return [
-    selection.provider && `engine ${selection.provider}`,
-    selection.model && `model ${selection.model}`,
+    selection.provider && `engine ${providerDisplayName(selection.provider)}`,
+    selection.model && `model ${selection.model.includes('/') ? formatModelName(selection.model) : selection.model}`,
     selection.location && (selection.location === 'none' ? 'no location' : `location ${selection.location}`),
     selection.scope !== 'project' && selection.scopeKey && `${selection.scope} ${selection.scopeKey}`,
     selection.marketKey && `market ${selection.marketKey}`,

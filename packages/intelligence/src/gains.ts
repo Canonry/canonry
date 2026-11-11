@@ -15,14 +15,14 @@ export function detectGains(currentRun: RunData, previousRun: RunData): Gain[] {
   const previousObserved = observedKeys(previousRun, snapshotKey)
   const previousCited = new Set<string>()
   for (const snap of previousRun.snapshots) {
-    if (snap.cited) {
+    if (snap.cited === true) {
       previousCited.add(snapshotKey(snap))
     }
   }
 
   for (const snap of currentRun.snapshots) {
     const key = snapshotKey(snap)
-    if (snap.cited && previousObserved.has(key) && !previousCited.has(key)) {
+    if (snap.cited === true && previousObserved.has(key) && !previousCited.has(key)) {
       gains.push({
         query: snap.query,
         provider: snap.provider,

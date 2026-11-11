@@ -32,6 +32,7 @@ import {
   postApiV1ProjectsByNameSeoRunsByIdCancelMutation,
 } from '@canonry/canonry-api-client/react-query'
 import { heyClient, isEmbed, isPublicDemo } from '../../api.js'
+import { useAccount } from '../../contexts/account-context.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { extractApiErrorInfo, extractErrorMessage } from '../../lib/extract-error-message.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
@@ -174,8 +175,8 @@ function DataProvenance({ source }: { source: SeoProvenance }) {
 /** A row's details. `source` is null for a search that returned nothing, which has no provenance to show. */
 function EvidenceDetails({ label, source, children }: { label: string; source: SeoProvenance | null; children?: ReactNode }) {
   return (
-    <details className="text-left">
-      <summary className="flex min-h-11 cursor-pointer items-center text-label-13 text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">Details<span className="sr-only"> for {label}</span></summary>
+    <details className="group/seo-evidence text-left">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-label-13 text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 [&::-webkit-details-marker]:hidden"><ChevronRight className="size-3.5 shrink-0 transition-transform group-open/seo-evidence:rotate-90" aria-hidden="true" />Details<span className="sr-only"> for {label}</span></summary>
       <div className="min-w-56 space-y-4 pb-3 text-label-13 text-secondary">
         {children}
         {source && <DataProvenance source={source} />}
@@ -188,11 +189,12 @@ function ReadError({ error, retry }: { error: unknown; retry: () => void }) {
   return <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-default p-4 text-label-14"><p>{extractErrorMessage(error)}</p><Button variant="secondary" className="pointer-coarse:min-h-11" onClick={retry}>Retry</Button></div>
 }
 
-function EmptyEvidence({ title, children }: { title: string; children: ReactNode }) {
-  return <div className="py-12 text-center"><h3 className="text-heading-14 text-heading">{title}</h3><p className="mx-auto mt-2 max-w-lg text-copy-14 text-secondary">{children}</p></div>
+function EmptyEvidence({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
+  return <div className="py-12 text-center"><h3 className="text-heading-14 text-heading">{title}</h3><p className="mx-auto mt-2 max-w-lg text-copy-14 text-secondary">{children}</p>{action && <div className="mt-4">{action}</div>}</div>
 }
 
 export function SeoDataSection({ projectName }: { projectName: string }) {
+  const { isAdmin } = useAccount()
   const search = useSearch({ strict: false }) as { seoProfileId?: string; seoRunId?: string }
   const navigate = useNavigate()
   const context = useQuery(getApiV1ProjectsByNameSeoContextOptions({ client: heyClient, path: { name: projectName } }))
@@ -226,6 +228,9 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
   const sourceConfigured = context.data.available && context.data.connections.some(connection => connection.capabilities.length > 0)
   const canConfigure = sourceConfigured && context.data.connections.some(connection => connection.capabilities.some(capability => context.data.scopes.some(scope => scope.capabilities?.includes(capability) ?? true)))
   const scope = selected && context.data.scopes.find(item => item.kind === selected.scope.kind && item.key === (selected.scope.key ?? null))
+  const setupGuide = isAdmin && !isEmbed() && !isPublicDemo()
+    ? <Button asChild variant="secondary"><a href="https://github.com/Canonry/canonry/blob/main/docs/seo-data.md#host-configuration" target="_blank" rel="noopener noreferrer">SEO setup guide</a></Button>
+    : undefined
 
   return (
     <section aria-label="SEO" className="min-w-0 space-y-5">
@@ -247,7 +252,7 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
 
       {editor && <SeoProfileEditor key={editor.id} projectName={projectName} context={context.data} profile={editor.profile} id={editor.id} onClose={closeEditor} onSaved={id => { selectProfile(id); requestAnimationFrame(() => profileSelect.current?.focus()) }} />}
       {!isPublicDemo() && !context.data.available && profiles.data.profiles.length > 0 && <p role="status" className="rounded-md border border-default px-4 py-3 text-copy-14 text-secondary">{context.data.reason ?? 'Configure an SEO data provider to refresh saved profiles.'}</p>}
-      {search.seoRunId && selectedRun.error ? <div className="space-y-3"><ReadError error={selectedRun.error} retry={() => { void selectedRun.refetch() }} />{selected ? <Button variant="secondary" className="pointer-coarse:min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button> : <p className="text-copy-14 text-secondary">Select a profile to view its latest data.</p>}</div> : search.seoRunId && selectedRun.isPending ? <p role="status" className="py-10 text-copy-14 text-secondary">Loading refresh…</p> : selected && selectedRun.data && selectedRun.data.profileId !== selected.id ? <EmptyEvidence title="Refresh belongs to another profile">Choose the refresh’s profile, or return to the selected profile’s latest data.<Button variant="secondary" className="mt-4 pointer-coarse:min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button></EmptyEvidence> : selected ? <SeoProfileWorkspace key={`${selected.id}:${selected.revision}:${search.seoRunId ?? ''}`} projectName={projectName} profile={selected} context={context.data} selectedRunId={search.seoRunId} onLatest={() => selectProfile(selected.id)} /> : !canConfigure && profiles.data.profiles.length === 0 ? <EmptyEvidence title={sourceConfigured ? 'SEO scope unavailable' : 'Configure an SEO data provider'}>{sourceConfigured ? context.data.scopes.find(item => item.reason)?.reason ?? 'No datasets are available for this project’s measurement scopes.' : 'Connect a provider before creating an SEO profile.'}</EmptyEvidence> : requestedProfileId ? (
+      {search.seoRunId && selectedRun.error ? <div className="space-y-3"><ReadError error={selectedRun.error} retry={() => { void selectedRun.refetch() }} />{selected ? <Button variant="secondary" className="pointer-coarse:min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button> : <p className="text-copy-14 text-secondary">Select a profile to view its latest data.</p>}</div> : search.seoRunId && selectedRun.isPending ? <p role="status" className="py-10 text-copy-14 text-secondary">Loading refresh…</p> : selected && selectedRun.data && selectedRun.data.profileId !== selected.id ? <EmptyEvidence title="Refresh belongs to another profile">Choose the refresh’s profile, or return to the selected profile’s latest data.<Button variant="secondary" className="mt-4 pointer-coarse:min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button></EmptyEvidence> : selected ? <SeoProfileWorkspace key={`${selected.id}:${selected.revision}:${search.seoRunId ?? ''}`} projectName={projectName} profile={selected} context={context.data} selectedRunId={search.seoRunId} onLatest={() => selectProfile(selected.id)} /> : !canConfigure && profiles.data.profiles.length === 0 ? <EmptyEvidence title={sourceConfigured ? 'SEO scope unavailable' : 'Configure an SEO data provider'} action={!sourceConfigured ? setupGuide : undefined}>{sourceConfigured ? context.data.scopes.find(item => item.reason)?.reason ?? 'No datasets are available for this project’s measurement scopes.' : setupGuide ? 'SEO sources are configured on the Canonry server.' : 'Ask your Canonry administrator to connect an SEO data source.'}</EmptyEvidence> : requestedProfileId ? (
         <EmptyEvidence title="Profile unavailable">This saved profile is no longer available. Select another profile to view its data.</EmptyEvidence>
       ) : !editor && <EmptyEvidence title="No SEO data yet">{canWrite ? 'Create a profile to choose the scope, source, and searches to measure.' : 'An SEO profile is needed before data can be collected.'}</EmptyEvidence>}
     </section>
@@ -345,8 +350,8 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
         : overview.isPending ? <p role="status" className="py-8 text-copy-14 text-secondary">Loading saved data…</p>
           : overview.data && <SeoEvidence key={`${profile.id}:${selectedView}:${overview.data.evidenceRunId ?? 'empty'}`} projectName={projectName} profileId={profile.id} runId={overview.data.evidenceRunId} view={selectedView} active={active} nextRefresh={nextRefresh} />}
     </div>
-    <details className="border-t border-subtle text-label-14 text-secondary">
-      <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">Data details</summary>
+    <details className="group/seo-data border-t border-subtle text-label-14 text-secondary">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-label-14-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 [&::-webkit-details-marker]:hidden"><ChevronRight className="size-3.5 shrink-0 transition-transform group-open/seo-data:rotate-90" aria-hidden="true" />Data details</summary>
       <div className="space-y-4 pb-3 text-label-13">
         <p>Current profile source: {isPublicDemo() ? 'Fictional demo data' : connection?.label ?? 'Source unavailable'}. Google; {deviceLabel(profile.rankings?.device ?? 'unspecified')}.</p>
         {overview.data?.evidenceRun && <p>Saved evidence: {overview.data.evidenceRun.scope.kind}{overview.data.evidenceRun.scope.key ? ` · ${overview.data.evidenceRun.scope.key}` : ''}{overview.data.evidenceRun.scope.expectedPlanRevision !== undefined ? ` · plan revision ${overview.data.evidenceRun.scope.expectedPlanRevision}` : ''}. {runLocation(overview.data.evidenceRun)} · {overview.data.evidenceRun.languageCode} · profile revision {overview.data.evidenceRun.profileRevision}.</p>}

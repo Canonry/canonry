@@ -13,7 +13,7 @@ For a calendar-month comparison of a Property, group or market, call
 use `canonry_measurement_changes` for compatible stored-run comparisons of
 changed Properties. Do not substitute a project-wide month comparison for
 Property-scoped data.
-For Site Health reports, read `site-health.md` and keep crawl and audit
+For Agent Readiness reports, read `site-health.md` and keep crawl and audit
 provenance separate from answer-visibility periods.
 
 For project-wide month-over-month AEO claims, use `canonry_visibility_compare`
@@ -56,6 +56,10 @@ Two consequences for any report:
 
 A sweep crippled by a provider outage captures fewer questions and looks identical to a collapse in visibility. Before narrating any drop, check whether the latest run is `partial` and what its capture count was against the project's basket size. Report a capture failure as a capture failure.
 
+## A cited rate can be not measured
+
+An engine that returns no sources (a local model) has no cited rate: the API sends `null`, and `visibility-compare` counts those answers as `excludedNotMeasured`. Where a template below asks for a cited rate as `<X>%`, write "not measured" for that engine, never `0%`, and leave it out of cited deltas. Its mention rate is still measured and reported.
+
 ## Build summaries from stored evidence
 
 For keyword and organic ranking recommendations, read `seo-analysis.md`.
@@ -94,8 +98,8 @@ and requires explicit approval; preparing a summary does not authorize it.
 ## Summary
 - Mention rate: <X>% (Δ<+/-Y>% from last week)        ← primary KPI
 - Mention share (non-brand): <X>% (Δ<+/-Y>% from last week)   ← share-of-voice vs competitors; NEVER pooled with branded
-- Cited rate: <X>% (Δ<+/-Y>% from last week)          ← secondary signal
-- Regressions: <N> new, <N> resolved (lead with lost mentions; note lost citations second)
+- Cited rate: <X>% (Δ<+/-Y>% from last week)          ← secondary signal; "not measured" when null, never 0%
+- Regressions: <N> new, <N> resolved (lead with lost mentions; note lost citations second)   ← latest check: the overview's whatChanged.lostMentions / lostCitations queryCount; comparison unavailable = not compared, never 0
 - Gains: <N> new mentions / <N> new citations
 - Providers monitored: <N>
 
@@ -143,7 +147,7 @@ and requires explicit approval; preparing a summary does not authorize it.
 ## Provider Breakdown
 | Provider | Mention Rate | Mention Trend | Cited Rate | Cited Trend |
 |----------|--------------|---------------|-----------|-------------|
-| <provider> | <X>% | ↑/↓/→ | <X>% | ↑/↓/→ |
+| <provider> | <X>% | ↑/↓/→ | <X>% or not measured | ↑/↓/→ |
 
 ## Fixes Deployed
 | Date | Fix | Status | Impact |

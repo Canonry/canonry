@@ -17,8 +17,10 @@ import {
   measurementPropertyQuestionsQuerySchema,
   measurementPropertyQuestionsResponseSchema,
   measurementQuestionResultQuerySchema,
+  isCitationStateMeasured,
   measurementQuestionResultResponseSchema,
   notFound,
+  readCitationState,
   validationError,
   type MeasurementPlanV2,
   compareText,
@@ -254,8 +256,9 @@ function rawResponsesForLegacyQuestionSnapshots(
   runId: string,
   snapshots: readonly MeasurementQuestionSnapshot[],
 ): ReadonlyMap<string, string | null> {
+  // An engine with no sources has no raw source list to recover.
   const legacyIds = snapshots
-    .filter(snapshot => snapshot.citedUrls === null)
+    .filter(snapshot => snapshot.citedUrls === null && isCitationStateMeasured(readCitationState(snapshot)))
     .map(snapshot => snapshot.id)
   if (legacyIds.length === 0) return new Map()
   return new Map(db.select({
@@ -346,7 +349,6 @@ function questionRows(
   const citedSlotIds = new Set(materialized.evidence.evidence
     .filter(row => ownEdgeIds.has(row.usageEdgeId) && row.classification === 'assigned')
     .map(row => row.expectedSlotId))
-  const incompleteObservationIds = new Set(materialized.evidence.diagnostics.evidenceIncompleteObservationIds)
   const rows: Array<{
     resultId: string | null
     snapshotId: string | null
@@ -360,6 +362,7 @@ function questionRows(
     status: 'answered' | 'missing'
     mentioned: boolean | null
     cited: boolean | null
+    citationMeasured: boolean
     recommendedInstead: string[]
     answerExcerpt: string | null
     edgeId: string
@@ -397,9 +400,12 @@ function questionRows(
       mentioned: answered && !target.mentionNotApplicable
         ? answerBySlot.get(slot.id)?.mentioned ?? null
         : null,
+      // The kernel's per-answer value: null when the sources were partly saved
+      // or the engine returns none (`citationMeasured: false`).
       cited: answered
-        ? (citedSlotIds.has(slot.id) ? true : incompleteObservationIds.has(snapshot.id) ? null : false)
+        ? (citedSlotIds.has(slot.id) ? true : answerBySlot.get(slot.id)?.cited ?? null)
         : null,
+      citationMeasured: answerBySlot.get(slot.id)?.citationMeasured ?? true,
       recommendedInstead: answered ? recommendedInstead(snapshot.recommendedCompetitors, target) : [],
       answerExcerpt: answered ? excerptOf(answer) : null,
       edgeId: edge.id,
@@ -448,6 +454,7 @@ function compactQuestion(row: ReturnType<typeof questionRows>[number]) {
     status: row.status,
     mentioned: row.mentioned,
     cited: row.cited,
+    ...(row.status === 'answered' ? { citationMeasured: row.citationMeasured } : {}),
     recommendedInstead: row.recommendedInstead,
     answerExcerpt: row.answerExcerpt,
   }
@@ -566,6 +573,7 @@ export async function measurementQuestionReadRoutes(app: FastifyInstance) {
         },
         mentioned: row.mentioned,
         cited: row.cited,
+        citationMeasured: row.citationMeasured,
         recommendedInstead: row.recommendedInstead,
         answer: stored.answerText,
         sources: sourcesForResult(materialized, row),

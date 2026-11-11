@@ -49,6 +49,15 @@ describe('organic-evidence — jsonl degrades to the composite JSON document', (
     expect(mockGetOrganicEvidence).toHaveBeenCalledWith('demo', 60)
   })
 
+  it('prints cited pairs over the answers with sources, and says when none had any', async () => {
+    const visibility = { runId: 'run-1', completedAt: '2026-07-20T00:00:00.000Z', ageDays: 2, answerPairs: 4, mentionedPairs: 2 }
+    mockGetOrganicEvidence.mockResolvedValueOnce({ ...evidence, visibility: { ...visibility, citedPairs: 1, citationNotMeasuredPairs: 2 } })
+    expect(await captureLog(() => show('text'))).toContain('Latest AI visibility: 2/4 mentioned, 1/2 cited (2 not measured, no sources) (2d old)')
+
+    mockGetOrganicEvidence.mockResolvedValueOnce({ ...evidence, visibility: { ...visibility, citedPairs: 0, citationNotMeasuredPairs: 4 } })
+    expect(await captureLog(() => show('text'))).toContain('Latest AI visibility: 2/4 mentioned, citations not measured (no answer carries sources) (2d old)')
+  })
+
   it('describes URL-agnostic pages and available GA4 lead-event evidence without claiming attribution', async () => {
     const { canonryMcpTools } = await import('../src/mcp/tool-registry.js')
     const tool = canonryMcpTools.find(entry => entry.name === 'canonry_organic_evidence')

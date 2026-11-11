@@ -1,9 +1,10 @@
-import { CitationStates, percentOf, type ScoreSummaryDto } from '@canonry/canonry-contracts'
+import { CitationStates, isCitationStateMeasured, percentOf, type CitationState, type ScoreSummaryDto } from '@canonry/canonry-contracts'
 import { gapTone } from './score-tones.js'
 
 export interface GapQueryScoreSnapshot {
   queryId: string
-  citationState: string
+  /** As read through `readCitationState`. */
+  citationState: CitationState
   /** Tracked competitors present in source-list citation evidence. */
   citedCompetitorDomains: readonly string[]
   /** Tracked competitors present in answer prose. */
@@ -21,6 +22,11 @@ export interface GapQueryScoreSnapshot {
  * The gauge value is the gap count itself (so the dashboard reads the magnitude
  * directly), with `progress` set to the 0–100 percentage of tracked queries
  * that are gaps, at wire precision.
+ *
+ * Only answers whose sources were checked count: an answer without sources
+ * shows neither the project's citation nor a competitor's. A query with no
+ * such answer is out of the denominator, and with none at all the gauge
+ * reads "Not measured".
  */
 export function buildGapQueryScore(
   snapshots: readonly GapQueryScoreSnapshot[],
@@ -41,11 +47,24 @@ export function buildGapQueryScore(
 
   const byQuery = new Map<string, { cited: boolean; citedCompetitors: Set<string> }>()
   for (const snap of snapshots) {
+    if (!isCitationStateMeasured(snap.citationState)) continue
     const key = snap.queryId
     const current = byQuery.get(key) ?? { cited: false, citedCompetitors: new Set<string>() }
     if (snap.citationState === CitationStates.cited) current.cited = true
     for (const domain of snap.citedCompetitorDomains) current.citedCompetitors.add(domain)
     byQuery.set(key, current)
+  }
+
+  if (byQuery.size === 0) {
+    return {
+      label: 'Citation Gaps',
+      value: 'Not measured',
+      delta: 'No answer carries sources',
+      tone: 'neutral',
+      description: 'Your engines return no sources, so citation gaps are not measured.',
+      tooltip,
+      trend: [],
+    }
   }
 
   const totalCount = byQuery.size

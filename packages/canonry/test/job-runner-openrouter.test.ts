@@ -139,3 +139,51 @@ test('unequal Advanced route slots fit their exact shared daily budget', async (
       .where(eq(usageCounters.scope, `${projectId}:openrouter`)).all()).toEqual([{ metric: 'queries', count: 4 }])
   } finally { db.$client.close() }
 })
+
+test.each(['Simple', 'Advanced'] as const)('%s sweeps stop calling an engine after two failures in a row while other engines keep answering', async kind => {
+  resetSharedProviderExecutionGates()
+  const route = engines[1]!
+  let routerCalls = 0
+  // An account without credits: OpenRouter refuses every call the same way.
+  vi.stubGlobal('fetch', vi.fn(async () => {
+    routerCalls++
+    return new Response(JSON.stringify({ error: { code: 402, message: 'Insufficient credits. Add more using https://openrouter.ai/settings/credits' } }), { status: 402 })
+  }))
+  const db = createClient(':memory:'); migrate(db)
+  try {
+    const projectId = crypto.randomUUID(); const runId = crypto.randomUUID(); const now = new Date().toISOString()
+    const providers = ['gemini', route]
+    db.insert(projects).values({ id: projectId, name: 'northstar', displayName: 'Northstar', aliases: ['Northstar'], canonicalDomain: 'example.com',
+      country: 'US', language: 'en', providers, locations: [location], defaultLocation: location.label, createdAt: now, updatedAt: now }).run()
+    const tracked = ['best widgets', 'widget pricing', 'widget reliability', 'widget reviews'].map((query, index) => ({ id: `q-${index + 1}`, projectId, query, createdAt: now }))
+    for (const query of tracked) db.insert(queries).values(query).run()
+    if (kind === 'Advanced') {
+      const plan = compileMeasurementPlan({ schemaVersion: 1,
+        targets: [{ stableKey: 'widgets', label: 'Widgets', aliases: ['Widgets'], urls: [{ kind: 'prefix', host: 'example.com', pathPrefix: '/widgets', pathCase: 'insensitive' }] }],
+        groups: [{ stableKey: 'all', label: 'All', targetKeys: ['widgets'] }], targetQuerySelections: [{ targetKey: 'widgets', queryIds: tracked.map(query => query.id) }],
+      }, { canonicalDomain: 'example.com', ownedDomains: [], brandNames: ['Northstar'], defaultContext: location, locations: [location], trackedQueries: tracked.map(({ id, query }) => ({ id, query })), expectedSnapshots: providers.length })
+      const canonicalJson = canonicalMeasurementPlanJson(plan); const versionId = crypto.randomUUID()
+      db.insert(measurementPlanVersions).values({ id: versionId, projectId, revision: 1, canonicalJson, checksum: crypto.createHash('sha256').update(canonicalJson).digest('hex'), createdAt: now }).run()
+      db.insert(measurementPlans).values({ projectId, activeVersionId: versionId, createdAt: now, updatedAt: now }).run()
+      db.insert(runs).values({ id: runId, projectId, status: 'queued', measurementPlanVersionId: versionId,
+        measurementManifest: buildMeasurementRunManifestV1({ expectedSlots: buildMeasurementRunManifest(plan, providers).expectedSlots }), createdAt: now }).run()
+    } else db.insert(runs).values({ id: runId, projectId, status: 'queued', createdAt: now }).run()
+    const registry = new ProviderRegistry()
+    const quotaPolicy = { maxConcurrency: 1, maxRequestsPerMinute: 1000, maxRequestsPerDay: 100 }
+    registry.register(direct, { provider: 'gemini', apiKey: 'direct-key', quotaPolicy })
+    registry.register(openrouterAdapter, { provider: 'openrouter', apiKey: 'router-key', quotaPolicy })
+    await new JobRunner(db, registry).executeRun(runId, projectId)
+
+    // Two refusals in a row stop the engine for this sweep: its other two queries are never sent.
+    expect(routerCalls).toBe(2)
+    const outcome = db.select().from(runs).where(eq(runs.id, runId)).get()!
+    expect(outcome.status).toBe(RunStatuses.partial)
+    expect(outcome.error).toContain('OpenRouter request failed (HTTP 402): Insufficient credits')
+    // Saved as they happened, so the run detail could show them while the sweep was still going.
+    expect(outcome.providerFailures).toEqual({
+      [route]: { message: 'OpenRouter request failed (HTTP 402): Insufficient credits. Add more using https://openrouter.ai/settings/credits', failedQueries: 2, stopped: true },
+    })
+    const rows = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
+    expect(rows.map(row => row.provider)).toEqual(['gemini', 'gemini', 'gemini', 'gemini'])
+  } finally { db.$client.close() }
+})

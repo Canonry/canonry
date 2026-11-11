@@ -84,6 +84,22 @@ describe('bootstrap provider activation', () => {
     expect(result.stdout).not.toContain('bootstrap-provider-key-fixture')
   })
 
+  it('offers a model hint only for providers that have a default model', async () => {
+    await bootstrapCommand({ format: 'json' })
+    await startServer()
+    const response = await app!.inject({ method: 'GET', url: '/api/v1/settings', headers: { authorization: `Bearer ${loadConfig().apiKey}` } })
+    expect(response.statusCode).toBe(200)
+    const providers = (response.json() as { providers: Array<{ name: string; modelHint?: string; defaultModel: string }> }).providers
+
+    const gemini = providers.find(provider => provider.name === 'gemini')!
+    expect(gemini.defaultModel).not.toBe('')
+    expect(gemini.modelHint).toBe(`e.g. ${gemini.defaultModel}`)
+    // A gateway has no single default model; "e.g. " with nothing after it is not a hint.
+    const openrouter = providers.find(provider => provider.name === 'openrouter')!
+    expect(openrouter.defaultModel).toBe('')
+    expect(openrouter).not.toHaveProperty('modelHint')
+  })
+
   it('saves provider settings when no local server is running and reports that startup will apply them', async () => {
     vi.stubEnv('CANONRY_API_URL', 'http://127.0.0.1:1')
     vi.stubEnv('GEMINI_API_KEY', 'offline-provider-key-fixture')

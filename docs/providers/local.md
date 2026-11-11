@@ -4,7 +4,7 @@
 
 `packages/provider-local` is a provider adapter for local LLMs running an OpenAI-compatible chat completions API. It supports Ollama, LM Studio, llama.cpp, vLLM, and any other server that implements `POST /chat/completions` per the OpenAI spec.
 
-Unlike the cloud providers (Gemini, OpenAI, Claude), local LLMs have no built-in web search. Citation detection is therefore heuristic — the adapter scans the model's answer text for domain mentions rather than reading structured grounding metadata.
+Unlike the cloud providers (Gemini, OpenAI, Claude), local LLMs have no built-in web search, so their answers carry no sources. Canonry measures a local answer's **mention** (the brand or domain in the answer text) and records its **citation** as not measured. See [Citations](#citations).
 
 ## Provider Contract
 
@@ -12,7 +12,7 @@ Unlike the cloud providers (Gemini, OpenAI, Claude), local LLMs have no built-in
 
 Validates that `baseUrl` is present and non-empty. Returns the model name that will be used (default: `llama3`).
 
-### `healthcheck(config: LocalConfig): Promise<LocalHealthcheckResult>`
+### `healthcheck(config: LocalConfig, signal?: AbortSignal): Promise<LocalHealthcheckResult>`
 
 Calls `GET /models` on the configured endpoint to verify connectivity. Returns ok/error with the number of models detected. Does not require a specific model to be present.
 
@@ -30,9 +30,16 @@ Sends a chat completion request to the local server with a system prompt instruc
 Extracts analyst-relevant fields:
 
 - `answerText` — the first choice's message content
-- `citedDomains` — domains extracted from the answer text via heuristic scanning (see below)
+- `citedDomains` — always `[]`: a domain written in the answer text is a mention, never a citation
 - `groundingSources` — pass-through of `[]`
 - `searchQueries` — pass-through of `[]`
+
+### Adapter (`adapter.ts`)
+
+`localAdapter` wraps these functions in the shared provider contract: it takes a `TrackedQueryInput` and returns a `RawQueryResult` and a `NormalizedQueryResult`. The functions above set neither of these fields; the wrapper adds both to each result:
+
+- `retrievalStatus` — `not-applicable`: there is no retrieval step to report
+- `citationMeasurable` — `false`: with no sources, whether the answer cites a domain is never observed
 
 ## Configuration
 
@@ -42,16 +49,21 @@ Extracts analyst-relevant fields:
 | `apiKey`   | No       | API key if the server requires one (most local servers do not) |
 | `model`    | No       | Model name to use. Default: `llama3`              |
 
-## Citation Detection
+## Citations
 
-Because local LLMs cannot search the web, `citedDomains` is built by scanning the answer text with two patterns:
+A local model cannot search the web, so its answers have no source links and a citation can never be observed. The sweep stores `citation_state = 'not-measured'` for every local answer (`determineCitationState` in `packages/canonry/src/citation-utils.ts` reads the adapter's `citationMeasurable: false`). Every citation figure leaves these answers out of both the cited count and its denominator, and the API, CLI, MCP and dashboard show them as "Not measured", never "not cited".
 
-1. **URL pattern** — matches `https?://example.com/...` and extracts the hostname
-2. **Bare domain pattern** — matches tokens like `example.com` adjacent to whitespace or punctuation, for common TLDs (`.com`, `.org`, `.net`, `.io`, `.co`, `.dev`, `.ai`, `.app`, `.edu`, `.gov`, `.health`, `.dental`, `.legal`, `.law`, `.med`)
+Answers recorded before `not-measured` existed are not rewritten, and `readCitationState` (`packages/contracts/src/citation-measurement.ts`) reads every stored Local row as not measured, whatever it holds. The adapter has never returned a source link, and its older rows were stored three ways:
 
-Both patterns strip `www.` and lowercase the result. Duplicates are removed.
+- Until #871 (2026-07-28) it filled `citedDomains` with domains written in the answer text, so a row could hold `cited`. A domain written in prose is a mention, never a source link.
+- Until migration 112 (2026-07-30) rows held `not-cited` with no retrieval status.
+- After that, `not-cited` with `retrieval_status = 'not-applicable'`.
 
-**Reliability caveat:** the extracted domains reflect the model's training data, not a live web search. A model may mention well-known domains regardless of whether they currently rank for the query. Treat local provider citation data as a rough signal, not a ground truth.
+Reading all of them the same way keeps one method across a Local series, so a trend, comparison or run diff that spans the upgrade never mixes rows that counted as misses with rows that are not measured.
+
+Research runs on Local follow the same rule. Each answer reads `citationState: null` with `citationMeasured: false`, whatever its row stored. The CLI prints `n/m` and the dashboard shows "Not measured".
+
+The answer text is still checked for the brand and the project's domains, so local answers count toward mention rates like any other engine. The system prompt asks the model to write domain names, which helps that match. A local model answers from its training data, not a live search, so treat its mentions as a rough signal.
 
 ## Model
 

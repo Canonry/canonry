@@ -557,7 +557,10 @@ function manifestMatchesFrozenV2Execution(plan: MeasurementPlanV2, manifest: Ret
       const slot = slots.find(candidate => candidate.provider === provider)
       if (!slot) return false
       const model = node.context.models[provider]
-      if (model !== slot.requestedModel) return false
+      // An unpinned plan inherits the model frozen when this run was queued.
+      // The adapter still checks each snapshot against that exact manifest;
+      // today's instance default cannot reinterpret a completed measurement.
+      if (model !== undefined && model !== slot.requestedModel) return false
     }
   }
   return slotsByExecution.size === plan.executionNodes.length

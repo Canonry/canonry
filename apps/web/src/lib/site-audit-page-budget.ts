@@ -7,8 +7,8 @@ import {
 } from '@canonry/canonry-contracts'
 
 /**
- * Site Health page budgets in words, shared by Project Settings (where a
- * project's budget is saved) and Site Health's Scan settings (where one scan
+ * Agent Readiness page budgets in words, shared by Project Settings (where a
+ * project's budget is saved) and the Agent Readiness tab's Scan settings (where one scan
  * may set its own). Copy only: the server resolves which budget a scan uses.
  */
 

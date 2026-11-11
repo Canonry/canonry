@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { Client, type JSONRPCMessage } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { providerSettingsFixture } from './fixtures/provider-connection.js'
 import { canonryMcpTools } from '../src/mcp/tool-registry.js'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -164,6 +165,18 @@ describe('canonry-mcp stdio', () => {
     const reload = await client.callTool({ name: 'canonry_providers_reload', arguments: {} })
     expect(reload.isError).not.toBe(true)
     expect(jsonText(reload)).toEqual({ reloaded: true, providers: [{ name: 'gemini', configured: true }] })
+    const provider = await client.callTool({ name: 'canonry_provider_settings_get', arguments: { provider: 'openai' } })
+    expect(provider.isError).not.toBe(true)
+    expect(jsonText(provider)).toEqual(providerSettingsFixture)
+    const reset = await client.callTool({ name: 'canonry_provider_settings_update', arguments: { provider: 'openai', reset: { model: true, quota: ['maxRequestsPerDay'] }, expectedRevision: 'connection-v1' } })
+    expect(reset.isError).not.toBe(true)
+    expect(jsonText(reset)).toEqual({ name: 'openai', configured: true })
+    const missingImpact = await client.callTool({ name: 'canonry_provider_disconnect', arguments: { provider: 'openai' } })
+    expect(missingImpact.isError).toBe(true)
+    const disconnected = await client.callTool({ name: 'canonry_provider_disconnect', arguments: { provider: 'openai', expectedImpactRevision: 'impact-v1' } })
+    expect(disconnected.isError).not.toBe(true)
+    expect(jsonText(disconnected)).toEqual({ ...providerSettingsFixture, configured: false, apiKeyConfigured: false })
+
 
     const addQueries = await client.callTool({
       name: 'canonry_queries_add',
@@ -507,6 +520,20 @@ async function startStubApi(onRunRequest?: (body: unknown) => void, onRequest?: 
 
 function handleRequest(request: IncomingMessage, response: ServerResponse, onRunRequest?: (body: unknown) => void): void {
   const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+  if (url.pathname === '/api/v1/settings/providers/openai') {
+    if (request.method === 'GET') { send(response, providerSettingsFixture); return }
+    const chunks: Buffer[] = []
+    request.on('data', (chunk: Buffer) => chunks.push(chunk))
+    request.on('end', () => {
+      const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      if (request.method === 'DELETE' && JSON.stringify(body) === JSON.stringify({ expectedImpactRevision: 'impact-v1' })) {
+        send(response, { ...providerSettingsFixture, configured: false, apiKeyConfigured: false })
+      } else if (request.method === 'PUT' && JSON.stringify(body) === JSON.stringify({ reset: { model: true, quota: ['maxRequestsPerDay'] }, expectedRevision: 'connection-v1' })) {
+        send(response, { name: 'openai', configured: true })
+      } else send(response, { error: { code: 'VALIDATION_ERROR', message: 'Unexpected lifecycle wire request' } }, 400)
+    })
+    return
+  }
   if (request.method === 'POST' && url.pathname === '/api/v1/settings/providers/reload') {
     request.resume()
     send(response, { reloaded: true, providers: [{ name: 'gemini', configured: true }] })

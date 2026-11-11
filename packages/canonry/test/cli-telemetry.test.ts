@@ -233,7 +233,7 @@ describe('CLI command lifecycle telemetry', () => {
     expect(mocks.getOrCreateAnonymousId).not.toHaveBeenCalled()
   })
 
-  it('hands a provider-less Page Health result to AI Visibility on stderr, even for JSON and with telemetry off', async () => {
+  it('hands a provider-less Agent Readiness result to AI Visibility on stderr, even for JSON and with telemetry off', async () => {
     mocks.isTelemetryEnabled.mockReturnValue(false)
     mocks.dispatch.mockResolvedValueOnce(true)
     // A local install: its own database has the project, and no provider.
@@ -241,7 +241,7 @@ describe('CLI command lifecycle telemetry', () => {
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     const stdout = vi.spyOn(process.stdout, 'write')
 
-    await expect(runCli(['technical-aeo', 'score', 'demo', '--format', 'json'])).resolves.toBe(0)
+    await expect(runCli(['agent-readiness', 'score', 'demo', '--format', 'json'])).resolves.toBe(0)
 
     const notices = stderr.mock.calls.map(([chunk]) => String(chunk)).filter(chunk => chunk.includes('"notice"'))
     expect(notices).toHaveLength(1)
@@ -254,7 +254,7 @@ describe('CLI command lifecycle telemetry', () => {
     mocks.isTelemetryEnabled.mockReturnValue(false)
     mocks.dispatch.mockResolvedValueOnce(true)
 
-    await expect(runCli(['technical-aeo', 'progress', 'demo', '--run-id', 'r1', '--format', 'json'])).resolves.toBe(0)
+    await expect(runCli(['agent-readiness', 'progress', 'demo', '--run-id', 'r1', '--format', 'json'])).resolves.toBe(0)
 
     expect(mocks.buildSetupState).not.toHaveBeenCalled()
   })

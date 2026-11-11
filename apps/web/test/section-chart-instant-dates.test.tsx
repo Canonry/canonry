@@ -10,7 +10,7 @@
  *   - TechnicalAeoSection → trend point `auditedAt` (`new Date().toISOString()`)
  *
  * Both would print the UTC calendar day, so a viewer behind UTC saw tomorrow.
- * Site Health now also leads with the shared trend card, whose readings carry
+ * Agent Readiness now also leads with the shared trend card, whose readings carry
  * the same moments as `observedAt`; the card must date them the same way.
  * Backlinks' card plots releases by crawl window, not by query time, so it has
  * no moment to localize (`backlinks-trend-card.test.tsx`).
@@ -141,12 +141,12 @@ async function trendCardDates(spanText: RegExp) {
   return { ticks: captured.data.map((row) => tick(row.at)), rows, span: (await screen.findByText(spanText)).textContent }
 }
 
-// ----------------------------------------------------------- technical AEO
+// ------------------------------------------------------- Agent Readiness
 
 function installTechnicalAeoApi() {
   const restore = mockFetch((url) => {
     const path = pathOf(url).split('?')[0]!
-    if (path === '/api/v1/projects/test-project/technical-aeo') {
+    if (path === '/api/v1/projects/test-project/agent-readiness') {
       return jsonResponse({
         project: 'test-project',
         hasData: true,
@@ -168,7 +168,7 @@ function installTechnicalAeoApi() {
         prioritizedFixes: [],
       })
     }
-    if (path === '/api/v1/projects/test-project/technical-aeo/trend') {
+    if (path === '/api/v1/projects/test-project/agent-readiness/trend') {
       return jsonResponse({
         project: 'test-project',
         points: [
@@ -177,7 +177,7 @@ function installTechnicalAeoApi() {
         ],
       })
     }
-    if (path === '/api/v1/projects/test-project/technical-aeo/pages') {
+    if (path === '/api/v1/projects/test-project/agent-readiness/pages') {
       return jsonResponse({ project: 'test-project', runId: 'run-2', auditedAt: INSTANT, total: 0, pages: [] })
     }
     throw new Error(`Unexpected fetch: ${url}`)
@@ -203,23 +203,23 @@ test('the site-score trend dates an audit by when it ran, in the viewer timezone
   expect(dates[1]!.label).not.toBe('Jul 20, 2026')
 })
 
-test('the Site Health trend card dates a scan by when it ran, in the viewer timezone', async () => {
+test('the Agent Readiness trend card dates a scan by when it ran, in the viewer timezone', async () => {
   const restore = mockFetch((url) => {
     const path = pathOf(url).split('?')[0]!
     if (path === '/api/v1/projects/test-project/trends') {
       return jsonResponse(instantTrend('site-health', 'site-health', [
-        { key: 'score', label: 'Site score', unit: 'score', better: 'higher', values: [68, 72] },
+        { key: 'score', label: 'Agent Readiness score', unit: 'score', better: 'higher', values: [68, 72] },
         { key: 'pages-checked', label: 'Pages checked', unit: 'count', better: 'neither', values: [10, 10] },
       ]))
     }
-    if (path === '/api/v1/projects/test-project/technical-aeo') {
+    if (path === '/api/v1/projects/test-project/agent-readiness') {
       return jsonResponse({
         project: 'test-project', hasData: true, runId: 'run-2', runStatus: 'completed', sitemapUrl: 'https://example.com/sitemap.xml',
         auditedAt: INSTANT, aggregateScore: 72, pagesDiscovered: 10, pagesAudited: 10, pagesSkipped: 0, pagesErrored: 0,
         deltaScore: 4, trend: 'up', previousScore: 68, previousAuditedAt: FIRST_INSTANT, factors: [], crossCuttingIssues: [], prioritizedFixes: [],
       })
     }
-    if (path === '/api/v1/projects/test-project/technical-aeo/pages') {
+    if (path === '/api/v1/projects/test-project/agent-readiness/pages') {
       return jsonResponse({ project: 'test-project', runId: 'run-2', auditedAt: INSTANT, total: 0, pages: [] })
     }
     throw new Error(`Unexpected fetch: ${url}`)
@@ -273,7 +273,7 @@ test('the converted charts are the only remaining consumers of the raw axis valu
       <TechnicalAeoSection projectName="test-project" />
     </QueryClientProvider>,
   )
-  await screen.findByText('Site score over time')
+  await screen.findByText('Agent Readiness score over time')
   const tick = captured.tickFormatters[0]!
   const label = captured.labelFormatters[0]!
   expect(tick(INSTANT)).toBe('7/19')

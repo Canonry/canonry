@@ -172,8 +172,14 @@ describe('AdvancedMeasurementOverview', () => {
 
   it('defines Cited in the Properties table as the property\u2019s own pages, not the site-wide domain flag', () => {
     renderOverview()
-    const heading = screen.getByRole('heading', { name: /^Properties/ })
-    expect(within(heading).getByRole('button', { name: ADVANCED_PROPERTIES_SIGNAL_HELP })).toBeTruthy()
+    // The help sits beside the heading, not inside it: browsers fold a
+    // descendant button's label into the heading's name, and so into the
+    // section's. jsdom's name computation skips that label, so the
+    // containment check is what guards the names here.
+    const heading = screen.getByRole('heading', { name: 'Properties' })
+    const section = screen.getByRole('region', { name: 'Properties' })
+    const help = within(section).getByRole('button', { name: ADVANCED_PROPERTIES_SIGNAL_HELP })
+    expect(heading.contains(help)).toBe(false)
     expect(ADVANCED_PROPERTIES_SIGNAL_HELP).toBe('Mentioned = the property\u2019s name in the answer. Cited = one of the property\u2019s own pages in the sources. Neither implies the other.')
   })
 

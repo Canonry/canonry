@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { RunKinds, RunStatuses, RunTriggers, type RunKind } from '@canonry/canonry-contracts'
@@ -57,7 +57,8 @@ async function mount(surface: Surface, kind: RunKind = RunKinds['seo-sync'], ove
 test.each<Surface>(['overview', 'past checks', 'run history'])('%s opens the exact SEO refresh under its canonical project while preserving Advanced context', async surface => {
   const { router } = await mount(surface)
   const name = surface === 'overview' ? /Customer-facing display name/ : surface === 'past checks' ? /^View SEO refresh from/ : 'View refresh'
-  fireEvent.click(screen.getByRole('link', { name }))
+  const source = surface === 'overview' ? within(screen.getByRole('heading', { name: 'Activity' }).closest('section')!) : screen
+  fireEvent.click(source.getByRole('link', { name }))
   await screen.findByRole('heading', { name: 'Saved SEO refresh' })
   expect(router.state.location.pathname).toBe('/projects/canonical-slug/seo-data')
   expect(router.state.location.search).toMatchObject({ ...advancedContext, seoRunId: 'selected-refresh' })

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { formatPercent } from '@canonry/canonry-contracts'
 import { computeHealth, computeHealthTrend } from '../src/health.js'
 import type { RunData } from '../src/types.js'
 
@@ -26,8 +27,8 @@ describe('computeHealth', () => {
     expect(health.overallCitedRate).toBe(0.75)
     expect(health.totalPairs).toBe(4)
     expect(health.citedPairs).toBe(3)
-    expect(health.providerBreakdown.chatgpt).toEqual({ citedRate: 0.5, mentionRate: 0, cited: 1, mentioned: 0, total: 2 })
-    expect(health.providerBreakdown.gemini).toEqual({ citedRate: 1.0, mentionRate: 0, cited: 2, mentioned: 0, total: 2 })
+    expect(health.providerBreakdown.chatgpt).toEqual({ citedRate: 0.5, mentionRate: 0, cited: 1, mentioned: 0, total: 2, citationNotMeasured: 0 })
+    expect(health.providerBreakdown.gemini).toEqual({ citedRate: 1.0, mentionRate: 0, cited: 2, mentioned: 0, total: 2, citationNotMeasured: 0 })
   })
 
   it('computes mention rate independently of cited rate (numerator/denominator/rounded)', () => {
@@ -57,9 +58,9 @@ describe('computeHealth', () => {
     expect(health.overallCitedRate).toBe(0.75)
 
     // Per-provider: chatgpt mentioned on both its pairs, cited on one.
-    expect(health.providerBreakdown.chatgpt).toEqual({ citedRate: 0.5, mentionRate: 1.0, cited: 1, mentioned: 2, total: 2 })
+    expect(health.providerBreakdown.chatgpt).toEqual({ citedRate: 0.5, mentionRate: 1.0, cited: 1, mentioned: 2, total: 2, citationNotMeasured: 0 })
     // gemini cited on both, mentioned on neither.
-    expect(health.providerBreakdown.gemini).toEqual({ citedRate: 1.0, mentionRate: 0, cited: 2, mentioned: 0, total: 2 })
+    expect(health.providerBreakdown.gemini).toEqual({ citedRate: 1.0, mentionRate: 0, cited: 2, mentioned: 0, total: 2, citationNotMeasured: 0 })
   })
 
   it('never counts a null answerMentioned as mentioned (tri-state, null ≠ false)', () => {
@@ -134,7 +135,50 @@ describe('computeHealth', () => {
 
     const health = computeHealth(run)
     expect(Object.keys(health.providerBreakdown)).toEqual(['chatgpt'])
-    expect(health.providerBreakdown.chatgpt).toEqual({ citedRate: 0.5, mentionRate: 0, cited: 1, mentioned: 0, total: 2 })
+    expect(health.providerBreakdown.chatgpt).toEqual({ citedRate: 0.5, mentionRate: 0, cited: 1, mentioned: 0, total: 2, citationNotMeasured: 0 })
+  })
+
+  // An engine that returns no sources (`cited: null`, a local model) is out of
+  // every cited figure, numerator and denominator, and still counts for mention.
+  it('leaves answers without sources out of the cited rate and keeps them in mention (mixed engines)', () => {
+    const run = makeRun({
+      snapshots: [
+        { query: 'k1', provider: 'gemini', cited: true, answerMentioned: false },
+        { query: 'k2', provider: 'gemini', cited: false, answerMentioned: true },
+        { query: 'k3', provider: 'gemini', cited: false, answerMentioned: false },
+        { query: 'k1', provider: 'local', cited: null, answerMentioned: true },
+        { query: 'k2', provider: 'local', cited: null, answerMentioned: true },
+        { query: 'k3', provider: 'local', cited: null, answerMentioned: false },
+      ],
+    })
+
+    const health = computeHealth(run)
+    // Cited: 1 of the 3 checked pairs; the 3 Local pairs are not measured.
+    expect(health.citedPairs).toBe(1)
+    expect(health.citationNotMeasuredPairs).toBe(3)
+    expect(health.overallCitedRate).toBe(1 / 3)
+    expect(formatPercent(health.overallCitedRate)).toBe('33.3%')
+    // Mention: 3 of all 6 pairs, Local included.
+    expect(health.totalPairs).toBe(6)
+    expect(health.mentionedPairs).toBe(3)
+    expect(health.overallMentionRate).toBe(0.5)
+    expect(health.providerBreakdown.local).toEqual({ citedRate: null, mentionRate: 2 / 3, cited: 0, mentioned: 2, total: 3, citationNotMeasured: 3 })
+    expect(health.providerBreakdown.gemini).toEqual({ citedRate: 1 / 3, mentionRate: 1 / 3, cited: 1, mentioned: 1, total: 3, citationNotMeasured: 0 })
+  })
+
+  it('reads a run where no pair carries sources as not measured, never 0%', () => {
+    const run = makeRun({
+      snapshots: [
+        { query: 'k1', provider: 'local', cited: null, answerMentioned: true },
+        { query: 'k2', provider: 'local', cited: null, answerMentioned: false },
+      ],
+    })
+
+    const health = computeHealth(run)
+    expect(health.overallCitedRate).toBeNull()
+    expect(health.citedPairs).toBe(0)
+    expect(health.citationNotMeasuredPairs).toBe(2)
+    expect(health.overallMentionRate).toBe(0.5)
   })
 
   it('handles many providers', () => {
@@ -234,6 +278,14 @@ describe('computeHealthTrend', () => {
     expect(trend.previous).toBe(0)   // prev run: 0/1
     expect(trend.current).toBe(1.0)  // curr run: 1/1
     expect(trend.delta).toBe(1.0)
+  })
+
+  it('has no delta when either side measured no citation', () => {
+    const measured = makeRun({ runId: 'measured', snapshots: [{ query: 'k1', provider: 'gemini', cited: true }] })
+    const unmeasured = makeRun({ runId: 'unmeasured', snapshots: [{ query: 'k1', provider: 'local', cited: null }] })
+
+    expect(computeHealthTrend([measured, unmeasured])).toEqual({ current: null, previous: 1, delta: null })
+    expect(computeHealthTrend([unmeasured, measured])).toEqual({ current: 1, previous: null, delta: null })
   })
 
   it('returns zero delta when health is stable', () => {

@@ -1,13 +1,14 @@
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useMutation } from '@tanstack/react-query'
 import { postApiV1FeedbackMutation } from '@canonry/canonry-api-client/react-query'
 import { FEEDBACK_LIMITS, feedbackAcceptedDtoSchema, feedbackKindSchema, type FeedbackKind, type UiPage } from '@canonry/canonry-contracts'
 import { Check, LoaderCircle, MessageSquare, X } from 'lucide-react'
-import { heyClient, isEmbed, isPublicDemo } from '../../api.js'
+import { heyClient } from '../../api.js'
 import { useAccount } from '../../contexts/account-context.js'
 import { extractApiErrorInfo } from '../../lib/extract-error-message.js'
 import { currentUiPage, trackUiAction } from '../../lib/ui-telemetry.js'
+import { feedbackPanelAvailable, feedbackPanelOpenRequests, onFeedbackPanelOpen } from '../../lib/feedback-panel.js'
 import { Button } from '../ui/button.js'
 
 /** One in-memory draft across routes. Explicit feedback never enters usage events. */
@@ -31,10 +32,6 @@ export function FeedbackPanel() {
       ? 'Please wait a minute, then try again. Your message is saved here.'
       : 'Delivery wasn’t confirmed. Your message is still here.'
 
-  // The existing feedback endpoint requires write authority. Embeds and demos
-  // must not collect feedback on behalf of their viewers.
-  if (!canWrite || isEmbed() || isPublicDemo()) return null
-
   const changeOpen = (next: boolean) => {
     if (next && !message && !mutation.isPending) {
       mutation.reset()
@@ -42,6 +39,19 @@ export function FeedbackPanel() {
     }
     setOpen(next)
   }
+  // Other places (Settings) open this same panel, so there is one draft and one way to send.
+  // The server render has no open requests either, so both snapshots read the same count.
+  const openRequests = useSyncExternalStore(onFeedbackPanelOpen, feedbackPanelOpenRequests, feedbackPanelOpenRequests)
+  const handledRequests = useRef(openRequests)
+  useEffect(() => {
+    if (openRequests === handledRequests.current) return
+    handledRequests.current = openRequests
+    changeOpen(true)
+  })
+
+  // The existing feedback endpoint requires write authority. Embeds and demos
+  // must not collect feedback on behalf of their viewers.
+  if (!feedbackPanelAvailable(canWrite)) return null
 
   return (
     <Dialog.Root open={open} onOpenChange={changeOpen} modal={false}>

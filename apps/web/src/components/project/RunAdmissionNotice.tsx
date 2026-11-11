@@ -1,8 +1,8 @@
 import { useId, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { getApiV1ProjectsByNameRunAdmissionOptions, getApiV1SettingsOptions } from '@canonry/canonry-api-client/react-query'
-import { providerConnectionName, ProviderErrorCodes, type ProviderAccountStreak, type ProviderErrorCode, type RunAdmissionDto } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameRunPreviewOptions, getApiV1ProjectsByNameRunAdmissionOptions, getApiV1SettingsOptions } from '@canonry/canonry-api-client/react-query'
+import { providerConnectionName, formatModelName, openRouterRouteModel, ProviderErrorCodes, type ProviderAccountStreak, type ProviderErrorCode, type RunAdmissionDto, type RunPreviewDto } from '@canonry/canonry-contracts'
 import { heyClient } from '../../api.js'
 import { formatSweepInstant } from '../../lib/format-helpers.js'
 import { catalogRouteFamilies } from '../../lib/provider-routes.js'
@@ -149,4 +149,62 @@ export function RunAdmissionNoticeView({ admission, canFix, selection }: { admis
       ) : null}
     </section>
   )
+}
+
+
+export function useRunPreview(projectName: string | null, enabled: boolean) {
+  return useQuery({
+    ...getApiV1ProjectsByNameRunPreviewOptions({ client: heyClient, path: { name: projectName ?? '' } }),
+    enabled: enabled && Boolean(projectName), staleTime: 0, refetchOnMount: 'always', refetchOnWindowFocus: 'always', retry: false,
+  })
+}
+
+const RUN_PREVIEW_BLOCKED_COPY = {
+  'unpublished-plan': 'Review and publish your measurement plan before running it.',
+  'no-queries': 'Add at least one query before starting a check.',
+  'no-provider': 'Connect an engine selected for this project.',
+  'providers-failing': 'Repair a provider connection before retrying.',
+  'run-in-progress': 'A check is already running for this project.',
+} as const
+
+/** A labelled value the check runs against, such as its website or location. */
+export interface RunPreviewDetail { label: string; value: string }
+
+/** Label over value, wrapping to one column when the dialog or card is narrow. */
+function RunPreviewDetails({ rows }: { rows: readonly RunPreviewDetail[] }) {
+  if (rows.length === 0) return null
+  return <dl className="definition-list sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]">
+    {rows.map(row => <div key={row.label} className="min-w-0"><dt>{row.label}</dt><dd className="[overflow-wrap:anywhere]">{row.value}</dd></div>)}
+  </dl>
+}
+
+export function RunPreviewSummary({ preview, pending, failed, onRetry, details = [] }: {
+  preview?: RunPreviewDto; pending: boolean; failed: boolean; onRetry: () => void
+  /** Rows that lead the check's details, before Location; shown while the preview loads or fails too. */
+  details?: readonly RunPreviewDetail[]
+}) {
+  if (failed) return <div className="space-y-4"><div role="alert" className="space-y-2 text-copy-14 text-negative"><p>Could not load the check details.</p><Button type="button" variant="outline" size="sm" onClick={onRetry}>Refresh check details</Button></div><RunPreviewDetails rows={details} /></div>
+  if (!preview) return <div className="space-y-4"><p role="status" className="text-copy-14 text-secondary">Loading check details…</p><RunPreviewDetails rows={details} /></div>
+  const classSplit = preview.queryClasses.filter(item => item.queryCount > 0).map(item => `${item.queryCount} ${item.queryClass === 'unknown' ? 'unclassified' : item.queryClass} ${item.queryCount === 1 ? 'query' : 'queries'}`).join(' · ')
+  const rows = preview.locations.length > 0
+    ? [...details, { label: 'Location', value: preview.locations.map(item => item.location ?? 'No location targeting').join(' · ') }]
+    : details
+  return <section aria-label="Check details" aria-busy={pending} className="space-y-4">
+    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 text-copy-14 text-secondary">
+      <p><strong className="text-heading">{preview.queryCount}</strong> {preview.queryCount === 1 ? 'query' : 'queries'}</p>
+      {preview.assignmentCount !== null && <p><strong className="text-heading">{preview.assignmentCount}</strong> {preview.assignmentCount === 1 ? 'Property assignment' : 'Property assignments'}</p>}
+      <p><strong className="text-heading">{preview.requestCount}</strong> {preview.requestCount === 1 ? 'answer' : 'answers'}</p>
+    </div>
+    {classSplit && <p className="text-copy-13 text-secondary">{classSplit}</p>}
+    {preview.revision !== null && <p className="text-copy-14 text-secondary">Published plan · revision {preview.revision}. Unpublished changes are not included.</p>}
+    {preview.engines.length > 0 && <div className="overflow-x-auto"><table className="evidence-table"><thead><tr><th>Engine</th><th className="text-right">Answers</th></tr></thead><tbody>{preview.engines.map(engine => {
+      const hold = preview.admission.providers[engine.provider]
+      const models = engine.models.filter(model => model !== openRouterRouteModel(engine.provider)).map(model => openRouterRouteModel(engine.provider) ? formatModelName(model) : model)
+      return <tr key={engine.provider}><td>{providerDisplayName(engine.provider)}{(models.length > 0 || !openRouterRouteModel(engine.provider)) && <span className="block break-words text-copy-13 text-secondary">{models.join(', ') || 'Default model'}</span>}{hold ? <span className="block text-copy-13 text-caution">Skipped: {accountFailure(hold.code).label}. On hold until <When iso={hold.retryAfter} />.</span> : !engine.available && <span className="block text-copy-13 text-caution">Not available</span>}</td><td className="text-right tabular-nums">{engine.requestCount}</td></tr>
+    })}</tbody></table></div>}
+    <RunPreviewDetails rows={rows} />
+    {preview.requestCount !== preview.expectedRequestCount && <p className="text-copy-14 text-caution">{preview.requestCount} of {preview.expectedRequestCount} planned answers can run.</p>}
+    {preview.blockedReason && <p role="alert" className="text-copy-14 text-caution">{RUN_PREVIEW_BLOCKED_COPY[preview.blockedReason]}</p>}
+    {preview.activeRunId && <Link to="/runs" search={{ runId: preview.activeRunId }} className="text-label-14 text-link underline">View running check</Link>}
+  </section>
 }

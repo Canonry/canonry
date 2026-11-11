@@ -1,4 +1,4 @@
-import { openRouterRouteModel } from '@canonry/canonry-contracts'
+import { defaultProviderDisplayName, formatModelName, openRouterRouteModel } from '@canonry/canonry-contracts'
 import type {
   BasketChangeEvent,
   BrandMetricsDto,
@@ -176,35 +176,34 @@ export function competitorFrameKey(
     .join('\n')
 }
 
-/** Human-friendly engine names (data keys are lowercase). */
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  claude: 'Claude',
-  openai: 'OpenAI',
-  gemini: 'Gemini',
-  perplexity: 'Perplexity',
-  muse: 'Muse',
-  local: 'Local',
-  openrouter: 'OpenRouter',
-}
-
 /**
  * An engine's name as people read it ("OpenAI", "Perplexity"). Pass the
  * server's provider catalog where it is loaded: its display names come from
  * each adapter or service descriptor ("Standard · <service>"), so a routed
  * key of any family reads the way the server names it.
  */
-export function providerDisplayName(name: string, catalog?: ReadonlyArray<{ name: string; displayName?: string }>): string {
-  const listed = catalog?.find(entry => entry.name === name)?.displayName?.trim()
-  if (listed) return listed
+export function providerDisplayName(name: string, catalog?: ReadonlyArray<{ name: string; displayName?: string; knownModels?: readonly { id: string; displayName: string }[] }>): string {
   const routedModel = openRouterRouteModel(name)
-  if (routedModel) return `${routedModel} via OpenRouter`
-  const key = normalizeProviderKey(name)
-  return PROVIDER_DISPLAY_NAMES[key] ?? name.charAt(0).toUpperCase() + name.slice(1)
+  if (routedModel) {
+    const models = catalog?.find(entry => entry.name === 'openrouter')?.knownModels
+      ?? catalog?.find(entry => entry.name === name)?.knownModels
+    return `${formatModelName(routedModel, models)} via OpenRouter`
+  }
+  const listed = catalog?.find(entry => entry.name === name)?.displayName?.trim()
+  return listed || defaultProviderDisplayName(name)
 }
 
 /** Presentation-only: 0-1 rate → 0-100 axis value, one decimal. */
 function toPercent(rate: number): number {
   return Math.round(rate * 1000) / 10
+}
+
+/**
+ * A rate as a chart value. A null rate (a cited rate with no answer whose
+ * sources were checked) is a gap in the line, never a point at 0.
+ */
+function toPlotted(rate: number | null): number | null {
+  return rate === null ? null : toPercent(rate)
 }
 
 function bucketProviders(bucket: BrandMetricsDto['buckets'][number]): Record<string, BucketProviderMetric | undefined> {
@@ -223,7 +222,7 @@ export function buildTrendRows(
     // Overall plots the single metric line the toggle selects.
     const key = metric === 'cited' ? CITED_KEY : MENTIONED_KEY
     const field: 'citationRate' | 'mentionRate' = metric === 'cited' ? 'citationRate' : 'mentionRate'
-    const rows: TrendRow[] = dto.buckets.map(b => ({ date: b.startDate, [key]: toPercent(b[field]) }))
+    const rows: TrendRow[] = dto.buckets.map(b => ({ date: b.startDate, [key]: toPlotted(b[field]) }))
     return { rows, series: [key], hasData, singleBucket }
   }
 
@@ -240,9 +239,10 @@ export function buildTrendRows(
     const providers = bucketProviders(b)
     for (const provider of series) {
       const metricRow = providers[provider]
-      // null (not 0) when a provider has no data in this bucket — Recharts
-      // `connectNulls` bridges the gap rather than dropping the line to zero.
-      row[provider] = metricRow ? toPercent(metricRow[field]) : null
+      // null (not 0) when a provider has no data in this bucket, or no answer
+      // with sources (its cited rate is not measured) — Recharts `connectNulls`
+      // bridges the gap rather than dropping the line to zero.
+      row[provider] = metricRow ? toPlotted(metricRow[field]) : null
     }
     return row
   })
@@ -306,18 +306,18 @@ export function joinWithAnd(items: readonly string[]): string {
 export function formatModelEvidence(state: ModelEvidenceState): string {
   switch (state.status) {
     case 'known':
-      return state.model
+      return state.model.includes('/') ? formatModelName(state.model) : state.model
     case 'unknown':
       return 'Unknown model'
     case 'mixed':
       if (state.models.length === 0) return 'Unknown model'
-      return `${state.models.join(', ')}${state.includesUnknown ? ' and an unknown model' : ''}`
+      return `${state.models.map(model => model.includes('/') ? formatModelName(model) : model).join(', ')}${state.includesUnknown ? ' and an unknown model' : ''}`
   }
 }
 
 /** A mixed point's models as a phrase ("a and b", "a, b and an unknown model"). */
 export function formatMixedModels(state: Extract<ModelEvidenceState, { status: 'mixed' }>): string {
-  return joinWithAnd([...state.models, ...(state.includesUnknown ? ['an unknown model'] : [])])
+  return joinWithAnd([...state.models.map(model => model.includes('/') ? formatModelName(model) : model), ...(state.includesUnknown ? ['an unknown model'] : [])])
 }
 
 /** Group categorical changes by the existing plotted bucket; no false-precision timestamp markers. */
@@ -444,7 +444,33 @@ export function plottedMetricRates(dto: BrandMetricsDto, metric: MetricChoice): 
     })
   }
   const field: 'citationRate' | 'mentionRate' = metric === 'cited' ? 'citationRate' : 'mentionRate'
-  return dto.buckets.map(b => b[field])
+  // A bucket whose answers all lack sources has no cited rate and no point.
+  return dto.buckets.flatMap(b => {
+    const rate = b[field]
+    return rate === null ? [] : [rate]
+  })
+}
+
+/**
+ * Whether any point in the window carries a cited rate. False when every
+ * answer came from engines that return no sources, so citation was not
+ * measured at all; the chart then has nothing to plot for Cited.
+ */
+export function citationMeasuredInWindow(dto: BrandMetricsDto): boolean {
+  return dto.buckets.some(b => b.citationRate !== null)
+}
+
+/**
+ * Whether an engine answered in the window but never with sources: it has
+ * rows, and none carries a cited rate. Its line has no point, and its legend
+ * reads "Not measured" rather than a rate.
+ */
+export function providerCitationNotMeasured(dto: BrandMetricsDto, provider: string): boolean {
+  const rows = dto.buckets.flatMap(b => {
+    const row = bucketProviders(b)[provider]
+    return row ? [row] : []
+  })
+  return rows.length > 0 && rows.every(row => row.citationRate === null)
 }
 
 /**
@@ -465,15 +491,17 @@ export function metricWindowChange(dto: BrandMetricsDto, metric: MetricChoice): 
 
 /**
  * One engine's most recent 0-1 rate: the bucket the right end of its line is
- * drawn from, skipping the buckets it is missing from (the gaps `connectNulls`
- * bridges). Same field choice as `buildTrendRows` in by-engine mode, so it is
- * the unrounded value of that point. Returns null when the engine never appears.
+ * drawn from, skipping the buckets it is missing from or has no rate in (the
+ * gaps `connectNulls` bridges). Same field choice as `buildTrendRows` in
+ * by-engine mode, so it is the unrounded value of that point. Returns null
+ * when the engine never appears, or never has the rate (see
+ * `providerCitationNotMeasured`).
  */
 export function latestProviderRate(dto: BrandMetricsDto, provider: string, metric: PresenceMetricChoice): number | null {
   const field: 'citationRate' | 'mentionRate' = metric === 'mentioned' ? 'mentionRate' : 'citationRate'
   for (let i = dto.buckets.length - 1; i >= 0; i--) {
-    const metricRow = bucketProviders(dto.buckets[i]!)[provider]
-    if (metricRow) return metricRow[field]
+    const rate = bucketProviders(dto.buckets[i]!)[provider]?.[field]
+    if (rate !== undefined && rate !== null) return rate
   }
   return null
 }

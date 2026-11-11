@@ -1,20 +1,38 @@
 import React from 'react'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { uiTelemetryEventSchema, type UiTelemetryEvent } from '@canonry/canonry-contracts'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 
 import { AgentSetupPage } from '../src/pages/AgentSetupPage.js'
+import { AGENT_SETUP_REQUEST, agentSetupRequest } from '../src/lib/agent-setup-request.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { configureUiTelemetry, resetUiTelemetryForTests, setUiPageFromRoute } from '../src/lib/ui-telemetry.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
+
+// jsdom serves the page from localhost; a test can pretend the dashboard is on another computer.
+const dashboardHost = vi.hoisted(() => ({ remote: false }))
+vi.mock('../src/api.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/api.js')>()
+  return { ...actual, isLoopbackHostname: (hostname: string) => !dashboardHost.remote && actual.isLoopbackHostname(hostname) }
+})
 
 afterEach(() => {
   cleanup()
   delete window.__CANONRY_CONFIG__
   vi.unstubAllEnvs()
   resetUiTelemetryForTests()
+  dashboardHost.remote = false
 })
+
+/** The README's Quick start, read from the repository root. */
+function readme(): string {
+  let dir = resolve(process.cwd())
+  while (!existsSync(join(dir, 'pnpm-workspace.yaml')) && dirname(dir) !== dir) dir = dirname(dir)
+  return readFileSync(join(dir, 'README.md'), 'utf8')
+}
 
 function setClipboard(clipboard: { writeText: (text: string) => Promise<void> } | undefined) {
   const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
@@ -108,8 +126,9 @@ test.each([
   expect(screen.queryByRole('button', { name: 'Copy setup prompt' })).toBeNull()
   expect(screen.queryByText(HOSTED_URL)).toBeNull()
   expect(screen.queryByText('Hosted setup configured')).toBeNull()
-  fireEvent.click(screen.getByText('Local plugins and other MCP clients'))
-  expect(screen.getByRole('button', { name: 'Copy local setup prompt' })).toBeTruthy()
+  // Without hosted setup, the agent on this computer leads, already open.
+  expect(screen.queryByText('Local plugins and other MCP clients')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Copy setup request' })).toBeTruthy()
 })
 
 test.each([
@@ -175,7 +194,7 @@ test('hides optional resource links and copied references while keeping client h
   await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
   expect(writeText.mock.calls[0]![0]).not.toContain('github.com')
   expect(writeText.mock.calls[0]![0]).toContain('Check the saved API URL before using it.')
-  expect(screen.getByRole('button', { name: 'Copy install commands' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Copy Claude Code commands' })).toBeTruthy()
 })
 
 test.each(['unconfirmed', 'demo', 'embed'] as const)('hides connection documentation in the %s view when resource links are disabled', async mode => {
@@ -208,26 +227,29 @@ test.each(['denied', 'missing'] as const)('keeps the hosted URL selectable when 
   expect(screen.queryByRole('status')).toBeNull()
 })
 
-test('copies the selected client commands and replaces the previous copy acknowledgement', async () => {
+test('copies each client’s plugin commands exactly as the README lists them', async () => {
   const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
   setClipboard({ writeText })
   const requests = mount()
   await screen.findByText('Hosted setup configured')
   fireEvent.click(screen.getByText('Local plugins and other MCP clients'))
-  fireEvent.click(screen.getByRole('button', { name: 'Copy install commands' }))
-  await screen.findByRole('status')
-  expect(writeText.mock.calls[0]![0]).toBe('codex plugin marketplace add Canonry/canonry\ncodex plugin add canonry@canonry')
+  expect(screen.queryByRole('combobox', { name: 'Your client' })).toBeNull()
+  for (const [index, button] of ['Copy Claude Code commands', 'Copy Codex commands', 'Copy MCP command'].entries()) {
+    fireEvent.click(screen.getByRole('button', { name: button }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(index + 1))
+  }
+  const [claude, codex, mcp] = writeText.mock.calls.map(call => call[0])
+  expect(claude).toBe('claude plugin marketplace add Canonry/canonry\nclaude plugin install canonry@canonry')
+  expect(codex).toBe('codex plugin marketplace add Canonry/canonry\ncodex plugin add canonry@canonry')
+  expect(mcp).toBe('canonry-mcp')
 
-  fireEvent.change(screen.getByRole('combobox', { name: 'Your client' }), { target: { value: 'claude' } })
-  expect(screen.queryByRole('status')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Copy install commands' }))
-  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
-  expect(writeText.mock.calls[1]![0]).toBe('claude plugin marketplace add Canonry/canonry\nclaude plugin install canonry@canonry')
-
-  fireEvent.change(screen.getByRole('combobox', { name: 'Your client' }), { target: { value: 'other' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Copy MCP command' }))
-  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(3))
-  expect(writeText.mock.calls[2]![0]).toBe('canonry-mcp')
+  // The local-first install in the README lists the same commands, so either one works.
+  const text = readme()
+  const fence = '```'
+  const start = text.indexOf(`### With the plugin\n\n${fence}bash\n`)
+  expect(start).toBeGreaterThan(-1)
+  const body = text.slice(start + `### With the plugin\n\n${fence}bash\n`.length)
+  expect(body.slice(0, body.indexOf(`\n${fence}`))).toBe(`# Claude Code\n${claude}\n\n# Codex\n${codex}`)
   expect(requests).toEqual([{ path: '/health', method: 'GET' }])
 })
 
@@ -297,4 +319,119 @@ test('keeps the direct connection as the only path without a registered gateway'
   expect(screen.queryByText('Connect directly (Claude and other MCP clients)')).toBeNull()
   expect(screen.getByRole('button', { name: 'Copy MCP URL' })).toBeTruthy()
   expect(screen.getByText(/On Claude Team and Enterprise plans, an Owner adds the connector first/)).toBeTruthy()
+})
+
+test.each([true, false])('leads with the README setup request and plugin commands when hosted setup is not ready (resource links: %s)', async showResourceLinks => {
+  window.__CANONRY_CONFIG__ = { dashboard: { showResourceLinks } }
+  const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+  setClipboard({ writeText })
+  mount({ mcp: { status: 'available', hosted: { status: 'unavailable', reason: 'public-url-required' } } }, 200, 'admin')
+
+  await screen.findByText('Hosted setup needs attention')
+  // Local setup comes first and open; hosted clients follow with their status beside their heading.
+  const setup = screen.getByRole('heading', { name: 'Set up with your agent' })
+  const plugin = screen.getByRole('heading', { name: 'Or use the plugin' })
+  const hostedClients = screen.getByRole('heading', { name: 'Connect ChatGPT or Claude Desktop' })
+  expect(setup.compareDocumentPosition(plugin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(plugin.compareDocumentPosition(hostedClients) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(hostedClients.parentElement?.textContent).toContain('Hosted setup needs attention')
+  expect(screen.getByText('Configure this instance’s public URL before connecting a hosted client.')).toBeTruthy()
+  expect(screen.queryByText('Local plugins and other MCP clients')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Copy Claude Code commands' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Copy local verification prompt' })).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Copy setup request' }))
+  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+  const request = writeText.mock.calls[0]![0]
+  // The README's request, then the one line only the dashboard can add: which install serves it.
+  const readmeRequest = agentSetupRequest(showResourceLinks)
+  expect(readmeRequest === AGENT_SETUP_REQUEST).toBe(showResourceLinks)
+  expect(request).toBe(`${readmeRequest}\n\nThis Canonry dashboard is already running at ${window.location.origin}. Work only with the install that serves it. If \`cnry doctor\` reports no config, or you cannot confirm your config belongs to this dashboard, stop and ask me which config folder it uses, then pass that folder as \`CANONRY_CONFIG_DIR\` on every \`cnry\` command. Do not bootstrap, start, or create another install.`)
+  expect(request.includes('github.com')).toBe(showResourceLinks)
+})
+
+test('the README carries the same setup request the dashboard copies', () => {
+  // Two hand-maintained copies of the same instructions, and they had already
+  // drifted: the README's was missing the bounded page budget and the
+  // scan-reuse rule. Whichever one an operator finds has to be the live one.
+  const text = readme()
+  const fence = '```'
+  const start = text.indexOf(`${fence}text\nHelp me set up Canonry for my public site.`)
+  expect(start).toBeGreaterThan(-1)
+  const body = text.slice(start + fence.length + 'text\n'.length)
+  expect(body.slice(0, body.indexOf(`\n${fence}`))).toBe(AGENT_SETUP_REQUEST)
+})
+
+test('the setup request asks before it acts, bounds the first scan, and never asks for secrets', () => {
+  // It learns what to set up before it touches the install.
+  expect(AGENT_SETUP_REQUEST.indexOf('Ask for my public domain')).toBeLessThan(AGENT_SETUP_REQUEST.indexOf('cnry start'))
+  expect(AGENT_SETUP_REQUEST).toContain('propose `npm install -g @canonry/canonry` and wait for approval')
+  // It reuses what exists instead of creating or scanning twice.
+  expect(AGENT_SETUP_REQUEST).toContain('cnry project list --format json')
+  expect(AGENT_SETUP_REQUEST).toContain('read that scan instead of starting a new one')
+  // The crawl is its own approval, and the first one is bounded.
+  expect(AGENT_SETUP_REQUEST).toContain('wait for separate approval before scanning')
+  expect(AGENT_SETUP_REQUEST).toContain('--max-pages 100')
+  expect(AGENT_SETUP_REQUEST).toContain('never ask me to paste passwords, API keys, OAuth credentials, or command output')
+  expect(AGENT_SETUP_REQUEST).toContain('Tell me the termination reason in plain words')
+})
+
+test('the setup request cannot strand an agent or point it at the wrong install', () => {
+  // Each of these is a failure a fresh agent actually hit when following an
+  // earlier version of this text.
+  // A connected tool cannot see a shell env var, so "prefer connected tools"
+  // silently acted on the operator's real install.
+  expect(AGENT_SETUP_REQUEST).toContain('never sees `CANONRY_CONFIG_DIR`')
+  // `bootstrap` is not interactive; handing it over and waiting deadlocks.
+  expect(AGENT_SETUP_REQUEST).toContain('run `cnry bootstrap` yourself')
+  expect(AGENT_SETUP_REQUEST).toContain('The interactive command is `cnry init`')
+  expect(AGENT_SETUP_REQUEST).not.toContain('tell me to run `cnry bootstrap`')
+  // `cnry --version` succeeds on an unconfigured install, so it cannot detect
+  // missing config; `doctor` is the command that can.
+  expect(AGENT_SETUP_REQUEST).toContain('cnry doctor --format json')
+  expect(AGENT_SETUP_REQUEST).toContain('does not read config')
+  // The product's own CONNECTION_ERROR text recommends the foreground command.
+  expect(AGENT_SETUP_REQUEST).toContain('not `cnry serve`, which runs in the foreground')
+  // `score` reports aggregateScore 0 with hasData false for a never-scanned
+  // project, which reads as a real score of zero.
+  expect(AGENT_SETUP_REQUEST).toContain('Read the `hasData` field, not the score')
+  // Neither `score` nor `pages` carries the termination reason.
+  expect(AGENT_SETUP_REQUEST).toContain('agent-readiness overview')
+  expect(AGENT_SETUP_REQUEST).toContain('only one of these commands that carries `termination`')
+  // `--wait` gives up after 15 minutes and exits 0 with a non-terminal status,
+  // which must not read as a finished scan. Rerunning is the wrong recovery.
+  expect(AGENT_SETUP_REQUEST).toContain('polls for up to 15 minutes')
+  expect(AGENT_SETUP_REQUEST).toContain('the scan has not finished')
+  expect(AGENT_SETUP_REQUEST).not.toContain('no timeout')
+  expect(AGENT_SETUP_REQUEST).toContain('agent-readiness progress')
+  expect(AGENT_SETUP_REQUEST).toContain('do not rerun it')
+  // A time limit needs a SMALLER scan, which is the counterintuitive direction.
+  expect(AGENT_SETUP_REQUEST).toContain('a time limit needs a smaller scan')
+  expect(AGENT_SETUP_REQUEST).toContain('never present it as a full-site result')
+})
+
+test.each([
+  { label: 'needs attention', hosted: { status: 'unavailable', reason: 'account-required' }, badge: 'Hosted setup needs attention' },
+  { label: 'is ready', hosted: { status: 'ready', url: HOSTED_URL }, badge: 'Hosted setup configured' },
+])('a hosted deployment leads with hosted setup when it $label, with local setup collapsed', async ({ hosted, badge }) => {
+  dashboardHost.remote = true
+  const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+  setClipboard({ writeText })
+  mount({ mcp: { status: 'available', hosted } }, 200, 'admin')
+
+  await screen.findByText(badge)
+  expect(screen.queryByRole('heading', { name: 'Set up with your agent' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Copy setup request' })).toBeNull()
+  const local = screen.getByText('Local plugins and other MCP clients').closest('details')!
+  expect(local.open).toBe(false)
+  // Hosted setup comes before the collapsed local instructions.
+  const hostedStep = screen.queryByRole('heading', { name: 'Before you connect a hosted client' }) ?? screen.getByRole('heading', { name: '1. Add Canonry to your client' })
+  expect(hostedStep.compareDocumentPosition(local) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+  fireEvent.click(screen.getByText('Local plugins and other MCP clients'))
+  fireEvent.click(screen.getByRole('button', { name: 'Copy local setup prompt' }))
+  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+  expect(writeText.mock.calls[0]![0]).toContain(`existing Canonry instance: ${window.location.origin}\n`)
+  expect(writeText.mock.calls[0]![0]).not.toContain('Help me set up Canonry')
+  expect(screen.getByRole('button', { name: 'Copy Codex commands' })).toBeTruthy()
 })

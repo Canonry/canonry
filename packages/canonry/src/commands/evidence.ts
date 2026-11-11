@@ -1,9 +1,22 @@
-import { CitationStates } from '@canonry/canonry-contracts'
+import { CitationStates, citationStateToCited, isCitationStateMeasured, type CitationState } from '@canonry/canonry-contracts'
 import { createApiClient, type TimelineDto } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 
 type EvidenceJsonEntry = TimelineDto & {
-  cited: boolean
+  /** The latest run's citation: null when no answer carried sources (not measured). */
+  cited: boolean | null
+}
+
+/** The latest run's citation for one query; false with no runs at all. */
+function latestCited(entry: TimelineDto): boolean | null {
+  const latest = entry.runs.at(-1)
+  return latest ? citationStateToCited(latest.citationState) : false
+}
+
+const STATE_LABEL: Record<CitationState, string> = {
+  [CitationStates.cited]: '✓ cited',
+  [CitationStates['not-cited']]: '✗ not-cited',
+  [CitationStates['not-measured']]: '· not measured (no sources)',
 }
 
 function getClient() {
@@ -17,7 +30,7 @@ export async function showEvidence(project: string, format?: string): Promise<vo
   if (format === 'json') {
     const enriched: EvidenceJsonEntry[] = timeline.map((entry) => ({
       ...entry,
-      cited: entry.runs[entry.runs.length - 1]?.citationState === CitationStates.cited,
+      cited: latestCited(entry),
     }))
     console.log(JSON.stringify(enriched, null, 2))
     return
@@ -29,7 +42,7 @@ export async function showEvidence(project: string, format?: string): Promise<vo
     emitJsonl(timeline.map((entry) => ({
       project,
       ...entry,
-      cited: entry.runs[entry.runs.length - 1]?.citationState === CitationStates.cited,
+      cited: latestCited(entry),
     })))
     return
   }
@@ -44,12 +57,17 @@ export async function showEvidence(project: string, format?: string): Promise<vo
   for (const entry of timeline) {
     const latest = entry.runs[entry.runs.length - 1]
     if (!latest) continue
-    const state = latest.citationState === CitationStates.cited ? '✓ cited' : '✗ not-cited'
     const transition = latest.transition !== latest.citationState ? ` (${latest.transition})` : ''
-    console.log(`  ${state}${transition}  ${entry.query}`)
+    console.log(`  ${STATE_LABEL[latest.citationState]}${transition}  ${entry.query}`)
   }
 
+  // The cited base is the queries whose latest answers carried sources.
+  const latestStates = timeline.flatMap(e => e.runs.length > 0 ? [e.runs[e.runs.length - 1]!.citationState] : [])
+  const measured = latestStates.filter(isCitationStateMeasured).length
+  const cited = latestStates.filter(state => state === CitationStates.cited).length
   console.log(`\n  Queries: ${timeline.length}`)
-  const cited = timeline.filter(e => e.runs[e.runs.length - 1]?.citationState === CitationStates.cited).length
-  console.log(`  Cited:    ${cited} / ${timeline.length}`)
+  console.log(`  Cited:    ${cited} / ${measured}`)
+  if (measured < latestStates.length) {
+    console.log(`  Not measured: ${latestStates.length - measured} (no answer carried sources)`)
+  }
 }

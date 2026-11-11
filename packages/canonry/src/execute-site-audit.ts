@@ -251,20 +251,20 @@ function isLegacyScorecardPage(page: CrawlPageObservation): boolean {
 }
 
 function emptyCompleteCrawlError(rootUrl: string, finalRootUrl: string | null, pagesObserved: number): Error {
-  if (!finalRootUrl) return new Error(`Site audit could not successfully audit any of ${pagesObserved} observed page(s).`)
+  if (!finalRootUrl) return new Error(`Agent Readiness audit scan could not successfully audit any of ${pagesObserved} observed page(s).`)
   try {
     const rootHost = new URL(rootUrl).hostname
     const finalRootHost = new URL(finalRootUrl).hostname
     if (rootHost !== finalRootHost) {
       return new Error(
-        `Site audit could not successfully audit any of ${pagesObserved} observed page(s): `
+        `Agent Readiness audit scan could not successfully audit any of ${pagesObserved} observed page(s): `
         + `root URL redirected off-host from ${rootHost} to ${finalRootHost} (${finalRootUrl}).`,
       )
     }
   } catch {
     // The generic error below is still truthful when an upstream URL is malformed.
   }
-  return new Error(`Site audit could not successfully audit any of ${pagesObserved} observed page(s).`)
+  return new Error(`Agent Readiness audit scan could not successfully audit any of ${pagesObserved} observed page(s).`)
 }
 
 function toLegacyIssue(summary: SiteAuditFactorSummaryDto, totalPages: number): SiteAuditCrossCuttingIssueDto | null {
@@ -318,7 +318,7 @@ function deadLinkCheckedCount(edges: Iterable<CrawlEdgeObservation>, pages: Iter
 /**
  * Terminal telemetry for one site audit: `site_audit.completed` always, plus
  * `activation.completed` (`kind: site_health`) for a project's first audit that
- * scored at least one page. Page Health is the first-run path, so without this
+ * scored at least one page. Agent Readiness is the first-run path, so without this
  * an operator who never runs an answer-visibility sweep never activates.
  *
  * Called only after the terminal state is committed, and never throws: a

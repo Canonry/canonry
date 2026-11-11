@@ -1,6 +1,4 @@
 import { afterEach, beforeAll, expect, onTestFinished, test, vi } from 'vitest'
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
@@ -8,46 +6,15 @@ import {
   getApiV1ProjectsQueryKey,
   getApiV1TelemetryQueryKey,
 } from '@canonry/canonry-api-client/react-query'
+import { onboardingTelemetryEventSchema, projectSetupDtoSchema, type ProjectSetupDto } from '@canonry/canonry-contracts'
 
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { heyClient } from '../src/api.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
-import { getRunTrackerState, resetRunTracker } from '../src/lib/run-tracker-store.js'
-import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
-import { AGENT_SETUP_GUIDE_URL, AGENT_SETUP_REQUEST, resolveAutoResumeTarget } from '../src/pages/OnboardingSetupPage.js'
-import { runOutcome, visibilityOutcome } from '../src/pages/OnboardingCompletePage.js'
-import { isOnboardingHandoff, markOnboardingHandoff } from '../src/lib/onboarding-telemetry.js'
 import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
-
-vi.mock('../src/components/project/SiteHealthSection.js', () => ({
-  SiteHealthSection: ({
-    projectName,
-    projectId,
-    initialRunId,
-    showOnboardingActions,
-    onReleaseInitialRun,
-    onContinueOnboarding,
-    onSkipOnboarding,
-  }: {
-    projectName: string
-    projectId: string
-    initialRunId?: string
-    showOnboardingActions?: boolean
-    onReleaseInitialRun?: () => void
-    onContinueOnboarding?: () => void
-    onSkipOnboarding?: () => void
-  }) => (
-    <section aria-label="Explicit Site Health">
-      <p>{`${projectName}:${projectId}:${initialRunId ?? 'latest'}:${String(showOnboardingActions)}`}</p>
-      <button type="button" onClick={onReleaseInitialRun}>Release initial scan</button>
-      <button type="button" onClick={onContinueOnboarding}>Continue onboarding</button>
-      <button type="button" onClick={onSkipOnboarding}>Skip onboarding</button>
-    </section>
-  ),
-}))
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()
@@ -55,858 +22,463 @@ beforeAll(async () => {
 
 afterEach(() => {
   cleanup()
-  resetRunTracker()
-  resetToasts()
   window.sessionStorage.clear()
   delete window.__CANONRY_CONFIG__
 })
 
-async function renderSetup(
-  pathname = '/setup',
-  options: {
-    seedEmptyProjectsCache?: boolean
-    mappedProjectName?: string
-    providerReady?: boolean
-  } = {},
-) {
+function projectDto(project: { id: string; name: string; displayName: string; canonicalDomain: string; country?: string; language?: string }) {
+  return {
+    ownedDomains: [], aliases: [], country: 'US', language: 'en', tags: [], labels: {},
+    providers: [], providerModels: {}, locations: [], defaultLocation: null,
+    measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
+    autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    ...project,
+  }
+}
+
+type ProjectFixture = ReturnType<typeof projectDto>
+
+const EXAMPLE = projectDto({ id: 'project-example', name: 'example-com', displayName: 'Example', canonicalDomain: 'example.com' })
+const HARBOR = projectDto({ id: 'project-harbor', name: 'harbor-law', displayName: 'Harbor Law', canonicalDomain: 'harbor.law' })
+
+/** A project's setup read with neither track started, validated by the contract so it cannot drift. */
+function setupRead(project: ProjectFixture, aiVisibility: Partial<ProjectSetupDto['tracks']['aiVisibility']> = {}): ProjectSetupDto {
+  return projectSetupDtoSchema.parse({
+    project: { name: project.name, displayName: project.displayName, canonicalDomain: project.canonicalDomain },
+    complete: false,
+    firstResultAt: null,
+    nextAction: 'run_agent_readiness',
+    tracks: {
+      agentReadiness: { state: 'not_started', runId: null, startedAt: null, finishedAt: null, progress: null, result: null, error: null },
+      aiVisibility: {
+        state: 'not_started', runId: null, runIds: [], startedAt: null, finishedAt: null, baselineRunId: null, blockedBy: 'no_queries', engines: ['gemini'],
+        queries: { total: 0, nonBrand: 0, branded: 0, unclassified: 0 },
+        progress: null, providerFailures: null, result: null, error: null, failedEngines: null,
+        ...aiVisibility,
+      },
+    },
+  })
+}
+
+/**
+ * The setup API as a server answers it: the project list (a create shows up in
+ * the next read), project creation, each project's setup read and detail, and
+ * the onboarding telemetry collector. `route` answers a request first.
+ */
+function mockSetupApi(options: {
+  projects?: ProjectFixture[]
+  listProjects?: () => Response | Promise<Response>
+  create?: (body: Record<string, unknown>) => Response | Promise<Response>
+  /** Holds the create response until it settles, so the saving state can be seen. */
+  createGate?: Promise<unknown>
+  route?: (path: string, init?: RequestInit) => Response | Promise<Response> | undefined
+} = {}) {
+  const projects = [...(options.projects ?? [])]
+  const requests: Array<{ path: string; method: string; body?: string }> = []
+  const events: Array<Record<string, unknown>> = []
+  onTestFinished(mockFetch(async (url, init) => {
+    const path = pathOf(url)
+    const method = init?.method ?? 'GET'
+    const body = typeof init?.body === 'string' ? init.body : undefined
+    requests.push({ path, method, body })
+    const routed = options.route?.(path, init)
+    if (routed) return routed
+    if (path === '/api/v1/telemetry/onboarding') {
+      events.push(JSON.parse(String(body)) as Record<string, unknown>)
+      return jsonResponse({ accepted: true }, 202)
+    }
+    if (path === '/api/v1/projects' && method === 'POST') {
+      const request = JSON.parse(String(body)) as Record<string, string>
+      if (options.create) return options.create(request)
+      if (options.createGate) await options.createGate
+      const created = projectDto({
+        id: `project-${request.name}`,
+        name: request.name!,
+        displayName: request.displayName!,
+        canonicalDomain: request.canonicalDomain!,
+        country: request.country!,
+        language: request.language!,
+      })
+      projects.push(created)
+      return jsonResponse(created, 201)
+    }
+    if (path === '/api/v1/projects') return options.listProjects?.() ?? jsonResponse(projects)
+    const projectPath = /^\/api\/v1\/projects\/([^/?]+)(\/[^?]*)?/.exec(path)
+    const project = projects.find(entry => entry.name === decodeURIComponent(projectPath?.[1] ?? ''))
+    if (project && projectPath?.[2] === '/setup') return jsonResponse(setupRead(project))
+    if (project && projectPath?.[2] === undefined) return jsonResponse(project)
+    if (path.endsWith('/queries') || path.includes('/runs')) return jsonResponse([])
+    return jsonResponse({})
+  }))
+  return { projects, requests, events }
+}
+
+/**
+ * `/setup` in the app's router. `dashboardProjects` are the names the shell and
+ * the AI Visibility panel know about; the setup page itself reads the API's
+ * project list.
+ */
+async function renderSetup(pathname: string, options: { dashboardProjects?: string[]; seedProjects?: unknown[] } = {}) {
   const fixture = createDashboardFixture({ emptyPortfolio: true })
-  const mappedProject = options.mappedProjectName
-    ? structuredClone(fixture.dashboard.projects[0])
-    : undefined
-  // `emptyPortfolio` controls only the overview fixture. The established
-  // wizard derives its resume state from the durable project/run collections.
-  fixture.dashboard.projects = mappedProject
-    ? [{
-        ...mappedProject,
-        project: {
-          ...mappedProject.project,
-          name: options.mappedProjectName ?? mappedProject.project.name,
-        },
-        queryCounts: { cited: 0, total: 0 },
-        competitors: [],
-      }]
-    : []
-  fixture.dashboard.runs = []
-  if (options.providerReady === false) {
-    fixture.dashboard.settings.providerStatuses = []
-  }
+  const template = fixture.dashboard.projects[0]!
+  const dashboardFor = (names: string[]) => ({
+    ...fixture.dashboard,
+    projects: names.map(name => ({
+      ...structuredClone(template),
+      project: { ...structuredClone(template.project), name },
+      queryCounts: { cited: 0, total: 0, citationNotMeasured: 0 },
+      competitors: [],
+    })),
+    runs: [],
+  })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  if (options.seedEmptyProjectsCache) {
-    queryClient.setQueryData(getApiV1ProjectsQueryKey({ client: heyClient }), [])
-  }
+  if (options.seedProjects) queryClient.setQueryData(getApiV1ProjectsQueryKey({ client: heyClient }), options.seedProjects)
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
-
-  const renderTree = (dashboard: typeof fixture.dashboard) => (
+  const tree = (names: string[]) => (
     <QueryClientProvider client={queryClient}>
-      <DashboardProvider value={{ dashboard, health: fixture.health }}>
+      <DashboardProvider value={{ dashboard: dashboardFor(names), health: fixture.health }}>
         <RouterProvider router={router} />
       </DashboardProvider>
     </QueryClientProvider>
   )
-  const rendered = render(renderTree(fixture.dashboard))
-
+  const rendered = render(tree(options.dashboardProjects ?? []))
   return {
-    queryClient,
     router,
-    resolveMappedProject(projectName: string) {
-      const nextDashboard = structuredClone(fixture.dashboard)
-      const project = nextDashboard.projects[0]
-      if (!project) throw new Error('A mapped project fixture is required')
-      nextDashboard.projects = [{
-        ...project,
-        project: { ...project.project, name: projectName },
-      }]
-      rendered.rerender(renderTree(nextDashboard))
-    },
+    queryClient,
+    rerenderDashboard: (names: string[]) => rendered.rerender(tree(names)),
   }
 }
 
-test('defaults a fresh install to the domain-first Site Health flow', async () => {
-  const restore = mockFetch((url) => pathOf(url) === '/api/v1/projects'
-    ? jsonResponse([])
-    : jsonResponse({}))
-  onTestFinished(restore)
-
-  await renderSetup()
-
-  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
-  expect(screen.queryByText('Step 2 of 5')).toBeNull()
-  expect(screen.getByText('Use your agent instead')).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Copy new-install request' })).toBeTruthy()
-})
-
-test('keeps new local installation instructions out of the launchpad when local agent setup is disabled', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform', showLocalAgentSetup: false } }
-  await renderSetup()
-
-  const agentOption = await screen.findByRole('region', { name: 'Use your agent instead' })
-  expect(within(agentOption).getByRole('link', { name: 'Agent setup' }).getAttribute('href')).toBe('/agent-setup')
-  expect(within(agentOption).getByText('Connect ChatGPT or Claude Desktop to this instance.')).toBeTruthy()
-  expect(within(agentOption).queryByRole('button', { name: 'Copy new-install request' })).toBeNull()
-  expect(within(agentOption).queryByRole('link', { name: /Agent quickstart/i })).toBeNull()
-})
-
-test('the legacy rescue query wins over an enabled platform flag', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  await renderSetup('/setup?experience=legacy')
-
-  expect(await screen.findByRole('heading', { name: 'Create project' })).toBeTruthy()
-})
-
-test('auto resumes Site Health for an existing project instead of the provider-gated wizard', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
-  const restore = mockFetch((url) => pathOf(url) === '/api/v1/projects'
-    ? jsonResponse([{
-        id: 'project-example',
-        name: 'example-com',
-        displayName: 'Example',
-        canonicalDomain: 'example.com',
-        ownedDomains: [], aliases: [], country: 'US', language: 'en', tags: [], labels: {},
-        providers: [], providerModels: {}, locations: [], defaultLocation: null,
-        measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
-        autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
-      }])
-    : jsonResponse([]))
-  onTestFinished(restore)
-
-  const { router } = await renderSetup('/setup')
-
-  await waitFor(() => {
-    expect(router.state.location.search).toMatchObject({
-      onboarding: 'site-health',
-      setupProject: 'example-com',
-    })
-  })
-  expect(await screen.findByRole('region', { name: 'Explicit Site Health' })).toBeTruthy()
-  expect(screen.getByText('example-com:project-example:latest:true')).toBeTruthy()
-  expect(screen.queryByText('Launch is blocked until at least one provider is configured.')).toBeNull()
-  expect(screen.queryByRole('heading', { name: 'System check' })).toBeNull()
-  expect(screen.queryByRole('heading', { name: 'Scan your site' })).toBeNull()
-})
-
-const AUTO_RESUME_PROJECT = {
-  id: 'project-example',
-  name: 'example-com',
-  displayName: 'Example',
-  canonicalDomain: 'example.com',
-  ownedDomains: [], aliases: [], country: 'US', language: 'en', tags: [], labels: {},
-  providers: [], providerModels: {}, locations: [], defaultLocation: null,
-  measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
-  autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
-  createdAt: '2026-01-01T00:00:00.000Z',
+/** A tracker row: the list item under its heading. */
+function rowOf(name: string): HTMLElement {
+  return screen.getByRole('heading', { level: 2, name }).closest('li')!
 }
 
-function mockAutoResumeApi(siteAuditRuns: unknown[]) {
-  return mockFetch((url) => {
-    const path = pathOf(url)
-    if (path === '/api/v1/projects') return jsonResponse([AUTO_RESUME_PROJECT])
-    // `pathOf` keeps the query string, and `/api/v1/runs/<id>` is a different
-    // endpoint the resumed page also reads.
-    if (path === '/api/v1/runs' || path.startsWith('/api/v1/runs?')) return jsonResponse(siteAuditRuns)
-    if (path.startsWith('/api/v1/runs/')) {
-      return jsonResponse({ id: 'run_active', projectId: 'project-example', kind: 'site-audit', status: 'running', createdAt: '2026-02-02T00:00:00.000Z' })
-    }
-    return jsonResponse([])
-  })
+async function findRow(name: string): Promise<HTMLElement> {
+  return (await screen.findByRole('heading', { level: 2, name })).closest('li')!
 }
 
-test('auto resume pins the project\'s latest scan so the resumed session can report an outcome', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
-  onTestFinished(mockAutoResumeApi([
-    { id: 'run_active', projectId: 'project-example', kind: 'site-audit', status: 'running', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' },
-  ]))
+function nonTelemetryWrites(requests: Array<{ path: string; method: string }>) {
+  return requests.filter(request => request.method !== 'GET' && request.path !== '/api/v1/telemetry/onboarding').map(request => `${request.method} ${request.path}`)
+}
 
-  const { router } = await renderSetup('/setup')
+// ── A bare /setup ──
 
-  await waitFor(() => {
-    expect(router.state.location.search).toMatchObject({
-      onboarding: 'site-health',
-      setupProject: 'example-com',
-      siteHealthRunId: 'run_active',
-    })
-  })
-  expect(screen.getByText('example-com:project-example:run_active:true')).toBeTruthy()
-})
-
-test('auto resume leaves a scanned install on the wizard instead of reopening first-run setup', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
-  onTestFinished(mockAutoResumeApi([
-    { id: 'run_done', projectId: 'project-example', kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' },
-  ]))
-
-  const { router } = await renderSetup('/setup')
-
-  expect(await screen.findByRole('listitem', { current: 'step' })).toBeTruthy()
-  expect(router.state.location.search).not.toMatchObject({ onboarding: 'site-health' })
-  expect(screen.queryByRole('region', { name: 'Explicit Site Health' })).toBeNull()
-})
-
-test('auto resume reads the whole scan history, not the runs endpoint\'s 30-day default', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
-  const runListUrls: string[] = []
-  onTestFinished(mockFetch((url) => {
-    const path = pathOf(url)
-    if (path === '/api/v1/projects') return jsonResponse([AUTO_RESUME_PROJECT])
-    if (path === '/api/v1/runs' || path.startsWith('/api/v1/runs?')) {
-      runListUrls.push(path)
-      // A scan older than 30 days: without `since` the server would drop it.
-      return jsonResponse([
-        { id: 'run_old', projectId: 'project-example', kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: '2025-01-01T00:00:00.000Z' },
-      ])
-    }
-    return jsonResponse([])
-  }))
-
+test('a fresh install leads with its website, then two tracks that have not started', async () => {
+  mockSetupApi()
   await renderSetup('/setup')
 
-  expect(await screen.findByRole('listitem', { current: 'step' })).toBeTruthy()
-  expect(runListUrls.length).toBeGreaterThan(0)
-  for (const url of runListUrls) {
-    const query = new URLSearchParams(url.slice(url.indexOf('?') + 1))
-    expect(query.get('kind')).toBe('site-audit')
-    expect(query.get('since')).toBe('2000-01-01T00:00:00.000Z')
-  }
+  expect(await screen.findByRole('heading', { level: 1, name: 'Set up Canonry' })).toBeTruthy()
+  expect(screen.getByText('Add your first website to get its Agent Readiness score and first AI Visibility result.')).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Set up with an agent' }).getAttribute('href')).toBe('/agent-setup')
+
+  // The same rows, in the same order, as the project's tracker once it exists.
+  const tracker = screen.getByRole('region', { name: 'Setup progress' })
+  expect(within(tracker).getAllByRole('heading', { level: 2 }).map(heading => heading.textContent)).toEqual(['Website', 'Agent Readiness', 'AI Visibility'])
+  const website = rowOf('Website')
+  expect(within(website).getByText('Required')).toBeTruthy()
+  expect(within(website).getByRole('textbox', { name: 'Website URL' })).toHaveProperty('required', true)
+  expect(within(website).getByRole('textbox', { name: 'Brand name', description: 'Answers that name this brand count as mentions.' })).toBeTruthy()
+  // Name and market wait behind a closed disclosure that says what they will be.
+  const details = within(website).getByText('Project details').closest('details')!
+  expect(details.open).toBe(false)
+  expect(within(details).getByText('United States · English')).toBeTruthy()
+  expect(within(website).getByRole('button', { name: 'Continue' })).toHaveProperty('disabled', true)
+  expect(within(website).queryByRole('button', { name: 'Reset unsaved fields' })).toBeNull()
+
+  const scan = rowOf('Agent Readiness')
+  expect(within(scan).getByText('How well AI agents can read your site')).toBeTruthy()
+  expect(within(scan).getByText('Not started')).toBeTruthy()
+  const ai = rowOf('AI Visibility')
+  expect(within(ai).getByText('Whether AI answers mention your brand and cite your site')).toBeTruthy()
+  expect(within(ai).getByText('Not started')).toBeTruthy()
+
+  // Nothing here crawls or spends, so there is no consent to give and no step to skip.
+  const page = screen.getByRole('main')
+  expect(within(page).queryAllByRole('checkbox')).toEqual([])
+  expect(within(page).queryByText(/optional|skipped|skip/i)).toBeNull()
 })
 
-test('auto resume decides once, so a refetch mid-wizard does not redirect out of it', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
-  const projects: unknown[] = [AUTO_RESUME_PROJECT]
-  onTestFinished(mockFetch((url) => {
-    const path = pathOf(url)
-    if (path === '/api/v1/projects') return jsonResponse(projects)
-    if (path === '/api/v1/runs' || path.startsWith('/api/v1/runs?')) {
-      return jsonResponse([
-        { id: 'run_done', projectId: 'project-example', kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' },
-      ])
-    }
-    return jsonResponse([])
-  }))
-
-  const { router, queryClient } = await renderSetup('/setup')
-  expect(await screen.findByRole('listitem', { current: 'step' })).toBeTruthy()
-
-  // The wizard creates a project (never scanned), which refreshes both lists.
-  projects.push({ ...AUTO_RESUME_PROJECT, id: 'project-new', name: 'new-com', createdAt: '2026-03-01T00:00:00.000Z' })
-  await queryClient.invalidateQueries()
-  await waitFor(() => {
-    expect(queryClient.isFetching()).toBe(0)
+test.each([
+  { scenario: 'Add project on an install with one project', pathname: '/setup?experience=platform', projects: [EXAMPLE], finished: false },
+  { scenario: 'a bare /setup on an install with several projects', pathname: '/setup', projects: [EXAMPLE, HARBOR], finished: false },
+  // A finished project's setup is done; the sidebar's Setup link adds a project instead of reopening it as the first setup.
+  { scenario: 'a bare /setup on an install whose only project finished setup', pathname: '/setup', projects: [EXAMPLE], finished: true },
+])('$scenario adds a project without the first-run framing', async ({ pathname, projects, finished }) => {
+  mockSetupApi({
+    projects,
+    route: path => finished && path === `/api/v1/projects/${EXAMPLE.name}/setup` ? jsonResponse({ ...setupRead(EXAMPLE), complete: true }) : undefined,
   })
+  const { router } = await renderSetup(pathname, { dashboardProjects: projects.map(project => project.name) })
 
-  expect(screen.getByRole('listitem', { current: 'step' })).toBeTruthy()
-  expect(router.state.location.search).not.toMatchObject({ onboarding: 'site-health' })
+  expect(await screen.findByRole('heading', { level: 1, name: 'Add a project' })).toBeTruthy()
+  expect(screen.getByRole('textbox', { name: 'Website URL' })).toBeTruthy()
+  expect(screen.queryByText(/Add your first website/)).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Set up with an agent' })).toBeNull()
+  // No project's setup opens in its place, and the address names the page, so its breadcrumb does too.
+  expect(router.state.location.href).toBe('/setup?experience=platform')
 })
 
-test('the finish step keeps optional features in a visible list with details closed until requested', async () => {
-  const reads: string[] = []
-  onTestFinished(mockFetch(url => {
-    reads.push(pathOf(url))
-    return jsonResponse([])
-  }))
+test('adding a project can be cancelled back to Projects, which drops its draft; the first setup offers no Cancel', async () => {
+  mockSetupApi({ projects: [EXAMPLE] })
+  const { router } = await renderSetup('/setup?experience=platform', { dashboardProjects: [EXAMPLE.name] })
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'cedar.example' } })
+  fireEvent.click(screen.getByRole('link', { name: 'Cancel' }))
+  await waitFor(() => expect(router.state.location.pathname).toBe('/projects'))
+  cleanup()
 
-  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
+  // Cancelling is not leaving by accident: the half-typed website does not come back.
+  await renderSetup('/setup?experience=platform', { dashboardProjects: [EXAMPLE.name] })
+  expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('')
+  cleanup()
 
-  expect(await screen.findByRole('heading', { level: 1, name: 'Project saved' })).toBeTruthy()
-  expect(await screen.findByText('No AI Visibility check yet.')).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'Open project example-com' }).getAttribute('href')).toBe('/projects/example-com')
-  const progress = screen.getByRole('list', { name: 'Onboarding progress' })
-  expect(within(progress).getByText('Next steps').closest('[aria-current="step"]')).toBeTruthy()
-
-  const options = screen.getByRole('heading', { name: 'Optional setup' }).closest('section')!
-  const list = within(options).getAllByRole('list')[0]!
-  expect(Array.from(list.children).filter(child => child.tagName === 'LI')).toHaveLength(4)
-  // The agent's setup is its own page, which knows a hosted server from a local one.
-  expect(within(list).getByRole('link', { name: 'Connect your agent' }).getAttribute('href')).toBe('/agent-setup')
-  const dataSummary = within(list).getByText('Connect data sources')
-  const dataDetails = dataSummary.closest('details') as HTMLDetailsElement
-  expect(dataDetails.open).toBe(false)
-  expect(within(list).getByRole('link', { name: 'Set a schedule' }).getAttribute('href')).toBe('/projects/example-com/settings')
-  expect(within(list).getByRole('link', { name: 'Add a notification' }).getAttribute('href')).toBe('/projects/example-com/settings')
-
-  fireEvent.click(dataSummary)
-  expect(dataDetails.open).toBe(true)
-  const href = (name: string) => within(dataDetails).getByRole('link', { name }).getAttribute('href')
-  expect(href('Connect server-side traffic')).toBe('/traffic')
-  expect(href('Connect Search Console')).toBe('/projects/example-com/search-console')
-  expect(href('Connect Google Analytics')).toBe('/projects/example-com/activity')
-  expect(href('Connect Business Profile')).toBe('/projects/example-com/local')
-  expect(screen.getByRole('link', { name: 'Review page health' }).getAttribute('href')).toBe('/projects/example-com/technical-aeo')
-  fireEvent.click(dataSummary)
-  expect(dataDetails.open).toBe(false)
-  // Finishing setup does not need a score read or a synthetic results preview.
-  expect(reads).not.toContain('/api/v1/projects/example-com/technical-aeo')
-  expect(screen.queryByRole('tablist', { name: 'Example agent sessions' })).toBeNull()
+  mockSetupApi()
+  await renderSetup('/setup')
+  expect(await screen.findByRole('heading', { level: 1, name: 'Set up Canonry' })).toBeTruthy()
+  expect(screen.queryByRole('link', { name: 'Cancel' })).toBeNull()
 })
 
-const COARSE = '@media (pointer: coarse)'
-const BELOW_MD = '@media (width < 48rem)'
-/** Each element's compiled min-height in px beside a desktop mouse, on a narrow screen and under a finger; 0 where none is set. */
-async function minHeights(elements: Element[]) {
-  const rules = parseCompiledCss(await compileAppStyles(elements.flatMap(element => [...element.classList])))
-  return elements.map(element => [undefined, BELOW_MD, COARSE].map(context => {
-    const value = compiledElementProperty(rules, element, 'min-height', context)
-    return value === undefined ? 0 : cssLengthPx(value, rules)
-  }))
-}
+test('a bare /setup on an install with one project opens that project’s setup', async () => {
+  const api = mockSetupApi({ projects: [EXAMPLE] })
+  const { router } = await renderSetup('/setup', { dashboardProjects: [EXAMPLE.name] })
 
-test('the finish step stays compact beside a mouse and gives each action a 44px target under a finger', async () => {
-  onTestFinished(mockFetch(() => jsonResponse([])))
-  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
-  await screen.findByRole('heading', { level: 1, name: 'Project saved' })
-  const options = within(screen.getByRole('heading', { name: 'Optional setup' }).closest('section')!)
-  fireEvent.click(options.getByText('Connect data sources'))
-
-  const targets = [
-    screen.getByRole('link', { name: 'Open project example-com' }),
-    // A row link to the agent setup page, as Set a schedule is; it opens nothing here.
-    options.getByRole('link', { name: 'Connect your agent' }),
-    options.getByText('Connect data sources'),
-    options.getByRole('link', { name: 'Connect Search Console' }),
-    options.getByRole('link', { name: 'Set a schedule' }),
-    options.getByRole('link', { name: 'Add a notification' }),
-  ]
-  // The button keeps the shared Button height beside a mouse; the list rows are 36px.
-  expect(await minHeights(targets)).toEqual([[0, 44, 44], [36, 44, 44], [36, 44, 44], [36, 44, 44], [36, 44, 44], [36, 44, 44]])
+  await waitFor(() => expect(router.state.location.search).toEqual({ project: 'example-com', onboarding: 'first-run' }))
+  // Replaced, so Back does not return to a page that only redirects.
+  expect(router.history.length).toBe(1)
+  expect(await screen.findByText('Example · example.com')).toBeTruthy()
+  expect(screen.getByRole('heading', { level: 1, name: 'Set up Canonry' })).toBeTruthy()
+  expect(screen.queryByRole('textbox', { name: 'Website URL' })).toBeNull()
+  expect(nonTelemetryWrites(api.requests)).toEqual([])
 })
 
-test('the finish step marks skipped stages as skipped, never complete', async () => {
-  // No site-audit run at all: the operator reached the finish without a scan.
-  onTestFinished(mockFetch(() => jsonResponse([])))
+test('decides from a fresh project list, never from a cached one', async () => {
+  // The cache predates a project an agent has since created.
+  let respond: ((response: Response) => void) | undefined
+  mockSetupApi({ projects: [EXAMPLE], listProjects: () => new Promise<Response>(resolve => { respond = resolve }) })
+  const { router } = await renderSetup('/setup', { seedProjects: [] })
 
-  await renderSetup('/setup?onboarding=complete&setupProject=example-com&skipped=visibility')
+  expect((await screen.findByText('Loading projects…')).closest('[role="status"]')).toBeTruthy()
+  expect(screen.queryByRole('textbox', { name: 'Website URL' })).toBeNull()
+  await waitFor(() => expect(respond).toBeTypeOf('function'))
+  respond?.(jsonResponse([EXAMPLE]))
 
-  const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
-  await waitFor(() => {
-    expect(within(progress).getAllByText('Not started')).toHaveLength(2)
-    expect(within(progress).getAllByText('Skipped')).toHaveLength(1)
+  await waitFor(() => expect(router.state.location.search).toEqual({ project: 'example-com', onboarding: 'first-run' }))
+  expect(await screen.findByText('Example · example.com')).toBeTruthy()
+})
+
+test('a failed project read pauses setup with a retry instead of guessing', async () => {
+  let failed = true
+  mockSetupApi({
+    listProjects: () => failed
+      ? jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'temporary outage' } }, 503)
+      : jsonResponse([]),
   })
-  expect(within(progress).queryByText('Complete')).toBeNull()
-  expect(screen.queryByText(/Canonry is tracking/)).toBeNull()
-  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Project saved')
-  expect(screen.getByText('No AI Visibility check yet.')).toBeTruthy()
+  await renderSetup('/setup')
+
+  expect(await screen.findByRole('heading', { level: 1, name: 'Can’t load projects' })).toBeTruthy()
+  expect(screen.queryByRole('textbox', { name: 'Website URL' })).toBeNull()
+
+  failed = false
+  fireEvent.click(screen.getByRole('button', { name: 'Retry project check' }))
+  expect(await screen.findByRole('heading', { level: 1, name: 'Set up Canonry' })).toBeTruthy()
+  expect(screen.getByRole('textbox', { name: 'Website URL' })).toBeTruthy()
 })
 
-test('the finish step credits a scan that ran and an AI Visibility step that was not skipped', async () => {
-  onTestFinished(mockFetch((url) => {
-    const path = pathOf(url)
-    if (path.startsWith('/api/v1/projects/example-com/runs')) {
-      return jsonResponse([{ id: 'run_1', projectId: 'project-example', kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' }])
-    }
-    return jsonResponse([])
-  }))
-
-  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
-
-  const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
-  await waitFor(() => {
-    expect(within(progress).getAllByText('Complete')).toHaveLength(3)
+test('keeps typed website input mounted through a background project refetch', async () => {
+  let reads = 0
+  let finishRefetch: ((response: Response) => void) | undefined
+  mockSetupApi({
+    listProjects: () => ++reads === 1
+      ? jsonResponse([])
+      : new Promise<Response>(resolve => { finishRefetch = resolve }),
   })
-  expect(within(progress).queryByText('Skipped')).toBeNull()
-  expect(screen.getByRole('status').textContent).toBe('Latest AI Visibility check complete.')
+  const { queryClient } = await renderSetup('/setup')
+
+  const domain = await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement
+  fireEvent.change(domain, { target: { value: 'example.com' } })
+  domain.focus()
+  const refetch = queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
+  await waitFor(() => expect(finishRefetch).toBeTypeOf('function'))
+
+  const current = screen.getByRole('textbox', { name: 'Website URL' }) as HTMLInputElement
+  expect(current.value).toBe('example.com')
+  expect(document.activeElement).toBe(current)
+  expect(screen.queryByText('Loading projects…')).toBeNull()
+
+  finishRefetch?.(jsonResponse([]))
+  await refetch
 })
 
-test('the finish step opens agent setup and keeps commands available without clipboard access', async () => {
-  const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
-  // Outside a secure context there is no clipboard API at all.
-  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
-  onTestFinished(() => {
-    if (clipboardDescriptor) Object.defineProperty(navigator, 'clipboard', clipboardDescriptor)
-    else Reflect.deleteProperty(navigator, 'clipboard')
-  })
-  onTestFinished(mockFetch(() => jsonResponse([])))
+// ── Saving the website ──
 
-  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
-  fireEvent.click(await screen.findByRole('link', { name: 'Connect your agent' }))
-  await screen.findByRole('heading', { name: 'Agent setup', level: 1 })
-  fireEvent.click(screen.getByText('Local plugins and other MCP clients'))
-  fireEvent.click(screen.getByRole('button', { name: 'Copy install commands' }))
+test('saving the website creates the project and opens its setup, starting no scan and no check', async () => {
+  let release: (() => void) | undefined
+  const api = mockSetupApi({ createGate: new Promise<void>(resolve => { release = resolve }) })
+  const { router } = await renderSetup('/setup')
 
-  const command = await screen.findByRole('textbox', { name: 'Copy install commands text' }) as HTMLTextAreaElement
-  expect(command.closest('details')?.open).toBe(true)
-  expect(command.value).toBe('codex plugin marketplace add Canonry/canonry\ncodex plugin add canonry@canonry')
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'https://www.example.com/pricing' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Brand name' }), { target: { value: 'Example Brand' } })
+  fireEvent.click(screen.getByText('Project details'))
+  fireEvent.change(screen.getByRole('combobox', { name: 'Country' }), { target: { value: 'GB' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), { target: { value: 'fr' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+  expect(await screen.findByRole('button', { name: 'Creating project…' })).toHaveProperty('disabled', true)
+  expect(screen.getByRole('button', { name: 'Reset unsaved fields' })).toHaveProperty('disabled', true)
+  release?.()
+
+  await waitFor(() => expect(router.state.location.search).toEqual({ project: 'example-com', onboarding: 'first-run' }))
+  expect(router.history.length).toBe(1)
+  // The project's own tracker: each track starts from its own button.
+  expect(await within(await findRow('Agent Readiness')).findByRole('button', { name: 'Run audit scan' })).toBeTruthy()
+  expect(screen.getByText('Example Brand · example.com')).toBeTruthy()
+
+  expect(nonTelemetryWrites(api.requests)).toEqual(['POST /api/v1/projects'])
+  const create = api.requests.find(request => request.method === 'POST' && request.path === '/api/v1/projects')!
+  expect(JSON.parse(create.body!)).toEqual({ name: 'example-com', displayName: 'Example Brand', canonicalDomain: 'example.com', country: 'GB', language: 'fr' })
+
+  // The first-run funnel: a start, then the project step. Schema-valid, and nothing identifying.
+  await waitFor(() => expect(api.events.map(event => [event.event, event.step])).toEqual([
+    ['onboarding.started', 'project'],
+    ['onboarding.step_completed', 'project'],
+  ]))
+  for (const event of api.events) expect(onboardingTelemetryEventSchema.parse(event)).toMatchObject({ surface: 'platform' })
+  expect(api.events[1]).toMatchObject({ method: 'manual' })
+  expect(JSON.stringify(api.events)).not.toMatch(/example/i)
+
+  // Saving cleared the draft, so the next project starts blank.
+  cleanup()
+  await renderSetup('/setup?experience=platform')
+  expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('')
 })
 
-test('only a finished scan counts as a completed scan step', () => {
-  const run = (status: string, trigger = 'manual') => ({ status, trigger })
-  const ok = (data: Array<{ status: string; trigger: string }>) => ({ isSuccess: true, data })
+test('adding a project opens that project’s setup without the first-run frame', async () => {
+  const api = mockSetupApi({ projects: [EXAMPLE] })
+  const { router } = await renderSetup('/setup?experience=platform', { dashboardProjects: [EXAMPLE.name] })
 
-  expect(runOutcome(ok([run('completed')]))).toBeUndefined()
-  expect(runOutcome(ok([run('partial')]))).toBe('partial')
-  // Latest state stays distinct from earlier retained evidence.
-  expect(runOutcome(ok([run('completed'), run('failed')]))).toBe('failed')
-  expect(runOutcome(ok([run('queued')]))).toBe('queued')
-  expect(runOutcome(ok([run('running')]))).toBe('running')
-  expect(runOutcome(ok([run('cancelled'), run('failed')]))).toBe('failed')
-  expect(runOutcome(ok([run('cancelled')]))).toBe('cancelled')
-  expect(runOutcome(ok([]))).toBe('not-started')
-  // A probe is not a scan the operator ran.
-  expect(runOutcome(ok([run('completed', 'probe')]))).toBe('not-started')
-  // No answer, or a failed read, proves nothing: never a check mark.
-  expect(runOutcome({ isSuccess: false })).toBe('unknown')
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'harbor.law' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+  await waitFor(() => expect(router.state.location.search).toEqual({ project: 'harbor-law' }))
+  expect(await screen.findByRole('heading', { level: 1, name: 'Project setup' })).toBeTruthy()
+  expect(await screen.findByText('Harbor · harbor.law')).toBeTruthy()
+  expect(nonTelemetryWrites(api.requests)).toEqual(['POST /api/v1/projects'])
 })
 
-test('AI Visibility is complete only when a sweep finished', () => {
-  // Finished sweep: complete, even if this visit skipped the step.
-  expect(visibilityOutcome(undefined, false)).toEqual({})
-  expect(visibilityOutcome(undefined, true)).toEqual({})
-  // "Finish setup" pressed while the sweep runs.
-  expect(visibilityOutcome('pending', false)).toEqual({ visibility: 'pending' })
-  expect(visibilityOutcome('incomplete', false)).toEqual({ visibility: 'incomplete' })
-  expect(visibilityOutcome('skipped', false)).toEqual({ visibility: 'skipped' })
-  expect(visibilityOutcome('pending', true)).toEqual({ visibility: 'pending' })
-  expect(visibilityOutcome('not-started', true)).toEqual({ visibility: 'skipped' })
-  expect(visibilityOutcome('unknown', false)).toEqual({ visibility: 'unknown' })
+test('suggests the brand and project names from the website without typing them into the fields', async () => {
+  const api = mockSetupApi()
+  await renderSetup('/setup')
+
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'https://www.example.com/pricing' } })
+  const brand = screen.getByRole('textbox', { name: 'Brand name' }) as HTMLInputElement
+  // A suggestion shown as text would be appended to by typing.
+  expect(brand.value).toBe('')
+  // The brand people would say, not the domain.
+  expect(brand.placeholder).toBe('Example')
+  fireEvent.change(brand, { target: { value: 'Example' } })
+  expect(brand.value).toBe('Example')
+  // Clearing the field leaves it empty; the suggestion does not come back as text.
+  fireEvent.change(brand, { target: { value: '' } })
+  expect(brand.value).toBe('')
+  fireEvent.click(screen.getByText('Project details'))
+  const projectName = screen.getByRole('textbox', { name: 'Project name' }) as HTMLInputElement
+  expect(projectName.value).toBe('')
+  expect(projectName.placeholder).toBe('example-com')
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+  // Fields left blank use the names derived from the website.
+  await waitFor(() => expect(nonTelemetryWrites(api.requests)).toEqual(['POST /api/v1/projects']))
+  const create = api.requests.find(request => request.method === 'POST' && request.path === '/api/v1/projects')!
+  expect(JSON.parse(create.body!)).toMatchObject({ name: 'example-com', displayName: 'Example', canonicalDomain: 'example.com' })
 })
 
-test('the finish step shows a sweep still running as in progress', async () => {
-  onTestFinished(mockFetch((url) => {
-    const path = pathOf(url)
-    if (path.startsWith('/api/v1/projects/example-com/runs?kind=site-audit')) {
-      return jsonResponse([{ id: 'scan', projectId: 'p', kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' }])
-    }
-    if (path.startsWith('/api/v1/projects/example-com/runs?kind=answer-visibility')) {
-      return jsonResponse([{ id: 'sweep', projectId: 'p', kind: 'answer-visibility', status: 'running', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' }])
-    }
-    return jsonResponse([])
-  }))
-
-  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
-
-  const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
-  await waitFor(() => {
-    expect(within(progress).getByText('AI Visibility').closest('li')?.textContent).toContain('In progress')
+test('a name collision opens Project details on the name to change and links the project that holds it', async () => {
+  // Stored before names were normalized; the server still compares it as example-com.
+  const legacy = projectDto({ id: 'project-legacy', name: 'Example.com', displayName: 'Example', canonicalDomain: 'example.com' })
+  const api = mockSetupApi({
+    projects: [legacy],
+    create: () => jsonResponse({ error: { code: 'ALREADY_EXISTS', message: "Project 'example-com' already exists" } }, 409),
   })
-  expect(within(progress).getAllByText('Complete')).toHaveLength(2)  // scan + page health
-  expect(screen.getByRole('status').textContent).toBe('AI Visibility check running.')
+  await renderSetup('/setup?experience=platform', { dashboardProjects: [legacy.name] })
+
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'example.com' } })
+  const details = screen.getByText('Project details').closest('details')!
+  expect(details.open).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+  const message = 'A project with this name already exists. Change the project name, or open the existing project.'
+  expect((await screen.findByRole('alert')).textContent).toContain(message)
+  const projectName = screen.getByRole('textbox', { name: 'Project name', description: message })
+  expect(details.open).toBe(true)
+  expect(document.activeElement).toBe(projectName)
+  expect(projectName.getAttribute('aria-invalid')).toBe('true')
+  expect((await screen.findByRole('link', { name: 'Open Example.com' })).getAttribute('href')).toBe('/projects/Example.com')
+  // The collision starts nothing else, and the funnel records the block.
+  expect(nonTelemetryWrites(api.requests)).toEqual(['POST /api/v1/projects'])
+  await waitFor(() => expect(api.events.find(event => event.event === 'onboarding.blocked')).toBeDefined())
+  expect(onboardingTelemetryEventSchema.parse(api.events.find(event => event.event === 'onboarding.blocked'))).toMatchObject({ step: 'project', action: 'save', surface: 'platform' })
+
+  // A new name gets its own answer on submit, so the stale collision clears.
+  fireEvent.change(projectName, { target: { value: 'example-two' } })
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.queryByRole('link', { name: /^Open / })).toBeNull()
+  expect(projectName.getAttribute('aria-invalid')).toBe('false')
 })
 
-test('the finish step shows a running scan as in progress, not complete', async () => {
-  onTestFinished(mockFetch((url) => {
-    const path = pathOf(url)
-    if (path.startsWith('/api/v1/projects/example-com/runs?kind=site-audit')) {
-      return jsonResponse([{ id: 'run_1', projectId: 'project-example', kind: 'site-audit', status: 'running', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' }])
-    }
-    if (path.startsWith('/api/v1/projects/example-com/runs?kind=answer-visibility')) {
-      return jsonResponse([{ id: 'sweep_1', projectId: 'project-example', kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' }])
-    }
-    return jsonResponse([])
-  }))
-
-  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
-
-  const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
-  await waitFor(() => {
-    expect(within(progress).getAllByText('In progress')).toHaveLength(2)
+test('on a first run, a create that lost a race keeps its conflict on screen instead of opening the winner', async () => {
+  const winner = projectDto({ id: 'project-winner', name: 'example-com', displayName: 'Example', canonicalDomain: 'example.com' })
+  let listed: ProjectFixture[] = []
+  mockSetupApi({
+    listProjects: () => jsonResponse(listed),
+    create: () => {
+      // Another session created the same project a moment earlier.
+      listed = [winner]
+      return jsonResponse({ error: { code: 'ALREADY_EXISTS', message: "Project 'example-com' already exists" } }, 409)
+    },
   })
-  // Only AI Visibility, which this URL does not mark skipped, reads complete.
-  expect(within(progress).getAllByText('Complete')).toHaveLength(1)
-  expect(within(progress).getByText('AI Visibility').closest('li')?.textContent).toContain('Complete')
+  const { router } = await renderSetup('/setup')
+
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'example.com' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+  expect((await screen.findByRole('alert')).textContent).toContain('A project with this name already exists.')
+  // The list reread after the conflict now holds exactly one project; the page
+  // keeps the form and its recovery link instead of redirecting to that project.
+  expect((await screen.findByRole('link', { name: 'Open example-com' })).getAttribute('href')).toBe('/projects/example-com')
+  expect(screen.getByRole('heading', { level: 1, name: 'Set up Canonry' })).toBeTruthy()
+  expect(router.state.location.href).toBe('/setup')
 })
 
-test('the finish step records its view and each next action once, inside the existing events', async () => {
-  const events: Array<Record<string, unknown>> = []
-  onTestFinished(mockFetch((url, init) => {
-    if (pathOf(url) === '/api/v1/telemetry/onboarding') {
-      events.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
-      return jsonResponse({ accepted: true }, 202)
-    }
-    return jsonResponse([])
-  }))
+test('keeps unsaved website fields through a reload until they are reset', async () => {
+  mockSetupApi()
+  await renderSetup('/setup')
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'cedar.example' } })
+  fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'CA' } })
+  fireEvent.change(screen.getByLabelText('Language'), { target: { value: 'fr' } })
+  cleanup()
 
-  const { router } = await renderSetup('/setup?onboarding=complete&setupProject=example-com')
-  const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(undefined)
-  onTestFinished(() => navigate.mockRestore())
-  await waitFor(() => {
-    expect(events.filter(event => event.event === 'onboarding.started')).toHaveLength(1)
-  })
-  // New step VALUE, never a new event NAME: the collector drops unknown names.
-  expect(events[0]).toMatchObject({ event: 'onboarding.started', step: 'finish', resumed: false, surface: 'platform', flowVersion: 1 })
+  await renderSetup('/setup')
+  expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('cedar.example')
+  expect((screen.getByLabelText('Country') as HTMLSelectElement).value).toBe('CA')
+  expect((screen.getByLabelText('Language') as HTMLSelectElement).value).toBe('fr')
+  fireEvent.click(screen.getByRole('button', { name: 'Reset unsaved fields' }))
+  expect((screen.getByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('')
+  expect(screen.queryByRole('button', { name: 'Reset unsaved fields' })).toBeNull()
+  cleanup()
 
-  // Keep the page mounted so a repeated click exercises telemetry deduplication.
-  fireEvent.click(screen.getByText('Connect data sources'))
-  const trafficLink = screen.getByRole('link', { name: 'Connect server-side traffic' })
-  fireEvent.click(trafficLink)
-  fireEvent.click(trafficLink)
-  fireEvent.click(screen.getByRole('link', { name: 'Set a schedule' }))
-  await waitFor(() => {
-    expect(events.filter(event => event.event === 'onboarding.step_completed')).toHaveLength(2)
-  })
-  const actions = events.filter(event => event.event === 'onboarding.step_completed')
-  expect(actions.map(event => event.nextAction)).toEqual(['connect_server_traffic', 'set_schedule'])
-  for (const action of actions) {
-    expect(action).toMatchObject({ step: 'finish', method: 'manual', surface: 'platform' })
-  }
-  // Nothing identifying rides along: no URL, project, or domain.
-  expect(JSON.stringify(events)).not.toContain('example-com')
-})
-
-async function siteHealthStartEvent(markHandoff: boolean) {
-  const events: Array<Record<string, unknown>> = []
-  onTestFinished(mockFetch((url, init) => {
-    const path = pathOf(url)
-    if (path === '/api/v1/telemetry/onboarding') {
-      events.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
-      return jsonResponse({ accepted: true }, 202)
-    }
-    if (path === '/api/v1/projects') return jsonResponse([AUTO_RESUME_PROJECT])
-    return jsonResponse([])
-  }))
-  window.sessionStorage.removeItem('canonry.onboarding-handoff.v1')
-  if (markHandoff) markOnboardingHandoff('run_handed_over')
-  await renderSetup('/setup?onboarding=site-health&setupProject=example-com&siteHealthRunId=run_handed_over')
-  await waitFor(() => {
-    expect(events.some(event => event.event === 'onboarding.started' && event.step === 'run')).toBe(true)
-  })
-  return events.find(event => event.event === 'onboarding.started' && event.step === 'run')
-}
-
-test('a scan the launchpad just handed over is a fresh start, not a resume', async () => {
-  expect(await siteHealthStartEvent(true)).toMatchObject({ surface: 'site_health', resumed: false })
-  // The marker is spent on arrival, so the next visit to the same run resumes.
-  await waitFor(() => expect(isOnboardingHandoff('run_handed_over')).toBe(false))
-})
-
-test('arriving at a scan without the launchpad hand-off is a resume', async () => {
-  // A reload, the serve banner URL, or the auto-resume redirect.
-  expect(await siteHealthStartEvent(false)).toMatchObject({ surface: 'site_health', resumed: true })
-})
-
-test('resolveAutoResumeTarget agrees with the serve banner', () => {
-  const projects = [
-    { id: 'a', name: 'alpha', createdAt: '2026-01-01T00:00:00.000Z' },
-    { id: 'b', name: 'bravo', createdAt: '2026-01-02T00:00:00.000Z' },
-  ] as unknown as Parameters<typeof resolveAutoResumeTarget>[0]
-
-  // Nothing scanned: the oldest project, and no run to pin.
-  expect(resolveAutoResumeTarget(projects, [])).toEqual({ projectName: 'alpha', runId: undefined })
-
-  // The first UNSCANNED one, exactly like `buildServeOpenLine`.
-  expect(resolveAutoResumeTarget(projects, [
-    { id: 'r1', projectId: 'a', status: 'completed', trigger: 'manual' },
-  ])).toEqual({ projectName: 'bravo', runId: undefined })
-
-  // Everything scanned: no redirect at all.
-  expect(resolveAutoResumeTarget(projects, [
-    { id: 'r1', projectId: 'a', status: 'completed', trigger: 'manual' },
-    { id: 'r2', projectId: 'b', status: 'partial', trigger: 'scheduled' },
-  ])).toBeNull()
-
-  // A probe is not a scan the operator asked for, so it neither marks the
-  // project scanned nor gets pinned. The newest non-probe run wins.
-  expect(resolveAutoResumeTarget(projects, [
-    { id: 'r_probe', projectId: 'a', status: 'completed', trigger: 'probe' },
-    { id: 'r_failed', projectId: 'a', status: 'failed', trigger: 'manual' },
-  ])).toEqual({ projectName: 'alpha', runId: 'r_failed' })
-})
-
-test('an explicit Site Health handoff wins over the configured legacy surface and resumes the exact run', async () => {
-  const restore = mockFetch((url) => {
-    if (pathOf(url) === '/api/v1/projects') {
-      return jsonResponse([{
-        id: 'project-example',
-        name: 'example-com',
-        displayName: 'Example',
-        canonicalDomain: 'example.com',
-        ownedDomains: [], aliases: [], country: 'US', language: 'en', tags: [], labels: {},
-        providers: [], providerModels: {}, locations: [], defaultLocation: null,
-        measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
-        autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
-      }])
-    }
-    return jsonResponse([])
-  })
-  onTestFinished(restore)
-
-  const { router } = await renderSetup('/setup?onboarding=site-health&setupProject=example-com&siteHealthRunId=site-audit-1')
-
-  expect(await screen.findByRole('region', { name: 'Explicit Site Health' })).toBeTruthy()
-  expect(screen.getByText('example-com:project-example:site-audit-1:true')).toBeTruthy()
-  expect(screen.queryByText('Step 2 of 5')).toBeNull()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Release initial scan' }))
-  await waitFor(() => {
-    expect(router.state.location.search).toMatchObject({
-      onboarding: 'site-health',
-      setupProject: 'example-com',
-    })
-    expect(router.state.location.search).not.toHaveProperty('siteHealthRunId')
-  })
-
-  fireEvent.click(screen.getByRole('button', { name: 'Continue onboarding' }))
-  await waitFor(() => {
-    expect(router.state.location.pathname).toBe('/setup')
-    expect(router.state.location.search).toMatchObject({
-      experience: 'legacy',
-      setupProject: 'example-com',
-      onboarding: 'site-health',
-    })
-    expect(router.state.location.search).not.toHaveProperty('siteHealthRunId')
-  })
-})
-
-test('the explicit Site Health handoff never falls back to a different project', async () => {
-  const restore = mockFetch((url) => pathOf(url) === '/api/v1/projects'
-    ? jsonResponse([{
-        id: 'project-different',
-        name: 'different-project',
-        displayName: 'Different',
-        canonicalDomain: 'different.example',
-        ownedDomains: [], aliases: [], country: 'GB', language: 'fr', tags: [], labels: {},
-        providers: [], providerModels: {}, locations: [], defaultLocation: null,
-        measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
-        autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
-      }])
-    : jsonResponse([]))
-  onTestFinished(restore)
-
-  await renderSetup('/setup?onboarding=site-health&setupProject=missing-project&siteHealthRunId=site-audit-1')
-
-  expect(await screen.findByRole('heading', { name: 'Project not found' })).toBeTruthy()
-  expect(screen.getByText(/missing-project/)).toBeTruthy()
-  expect(screen.queryByRole('region', { name: 'Explicit Site Health' })).toBeNull()
-})
-
-test('a malformed AI Visibility handoff never falls back to the first project', async () => {
-  await renderSetup('/setup?experience=legacy&onboarding=site-health', {
-    mappedProjectName: 'different-project',
-  })
-
-  expect(await screen.findByRole('heading', { name: 'Project not found' })).toBeTruthy()
-  expect(screen.getByText('This setup link does not identify a project.')).toBeTruthy()
-  expect(screen.queryByText('Step 3 of 5')).toBeNull()
-})
-
-test('the explicit Site Health handoff can be skipped to the finish step', async () => {
-  const restore = mockFetch((url) => pathOf(url) === '/api/v1/projects'
-    ? jsonResponse([{
-        id: 'project-example',
-        name: 'example-com',
-        displayName: 'Example',
-        canonicalDomain: 'example.com',
-        ownedDomains: [], aliases: [], country: 'US', language: 'en', tags: [], labels: {},
-        providers: [], providerModels: {}, locations: [], defaultLocation: null,
-        measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
-        autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
-      }])
-    : jsonResponse([]))
-  onTestFinished(restore)
-
-  const { router } = await renderSetup('/setup?onboarding=site-health&setupProject=example-com&siteHealthRunId=site-audit-1')
-  fireEvent.click(await screen.findByRole('button', { name: 'Skip onboarding' }))
-
-  await waitFor(() => {
-    expect(router.state.location.pathname).toBe('/setup')
-    expect(router.state.location.search).toEqual({ onboarding: 'complete', setupProject: 'example-com', skipped: 'visibility' })
-  })
-  // Skipping still ends on the finish step, never cold in the project.
-  expect(await screen.findByRole('heading', { name: 'Project saved' })).toBeTruthy()
-})
-
-test('continues a mapped project into focused AI Visibility setup', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  const restore = mockFetch((url) => {
-    if (pathOf(url) === '/api/v1/projects/example-com/queries') return jsonResponse([])
-    return jsonResponse({})
-  })
-  onTestFinished(restore)
-  await renderSetup('/setup?experience=legacy&onboarding=site-health&setupProject=example-com', {
-    mappedProjectName: 'example-com',
-  })
-
-  const heading = await screen.findByRole('heading', { name: 'Set up AI Visibility' })
-  expect(heading).toBeTruthy()
-  expect(document.activeElement).toBe(heading)
-  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
-  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
-  expect(screen.queryByRole('list', { name: 'Setup progress' })).toBeNull()
-  expect(screen.queryByText('System check')).toBeNull()
-  expect(screen.queryByText('Create project')).toBeNull()
-  expect(screen.queryByText('Competitors')).toBeNull()
-  const onboardingProgress = screen.getByRole('list', { name: 'Onboarding progress' })
-  expect(within(onboardingProgress).getByText('AI Visibility').closest('[aria-current="step"]')).toBeTruthy()
-  expect(screen.queryByRole('heading', { name: 'Scan your site' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Set up Advanced measurement instead' })).toBeNull()
-})
-
-test('does not resume another project when the Site Health handoff is stale', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  const restore = mockFetch(() => jsonResponse([]))
-  onTestFinished(restore)
-  const { resolveMappedProject } = await renderSetup('/setup?experience=legacy&setupProject=missing-project', {
-    mappedProjectName: 'different-project',
-  })
-
-  const heading = await screen.findByRole('heading', { name: 'Set up AI Visibility' })
-  expect(heading).toBeTruthy()
-  expect(document.activeElement).toBe(heading)
-  expect(screen.getByRole('heading', { name: 'Project not found' })).toBeTruthy()
-  expect(screen.queryByRole('list', { name: 'Setup progress' })).toBeNull()
-  expect(screen.getByRole('link', { name: 'View projects' }).getAttribute('href')).toBe('/projects')
-
-  fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-  resolveMappedProject('missing-project')
-
-  const resolvedHeading = await screen.findByRole('heading', { name: 'Set up AI Visibility' })
-  expect(resolvedHeading).not.toBe(heading)
-  expect(document.activeElement).toBe(resolvedHeading)
-  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
-})
-
-test('keeps the fresh-install launchpad focused until a project exists', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  await renderSetup()
-
-  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'View projects' })).toBeNull()
-})
-
-test('creates without a crawl and enters provider-free query setup for the exact project', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  const requests: Array<{ path: string; method: string }> = []
-  const restore = mockFetch((url, init) => {
-    const path = pathOf(url)
-    const method = init?.method ?? 'GET'
-    requests.push({ path, method })
-    if (path === '/api/v1/projects' && method === 'POST') {
-      return jsonResponse({
-        id: 'project-example',
-        name: 'example-com',
-        displayName: 'example.com',
-        canonicalDomain: 'example.com',
-        ownedDomains: [], aliases: [], country: 'GB', language: 'fr', tags: [], labels: {},
-        providers: [], providerModels: {}, locations: [], defaultLocation: null,
-        measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
-        autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
-      }, 201)
-    }
-    if (path === '/api/v1/projects/example-com/queries') return jsonResponse([])
-    return jsonResponse({})
-  })
-  onTestFinished(restore)
-  const { router } = await renderSetup('/setup', {
-    mappedProjectName: 'example-com',
-    providerReady: false,
-  })
-
-  const escape = await screen.findByRole('link', { name: 'Set up without a site scan' })
-  fireEvent.click(escape)
-
-  await waitFor(() => {
-    expect(router.state.location.pathname).toBe('/setup')
-    expect(router.state.location.search).toMatchObject({
-      experience: 'platform',
-      onboarding: 'first-run',
-      siteScan: 'skip',
-    })
-  })
-  expect(await screen.findByRole('heading', { name: 'Create a project' })).toBeTruthy()
-  expect(screen.getByText('No site scan will run.', { exact: false })).toBeTruthy()
-  expect(screen.queryByRole('checkbox', { name: /Allow Canonry to scan/i })).toBeNull()
-
-  fireEvent.change(screen.getByLabelText('Website URL'), { target: { value: 'https://www.example.com/pricing' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
-
-  expect(await screen.findByRole('heading', { name: 'Set up AI Visibility' })).toBeTruthy()
-  expect(await screen.findByRole('heading', { name: 'Add queries' })).toBeTruthy()
-  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
-  expect(screen.queryByRole('heading', { name: 'System check' })).toBeNull()
-  expect(router.state.location.search).toMatchObject({
-    experience: 'legacy',
-    onboarding: 'first-run',
-    setupProject: 'example-com',
-  })
-  expect(router.state.location.search).not.toHaveProperty('siteScan')
-  expect(requests.filter(request => request.path === '/api/v1/projects' && request.method === 'POST')).toHaveLength(1)
-  expect(requests.some(request => request.path.endsWith('/technical-aeo/runs') && request.method === 'POST')).toBe(false)
-})
-
-test('keeps the auto launchpad in an accessible loading state until the project list resolves', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
-  let resolveProjects: ((response: Response) => void) | undefined
-  const restore = mockFetch((url) => {
-    if (pathOf(url).startsWith('/api/v1/projects')) {
-      return new Promise<Response>((resolve) => { resolveProjects = resolve })
-    }
-    return jsonResponse({})
-  })
-  onTestFinished(restore)
-
-  await renderSetup()
-
-  expect((await screen.findByRole('status')).textContent).toContain('Loading projects')
-  resolveProjects?.(jsonResponse([]))
-  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
-})
-
-test('auto waits for a successful authoritative empty project list before showing the launchpad', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
-  const restore = mockFetch((url) => {
-    if (pathOf(url).startsWith('/api/v1/projects')) return jsonResponse([])
-    return jsonResponse({})
-  })
-  onTestFinished(restore)
-
-  await renderSetup()
-
-  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
-  expect(screen.getByText('Enter your public website to see its pages, structure, internal links, and Technical AEO scores.')).toBeTruthy()
-  const setupForm = screen.getByRole('form', { name: 'Scan your site' })
-  const agentOption = screen.getByRole('region', { name: 'Use your agent instead' })
-  expect(Boolean(setupForm.compareDocumentPosition(agentOption) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
-  expect(screen.getByText('Connect your agent to this instance, or copy a request for a new local installation.')).toBeTruthy()
-  expect(within(agentOption).getByRole('link', { name: 'Agent setup' }).getAttribute('href')).toBe('/agent-setup')
-  const agentGuide = screen.getByRole('link', { name: /Agent quickstart/i })
-  expect(agentGuide.getAttribute('href')).toBe(AGENT_SETUP_GUIDE_URL)
-  expect(agentGuide.getAttribute('target')).toBe('_blank')
-  expect(agentGuide.getAttribute('rel')).toContain('noopener')
-  expect(agentGuide.getAttribute('rel')).toContain('noreferrer')
-  expect(screen.getByLabelText('Website URL')).toHaveProperty('required', true)
-  expect(screen.getByText('Only public pages are scanned.')).toBeTruthy()
-  expect(screen.getByText('Project name and locale')).toBeTruthy()
-  expect(screen.getByText('United States · English')).toBeTruthy()
-  const crawlApproval = screen.getByRole('checkbox', {
-    name: 'Allow Canonry to scan this public site.',
-  })
-  expect(crawlApproval).toBeTruthy()
-  // Detail moved into a tooltip: the consent line states the ask and nothing else.
-  expect(crawlApproval.getAttribute('aria-describedby')).toBeNull()
-  expect(screen.getByLabelText(/Public pages only, crawled from this computer/)).toBeTruthy()
-  expect(screen.getByLabelText(/Public pages only, crawled from this computer/)).toBeTruthy()
-  expect(screen.queryByText('Allow Canonry to scan this public site and follow internal links.')).toBeNull()
-  expect(screen.getByRole('button', { name: 'Scan site' })).toBeTruthy()
-  const onboardingProgress = screen.getByRole('list', { name: 'Onboarding progress' })
-  expect(within(onboardingProgress).getByText('Scan site').closest('[aria-current="step"]')).toBeTruthy()
-  expect(within(onboardingProgress).getByText('AI Visibility')).toBeTruthy()
-  expect(within(onboardingProgress).getByText('Optional')).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Copy new-install request' }).getAttribute('type')).toBe('button')
-  expect(screen.queryByText(/The crawl does not call answer providers/i)).toBeNull()
-  expect(screen.queryByText(/Aero is enabled/i)).toBeNull()
-  expect(screen.queryByText(/configured agent provider/i)).toBeNull()
-  expect(screen.queryByText('Start with a publicly reachable site.')).toBeNull()
-})
-
-test('the launchpad form stays compact beside a mouse and gives each control a 44px target under a finger', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  onTestFinished(mockFetch(() => jsonResponse({})))
-  await renderSetup()
-
-  const targets = [
-    await screen.findByLabelText('Website URL'),
-    screen.getByText('Project name and locale').closest('summary')!,
-    screen.getByRole('button', { name: 'Scan site' }),
-  ]
-  expect(await minHeights(targets)).toEqual([[0, 44, 44], [36, 44, 44], [0, 44, 44]])
+  await renderSetup('/setup')
+  expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('')
+  expect((screen.getByLabelText('Country') as HTMLSelectElement).value).toBe('US')
 })
 
 test('offers accessible supported locale selects with exact API codes', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  const restore = mockFetch(() => jsonResponse({}))
-  onTestFinished(restore)
-  await renderSetup()
+  mockSetupApi()
+  await renderSetup('/setup')
 
-  await screen.findByLabelText('Website URL')
-  fireEvent.click(screen.getByText('Project name and locale'))
+  await screen.findByRole('textbox', { name: 'Website URL' })
+  fireEvent.click(screen.getByText('Project details'))
   const country = screen.getByRole('combobox', { name: 'Country' }) as HTMLSelectElement
   const language = screen.getByRole('combobox', { name: 'Language' }) as HTMLSelectElement
 
@@ -923,19 +495,172 @@ test('offers accessible supported locale selects with exact API codes', async ()
   expect(screen.getByText('United Kingdom · French')).toBeTruthy()
 })
 
-test.each([false, true])('hides internal telemetry after operator denial without blocking setup (cached: %s)', async cached => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  let allowed = cached
-  const restore = mockFetch(async url => {
-    const path = pathOf(url)
-    if (path === '/api/v1/telemetry') return allowed
-      ? jsonResponse({ enabled: true, anonymousId: 'abcd1234...' })
-      : jsonResponse({ error: { code: 'FORBIDDEN', message: 'Host-approved operator required.' } }, 403)
-    if (path === '/api/v1/telemetry/onboarding') return jsonResponse({ accepted: true }, 202)
-    return jsonResponse({})
+const COARSE = '@media (pointer: coarse)'
+const BELOW_MD = '@media (width < 48rem)'
+/** Each element's compiled min-height in px beside a desktop mouse, on a narrow screen and under a finger; 0 where none is set. */
+async function minHeights(elements: Element[]) {
+  const rules = parseCompiledCss(await compileAppStyles(elements.flatMap(element => [...element.classList])))
+  return elements.map(element => [undefined, BELOW_MD, COARSE].map(context => {
+    const value = compiledElementProperty(rules, element, 'min-height', context)
+    return value === undefined ? 0 : cssLengthPx(value, rules)
+  }))
+}
+
+test('the website form stays compact beside a mouse and gives each control a 44px target under a finger', async () => {
+  mockSetupApi()
+  await renderSetup('/setup')
+
+  const targets = [
+    await screen.findByRole('textbox', { name: 'Website URL' }),
+    screen.getByText('Project details').closest('summary')!,
+    screen.getByRole('button', { name: 'Continue' }),
+  ]
+  expect(await minHeights(targets)).toEqual([[0, 44, 44], [36, 44, 44], [0, 44, 44]])
+})
+
+test('every website field shares the one input style, with none set apart', async () => {
+  mockSetupApi()
+  await renderSetup('/setup')
+
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'example.com' } })
+  fireEvent.click(screen.getByText('Project details'))
+  const fields = ['Website URL', 'Brand name', 'Project name', 'Country', 'Language'].map(label => screen.getByLabelText(label))
+  const rules = parseCompiledCss(await compileAppStyles(fields.flatMap(field => [...field.classList])))
+  const looks = fields.map((field) => {
+    const property = (name: string, context?: string) => compiledElementProperty(rules, field, name, context)
+    return {
+      height: cssLengthPx(property('height') ?? '0', rules),
+      border: property('border-color'),
+      background: property('background-color'),
+      // 16px below md so a phone does not zoom into the field on focus.
+      text: [property('font-size'), property('font-size', BELOW_MD)],
+    }
   })
-  onTestFinished(restore)
-  const { queryClient } = await renderSetup()
+  // The shared field's resting edge; its stronger focus edge is pinned in design-tokens.test.ts.
+  const shared = { height: 40, border: 'var(--color-border-base)', background: 'var(--color-bg)', text: ['14px', '16px'] }
+  expect(looks).toEqual([shared, shared, shared, shared, shared])
+  expect(await minHeights(fields)).toEqual([[0, 44, 44], [0, 44, 44], [0, 44, 44], [0, 44, 44], [0, 44, 44]])
+})
+
+// ── A project's setup ──
+
+test.each([
+  { pathname: '/setup?project=example-com', title: 'Project setup' },
+  { pathname: '/setup?project=example-com&onboarding=first-run', title: 'Set up Canonry' },
+  // Links from before the tracker named their project in first-run setup.
+  { pathname: '/setup?onboarding=site-health&setupProject=example-com&siteHealthRunId=scan-1', title: 'Set up Canonry' },
+  { pathname: '/setup?onboarding=complete&setupProject=example-com&skipped=visibility', title: 'Set up Canonry' },
+])('$pathname opens the project’s setup tracker', async ({ pathname, title }) => {
+  // Two projects, so only the link itself can name the one to open.
+  const api = mockSetupApi({ projects: [EXAMPLE, HARBOR] })
+  const { router } = await renderSetup(pathname, { dashboardProjects: [EXAMPLE.name, HARBOR.name] })
+
+  expect(await screen.findByText('Example · example.com')).toBeTruthy()
+  expect(router.state.location.href).toBe(pathname)
+  expect(screen.getByRole('heading', { level: 1, name: title })).toBeTruthy()
+  expect(within(rowOf('Agent Readiness')).getByText('Not started')).toBeTruthy()
+  expect(screen.queryByRole('textbox', { name: 'Website URL' })).toBeNull()
+  // Opening setup starts nothing.
+  expect(nonTelemetryWrites(api.requests)).toEqual([])
+})
+
+test('a link to the AI Visibility row opens its panel at the step the server says comes next', async () => {
+  // A fresh project has no queries yet, so the panel opens on them.
+  mockSetupApi({ projects: [EXAMPLE] })
+  await renderSetup('/setup?project=example-com&track=ai-visibility', { dashboardProjects: [EXAMPLE.name] })
+
+  const ai = await findRow('AI Visibility')
+  expect(await within(ai).findByRole('heading', { level: 3, name: 'Add queries' })).toBeTruthy()
+  expect(await within(ai).findByRole('textbox', { name: 'Queries (one per line)' })).toBeTruthy()
+})
+
+// ── The established wizard, kept as a rescue path ──
+
+test.each([
+  { mode: 'platform', pathname: '/setup?experience=legacy' },
+  { mode: 'legacy', pathname: '/setup' },
+] as const)('$pathname with the $mode onboarding mode opens the established wizard', async ({ mode, pathname }) => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: mode } }
+  mockSetupApi()
+  await renderSetup(pathname)
+
+  expect(await screen.findByRole('heading', { level: 1, name: 'Setup' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Create project' })).toBeTruthy()
+  expect(screen.queryByRole('textbox', { name: 'Website URL' })).toBeNull()
+})
+
+test.each(['project', 'setupProject'])('the established wizard sets up AI Visibility for the project its %s names', async param => {
+  mockSetupApi({ projects: [EXAMPLE] })
+  await renderSetup(`/setup?experience=legacy&${param}=example-com`, { dashboardProjects: [EXAMPLE.name] })
+
+  const heading = await screen.findByRole('heading', { level: 1, name: 'Set up AI Visibility' })
+  expect(document.activeElement).toBe(heading)
+  expect(screen.getByRole('heading', { level: 2, name: 'Add queries' })).toBeTruthy()
+  expect(screen.queryByRole('region', { name: 'Setup progress' })).toBeNull()
+})
+
+test('the established wizard never falls back to another project when the one it names is missing', async () => {
+  mockSetupApi()
+  const { rerenderDashboard } = await renderSetup('/setup?experience=legacy&project=missing-project', { dashboardProjects: ['different-project'] })
+
+  const heading = await screen.findByRole('heading', { level: 1, name: 'Set up AI Visibility' })
+  expect(document.activeElement).toBe(heading)
+  expect(screen.getByRole('heading', { name: 'Project not found' })).toBeTruthy()
+  expect(screen.getByText(/could not find missing-project/)).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'View projects' }).getAttribute('href')).toBe('/projects')
+  expect(screen.queryByRole('heading', { name: 'Add queries' })).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  rerenderDashboard(['missing-project'])
+
+  const resolvedHeading = await screen.findByRole('heading', { level: 1, name: 'Set up AI Visibility' })
+  expect(resolvedHeading).not.toBe(heading)
+  expect(document.activeElement).toBe(resolvedHeading)
+  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
+})
+
+// ── Telemetry preference ──
+
+/**
+ * A dashboard built with its own API key signs requests with that key, the
+ * only way a browser can present an operator credential; otherwise requests
+ * carry the session cookie, which the server never treats as an operator.
+ */
+function signWithBrowserKey() {
+  vi.stubEnv('VITE_API_KEY', 'test-browser-key')
+  onTestFinished(() => { vi.unstubAllEnvs() })
+}
+
+test.each([
+  { scenario: 'a cookie session in first setup', key: false, pathname: '/setup', projects: [] as ProjectFixture[], title: 'Set up Canonry' },
+  { scenario: 'an operator key adding a project', key: true, pathname: '/setup?experience=platform', projects: [EXAMPLE], title: 'Add a project' },
+])('$scenario never asks for operator-only telemetry', async ({ key, pathname, projects, title }) => {
+  if (key) signWithBrowserKey()
+  const api = mockSetupApi({
+    projects,
+    // Answered as it would be for an operator, so only the page decides whether it is read.
+    route: path => path === '/api/v1/telemetry' ? jsonResponse({ enabled: true, anonymousId: 'abcd1234...' }) : undefined,
+  })
+  const { queryClient } = await renderSetup(pathname, { dashboardProjects: projects.map(project => project.name) })
+
+  expect(await screen.findByRole('heading', { level: 1, name: title })).toBeTruthy()
+  await waitFor(() => expect(api.events.some(event => event.event === 'onboarding.started')).toBe(true))
+  expect(queryClient.getQueryState(getApiV1TelemetryQueryKey({ client: heyClient }))).toMatchObject({ status: 'pending', fetchStatus: 'idle' })
+  expect(api.requests.map(request => request.path)).not.toContain('/api/v1/telemetry')
+  expect(screen.queryByRole('checkbox', { name: /Share anonymous product telemetry/ })).toBeNull()
+})
+
+test.each([false, true])('hides internal telemetry after operator denial without blocking setup (cached: %s)', async cached => {
+  signWithBrowserKey()
+  let allowed = cached
+  mockSetupApi({
+    route: path => path !== '/api/v1/telemetry'
+      ? undefined
+      : allowed
+        ? jsonResponse({ enabled: true, anonymousId: 'abcd1234...' })
+        : jsonResponse({ error: { code: 'FORBIDDEN', message: 'Host-approved operator required.' } }, 403),
+  })
+  const { queryClient } = await renderSetup('/setup')
   const key = getApiV1TelemetryQueryKey({ client: heyClient })
   if (cached) {
     await screen.findByRole('checkbox', { name: /Share anonymous product telemetry/ })
@@ -944,31 +669,28 @@ test.each([false, true])('hides internal telemetry after operator denial without
   }
   await waitFor(() => expect(queryClient.getQueryState(key)?.status).toBe('error'))
   expect(screen.queryByRole('checkbox', { name: /Share anonymous product telemetry/ })).toBeNull()
-  expect(screen.getByLabelText('Website URL')).toBeTruthy()
+  expect(screen.getByRole('textbox', { name: 'Website URL' })).toBeTruthy()
 })
 
 function mockTelemetryPreferences(initialEnabled: boolean, update?: (enabled: boolean) => Response | Promise<Response>) {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
+  signWithBrowserKey()
   let serverEnabled = initialEnabled
   const updates: boolean[] = []
-  const restore = mockFetch(async (url, init) => {
-    const path = pathOf(url)
-    if (path === '/api/v1/telemetry/onboarding') return jsonResponse({ accepted: true }, 202)
-    if (path === '/api/v1/telemetry' && (init?.method ?? 'GET') === 'GET') {
-      return jsonResponse({ enabled: serverEnabled, anonymousId: 'abcd1234...' })
-    }
-    if (path === '/api/v1/telemetry' && init?.method === 'PUT') {
-      const requested = (JSON.parse(String(init.body)) as { enabled: boolean }).enabled
-      updates.push(requested)
-      const response = update
-        ? await update(requested)
-        : jsonResponse({ enabled: requested, anonymousId: 'abcd1234...' })
-      if (response.ok) serverEnabled = ((await response.clone().json()) as { enabled: boolean }).enabled
-      return response
-    }
-    return jsonResponse({})
+  mockSetupApi({
+    route: (path, init) => {
+      if (path !== '/api/v1/telemetry') return undefined
+      if ((init?.method ?? 'GET') === 'GET') return jsonResponse({ enabled: serverEnabled, anonymousId: 'abcd1234...' })
+      return (async () => {
+        const requested = (JSON.parse(String(init?.body)) as { enabled: boolean }).enabled
+        updates.push(requested)
+        const response = update
+          ? await update(requested)
+          : jsonResponse({ enabled: requested, anonymousId: 'abcd1234...' })
+        if (response.ok) serverEnabled = ((await response.clone().json()) as { enabled: boolean }).enabled
+        return response
+      })()
+    },
   })
-  onTestFinished(restore)
   return {
     updates,
     setServerEnabled(enabled: boolean) { serverEnabled = enabled },
@@ -977,11 +699,11 @@ function mockTelemetryPreferences(initialEnabled: boolean, update?: (enabled: bo
 
 test('discloses the enabled fresh-install preference and toggles telemetry through its label in both directions', async () => {
   const server = mockTelemetryPreferences(true)
-  const { queryClient } = await renderSetup()
+  const { queryClient } = await renderSetup('/setup')
   const telemetryKey = getApiV1TelemetryQueryKey({ client: heyClient })
 
-  const control = await screen.findByRole('checkbox', { name: /Share anonymous product telemetry/ })
-  expect((control as HTMLInputElement).checked).toBe(true)
+  const control = await screen.findByRole('checkbox', { name: /Share anonymous product telemetry/ }) as HTMLInputElement
+  expect(control.checked).toBe(true)
   expect(screen.getByText(/does not send raw domains, URLs, queries, answer content, or credentials/i)).toBeTruthy()
   expect(server.updates).toEqual([])
 
@@ -990,21 +712,21 @@ test('discloses the enabled fresh-install preference and toggles telemetry throu
     enabled: false,
     anonymousId: 'abcd1234...',
   }))
-  expect((control as HTMLInputElement).checked).toBe(false)
-  await waitFor(() => expect((control as HTMLInputElement).disabled).toBe(false))
+  expect(control.checked).toBe(false)
+  await waitFor(() => expect(control.disabled).toBe(false))
 
   fireEvent.click(screen.getByText('Share anonymous product telemetry'))
   await waitFor(() => expect(queryClient.getQueryData(telemetryKey)).toEqual({
     enabled: true,
     anonymousId: 'abcd1234...',
   }))
-  expect((control as HTMLInputElement).checked).toBe(true)
+  expect(control.checked).toBe(true)
   expect(server.updates).toEqual([false, true])
 
   // A later server preference must replace the last mutation response.
   server.setServerEnabled(false)
   await queryClient.invalidateQueries({ queryKey: telemetryKey })
-  await waitFor(() => expect((control as HTMLInputElement).checked).toBe(false))
+  await waitFor(() => expect(control.checked).toBe(false))
   expect(queryClient.getQueryData(telemetryKey)).toEqual({
     enabled: false,
     anonymousId: 'abcd1234...',
@@ -1013,7 +735,7 @@ test('discloses the enabled fresh-install preference and toggles telemetry throu
 
 test('preserves an existing telemetry opt-out until the user chooses to enable it', async () => {
   const server = mockTelemetryPreferences(false)
-  const { queryClient } = await renderSetup()
+  const { queryClient } = await renderSetup('/setup')
   const control = await screen.findByRole('checkbox', { name: /Share anonymous product telemetry/ }) as HTMLInputElement
   expect(control.checked).toBe(false)
   expect(server.updates).toEqual([])
@@ -1030,7 +752,7 @@ test('preserves an existing telemetry opt-out until the user chooses to enable i
 test('shows the requested telemetry preference while saving and blocks duplicate label clicks', async () => {
   let resolveUpdate: ((response: Response) => void) | undefined
   const server = mockTelemetryPreferences(true, () => new Promise<Response>(resolve => { resolveUpdate = resolve }))
-  const { queryClient } = await renderSetup()
+  const { queryClient } = await renderSetup('/setup')
   const control = await screen.findByRole('checkbox', { name: /Share anonymous product telemetry/ }) as HTMLInputElement
   fireEvent.click(screen.getByText('Share anonymous product telemetry'))
 
@@ -1065,7 +787,7 @@ test('rolls back a rejected telemetry update and lets the user retry', async () 
     }
     return jsonResponse({ enabled, anonymousId: 'abcd1234...' })
   })
-  const { queryClient } = await renderSetup()
+  const { queryClient } = await renderSetup('/setup')
   const control = await screen.findByRole('checkbox', { name: /Share anonymous product telemetry/ }) as HTMLInputElement
   fireEvent.click(screen.getByText('Share anonymous product telemetry'))
 
@@ -1090,7 +812,7 @@ test('rolls back a rejected telemetry update and lets the user retry', async () 
 
 test('explains when server settings keep telemetry off after an enable request', async () => {
   const server = mockTelemetryPreferences(false, () => jsonResponse({ enabled: false, anonymousId: 'abcd1234...' }))
-  const { queryClient } = await renderSetup()
+  const { queryClient } = await renderSetup('/setup')
   const control = await screen.findByRole('checkbox', { name: /Share anonymous product telemetry/ }) as HTMLInputElement
   fireEvent.click(screen.getByText('Share anonymous product telemetry'))
 
@@ -1102,464 +824,4 @@ test('explains when server settings keep telemetry off after an enable request',
     enabled: false,
     anonymousId: 'abcd1234...',
   })
-})
-
-
-test('the README carries the same setup request the dashboard copies', () => {
-  // Two hand-maintained copies of the same instructions, and they had already
-  // drifted: the README's was missing the bounded page budget and the
-  // scan-reuse rule. Whichever one an operator finds has to be the live one.
-  // Walk up from the vitest cwd rather than `import.meta.url`, which is not a
-  // file URL in this environment.
-  let dir = resolve(process.cwd())
-  while (!existsSync(join(dir, 'pnpm-workspace.yaml')) && dirname(dir) !== dir) dir = dirname(dir)
-  const readme = readFileSync(join(dir, 'README.md'), 'utf8')
-  const fence = '```'
-  const start = readme.indexOf(`${fence}text\nHelp me set up Canonry for my public site.`)
-  expect(start).toBeGreaterThan(-1)
-  const body = readme.slice(start + fence.length + 'text\n'.length)
-  expect(body.slice(0, body.indexOf(`\n${fence}`))).toBe(AGENT_SETUP_REQUEST)
-})
-
-test('the setup request cannot strand an agent or point it at the wrong install', () => {
-  // Each of these is a failure a fresh agent actually hit when following an
-  // earlier version of this text.
-  // A connected tool cannot see a shell env var, so "prefer connected tools"
-  // silently acted on the operator's real install.
-  expect(AGENT_SETUP_REQUEST).toContain('never sees `CANONRY_CONFIG_DIR`')
-  // `bootstrap` is not interactive; handing it over and waiting deadlocks.
-  expect(AGENT_SETUP_REQUEST).toContain('run `cnry bootstrap` yourself')
-  expect(AGENT_SETUP_REQUEST).toContain('The interactive command is `cnry init`')
-  expect(AGENT_SETUP_REQUEST).not.toContain('tell me to run `cnry bootstrap`')
-  // `cnry --version` succeeds on an unconfigured install, so it cannot detect
-  // missing config; `doctor` is the command that can.
-  expect(AGENT_SETUP_REQUEST).toContain('cnry doctor --format json')
-  expect(AGENT_SETUP_REQUEST).toContain('does not read config')
-  // The product's own CONNECTION_ERROR text recommends the foreground command.
-  expect(AGENT_SETUP_REQUEST).toContain('not `cnry serve`, which runs in the foreground')
-  // `score` reports aggregateScore 0 with hasData false for a never-scanned
-  // project, which reads as a real score of zero.
-  expect(AGENT_SETUP_REQUEST).toContain('Read the `hasData` field, not the score')
-  // Neither `score` nor `pages` carries the termination reason.
-  expect(AGENT_SETUP_REQUEST).toContain('technical-aeo crawl')
-  expect(AGENT_SETUP_REQUEST).toContain('only one of these commands that carries `termination`')
-  // `--wait` gives up after 15 minutes and exits 0 with a non-terminal status,
-  // which must not read as a finished scan. Rerunning is the wrong recovery.
-  expect(AGENT_SETUP_REQUEST).toContain('polls for up to 15 minutes')
-  expect(AGENT_SETUP_REQUEST).toContain('the scan has not finished')
-  expect(AGENT_SETUP_REQUEST).not.toContain('no timeout')
-  expect(AGENT_SETUP_REQUEST).toContain('technical-aeo progress')
-  expect(AGENT_SETUP_REQUEST).toContain('do not rerun it')
-  // A time limit needs a SMALLER scan, which is the counterintuitive direction.
-  expect(AGENT_SETUP_REQUEST).toContain('a time limit needs a smaller scan')
-  expect(AGENT_SETUP_REQUEST).toContain('never present it as a full-site result')
-})
-
-test.each([true, false])('gives an agent a copyable setup request with resource links set to %s', async showResourceLinks => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform', showResourceLinks } }
-  const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
-  const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
-  Object.defineProperty(navigator, 'clipboard', {
-    configurable: true,
-    value: { writeText },
-  })
-  onTestFinished(() => {
-    if (clipboardDescriptor) {
-      Object.defineProperty(navigator, 'clipboard', clipboardDescriptor)
-    } else {
-      Reflect.deleteProperty(navigator, 'clipboard')
-    }
-  })
-
-  await renderSetup()
-  fireEvent.click(await screen.findByRole('button', { name: 'Copy new-install request' }))
-
-  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
-  if (showResourceLinks) {
-    expect(writeText).toHaveBeenCalledWith(AGENT_SETUP_REQUEST)
-    expect(screen.getByRole('link', { name: /Agent quickstart/i })).toBeTruthy()
-  } else {
-    expect(writeText.mock.calls[0]![0]).not.toContain('github.com')
-    expect(writeText.mock.calls[0]![0]).toContain('wait for separate approval before scanning')
-    expect(screen.queryByRole('link', { name: /Agent quickstart/i })).toBeNull()
-  }
-  expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent')
-  expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry/blob/main/skills/canonry/references/canonry-cli.md')
-  expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry/blob/main/docs/plugins.md')
-  expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry/blob/main/docs/mcp.md')
-  expect(AGENT_SETUP_REQUEST).toContain('cnry start')
-  expect(AGENT_SETUP_REQUEST).toContain('cnry project list --format json')
-  expect(AGENT_SETUP_REQUEST).toContain('npm install -g @canonry/canonry')
-  expect(AGENT_SETUP_REQUEST.indexOf('Ask for my public domain')).toBeLessThan(AGENT_SETUP_REQUEST.indexOf('cnry start'))
-  expect(AGENT_SETUP_REQUEST).toContain('wait for separate approval before scanning')
-  expect(AGENT_SETUP_REQUEST).toContain('--max-pages 100')
-  expect(AGENT_SETUP_REQUEST).toContain('never ask me to paste passwords, API keys, OAuth credentials, or command output')
-  expect(AGENT_SETUP_REQUEST).toContain('Tell me the termination reason in plain words')
-  expect(AGENT_SETUP_REQUEST).toContain('read that scan instead of starting a new one')
-  expect(screen.getByRole('button', { name: 'Copied new-install request' })).toBeTruthy()
-})
-
-test.each([true, false])('offers clipboard recovery with resource links set to %s', async showResourceLinks => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform', showResourceLinks } }
-  const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
-  Object.defineProperty(navigator, 'clipboard', {
-    configurable: true,
-    value: undefined,
-  })
-  onTestFinished(() => {
-    if (clipboardDescriptor) {
-      Object.defineProperty(navigator, 'clipboard', clipboardDescriptor)
-    } else {
-      Reflect.deleteProperty(navigator, 'clipboard')
-    }
-  })
-
-  await renderSetup()
-  fireEvent.click(await screen.findByRole('button', { name: 'Copy new-install request' }))
-
-  await waitFor(() => {
-    expect(getToasts()).toContainEqual(expect.objectContaining({
-      tone: 'negative',
-      title: 'Could not copy setup request',
-      detail: showResourceLinks ? 'Open the agent quickstart to continue with the CLI instead.' : 'Check your browser’s clipboard permission and try again.',
-    }))
-  })
-  expect(screen.queryByRole('button', { name: 'Copied new-install request' })).toBeNull()
-  expect(Boolean(screen.queryByRole('link', { name: /Agent quickstart/i }))).toBe(showResourceLinks)
-})
-
-test('auto confirms a cached empty project list after mount before showing the launchpad', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
-  let resolveProjects: ((response: Response) => void) | undefined
-  const restore = mockFetch((url) => {
-    if (pathOf(url) === '/api/v1/projects') {
-      return new Promise<Response>((resolve) => { resolveProjects = resolve })
-    }
-    return jsonResponse({})
-  })
-  onTestFinished(restore)
-
-  await renderSetup('/setup', { seedEmptyProjectsCache: true })
-
-  expect((await screen.findByRole('status')).textContent).toContain('Loading projects')
-  expect(screen.queryByRole('heading', { name: 'Scan your site' })).toBeNull()
-
-  resolveProjects?.(jsonResponse([]))
-  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
-})
-
-test('keeps typed launchpad input mounted through an in-flight shared project refetch', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
-  let projectListReads = 0
-  let resolveBackgroundRefetch: ((response: Response) => void) | undefined
-  const restore = mockFetch((url) => {
-    if (pathOf(url) === '/api/v1/projects') {
-      projectListReads += 1
-      if (projectListReads === 1) return jsonResponse([])
-      return new Promise<Response>((resolve) => {
-        resolveBackgroundRefetch = resolve
-      })
-    }
-    return jsonResponse({})
-  })
-  onTestFinished(restore)
-
-  const { queryClient } = await renderSetup()
-  const domain = await screen.findByLabelText('Website URL') as HTMLInputElement
-  fireEvent.change(domain, { target: { value: 'example.com' } })
-  const approval = screen.getByRole('checkbox', { name: /Allow Canonry/i }) as HTMLInputElement
-  fireEvent.click(approval)
-  domain.focus()
-
-  const refetch = queryClient.invalidateQueries({
-    queryKey: getApiV1ProjectsQueryKey({ client: heyClient }),
-  })
-  await waitFor(() => {
-    expect(resolveBackgroundRefetch).toBeTypeOf('function')
-  })
-
-  expect((screen.getByLabelText('Website URL') as HTMLInputElement).value).toBe('example.com')
-  expect((screen.getByRole('checkbox', { name: /Allow Canonry/i }) as HTMLInputElement).checked).toBe(true)
-  expect(document.activeElement).toBe(screen.getByLabelText('Website URL'))
-  expect(screen.queryByText('Loading projects…')).toBeNull()
-
-  resolveBackgroundRefetch?.(jsonResponse([]))
-  await refetch
-})
-
-test('auto shows a retry shell when the authoritative project-list read fails', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
-  let failed = true
-  const restore = mockFetch((url) => {
-    if (pathOf(url).startsWith('/api/v1/projects')) {
-      return failed
-        ? jsonResponse({ error: { message: 'temporary outage' } }, 503)
-        : jsonResponse([])
-    }
-    return jsonResponse({})
-  })
-  onTestFinished(restore)
-
-  await renderSetup()
-
-  expect(await screen.findByRole('heading', { name: /load projects/i })).toBeTruthy()
-  expect(screen.queryByRole('heading', { name: 'Scan your site' })).toBeNull()
-  expect(document.querySelector('.app-shell-focus')).toBeTruthy()
-  expect(document.querySelector('#desktop-sidebar')).toBeNull()
-  expect(document.querySelector('#mobile-nav')).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Open navigation' })).toBeNull()
-
-  failed = false
-  fireEvent.click(screen.getByRole('button', { name: 'Retry project check' }))
-  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
-})
-
-test('creates once, queues the canonical Site Health run, and hands off with exact URL state', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  const requests: Array<{ path: string; method: string; body: string }> = []
-  const restore = mockFetch(async (url, init) => {
-    const path = pathOf(url)
-    const method = init?.method ?? 'GET'
-    requests.push({ path, method, body: String(init?.body ?? '') })
-    if (path === '/api/v1/projects' && method === 'POST') {
-      return jsonResponse({
-        id: 'project-example',
-        name: 'example-com',
-        displayName: 'example.com',
-        canonicalDomain: 'example.com',
-        ownedDomains: [], aliases: [], country: 'US', language: 'en', tags: [], labels: {},
-        providers: [], providerModels: {}, locations: [], defaultLocation: null,
-        measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
-        autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
-      }, 201)
-    }
-    if (path === '/api/v1/projects/example-com/technical-aeo/runs' && method === 'POST') {
-      return jsonResponse({ runId: 'site-audit-1', status: 'queued' }, 202)
-    }
-    return jsonResponse([])
-  })
-  onTestFinished(restore)
-
-  const { router } = await renderSetup()
-  fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'https://www.example.com/pricing' } })
-  fireEvent.click(screen.getByText('Project name and locale'))
-  fireEvent.change(screen.getByRole('combobox', { name: 'Country' }), { target: { value: 'GB' } })
-  fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), { target: { value: 'fr' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: /Allow Canonry/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
-
-  await waitFor(() => {
-    expect(router.state.location.pathname).toBe('/setup')
-    expect(router.state.location.search).toMatchObject({
-      siteHealthRunId: 'site-audit-1',
-      onboarding: 'site-health',
-      setupProject: 'example-com',
-    })
-  })
-
-  expect(router.state.location.search).toMatchObject({
-    siteHealthRunId: 'site-audit-1',
-    onboarding: 'site-health',
-    setupProject: 'example-com',
-  })
-  expect(router.state.location.search).not.toHaveProperty('runId')
-  expect(getRunTrackerState().runs['site-audit-1']).toMatchObject({
-    projectId: 'project-example',
-    kind: 'site-audit',
-    sourceAction: 'site-audit',
-  })
-  const create = requests.find((request) => request.path === '/api/v1/projects')
-  expect(create).toMatchObject({ method: 'POST' })
-  expect(JSON.parse(create?.body ?? '{}')).toMatchObject({
-    name: 'example-com',
-    canonicalDomain: 'example.com',
-    country: 'GB',
-    language: 'fr',
-  })
-  const siteAudit = requests.find((request) => request.path.endsWith('/technical-aeo/runs') && request.method === 'POST')
-  expect(siteAudit).toBeDefined()
-  expect(JSON.parse(siteAudit?.body ?? '{}')).toEqual({ checkDeadLinks: true, maxPages: 100 })
-  // The hand-off is a first-run start, not a resume: the Site Health page's
-  // start event must say so (it once reported resumed on every hand-off).
-  await waitFor(() => {
-    const start = requests
-      .filter((request) => request.path === '/api/v1/telemetry/onboarding')
-      .map((request) => JSON.parse(request.body) as Record<string, unknown>)
-      .find((event) => event.surface === 'site_health' && event.event === 'onboarding.started')
-    expect(start).toMatchObject({ step: 'run', resumed: false })
-  })
-})
-
-test('preserves a created project with retry and setup recovery when dispatch fails', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  const restore = mockFetch((url, init) => {
-    const path = pathOf(url)
-    if (path === '/api/v1/projects' && init?.method === 'POST') {
-      return jsonResponse({
-        id: 'project-example', name: 'example-com', displayName: 'example.com', canonicalDomain: 'example.com',
-        ownedDomains: [], aliases: [], country: 'US', language: 'en', tags: [], labels: {}, providers: [], providerModels: {},
-        locations: [], defaultLocation: null, measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
-        autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
-      }, 201)
-    }
-    if (path.endsWith('/technical-aeo/runs') && init?.method === 'POST') {
-      return jsonResponse({ error: { message: 'worker unavailable' } }, 503)
-    }
-    return jsonResponse([])
-  })
-  onTestFinished(restore)
-
-  await renderSetup()
-  fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'example.com' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: /Allow Canonry/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
-
-  expect(await screen.findByRole('heading', { name: 'Project created' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Retry Site Health scan' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Continue setup' })).toBeTruthy()
-  expect(getToasts().filter((toast) => toast.tone === 'negative')).toHaveLength(0)
-})
-
-test('keeps auto mode on project-created recovery after the project list becomes non-empty', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
-  let created = false
-  const project = {
-    id: 'project-example', name: 'example-com', displayName: 'example.com', canonicalDomain: 'example.com',
-    ownedDomains: [], aliases: [], country: 'US', language: 'en', tags: [], labels: {}, providers: [], providerModels: {},
-    locations: [], defaultLocation: null, measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
-    autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
-  }
-  const restore = mockFetch((url, init) => {
-    const path = pathOf(url)
-    if (path === '/api/v1/projects' && init?.method === 'POST') {
-      created = true
-      return jsonResponse(project, 201)
-    }
-    if (path === '/api/v1/projects' && (init?.method ?? 'GET') === 'GET') {
-      return jsonResponse(created ? [project] : [])
-    }
-    if (path.endsWith('/technical-aeo/runs') && init?.method === 'POST') {
-      return jsonResponse({ error: { message: 'worker unavailable' } }, 503)
-    }
-    return jsonResponse([])
-  })
-  onTestFinished(restore)
-
-  await renderSetup()
-  fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'example.com' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: /Allow Canonry/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
-
-  expect(await screen.findByRole('heading', { name: 'Project created' })).toBeTruthy()
-  expect(screen.queryByText('Step 2 of 5')).toBeNull()
-})
-
-test('surfaces a create-only name collision and never starts a scan', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  const requests: string[] = []
-  const restore = mockFetch((url, init) => {
-    const path = pathOf(url)
-    requests.push(`${init?.method ?? 'GET'} ${path}`)
-    if (path === '/api/v1/projects' && init?.method === 'POST') {
-      return jsonResponse({ error: { message: 'Project already exists', code: 'ALREADY_EXISTS' } }, 409)
-    }
-    return jsonResponse([])
-  })
-  onTestFinished(restore)
-
-  await renderSetup()
-  fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'example.com' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: /Allow Canonry/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
-
-  expect(await screen.findByText(/project with this name already exists/i)).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'View projects' })).toBeTruthy()
-  expect(requests.some((request) => request.includes('technical-aeo/runs'))).toBe(false)
-})
-
-test('keeps auto mode on actionable conflict recovery after the project list becomes non-empty', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
-  let conflictReturned = false
-  const existingProject = {
-    id: 'project-existing', name: 'example-com', displayName: 'Example', canonicalDomain: 'example.com',
-    ownedDomains: [], aliases: [], country: 'US', language: 'en', tags: [], labels: {}, providers: [], providerModels: {},
-    locations: [], defaultLocation: null, measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
-    autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
-  }
-  const restore = mockFetch((url, init) => {
-    const path = pathOf(url)
-    if (path === '/api/v1/projects' && init?.method === 'POST') {
-      conflictReturned = true
-      return jsonResponse({ error: { message: 'Project already exists', code: 'ALREADY_EXISTS' } }, 409)
-    }
-    if (path === '/api/v1/projects') return jsonResponse(conflictReturned ? [existingProject] : [])
-    return jsonResponse([])
-  })
-  onTestFinished(restore)
-
-  await renderSetup()
-  fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'example.com' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: /Allow Canonry/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
-
-  expect(await screen.findByRole('button', { name: 'View projects' })).toBeTruthy()
-  expect(screen.queryByText('Step 2 of 5')).toBeNull()
-})
-
-
-test('retains public launchpad fields across reload without retaining scan consent and resets deliberately', async () => {
-  onTestFinished(mockFetch(() => jsonResponse([])))
-  await renderSetup('/setup?experience=platform')
-  fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'cedar.example' } })
-  fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'CA' } })
-  fireEvent.change(screen.getByLabelText('Language'), { target: { value: 'fr' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Allow Canonry to scan this public site.' }))
-  cleanup()
-  await renderSetup('/setup?experience=platform')
-  expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('cedar.example')
-  expect((screen.getByLabelText('Country') as HTMLSelectElement).value).toBe('CA')
-  expect((screen.getByLabelText('Language') as HTMLSelectElement).value).toBe('fr')
-  expect((screen.getByRole('checkbox', { name: 'Allow Canonry to scan this public site.' }) as HTMLInputElement).checked).toBe(false)
-  expect(screen.getByText(/First scan: up to 100 pages/)).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Reset draft' }))
-  cleanup()
-  await renderSetup('/setup?experience=platform')
-  expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('')
-  expect((screen.getByLabelText('Country') as HTMLSelectElement).value).toBe('US')
-})
-
-test.each([
-  { provider: false, queries: [], action: 'Connect an engine' },
-  { provider: true, queries: [], action: 'Add queries' },
-  { provider: true, queries: [{ id: 'q', query: 'where to stay' }], action: 'Start first check' },
-  { provider: undefined, queries: [{ id: 'q', query: 'where to stay' }], action: 'Continue setup' },
-])('completion routes to the actual next prerequisite without starting work: $action', async ({ provider, queries, action }) => {
-  const mutations: string[] = []
-  onTestFinished(mockFetch((url, init) => {
-    const path = pathOf(url)
-    if (init?.method && init.method !== 'GET') mutations.push(path)
-    if (path.endsWith('/measurement-setup')) return jsonResponse({ answerVisibilityProviderReady: provider })
-    if (path.endsWith('/queries')) return jsonResponse(queries)
-    return jsonResponse([])
-  }))
-  const { router } = await renderSetup('/setup?onboarding=complete&setupProject=example-com&skipped=visibility')
-  fireEvent.click(await screen.findByRole('link', { name: action }))
-  await waitFor(() => expect(router.state.location.search).toMatchObject({ experience: 'legacy', onboarding: 'first-run', setupProject: 'example-com' }))
-  expect(mutations.filter(path => path !== '/api/v1/telemetry/onboarding')).toEqual([])
-})
-
-test('a queued retry and partial scan keep earlier evidence available and never imply full coverage', async () => {
-  onTestFinished(mockFetch(url => {
-    const path = pathOf(url)
-    if (path.includes('/runs?kind=site-audit')) return jsonResponse([{ status: 'partial', trigger: 'manual' }])
-    if (path.includes('/runs?kind=answer-visibility')) return jsonResponse([{ status: 'completed', trigger: 'manual' }, { status: 'queued', trigger: 'manual' }])
-    return jsonResponse([])
-  }))
-  await renderSetup('/setup?onboarding=complete&setupProject=example-com&skipped=visibility')
-  const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
-  await waitFor(() => expect(within(progress).getAllByText('Partial results')).toHaveLength(2))
-  expect(within(progress).getByText('Queued')).toBeTruthy()
-  expect(screen.getByText('Earlier AI results remain available.')).toBeTruthy()
-  expect(screen.getByText('AI Visibility check queued.')).toBeTruthy()
-  expect(within(progress).queryByText('Skipped')).toBeNull()
 })

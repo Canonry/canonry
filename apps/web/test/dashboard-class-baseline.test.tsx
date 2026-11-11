@@ -180,11 +180,9 @@ test('overview route keeps the dark dashboard class baseline stable', async () =
     pageHeader: classFor(html, '.page-header'),
     pageTitle: classFor(html, '.page-title'),
     healthList: classFor(html, '.page-section > .divide-y'),
-    firstHealthPill: classFor(html, '.health-pill'),
   }).toMatchInlineSnapshot(`
     {
       "appShell": "app-shell ",
-      "firstHealthPill": "health-pill health-pill-ok",
       "healthList": "divide-y divide-default border-y border-default",
       "pageContainer": "page-container",
       "pageHeader": "page-header",
@@ -219,17 +217,17 @@ test('project route keeps the core metric and evidence class baseline stable', a
     projectContextMeta: classOrNull(html, '.project-context-meta'),
     projectContextActions: classFor(html, '.project-context-actions'),
     firstSectionDivider: classFor(html, '.page-section-divider'),
-    firstSectionCard: classFor(html, 'nav.project-subnav + .page-section-divider section'),
+    firstSectionCard: classFor(html, 'section.visibility-trend'),
     firstMetricFill: classOrNull(html, '.metric-card-bar-fill'),
     firstCard: classFor(html, '.overview-brief'),
     evidenceDisclosure: classFor(html, '#evidence-section'),
   }).toMatchInlineSnapshot(`
     {
       "evidenceDisclosure": "overview-disclosure page-section-divider scroll-mt-24",
-      "firstCard": "overview-brief",
+      "firstCard": "overview-brief max-w-2xl",
       "firstMetricFill": "metric-card-bar-fill progress-fill-caution",
       "firstSectionCard": "visibility-trend",
-      "firstSectionDivider": "page-section-divider",
+      "firstSectionDivider": "overview-disclosure page-section-divider scroll-mt-24",
       "pageContainer": "page-container",
       "pageHeader": null,
       "pageTitle": null,

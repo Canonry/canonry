@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterEach, onTestFinished } from 'vitest'
 import React from 'react'
 import { render, screen, waitFor, act, cleanup, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { RouterProvider } from '@tanstack/react-router'
+import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router'
 import { RunKinds, RunStatuses, projectDtoSchema, runDetailDtoSchema } from '@canonry/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
@@ -10,7 +10,7 @@ import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { heyClient } from '../src/api.js'
 import { getApiV1ProjectsQueryKey } from '@canonry/canonry-api-client/react-query'
-import { preloadAllLazyRoutes } from '../src/router/routes.js'
+import { preloadAllLazyRoutes, routeTree } from '../src/router/routes.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 
@@ -22,8 +22,9 @@ beforeAll(async () => {
 
 const projectsCacheKey = getApiV1ProjectsQueryKey({ client: heyClient })
 
-async function renderRoute(pathname: string, options: Parameters<typeof createDashboardFixture>[0] = {}) {
+async function renderRoute(pathname: string, options: Parameters<typeof createDashboardFixture>[0] = {}, configure?: (fixture: ReturnType<typeof createDashboardFixture>) => void) {
   const fixture = createDashboardFixture(options)
+  configure?.(fixture)
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -52,6 +53,14 @@ test('/ renders the overview page', async () => {
 test('/projects renders the projects page', async () => {
   const { container } = await renderRoute('/projects')
   expect(container.querySelector('.page-title')?.textContent).toBe('Projects')
+})
+
+test('an unmatched address offers a working project recovery link', async () => {
+  const { router } = await renderRoute('/missing-dashboard/example')
+  expect(screen.getByRole('heading', { name: 'Page not found', exact: true })).toBeTruthy()
+  fireEvent.click(screen.getByRole('link', { name: 'View projects', exact: true }))
+  await waitFor(() => expect(router.state.location.pathname).toBe('/projects'))
+  expect(await screen.findByRole('heading', { name: 'Projects', exact: true })).toBeTruthy()
 })
 
 test('/projects/$name resolves a project by its name', async () => {
@@ -86,9 +95,48 @@ test('a legacy UUID project URL redirects to the clean name URL', async () => {
   expect(router.state.location.pathname).toBe('/projects/acme-co/activity')
 })
 
-test('/runs renders the runs page', async () => {
-  const { container } = await renderRoute('/runs')
-  expect(container.querySelector('.page-title')?.textContent).toBe('Runs')
+test('/runs filters status in the URL, opens a matching run, and clears combined filters', async () => {
+  const fixture = createDashboardFixture()
+  const restore = mockFetch(url => pathOf(url) === '/api/v1/projects'
+    ? jsonResponse(fixture.dashboard.projects.map(item => item.project))
+    : pathOf(url).split('?')[0] === '/api/v1/runs'
+      ? jsonResponse(fixture.dashboard.runs)
+      : jsonResponse({ error: { message: 'No detail needed for this navigation check' } }, 503))
+  onTestFinished(restore)
+  const { router } = await renderRoute('/runs')
+  const table = screen.getByRole('table', { name: 'Recent runs across projects' })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Filter runs by status' }), { target: { value: RunStatuses.queued } })
+  await waitFor(() => expect(router.state.location.search.runStatus).toBe(RunStatuses.queued))
+  expect(within(table).getAllByRole('row')).toHaveLength(2)
+  const opener = within(table).getByRole('button', { name: 'View Queued follow-up after local ranking movement for Citypoint Dental NYC' })
+  fireEvent.click(opener)
+  await waitFor(() => expect(router.state.location.search.runId).toBe('run_citypoint_queued_20260309'))
+  fireEvent.keyDown(await screen.findByRole('dialog'), { key: 'Escape' })
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  await waitFor(() => expect(document.activeElement).toBe(opener))
+  await act(async () => { await router.navigate({ to: '/runs', search: { runStatus: RunStatuses.queued, runQuery: 'no matching project' } }) })
+  expect(await screen.findByRole('heading', { name: 'No runs match these filters' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  await waitFor(() => expect(router.state.location.search.runStatus).toBeUndefined())
+  expect(router.state.location.search.runQuery).toBeUndefined()
+  expect(within(screen.getByRole('table', { name: 'Recent runs across projects' })).getAllByRole('row')).toHaveLength(fixture.dashboard.runs.length + 1)
+})
+
+test('run history errors show a readable message and retry the saved read', async () => {
+  const fixture = createDashboardFixture()
+  let unavailable = true
+  const restore = mockFetch(url => pathOf(url) === '/api/v1/projects'
+    ? jsonResponse(fixture.dashboard.projects.map(item => item.project))
+    : pathOf(url).split('?')[0] === '/api/v1/runs'
+      ? unavailable ? jsonResponse({ error: { code: 'UNAVAILABLE', message: 'Run history is temporarily unavailable.' } }, 503) : jsonResponse(fixture.dashboard.runs)
+      : jsonResponse({}))
+  onTestFinished(restore)
+  await renderRoute('/runs')
+  expect(await screen.findByText('Run history is temporarily unavailable.', { exact: true })).toBeTruthy()
+  unavailable = false
+  fireEvent.click(screen.getByRole('button', { name: 'Try again', exact: true }))
+  expect(await screen.findByRole('table', { name: 'Recent runs across projects' })).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Run history unavailable' })).toBeNull()
 })
 
 test('/settings renders the settings page', async () => {
@@ -124,7 +172,14 @@ test('unknown path renders the not-found page', async () => {
 
 test('/projects/$id/search-console renders the search engines tab', async () => {
   const { container } = await renderRoute('/projects/project_citypoint/search-console')
-  expect(container.innerHTML).toMatch(/Search Engines/)
+  expect(container.innerHTML).toMatch(/Google Search Console/)
+  const nav = container.querySelector('.project-subnav')
+  const tabs = [...(nav?.querySelectorAll('.project-subnav-link') ?? [])]
+    .filter(link => !link.closest('.project-subnav-measure'))
+    .map(link => link.textContent?.trim())
+  // Queries sits beside AI Visibility; Search engines follows it.
+  expect(tabs.slice(0, 3)).toEqual(['AI Visibility', 'Queries', 'Search engines'])
+  expect(container.querySelector('.project-subnav-current')?.textContent).toBe('Search engines')
 })
 
 test('/projects/$id/conversions renders the conversion integrity workspace', async () => {
@@ -148,6 +203,58 @@ test('retired report URLs redirect to AI Visibility without reading the report A
   expect([...container.querySelectorAll('h1')].map(heading => heading.textContent)).toEqual(['Citypoint Dental NYC'])
 })
 
+// Agent Readiness lived at `/technical-aeo` before it was renamed. Saved links
+// keep their scan, run and scope selection and land on the canonical route,
+// which reads only the canonical API.
+test('the retired technical-aeo route opens Agent Readiness with its search and hash kept', async () => {
+  const requestedPaths: string[] = []
+  const restore = mockFetch(url => {
+    requestedPaths.push(pathOf(url))
+    return jsonResponse({ error: { message: 'not needed for route compatibility' } }, 503)
+  })
+  onTestFinished(restore)
+  const { container, router } = await renderRoute('/projects/project_citypoint/technical-aeo?siteHealthRunId=run_seven&runId=run_drawer&measurementScope=group&measurementScopeKey=north#scan')
+  expect(router.state.location.pathname).toBe('/projects/project_citypoint/agent-readiness')
+  expect(router.state.location.search).toEqual({
+    siteHealthRunId: 'run_seven', runId: 'run_drawer', measurementScope: 'group', measurementScopeKey: 'north',
+  })
+  expect(router.state.location.hash).toBe('scan')
+  // Replaced, not pushed: Back never returns to the retired address.
+  expect(router.history.length).toBe(1)
+  expect(router.history.location.pathname).toBe('/projects/project_citypoint/agent-readiness')
+  expect(container.querySelector('.project-subnav-current')?.textContent).toBe('Agent Readiness')
+  await waitFor(() => expect(requestedPaths.some(path => /^\/api\/v1\/projects\/[^/]+\/agent-readiness\/runs(?:\?|$)/.test(path))).toBe(true))
+  expect(requestedPaths.filter(path => path.includes('/technical-aeo'))).toEqual([])
+})
+
+test('navigating to the retired technical-aeo route replaces it with Agent Readiness', async () => {
+  const restore = mockFetch(() => jsonResponse({ error: { message: 'not needed for route compatibility' } }, 503))
+  onTestFinished(restore)
+  const { router } = await renderRoute('/projects/project_citypoint/activity')
+  await act(async () => {
+    await router.navigate({ to: '/projects/$projectName/technical-aeo', params: { projectName: 'project_citypoint' }, search: { siteHealthRunId: 'run_seven' } })
+  })
+  expect(router.state.location.pathname).toBe('/projects/project_citypoint/agent-readiness')
+  expect(router.state.location.search).toEqual({ siteHealthRunId: 'run_seven' })
+  expect(router.history.length).toBe(2)
+  await act(async () => { router.history.back() })
+  await waitFor(() => expect(router.state.location.pathname).toBe('/projects/project_citypoint/activity'))
+})
+
+test('the retired technical-aeo redirect keeps the dashboard base path', async () => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createRouter({
+    routeTree,
+    basepath: '/canonry',
+    context: { queryClient },
+    history: createMemoryHistory({ initialEntries: ['/canonry/projects/demo/technical-aeo?siteHealthRunId=run_seven'] }),
+  })
+  await router.load()
+  expect(router.history.location.pathname).toBe('/canonry/projects/demo/agent-readiness')
+  expect(router.history.location.search).toBe('?siteHealthRunId=run_seven')
+  expect(router.history.length).toBe(1)
+})
+
 test('/projects/$id/local renders the local presence tab', async () => {
   const restore = mockFetch(url => pathOf(url).endsWith('/google/connections')
     ? jsonResponse([])
@@ -156,14 +263,14 @@ test('/projects/$id/local renders the local presence tab', async () => {
   const { container } = await renderRoute('/projects/project_citypoint/local')
   // Route resolves to the project shell...
   expect(container.innerHTML).toMatch(/Citypoint Dental NYC/)
-  // ...and the Local Presence tab renders GbpSection. The fixture has no GBP
+  // ...and the Local presence tab renders GbpSection. The fixture has no GBP
   // connection, so its connect empty-state renders (heading shows in every state).
   await waitFor(() => expect(container.innerHTML).toMatch(/Google Business Profile/))
 })
 
 test('/projects/$id/discovery renders the discovery tab with plain-language copy', async () => {
   const { container } = await renderRoute('/projects/project_citypoint/discovery')
-  expect(container.innerHTML).toMatch(/Generate and check questions/)
+  expect(container.innerHTML).not.toMatch(/Generate and check questions/)
   expect(container.innerHTML).toMatch(/Describe your customer/)
 })
 
@@ -271,7 +378,7 @@ test.each([false, true])('deleting a project updates the live portfolio before n
   onTestFinished(unmount)
 
   const activity = () => within(screen.getByRole('heading', { name: 'Activity', exact: true }).closest('section')!)
-  await waitFor(() => expect(activity().getByRole('button', { name: /Alpha.*Technical AEO audit completed/ })).toBeTruthy())
+  await waitFor(() => expect(activity().getByRole('button', { name: /Alpha.*Agent Readiness audit scan completed/ })).toBeTruthy())
   await act(async () => { await router.navigate({ to: '/projects/$projectName/settings', params: { projectName: 'alpha' } }) })
   const deleteButton = await screen.findByRole('button', { name: 'Delete project', exact: true })
   await waitFor(() => expect(queryClient.isFetching()).toBe(0))
@@ -290,9 +397,10 @@ test.each([false, true])('deleting a project updates the live portfolio before n
       expect(activity().queryByRole('button', { name: /Alpha/ })).toBeNull()
     })
     fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    // The phone navigation names projects the way the sidebar does.
     const navigation = within(await screen.findByRole('dialog', { name: 'Navigation' }))
-    expect(navigation.getByRole('link', { name: 'beta', exact: true })).toBeTruthy()
-    expect(navigation.queryByRole('link', { name: 'alpha', exact: true })).toBeNull()
+    expect(navigation.getByRole('link', { name: 'Beta', exact: true })).toBeTruthy()
+    expect(navigation.queryByRole('link', { name: 'Alpha', exact: true })).toBeNull()
   }
 })
 
@@ -337,10 +445,42 @@ test('?runId= opens the run drawer', async () => {
   }
 })
 
+test('run detail replaces stale queued status and shows independent answer signals', async () => {
+  let finishDetail: (response: Response) => void = () => {}
+  const pendingDetail = new Promise<Response>(resolve => { finishDetail = resolve })
+  const run = runDetailDtoSchema.parse({
+    id: 'run_citypoint_001', projectId: 'project_citypoint', kind: RunKinds['answer-visibility'], status: RunStatuses.completed,
+    trigger: 'manual', createdAt: '2026-11-06T12:00:00Z', startedAt: '2026-11-06T12:00:00Z', finishedAt: '2026-11-06T12:01:00Z',
+    snapshots: [
+      { id: 'cited-only', query: 'Cited-only result', citationState: 'cited', answerMentioned: false },
+      { id: 'mentioned-only', query: 'Mentioned-only result', citationState: 'not-cited', answerMentioned: true },
+      { id: 'unknown-mention', query: 'Older result', citationState: 'cited' },
+    ].map(snapshot => ({ ...snapshot, runId: 'run_citypoint_001', queryId: snapshot.id, provider: 'gemini', createdAt: '2026-11-06T12:01:00Z' })),
+  })
+  const restore = mockFetch(url => pathOf(url) === '/api/v1/runs/run_citypoint_001' ? pendingDetail.then(response => response.clone()) : jsonResponse({ error: { message: 'Not needed for drawer' } }, 503))
+  onTestFinished(restore)
+  const { unmount } = await renderRoute('/?runId=run_citypoint_001', {}, fixture => {
+    fixture.dashboard.runs = [{ ...fixture.dashboard.runs[0]!, id: 'run_citypoint_001', status: RunStatuses.queued, summary: 'Queued synthetic check' }]
+  })
+  onTestFinished(unmount)
+  const dialog = within(await screen.findByRole('dialog'))
+  expect(dialog.getByText('Queued', { exact: true })).toBeTruthy()
+  await act(async () => { finishDetail(jsonResponse(run)); await pendingDetail })
+  await waitFor(() => expect(dialog.getByText('Completed', { exact: true })).toBeTruthy())
+  expect(dialog.queryByText('Queued', { exact: true })).toBeNull()
+  const cited = within(dialog.getByText('Cited-only result').closest<HTMLElement>('.material-base')!)
+  expect(cited.getByText('Cited', { exact: true })).toBeTruthy()
+  expect(cited.getByText('Not mentioned', { exact: true })).toBeTruthy()
+  const mentioned = within(dialog.getByText('Mentioned-only result').closest<HTMLElement>('.material-base')!)
+  expect(mentioned.getByText('Not cited', { exact: true })).toBeTruthy()
+  expect(mentioned.getByText('Mentioned', { exact: true })).toBeTruthy()
+  expect(within(dialog.getByText('Older result').closest<HTMLElement>('.material-base')!).getByText('Mention not measured')).toBeTruthy()
+})
+
 test.each([
-  [RunKinds['site-audit'], RunStatuses.running, 'Run is in progress...'],
+  [RunKinds['site-audit'], RunStatuses.running, 'Run is in progress…'],
   [RunKinds['backlink-extract'], RunStatuses.completed, 'Run completed.'],
-  [RunKinds['answer-visibility'], RunStatuses.running, 'Waiting for first query result...'],
+  [RunKinds['answer-visibility'], RunStatuses.running, 'Waiting for first query result…'],
   [RunKinds['answer-visibility'], RunStatuses.completed, 'No snapshot data available.'],
 ])('run drawer describes %s %s without query snapshots', async (kind, status, expected) => {
   const run = runDetailDtoSchema.parse({
@@ -373,7 +513,7 @@ test('back/forward navigation works via router history', async () => {
     await router.navigate({ to: '/runs' })
   })
   await waitFor(() => {
-    expect(container.innerHTML).toMatch(/All runs/)
+    expect(container.innerHTML).toMatch(/All statuses/)
   })
 
   // Navigate to /settings

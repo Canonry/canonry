@@ -1,11 +1,13 @@
 import { afterEach, beforeAll, expect, onTestFinished, test } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
+import { CitationStates, RunKinds, RunStatuses, RunTriggers, visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 
 import { createAppRouter } from '../src/router/router.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { ainycComparison, ainycMentionShare, ainycMovement } from './ainyc-visibility-fixture.js'
+import { COMPETITOR_COMPARISON_COPY } from '../src/pages/ProjectPage.js'
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()
@@ -55,31 +57,39 @@ const project = {
 const emptyMetrics = {
   window: 'all',
   buckets: [],
-  overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
+  overall: { citationRate: 0, cited: 0, total: 0, citationNotMeasured: 0, mentionRate: 0, mentionedCount: 0 },
   byProvider: {},
   trend: 'stable',
   mentionTrend: 'stable',
   queryChanges: [],
 }
 
-const emptyCitationVisibility = {
-  summary: {
-    providersConfigured: 0,
-    providersCiting: 0,
-    providersMentioning: 0,
-    totalQueries: 0,
-    queriesCitedAndMentioned: 0,
-    queriesCitedOnly: 0,
-    queriesMentionedOnly: 0,
-    queriesInvisible: 0,
-    latestRunId: null,
-    latestRunAt: null,
+const completedRun = { id: 'run-citypoint-baseline', projectId: project.id, kind: RunKinds['answer-visibility'], status: RunStatuses.completed, trigger: RunTriggers.manual, createdAt: '2026-11-06T12:00:00.000Z', startedAt: '2026-11-06T12:00:00.000Z', finishedAt: '2026-11-06T12:01:00.000Z' }
+const completedAnswer = { id: 'snapshot-citypoint', runId: completedRun.id, queryId: 'query-dentist', query: 'dentist near me', provider: 'gemini', model: 'gemini-test', citationState: CitationStates.cited, answerMentioned: true, answerText: 'Citypoint Dental NYC is one option.', citedDomains: ['citypoint.example'], citedUrls: ['https://citypoint.example'], createdAt: completedRun.finishedAt }
+
+const baselineReport = visibilityReportResponseSchema.parse({
+  selection: {
+    mode: 'simple', queryClass: 'all', scope: { id: 'project', label: 'Whole site', kind: 'project', targetCount: 1 },
+    provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null }, revision: null,
+    run: { id: completedRun.id, explicit: false }, provenance: { kind: 'frozen-simple', definitionRevision: null },
+    measurement: { state: 'measured', activeRevision: null, measuredRevision: null, awaitingSweep: false, pendingAssignmentCount: 0, completedAt: completedRun.finishedAt },
+    availability: { state: 'available' },
   },
-  byQuery: [],
-  competitorGaps: [],
-  status: 'no-data',
-  reason: 'no-runs-yet',
-}
+  scopeOptions: [{ id: 'project', label: 'Whole site', kind: 'project', targetCount: 1 }],
+  filterOptions: { providers: ['gemini'], models: [{ provider: 'gemini', model: 'gemini-test' }], locations: [{ kind: 'none' }] },
+  populations: (['branded', 'non-brand', 'unknown'] as const).map(queryClass => {
+    const measured = queryClass === 'non-brand'
+    const count = measured ? 1 : 0
+    const rate = measured ? { numerator: 1, denominator: 1, rate: 1 } : { numerator: null, denominator: null, rate: null, reason: 'no-population' }
+    return {
+      queryClass,
+      summary: { queryCount: count, answerCount: count, mentionCoverage: rate, citationCoverage: rate, propertyReach: rate, outcomes: { bothSignals: count, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: count } },
+      trend: [], queries: { items: [], total: 0, nextCursor: null }, evidence: { items: [], total: 0, nextCursor: null },
+      competitorAvailability: { state: 'available' }, competitors: [], observedCompetitors: [],
+      breakdown: { properties: [], groups: [], providers: measured ? [{ provider: 'gemini', queryCount: 1, answerCount: 1, mentionCoverage: rate, citationCoverage: rate }] : [] },
+    }
+  }),
+})
 
 const emptyCompetitorLandscape = {
   window: '30d',
@@ -126,10 +136,10 @@ const score = (label: string) => ({ label, value: 'No data', delta: '', tone: 'n
 /** GET /overview after a completed sweep, enough for the Simple cards to read their own data. */
 const baselineOverview = {
   project,
-  latestRun: { totalRuns: 2, run: null },
+  latestRun: { totalRuns: 1, run: completedRun },
   health: null,
   topInsights: [],
-  queryCounts: { totalQueries: 14, citedQueries: 7, notCitedQueries: 7, citedRate: 0.5, mentionedQueries: 7, notMentionedQueries: 7, mentionRate: 0.5 },
+  queryCounts: { totalQueries: 1, citedQueries: 1, notCitedQueries: 0, citedRate: 1, mentionedQueries: 1, notMentionedQueries: 0, mentionRate: 1 },
   providers: [],
   transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
   scores: {
@@ -152,7 +162,7 @@ const baselineOverview = {
   contextLabel: 'US / EN',
 }
 
-async function renderEmbedOverview(overview: unknown, projectTabs = ['overview']) {
+async function renderEmbedOverview(overview: typeof baselineOverview | null, projectTabs = ['overview']) {
   window.__CANONRY_CONFIG__ = {
     embed: {
       enabled: true,
@@ -176,9 +186,10 @@ async function renderEmbedOverview(overview: unknown, projectTabs = ['overview']
 
       if (path === '/health') return jsonResponse({ version: 'test', databaseUrlConfigured: true })
       if (path === '/api/v1/projects') return jsonResponse([project])
-      if (path === '/api/v1/runs?kind=answer-visibility') return jsonResponse([])
+      if (path === '/api/v1/runs?kind=answer-visibility') return jsonResponse(overview ? [completedRun] : [])
       if (path === '/api/v1/projects/citypoint') return jsonResponse(project)
-      if (path === '/api/v1/projects/citypoint/runs?kind=answer-visibility') return jsonResponse([])
+      if (path === '/api/v1/projects/citypoint/runs?kind=answer-visibility') return jsonResponse(overview ? [completedRun] : [])
+      if (path === `/api/v1/runs/${completedRun.id}` && overview) return jsonResponse({ ...completedRun, snapshots: [completedAnswer] })
       if (path === '/api/v1/projects/citypoint/queries') return jsonResponse([])
       if (path === '/api/v1/projects/citypoint/competitors') return jsonResponse([])
       if (path === '/api/v1/projects/citypoint/timeline?limit=20') return jsonResponse([])
@@ -188,7 +199,7 @@ async function renderEmbedOverview(overview: unknown, projectTabs = ['overview']
       if (path === '/api/v1/projects/citypoint/overview') return jsonResponse(overview)
       if (path === '/api/v1/projects/citypoint/analytics/metrics') return jsonResponse(emptyMetrics)
       if (path === '/api/v1/projects/citypoint/analytics/competitors?window=30d&queryClass=non-brand') return jsonResponse(emptyCompetitorLandscape)
-      if (path === '/api/v1/projects/citypoint/citations/visibility') return jsonResponse(emptyCitationVisibility)
+      if (new URL(path, window.location.origin).pathname === '/api/v1/projects/citypoint/visibility-report' && overview) return jsonResponse(baselineReport)
 
       if (path.startsWith('/api/v1/')) {
         disallowed.push(path)
@@ -220,9 +231,11 @@ test('embed project overview only issues reads covered by the overview server al
   const { observed, observedMethods, disallowed } = await renderEmbedOverview(null)
 
   await waitFor(() => {
-    expect(observed.has('/api/v1/projects/citypoint/citations/visibility')).toBe(true)
+    expect(observed.has('/api/v1/projects/citypoint/overview')).toBe(true)
     expect(observed.has('/api/v1/projects/citypoint/analytics/metrics')).toBe(true)
   })
+  expect(screen.queryByRole('heading', { name: 'By engine' })).toBeNull()
+  expect([...observed].some(path => path.includes('/visibility-report') || path.includes('/citations/visibility'))).toBe(false)
   expect(observed.has('/api/v1/projects/citypoint/analytics/competitors?window=30d&queryClass=non-brand')).toBe(false)
   fireEvent.click(await screen.findByText('Competitor history', { selector: 'summary, summary > span' }))
   await waitFor(() => expect(observed.has('/api/v1/projects/citypoint/analytics/competitors?window=30d&queryClass=non-brand')).toBe(true))
@@ -235,18 +248,34 @@ test('embed project overview only issues reads covered by the overview server al
   expect(Array.from(observed).some(path => path.startsWith('/api/v1/settings'))).toBe(false)
 })
 
-test('an embed with a completed sweep renders the competitive card from /overview alone', async () => {
-  const { observed, disallowed } = await renderEmbedOverview(baselineOverview)
+test('a completed embed keeps competitor comparison optional and reads engine counts from the canonical report', async () => {
+  const { observed, observedMethods, disallowed } = await renderEmbedOverview(baselineOverview)
 
-  // "Where competitors are winning" reads mention share and both gap counts
-  // from GET /overview, so it needs no read beyond the overview allowlist.
-  expect(await screen.findByText('Where competitors are winning', { selector: 'h2' })).toBeTruthy()
-  expect(await screen.findByText('Mention gaps')).toBeTruthy()
+  const comparison = (await screen.findByRole('heading', { name: 'Compare competitors' })).closest('details')!
+  expect(comparison.open).toBe(false)
+  fireEvent.click(within(comparison).getByRole('heading', { name: 'Compare competitors' }).closest('summary')!)
+  expect(comparison.open).toBe(true)
+  // The embed fixture tracks no competitors, so gap rows would always read 0:
+  // the empty state replaces them, and a read-only embed offers no add button.
+  expect(within(comparison).getByText(COMPETITOR_COMPARISON_COPY.emptyTitle)).toBeTruthy()
+  expect(within(comparison).queryByText('Mention gaps')).toBeNull()
+  expect(within(comparison).queryByRole('button', { name: COMPETITOR_COMPARISON_COPY.add })).toBeNull()
+  const engines = await screen.findByRole('table', { name: 'By engine, non-brand queries' })
+  expect(within(engines).getByText('Gemini')).toBeTruthy()
+  expect(within(engines).getAllByText('1 of 1 answers')).toHaveLength(2)
+  const reports = observedMethods.filter(request => request.path.includes('/visibility-report'))
+  expect(reports).toHaveLength(1)
+  expect(reports[0]!.method).toBe('GET')
+  const selection = new URL(reports[0]!.path, window.location.origin).searchParams
+  expect(selection.get('queryClass')).toBe('all')
+  expect(selection.get('limit')).toBe('1')
   expect(disallowed).toEqual([])
   expect(Array.from(observed).some(path => path.includes('/analytics/gaps'))).toBe(false)
+  expect(Array.from(observed).some(path => path.includes('/citations/visibility'))).toBe(false)
+  expect(observedMethods.every(request => request.method === 'GET')).toBe(true)
 })
 
-test.each([[['report']], [['report', 'overview']], [['report', 'technical-aeo']]])(
+test.each([[['report']], [['report', 'overview']], [['report', 'agent-readiness']], [['report', 'technical-aeo']]])(
   'a retired Report embed does not issue project analytics reads: %j',
   async (projectTabs) => {
     const { observed } = await renderEmbedOverview(null, projectTabs)

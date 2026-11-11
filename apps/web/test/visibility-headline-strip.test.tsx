@@ -188,7 +188,7 @@ describe('headline strip', () => {
     expect(REPORT_HEADLINE_HELP.simpleMention).toBe('Mentioned counts answers naming your brand in the answer text, not in the source links.')
     expect(REPORT_HEADLINE_HELP.simpleCitation).toBe('Cited counts answers linking to your site in the sources behind the answer, not in the answer text.')
     expect(REPORT_HEADLINE_HELP.advancedMention).toBe('An answer counts when it mentions any assigned property. This does not mean every property was mentioned. An answer that could not be tied to one property is left out of the rate, never counted as not mentioned.')
-    expect(REPORT_HEADLINE_HELP.advancedCitation).toBe('An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line.')
+    expect(REPORT_HEADLINE_HELP.advancedCitation).toBe('An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line. So is an answer from an engine that returns no sources.')
     // Server truth: eligible = the property has a name to match (`mentionEligible`),
     // reach counts a property once across its answers, and one unknown property
     // makes the whole rate unavailable rather than partial.
@@ -241,7 +241,7 @@ describe('headline strip', () => {
 
   it('names the comparison once in the caption and never in a tile', () => {
     render(<VisibilityReportView report={headlineReport({ comparison: MOVED })} onSelectionChange={() => {}} />)
-    expect(caption()).toBe(`12 queries · 36 answers · vs ${PREVIOUS_DATE} check`)
+    expect(caption()).toBe(`12 measured queries · 36 answers · vs ${PREVIOUS_DATE} check`)
     expect(within(section()).getByRole('button', { name: REPORT_CHANGE_COPY.explanation })).toBeTruthy()
     for (const label of [MENTION_LABEL, CITATION_LABEL, REACH_LABEL] as const) {
       expect(visibleText(tile(label))).not.toContain('vs ')
@@ -251,7 +251,7 @@ describe('headline strip', () => {
   it('keeps the year on a previous sweep from another year', () => {
     const comparison: VisibilityReportComparison = { ...MOVED, previousRun: EARLIER_YEAR_RUN }
     render(<VisibilityReportView report={headlineReport({ comparison })} onSelectionChange={() => {}} />)
-    expect(caption()).toBe(`12 queries · 36 answers · vs ${EARLIER_YEAR_DATE} check`)
+    expect(caption()).toBe(`12 measured queries · 36 answers · vs ${EARLIER_YEAR_DATE} check`)
   })
 
   it.each([
@@ -265,19 +265,19 @@ describe('headline strip', () => {
     ['scoped-run', null, REPORT_CHANGE_COPY.scopedRun],
   ] as const)('captions an unavailable %s comparison (previous run %o) in place of the check date', (reason, previousRun, expected) => {
     render(<VisibilityReportView report={headlineReport({ comparison: { state: 'unavailable', reason, previousRun } })} onSelectionChange={() => {}} />)
-    expect(caption()).toBe(`12 queries · 36 answers · ${expected}`)
+    expect(caption()).toBe(`12 measured queries · 36 answers · ${expected}`)
     for (const label of [MENTION_LABEL, CITATION_LABEL, REACH_LABEL] as const) expect(cell(label)).toEqual(figure(label))
   })
 
   it('captions no comparison at all when no sweep is selected', () => {
     render(<VisibilityReportView report={headlineReport({ runId: null, comparison: { state: 'unavailable', reason: 'no-selected-run', previousRun: null } })} onSelectionChange={() => {}} />)
-    expect(caption()).toBe('12 queries · 36 answers')
+    expect(caption()).toBe('12 measured queries · 36 answers')
     for (const label of [MENTION_LABEL, CITATION_LABEL, REACH_LABEL] as const) expect(cell(label)).toEqual(figure(label))
   })
 
   it('captions no comparison when the server omits it', () => {
     render(<VisibilityReportView report={headlineReport()} onSelectionChange={() => {}} />)
-    expect(caption()).toBe('12 queries · 36 answers')
+    expect(caption()).toBe('12 measured queries · 36 answers')
     for (const label of [MENTION_LABEL, CITATION_LABEL, REACH_LABEL] as const) expect(cell(label)).toEqual(figure(label))
   })
 
@@ -348,10 +348,10 @@ describe('headline strip', () => {
   })
 
   it.each([
-    [12, 36, 'non-brand', '12 queries · 36 answers'],
-    [1, 1, 'branded', '1 query · 1 answer'],
-    [1, 2, 'unknown', '1 query · 2 answers'],
-    [2, 1, 'unknown', '2 queries · 1 answer'],
+    [12, 36, 'non-brand', '12 measured queries · 36 answers'],
+    [1, 1, 'branded', '1 measured query · 1 answer'],
+    [1, 2, 'unknown', '1 measured query · 2 answers'],
+    [2, 1, 'unknown', '2 measured queries · 1 answer'],
   ] as const)('captions %i queries and %i answers for the %s class without naming the class', (queryCount, answerCount, queryClass, expected) => {
     render(<VisibilityReportView report={headlineReport({ queryClass, queryCount, answerCount })} onSelectionChange={() => {}} />)
     expect(caption(queryClass)).toBe(expected)
@@ -393,6 +393,26 @@ describe('headline strip', () => {
     expect(within(strip()).getAllByText(/answers$/, { selector: 'dt span' }).map(term => term.textContent)).toEqual(['Mentioned answers', 'Cited answers'])
     expect(within(strip()).queryByText(REACH_LABEL)).toBeNull()
     expect(valueRow('Mentioned answers').at(-1)).toEqual(['Down 8.3 pts', 'text-label-14 text-negative'])
+  })
+
+  it('keeps a first measurement compact while its exact rates remain reachable', () => {
+    const report = headlineReport()
+    report.populations[0]!.trend = [report.populations[0]!.trend[0]!]
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const help = 'This view has one measurement point. A trend needs at least two comparable points.'
+    expect(screen.queryByText(help)).toBeNull()
+    const trigger = screen.getByRole('button', { name: help })
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.focus(trigger)
+    expect(screen.getByText(help)).toBeTruthy()
+    fireEvent.blur(trigger)
+    expect(screen.queryByRole('img', { name: 'Non-brand queries mention and citation trend' })).toBeNull()
+    const disclosure = screen.getByText('Measurement details').closest('details')!
+    expect(disclosure.open).toBe(false)
+    fireEvent.click(screen.getByText('Measurement details'))
+    const table = screen.getByRole('table', { name: 'Non-brand queries trend data' })
+    expect(within(table).getAllByRole('row')).toHaveLength(2)
+    expect(within(table).getByText(new Date(report.populations[0]!.trend[0]!.createdAt).toLocaleDateString())).toBeTruthy()
   })
 
   it('toggles trend series from the checkbox legend without ever emptying the chart', () => {

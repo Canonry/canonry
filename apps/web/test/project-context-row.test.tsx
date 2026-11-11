@@ -31,7 +31,7 @@ afterEach(() => {
 
 const PROJECT_PAGE_TABS = [
   'overview', 'portfolio', 'search-console', 'seo-data', 'journeys', 'conversions', 'local', 'queries', 'client-queries', 'discovery',
-  'activity', 'backlinks', 'technical-aeo', 'history', 'settings',
+  'activity', 'traffic', 'backlinks', 'agent-readiness', 'history', 'settings',
 ] as const satisfies readonly ProjectPageTab[]
 
 const CONTEXT_TITLE_CLASS = 'project-context-title md:sr-only'
@@ -236,8 +236,8 @@ test.each([
     meta: null,
   },
   {
-    label: 'Simple Site Health',
-    path: '/projects/project_citypoint/technical-aeo',
+    label: 'Simple Agent Readiness',
+    path: '/projects/project_citypoint/agent-readiness',
     advanced: false,
     parts: [CONTEXT_TITLE_CLASS, 'project-context-domain', 'project-context-actions'],
     meta: null,
@@ -320,6 +320,41 @@ test('an embed keeps its page header, with no Simple date range and no project c
     + '<p class="page-subtitle">citypointdental.com · US / English / Local-intent monitoring</p>'
     + '</div><div class="page-header-right"></div></div>',
   )
+})
+
+// ── Section tabs ──
+
+test('the project tabs lead with AI Visibility and Queries, in sentence case', async () => {
+  const { doc } = await renderAt('/projects/project_citypoint')
+  const tabs = [...doc.querySelectorAll('.project-subnav .project-subnav-link')]
+    .filter(link => !link.closest('.project-subnav-measure'))
+    .map(link => link.textContent)
+  expect(tabs).toEqual(['AI Visibility', 'Queries', 'Search engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'More'])
+})
+
+// ── Header action ──
+
+/** Every state of the context row's AI Visibility check button. */
+const VISIBILITY_CHECK_ACTION = /^(Starting…|AI Visibility check running…|Checking AI engines…|Retry engine check|Set up AI Visibility|Review and publish plan|AI Visibility checks on hold|Run AI Visibility check)$/
+
+function headerButtons(doc: Document): string[] {
+  return [...doc.querySelectorAll('[data-project-actions] button')].map(button => button.textContent ?? '')
+}
+
+test.each(['', '/activity', '/search-console'])('the context row offers the AI Visibility check on the "%s" tab', async suffix => {
+  const { doc } = await renderAt(`/projects/project_citypoint${suffix}`)
+  const buttons = headerButtons(doc)
+  expect(buttons).toHaveLength(1)
+  expect(buttons[0]).toMatch(VISIBILITY_CHECK_ACTION)
+})
+
+test('Agent Readiness keeps one primary action, its own scan, with no AI Visibility check in the context row', async () => {
+  const { doc } = await renderAt('/projects/project_citypoint/agent-readiness', { schedule: visibilitySchedule() })
+  // The row keeps its slot and its schedule note; only the second action is gone.
+  expect(doc.querySelector('[data-project-actions]')).not.toBeNull()
+  expect(headerButtons(doc)).toEqual([])
+  expect(nextSweepLabels(doc)).toEqual(['Next AI Visibility check Sep 22'])
+  expect(doc.body.textContent).toMatch(/Run scan|Checking scan/)
 })
 
 // ── Next-sweep label ──

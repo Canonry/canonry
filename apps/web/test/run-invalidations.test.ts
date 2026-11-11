@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
 
 import { RunKinds } from '@canonry/canonry-contracts'
-import { getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey, getApiV1ProjectsByNameSitemapsQueryKey, getApiV1ProjectsByNameTrendsQueryKey } from '@canonry/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey, getApiV1ProjectsByNameRunPreviewQueryKey, getApiV1ProjectsByNameSitemapsQueryKey, getApiV1ProjectsByNameTrendsQueryKey, getApiV1ProjectsByNameVisibilityReportQueryKey } from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 
 import { invalidateQueriesForRunKind } from '../src/queries/run-invalidations.js'
@@ -29,7 +29,7 @@ afterEach(() => {
  * legacy hierarchical `queryKeys.X.project(name)` registry.
  */
 function predicateMatches(opId: string): boolean {
-  const synthetic = { queryKey: [{ _id: opId }] } as unknown as Parameters<
+  const synthetic = { queryKey: [{ _id: opId, path: { name: 'demo' } }] } as unknown as Parameters<
     NonNullable<Parameters<typeof queryClient.invalidateQueries>[0]>['predicate'] extends infer P
       ? P extends (...args: infer A) => unknown
         ? A[0]
@@ -75,8 +75,13 @@ test('marks every competitor history scope stale only for the completed sweep pr
 })
 
 test('a completed sweep refreshes frozen visibility and assignment readiness without changing filters', () => {
+  const keys = ['demo', 'other'].flatMap(name => [
+    [{ ...getApiV1ProjectsByNameVisibilityReportQueryKey({ client: heyClient, path: { name }, query: { queryClass: 'all', limit: 1 } })[0], tags: ['run-revision'] }],
+    getApiV1ProjectsByNameRunPreviewQueryKey({ client: heyClient, path: { name } }),
+  ])
+  for (const key of keys) queryClient.setQueryData(key, { saved: true })
   invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
-  expect(predicateMatches('getApiV1ProjectsByNameVisibilityReport')).toBe(true)
+  expect(keys.map(key => queryClient.getQueryState(key)?.isInvalidated)).toEqual([true, true, false, false])
   expect(predicateMatches('getApiV1ProjectsByNameQueryTracking')).toBe(true)
   expect(predicateMatches('getApiV1ProjectsByNameResearchRuns')).toBe(false)
 })
@@ -209,17 +214,20 @@ test('invalidates Tag Manager evidence and conversion integrity after a Tag Mana
   expect(predicateMatches('getApiV1ProjectsByNameGoogleAdsStatus')).toBe(false)
 })
 
-test('invalidates every Site Health operation for site-audit runs', () => {
+test('invalidates every Agent Readiness operation for site-audit runs', () => {
   invalidateQueriesForRunKind(queryClient, RunKinds['site-audit'], 'demo')
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeo')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoPages')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoTrend')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoCrawl')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoCrawlPages')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoGraph')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoStructure')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighbors')).toBe(true)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoDeadLinks')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadiness')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessPages')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessTrend')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessCrawl')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessCrawlPages')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessGraph')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessStructure')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessInternalLinksNeighbors')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessDeadLinks')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadinessRuns')).toBe(true)
+  // Aero's reads share the `Agent` prefix; a scan never changes them.
+  expect(predicateMatches('getApiV1ProjectsByNameAgentConversations')).toBe(false)
 })
 
 test('does not invalidate domain-scoped operations for answer-visibility runs', () => {
@@ -228,5 +236,5 @@ test('does not invalidate domain-scoped operations for answer-visibility runs', 
   expect(predicateMatches('getApiV1ProjectsByNameBingCoverage')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameGaTraffic')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameGbpSummary')).toBe(false)
-  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeo')).toBe(false)
+  expect(predicateMatches('getApiV1ProjectsByNameAgentReadiness')).toBe(false)
 })
