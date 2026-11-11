@@ -9,6 +9,7 @@ import {
   aiUserFetchVerificationManifestsHourly,
   createClient,
   crawlerEventsHourly,
+  crawlerVerificationManifestsHourly,
   migrate,
   migrationsTable,
   projects,
@@ -57,6 +58,39 @@ function sample(db: Db, id: string, ts: string, userAgent: string, pathNormalize
     status: 200, refererHost: null, classifierDetailsJson: { crawler: null, aiUserFetch: null, aiReferral: null }, createdAt: ts,
   }).run()
 }
+
+const CLAUDEBOT = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)'
+const SEARCHBOT = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; +Claude-SearchBot@anthropic.com)'
+const ANTHROPIC_LIST = { id: 'anthropic#v1', source: 'https://claude.com/crawling/bots.json', version: 'v1' }
+
+/** A stored crawler hour, with a provenance row when `manifest` is given. */
+function crawlerHour(db: Db, row: {
+  botId: string, operator?: string, verificationStatus: string, pathNormalized: string, hits: number,
+  sampledUserAgent: string | null, manifest?: typeof ANTHROPIC_LIST,
+}) {
+  const { manifest, ...hour } = row
+  const key = { projectId: 'project', sourceId: 'source', tsHour: HOUR, status: 200 }
+  db.insert(crawlerEventsHourly).values({ ...key, operator: 'Anthropic', createdAt: CREATED, updatedAt: CREATED, ...hour }).run()
+  if (!manifest) return
+  db.insert(crawlerVerificationManifestsHourly).values({
+    ...key, botId: row.botId, verificationStatus: row.verificationStatus, pathNormalized: row.pathNormalized,
+    manifestId: manifest.id, manifestJson: manifest, hits: row.hits, createdAt: CREATED, updatedAt: CREATED,
+  }).run()
+}
+
+/** A stored crawler sample as ingest labels it. */
+function crawlerSample(db: Db, id: string, userAgent: string, crawler: Record<string, unknown>) {
+  db.insert(rawEventSamples).values({
+    id, projectId: 'project', sourceId: 'source', ts: '2026-11-01T02:30:00.000Z', eventType: 'crawler', ipHash: null, userAgent,
+    pathNormalized: '/docs', status: 200, refererHost: null, classifierDetailsJson: { crawler, aiUserFetch: null, aiReferral: null },
+    createdAt: '2026-11-01T02:30:00.000Z',
+  }).run()
+}
+
+const provenanceRows = (db: Db) => db.select().from(crawlerVerificationManifestsHourly).all()
+  .map(r => `${r.botId} ${r.verificationStatus} ${r.pathNormalized} ${r.manifestId} ${r.hits}`).sort()
+const sampleCrawler = (db: Db, id: string) => db.select({ details: rawEventSamples.classifierDetailsJson })
+  .from(rawEventSamples).where(eq(rawEventSamples.id, id)).get()?.details.crawler
 
 const unrecognizedRows = (db: Db) => db.select({ agentName: unrecognizedAgentEventsHourly.agentName, hits: unrecognizedAgentEventsHourly.hits })
   .from(unrecognizedAgentEventsHourly).all().sort((a, b) => a.agentName.localeCompare(b.agentName))
@@ -168,13 +202,26 @@ describe('reclassifyStoredTraffic', () => {
     unrecognized(db, { agentName: 'meta-webindexer', hits: 5, sampledUserAgent: WEBINDEXER })
     unrecognized(db, { agentName: 'canonry', hits: 9, sampledUserAgent: LIVENESS })
     sample(db, 'before', '2026-10-20T10:15:00.000Z', EXA)
+    crawlerHour(db, { botId: 'anthropic-claudebot', verificationStatus: 'verified', pathNormalized: '/docs', hits: 4, sampledUserAgent: SEARCHBOT, manifest: ANTHROPIC_LIST })
+    const claudeBotLabel = { botId: 'anthropic-claudebot', operator: 'Anthropic', product: 'ClaudeBot', purpose: 'training', verificationStatus: 'verified' }
+    crawlerSample(db, 'searchbot', SEARCHBOT, claudeBotLabel)
 
     const result = await reclassifyStoredTraffic(db, { now: NOW, dryRun: true })
 
-    expect(result).toMatchObject({ dryRun: true, samples: { reclassified: 1, counted: 1 }, unrecognized: { moved: 1, movedHits: 5, removed: 1 } })
-    expect(crawlerRows(db)).toEqual([])
+    expect(result).toMatchObject({
+      dryRun: true,
+      samples: { reclassified: 1, counted: 1 },
+      unrecognized: { moved: 1, movedHits: 5, removed: 1 },
+      crawlers: { moved: 1, movedHits: 4, samplesRelabeled: 1 },
+    })
+    expect(crawlerRows(db)).toEqual([
+      { tsHour: HOUR, botId: 'anthropic-claudebot', verificationStatus: 'verified', pathNormalized: '/docs', status: 200, hits: 4 },
+    ])
+    expect(provenanceRows(db)).toEqual(['anthropic-claudebot verified /docs anthropic#v1 4'])
     expect(unrecognizedRows(db)).toHaveLength(2)
-    expect(db.select({ eventType: rawEventSamples.eventType }).from(rawEventSamples).all()).toEqual([{ eventType: 'unknown' }])
+    expect(db.select({ id: rawEventSamples.id, eventType: rawEventSamples.eventType }).from(rawEventSamples).where(eq(rawEventSamples.id, 'before')).all())
+      .toEqual([{ id: 'before', eventType: 'unknown' }])
+    expect(sampleCrawler(db, 'searchbot')).toEqual(claudeBotLabel)
   })
 
   it('finds nothing left to do on a second run', async () => {
@@ -182,14 +229,85 @@ describe('reclassifyStoredTraffic', () => {
     unrecognized(db, { agentName: 'meta-webindexer', hits: 5, sampledUserAgent: WEBINDEXER })
     unrecognized(db, { agentName: 'twitterbot', hits: 7, sampledUserAgent: IMESSAGE })
     sample(db, 'before', '2026-10-20T10:15:00.000Z', EXA)
+    crawlerHour(db, { botId: 'anthropic-claudebot', verificationStatus: 'verified', pathNormalized: '/docs', hits: 4, sampledUserAgent: SEARCHBOT, manifest: ANTHROPIC_LIST })
     await reclassifyStoredTraffic(db, { now: NOW })
     const crawlerAfterFirst = crawlerRows(db)
+    const provenanceAfterFirst = provenanceRows(db)
 
     const second = await reclassifyStoredTraffic(db, { now: NOW })
 
     expect(second.samples).toMatchObject({ examined: 0, reclassified: 0 })
     expect(second.unrecognized).toMatchObject({ examined: 1, moved: 0, renamed: 0, removed: 0 })
+    // Meta's moved hour, Exa's counted sample, and Claude-SearchBot's re-keyed hour.
+    expect(second.crawlers).toEqual({ examined: 3, moved: 0, movedHits: 0, unverifiedHits: 0, samplesRelabeled: 0, byBot: {} })
     expect(crawlerRows(db)).toEqual(crawlerAfterFirst)
+    expect(provenanceRows(db)).toEqual(provenanceAfterFirst)
+  })
+})
+
+describe('reclassifyStoredTraffic, crawler hours filed under another rule', () => {
+  it('moves hours an older version filed under ClaudeBot to Claude-SearchBot, keeping verification on the shared list', async () => {
+    // Migration v221 moved these once. After a rollback, an older version
+    // files Claude-SearchBot hits under ClaudeBot again; the pass re-splits
+    // them when the newer rules start. Both rules check Anthropic's one list.
+    const db = harness()
+    crawlerHour(db, { botId: 'anthropic-claudebot', verificationStatus: 'verified', pathNormalized: '/docs', hits: 7, sampledUserAgent: SEARCHBOT, manifest: ANTHROPIC_LIST })
+    // An hour the newer version already counted under the right rule takes the moved hits.
+    crawlerHour(db, { botId: 'claude-searchbot', verificationStatus: 'verified', pathNormalized: '/docs', hits: 2, sampledUserAgent: SEARCHBOT, manifest: ANTHROPIC_LIST })
+    crawlerHour(db, { botId: 'anthropic-claudebot', verificationStatus: 'claimed_unverified', pathNormalized: '/guide', hits: 3, sampledUserAgent: SEARCHBOT })
+    // These stay: ClaudeBot's own hour, an hour with no sample, and a Claude
+    // bot no crawler rule names (ClaudeBot's rule no longer takes every Claude-*Bot).
+    crawlerHour(db, { botId: 'anthropic-claudebot', verificationStatus: 'verified', pathNormalized: '/pricing', hits: 5, sampledUserAgent: CLAUDEBOT, manifest: ANTHROPIC_LIST })
+    crawlerHour(db, { botId: 'anthropic-claudebot', verificationStatus: 'verified', pathNormalized: '/about', hits: 2, sampledUserAgent: null })
+    crawlerHour(db, { botId: 'anthropic-claudebot', verificationStatus: 'claimed_unverified', pathNormalized: '/feed', hits: 1, sampledUserAgent: 'Mozilla/5.0 (compatible; Claude-IndexBot/2.0)' })
+    const claudeBotLabel = {
+      botId: 'anthropic-claudebot', operator: 'Anthropic', product: 'ClaudeBot', purpose: 'training',
+      verificationStatus: 'verified', verificationManifest: ANTHROPIC_LIST, matchedUserAgent: SEARCHBOT,
+    }
+    crawlerSample(db, 'searchbot', SEARCHBOT, claudeBotLabel)
+    crawlerSample(db, 'claudebot', CLAUDEBOT, { ...claudeBotLabel, matchedUserAgent: CLAUDEBOT })
+
+    const result = await reclassifyStoredTraffic(db, { now: NOW })
+
+    expect(result.crawlers).toEqual({ examined: 5, moved: 2, movedHits: 10, unverifiedHits: 0, samplesRelabeled: 1, byBot: { 'claude-searchbot': 10 } })
+    expect(crawlerRows(db)).toEqual([
+      { tsHour: HOUR, botId: 'anthropic-claudebot', verificationStatus: 'verified', pathNormalized: '/about', status: 200, hits: 2 },
+      { tsHour: HOUR, botId: 'anthropic-claudebot', verificationStatus: 'claimed_unverified', pathNormalized: '/feed', status: 200, hits: 1 },
+      { tsHour: HOUR, botId: 'anthropic-claudebot', verificationStatus: 'verified', pathNormalized: '/pricing', status: 200, hits: 5 },
+      { tsHour: HOUR, botId: 'claude-searchbot', verificationStatus: 'verified', pathNormalized: '/docs', status: 200, hits: 9 },
+      { tsHour: HOUR, botId: 'claude-searchbot', verificationStatus: 'claimed_unverified', pathNormalized: '/guide', status: 200, hits: 3 },
+    ])
+    expect(provenanceRows(db)).toEqual([
+      'anthropic-claudebot verified /pricing anthropic#v1 5',
+      'claude-searchbot verified /docs anthropic#v1 9',
+    ])
+    expect(sampleCrawler(db, 'searchbot')).toEqual({ ...claudeBotLabel, botId: 'claude-searchbot', product: 'Claude-SearchBot', purpose: 'search' })
+    expect(sampleCrawler(db, 'claudebot')).toEqual({ ...claudeBotLabel, matchedUserAgent: CLAUDEBOT })
+  })
+
+  it('reads moved hits as claimed when the rule a user agent names today checks a different list', async () => {
+    // Amazon publishes one list per bot. Stored traffic keeps no IP to check
+    // against the new rule's list, so verification and provenance drop.
+    const db = harness()
+    const AMZN_SEARCHBOT = 'Mozilla/5.0 (compatible; Amzn-SearchBot/0.1; +https://developer.amazon.com/amazonbot)'
+    const AMAZONBOT_LIST = { id: 'amazonbot#v1', source: 'https://developer.amazon.com/amazonbot/ip-addresses/', version: 'v1' }
+    crawlerHour(db, { botId: 'amazonbot', operator: 'Amazon', verificationStatus: 'verified', pathNormalized: '/docs', hits: 6, sampledUserAgent: AMZN_SEARCHBOT, manifest: AMAZONBOT_LIST })
+    crawlerSample(db, 'amzn', AMZN_SEARCHBOT, {
+      botId: 'amazonbot', operator: 'Amazon', product: 'Amazonbot', purpose: 'training',
+      verificationStatus: 'verified', verificationManifest: AMAZONBOT_LIST, matchedUserAgent: AMZN_SEARCHBOT,
+    })
+
+    const result = await reclassifyStoredTraffic(db, { now: NOW })
+
+    expect(result.crawlers).toEqual({ examined: 1, moved: 1, movedHits: 6, unverifiedHits: 6, samplesRelabeled: 1, byBot: { 'amzn-searchbot': 6 } })
+    expect(crawlerRows(db)).toEqual([
+      { tsHour: HOUR, botId: 'amzn-searchbot', verificationStatus: 'claimed_unverified', pathNormalized: '/docs', status: 200, hits: 6 },
+    ])
+    expect(provenanceRows(db)).toEqual([])
+    expect(sampleCrawler(db, 'amzn')).toEqual({
+      botId: 'amzn-searchbot', operator: 'Amazon', product: 'Amzn-SearchBot', purpose: 'search',
+      verificationStatus: 'claimed_unverified', verificationManifest: null, matchedUserAgent: AMZN_SEARCHBOT,
+    })
   })
 })
 

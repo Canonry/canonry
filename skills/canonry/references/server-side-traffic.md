@@ -1367,6 +1367,8 @@ days. People's browsers, generic HTTP tools (curl, python-requests and the
 like), static files and writes are left out, so the list is agents rather than
 scripts. Every source records them; the Cloudflare Worker forwards them from
 version 1.1.0. A name that keeps showing up is a candidate for a classifier rule.
+A Claude bot Anthropic adds later is listed here too until a rule names it,
+rather than counted as ClaudeBot.
 Agents that drive a normal browser (their user agent is plain Chrome) look like
 people and never appear here.
 
@@ -1376,6 +1378,9 @@ rules. Those hits stay claimed, because stored traffic keeps no IP to verify,
 and their path reads `(path not recorded)`, because each hour kept one count
 per name rather than per page. The same pass relabels unknown samples, renames
 rows the naming now reads differently (Apple's link previews become
-`imessage-link-preview`), and deletes Canonry's own monitoring requests.
+`imessage-link-preview`), and deletes Canonry's own monitoring requests. It
+also moves crawler hours stored under a rule their user agent no longer names
+(such as hours an older version wrote after a rollback) to the rule that names
+it; they stay verified only when both rules check the same published IP list.
 `cnry backfill traffic-classification [--project <name>] [--dry-run]` runs it
 on demand. An IP-list refresh does not re-verify stored hits.

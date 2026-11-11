@@ -67,9 +67,7 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
   },
   {
     // Anthropic's search crawler, which indexes pages so Claude can find them
-    // when it searches the web. Mirrors OAI-SearchBot vs. GPTBot. It must
-    // stay above `anthropic-claudebot`: that rule's `Claude-[A-Z]+Bot/`
-    // pattern also matches this token and would count it as training.
+    // when it searches the web. Mirrors OAI-SearchBot vs. GPTBot.
     // src: https://support.claude.com/en/articles/8896518-does-anthropic-crawl-data-from-the-web-and-how-can-site-owners-block-the-crawler
     id: 'claude-searchbot',
     operator: 'Anthropic',
@@ -84,15 +82,13 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     purpose: 'training',
     // ClaudeBot is Anthropic's training crawler. `Claude-Web/` and
     // `anthropic-ai` are older Anthropic tokens it no longer documents.
-    // `Claude-[A-Z]+Bot/` catches a Claude-*Bot Anthropic adds before it
-    // gets its own rule, without matching unrelated UAs that merely
-    // mention "claude". Claude-SearchBot (above), Claude-User and
-    // Claude-Agent (below) have their own rules; the last two carry no
-    // `Bot/` suffix, so this rule never matches them.
+    // There is deliberately no Claude-*Bot family pattern: a bot Anthropic
+    // adds later is not training traffic by default, so until it gets its
+    // own rule it is stored as an unrecognized agent and raises
+    // `traffic.agent.discovered`.
     userAgentPatterns: [
       /ClaudeBot\//i,
       /Claude-Web\//i,
-      /Claude-[A-Z]+Bot\//i,
       /anthropic-ai/i,
     ],
   },
@@ -101,10 +97,8 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     // a person asks about it mid-conversation (citation click, "read
     // this page" prompt). Distinct from ClaudeBot (training crawl) —
     // same operator, opposite operational signal, mirroring OpenAI's
-    // GPTBot vs. ChatGPT-User split. The `anthropic-claudebot` rule
-    // above does not match `Claude-User/` (its `Claude-[A-Z]+Bot/`
-    // pattern needs a `Bot/` suffix), so this is the only rule that
-    // routes it — into the user-fetch bucket, not bulk crawl.
+    // GPTBot vs. ChatGPT-User split, so it goes to the user-fetch bucket,
+    // not bulk crawl.
     id: 'claude-user',
     operator: 'Anthropic',
     product: 'Claude-User',

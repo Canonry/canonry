@@ -298,3 +298,15 @@ export function hasVerificationDataFor(ruleId: string): boolean {
   const data = CACHE.get(ruleId)
   return !!data && data.ranges.length > 0
 }
+
+/**
+ * Whether two rules verify against the same published list, so an address
+ * that verified under one verifies under the other (Anthropic's crawlers
+ * share one list). False when either rule has no usable list.
+ */
+export function rulesShareVerificationList(ruleA: string, ruleB: string): boolean {
+  const a = CACHE.get(ruleA)
+  const b = CACHE.get(ruleB)
+  if (!a?.manifest || !b?.manifest || a.ranges.length === 0 || b.ranges.length === 0) return false
+  return a.manifest.id === b.manifest.id
+}

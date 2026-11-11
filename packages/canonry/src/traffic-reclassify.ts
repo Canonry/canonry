@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { and, eq, gte, inArray, lte, ne, sql } from 'drizzle-orm'
+import { and, eq, gte, inArray, isNotNull, lte, ne, sql } from 'drizzle-orm'
 import { addLikelyFakeAgentHits, correctBackgroundCallJourneys, mergeSplitJourneyVisitors, repairAiReferralArrivalsOnStartup, writeUnrecognizedAgentBuckets, type BackgroundCallJourneyCorrection, type SplitVisitorMerge } from '@canonry/canonry-api-routes'
 import {
   AgentTrustLevels,
@@ -9,6 +9,7 @@ import {
   TrafficEventConfidences,
   TrafficEvidenceKinds,
   TrafficSourceTypes,
+  trafficSampleClassifierSchema,
   UNRECORDED_TRAFFIC_PATH,
   VerificationStatuses,
   type NormalizedTrafficRequest,
@@ -20,6 +21,7 @@ import {
   aiUserFetchEventsHourly,
   aiUserFetchVerificationManifestsHourly,
   crawlerEventsHourly,
+  crawlerVerificationManifestsHourly,
   migrationsTable,
   RawEventSampleEventTypes,
   rawEventSamples,
@@ -37,6 +39,7 @@ import {
   isSelfTraffic,
   JOURNEY_RULES_VERSION,
   normalizeTrafficPathPattern,
+  rulesShareVerificationList,
   SCANNER_BURST_WINDOW_MS,
   SELF_TRAFFIC_USER_AGENT_PATTERNS,
   UNLISTED_AGENT_SKIPPED_EXTENSIONS,
@@ -79,6 +82,24 @@ export interface StoredTrafficReclassification {
     renamed: number
     /** Rows of Canonry's own tools, or that the current naming names nobody. */
     removed: number
+    byBot: Record<string, number>
+  }
+  /**
+   * Crawler hourly rows stored under a rule their sampled user agent no
+   * longer names, such as hours an older version wrote after a rollback.
+   */
+  crawlers: {
+    examined: number
+    /** Rows moved to the rule their sampled user agent names today. */
+    moved: number
+    movedHits: number
+    /**
+     * Moved hits that were verified and now read claimed: the new rule checks
+     * a different published list, and stored traffic keeps no IP to check.
+     */
+    unverifiedHits: number
+    /** Crawler samples relabeled the same way. */
+    samplesRelabeled: number
     byBot: Record<string, number>
   }
   /** Unverified AI agent hourly rows for a page scanners ask for. */
@@ -426,6 +447,205 @@ async function reclassifyUnknownSamples(db: DatabaseClient, opts: {
   return result
 }
 
+type CrawlerHour = typeof crawlerEventsHourly.$inferSelect
+type CrawlerHourKey = Pick<CrawlerHour, 'projectId' | 'sourceId' | 'tsHour' | 'botId' | 'verificationStatus' | 'pathNormalized' | 'status'>
+
+function crawlerHourRow(key: CrawlerHourKey) {
+  const table = crawlerEventsHourly
+  return and(
+    eq(table.projectId, key.projectId),
+    eq(table.sourceId, key.sourceId),
+    eq(table.tsHour, key.tsHour),
+    eq(table.botId, key.botId),
+    eq(table.verificationStatus, key.verificationStatus),
+    eq(table.pathNormalized, key.pathNormalized),
+    eq(table.status, key.status),
+  )
+}
+
+/** The crawler rule a stored user agent names today, or null when none does. */
+function crawlerRuleOf(userAgent: string, observedAt: string, rules: Map<string, ClassifiedCrawler | null>): ClassifiedCrawler | null {
+  let rule = rules.get(userAgent)
+  if (rule === undefined) {
+    rule = classifyCrawler(probeRequest(userAgent, '/', observedAt))
+    rules.set(userAgent, rule)
+  }
+  return rule
+}
+
+/**
+ * Move one crawler hour to another rule. Its verification and provenance stay
+ * only when both rules check the same published list; otherwise its hits read
+ * claimed with no provenance, since stored traffic keeps no IP to check.
+ */
+function moveCrawlerHour(tx: Tx, row: CrawlerHour, to: ClassifiedCrawler): void {
+  const table = crawlerEventsHourly
+  const manifests = crawlerVerificationManifestsHourly
+  const keepVerification = rulesShareVerificationList(row.botId, to.botId)
+  tx.insert(table).values({
+    ...row,
+    botId: to.botId,
+    operator: to.operator,
+    verificationStatus: keepVerification ? row.verificationStatus : VerificationStatuses.claimed_unverified,
+  }).onConflictDoUpdate({
+    target: [table.projectId, table.sourceId, table.tsHour, table.botId, table.verificationStatus, table.pathNormalized, table.status],
+    set: { hits: sql`${table.hits} + ${row.hits}`, updatedAt: sql`max(${table.updatedAt}, excluded.updated_at)` },
+  }).run()
+  if (keepVerification) {
+    const provenance = tx.select().from(manifests).where(and(
+      eq(manifests.projectId, row.projectId),
+      eq(manifests.sourceId, row.sourceId),
+      eq(manifests.tsHour, row.tsHour),
+      eq(manifests.botId, row.botId),
+      eq(manifests.verificationStatus, row.verificationStatus),
+      eq(manifests.pathNormalized, row.pathNormalized),
+      eq(manifests.status, row.status),
+    )).all()
+    for (const entry of provenance) {
+      tx.insert(manifests).values({ ...entry, botId: to.botId }).onConflictDoUpdate({
+        target: [manifests.projectId, manifests.sourceId, manifests.tsHour, manifests.botId, manifests.verificationStatus, manifests.pathNormalized, manifests.status, manifests.manifestId],
+        set: { hits: sql`${manifests.hits} + ${entry.hits}`, updatedAt: sql`max(${manifests.updatedAt}, excluded.updated_at)` },
+      }).run()
+    }
+  }
+  // The foreign key's cascade deletes the old row's provenance with it.
+  tx.delete(table).where(crawlerHourRow(row)).run()
+}
+
+/** Relabel crawler samples whose user agent names another crawler rule today. Returns how many. */
+async function relabelCrawlerSamples(db: DatabaseClient, opts: {
+  projectIds?: readonly string[]
+  dryRun: boolean
+  shouldStop: () => boolean
+}, rules: Map<string, ClassifiedCrawler | null>): Promise<number> {
+  let relabeled = 0
+  const lastStartingRowid = Number(db.select({ max: sql<number | null>`max(rowid)` }).from(rawEventSamples).get()?.max ?? 0)
+  let lastRowid = 0
+  for (;;) {
+    if (opts.shouldStop()) break
+    const samples = db.select({
+      rowid: sql<number>`rowid`,
+      id: rawEventSamples.id,
+      ts: rawEventSamples.ts,
+      userAgent: rawEventSamples.userAgent,
+      details: rawEventSamples.classifierDetailsJson,
+    })
+      .from(rawEventSamples)
+      .where(and(
+        eq(rawEventSamples.eventType, RawEventSampleEventTypes.crawler),
+        sql`rowid > ${lastRowid}`,
+        sql`rowid <= ${lastStartingRowid}`,
+        opts.projectIds ? inArray(rawEventSamples.projectId, [...opts.projectIds]) : undefined,
+      ))
+      .orderBy(sql`rowid`)
+      .limit(BATCH_SIZE)
+      .all()
+    if (samples.length === 0) break
+    lastRowid = samples[samples.length - 1]!.rowid
+    const updates = samples.flatMap((sample) => {
+      const from = trafficSampleClassifierSchema.safeParse(sample.details).data?.crawler
+      if (!sample.userAgent || !from?.botId) return []
+      const to = crawlerRuleOf(sample.userAgent, sample.ts, rules)
+      if (!to || to.botId === from.botId) return []
+      const crawler = {
+        ...from,
+        botId: to.botId,
+        operator: to.operator,
+        product: to.product,
+        purpose: to.purpose,
+        ...(rulesShareVerificationList(from.botId, to.botId)
+          ? {}
+          : { verificationStatus: VerificationStatuses.claimed_unverified, verificationManifest: null }),
+      }
+      return [{ id: sample.id, details: { ...sample.details, crawler } }]
+    })
+    relabeled += updates.length
+    if (updates.length > 0 && !opts.dryRun) {
+      db.transaction((tx) => {
+        for (const update of updates) {
+          tx.update(rawEventSamples).set({ classifierDetailsJson: update.details }).where(eq(rawEventSamples.id, update.id)).run()
+        }
+      }, { behavior: 'immediate' })
+    }
+    await yieldToEventLoop()
+  }
+  return relabeled
+}
+
+/**
+ * Crawler hours stored under a rule their sampled user agent no longer names
+ * move to the rule that names it today, as migration v221 moved
+ * Claude-SearchBot off ClaudeBot. A migration runs once, so hours an older
+ * version writes after a rollback are re-split only here, when the newer rules
+ * start again. A row moves whole by its one sampled user agent, and a row
+ * whose agent no crawler rule names stays where it is. Crawler samples are
+ * relabeled the same way.
+ */
+async function rekeyCrawlerHours(db: DatabaseClient, opts: {
+  projectIds?: readonly string[]
+  dryRun: boolean
+  shouldStop: () => boolean
+}): Promise<StoredTrafficReclassification['crawlers']> {
+  const result: StoredTrafficReclassification['crawlers'] = { examined: 0, moved: 0, movedHits: 0, unverifiedHits: 0, samplesRelabeled: 0, byBot: {} }
+  const table = crawlerEventsHourly
+  const rules = new Map<string, ClassifiedCrawler | null>()
+  // A moved row's new key lands past the starting rowid, already under today's rules.
+  const lastStartingRowid = Number(db.select({ max: sql<number | null>`max(rowid)` }).from(table).get()?.max ?? 0)
+  let lastRowid = 0
+  for (;;) {
+    if (opts.shouldStop()) break
+    const keys = db.select({
+      rowid: sql<number>`rowid`,
+      projectId: table.projectId,
+      sourceId: table.sourceId,
+      tsHour: table.tsHour,
+      botId: table.botId,
+      verificationStatus: table.verificationStatus,
+      pathNormalized: table.pathNormalized,
+      status: table.status,
+      sampledUserAgent: table.sampledUserAgent,
+    })
+      .from(table)
+      .where(and(
+        sql`rowid > ${lastRowid}`,
+        sql`rowid <= ${lastStartingRowid}`,
+        isNotNull(table.sampledUserAgent),
+        opts.projectIds ? inArray(table.projectId, [...opts.projectIds]) : undefined,
+      ))
+      .orderBy(sql`rowid`)
+      .limit(BATCH_SIZE)
+      .all()
+    if (keys.length === 0) break
+    lastRowid = keys[keys.length - 1]!.rowid
+    result.examined += keys.length
+    const misfiled = keys.filter(key => {
+      const to = crawlerRuleOf(key.sampledUserAgent!, key.tsHour, rules)
+      return to !== null && to.botId !== key.botId
+    })
+    if (misfiled.length > 0) {
+      db.transaction((tx) => {
+        for (const key of misfiled) {
+          // Re-read inside the transaction: ingest may have added hits since.
+          const row = tx.select().from(table).where(crawlerHourRow(key)).get()
+          const to = row?.sampledUserAgent ? crawlerRuleOf(row.sampledUserAgent, row.tsHour, rules) : null
+          if (!row || !to || to.botId === row.botId) continue
+          result.moved++
+          result.movedHits += row.hits
+          result.byBot[to.botId] = (result.byBot[to.botId] ?? 0) + row.hits
+          if (row.verificationStatus === VerificationStatuses.verified && !rulesShareVerificationList(row.botId, to.botId)) {
+            result.unverifiedHits += row.hits
+          }
+          if (opts.dryRun) continue
+          moveCrawlerHour(tx, row, to)
+        }
+      }, { behavior: 'immediate' })
+    }
+    await yieldToEventLoop()
+  }
+  if (!opts.shouldStop()) result.samplesRelabeled = await relabelCrawlerSamples(db, opts, rules)
+  return result
+}
+
 type HourlyAgentKey = {
   projectId: string
   sourceId: string
@@ -645,7 +865,10 @@ async function reassessAgentRequests(db: DatabaseClient, opts: {
  * hourly rows of unrecognized agents: a row a rule now recognizes moves into
  * that bot's hourly counts (claimed, since stored traffic keeps no IP; the
  * page is unrecorded), rows of Canonry's own tools are deleted, and the rest
- * are renamed or dropped to match today's naming. AI agent traffic: hourly
+ * are renamed or dropped to match today's naming. Crawler hours and samples
+ * stored under a rule their user agent no longer names move to the rule that
+ * names it, keeping verification only when both rules check the same published
+ * list (`rekeyCrawlerHours`). AI agent traffic: hourly
  * rows and stored requests that today's trust rules call likely fake move to
  * the likely fake counts. Journeys: background calls stop opening visits or
  * counting as AI arrivals (`correctBackgroundCallJourneys`), and a visitor seen
@@ -668,6 +891,9 @@ export async function reclassifyStoredTraffic(db: DatabaseClient, opts: {
   const unrecognized = shared.shouldStop()
     ? { examined: 0, moved: 0, movedHits: 0, renamed: 0, removed: 0, byBot: {} }
     : await reclassifyUnrecognizedRows(db, shared)
+  const crawlers = shared.shouldStop()
+    ? { examined: 0, moved: 0, movedHits: 0, unverifiedHits: 0, samplesRelabeled: 0, byBot: {} }
+    : await rekeyCrawlerHours(db, shared)
   // Hourly rows first: a probe's own row moves there, its client's other requests here.
   const agentHits = shared.shouldStop() ? { examined: 0, moved: 0, movedHits: 0 } : await reassessAgentHits(db, shared)
   const agentRequests = shared.shouldStop() ? { examined: 0, probes: 0, removed: 0 } : await reassessAgentRequests(db, shared)
@@ -675,7 +901,7 @@ export async function reclassifyStoredTraffic(db: DatabaseClient, opts: {
     ? { visitors: 0, visitorsRemoved: 0, visitsRemoved: 0, visitsRelanded: 0 }
     : correctBackgroundCallJourneys(db, shared)
   const journeyMerges = shared.shouldStop() ? { visitorsMerged: 0, visitsJoined: 0 } : mergeSplitJourneyVisitors(db, shared)
-  return { dryRun: shared.dryRun, samples, unrecognized, agentHits, agentRequests, journeys, journeyMerges }
+  return { dryRun: shared.dryRun, samples, unrecognized, crawlers, agentHits, agentRequests, journeys, journeyMerges }
 }
 
 /**
@@ -738,7 +964,7 @@ export function startTrafficReclassification(opts: { db: DatabaseClient, delayMs
 }
 
 function logReclassification(result: StoredTrafficReclassification): void {
-  const { samples, unrecognized, agentHits, agentRequests, journeys, journeyMerges } = result
+  const { samples, unrecognized, crawlers, agentHits, agentRequests, journeys, journeyMerges } = result
   log.info('traffic-reclassify.completed', {
     samplesReclassified: samples.reclassified,
     samplesCounted: samples.counted,
@@ -747,6 +973,10 @@ function logReclassification(result: StoredTrafficReclassification): void {
     unrecognizedMovedHits: unrecognized.movedHits,
     unrecognizedRenamed: unrecognized.renamed,
     unrecognizedRemoved: unrecognized.removed,
+    crawlerRowsMoved: crawlers.moved,
+    crawlerHitsMoved: crawlers.movedHits,
+    crawlerHitsUnverified: crawlers.unverifiedHits,
+    crawlerSamplesRelabeled: crawlers.samplesRelabeled,
     agentHitsMoved: agentHits.movedHits,
     agentRequestsRemoved: agentRequests.removed,
     journeyVisitorsRemoved: journeys.visitorsRemoved,

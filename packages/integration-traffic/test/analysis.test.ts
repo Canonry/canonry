@@ -19,6 +19,7 @@ import {
   findAiReferralFollowOns,
   normalizeTrafficPathPattern,
 } from '../src/index.js'
+import { ruleTokens } from './fixtures/rule-tokens.js'
 import { firstPublishedIp, vendoredManifest } from './fixtures/vendored-ranges.js'
 
 // Addresses and manifest identities come from the vendored snapshots, so the
@@ -187,9 +188,8 @@ describe('traffic analysis', () => {
     // (toBeTruthy on a `ClassifiedCrawler | null`) plus the expected
     // operator. botId is asserted where the spelling is stable.
 
-    // Anthropic Claude-SearchBot indexes for Claude's web search. It has its
-    // own rule above ClaudeBot's, whose Claude-*Bot catch-all would otherwise
-    // count it as training.
+    // Anthropic Claude-SearchBot indexes for Claude's web search: a search
+    // crawler, not ClaudeBot training.
     expect(classifyCrawler(event({
       userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; +searchbot@anthropic.com)',
     }))).toMatchObject({
@@ -197,13 +197,6 @@ describe('traffic analysis', () => {
       operator: 'Anthropic',
       product: 'Claude-SearchBot',
       purpose: 'search',
-    })
-
-    // Permissive variant — any future Claude-*Bot Anthropic introduces.
-    expect(classifyCrawler(event({
-      userAgent: 'Mozilla/5.0 (compatible; Claude-IndexBot/2.0)',
-    }))).toMatchObject({
-      operator: 'Anthropic',
     })
 
     // Mistral's general crawler — disjoint from MistralAI-User (per-user
@@ -809,10 +802,21 @@ describe('traffic analysis', () => {
     })
   })
 
+  it('leaves a Claude bot no rule names to the unrecognized agents, not ClaudeBot training', () => {
+    // A bot Anthropic adds later has no rule until one is written. It must
+    // not be counted as ClaudeBot training; stored as an unrecognized agent,
+    // it raises `traffic.agent.discovered` instead.
+    const userAgent = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-IndexBot/1.0; +claude-indexbot@anthropic.com)'
+    const report = buildTrafficProbeReport([event({ userAgent, observedAt: '2026-11-10T09:15:00.000Z', path: '/guide' })])
+
+    expect(report.crawlerEventsHourly).toEqual([])
+    expect(report.unrecognizedAgentEventsHourly).toEqual([
+      { tsHour: '2026-11-10T09:00:00.000Z', agentName: 'claude-indexbot', hits: 1, sampledUserAgent: userAgent, sampledPath: '/guide' },
+    ])
+  })
+
   it('routes Claude-User to ai-user-fetch, not crawler', () => {
-    // Anthropic's on-behalf-of-user fetcher. The `anthropic-claudebot`
-    // crawler rule does not match `Claude-User/` (its `Claude-[A-Z]+Bot/`
-    // pattern needs a `Bot/` suffix), so before the `claude-user` rule
+    // Anthropic's on-behalf-of-user fetcher. Before the `claude-user` rule
     // this UA fell through to the `unknown` bucket entirely.
     const evt = event({ userAgent: 'Mozilla/5.0 (compatible; Claude-User/1.0; +Anthropic)' })
     expect(classifyCrawler(evt)).toBeNull()
@@ -1003,5 +1007,19 @@ describe('traffic analysis', () => {
     }))
     const report = buildTrafficProbeReport(events, { sampleLimit: 2 })
     expect(report.samples.map((s) => s.eventId)).toEqual(['e-3', 'e-4'])
+  })
+})
+
+describe('classifier rule order', () => {
+  // Both classifiers return the first rule that matches, so a rule listed
+  // below a broader pattern that also matches its token is never reached.
+  // Each token must also stay in its own channel: a user agent that matched
+  // a crawler rule and a user-fetch rule would be counted in both.
+  it.each(ruleTokens())('classifies $token as $ruleId, in its own channel only', ({ ruleId, purpose, userAgent }) => {
+    const evt = event({ userAgent })
+    expect({
+      crawler: classifyCrawler(evt)?.botId ?? null,
+      userFetch: classifyAiUserFetch(evt)?.botId ?? null,
+    }).toEqual(purpose === 'user-agent' ? { crawler: null, userFetch: ruleId } : { crawler: ruleId, userFetch: null })
   })
 })

@@ -1087,7 +1087,8 @@ function stringifyStoredSnapshotEnvelope(
 // When the classifier's rules learn a new bot, traffic stored before the
 // change stays unknown unless it is reclassified. `reclassifyStoredTraffic`
 // (traffic-reclassify.ts) does that for unknown raw samples, the hourly rows
-// of unrecognized agents, AI agent traffic today's trust rules call likely
+// of unrecognized agents, crawler hours filed under a rule their user agent no
+// longer names, AI agent traffic today's trust rules call likely
 // fake, and journeys a background call opened; a server also runs it once on
 // its own after startup whenever the rules change. This command runs it on
 // demand, with an optional project filter and a dry run.
@@ -1107,6 +1108,7 @@ interface TrafficClassificationBackfillResult {
   dryRun: boolean
   byBot: Record<string, number>
   unrecognized: StoredTrafficReclassification['unrecognized']
+  crawlers: StoredTrafficReclassification['crawlers']
   agentHits: StoredTrafficReclassification['agentHits']
   agentRequests: StoredTrafficReclassification['agentRequests']
   journeys: StoredTrafficReclassification['journeys']
@@ -1171,6 +1173,7 @@ export async function backfillTrafficClassificationCommand(opts?: {
     dryRun: isDryRun,
     byBot,
     unrecognized: stored.unrecognized,
+    crawlers: stored.crawlers,
     agentHits: stored.agentHits,
     agentRequests: stored.agentRequests,
     journeys: stored.journeys,
@@ -1193,6 +1196,8 @@ function emitTrafficClassificationReport(
   console.log(`  Unknown before:      ${result.unknownBefore}`)
   console.log(`  Unknown after:       ${result.unknownAfter}`)
   console.log(`  Unrecognized rows:   ${result.unrecognized.examined} examined, ${result.unrecognized.moved} moved to a bot (${result.unrecognized.movedHits} hits), ${result.unrecognized.renamed} renamed, ${result.unrecognized.removed} removed`)
+  const { crawlers } = result
+  console.log(`  Crawler rows:        ${crawlers.examined} examined, ${crawlers.moved} moved to the bot their user agent now names (${crawlers.movedHits} hits, ${crawlers.unverifiedHits} no longer verified), ${crawlers.samplesRelabeled} samples relabeled`)
   console.log(`  Fake agent hits:     ${result.agentHits.moved} hourly rows moved to likely fake (${result.agentHits.movedHits} hits)`)
   console.log(`  Agent requests:      ${result.agentRequests.removed} removed (${result.agentRequests.probes} asked for a scanner path)`)
   console.log(`  Journeys:            ${result.journeys.visitorsRemoved} visitors and ${result.journeys.visitsRemoved} visits removed, ${result.journeys.visitsRelanded} visits now start at a different page`)

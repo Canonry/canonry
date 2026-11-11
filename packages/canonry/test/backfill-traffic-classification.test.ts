@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -220,13 +220,35 @@ describe('backfill traffic-classification', () => {
       'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
       '2026-05-18T13:00:00.000Z',
     )
+    // An hour an older version filed under ClaudeBot.
+    const now = new Date().toISOString()
+    db.insert(crawlerEventsHourly).values({
+      projectId, sourceId, tsHour: '2026-05-18T13:00:00.000Z', botId: 'anthropic-claudebot', operator: 'Anthropic',
+      verificationStatus: 'claimed_unverified', pathNormalized: '/docs', status: 200, hits: 4,
+      sampledUserAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; +Claude-SearchBot@anthropic.com)',
+      createdAt: now, updatedAt: now,
+    }).run()
+    const logs: string[] = []
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { logs.push(args.join(' ')) })
 
-    await backfillTrafficClassificationCommand({ project: 'demo', dryRun: true })
+    try {
+      await backfillTrafficClassificationCommand({ project: 'demo', dryRun: true, format: 'json' })
+    } finally {
+      spy.mockRestore()
+    }
 
+    expect(JSON.parse(logs.join('\n'))).toMatchObject({
+      dryRun: true,
+      examined: 1,
+      reclassified: 1,
+      unknownBefore: 1,
+      unknownAfter: 0,
+      crawlers: { examined: 1, moved: 1, movedHits: 4, unverifiedHits: 0, samplesRelabeled: 0, byBot: { 'claude-searchbot': 4 } },
+    })
     const sampleAfter = db.select().from(rawEventSamples).get()
     expect(sampleAfter?.eventType).toBe('unknown')
-    const buckets = db.select().from(crawlerEventsHourly).all()
-    expect(buckets).toHaveLength(0)
+    expect(db.select({ botId: crawlerEventsHourly.botId, hits: crawlerEventsHourly.hits }).from(crawlerEventsHourly).all())
+      .toEqual([{ botId: 'anthropic-claudebot', hits: 4 }])
     expect(db.select().from(crawlerVerificationManifestsHourly).all()).toHaveLength(0)
   })
 
