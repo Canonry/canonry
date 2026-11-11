@@ -811,14 +811,15 @@ export const trafficEventsResponseSchema = z.object({
      */
     aiReferralCountingChangedAt: z.string().nullable().optional(),
     /**
-     * When the selected sources began counting only the page loads of hosted
-     * browser agents (Google-Agent, Claude-Agent) as AI user fetches, or null
-     * when none holds hours counted before. Hours before it also counted every
-     * file, data call and beacon those agents' pages made and read high; stored
-     * hourly rows keep no method or query, so they cannot be recounted. Not
-     * bound to the window. `trends.aiUserFetchHits` is fitted only over
-     * buckets that begin at or after it. Optional so a newer client reads an
-     * older API.
+     * The end of the last hour, on the selected sources, whose hosted browser
+     * agent (Google-Agent, Claude-Agent) AI user fetches were counted under
+     * older rules, or null when none holds such an hour. From it on, those
+     * agents count their page loads only. Earlier hours were counted
+     * differently and can read high (every file, data call and beacon counted)
+     * or low (whole visits judged likely fake); stored hourly rows keep no
+     * method or query, so they cannot be recounted. Not bound to the window.
+     * `trends.aiUserFetchHits` is fitted only over buckets that begin at or
+     * after it. Optional so a newer client reads an older API.
      */
     aiUserFetchCountingChangedAt: z.string().nullable().optional(),
     /**

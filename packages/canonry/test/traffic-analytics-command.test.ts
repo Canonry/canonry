@@ -80,7 +80,7 @@ describe('traffic analytics CLI', () => {
     } })
     const output = vi.spyOn(console, 'log').mockImplementation(() => {})
     await trafficAnalytics('acme', {})
-    expect(output).toHaveBeenCalledWith('  AI user fetches count only the page loads of browser agents (Google-Agent, Claude-Agent) since 2026-11-11T18:31:33.000Z; earlier hours also counted the files and data calls their pages made and read high.')
+    expect(output).toHaveBeenCalledWith('  AI user fetches count only the page loads of browser agents (Google-Agent, Claude-Agent) from 2026-11-11T18:31:33.000Z; earlier hours were counted differently and can read high or low.')
     expect(output).toHaveBeenCalledWith('  AI user-fetch hits: 4 (prior 80; change unavailable)')
   })
 })

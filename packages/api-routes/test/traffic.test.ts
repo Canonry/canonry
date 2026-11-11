@@ -25,6 +25,7 @@ import {
   journeyVisits,
 } from '@canonry/canonry-db'
 import {
+  AgentTrustReasons,
   trafficEventsResponseSchema,
   trafficSyncResponseSchema,
   TrafficEventKinds,
@@ -4266,13 +4267,52 @@ describe('POST /traffic/sources/:id/backfill', () => {
     }
   })
 
-  it.each([
-    { name: 'clears the browser-agent count marker once a backfill rewrote every older hour', olderOutsideWindow: false, expectedHits: 1 },
-    { name: 'keeps the browser-agent count marker while an older hour remains', olderOutsideWindow: true, expectedHits: 21 },
-  ])('$name', async ({ olderOutsideWindow, expectedHits }) => {
+  /**
+   * A 14-day backfill on 2026-11-06T12:00Z rewrites the hours from
+   * 2026-10-23T12:00Z on, page loads only. Hours before the window keep the
+   * count they were made under, so the marker moves back to the end of the
+   * source's last browser-agent hour among them (counted or likely fake, in
+   * this project), never forward, and clears when none is left.
+   */
+  type RowBeforeWindow = { kind: 'counted' | 'likely-fake', botId: string, tsHour: string, hits: number, foreignProject?: true }
+  // Vitest cuts a `$name` value at 40 characters, so each stays shorter.
+  it.each<{ name: string, changedAt: string, before: RowBeforeWindow[], expectedUntil: string | null, expectedHits: number }>([
+    {
+      name: 'clears once no older hour remains',
+      changedAt: '2026-11-01T10:00:00.000Z', before: [], expectedUntil: null, expectedHits: 1,
+    },
+    {
+      name: 'moves back to the last older hour',
+      changedAt: '2026-11-01T10:00:00.000Z',
+      before: [
+        { kind: 'counted', botId: 'google-agent', tsHour: '2026-10-20T10:00:00.000Z', hits: 20 },
+        // A link fetcher counted every request all along.
+        { kind: 'counted', botId: 'chatgpt-user', tsHour: '2026-10-22T10:00:00.000Z', hits: 5 },
+      ],
+      expectedUntil: '2026-10-20T11:00:00.000Z', expectedHits: 26,
+    },
+    {
+      name: 'moves back to a likely-fake hour',
+      changedAt: '2026-11-01T10:00:00.000Z',
+      before: [{ kind: 'likely-fake', botId: 'claude-agent', tsHour: '2026-10-21T15:00:00.000Z', hits: 4 }],
+      expectedUntil: '2026-10-21T16:00:00.000Z', expectedHits: 1,
+    },
+    {
+      // A browser-agent hour after the marker was counted page loads only.
+      name: 'stays when it ends earlier',
+      changedAt: '2026-10-18T00:00:00.000Z',
+      before: [{ kind: 'counted', botId: 'google-agent', tsHour: '2026-10-20T10:00:00.000Z', hits: 20 }],
+      expectedUntil: '2026-10-18T00:00:00.000Z', expectedHits: 21,
+    },
+    {
+      name: 'ignores another project\'s hours',
+      changedAt: '2026-11-01T10:00:00.000Z',
+      before: [{ kind: 'counted', botId: 'google-agent', tsHour: '2026-10-20T10:00:00.000Z', hits: 20, foreignProject: true }],
+      expectedUntil: null, expectedHits: 1,
+    },
+  ])('the browser-agent count marker $name after a backfill', async ({ changedAt, before: rowsBeforeWindow, expectedUntil, expectedHits }) => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-11-06T12:00:00.000Z'))
-    const changedAt = '2026-11-01T09:30:00.000Z'
     // A Google-Agent page load and the script its page loaded, inside the backfill window.
     const h = await buildHarness([
       buildEvent({ eventId: 'page', observedAt: '2026-10-24T10:15:00.000Z', userAgent: GOOGLE_AGENT_UA, path: '/pricing' }),
@@ -4293,10 +4333,23 @@ describe('POST /traffic/sources/:id/backfill', () => {
         verificationStatus: 'claimed_unverified', pathNormalized: '/assets/app.js', status: 200, hits: 30,
         sampledUserAgent: GOOGLE_AGENT_UA, createdAt: '2026-10-24T10:20:00.000Z', updatedAt: '2026-10-24T10:20:00.000Z',
       }
-      h.db.insert(aiUserFetchEventsHourly).values([
-        older,
-        ...(olderOutsideWindow ? [{ ...older, tsHour: '2026-10-20T10:00:00.000Z', pathNormalized: '/pricing', hits: 20 }] : []),
-      ]).run()
+      h.db.insert(aiUserFetchEventsHourly).values(older).run()
+      const foreignProjectId = 'foreign-browser-agent-project'
+      if (rowsBeforeWindow.some(row => row.foreignProject)) {
+        const project = h.db.select().from(projects).where(eq(projects.id, source.projectId)).get()!
+        h.db.insert(projects).values({ ...project, id: foreignProjectId, name: 'foreign-browser-agent', canonicalDomain: 'foreign-agent.example' }).run()
+      }
+      for (const row of rowsBeforeWindow) {
+        const projectId = row.foreignProject ? foreignProjectId : source.projectId
+        if (row.kind === 'counted') {
+          h.db.insert(aiUserFetchEventsHourly).values({ ...older, projectId, botId: row.botId, tsHour: row.tsHour, pathNormalized: '/pricing', hits: row.hits }).run()
+        } else {
+          h.db.insert(aiUserFetchLikelyFakeHourly).values({
+            projectId, sourceId, tsHour: row.tsHour, botId: row.botId, operator: 'Anthropic',
+            reason: AgentTrustReasons['scanner-burst'], hits: row.hits, createdAt: row.tsHour, updatedAt: row.tsHour,
+          }).run()
+        }
+      }
       const url = `/api/v1/projects/test-project/traffic/events?sourceId=${sourceId}&since=2026-10-15T00%3A00%3A00.000Z&granularity=day`
       const before = trafficEventsResponseSchema.parse(JSON.parse((await h.app.inject({ method: 'GET', url })).payload))
       expect(before.series.aiUserFetchCountingChangedAt).toBe(changedAt)
@@ -4308,11 +4361,11 @@ describe('POST /traffic/sources/:id/backfill', () => {
       expect((await waitForRunComplete(h.db, JSON.parse(submitted.payload).runId)).status).toBe(RunStatuses.completed)
 
       const after = trafficEventsResponseSchema.parse(JSON.parse((await h.app.inject({ method: 'GET', url })).payload))
-      // The rewritten hour counts the page load only; an older hour outside the window keeps its count.
+      // The rewritten hour counts the page load only; hours before the window keep their count.
       expect(after.totals.aiUserFetchHits).toBe(expectedHits)
-      expect(after.series.aiUserFetchCountingChangedAt).toBe(olderOutsideWindow ? changedAt : null)
+      expect(after.series.aiUserFetchCountingChangedAt).toBe(expectedUntil)
       expect(h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!.aiUserFetchOlderCountUntil)
-        .toBe(olderOutsideWindow ? changedAt : null)
+        .toBe(expectedUntil)
     } finally {
       await h.close()
     }
@@ -6420,8 +6473,11 @@ describe('crawler-hit content/infra segmentation', () => {
             slope: 0, intercept: 6, r2: 1, start: 6, end: 6, n: 3, startIndex: 4, endIndex: 6,
           })
         } else {
-          expect(body.series.trends.aiUserFetchHits?.n).toBe(5)
-          expect(body.series.trends.aiUserFetchHits?.slope).toBeLessThan(0)
+          // linearTrend([null, null, 120, 120, 6, 6, 6, null]): mean (4, 51.6),
+          // Sxy -342 over Sxx 10, and 3898.8 of 15595.2 left unexplained.
+          expect(body.series.trends.aiUserFetchHits, 'every measured whole day').toEqual({
+            slope: -34.2, intercept: 188.4, r2: 0.75, start: 120, end: -16.8, n: 5, startIndex: 2, endIndex: 6,
+          })
         }
       } finally { await h.close() }
     }

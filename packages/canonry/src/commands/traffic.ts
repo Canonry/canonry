@@ -956,7 +956,7 @@ export async function trafficAnalytics(project: string, opts: { period?: string 
     console.log(`  AI-referral arrivals counted once per visit since ${activity.aiReferralCountingChangedAt}; earlier hours also counted later requests in a visit and read high.`)
   }
   if (activity.aiUserFetchCountingChangedAt) {
-    console.log(`  AI user fetches count only the page loads of browser agents (Google-Agent, Claude-Agent) since ${activity.aiUserFetchCountingChangedAt}; earlier hours also counted the files and data calls their pages made and read high.`)
+    console.log(`  AI user fetches count only the page loads of browser agents (Google-Agent, Claude-Agent) from ${activity.aiUserFetchCountingChangedAt}; earlier hours were counted differently and can read high or low.`)
   }
   for (const [label, counts] of [
     ['Verified crawler hits', activity.verifiedCrawlerHits],

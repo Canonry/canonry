@@ -66,8 +66,9 @@ function readTrafficActivity(db: DatabaseClient, projectId: string, windowDays: 
   const referralsComparable = referralCountingChangedAt === null || Date.parse(referralCountingChangedAt) <= priorStartMs
   const referralChange = (current: number, prior: number) =>
     referralsComparable ? recordedChange(current, prior) : null
-  // Likewise user-fetch hours that counted every request of a browser agent,
-  // not only its page loads: a prior window holding them reads high.
+  // Likewise user-fetch hours whose browser-agent requests were counted under
+  // older rules, not as page loads only: a prior window holding them can read
+  // high or low.
   const userFetchCountingChangedAt = aiUserFetchOlderCountUntil(db, { projectId })
   const userFetchesComparable = userFetchCountingChangedAt === null || Date.parse(userFetchCountingChangedAt) <= priorStartMs
 

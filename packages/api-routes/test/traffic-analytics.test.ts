@@ -24,6 +24,7 @@ import {
   measurementPlans,
   measurementPlanVersions,
   migrate,
+  MIGRATION_VERSIONS,
   projects,
   trafficSources,
   type DatabaseClient,
@@ -247,6 +248,43 @@ describe('GET /projects/:name/traffic/analytics', () => {
 
     markOlderCountUntil(null)
     expect((await readAnalytics('agent-older-count', 30)).activity!.aiUserFetchCountingChangedAt).toBeNull()
+  })
+
+  /**
+   * v222 marks where a source's older browser-agent count ended: the end of
+   * its last such hour. A project whose only Google-Agent hour is 100 days old,
+   * on a source archived since, keeps the 30-day change and the fitted trend
+   * of the AI user fetches every agent shares, here ChatGPT-User at a flat 50
+   * a day. Marking the upgrade time instead withheld both for weeks.
+   */
+  test('a months-old browser-agent hour leaves the 30-day AI user fetch change and trend intact', async () => {
+    const projectId = seedProject('months-old-agent')
+    const live = seedSource(projectId)
+    db.transaction(() => {
+      for (let day = 1; day <= 60; day++) seedUserFetch(projectId, live, { tsHour: daysAgo(day), hits: 50 })
+    })
+    const archived = seedSource(projectId, true)
+    seedUserFetch(projectId, archived, { tsHour: daysAgo(100), botId: 'google-agent', operator: 'Google', pathNormalized: '/assets/app.js', hits: 20 })
+    MIGRATION_VERSIONS.find(version => version.version === 222)!.run!(db)
+    // The end of the Google-Agent hour, 2026-06-27T12:00Z.
+    const changedAt = '2026-06-27T13:00:00.000Z'
+
+    const { activity } = await readAnalytics('months-old-agent', 30)
+    expect(activity!.aiUserFetchCountingChangedAt).toBe(changedAt)
+    expect(activity!.priorWindowComplete).toBe(true)
+    // Days 1 to 30 back, then days 31 to 60 back.
+    expect(activity!.aiUserFetchHits).toEqual({ current: 1500, prior: 1500, deltaPct: 0 })
+
+    const response = await app.inject({
+      method: 'GET', url: `/api/v1/projects/months-old-agent/traffic/events?since=${daysAgo(30)}&granularity=day&limit=1`,
+      headers: { authorization: `Bearer ${READ_KEY}` },
+    })
+    expect(response.statusCode).toBe(200)
+    const { series } = response.json<TrafficEventsResponse>()
+    expect(series.aiUserFetchCountingChangedAt).toBe(changedAt)
+    // 31 day buckets: the first holds only the window's last 12 hours and the
+    // newest is still running, so the fit takes the 29 whole days between.
+    expect(series.trends.aiUserFetchHits).toEqual({ slope: 0, intercept: 50, r2: 1, start: 50, end: 50, n: 29, startIndex: 1, endIndex: 29 })
   })
 
   test.each([7, 14, 30, 90])('period=%s selects that exact window and its equal-length prior', async period => {

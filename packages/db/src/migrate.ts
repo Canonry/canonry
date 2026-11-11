@@ -5625,16 +5625,17 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     version: 222,
     name: 'ai-user-fetch-older-count-until',
     // Hosted browser agents (Google-Agent, Claude-Agent) now count only their
-    // page loads as AI user fetches. Hours a source wrote before counted every
-    // file, data call and beacon their pages made (Claude-Agent's, stored as an
-    // unrecognized agent, counted its GET and HEAD requests for anything but a
-    // static file), and hourly rows keep no method or query, so they cannot be
-    // recounted. Stamp when the older count ended, on sources holding such
-    // hours. A fresh install holds none and stamps nothing.
+    // page loads as AI user fetches. Hours a source wrote before were counted
+    // under older rules: every file, data call and beacon their pages made
+    // counted (high), or the older trust rules judged whole visits likely fake
+    // (low). Hourly rows keep no method or query, so they cannot be recounted.
+    // Stamp where the older count ended on sources holding such hours: the end
+    // of the last one, or the upgrade time if that is earlier. A fresh install
+    // holds none and stamps nothing.
     //
     // A run hook because the statement allowlist is schema-shaped, and because
-    // a legacy database that resumes past the migrations creating these tables
-    // must skip the stamp rather than fail on a missing table.
+    // a legacy database that resumes past the migrations creating the hourly
+    // tables must skip the stamp rather than fail on a missing table.
     statements: [
       `ALTER TABLE traffic_sources ADD COLUMN ai_user_fetch_older_count_until TEXT`,
     ],
@@ -5644,27 +5645,35 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   },
 ]
 
+/** v222: the hourly tables holding a hosted browser agent's hours, counted or judged likely fake. */
+const V222_BROWSER_AGENT_HOURLY_TABLES = ['ai_user_fetch_events_hourly', 'ai_user_fetch_likely_fake_hourly'] as const
+
 /**
- * v222: stamp `traffic_sources.ai_user_fetch_older_count_until` on sources
- * holding hours of a hosted browser agent counted before only its page loads
- * counted: its user-fetch rows, or Claude-Agent's rows from before it had a
- * rule, which the stored traffic pass moves into its user-fetch counts. The
- * bot ids are the classifier rules' at this version. A rerun keeps a stamp.
+ * v222: set `traffic_sources.ai_user_fetch_older_count_until` to the end of
+ * the source's last hour holding a hosted browser agent's rows, counted or
+ * likely fake, or to the upgrade time if that is earlier: the hours before it
+ * were counted under the older rules. Sources holding no such row stay NULL.
+ * The bot ids are the classifier rules' at this version. Claude-Agent's hours
+ * from before it had a rule are unrecognized-agent rows; the stored traffic
+ * pass stamps their source when it moves them in. One pass: each table is
+ * scanned once for the last hour per source, then one update joins by source
+ * id. A rerun keeps a stamp already set.
  */
-function stampBrowserAgentOlderCount(tx: MigrationDb, now: string): void {
-  if (!tableExists(tx, 'traffic_sources')) return
-  const holders: string[] = []
-  if (tableExists(tx, 'ai_user_fetch_events_hourly')) {
-    holders.push(`EXISTS (SELECT 1 FROM ai_user_fetch_events_hourly f
-      WHERE f.source_id = traffic_sources.id AND f.bot_id IN ('google-agent', 'claude-agent'))`)
-  }
-  if (tableExists(tx, 'unrecognized_agent_events_hourly')) {
-    holders.push(`EXISTS (SELECT 1 FROM unrecognized_agent_events_hourly u
-      WHERE u.source_id = traffic_sources.id AND u.sampled_user_agent LIKE '%Claude-Agent%')`)
-  }
-  if (holders.length === 0) return
-  tx.run(sql`UPDATE traffic_sources SET ai_user_fetch_older_count_until = ${now}
-    WHERE ai_user_fetch_older_count_until IS NULL AND (${sql.raw(holders.join(' OR '))})`)
+function stampBrowserAgentOlderCount(tx: MigrationDb, upgradedAt: string): void {
+  const lastHours = V222_BROWSER_AGENT_HOURLY_TABLES
+    .filter(table => tableExists(tx, table))
+    .map(table => `SELECT source_id, MAX(ts_hour) AS ts_hour FROM ${table}
+      WHERE bot_id IN ('google-agent', 'claude-agent') GROUP BY source_id`)
+  if (lastHours.length === 0) return
+  tx.run(sql`UPDATE traffic_sources
+    SET ai_user_fetch_older_count_until = min(${upgradedAt}, last_hour.hour_end)
+    FROM (
+      SELECT source_id, strftime('%Y-%m-%dT%H:%M:%fZ', MAX(ts_hour), '+1 hour') AS hour_end
+      FROM (${sql.raw(lastHours.join(' UNION ALL '))})
+      GROUP BY source_id
+    ) AS last_hour
+    WHERE traffic_sources.id = last_hour.source_id
+      AND traffic_sources.ai_user_fetch_older_count_until IS NULL`)
 }
 
 /**
