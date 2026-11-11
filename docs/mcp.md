@@ -865,8 +865,11 @@ with the operator.
 traffic toolkit. It exposes no IP hashes and makes no provider call. `kind: all`
 excludes unknown requests; select `unknown` explicitly. `sourceId`, inclusive ISO
 `since`/`until`, literal `path` prefix, `limit` (1 to 500), and `offset` filter and
-page stored samples. Sample rows are not visits. Project/source scope only, for
-Simple and Advanced projects. Viewers and embeds are denied.
+page stored samples. Sample rows are not visits. A browser agent's (Google-Agent,
+Claude-Agent) AI user fetch sample carries `requestKind` (`page`, `action` or
+`resource`); unless it is likely fake, only a `page` sample was counted as an AI
+user fetch. Project/source scope only, for Simple and Advanced projects. Viewers
+and embeds are denied.
 
 `canonry_traffic_agent_journeys` lists stored user-triggered agent request
 sequences; `canonry_traffic_agent_journey` reads a sequence's ordered requests.
@@ -874,8 +877,9 @@ Both are stored reads in the traffic toolkit. Preserve `since`, `until`,
 `sourceId`, `agentId`, `verificationStatus`, and `targetKey` when opening a
 detail; `limit` and `offset` page the result. IP/UA correlation is inferred,
 not a confirmed user task; requests without an IP stay unlinked. Operator
-verification is separate from correlation. Responses carry source limitations,
-retention and cap evidence. Advanced Property attribution uses the current
+verification is separate from correlation. Responses carry source limitations
+(including what a browser agent's journey leaves out: it keeps page loads,
+actions and failed requests), retention and cap evidence. Advanced Property attribution uses the current
 plan's URL coverage, with its revision; market, model, query class and task
 intent remain unavailable. Viewers and embeds are denied; API read keys retain
 their project boundary. No provider calls or writes.
