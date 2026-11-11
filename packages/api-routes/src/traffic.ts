@@ -147,7 +147,7 @@ import { enforceJourneyRetention, recordJourneyBatch } from './journeys.js'
 import { recordAgentJourneyBatch } from './agent-journey-capture.js'
 import { planScannerBursts, saveScannerBursts } from './agent-scanner-bursts.js'
 import { aiReferralOlderCountUntil, planAiReferralArrivals, saveAiReferralArrivals } from './ai-referral-arrivals.js'
-import { aiUserFetchOlderCountUntil, holdsBrowserAgentHoursBefore } from './ai-user-fetch-counting.js'
+import { aiUserFetchOlderCountAfterBackfill, aiUserFetchOlderCountUntil } from './ai-user-fetch-counting.js'
 import { addLikelyFakeAgentHits, clearLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
@@ -1811,11 +1811,14 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
         }
       }
       // Replacement rows count a browser agent's page loads only. Hours before
-      // the window keep their older count, if the source holds any.
-      const userFetchOlderCountUntil = latestSource.aiUserFetchOlderCountUntil !== null
-        && holdsBrowserAgentHoursBefore(tx, sourceRow.id, windowStartIso)
-        ? latestSource.aiUserFetchOlderCountUntil
-        : null
+      // the window keep the count they were made under: the marker moves back
+      // to the end of the last browser-agent hour among them, or clears.
+      const userFetchOlderCountUntil = aiUserFetchOlderCountAfterBackfill(
+        tx,
+        { projectId: project.id, sourceId: sourceRow.id },
+        latestSource.aiUserFetchOlderCountUntil,
+        windowStartIso,
+      )
 
       tx
         .update(trafficSources)

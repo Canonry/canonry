@@ -1031,7 +1031,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       syncLeaseOwner: 'Ephemeral owner of a pull-source sync lease; internal concurrency state.',
       syncLeaseExpiresAt: 'Expiry for stale pull-source lease recovery; internal concurrency state.',
       aiReferralOlderCountUntil: 'End of the older AI-referral arrival count; surfaced as `aiReferralCountingChangedAt` on traffic events and analytics, not on the source DTO.',
-      aiUserFetchOlderCountUntil: 'When browser agents began counting page loads only as AI user fetches; surfaced as `aiUserFetchCountingChangedAt` on traffic events and analytics, not on the source DTO.',
+      aiUserFetchOlderCountUntil: 'End of the older browser-agent AI user fetch count; surfaced as `aiUserFetchCountingChangedAt` on traffic events and analytics, not on the source DTO.',
     },
   },
 
