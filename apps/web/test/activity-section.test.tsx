@@ -830,6 +830,53 @@ test('AI traffic history bands server visits counted by the older rule', async (
 })
 
 /**
+ * Page fetches before the API's `aiUserFetchCountingChangedAt` also counted
+ * every file, data call and beacon a browser agent's pages made. The page
+ * fetches total says so; the visitors total, counted by its own rule, does not.
+ */
+test('AI traffic history notes page fetches counted before browser agents counted page loads only', async () => {
+  const days = ['2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05']
+  for (const changedAt of ['2026-11-02T09:30:00.000Z', null]) {
+    const restoreFetch = mockFetch((url) => {
+      const path = url.split('?')[0]!
+      if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+      if (path.endsWith('/projects/test-project/traffic/events')) {
+        return jsonResponse({
+          events: [], eventRows: { total: 0, returned: 0, truncated: false },
+          totals: { crawlerHits: 60, crawlerContentHits: 60, aiUserFetchHits: 69, aiReferralHits: 12, aiReferralLandedHits: 12 },
+          series: {
+            granularity: 'day', coverageStart: '2026-08-16T18:00:00.000Z', aiUserFetchCountingChangedAt: changedAt,
+            trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+            points: days.map((bucket, i) => ({
+              bucket, crawlerHits: 10, crawlerContentHits: 10, aiUserFetchHits: i < 3 ? 20 : 3,
+              aiReferralHits: 2, aiReferralLandedHits: 2, measured: true,
+            })),
+          },
+        })
+      }
+      return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+    })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+      </QueryClientProvider>,
+    )
+    const fetchesTile = (await screen.findByText('AI page fetches')).closest('div') as HTMLElement
+    const visitorsTile = screen.getByText('AI visitors').closest('div') as HTMLElement
+
+    expect(within(fetchesTile).getByText('69')).toBeTruthy()
+    expect(within(fetchesTile).getByText(changedAt ? 'older days may read high' : 'reading a page to answer')).toBeTruthy()
+    expect(within(visitorsTile).getByText('arrived from an AI answer')).toBeTruthy()
+    // Marked with a line, not a band: the crawler series beside it never changed.
+    expect(screen.queryAllByTestId('reference-area')).toEqual([])
+    cleanup()
+    restoreFetch()
+  }
+})
+
+/**
  * GA4 counted AI sessions the same way the whole time, so its server-fitted
  * trend is drawn wherever the GA4 line is: Both and GA4, never Server.
  */

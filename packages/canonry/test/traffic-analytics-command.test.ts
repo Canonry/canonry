@@ -72,4 +72,15 @@ describe('traffic analytics CLI', () => {
     expect(output).toHaveBeenCalledWith('  Prior recording window is incomplete; percentage changes are unavailable.')
     expect(output).toHaveBeenCalledWith('  Verified crawler hits: 200 (prior 84; change unavailable)')
   })
+
+  it('says when browser agents began counting page loads only, and prints the change the server withheld', async () => {
+    getTrafficAnalytics.mockResolvedValue({ activity: { ...TRAFFIC_ANALYTICS_FIXTURE.activity,
+      aiUserFetchCountingChangedAt: '2026-11-11T18:31:33.000Z',
+      aiUserFetchHits: { current: 4, prior: 80, deltaPct: null },
+    } })
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await trafficAnalytics('acme', {})
+    expect(output).toHaveBeenCalledWith('  AI user fetches count only the page loads of browser agents (Google-Agent, Claude-Agent) since 2026-11-11T18:31:33.000Z; earlier hours also counted the files and data calls their pages made and read high.')
+    expect(output).toHaveBeenCalledWith('  AI user-fetch hits: 4 (prior 80; change unavailable)')
+  })
 })

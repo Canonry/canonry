@@ -51,13 +51,19 @@ Since Canonry 7.103.0, Claude-SearchBot (Anthropic's search indexing) is its
 own crawler; before, it counted as ClaudeBot (training). The upgrade moved
 stored hours by each hourly row's one sampled user agent, so an hour in which
 both bots read the same page stayed whole under one of them: compare the two
-bots only from the upgrade on. Browser agents acting for a person
-(Claude-Agent, Google-Agent) also load a page's assets, so each page they read
-adds several `ai-user-fetch` hits where a fetcher such as Claude-User adds one.
-Claude-Agent hours stored before 7.103.0 were moved over from unrecognized
-agents and count page reads only, so its hits step up at the upgrade on log
-sources (Cloud Run, Vercel) and when the 1.1.2 Worker is deployed on
-Cloudflare: compare Claude-Agent counts only from that point on.
+bots only from the upgrade on.
+
+Since Canonry 7.104.0, browser agents acting for a person (Claude-Agent,
+Google-Agent) count only their page loads as `ai-user-fetch` hits, one per page
+as a fetcher such as Claude-User counts. The files, data calls, prefetches and
+beacons their pages load, and their form posts, are reported apart
+(`aiUserFetchBrowserNonPageHits` on a sync) and stay out of agent journeys.
+Hours stored before counted more: every request (Google-Agent, and Claude-Agent
+in 7.103.0), or every GET and HEAD for anything but a static file (Claude-Agent
+before it had a rule). `aiUserFetchCountingChangedAt` on traffic events and
+analytics names when a source's count changed; the server-fitted
+`aiUserFetchHits` trend and the analytics change already leave earlier hours
+out. Compare browser-agent counts only from that point on.
 
 ## Check the instrument before you report a zero
 

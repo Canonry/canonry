@@ -147,7 +147,7 @@ describe('GET /projects/:name/traffic/analytics', () => {
     const { activity } = await readAnalytics('connected')
     const zero = { current: 0, prior: 0, deltaPct: null }
     expect(activity).toEqual({
-      windowStart: daysAgo(30), windowEnd: NOW, coverageStart: null, priorWindowComplete: false, aiReferralCountingChangedAt: null, hasData: false,
+      windowStart: daysAgo(30), windowEnd: NOW, coverageStart: null, priorWindowComplete: false, aiReferralCountingChangedAt: null, aiUserFetchCountingChangedAt: null, hasData: false,
       verifiedCrawlerHits: zero, unverifiedCrawlerHits: zero, aiUserFetchHits: zero,
       referralArrivals: zero, referralRedirects: 0,
       referralArrivalsByClass: { paid: zero, organic: zero, unclassified: zero },
@@ -216,6 +216,37 @@ describe('GET /projects/:name/traffic/analytics', () => {
 
     markOlderCountUntil(null)
     expect((await readAnalytics('older-count', 30)).activity!.aiReferralCountingChangedAt).toBeNull()
+  })
+
+  test('AI user fetch changes are unavailable while the prior window holds the browser-agent older count', async () => {
+    const projectId = seedProject('agent-older-count')
+    const sourceId = seedSource(projectId)
+    seedCrawler(projectId, sourceId, { tsHour: daysAgo(70), hits: 5 })
+    // Google-Agent's every request counted 40 days ago; its page loads only now.
+    seedUserFetch(projectId, sourceId, { tsHour: daysAgo(40), botId: 'google-agent', operator: 'Google', pathNormalized: '/assets/app.js', hits: 80 })
+    seedUserFetch(projectId, sourceId, { tsHour: daysAgo(2), botId: 'google-agent', operator: 'Google', pathNormalized: '/pricing', hits: 4 })
+    seedReferral(projectId, sourceId, { tsHour: daysAgo(40), sessionsOrHits: 10, organicSessionsOrHits: 10 })
+    seedReferral(projectId, sourceId, { tsHour: daysAgo(2), sessionsOrHits: 5, organicSessionsOrHits: 5 })
+    const markOlderCountUntil = (until: string | null) => db.update(trafficSources)
+      .set({ aiUserFetchOlderCountUntil: until }).where(eq(trafficSources.id, sourceId)).run()
+
+    // Page loads alone counted from 20 days ago: inside the 30-day prior window.
+    markOlderCountUntil(daysAgo(20))
+    const crossing = (await readAnalytics('agent-older-count', 30)).activity!
+    expect(crossing.aiUserFetchCountingChangedAt).toBe(daysAgo(20))
+    expect(crossing.priorWindowComplete).toBe(true)
+    expect(crossing.aiUserFetchHits).toEqual({ current: 4, prior: 80, deltaPct: null })
+    expect(crossing.referralArrivals, 'referral changes are unaffected').toEqual({ current: 5, prior: 10, deltaPct: -50 })
+    expect(crossing.aiReferralCountingChangedAt).toBeNull()
+
+    // It changed before the prior window began: both windows count page loads only.
+    markOlderCountUntil(daysAgo(65))
+    const after = (await readAnalytics('agent-older-count', 30)).activity!
+    expect(after.aiUserFetchCountingChangedAt).toBe(daysAgo(65))
+    expect(after.aiUserFetchHits).toEqual({ current: 4, prior: 80, deltaPct: -95 })
+
+    markOlderCountUntil(null)
+    expect((await readAnalytics('agent-older-count', 30)).activity!.aiUserFetchCountingChangedAt).toBeNull()
   })
 
   test.each([7, 14, 30, 90])('period=%s selects that exact window and its equal-length prior', async period => {

@@ -5621,7 +5621,51 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       moveClaudeSearchBotRows(tx)
     },
   },
+  {
+    version: 222,
+    name: 'ai-user-fetch-older-count-until',
+    // Hosted browser agents (Google-Agent, Claude-Agent) now count only their
+    // page loads as AI user fetches. Hours a source wrote before counted every
+    // file, data call and beacon their pages made (Claude-Agent's, stored as an
+    // unrecognized agent, counted its GET and HEAD requests for anything but a
+    // static file), and hourly rows keep no method or query, so they cannot be
+    // recounted. Stamp when the older count ended, on sources holding such
+    // hours. A fresh install holds none and stamps nothing.
+    //
+    // A run hook because the statement allowlist is schema-shaped, and because
+    // a legacy database that resumes past the migrations creating these tables
+    // must skip the stamp rather than fail on a missing table.
+    statements: [
+      `ALTER TABLE traffic_sources ADD COLUMN ai_user_fetch_older_count_until TEXT`,
+    ],
+    run: (tx) => {
+      stampBrowserAgentOlderCount(tx, new Date().toISOString())
+    },
+  },
 ]
+
+/**
+ * v222: stamp `traffic_sources.ai_user_fetch_older_count_until` on sources
+ * holding hours of a hosted browser agent counted before only its page loads
+ * counted: its user-fetch rows, or Claude-Agent's rows from before it had a
+ * rule, which the stored traffic pass moves into its user-fetch counts. The
+ * bot ids are the classifier rules' at this version. A rerun keeps a stamp.
+ */
+function stampBrowserAgentOlderCount(tx: MigrationDb, now: string): void {
+  if (!tableExists(tx, 'traffic_sources')) return
+  const holders: string[] = []
+  if (tableExists(tx, 'ai_user_fetch_events_hourly')) {
+    holders.push(`EXISTS (SELECT 1 FROM ai_user_fetch_events_hourly f
+      WHERE f.source_id = traffic_sources.id AND f.bot_id IN ('google-agent', 'claude-agent'))`)
+  }
+  if (tableExists(tx, 'unrecognized_agent_events_hourly')) {
+    holders.push(`EXISTS (SELECT 1 FROM unrecognized_agent_events_hourly u
+      WHERE u.source_id = traffic_sources.id AND u.sampled_user_agent LIKE '%Claude-Agent%')`)
+  }
+  if (holders.length === 0) return
+  tx.run(sql`UPDATE traffic_sources SET ai_user_fetch_older_count_until = ${now}
+    WHERE ai_user_fetch_older_count_until IS NULL AND (${sql.raw(holders.join(' OR '))})`)
+}
 
 /**
  * v221: move stored Claude-SearchBot crawler hits from `anthropic-claudebot`

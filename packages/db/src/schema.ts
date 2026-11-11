@@ -2931,6 +2931,16 @@ export const trafficSources = sqliteTable('traffic_sources', {
    * back to where journeys began, or clears it when no older hour is left.
    */
   aiReferralOlderCountUntil: text('ai_referral_older_count_until'),
+  /**
+   * When this source's AI user fetch hours began counting only the page loads
+   * of hosted browser agents (Google-Agent, Claude-Agent). Hours before it also
+   * counted every file, data call and beacon their pages made, and hourly rows
+   * keep no method or query, so they cannot be recounted. Set by migration
+   * v222, only for a source holding such an agent's hours; NULL otherwise.
+   * Trend fits and comparisons leave earlier hours out. A backfill that
+   * rewrites every older hour clears it.
+   */
+  aiUserFetchOlderCountUntil: text('ai_user_fetch_older_count_until'),
   archivedAt: text('archived_at'),
   configJson: text('config_json', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
   // sha256 hex of the per-source bearer token issued at connect time. Only

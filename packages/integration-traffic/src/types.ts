@@ -22,6 +22,15 @@ export interface AiCrawlerRule {
    * judged likely fake. Leave it unset when no exact string is published.
    */
   documentedUserAgents?: RegExp[]
+  /**
+   * A hosted browser that browses and acts for a person, for user-triggered
+   * agents only. It loads a page the way a person's browser does, so most of
+   * its requests are files, data calls and prefetches the page made by itself
+   * (`browserAgentRequestKind`). Only its page loads count as AI user fetch
+   * hits; journeys keep page loads and form posts. The scanner check spares
+   * the app files such pages load (`isScannerPath`).
+   */
+  browser?: boolean
 }
 
 export interface AiReferrerRule {
@@ -52,6 +61,8 @@ export interface ClassifiedAiUserFetch {
   verificationStatus: CrawlerVerificationStatus
   verificationManifest: TrafficVerificationManifest | null
   matchedUserAgent: string
+  /** A hosted browser acting for a person (`AiCrawlerRule.browser`). */
+  browser: boolean
   trust: AgentTrust
   /** Display order; never empty. */
   trustReasons: AgentTrustReason[]
@@ -162,6 +173,12 @@ export interface TrafficProbeReport {
     aiUserFetchHits: number
     /** Requests that claim a user-triggered agent but are judged likely fake. */
     aiUserFetchLikelyFakeHits: number
+    /**
+     * Requests from browser agents (Google-Agent, Claude-Agent) other than
+     * page loads: the files, data calls, prefetches and beacons their pages
+     * made, and form posts. Never in `aiUserFetchHits` or its buckets.
+     */
+    aiUserFetchBrowserNonPageHits: number
     aiReferralSessions: number
     /** Sessions carrying paid-attribution UTM evidence. Sums with `aiReferralOrganicSessions` to `aiReferralSessions`. */
     aiReferralPaidSessions: number

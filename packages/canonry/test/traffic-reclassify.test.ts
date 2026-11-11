@@ -321,7 +321,7 @@ function agentHit(db: Db, row: { botId?: string, operator?: string, verification
   }).run()
 }
 
-function agentRequest(db: Db, id: string, row: { correlationKey: string, ts: string, path: string, status?: number }) {
+function agentRequest(db: Db, id: string, row: { correlationKey: string, ts: string, path: string, status?: number, agentId?: string, method?: string | null }) {
   db.insert(agentJourneyEvents).values({
     id, projectId: 'project', sourceId: 'source', sourceEventId: `source-${id}`, correlationBasis: 'ip-ua',
     agentId: 'claude-user', operator: 'Anthropic', product: 'Claude', verificationStatus: 'claimed_unverified', verificationManifest: null,
@@ -375,11 +375,11 @@ describe('reclassifyStoredTraffic, AI agent traffic', () => {
     db.insert(agentJourneyCaptureDays).values({ projectId: 'project', sourceId: 'source', day: '2026-11-01', storedEvents: 5 }).run()
 
     const preview = await reclassifyStoredTraffic(db, { now: NOW, dryRun: true })
-    expect(preview.agentRequests).toEqual({ examined: 5, probes: 1, removed: 3 })
+    expect(preview.agentRequests).toEqual({ examined: 5, probes: 1, removed: 3, pageResources: 0 })
     expect(db.select().from(agentJourneyEvents).all()).toHaveLength(5)
 
     const result = await reclassifyStoredTraffic(db, { now: NOW })
-    expect(result.agentRequests).toEqual({ examined: 5, probes: 1, removed: 3 })
+    expect(result.agentRequests).toEqual({ examined: 5, probes: 1, removed: 3, pageResources: 0 })
     expect(db.select({ id: agentJourneyEvents.id }).from(agentJourneyEvents).all().map(row => row.id).sort()).toEqual(['much-later', 'other-client'])
     expect(agentRows(db)).toEqual([
       { tsHour: SCAN_HOUR, verificationStatus: 'claimed_unverified', pathNormalized: '/:id', hits: 1 },
@@ -392,8 +392,94 @@ describe('reclassifyStoredTraffic, AI agent traffic', () => {
     expect(db.select({ storedEvents: agentJourneyCaptureDays.storedEvents }).from(agentJourneyCaptureDays).get()).toEqual({ storedEvents: 2 })
 
     const second = await reclassifyStoredTraffic(db, { now: NOW })
-    expect(second.agentRequests).toEqual({ examined: 2, probes: 0, removed: 0 })
+    expect(second.agentRequests).toEqual({ examined: 2, probes: 0, removed: 0, pageResources: 0 })
     expect(second.agentHits).toMatchObject({ moved: 0 })
+  })
+})
+
+const CLAUDE_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-Agent/1.0) Chrome/154.0.0.0 Safari/537.36'
+const olderCountUntil = (db: Db) => db.select({ until: trafficSources.aiUserFetchOlderCountUntil }).from(trafficSources)
+  .where(eq(trafficSources.id, 'source')).get()?.until
+
+describe('reclassifyStoredTraffic, browser agents', () => {
+  it('marks the older count of a source whose Claude-Agent hours it moves, keeping a mark already set', async () => {
+    const db = harness()
+    unrecognized(db, { agentName: 'claude-agent', hits: 6, sampledUserAgent: CLAUDE_AGENT })
+
+    const preview = await reclassifyStoredTraffic(db, { now: NOW, dryRun: true })
+    expect(preview.unrecognized).toMatchObject({ moved: 1, movedHits: 6, byBot: { 'claude-agent': 6 } })
+    expect(olderCountUntil(db)).toBeNull()
+
+    await reclassifyStoredTraffic(db, { now: NOW })
+    expect(db.select({ botId: aiUserFetchEventsHourly.botId, pathNormalized: aiUserFetchEventsHourly.pathNormalized, hits: aiUserFetchEventsHourly.hits })
+      .from(aiUserFetchEventsHourly).all()).toEqual([{ botId: 'claude-agent', pathNormalized: UNRECORDED_TRAFFIC_PATH, hits: 6 }])
+    expect(olderCountUntil(db)).toBe(NOW)
+
+    // v221 stamped the upgrade time first: moving more older hours keeps it.
+    db.update(trafficSources).set({ aiUserFetchOlderCountUntil: '2026-10-31T23:00:00.000Z' }).where(eq(trafficSources.id, 'source')).run()
+    unrecognized(db, { agentName: 'claude-agent', hits: 2, sampledUserAgent: CLAUDE_AGENT, tsHour: '2026-11-01T03:00:00.000Z' })
+    await reclassifyStoredTraffic(db, { now: '2026-11-02T00:00:00.000Z' })
+    expect(olderCountUntil(db)).toBe('2026-10-31T23:00:00.000Z')
+  })
+
+  it('leaves the source unmarked when it moves a link fetcher\'s hours', async () => {
+    const db = harness()
+    unrecognized(db, { agentName: 'meta-externalfetcher', hits: 2, sampledUserAgent: FETCHER })
+    await reclassifyStoredTraffic(db, { now: NOW })
+    expect(olderCountUntil(db)).toBeNull()
+  })
+
+  it('removes the stored requests a browser agent\'s pages made by themselves, keeping its page loads and form posts', async () => {
+    const db = harness()
+    const stored = (id: string, row: { agentId?: string, method?: string | null, path: string }) => agentRequest(db, id, {
+      correlationKey: 'agent', ts: '2026-11-01T03:10:00.000Z', ...row,
+    })
+    const browser = { agentId: 'claude-agent' }
+    stored('page', { ...browser, path: '/pricing' })
+    stored('form-post', { ...browser, method: 'POST', path: '/contact' })
+    stored('image-optimizer', { ...browser, path: '/_next/image' })
+    stored('manifest', { ...browser, path: '/site.webmanifest' })
+    stored('beacon', { ...browser, method: 'POST', path: '/_vercel/insights/view' })
+    stored('data', { ...browser, path: '/api/plans' })
+    stored('head', { ...browser, method: 'HEAD', path: '/pricing' })
+    stored('google-page', { agentId: 'google-agent', path: '/menu' })
+    stored('google-script', { agentId: 'google-agent', path: '/wp-content/themes/site/app.js' })
+    // A link fetcher's data call is its own read.
+    stored('link-fetcher-data', { path: '/api/plans' })
+    db.insert(agentJourneyCaptureDays).values({ projectId: 'project', sourceId: 'source', day: '2026-11-01', storedEvents: 10 }).run()
+    const ids = () => db.select({ id: agentJourneyEvents.id }).from(agentJourneyEvents).all().map(row => row.id).sort()
+
+    const preview = await reclassifyStoredTraffic(db, { now: NOW, dryRun: true })
+    expect(preview.agentRequests.pageResources).toBe(6)
+    expect(ids()).toHaveLength(10)
+
+    const result = await reclassifyStoredTraffic(db, { now: NOW })
+    expect(result.agentRequests.pageResources).toBe(6)
+    expect(ids()).toEqual(['form-post', 'google-page', 'link-fetcher-data', 'page'])
+    expect(db.select({ storedEvents: agentJourneyCaptureDays.storedEvents }).from(agentJourneyCaptureDays).get()).toEqual({ storedEvents: 4 })
+    expect((await reclassifyStoredTraffic(db, { now: NOW })).agentRequests.pageResources).toBe(0)
+  })
+
+  it('keeps a browser agent\'s hours for the app files its pages load out of likely fake', async () => {
+    const db = harness()
+    agentHit(db, { botId: 'claude-agent', pathNormalized: '/appsettings.json', hits: 3 })
+    agentHit(db, { botId: 'google-agent', operator: 'Google', pathNormalized: '/.auth/me', hits: 2 })
+    // The same files are probes from a link fetcher, and /wp-login.php from anyone.
+    agentHit(db, { pathNormalized: '/appsettings.json', hits: 4 })
+    agentHit(db, { botId: 'claude-agent', pathNormalized: '/wp-login.php', hits: 1 })
+
+    const result = await reclassifyStoredTraffic(db, { now: NOW })
+
+    expect(result.agentHits).toEqual({ examined: 4, moved: 2, movedHits: 5 })
+    expect(db.select({ botId: aiUserFetchEventsHourly.botId, pathNormalized: aiUserFetchEventsHourly.pathNormalized }).from(aiUserFetchEventsHourly).all()
+      .sort((a, b) => a.botId.localeCompare(b.botId))).toEqual([
+      { botId: 'claude-agent', pathNormalized: '/appsettings.json' },
+      { botId: 'google-agent', pathNormalized: '/.auth/me' },
+    ])
+    expect(fakeRows(db).sort((a, b) => a.botId.localeCompare(b.botId))).toEqual([
+      { botId: 'claude-agent', reason: 'scanner-path', hits: 1 },
+      { botId: 'claude-user', reason: 'scanner-path', hits: 4 },
+    ])
   })
 })
 

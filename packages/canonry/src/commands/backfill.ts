@@ -1200,6 +1200,7 @@ function emitTrafficClassificationReport(
   console.log(`  Crawler rows:        ${crawlers.examined} examined, ${crawlers.moved} moved to the bot their user agent now names (${crawlers.movedHits} hits, ${crawlers.unverifiedHits} no longer verified), ${crawlers.samplesRelabeled} samples relabeled`)
   console.log(`  Fake agent hits:     ${result.agentHits.moved} hourly rows moved to likely fake (${result.agentHits.movedHits} hits)`)
   console.log(`  Agent requests:      ${result.agentRequests.removed} removed (${result.agentRequests.probes} asked for a scanner path)`)
+  console.log(`  Browser agent files: ${result.agentRequests.pageResources} stored requests its pages made by themselves removed`)
   console.log(`  Journeys:            ${result.journeys.visitorsRemoved} visitors and ${result.journeys.visitsRemoved} visits removed, ${result.journeys.visitsRelanded} visits now start at a different page`)
   console.log(`  Split visitors:      ${result.journeyMerges.visitorsMerged} joined to the same person's first visitor, seen from another IP (${result.journeyMerges.visitsJoined} visits merged)`)
   if (Object.keys(result.byBot).length > 0) {

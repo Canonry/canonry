@@ -115,6 +115,9 @@ const OLDER_SERVER_VISITS_NAME = `${SERVER_VISITS_NAME} (older count)`
 /** Hover labels for a month only partly recorded: drawn hollow, off the line. */
 const PART_MONTH_SERVER_NAME = `${SERVER_VISITS_NAME} (part month)`
 const PART_MONTH_GA4_NAME = 'Visits, GA4 (part month)'
+const PAGE_FETCHES_NAME = 'Page fetches'
+/** Hover label for page fetches counted before browser agents counted page loads only. */
+const OLDER_PAGE_FETCHES_NAME = `${PAGE_FETCHES_NAME} (older count)`
 
 /** Coerce a wire number that an older API may not send at all. */
 const num = (v: number | undefined): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
@@ -297,6 +300,20 @@ export function AiTrafficHistoryPanel({
   const countingChangedAt = (events.data as { series?: { aiReferralCountingChangedAt?: string | null } } | undefined)
     ?.series?.aiReferralCountingChangedAt ?? null
   const olderCount = useMemo(() => olderCountSpan(points, countingChangedAt?.slice(0, 10)), [countingChangedAt, points])
+  // Page fetches on days before `aiUserFetchCountingChangedAt` also counted every
+  // file, data call and beacon a browser agent's pages made (Google-Agent,
+  // Claude-Agent), not only its page loads, so they can read high. The
+  // server-fitted fetch trend already starts after it.
+  const fetchCountingChangedAt = (events.data as { series?: { aiUserFetchCountingChangedAt?: string | null } } | undefined)
+    ?.series?.aiUserFetchCountingChangedAt ?? null
+  const olderFetchCount = useMemo(() => olderCountSpan(points, fetchCountingChangedAt?.slice(0, 10)), [fetchCountingChangedAt, points])
+  const machinesTooltipFormatter = (value: unknown, name: unknown, item: { payload?: { bucket?: string } }) => {
+    const bucket = item.payload?.bucket
+    if (olderFetchCount && name === PAGE_FETCHES_NAME && bucket !== undefined && bucket <= olderFetchCount.to) {
+      return [formatTooltipValue(value), OLDER_PAGE_FETCHES_NAME] as [string, string]
+    }
+    return formatTooltipValue(value)
+  }
 
   const trends = (events.data as { series?: { trends?: Record<string, Trend | null> } } | undefined)?.series?.trends
 
@@ -489,8 +506,11 @@ export function AiTrafficHistoryPanel({
             {
               label: 'AI page fetches',
               value: formatNumber(totals.fetches),
-              detail: 'reading a page to answer',
-              tooltip: 'An AI engine fetching a page live while answering someone, rather than crawling it for an index.',
+              detail: olderFetchCount ? 'older days may read high' : 'reading a page to answer',
+              tooltip: 'An AI engine fetching a page live while answering someone, rather than crawling it for an index. A browser agent (Google-Agent, Claude-Agent) counts its page loads only, not the files its pages load.'
+                + (olderFetchCount
+                  ? ` Days through ${formatChartDateLabel(olderFetchCount.to)} also counted those files, so they can read high and cannot be recounted.`
+                  : ''),
             },
             {
               label: 'AI visitors',
@@ -562,17 +582,22 @@ export function AiTrafficHistoryPanel({
                            labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
                            itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
                            labelFormatter={formatChartDateLabel}
-                           formatter={formatTooltipValue} />
+                           formatter={machinesTooltipFormatter} />
           {unmeasured && (
             <ReferenceArea x1={unmeasured.from} x2={unmeasured.to} fill="var(--color-overlay-hover)"
                            fillOpacity={0.5} stroke="none"
                            label={{ value: 'not measured', position: 'insideTop', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
           )}
+          {/* The day browser agents began counting page loads only. A line, not a
+              band: the crawler series beside it never changed. */}
+          {showFetches && olderFetchCount && (
+            <ReferenceLine x={olderFetchCount.to} stroke={COUNT_CHANGE_COLOR} strokeDasharray="4 4" strokeWidth={1.5} />
+          )}
           <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14} />
           <Area type="monotone" dataKey="crawlerContentHits" name="Pages crawled"
                 stroke={CRAWLER_COLOR} fill={CRAWLER_COLOR} fillOpacity={0.22} strokeWidth={1.8} />
           {showFetches && (
-            <Area type="monotone" dataKey="aiUserFetchHits" name="Page fetches"
+            <Area type="monotone" dataKey="aiUserFetchHits" name={PAGE_FETCHES_NAME}
                   stroke={FETCH_COLOR} fill={FETCH_COLOR} fillOpacity={0.18} strokeWidth={1.6} />
           )}
           {showTrend && (

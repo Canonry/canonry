@@ -2,6 +2,7 @@ import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@canonry/
 import { AiReferralTrafficClasses, hostOf, isLocationRedirectStatus, JOURNEY_LOOKBACK_DAYS, JOURNEY_VISIT_IDLE_MINUTES } from '@canonry/canonry-contracts'
 import { AgentTrustLevels } from '@canonry/canonry-contracts'
 import { withScannerBurst } from './agent-trust.js'
+import { browserAgentRequestKind, BrowserAgentRequestKinds } from './browser-agents.js'
 import { classifyAiReferral, classifyAiUserFetch, classifyCrawler, isSelfTraffic } from './classifier.js'
 import { isStepReferer, siteDomainHosts } from './journey.js'
 import { findScannerBurstsInBatch } from './scanner-bursts.js'
@@ -359,6 +360,7 @@ export function buildTrafficProbeReport(
   let crawlerHits = 0
   let aiUserFetchHits = 0
   let aiUserFetchLikelyFakeHits = 0
+  let aiUserFetchBrowserNonPageHits = 0
   let aiReferralHits = 0
   let aiReferralPaidSessions = 0
   let aiReferralOrganicSessions = 0
@@ -415,6 +417,10 @@ export function buildTrafficProbeReport(
       const existing = likelyFakeBuckets.get(key)
       if (existing) existing.hits += 1
       else likelyFakeBuckets.set(key, { tsHour, botId: aiUserFetch.botId, operator: aiUserFetch.operator, reason, hits: 1 })
+    } else if (aiUserFetch?.browser && browserAgentRequestKind(event) !== BrowserAgentRequestKinds.page) {
+      // A browser agent's page loads are its user fetches. The files, data
+      // calls and prefetches its pages made, and its form posts, are not.
+      aiUserFetchBrowserNonPageHits += 1
     } else if (aiUserFetch) {
       aiUserFetchHits += 1
       const key = [
@@ -549,6 +555,7 @@ export function buildTrafficProbeReport(
       crawlerHits,
       aiUserFetchHits,
       aiUserFetchLikelyFakeHits,
+      aiUserFetchBrowserNonPageHits,
       aiReferralSessions: aiReferralSessions.size,
       aiReferralPaidSessions,
       aiReferralOrganicSessions,

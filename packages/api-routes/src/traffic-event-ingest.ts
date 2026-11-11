@@ -115,6 +115,8 @@ export interface WriteTrafficEventBatchResult {
   crawlerHits: number
   aiUserFetchHits: number
   aiUserFetchLikelyFakeHits: number
+  /** Browser-agent requests other than page loads; never in `aiUserFetchHits`. */
+  aiUserFetchBrowserNonPageHits: number
   aiReferralHits: number
   unknownHits: number
   crawlerBucketRows: number
@@ -154,6 +156,7 @@ export function writeTrafficEventBatch(
   let crawlerHits = 0
   let aiUserFetchHits = 0
   let aiUserFetchLikelyFakeHits = 0
+  let aiUserFetchBrowserNonPageHits = 0
   let aiReferralHits = 0
   let unknownHits = 0
 
@@ -239,6 +242,7 @@ export function writeTrafficEventBatch(
       crawlerHits = report.totals.crawlerHits
       aiUserFetchHits = report.totals.aiUserFetchHits
       aiUserFetchLikelyFakeHits = report.totals.aiUserFetchLikelyFakeHits
+      aiUserFetchBrowserNonPageHits = report.totals.aiUserFetchBrowserNonPageHits
       aiReferralHits = report.totals.aiReferralHits
       unknownHits = report.totals.unknownHits
 
@@ -523,6 +527,7 @@ export function writeTrafficEventBatch(
     crawlerHits,
     aiUserFetchHits,
     aiUserFetchLikelyFakeHits,
+    aiUserFetchBrowserNonPageHits,
     aiReferralHits,
     unknownHits,
     crawlerBucketRows,
