@@ -464,7 +464,38 @@ export interface PlacesConfigEntry {
   refreshIntervalDays?: number
 }
 
+/**
+ * Sign in with ChatGPT (see docs/chatgpt-sign-in.md). Off unless `clientId` is
+ * set and `signIn` or `planUsage` is true, and only on an install with an
+ * HTTPS `publicUrl`: OpenAI redirects back to
+ * `<publicUrl>/api/v1/auth/chatgpt/callback`, which must be registered with
+ * OpenAI exactly.
+ */
+export interface ChatGptConfigEntry {
+  /** The OAuth client OpenAI registered for this install. */
+  clientId?: string
+  /** Only for a confidential client. */
+  clientSecret?: string
+  /** Offer "Continue with ChatGPT" on the sign-in screen to invited people. */
+  signIn?: boolean
+  /** Run each signed-in viewer's Aero on their own ChatGPT plan. Needs OpenAI's plan approval and `tokenKey`. */
+  planUsage?: boolean
+  /**
+   * Viewers must connect their own ChatGPT plan to use Aero, so the install's
+   * provider key never pays for viewer Aero. Needs `planUsage`.
+   */
+  requirePlan?: boolean
+  /**
+   * 64 hex characters (`openssl rand -hex 32`) that encrypt plan tokens at
+   * rest. `CANONRY_CHATGPT_TOKEN_KEY` overrides it. Changing it asks every
+   * connected person to connect again.
+   */
+  tokenKey?: string
+}
+
 export interface CanonryConfig {
+  /** Sign in with ChatGPT and ChatGPT plan usage for Aero. */
+  chatgpt?: ChatGptConfigEntry
   /** DataForSEO credentials and operator-set funding policy; config.yaml only. */
   seo?: SeoInstallConfig
   /** Model for domain classification, separate from the measured sweep engines and Aero. */
@@ -642,6 +673,36 @@ export function loadedConfigPath(config: CanonryConfig): string | undefined {
   return loadedConfigPaths.get(config)
 }
 
+/** Reject a `chatgpt` block that cannot work, with a message that says how to fix it. */
+function validateChatGptConfig(value: unknown, configPath: string): void {
+  if (value === undefined || value === null) return
+  const invalid = (detail: string) => new CliError({
+    code: 'CONFIG_INVALID',
+    message: `Invalid config at ${configPath}: ${detail}`,
+  })
+  if (typeof value !== 'object' || Array.isArray(value)) throw invalid('chatgpt must be a mapping.')
+  const entry = value as Record<string, unknown>
+  for (const key of ['clientId', 'clientSecret', 'tokenKey'] as const) {
+    if (entry[key] !== undefined && entry[key] !== null && typeof entry[key] !== 'string') throw invalid(`chatgpt.${key} must be a string.`)
+  }
+  for (const key of ['signIn', 'planUsage', 'requirePlan'] as const) {
+    if (entry[key] !== undefined && entry[key] !== null && typeof entry[key] !== 'boolean') throw invalid(`chatgpt.${key} must be true, false, or left blank.`)
+  }
+  const on = entry.signIn === true || entry.planUsage === true
+  if (on && !(typeof entry.clientId === 'string' && entry.clientId.trim())) {
+    throw invalid('chatgpt.clientId is required when chatgpt.signIn or chatgpt.planUsage is on.')
+  }
+  if (entry.requirePlan === true && entry.planUsage !== true) {
+    throw invalid('chatgpt.requirePlan needs chatgpt.planUsage: true.')
+  }
+  if (entry.planUsage === true) {
+    const key = process.env.CANONRY_CHATGPT_TOKEN_KEY ?? entry.tokenKey
+    if (typeof key !== 'string' || !/^[\da-f]{64}$/i.test(key.trim())) {
+      throw invalid('chatgpt.planUsage needs chatgpt.tokenKey (or CANONRY_CHATGPT_TOKEN_KEY): 64 hex characters, e.g. from `openssl rand -hex 32`.')
+    }
+  }
+}
+
 export function loadConfig(configPath = getConfigPath()): CanonryConfig {
   if (!fs.existsSync(configPath)) {
     // A missing config is a setup step for the operator, not a failure to
@@ -728,6 +789,7 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
       message: `Invalid config at ${configPath}: journeys.visitorKeySecret must be a string of at least 32 characters, or left blank to generate one.`,
     })
   }
+  validateChatGptConfig(parsed.chatgpt, configPath)
   if (!agentAllowViewersSchema.safeParse(parsed.agent?.allowViewers).success) {
     throw new CliError({
       code: 'CONFIG_INVALID',

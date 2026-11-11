@@ -3592,6 +3592,149 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/users/invitations',
+    summary: 'List ChatGPT sign-in invitations',
+    description:
+      'Every invitation, newest first, with its status (`pending`, `accepted`, `revoked`, `expired`) and, once accepted, the account it created. Administrators only.',
+    tags: ['users'],
+    responses: {
+      200: jsonResponse('Invitations returned.', 'UserInvitationListDto'),
+      403: errorResponse('Not permitted to list invitations.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/users/invitations',
+    summary: 'Invite an email address to sign in with ChatGPT',
+    description:
+      'Lets the person whose ChatGPT account has this VERIFIED email address sign in with ChatGPT; their first sign-in creates their account with this role. Nothing is sent: tell them to open the dashboard and choose Continue with ChatGPT. Inviting the same address again replaces the pending invitation. Expires after 14 days. Never attaches to an existing account. Same authority as creating an account.',
+    tags: ['users'],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CreateUserInvitationRequest' },
+        },
+      },
+    },
+    responses: {
+      201: jsonResponse('Invitation created.', 'UserInvitationDto'),
+      400: errorResponse('Invalid email or role, or a view-only first account.'),
+      403: errorResponse('Not permitted to invite.'),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/users/invitations/{id}',
+    summary: 'Revoke a pending invitation',
+    tags: ['users'],
+    parameters: [{ name: 'id', in: 'path', required: true, description: 'Invitation ID.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Invitation revoked.', 'UserInvitationDto'),
+      400: errorResponse('The invitation is no longer pending.'),
+      403: errorResponse('Not permitted to revoke invitations.'),
+      404: errorResponse('Invitation not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/auth/chatgpt/status',
+    summary: 'Sign in with ChatGPT: what is on, and your connection',
+    description:
+      'Whether this install offers Sign in with ChatGPT and ChatGPT plan usage, and for the signed-in person whether a ChatGPT account is linked and their plan connected. Public; `account` is null when nobody is signed in.',
+    tags: ['auth'],
+    auth: false,
+    responses: {
+      200: jsonResponse('Status returned.', 'ChatGptStatusDto'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/auth/chatgpt/start',
+    summary: 'Start Sign in with ChatGPT',
+    description:
+      'A browser navigation, not an API call: redirects to OpenAI. `intent=login` signs in an invited or already-linked person; `intent=connect` links the signed-in person\'s ChatGPT account and, where plan usage is on, asks to use their plan for Aero. Sets a short-lived HttpOnly cookie that only the browser which started the sign-in can return with.',
+    tags: ['auth'],
+    auth: false,
+    parameters: [
+      { name: 'intent', in: 'query', description: '`login` (default) or `connect`.', schema: stringSchema },
+      { name: 'returnTo', in: 'query', description: 'Dashboard path to return to afterwards. Anything outside the dashboard is ignored.', schema: stringSchema },
+    ],
+    responses: {
+      302: { description: 'Redirect to OpenAI, or back to the dashboard with `chatgpt_error` when it cannot start.' },
+      429: errorResponse('Too many sign-ins started from this address.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/auth/chatgpt/callback',
+    summary: 'Finish Sign in with ChatGPT',
+    description:
+      'OpenAI\'s redirect back. Verifies the sign-in belongs to this browser, exchanges the code, verifies the ID token, then signs in or connects and redirects to the dashboard. On failure redirects with `chatgpt_error` set to one of: disabled, not-invited, denied, expired, already-linked, unverified-email, failed.',
+    tags: ['auth'],
+    auth: false,
+    parameters: [
+      { name: 'code', in: 'query', description: 'OAuth authorization code.', schema: stringSchema },
+      { name: 'state', in: 'query', description: 'OAuth state.', schema: stringSchema },
+      { name: 'error', in: 'query', description: 'OAuth error code.', schema: stringSchema },
+    ],
+    responses: {
+      302: { description: 'Redirect to the dashboard.' },
+      429: errorResponse('Too many sign-in callbacks from this address.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/auth/chatgpt/disconnect',
+    summary: 'Stop using your ChatGPT plan for Aero',
+    description:
+      'Deletes the signed-in person\'s stored plan grant, then revokes it at OpenAI. `revoked` is false when OpenAI could not confirm the revocation; the grant is gone here either way, and it can also be removed in ChatGPT settings. The ChatGPT link stays, so sign-in with ChatGPT keeps working.',
+    tags: ['auth'],
+    auth: false,
+    responses: {
+      200: rawJsonResponse('Disconnected.', looseObjectSchema),
+      401: errorResponse('Not signed in.'),
+      403: errorResponse('The request did not come from the dashboard.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/auth/chatgpt/models',
+    summary: 'Models your ChatGPT plan offers',
+    description:
+      'Reads the models the signed-in person\'s ChatGPT plan can use, in OpenAI\'s order, and which one Aero uses. Calls OpenAI with that person\'s plan token, refreshing it when needed.',
+    tags: ['auth'],
+    auth: false,
+    responses: {
+      200: jsonResponse('Models returned.', 'ChatGptModelListDto'),
+      401: errorResponse('Not signed in.'),
+      409: errorResponse('No plan connected, or it needs connecting again.'),
+      503: errorResponse('OpenAI did not answer.'),
+    },
+  },
+  {
+    method: 'put',
+    path: '/api/v1/auth/chatgpt/model',
+    summary: 'Choose the model Aero uses on your ChatGPT plan',
+    tags: ['auth'],
+    auth: false,
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/ChatGptModelSelectionRequest' },
+        },
+      },
+    },
+    responses: {
+      200: rawJsonResponse('Model chosen.', looseObjectSchema),
+      401: errorResponse('Not signed in.'),
+      403: errorResponse('Your plan does not offer that model, or the request did not come from the dashboard.'),
+      409: errorResponse('No plan connected, or it needs connecting again.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/snapshot',
     summary: 'Generate a one-shot AI perception snapshot',

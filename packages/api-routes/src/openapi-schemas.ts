@@ -1,4 +1,5 @@
 import { mcpProfileDtoSchema } from '@canonry/canonry-contracts'
+import { chatGptModelListDtoSchema, chatGptModelSelectionRequestSchema, chatGptStatusDtoSchema, createUserInvitationRequestSchema, userInvitationDtoSchema, userInvitationListDtoSchema } from '@canonry/canonry-contracts'
 import { gbpLocalPostDtoSchema, gbpLocalPostListSchema, gbpLocalPostAttemptSchema, gbpLiveReviewsSchema, gbpLocalPostCreateSchema } from '@canonry/canonry-contracts'
 /**
  * Centralized OpenAPI schema registry for canonry's API responses.
@@ -745,6 +746,12 @@ const SCHEMA_TABLE = {
   UserDto: userDtoSchema,
   UserListDto: userListDtoSchema,
   CreateUserRequest: createUserRequestSchema,
+  UserInvitationDto: userInvitationDtoSchema,
+  UserInvitationListDto: userInvitationListDtoSchema,
+  CreateUserInvitationRequest: createUserInvitationRequestSchema,
+  ChatGptStatusDto: chatGptStatusDtoSchema,
+  ChatGptModelListDto: chatGptModelListDtoSchema,
+  ChatGptModelSelectionRequest: chatGptModelSelectionRequestSchema,
   LoginRequest: loginRequestSchema,
   VisibilityCompareDto: visibilityCompareDtoSchema,
   VisibilityStatsDto: visibilityStatsDtoSchema,

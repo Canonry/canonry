@@ -12,6 +12,8 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/index.ts` | Plugin entry point, global error handler, `ApiRoutesOptions` interface |
 | `src/helpers.ts` | `resolveProject()`, `writeAuditLog()`, `incrementUsage()`, `notProbeRun()` Drizzle predicate (see "Probe runs") |
 | `src/auth.ts` | Auth plugin: API key and session validation, scope gates (see "Deployment posture and key authority") |
+| `src/chatgpt-routes.ts` / `src/chatgpt-accounts.ts` / `src/chatgpt-oidc.ts` | Sign in with ChatGPT: routes (`/auth/chatgpt/*`, all on the auth skip-list, each resolving the sign-in cookie itself and same-origin-checking its writes), who may sign in (linked identity or verified-email invitation, never an existing account by email) and each person's encrypted plan grant, and the OpenAI wire protocol (discovery, PKCE, code exchange, refresh, revocation, RS256 ID-token checks, plan models). Token and refresh requests are never retried. `docs/chatgpt-sign-in.md` |
+| `src/user-invitations.ts` | `/users/invitations` list, create and revoke; same authority as `POST /users` |
 | `src/keys.ts` | API key management routes: `/keys` list, self, mint, revoke |
 | `src/request-context.ts` / `src/runtime-logger.ts` / `src/operational-logs.ts` | Request-local actor context; shared redacting logger; `GET /operations/logs` reader |
 | `src/openapi.ts` | OpenAPI spec generation, the source of the generated SDK (see "Typed responses") |

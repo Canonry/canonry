@@ -294,6 +294,8 @@ import { ViewerAeroSessions } from "./agent/viewer-sessions.js";
 import { buildAgentProvidersResponse, resolveApiKeyFor } from "./agent/providers.js";
 import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
+import { ChatGptAccounts } from "@canonry/canonry-api-routes";
+import { resolveChatGptSettings } from "./chatgpt-config.js";
 import { registerOAuthRoutes, registerOAuthAdminRoutes, cookieIsSecure, createCredentialChecker, hashSessionToken, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@canonry/canonry-api-routes";
 import { registerAgentRoutes } from "./agent/agent-routes.js";
 import {
@@ -1290,6 +1292,18 @@ export async function createServer(opts: {
         managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
       })
     : undefined;
+  // Sign in with ChatGPT (config `chatgpt`). One instance for the whole
+  // process, shared by the sign-in routes and viewer Aero, so concurrent
+  // turns share a single plan-token refresh. Settings are read per call.
+  const chatgptAccounts = new ChatGptAccounts({
+    db: opts.db,
+    settings: () => resolveChatGptSettings(opts.config),
+  });
+  if (opts.config.chatgpt && (opts.config.chatgpt.signIn || opts.config.chatgpt.planUsage) && !resolveChatGptSettings(opts.config)) {
+    log.warn("chatgpt.disabled", {
+      reason: "Sign in with ChatGPT needs chatgpt.clientId and an HTTPS publicUrl; it stays off until both are set.",
+    });
+  }
   // Viewer Aero is its own lane (see viewer-sessions.ts), built only on an
   // explicit opt-in. Absent, the agent routes stay administrator-only.
   const agentAllowViewers = agentEnabled && resolveAgentAllowViewers(process.env, opts.config);
@@ -1299,6 +1313,7 @@ export async function createServer(opts: {
         config: opts.config,
         selfApiUrl: opts.config.apiUrl,
         managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
+        chatgpt: chatgptAccounts,
       })
     : undefined;
 
@@ -3245,6 +3260,8 @@ export async function createServer(opts: {
       path: sessionCookiePath,
       ...(sessionCookieSecure ? { secure: true } : {}),
     },
+    chatgptAccounts,
+    dashboardPath: basePath ?? "/",
     // Whether an operator has declared which hops to believe. The per-caller
     // sign-in budget depends on this being the truth rather than something
     // inferred from a header the caller controls.

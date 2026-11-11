@@ -76,6 +76,9 @@ import type { SettingsRoutesOptions, ProviderSummaryEntry, ProviderAdapterInfo }
 import { keysRoutes } from './keys.js'
 import { userRoutes } from './users.js'
 import { userSessionRoutes } from './user-session.js'
+import { userInvitationRoutes } from './user-invitations.js'
+import { chatGptRoutes } from './chatgpt-routes.js'
+import type { ChatGptAccounts } from './chatgpt-accounts.js'
 import type { UserSessionCookieOptions } from './user-session.js'
 import { snapshotRoutes } from './snapshot.js'
 import type { SnapshotRoutesOptions } from './snapshot.js'
@@ -203,6 +206,13 @@ export interface ApiRoutesOptions {
    * gets a TLS-terminating proxy right.
    */
   userSessionCookie?: UserSessionCookieOptions
+  /**
+   * Sign in with ChatGPT. Absent: the routes answer that it is off, and the
+   * sign-in screen offers only name and password.
+   */
+  chatgptAccounts?: ChatGptAccounts
+  /** Where the dashboard is served (e.g. `/` or `/canonry/`); the ChatGPT callback returns there. */
+  dashboardPath?: string
   /**
    * True when this host has declared which proxy hops to believe (its Fastify
    * instance was built with `trustProxy`). Everything that budgets per caller
@@ -680,6 +690,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(userSessionRoutes, {
       cookie: opts.userSessionCookie,
       trustProxyConfigured: opts.trustProxyConfigured ?? false,
+      chatgptSignIn: () => opts.chatgptAccounts?.signInEnabled() ?? false,
       // ONE checker for the whole app. Passed in when the caller supplies it —
       // canonry does, so /auth/login and the OAuth consent page count against
       // the same budgets — and built here otherwise so an embedder that never
@@ -690,6 +701,13 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       }),
     })
     await api.register(userRoutes)
+    await api.register(userInvitationRoutes)
+    await api.register(chatGptRoutes, {
+      accounts: opts.chatgptAccounts,
+      cookie: opts.userSessionCookie,
+      dashboardPath: opts.dashboardPath,
+      routePrefix: opts.routePrefix,
+    })
 
     await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix })
     // Route families of every adapter this host knows (OpenRouter models,
@@ -1023,6 +1041,20 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 export type { DatabaseClient } from '@canonry/canonry-db'
 // Whether this install has named accounts. The host needs the same answer the
 // auth layer uses, so it is exported rather than reimplemented.
+export {
+  accountNameForEmail,
+  ChatGptAccounts,
+  ChatGptPlanError,
+  decryptPlanTokens,
+  encryptPlanTokens,
+  EXTERNAL_SIGN_IN_PASSWORD_HASH,
+  parseChatGptTokenKey,
+  type ChatGptAccountsOptions,
+  type ChatGptPlanAccess,
+  type ChatGptSettingsSource,
+  type ChatGptSignInSettings,
+} from './chatgpt-accounts.js'
+export { CHATGPT_SIGN_IN_COOKIE_NAME, safeReturnTo } from './chatgpt-routes.js'
 export { anyUsersExist, cookieIsSecure, createCredentialChecker, createUserSession, hashSessionToken, parseCookieHeader, resolveUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from './user-session.js'
 export type { UserSessionCookieOptions } from './user-session.js'
 export { requireAdminSession, requireBroadInstanceKey, requireInstanceAdministrator, isInstanceAdministrator, requirePaidReadScope, requireResearchGrant } from './auth.js'

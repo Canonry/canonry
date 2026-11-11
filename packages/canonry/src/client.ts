@@ -342,6 +342,9 @@ import type {
   CreateUserRequest,
   UserDto,
   UserListDto,
+  CreateUserInvitationRequest,
+  UserInvitationDto,
+  UserInvitationListDto,
   ResultsExportFormat,
   IntegrationSettingsSummaryDto,
   ProviderSummaryEntryDto,
@@ -440,6 +443,9 @@ import {
   getApiV1Users,
   postApiV1Users,
   deleteApiV1UsersByName,
+  getApiV1UsersInvitations,
+  postApiV1UsersInvitations,
+  deleteApiV1UsersInvitationsById,
   // Schedules / notifications
   getApiV1ProjectsByNameSchedule,
   putApiV1ProjectsByNameSchedule,
@@ -2692,6 +2698,20 @@ export class ApiClient {
   async deleteUser(name: string): Promise<{ deleted: boolean; name: string }> {
     return this.invoke<{ deleted: boolean; name: string }>(() =>
       deleteApiV1UsersByName({ client: this.heyClient, path: { name } }),
+    )
+  }
+
+  async listUserInvitations(): Promise<UserInvitationListDto> {
+    return this.invoke<UserInvitationListDto>(() => getApiV1UsersInvitations({ client: this.heyClient }))
+  }
+
+  async createUserInvitation(body: CreateUserInvitationRequest): Promise<UserInvitationDto> {
+    return this.invoke<UserInvitationDto>(() => postApiV1UsersInvitations({ client: this.heyClient, body }))
+  }
+
+  async revokeUserInvitation(id: string): Promise<UserInvitationDto> {
+    return this.invoke<UserInvitationDto>(() =>
+      deleteApiV1UsersInvitationsById({ client: this.heyClient, path: { id } }),
     )
   }
 
