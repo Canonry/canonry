@@ -125,7 +125,7 @@ describe('backfill traffic-classification', () => {
 
     const claudeBucket = db.select().from(crawlerEventsHourly)
       .where(and(
-        eq(crawlerEventsHourly.botId, 'anthropic-claudebot'),
+        eq(crawlerEventsHourly.botId, 'claude-searchbot'),
         eq(crawlerEventsHourly.tsHour, '2026-05-18T10:00:00.000Z'),
       ))
       .get()

@@ -40,6 +40,14 @@ fitted `trend`, which can span the whole window. For the long view, read GA4
 a month listed in `partialBuckets`, or one whose GA4 `complete` is false, as a
 full reading.
 
+Since Canonry 7.102.0, Claude-SearchBot (Anthropic's search indexing) is its
+own crawler; before, it counted as ClaudeBot (training). The upgrade moved
+stored hours by each hourly row's one sampled user agent, so an hour in which
+both bots read the same page stayed whole under one of them: compare the two
+bots only from the upgrade on. Browser agents acting for a person
+(Claude-Agent, Google-Agent) also load a page's assets, so each page they read
+adds several `ai-user-fetch` hits where a fetcher such as Claude-User adds one.
+
 ## Check the instrument before you report a zero
 
 A zero means nothing until you know the instrument could have seen it. Work

@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import anthropicRaw from '../src/ip-ranges/anthropic.json' with { type: 'json' }
 import chatgptConnectorsRaw from '../src/ip-ranges/chatgpt-connectors.json' with { type: 'json' }
 import chatgptUserRaw from '../src/ip-ranges/chatgpt-user.json' with { type: 'json' }
+import claudeAgentRaw from '../src/ip-ranges/claude-agent.json' with { type: 'json' }
 import googleUserAgentsRaw from '../src/ip-ranges/google-user-triggered-agents.json' with { type: 'json' }
 import googlebotRaw from '../src/ip-ranges/googlebot.json' with { type: 'json' }
 import {
@@ -24,6 +25,9 @@ import { firstPublishedIp, vendoredManifest } from './fixtures/vendored-ranges.j
 // weekly range refresh cannot break these tests (see fixtures/vendored-ranges.ts).
 const ANTHROPIC_MANIFEST = vendoredManifest(anthropicRaw)
 const ANTHROPIC_IP = firstPublishedIp(anthropicRaw, 4)
+// Anthropic's published example user agent for its hosted browsers:
+// https://support.claude.com/en/articles/18234133-how-do-anthropic-hosted-browsers-identify-themselves-when-they-browse-the-web-on-a-user-s-behalf
+const CLAUDE_AGENT_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-Agent/1.0) Chrome/154.0.0.0 Safari/537.36'
 // Browsers seen arriving from ChatGPT answers.
 const IPHONE_SAFARI = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1'
 const WINDOWS_EDGE = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0'
@@ -183,13 +187,16 @@ describe('traffic analysis', () => {
     // (toBeTruthy on a `ClassifiedCrawler | null`) plus the expected
     // operator. botId is asserted where the spelling is stable.
 
-    // Anthropic Claude-SearchBot (new variant — older rule only caught
-    // ClaudeBot/ and Claude-Web/).
+    // Anthropic Claude-SearchBot indexes for Claude's web search. It has its
+    // own rule above ClaudeBot's, whose Claude-*Bot catch-all would otherwise
+    // count it as training.
     expect(classifyCrawler(event({
       userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; +searchbot@anthropic.com)',
     }))).toMatchObject({
-      botId: 'anthropic-claudebot',
+      botId: 'claude-searchbot',
       operator: 'Anthropic',
+      product: 'Claude-SearchBot',
+      purpose: 'search',
     })
 
     // Permissive variant — any future Claude-*Bot Anthropic introduces.
@@ -825,6 +832,31 @@ describe('traffic analysis', () => {
       botId: 'claude-user',
       verificationStatus: 'verified',
       verificationManifest: ANTHROPIC_MANIFEST,
+    })
+  })
+
+  it('routes Claude-Agent to ai-user-fetch, not crawler', () => {
+    // Anthropic-hosted browsers acting for a person send a real Chrome UA
+    // with a `compatible; Claude-Agent/1.0` token. Before its rule this
+    // matched nothing and read as a person's browser.
+    const evt = event({ userAgent: CLAUDE_AGENT_UA })
+    expect(classifyCrawler(evt)).toBeNull()
+    expect(classifyAiUserFetch(evt)).toMatchObject({
+      botId: 'claude-agent',
+      operator: 'Anthropic',
+      product: 'Claude-Agent',
+      verificationStatus: 'claimed_unverified',
+    })
+  })
+
+  it('promotes Claude-Agent using Anthropic\'s Claude-Agent egress list', () => {
+    expect(classifyAiUserFetch(event({
+      userAgent: CLAUDE_AGENT_UA,
+      remoteIp: firstPublishedIp(claudeAgentRaw, 4),
+    }))).toMatchObject({
+      botId: 'claude-agent',
+      verificationStatus: 'verified',
+      verificationManifest: vendoredManifest(claudeAgentRaw),
     })
   })
 

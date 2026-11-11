@@ -33,28 +33,42 @@ import {
   parseIp,
   validateIpRangeManifestPayload,
 } from '../src/ip-range-manifest.js'
-import type { ValidatedIpRangeManifestPayload } from '../src/ip-range-manifest.js'
+import type { IpRangePrefix, ValidatedIpRangeManifestPayload } from '../src/ip-range-manifest.js'
 import { describeError } from '@canonry/canonry-contracts'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const rangesDir = path.resolve(dirname, '..', 'src', 'ip-ranges')
 
-export interface Source {
+interface SourceFields {
   /** Filename under `src/ip-ranges/`. Must match the import in `ip-verify.ts`. */
   file: string
-  /** Publisher URL — the operator's canonical JSON. */
+  /** Publisher URL — the operator's canonical range list. */
   url: string
   /** Display label for the per-source progress line. */
   label: string
-  /** Response decoder. Most publishers serve JSON; Amazon embeds it in HTML. */
-  format?: 'json' | 'amazon-html'
 }
+
+/**
+ * Response decoder. Most publishers serve JSON; Amazon embeds it in HTML.
+ * A SAIL file (TOML) lists several services' prefixes, so a SAIL source
+ * names the service to read.
+ */
+export type Source =
+  | SourceFields & { format?: 'json' | 'amazon-html' }
+  | SourceFields & { format: 'sail-toml'; sailService: string }
 
 export const SOURCES: Source[] = [
   {
     file: 'anthropic.json',
     url: 'https://claude.com/crawling/bots.json',
     label: 'Anthropic Bots',
+  },
+  {
+    file: 'claude-agent.json',
+    url: 'https://claude.com/.well-known/sail',
+    label: 'Anthropic Claude-Agent',
+    format: 'sail-toml',
+    sailService: 'Claude-Agent',
   },
   {
     file: 'googlebot.json',
@@ -187,6 +201,15 @@ function decodeHtmlCode(value: string): string {
     .replace(/&amp;/gi, '&')
 }
 
+/** One publisher prefix as a manifest entry. A bare host address becomes /32 or /128. */
+function prefixEntry(raw: string, where: string): IpRangePrefix {
+  const ip = raw.includes('/') ? null : parseIp(raw)
+  const cidr = ip ? `${raw}/${ip.version === 4 ? 32 : 128}` : raw
+  const parsed = parseCidr(cidr)
+  if (!parsed) throw new Error(`${where} is not a valid IP prefix`)
+  return parsed.version === 4 ? { ipv4Prefix: cidr } : { ipv6Prefix: cidr }
+}
+
 function normalizeAmazonManifest(value: unknown): unknown {
   if (!isRecord(value) || !Array.isArray(value.prefixes)) return value
   const prefixes = value.prefixes.map((entry, index) => {
@@ -195,23 +218,198 @@ function normalizeAmazonManifest(value: unknown): unknown {
     if (typeof candidate !== 'string' || candidate.trim().length === 0) {
       throw new Error(`Amazon prefixes[${index}] has no IP prefix`)
     }
-    const raw = candidate.trim()
-    const cidr = raw.includes('/')
-      ? raw
-      : (() => {
-          const ip = parseIp(raw)
-          if (!ip) return raw
-          return `${raw}/${ip.version === 4 ? 32 : 128}`
-        })()
-    const parsed = parseCidr(cidr)
-    if (!parsed) throw new Error(`Amazon prefixes[${index}] is not a valid IP prefix`)
-    return parsed.version === 4 ? { ipv4Prefix: cidr } : { ipv6Prefix: cidr }
+    return prefixEntry(candidate.trim(), `Amazon prefixes[${index}]`)
   })
   return { creationTime: value.creationTime, prefixes }
 }
 
+/**
+ * The SAIL draft this decoder reads (Anthropic's Claude-Agent egress list).
+ * A new revision fails the refresh, so a person reads it before it is trusted.
+ */
+const SAIL_SCHEMA = 'draft-kelley-webbotauth-sail-00'
+
+type SailValue = string | number | boolean | string[]
+type SailTable = Map<string, SailValue>
+
+interface SailDocument {
+  root: SailTable
+  /** `[[name]]` table arrays, in file order. */
+  tables: Map<string, SailTable[]>
+}
+
+const TOML_BARE_KEY = /^[\w-]+$/
+const TOML_TABLE_ARRAY = /^\[\[\s*([\w-]+)\s*\]\]$/
+const TOML_INTEGER = /^[+-]?(?:0|[1-9](?:_?\d)*)$/
+const TOML_DATETIME = /^\d{4}-\d{2}-\d{2}(?:[t ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:z|[+-]\d{2}:\d{2})?)?$/i
+
+/**
+ * Walk `text` outside its TOML strings: `visit` sees each character that is
+ * not inside a string and returns true to stop there. Returns that index, or -1.
+ */
+function scanOutsideStrings(text: string, visit: (char: string, index: number) => boolean): number {
+  let quote: string | null = null
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]!
+    if (quote === '"' && char === '\\') {
+      index++
+    } else if (quote !== null) {
+      if (char === quote) quote = null
+    } else if (char === '"' || char === "'") {
+      quote = char
+    } else if (visit(char, index)) {
+      return index
+    }
+  }
+  return -1
+}
+
+function withoutComment(line: string): string {
+  const hash = scanOutsideStrings(line, char => char === '#')
+  return hash === -1 ? line : line.slice(0, hash)
+}
+
+/** A basic ("…") or literal ('…') TOML string's value, or null for any other token. */
+function tomlString(token: string, where: string): string | null {
+  if (token.length >= 2 && token.startsWith("'") && token.endsWith("'") && !token.slice(1, -1).includes("'")) {
+    return token.slice(1, -1)
+  }
+  if (!token.startsWith('"')) return null
+  let parsed: unknown
+  try {
+    // TOML basic strings share JSON's quoting and common escapes; anything
+    // else (multi-line strings, \e, \U…) fails here and stops the refresh.
+    parsed = JSON.parse(token)
+  } catch {
+    throw new Error(`${where}: unsupported string ${token}`)
+  }
+  if (typeof parsed !== 'string') throw new Error(`${where}: unsupported string ${token}`)
+  return parsed
+}
+
+function tomlScalar(token: string, where: string): string | number | boolean {
+  const text = tomlString(token, where)
+  if (text !== null) return text
+  if (token === 'true') return true
+  if (token === 'false') return false
+  if (TOML_INTEGER.test(token)) return Number(token.replaceAll('_', ''))
+  if (TOML_DATETIME.test(token)) return token
+  throw new Error(`${where}: unsupported value ${token}`)
+}
+
+/**
+ * Parse the TOML subset a SAIL file uses: comments, `[[table]]` arrays, and
+ * bare `key = value` pairs whose value is a string, boolean, integer,
+ * datetime, or an array of strings that may span lines. Anything else throws,
+ * so a format change fails the refresh instead of silently dropping ranges.
+ */
+function parseSailToml(body: string): SailDocument {
+  const root: SailTable = new Map()
+  const tables = new Map<string, SailTable[]>()
+  let current = root
+  const lines = body.split(/\r?\n/)
+  for (let index = 0; index < lines.length; index++) {
+    const where = `SAIL line ${index + 1}`
+    const line = withoutComment(lines[index]!).trim()
+    if (!line) continue
+
+    const header = TOML_TABLE_ARRAY.exec(line)
+    if (header) {
+      current = new Map<string, SailValue>()
+      const list = tables.get(header[1]!) ?? []
+      list.push(current)
+      tables.set(header[1]!, list)
+      continue
+    }
+
+    // Keys are bare, so the first `=` ends the key.
+    const equals = line.indexOf('=')
+    const key = line.slice(0, Math.max(equals, 0)).trim()
+    if (equals === -1 || !TOML_BARE_KEY.test(key)) throw new Error(`${where}: unsupported syntax`)
+    if (current.has(key)) throw new Error(`${where}: duplicate key ${key}`)
+    let value = line.slice(equals + 1).trim()
+    if (!value.startsWith('[')) {
+      current.set(key, tomlScalar(value, where))
+      continue
+    }
+
+    // An array may run over several lines; it holds strings, never arrays.
+    const closing = () => scanOutsideStrings(value, (char, at) => {
+      if (char === '[' && at > 0) throw new Error(`${where}: nested arrays are not supported`)
+      return char === ']'
+    })
+    let end = closing()
+    while (end === -1 && index + 1 < lines.length) {
+      index++
+      value += `\n${withoutComment(lines[index]!)}`
+      end = closing()
+    }
+    if (end === -1) throw new Error(`${where}: array ${key} is never closed`)
+    if (value.slice(end + 1).trim()) throw new Error(`${where}: unexpected text after array ${key}`)
+    const inner = value.slice(1, end)
+    const items: string[] = []
+    let start = 0
+    scanOutsideStrings(inner, (char, at) => {
+      if (char === ',') {
+        items.push(inner.slice(start, at).trim())
+        start = at + 1
+      }
+      return false
+    })
+    const last = inner.slice(start).trim()
+    if (last) items.push(last)
+    current.set(key, items.map((item) => {
+      const text = tomlString(item, where)
+      if (text === null) throw new Error(`${where}: array ${key} holds a value that is not a string`)
+      return text
+    }))
+  }
+  return { root, tables }
+}
+
+function sailStrings(table: SailTable, key: string, where: string): string[] {
+  const value = table.get(key)
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new Error(`${where}: ${key} must be an array of strings`)
+  return value
+}
+
+/**
+ * The prefixes of every prefix set one SAIL service lists, in the common
+ * manifest shape. The file's `modified` time is the publisher version.
+ */
+function decodeSailManifest(body: string, service: string): unknown {
+  const document = parseSailToml(body)
+  const schema = document.root.get('schema')
+  if (schema !== SAIL_SCHEMA) throw new Error(`SAIL schema ${String(schema)} is not ${SAIL_SCHEMA}`)
+  const modified = document.root.get('modified')
+  if (typeof modified !== 'string') throw new Error('SAIL file has no modified time')
+
+  const services = (document.tables.get('services') ?? []).filter(table => table.get('name') === service)
+  if (services.length !== 1) throw new Error(`SAIL file lists service ${service} ${services.length} times, not once`)
+  const setNames = sailStrings(services[0]!, 'prefix_sets', `SAIL service ${service}`)
+  if (setNames.length === 0) throw new Error(`SAIL service ${service} lists no prefix sets`)
+
+  const prefixes = new Map<string, IpRangePrefix>()
+  for (const setName of setNames) {
+    const sets = (document.tables.get('prefix_sets') ?? []).filter(table => table.get('name') === setName)
+    if (sets.length !== 1) throw new Error(`SAIL prefix set ${setName} appears ${sets.length} times, not once`)
+    for (const [key, family] of [['ipv4_prefixes', 4], ['ipv6_prefixes', 6]] as const) {
+      for (const raw of sailStrings(sets[0]!, key, `SAIL prefix set ${setName}`)) {
+        const where = `SAIL prefix set ${setName} ${key} entry ${raw}`
+        const entry = prefixEntry(raw.trim(), where)
+        const cidr = family === 4 ? entry.ipv4Prefix : entry.ipv6Prefix
+        if (cidr === undefined) throw new Error(`${where} is not IPv${family}`)
+        prefixes.set(cidr, entry)
+      }
+    }
+  }
+  return { creationTime: modified, prefixes: [...prefixes.values()] }
+}
+
 /** Decode one publisher response into the common fail-closed manifest shape. */
 export function decodeSourcePayload(source: Source, body: string): unknown {
+  if (source.format === 'sail-toml') return decodeSailManifest(body, source.sailService)
   if (source.format !== 'amazon-html') return JSON.parse(body)
 
   const blocks = body.matchAll(/<pre\b[^>]*>\s*<code\b[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/gi)
@@ -260,7 +458,7 @@ async function refreshOne(source: Source): Promise<FetchResult> {
         // Some publishers (Bing) return a 403 to unidentified clients.
         // A vanilla `curl`-style UA gets through reliably.
         'User-Agent': 'canonry-ip-range-refresher/1.0',
-        Accept: 'application/json',
+        Accept: source.format === 'sail-toml' ? 'application/sail+toml' : 'application/json',
       },
       signal: AbortSignal.timeout(15_000),
     })

@@ -7,6 +7,7 @@ import applebotRaw from '../src/ip-ranges/applebot.json' with { type: 'json' }
 import bingbotRaw from '../src/ip-ranges/bingbot.json' with { type: 'json' }
 import ccbotRaw from '../src/ip-ranges/ccbot.json' with { type: 'json' }
 import chatgptConnectorsRaw from '../src/ip-ranges/chatgpt-connectors.json' with { type: 'json' }
+import claudeAgentRaw from '../src/ip-ranges/claude-agent.json' with { type: 'json' }
 import duckassistbotRaw from '../src/ip-ranges/duckassistbot.json' with { type: 'json' }
 import duckduckbotRaw from '../src/ip-ranges/duckduckbot.json' with { type: 'json' }
 import googleUserAgentsRaw from '../src/ip-ranges/google-user-triggered-agents.json' with { type: 'json' }
@@ -368,6 +369,8 @@ describe('verifyIpForRule', () => {
   })
 
   it.each([
+    ['claude-searchbot', anthropicRaw],
+    ['claude-agent', claudeAgentRaw],
     ['openai-adsbot', oaiAdsbotRaw],
     ['openai-chatgpt-connector', chatgptConnectorsRaw],
     ['parallel-shapbot', parallelShapbotRaw],
@@ -421,7 +424,7 @@ describe('hasVerificationDataFor', () => {
     'googlebot', 'bingbot',
     'openai-gptbot', 'openai-chatgpt-user', 'openai-chatgpt-connector', 'openai-searchbot', 'openai-adsbot',
     'perplexity-bot', 'perplexity-user',
-    'anthropic-claudebot', 'claude-user',
+    'anthropic-claudebot', 'claude-searchbot', 'claude-user', 'claude-agent',
     'google-agent', 'google-gemini-notebook', 'google-cloudvertexbot',
     'parallel-shapbot', 'applebot', 'ccbot', 'duckduckbot', 'duckassistbot',
     'mistral-ai-user', 'mistral-ai-index',

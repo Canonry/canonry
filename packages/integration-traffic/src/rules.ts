@@ -66,22 +66,32 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     userAgentPatterns: [/openai-mcp\//i],
   },
   {
+    // Anthropic's search crawler, which indexes pages so Claude can find them
+    // when it searches the web. Mirrors OAI-SearchBot vs. GPTBot. It must
+    // stay above `anthropic-claudebot`: that rule's `Claude-[A-Z]+Bot/`
+    // pattern also matches this token and would count it as training.
+    // src: https://support.claude.com/en/articles/8896518-does-anthropic-crawl-data-from-the-web-and-how-can-site-owners-block-the-crawler
+    id: 'claude-searchbot',
+    operator: 'Anthropic',
+    product: 'Claude-SearchBot',
+    purpose: 'search',
+    userAgentPatterns: [/Claude-SearchBot\//i],
+  },
+  {
     id: 'anthropic-claudebot',
     operator: 'Anthropic',
     product: 'ClaudeBot',
     purpose: 'training',
-    // Anthropic ships several Claude-* crawlers (ClaudeBot for training,
-    // Claude-Web for chat fetches, Claude-SearchBot for search). The
-    // `Claude-` prefix + `Bot/` suffix is the stable shape — pattern is
-    // permissive enough to catch new Claude-*Bot variants as Anthropic
-    // adds them, without matching unrelated UAs that happen to mention
-    // "claude". The per-user fetcher `Claude-User` has no `Bot/` suffix
-    // and is intentionally NOT matched here — it routes through the
-    // separate `claude-user` rule below (purpose: 'user-agent').
+    // ClaudeBot is Anthropic's training crawler. `Claude-Web/` and
+    // `anthropic-ai` are older Anthropic tokens it no longer documents.
+    // `Claude-[A-Z]+Bot/` catches a Claude-*Bot Anthropic adds before it
+    // gets its own rule, without matching unrelated UAs that merely
+    // mention "claude". Claude-SearchBot (above), Claude-User and
+    // Claude-Agent (below) have their own rules; the last two carry no
+    // `Bot/` suffix, so this rule never matches them.
     userAgentPatterns: [
       /ClaudeBot\//i,
       /Claude-Web\//i,
-      /Claude-SearchBot\//i,
       /Claude-[A-Z]+Bot\//i,
       /anthropic-ai/i,
     ],
@@ -100,6 +110,18 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     product: 'Claude-User',
     purpose: 'user-agent',
     userAgentPatterns: [/Claude-User\//i],
+  },
+  {
+    // Anthropic-hosted browsers that browse and act for a person. They send
+    // a real Chrome user agent with `compatible; Claude-Agent/<version>`
+    // added; Anthropic says to match the token, since the rest changes.
+    // Like Google-Agent, a full browser also loads a page's assets.
+    // src: https://support.claude.com/en/articles/18234133-how-do-anthropic-hosted-browsers-identify-themselves-when-they-browse-the-web-on-a-user-s-behalf
+    id: 'claude-agent',
+    operator: 'Anthropic',
+    product: 'Claude-Agent',
+    purpose: 'user-agent',
+    userAgentPatterns: [/Claude-Agent\//i],
   },
   {
     id: 'perplexity-bot',
@@ -398,6 +420,7 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
   'Claude-Web/',
   'Claude-SearchBot/',
   'Claude-User/',
+  'Claude-Agent/',
   'anthropic-ai',
   'PerplexityBot/',
   'Perplexity-User/',

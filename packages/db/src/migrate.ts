@@ -5531,7 +5531,91 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_site_crawl_pages_site ON site_crawl_pages(project_id, run_id, attempt_id, site, path)`,
     ],
   },
+  {
+    version: 220,
+    name: 'claude-searchbot-own-bot',
+    // Claude-SearchBot, Anthropic's search crawler, now has its own classifier
+    // rule (`claude-searchbot`, purpose search). The `anthropic-claudebot` rule
+    // (purpose training) used to match it too, so its hits were stored as
+    // ClaudeBot. This moves the crawler rows whose sampled user agent is
+    // Claude-SearchBot to the new bot, with their manifest provenance, and
+    // relabels the crawler samples the old rule classified.
+    //
+    // Best effort, as v65's Mistral split: an hourly row is one (project,
+    // source, hour, bot, verification, path, status) and keeps one sampled
+    // user agent, the latest batch's, so a row that counted both bots in the
+    // same hour moves or stays whole by that sample. New traffic splits
+    // exactly. Both rules verify against Anthropic's one crawler manifest, so
+    // a moved row keeps its verification status and provenance.
+    //
+    // A run hook because the statement allowlist is schema-shaped, and because
+    // a legacy database that resumes past the migrations creating these tables
+    // must skip the move rather than fail on a missing table.
+    statements: [],
+    run: (tx) => {
+      moveClaudeSearchBotRows(tx)
+    },
+  },
 ]
+
+/**
+ * v220: move stored Claude-SearchBot crawler hits from `anthropic-claudebot`
+ * to `claude-searchbot`. The copy adds into a row already under the new id,
+ * the provenance rows follow their parent row, and the old rows go last, so a
+ * rerun finds nothing to move.
+ */
+function moveClaudeSearchBotRows(tx: MigrationDb): void {
+  if (tableExists(tx, 'crawler_events_hourly')) {
+    tx.run(sql.raw(
+      `INSERT INTO crawler_events_hourly (project_id, source_id, ts_hour, bot_id, operator, verification_status, path_normalized, status, hits, sampled_user_agent, created_at, updated_at)
+       SELECT project_id, source_id, ts_hour, 'claude-searchbot', operator, verification_status, path_normalized, status, hits, sampled_user_agent, created_at, updated_at
+         FROM crawler_events_hourly
+        WHERE bot_id = 'anthropic-claudebot' AND sampled_user_agent LIKE '%Claude-SearchBot/%'
+       ON CONFLICT (project_id, source_id, ts_hour, bot_id, verification_status, path_normalized, status)
+       DO UPDATE SET hits = crawler_events_hourly.hits + excluded.hits,
+                     updated_at = max(crawler_events_hourly.updated_at, excluded.updated_at)`,
+    ))
+    if (tableExists(tx, 'crawler_verification_manifests_hourly')) {
+      const parentIsSearchBot = `EXISTS (
+        SELECT 1 FROM crawler_events_hourly p
+         WHERE p.project_id = m.project_id AND p.source_id = m.source_id AND p.ts_hour = m.ts_hour
+           AND p.bot_id = m.bot_id AND p.verification_status = m.verification_status
+           AND p.path_normalized = m.path_normalized AND p.status = m.status
+           AND p.sampled_user_agent LIKE '%Claude-SearchBot/%'
+      )`
+      tx.run(sql.raw(
+        `INSERT INTO crawler_verification_manifests_hourly (project_id, source_id, ts_hour, bot_id, verification_status, path_normalized, status, manifest_id, manifest_json, hits, created_at, updated_at)
+         SELECT m.project_id, m.source_id, m.ts_hour, 'claude-searchbot', m.verification_status, m.path_normalized, m.status, m.manifest_id, m.manifest_json, m.hits, m.created_at, m.updated_at
+           FROM crawler_verification_manifests_hourly m
+          WHERE m.bot_id = 'anthropic-claudebot' AND ${parentIsSearchBot}
+         ON CONFLICT (project_id, source_id, ts_hour, bot_id, verification_status, path_normalized, status, manifest_id)
+         DO UPDATE SET hits = crawler_verification_manifests_hourly.hits + excluded.hits,
+                       updated_at = max(crawler_verification_manifests_hourly.updated_at, excluded.updated_at)`,
+      ))
+      tx.run(sql.raw(
+        `DELETE FROM crawler_verification_manifests_hourly AS m
+          WHERE m.bot_id = 'anthropic-claudebot' AND ${parentIsSearchBot}`,
+      ))
+    }
+    tx.run(sql.raw(
+      `DELETE FROM crawler_events_hourly
+        WHERE bot_id = 'anthropic-claudebot' AND sampled_user_agent LIKE '%Claude-SearchBot/%'`,
+    ))
+  }
+  if (tableExists(tx, 'raw_event_samples')) {
+    tx.run(sql.raw(
+      `UPDATE raw_event_samples
+          SET classifier_details_json = json_set(classifier_details_json,
+                '$.crawler.botId', 'claude-searchbot',
+                '$.crawler.product', 'Claude-SearchBot',
+                '$.crawler.purpose', 'search')
+        WHERE event_type = 'crawler'
+          AND user_agent LIKE '%Claude-SearchBot/%'
+          AND CASE WHEN json_valid(classifier_details_json)
+                   THEN json_extract(classifier_details_json, '$.crawler.botId') END = 'anthropic-claudebot'`,
+    ))
+  }
+}
 
 /**
  * v165: rebuilds `llm_usage_events` and `agent_tool_events` without the

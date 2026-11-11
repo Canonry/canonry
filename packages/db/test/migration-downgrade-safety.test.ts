@@ -219,6 +219,19 @@ const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([
   // handlers no longer null the ledger rows. Idempotent: a table without the
   // key is skipped.
   165,
+  // v220 makes NO schema change: it moves crawler rows whose sampled user
+  // agent is Claude-SearchBot from bot_id `anthropic-claudebot` to
+  // `claude-searchbot` (with their provenance sidecar rows) and relabels the
+  // matching crawler samples' classifier JSON. Downgrade-safe: `bot_id` is
+  // free text that every binary reads and reports as stored, never mapping it
+  // back to a rule, so an older binary reads a moved row like any other bot's;
+  // its ingest writes new Claude-SearchBot hits under `anthropic-claudebot`
+  // again, which is the pre-upgrade behavior. It uses run() because the
+  // statement allowlist is schema-shaped, and because a legacy database that
+  // resumes past the migrations creating these tables must skip the move.
+  // Idempotent: the source rows are deleted after the copy, so a rerun
+  // selects nothing, and the copy adds into an existing row instead of failing.
+  220,
 ])
 
 test(`migrations after v${DOWNGRADE_BASELINE} define no run() hook unless explicitly allowlisted`, () => {

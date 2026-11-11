@@ -98,6 +98,66 @@ describe('publisher payload normalization', () => {
     })
   })
 
+  const sailSource: Source = {
+    file: 'claude-agent.json',
+    url: 'https://example.test/.well-known/sail',
+    label: 'SAIL',
+    format: 'sail-toml',
+    sailService: 'Claude-Agent',
+  }
+  // The shape Anthropic publishes at https://claude.com/.well-known/sail, plus
+  // a second service and prefix set the decoder must leave out.
+  const sailBody = `schema        = "draft-kelley-webbotauth-sail-00"
+modified      = 2026-10-22T18:36:00Z
+expires_after = 3600  # seconds
+
+[[prefix_sets]]
+name          = "agentic-browser-use"
+# \`exclusive=true\` means that all traffic from these ranges will be documented in this file.
+exclusive     = true
+ipv4_prefixes = [
+  "192.0.2.10",
+  "198.51.100.0/24", # a range, kept as published
+]
+ipv6_prefixes = ["2001:db8::1"]
+
+[[prefix_sets]]
+name          = "other-service"
+ipv4_prefixes = ["203.0.113.5"]
+ipv6_prefixes = []
+
+[[services]]
+name        = "Claude-Agent"
+exhaustive  = true
+prefix_sets = ["agentic-browser-use"]
+
+[[services]]
+name        = "Other"
+prefix_sets = ["other-service"]
+`
+
+  it('reads the prefix sets one SAIL service lists, normalizing host addresses', () => {
+    expect(decodeSourcePayload(sailSource, sailBody)).toEqual({
+      creationTime: '2026-10-22T18:36:00Z',
+      prefixes: [
+        { ipv4Prefix: '192.0.2.10/32' },
+        { ipv4Prefix: '198.51.100.0/24' },
+        { ipv6Prefix: '2001:db8::1/128' },
+      ],
+    })
+  })
+
+  it.each([
+    ['a newer SAIL draft', sailBody.replace('sail-00', 'sail-01'), /SAIL schema draft-kelley-webbotauth-sail-01 is not/],
+    ['a missing service', sailBody.replace('"Claude-Agent"', '"Someone-Else"'), /lists service Claude-Agent 0 times/],
+    ['a missing prefix set', sailBody.replace('["agentic-browser-use"]', '["missing"]'), /prefix set missing appears 0 times/],
+    ['an IPv6 address among IPv4 prefixes', sailBody.replace('"192.0.2.10"', '"2001:db8::2"'), /is not IPv4/],
+    ['a plain table', sailBody.replace('[[services]]\nname        = "Other"', '[meta]\nname        = "Other"'), /unsupported syntax/],
+    ['an unclosed array', `${sailBody}extra = [\n  "192.0.2.99",\n`, /array extra is never closed/],
+  ])('fails the refresh on %s rather than guessing', (_case, body, error) => {
+    expect(() => decodeSourcePayload(sailSource, body)).toThrow(error)
+  })
+
   it('ignores version and ordering churn when executable prefixes are unchanged', () => {
     const source: Source = {
       file: 'same.json',

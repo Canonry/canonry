@@ -178,8 +178,8 @@ Amzn-User
 This list mirrors Canonry's current classifier: answer-engine user-fetch,
 crawl, search, and training agents for which WordPress has no cache-independent
 measurement surface. `ClaudeBot` covers Anthropic's unhyphenated core crawler;
-`Claude-` is a separate family rule so newly named `Claude-*Bot` variants
-inherit the bypass. Do NOT add traditional search agents
+`Claude-` covers its hyphenated agents (Claude-SearchBot, Claude-User,
+Claude-Agent) and any it names later. Do NOT add traditional search agents
 `Googlebot`, `bingbot`, `DuckDuckBot`, `YandexBot`, or `Baiduspider`: caching
 helps them crawl efficiently, and the important Google/Bing crawl evidence is
 available through their webmaster tools.
