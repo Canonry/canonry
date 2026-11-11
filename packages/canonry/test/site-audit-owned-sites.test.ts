@@ -176,6 +176,36 @@ describe('Agent Readiness scans of more than one owned site', () => {
     })
   })
 
+  it('looks up the extra sites at the same time, not one after another', async () => {
+    let inFlight = 0
+    let mostInFlight = 0
+    vi.mocked(resolveSiteAuditRootUrl).mockImplementation(async (url) => {
+      const requested = new URL(url).href
+      if (requested === 'https://example.com/') return { requestedUrl: requested, effectiveUrl: requested, redirects: [] }
+      inFlight++
+      mostInFlight = Math.max(mostInFlight, inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      inFlight--
+      if (requested === 'https://slow.example.com/') throw new Error('Site audit root resolution exceeded its 10000ms deadline')
+      return { requestedUrl: requested, effectiveUrl: requested, redirects: [] }
+    })
+    db.update(projects).set({ ownedDomains: ['apartments.example.com', 'slow.example.com', 'shop.example.com'] }).where(eq(projects.id, projectId)).run()
+    vi.mocked(runSiteCrawl).mockImplementation(async (url, options) => emitTwoSites(url, options))
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId, { sites: ['apartments.example.com', 'slow.example.com', 'shop.example.com'] })
+
+    expect(mostInFlight).toBe(3)
+    // In the order asked, the unreachable one recorded with its reason.
+    expect(vi.mocked(runSiteCrawl).mock.calls[0]?.[1]).toMatchObject({ additionalRoots: ['https://apartments.example.com/', 'https://shop.example.com/'] })
+    expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.runId, runId)).get()!.sites!.map((site) => [site.host, site.error]))
+      .toEqual([
+        ['example.com', null],
+        ['apartments.example.com', null],
+        ['slow.example.com', 'Site audit root resolution exceeded its 10000ms deadline'],
+        ['shop.example.com', null],
+      ])
+  })
+
   it('asks for no extra root without extra sites, or when the only one is the main domain', async () => {
     vi.mocked(runSiteCrawl).mockImplementation(async (url, options) => emitTwoSites(url, options))
     for (const sites of [undefined, [], ['example.com']]) {

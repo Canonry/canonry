@@ -72,6 +72,8 @@ are 25 nodes and 50 edges; a bounded neighborhood is not the whole site.
   structure and issues reads to stay on one site. The headline score covers
   every site; quote a site's own score from `sites` when the question is
   about that site. A scan without `sites` covered the main domain only.
+  `deltaUnavailableReason: sites-changed` means the previous scan scored
+  other sites: report no change between the two scores, not a rise or fall.
 - Crawler-derived indexability is technical eligibility, not Google index
   coverage. Verify Google indexing with its own stored integration evidence.
 - Link score indicates structural importance, not an audit failure. Pair

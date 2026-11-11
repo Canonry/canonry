@@ -3,14 +3,14 @@ import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@canonry/canonry-db'
-import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, diffProjectConfigState, forbidden, isRedactedNotificationUrl, nextScheduleUpdatedAt, normalizeProjectAliases, scheduleEnabledAt, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, resolveSiteAuditDomains, SchedulableRunKinds, validationError, describeError, type ApplyPreviewDto } from '@canonry/canonry-contracts'
+import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, diffProjectConfigState, forbidden, isRedactedNotificationUrl, nextScheduleUpdatedAt, normalizeProjectAliases, scheduleEnabledAt, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, requireSiteAuditDomains, resolveSiteAuditDomains, SchedulableRunKinds, validationError, describeError, type ApplyPreviewDto } from '@canonry/canonry-contracts'
 import { competitorSetChangeAuditFields, competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies, pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
 import { readMarketCompetitorPins } from './plan-competitors.js'
 import { marketNameChanges, readMarketCompetitorNames } from './market-competitor-names.js'
-import { aliasArraysEqual, assertProviderModelScope, requireQualifiedAliases, requireSiteAuditDomains } from './projects.js'
+import { aliasArraysEqual, assertProviderModelScope, requireQualifiedAliases } from './projects.js'
 import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-replace.js'
 import { activeRevisionProviders } from './run-queue.js'
 import { nextRunFromSchedule, resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
@@ -213,7 +213,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const siteAuditDomainOwner = { canonicalDomain: config.spec.canonicalDomain, ownedDomains: config.spec.ownedDomains ?? [] }
     const specSiteAuditDomains = config.spec.siteAuditDomains === undefined
       ? undefined
-      : requireSiteAuditDomains(siteAuditDomainOwner, config.spec.siteAuditDomains)
+      : requireSiteAuditDomains(siteAuditDomainOwner, config.spec.siteAuditDomains, 'siteAuditDomains')
 
     // All validation done — wrap all writes in a single transaction
     let projectId: string

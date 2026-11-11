@@ -816,6 +816,21 @@ test('a scan of more than one site keeps one headline score and gives each site 
   ])
 })
 
+test('a scan whose previous scan scored other sites claims no change and says why', () => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(scoreKey, {
+    ...score('audit_old', 56), deltaScore: null, trend: null, previousScore: 80, deltaUnavailableReason: 'sites-changed',
+  })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated />
+    </QueryClientProvider>,
+  )
+  expect(screen.getByText('Sites changed')).not.toBeNull()
+  expect(screen.getByRole('button', { name: 'Not compared with the previous scan, because it scored different sites.' })).not.toBeNull()
+  expect(screen.queryByText(/vs previous/)).toBeNull()
+})
+
 test('a scan of one site has no By site breakdown', () => {
   const queryClient = makeClient()
   queryClient.setQueryData(scoreKey, { ...score('audit_old', 84), sites: [{ host: 'citypoint.example', main: true, aggregateScore: 84, pagesAudited: 39 }] })

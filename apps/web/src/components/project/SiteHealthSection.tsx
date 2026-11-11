@@ -161,8 +161,9 @@ function urlVersionsFound(summary: { urlVersions: number; urlVersionsNotFetched?
 }
 
 /** The caveat beside the page count; its sentence is the tooltip. */
-function urlVersionsSkippedHelp(count: number): { label: string; text: string } {
-  const label = `${metricValue(count)} URL version${count === 1 ? '' : 's'} skipped`
+function urlVersionsSkippedHelp(count: number, wholeScan = false): { label: string; text: string } {
+  // A list narrowed to one site still counts the whole scan's URL versions.
+  const label = `${metricValue(count)} URL version${count === 1 ? '' : 's'} skipped${wholeScan ? ' in this scan' : ''}`
   return {
     label,
     text: `${label}. These addresses add parameters, such as a filter, to a page and name that page as canonical, so they are copies of it. The scan does not score them or list them here.`,
@@ -1067,7 +1068,7 @@ function InventoryTable({
                 : `Showing ${metricValue(pages.length)} of ${metricValue(total)} hidden pages.`}
             </p>
             {skippedUrlVersions != null && skippedUrlVersions > 0 && (
-              <InfoTooltip {...urlVersionsSkippedHelp(skippedUrlVersions)} />
+              <InfoTooltip {...urlVersionsSkippedHelp(skippedUrlVersions, siteFilter !== 'all')} />
             )}
           </div>
         </div>
@@ -2091,6 +2092,8 @@ export function SiteHealthSection({
         ...(nextScanSiteChoices.owned.length > 0 ? { sites: nextScanSites } : {}),
       },
     })
+    // Ticks apply to one scan; the next one starts from the saved choice again.
+    setNextScanSiteTicks(null)
   }
   const selectSection = (path: string, site?: string) => {
     // Folder paths carry no host, so in a scan of more than one site the

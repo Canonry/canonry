@@ -21,8 +21,8 @@ import {
   projectUpsertRequestSchema,
   projectRevisionConflict,
   resolveProjectQualifiedAliases,
+  requireSiteAuditDomains,
   resolveSiteAuditDomains,
-  describeSiteAuditDomainRejections,
   findDuplicateLocationLabels,
   hasLocationLabel,
   DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
@@ -178,6 +178,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const siteAuditDomains = requireSiteAuditDomains(
       { canonicalDomain, ownedDomains: body.ownedDomains ?? [] },
       body.siteAuditDomains ?? [],
+      'siteAuditDomains',
     )
     const inserted = app.db.transaction((tx) => {
       const result = tx.insert(projects).values({
@@ -295,7 +296,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     // (or makes the main domain). An explicit list must be owned domains only.
     const siteAuditDomainOwner = { canonicalDomain: body.canonicalDomain, ownedDomains: body.ownedDomains ?? [] }
     const nextSiteAuditDomains = body.siteAuditDomains !== undefined
-      ? requireSiteAuditDomains(siteAuditDomainOwner, body.siteAuditDomains)
+      ? requireSiteAuditDomains(siteAuditDomainOwner, body.siteAuditDomains, 'siteAuditDomains')
       : resolveSiteAuditDomains(siteAuditDomainOwner, existing?.siteAuditDomains ?? []).domains
     const nextCompetitorAutoAliases = body.competitorAutoAliases
       ?? existing?.competitorAutoAliases
@@ -956,24 +957,6 @@ export function requireQualifiedAliases(
     })
   }
   return resolved.value
-}
-
-/**
- * An explicit `siteAuditDomains` write is all-or-nothing: a domain that is not
- * one of the project's owned domains is a 400 naming it, so a typo never
- * quietly scans less. Shared with `POST /apply`.
- */
-export function requireSiteAuditDomains(
-  project: { canonicalDomain: string; ownedDomains: readonly string[] },
-  requested: readonly string[],
-): string[] {
-  const resolved = resolveSiteAuditDomains(project, requested)
-  if (resolved.rejected.length > 0) {
-    throw validationError(`Rejected siteAuditDomains: ${describeSiteAuditDomainRejections(resolved.rejected)}`, {
-      rejectedSiteAuditDomains: resolved.rejected,
-    })
-  }
-  return resolved.domains
 }
 
 /**

@@ -29,8 +29,8 @@ import {
   factorStatusFromScore,
   factorStatusFromDistribution,
   hostOf,
+  requireSiteAuditDomains,
   resolveSiteAuditDomains,
-  describeSiteAuditDomainRejections,
   SiteAuditTrendDirections,
   SiteCrawlFetchedStates,
   SiteCrawlIndexabilityReasons,
@@ -1035,7 +1035,21 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       && replayed.runStatus !== RunStatuses.completed && replayed.snap.createdAt.startsWith(date)
       ? resolveAudit(project.id, undefined, `${date}T00:00:00.000Z`)?.snap ?? null
       : replayed?.snap ?? null
-    const deltaScore = previous ? snap.aggregateScore - previous.aggregateScore : null
+    // The sites a scorecard scored: its crawl's sites with a scored page, or
+    // the main domain alone for a scan that recorded none (or had no crawl).
+    const crawlSitesOf = (runId: string) => app.db
+      .select({ sites: siteCrawlSnapshots.sites, rootUrl: siteCrawlSnapshots.rootUrl }).from(siteCrawlSnapshots)
+      .where(and(eq(siteCrawlSnapshots.projectId, project.id), eq(siteCrawlSnapshots.runId, runId)))
+      .get()
+    const scoredSitesOf = (crawl: ReturnType<typeof crawlSitesOf>): string[] => crawl?.sites?.length
+      ? crawl.sites.filter((site) => site.pagesAudited > 0).map((site) => site.host).sort()
+      : [hostOf(crawl?.rootUrl ?? project.canonicalDomain) ?? project.canonicalDomain]
+    const currentCrawl = crawlSitesOf(snap.runId)
+    // A score over other sites is not the same measurement: no change is
+    // claimed between them. A site added, removed or not reached counts.
+    const sitesChanged = previous !== null
+      && scoredSitesOf(currentCrawl).join('\n') !== scoredSitesOf(crawlSitesOf(previous.runId)).join('\n')
+    const deltaScore = previous && !sitesChanged ? snap.aggregateScore - previous.aggregateScore : null
     const trend = deltaScore == null
       ? null
       : deltaScore > 0
@@ -1062,9 +1076,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     affectedPageRanking.items.sort((a, b) => b.pagesBelowPass - a.pagesBelowPass || a.factorId.localeCompare(b.factorId))
     affectedPageRanking.unavailableFactorIds.sort()
     // Each site's score comes from the crawl that stored this scorecard.
-    const scannedSites = app.db.select({ sites: siteCrawlSnapshots.sites }).from(siteCrawlSnapshots)
-      .where(and(eq(siteCrawlSnapshots.projectId, project.id), eq(siteCrawlSnapshots.runId, snap.runId)))
-      .get()?.sites ?? null
+    const scannedSites = currentCrawl?.sites ?? null
 
     return {
       project: project.name,
@@ -1082,6 +1094,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       trend,
       previousScore: previous?.aggregateScore ?? null,
       previousAuditedAt: previous?.auditedAt ?? null,
+      ...(sitesChanged ? { deltaUnavailableReason: 'sites-changed' as const } : {}),
       runSelection: latest.runSelection,
       factors: snap.factorAverages.map(factor => ({
         ...withRecordedShare(factor),
@@ -2270,14 +2283,16 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         ...NO_CRAWL_COMPLETENESS, total: 0, nextCursor: null, healthStateFilter: null, pages: [] }
     }
     const snapshot = target.snapshot
+    // Checked before anything else, so a site this scan did not cover is
+    // refused even when its page rows are unavailable.
+    const site = resolveSiteFilter(snapshot, request.query.site)
     if (!snapshot.detailsAvailable || !snapshot.attemptId) {
       decodeCrawlPageCursor(request.query.cursor, null)
       return { project: project.name, hasCrawlData: true, runId: snapshot.runId, requestedDate, inventorySummary: null, healthReasonCounts: null,
-        ...completenessOf(target), total: 0, nextCursor: null, healthStateFilter: null, pages: [] }
+        ...completenessOf(target), total: 0, nextCursor: null, healthStateFilter: null, site: site?.host ?? null, pages: [] }
     }
 
     const inventorySummary = inventorySummaryFor(detailScopeFor(project.id, snapshot))
-    const site = resolveSiteFilter(snapshot, request.query.site)
 
     const filters = [
       eq(siteCrawlPages.projectId, project.id),
@@ -2901,16 +2916,9 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
 
     // The request's own sites must be owned domains; with none named, the
     // saved list applies, less any domain the project no longer owns.
-    let requestedSites: string[] | undefined
-    if (parsed.data.sites !== undefined) {
-      const resolved = resolveSiteAuditDomains(project, parsed.data.sites)
-      if (resolved.rejected.length > 0) {
-        throw validationError(`Rejected sites: ${describeSiteAuditDomainRejections(resolved.rejected)}`, {
-          rejectedSites: resolved.rejected,
-        })
-      }
-      requestedSites = resolved.domains
-    }
+    const requestedSites = parsed.data.sites === undefined
+      ? undefined
+      : requireSiteAuditDomains(project, parsed.data.sites, 'sites')
     const savedSites = resolveSiteAuditDomains(project, project.siteAuditDomains).domains
     // The project's saved budget applies when the request sets none, before identity is computed.
     const effectiveRequest = normalizeSiteAuditRunRequest(

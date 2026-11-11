@@ -840,23 +840,24 @@ export async function executeSiteAudit(
     mainHost = hostOf(crawlRootUrl)
     if (opts.sitemapUrl) await assertSiteAuditUrlAllowed(opts.sitemapUrl, 'sitemapUrl')
     // Each extra owned site goes through the same public-target gate and
-    // redirect rules as the main root. One that cannot be reached is recorded
+    // redirect rules as the main root, all at once, so slow sites cost one
+    // timeout rather than one each. One that cannot be reached is recorded
     // with its reason and skipped; it never fails the main site's scan.
-    const extraSites: ExtraSiteRoot[] = []
-    for (const host of [...new Set(opts.sites ?? [])]) {
-      if (host === mainHost || extraSites.some((site) => site.host === host)) continue
-      try {
-        const resolved = await resolveSiteAuditRootUrl(toHomepageUrl(host), {
-          resolveTarget: resolvePublicHttpTarget,
-          signal: opts.signal,
-        })
-        extraSites.push({ host, rootUrl: resolved.effectiveUrl, error: null })
-      } catch (error) {
-        if (isCancelled(error, opts.signal)) throw error
-        log.warn('extra-site.unreachable', { runId, projectId, host, error: describeError(error) })
-        extraSites.push({ host, rootUrl: null, error: describeError(error) })
-      }
-    }
+    const extraSites: ExtraSiteRoot[] = await Promise.all(
+      [...new Set(opts.sites ?? [])].filter((host) => host !== mainHost).map(async (host): Promise<ExtraSiteRoot> => {
+        try {
+          const resolved = await resolveSiteAuditRootUrl(toHomepageUrl(host), {
+            resolveTarget: resolvePublicHttpTarget,
+            signal: opts.signal,
+          })
+          return { host, rootUrl: resolved.effectiveUrl, error: null }
+        } catch (error) {
+          if (isCancelled(error, opts.signal)) throw error
+          log.warn('extra-site.unreachable', { runId, projectId, host, error: describeError(error) })
+          return { host, rootUrl: null, error: describeError(error) }
+        }
+      }),
+    )
     const additionalRoots = extraSites.flatMap((site) => site.rootUrl ? [site.rootUrl] : [])
     // An Advanced project's Properties let the engine flag a page that names
     // another Property. A plan that cannot be read never stops the scan.

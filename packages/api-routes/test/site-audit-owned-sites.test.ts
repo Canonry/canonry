@@ -80,7 +80,7 @@ function buildCtx(): Ctx {
 }
 
 /** One published scan. `sites` null is a scan made before scans recorded their sites. */
-function seedScan(ctx: Ctx, options: { sites: SiteCrawlSiteDto[] | null; createdAt?: string }): string {
+function seedScan(ctx: Ctx, options: { sites: SiteCrawlSiteDto[] | null; createdAt?: string; aggregateScore?: number; detailsAvailable?: boolean }): string {
   const { db, projectId } = ctx
   const createdAt = options.createdAt ?? new Date(Date.now() - 30_000).toISOString()
   const runId = crypto.randomUUID()
@@ -91,12 +91,12 @@ function seedScan(ctx: Ctx, options: { sites: SiteCrawlSiteDto[] | null; created
   }).run()
   db.insert(siteCrawlSnapshots).values({
     id: crypto.randomUUID(), projectId, runId, attemptId, requestedRootUrl: 'https://example.com/', rootUrl: 'https://www.example.com/',
-    complete: true, termination: 'complete', detailsAvailable: true, pagesDiscovered: 6, pagesFetched: 6, pagesEligible: 6,
+    complete: true, termination: 'complete', detailsAvailable: options.detailsAvailable ?? true, pagesDiscovered: 6, pagesFetched: 6, pagesEligible: 6,
     sites: options.sites, createdAt, updatedAt: createdAt,
   }).run()
   db.insert(siteAuditSnapshots).values({
     id: crypto.randomUUID(), projectId, runId, sitemapUrl: 'https://www.example.com/sitemap.xml', auditedAt: createdAt,
-    aggregateScore: 65, pagesDiscovered: 6, pagesAudited: 6, pagesSkipped: 0, pagesErrored: 0,
+    aggregateScore: options.aggregateScore ?? 65, pagesDiscovered: 6, pagesAudited: 6, pagesSkipped: 0, pagesErrored: 0,
     factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt,
   }).run()
   const extra = options.sites ? 'apartments.example.com' : null
@@ -196,6 +196,17 @@ describe('POST /agent-readiness/runs with sites', () => {
     expect(effectiveOptions((mainOnly.json() as { runId: string }).runId).sites).toEqual([])
   })
 
+  it('refuses more than 20 sites besides the main domain', async () => {
+    const owned = Array.from({ length: 21 }, (_, index) => `site${index}.example.com`)
+    await patchProject({ ownedDomains: owned })
+    const res = await run({ sites: owned })
+    expect(res.statusCode).toBe(400)
+    expect((res.json() as { error: { message: string } }).error.message)
+      .toBe('A scan covers at most 20 sites besides the main domain; sites names 21.')
+    // Naming the main domain as well is allowed: it is always scanned.
+    expect((await run({ sites: ['example.com', ...owned.slice(0, 20)] })).statusCode).toBe(200)
+  })
+
   it('refuses a site that is not one of the project\'s owned domains', async () => {
     const res = await run({ sites: ['rival.com'] })
     expect(res.statusCode).toBe(400)
@@ -269,6 +280,46 @@ describe('reads of a scan that covered two sites', () => {
     const pages = await get<SiteAuditIssuePagesResponseDto>(`/api/v1/projects/portfolio/agent-readiness/issues/${issueId}/pages?site=apartments.example.com`)
     expect(pages.body.pages.map((page) => page.url)).toEqual(['https://apartments.example.com/ridge/'])
     expect((await get(`/api/v1/projects/portfolio/agent-readiness/issues?site=example.org`)).status).toBe(400)
+  })
+})
+
+describe('the score change between scans', () => {
+  const MAIN_ONLY: SiteCrawlSiteDto[] = [SITES[0]!]
+  const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+
+  it('is not claimed when the previous scan scored other sites', async () => {
+    seedScan(ctx, { sites: MAIN_ONLY, aggregateScore: 80, createdAt: minutesAgo(30) })
+    seedScan(ctx, { sites: SITES, aggregateScore: 65, createdAt: minutesAgo(10) })
+    const score = (await get<SiteAuditScoreDto>('/api/v1/projects/portfolio/agent-readiness')).body
+    expect(score).toMatchObject({ aggregateScore: 65, previousScore: 80, deltaScore: null, trend: null, deltaUnavailableReason: 'sites-changed' })
+  })
+
+  it('is claimed between scans of the same sites, including a scan from before sites were recorded', async () => {
+    // Before this change a scan recorded no sites: it scored the main domain only.
+    seedScan(ctx, { sites: null, aggregateScore: 70, createdAt: minutesAgo(30) })
+    seedScan(ctx, { sites: MAIN_ONLY, aggregateScore: 75, createdAt: minutesAgo(10) })
+    const score = (await get<SiteAuditScoreDto>('/api/v1/projects/portfolio/agent-readiness')).body
+    expect(score).toMatchObject({ aggregateScore: 75, previousScore: 70, deltaScore: 5, trend: 'up' })
+    expect(score).not.toHaveProperty('deltaUnavailableReason')
+  })
+
+  it('is not claimed when a site could not be reached this time', async () => {
+    seedScan(ctx, { sites: SITES, aggregateScore: 65, createdAt: minutesAgo(30) })
+    const unreached = { ...SITES[1]!, rootUrl: null, pages: 0, pagesEligible: 0, pagesAudited: 0, aggregateScore: null, error: 'Site audit root URL rejected' }
+    seedScan(ctx, { sites: [SITES[0]!, unreached], aggregateScore: 80, createdAt: minutesAgo(10) })
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/portfolio/agent-readiness')).body)
+      .toMatchObject({ deltaScore: null, deltaUnavailableReason: 'sites-changed' })
+  })
+})
+
+describe('reads of a scan without page details', () => {
+  it('still refuses a site the scan did not cover', async () => {
+    seedScan(ctx, { sites: SITES, detailsAvailable: false })
+    const other = await get<{ error: { message: string } }>('/api/v1/projects/portfolio/agent-readiness/crawl/pages?site=example.org')
+    expect(other.status).toBe(400)
+    expect(other.body.error.message).toBe('This scan did not cover example.org. It covered example.com, apartments.example.com.')
+    const covered = await get<SiteCrawlPagesResponseDto>('/api/v1/projects/portfolio/agent-readiness/crawl/pages?site=apartments.example.com')
+    expect(covered.body).toMatchObject({ total: 0, site: 'apartments.example.com', inventorySummary: null })
   })
 })
 

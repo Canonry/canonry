@@ -101,7 +101,10 @@ export async function technicalAeoScore(project: string, opts: { runId?: string;
   }
 
   const lines: string[] = []
-  const delta = score.deltaScore == null ? '' : ` (${score.deltaScore >= 0 ? '+' : ''}${score.deltaScore} vs prev)`
+  const delta = score.deltaScore != null
+    ? ` (${score.deltaScore >= 0 ? '+' : ''}${score.deltaScore} vs prev)`
+    // The previous scan scored other sites, so the two scores are not compared.
+    : score.deltaUnavailableReason === 'sites-changed' ? ' (sites changed since the previous scan, not compared)' : ''
   lines.push(`Agent Readiness: ${score.aggregateScore}/100${delta}`)
   lines.push(
     `Audited ${score.pagesAudited} page(s) · ${score.pagesSkipped} skipped · ${score.pagesErrored} errored · sitemap ${score.sitemapUrl}`,

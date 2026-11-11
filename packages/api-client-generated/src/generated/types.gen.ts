@@ -17114,6 +17114,7 @@ export type SiteAuditScoreDto = {
     trend: 'up' | 'down' | 'flat' | null;
     previousScore: number | null;
     previousAuditedAt: string | null;
+    deltaUnavailableReason?: 'sites-changed';
     runSelection?: {
         reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;

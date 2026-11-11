@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { validationError } from './errors.js'
 import { calendarDateSchema } from './google-ads.js'
 import { fraction, percent } from './ratio-unit.js'
 import { runStatusSchema } from './run.js'
@@ -209,7 +210,10 @@ export const siteAuditScoreSchema = z.object({
   pagesAudited: z.number().int().nonnegative(),
   pagesSkipped: z.number().int().nonnegative(),
   pagesErrored: z.number().int().nonnegative(),
-  /** `aggregateScore - previousScore`, or `null` when there is no prior run. */
+  /**
+   * `aggregateScore - previousScore`, or `null` when there is no prior run or
+   * the prior run scored a different set of sites (`deltaUnavailableReason`).
+   */
   deltaScore: z.number().nullable(),
   trend: z.union([siteAuditTrendDirectionSchema, z.null()]),
   /**
@@ -222,6 +226,13 @@ export const siteAuditScoreSchema = z.object({
    */
   previousScore: z.number().nullable(),
   previousAuditedAt: z.string().nullable(),
+  /**
+   * Why `deltaScore` and `trend` are null although a previous scan exists.
+   * `sites-changed`: that scan scored a different set of sites (one was added,
+   * removed or not reached), so the two scores do not cover the same pages.
+   * `previousScore` still names that scan's score.
+   */
+  deltaUnavailableReason: z.enum(['sites-changed']).optional(),
   runSelection: siteAuditRunSelectionSchema.optional(),
   factors: z.array(siteAuditFactorSummarySchema).default([]),
   /**
@@ -1519,7 +1530,7 @@ export const siteCrawlPagesResponseSchema = z.object({
   requestedDate: calendarDateSchema.optional(),
   /** On dated no-data reads only; both candidate lists are bounded, with full distinct-date totals. */
   availableScanDates: siteCrawlAvailableScanDatesSchema.optional(),
-  /** Whole selected inventory, independent of page filters and pagination; null without detail rows. */
+  /** Whole selected inventory, independent of page filters, the site filter and pagination; null without detail rows. Per-site counts are in the crawl summary's `sites`. */
   inventorySummary: siteCrawlInventorySummarySchema.nullable().optional(),
   /** Filtered counts before paging; sum to total. Null when details or the requested filter are unavailable. */
   healthReasonCounts: z.array(siteCrawlHealthReasonCountSchema).max(siteHealthReasonSchema.options.length).nullable().optional(),
@@ -2018,6 +2029,33 @@ export function resolveSiteAuditDomains(
     domains.push(host)
   }
   return { domains, rejected }
+}
+
+/**
+ * The owned domains a project write (`siteAuditDomains`) or a scan request
+ * (`sites`) names, resolved, or a 400: any refused domain fails the whole
+ * list, so a typo never quietly scans less, and at most
+ * SITE_AUDIT_MAX_EXTRA_SITES may remain besides the main domain.
+ */
+export function requireSiteAuditDomains(
+  project: { canonicalDomain: string; ownedDomains: readonly string[] },
+  requested: readonly string[],
+  field: 'siteAuditDomains' | 'sites',
+): string[] {
+  const resolved = resolveSiteAuditDomains(project, requested)
+  if (resolved.rejected.length > 0) {
+    throw validationError(`Rejected ${field}: ${describeSiteAuditDomainRejections(resolved.rejected)}`, {
+      field,
+      rejected: resolved.rejected,
+    })
+  }
+  if (resolved.domains.length > SITE_AUDIT_MAX_EXTRA_SITES) {
+    throw validationError(
+      `A scan covers at most ${SITE_AUDIT_MAX_EXTRA_SITES} sites besides the main domain; ${field} names ${resolved.domains.length}.`,
+      { field, limit: SITE_AUDIT_MAX_EXTRA_SITES, named: resolved.domains.length },
+    )
+  }
+  return resolved.domains
 }
 
 /** One sentence naming every refused domain, for a validation error. */

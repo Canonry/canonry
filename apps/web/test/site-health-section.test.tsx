@@ -3205,6 +3205,8 @@ describe('a scan that covered two sites', () => {
     seedTwoSites(queryClient)
     const reads = installSiteReads({ '/crawl/pages': {
       project: projectName, hasCrawlData: true, runId: 'run_1', complete: true, termination: null,
+      // Whole-scan inventory, whatever the site filter.
+      inventorySummary: { scope: 'selected-snapshot', total: 45, eligible: 39, excluded: 6, excludedReasons: [], urlVersions: 3, urlVersionsNotFetched: 0 },
       total: 1, nextCursor: null, healthStateFilter: null, site: LOCATOR, pages: [locatorPage],
     } })
     renderSection(queryClient)
@@ -3223,6 +3225,8 @@ describe('a scan that covered two sites', () => {
     // A list of one site needs no site name.
     const filteredRow = await screen.findByRole('button', { name: '/westshore' })
     expect(within(filteredRow).queryByText(LOCATOR)).toBeNull()
+    // The URL versions beside one site's page count are the whole scan's, and say so.
+    expect(screen.getByRole('button', { name: /^3 URL versions skipped in this scan\. / })).not.toBeNull()
   })
 
   test('Site sections list each site closed, and open into that site\'s own folders', async () => {
@@ -3260,6 +3264,10 @@ describe('a scan that covered two sites', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: `Scan ${LOCATOR}` }))
     fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
     expect(mutationMock.mutate).toHaveBeenLastCalledWith(expect.objectContaining({ body: { checkDeadLinks: false, sites: [] } }))
+
+    // Ticks apply to one scan: the next one starts from the saved choice again.
+    fireEvent.click(screen.getByText('Scan settings'))
+    expect((screen.getByRole('checkbox', { name: `Scan ${LOCATOR}` }) as HTMLInputElement).checked).toBe(true)
   })
 
   test('a scan of one site shows no site controls', () => {
