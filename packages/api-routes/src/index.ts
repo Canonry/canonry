@@ -213,6 +213,8 @@ export interface ApiRoutesOptions {
   chatgptAccounts?: ChatGptAccounts
   /** Where the dashboard is served (e.g. `/` or `/canonry/`); the ChatGPT callback returns there. */
   dashboardPath?: string
+  /** The install's own Aero model, preferred on a ChatGPT plan that lists it. */
+  chatgptPreferredModel?: () => string | null
   /**
    * True when this host has declared which proxy hops to believe (its Fastify
    * instance was built with `trustProxy`). Everything that budgets per caller
@@ -707,6 +709,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       cookie: opts.userSessionCookie,
       dashboardPath: opts.dashboardPath,
       routePrefix: opts.routePrefix,
+      preferredModel: opts.chatgptPreferredModel,
     })
 
     await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix })
@@ -1049,6 +1052,7 @@ export {
   encryptPlanTokens,
   EXTERNAL_SIGN_IN_PASSWORD_HASH,
   parseChatGptTokenKey,
+  pickChatGptPlanModel,
   type ChatGptAccountsOptions,
   type ChatGptPlanAccess,
   type ChatGptSettingsSource,

@@ -209,6 +209,18 @@ export function accountNameForEmail(email: string, taken: (nameKey: string) => b
   return `${base.slice(0, 48)}-${crypto.randomBytes(3).toString('hex')}`
 }
 
+/**
+ * The model a plan-funded turn uses: the person's choice while their plan
+ * still lists it, else the install's own Aero model when listed, else the
+ * plan's first model. Null when the plan lists none.
+ */
+export function pickChatGptPlanModel(models: readonly ChatGptPlanModel[], chosen: string | null, preferred: string | null): string | null {
+  const listed = (id: string | null): id is string => id !== null && models.some(model => model.id === id)
+  if (listed(chosen)) return chosen
+  if (listed(preferred)) return preferred
+  return models[0]?.id ?? null
+}
+
 export interface ChatGptAccountsOptions {
   db: DatabaseClient
   settings: ChatGptSettingsSource
@@ -690,16 +702,11 @@ export class ChatGptAccounts {
       .run()
   }
 
-  /**
-   * The model a plan-funded turn should use: the person's choice when their
-   * plan still lists it, else the install's preferred model when listed, else
-   * the plan's first model.
-   */
+  /** The model a plan-funded turn uses (`pickChatGptPlanModel`), with a current token for it. */
   async resolveModel(userId: string, preferredModelId: string | null): Promise<{ access: ChatGptPlanAccess; modelId: string }> {
     const { models } = await this.models(userId)
     const access = await this.planAccess(userId)
-    const listed = (id: string | null): id is string => id !== null && models.some(model => model.id === id)
-    const modelId = listed(access.modelId) ? access.modelId : listed(preferredModelId) ? preferredModelId : models[0]?.id
+    const modelId = pickChatGptPlanModel(models, access.modelId, preferredModelId)
     if (!modelId) throw new ChatGptPlanError('not-eligible', CHATGPT_AERO_ERRORS.notEligible)
     return { access, modelId }
   }

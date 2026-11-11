@@ -31,7 +31,7 @@ import {
   type ChatGptSignInError,
   type ChatGptStatusDto,
 } from '@canonry/canonry-contracts'
-import { ChatGptPlanError, CHATGPT_SIGN_IN_TTL_MS, type ChatGptAccounts } from './chatgpt-accounts.js'
+import { ChatGptPlanError, CHATGPT_SIGN_IN_TTL_MS, pickChatGptPlanModel, type ChatGptAccounts } from './chatgpt-accounts.js'
 import { auditFromRequest, writeAuditLog } from './helpers.js'
 import { assertCookieWriteOrigin } from './same-origin.js'
 import {
@@ -57,6 +57,8 @@ export interface ChatGptRoutesOptions {
   dashboardPath?: string
   /** The API route prefix, e.g. `/api/v1`. Scopes the binding cookie to these routes. */
   routePrefix?: string
+  /** The install's own Aero model, preferred on a plan that lists it. */
+  preferredModel?: () => string | null
 }
 
 /**
@@ -249,7 +251,8 @@ export async function chatGptRoutes(app: FastifyInstance, opts: ChatGptRoutesOpt
     if (!opts.accounts?.planUsageEnabled()) throw validationError('ChatGPT plan usage is not turned on for this dashboard.')
     try {
       const { models, selected } = await opts.accounts.models(userId)
-      return { models, selected }
+      // What the next answer will use, by the same rule the turn applies.
+      return { models, selected: pickChatGptPlanModel(models, selected, opts.preferredModel?.() ?? null) }
     } catch (error) {
       throw toAppError(error)
     }

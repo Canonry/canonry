@@ -28,6 +28,8 @@ import { AgentProviderIds } from '@canonry/canonry-contracts'
 import type { CanonryConfig } from '../config.js'
 import { resolveAgentReasoning } from '../agent-config.js'
 import { aeroModels, aeroStreamFn } from './pi-models.js'
+import { PROVIDER_MODELS } from './providers.js'
+import { resolveSessionProviderAndModel } from './session.js'
 
 /** The namespace Aero's tools are grouped under on the plan route. */
 export const CHATGPT_TOOL_NAMESPACE = 'canonry'
@@ -164,6 +166,20 @@ export function chatGptPlanStreamFn(onReconnect: () => void): StreamFn {
     })()
     return output
   }
+}
+
+/**
+ * The install's own OpenAI Aero model, offered first on a person's plan when
+ * their plan lists it. Without an install provider, OpenAI's Aero default.
+ */
+export function preferredChatGptModel(config: CanonryConfig): string {
+  try {
+    const { provider, modelId } = resolveSessionProviderAndModel(config)
+    if (provider === AgentProviderIds.openai) return modelId
+  } catch {
+    // No install provider at all: plan funding does not need one.
+  }
+  return PROVIDER_MODELS[AgentProviderIds.openai].agent
 }
 
 /** What a viewer's turn runs on. `install` is the install's own Aero provider. */

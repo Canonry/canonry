@@ -296,6 +296,7 @@ import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
 import { ChatGptAccounts } from "@canonry/canonry-api-routes";
 import { resolveChatGptSettings } from "./chatgpt-config.js";
+import { preferredChatGptModel } from "./agent/chatgpt-plan.js";
 import { registerOAuthRoutes, registerOAuthAdminRoutes, cookieIsSecure, createCredentialChecker, hashSessionToken, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@canonry/canonry-api-routes";
 import { registerAgentRoutes } from "./agent/agent-routes.js";
 import {
@@ -3261,6 +3262,7 @@ export async function createServer(opts: {
       ...(sessionCookieSecure ? { secure: true } : {}),
     },
     chatgptAccounts,
+    chatgptPreferredModel: () => preferredChatGptModel(opts.config),
     dashboardPath: basePath ?? "/",
     // Whether an operator has declared which hops to believe. The per-caller
     // sign-in budget depends on this being the truth rather than something

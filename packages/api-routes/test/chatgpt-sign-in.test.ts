@@ -36,6 +36,7 @@ import {
   encryptPlanTokens,
   EXTERNAL_SIGN_IN_PASSWORD_HASH,
   parseChatGptTokenKey,
+  pickChatGptPlanModel,
   type ChatGptSignInSettings,
 } from '../src/chatgpt-accounts.js'
 import { CHATGPT_SIGN_IN_COOKIE_NAME, safeReturnTo } from '../src/chatgpt-routes.js'
@@ -598,9 +599,11 @@ describe('plan grant', () => {
     const session = cookieValue(signedIn.headers['set-cookie'], USER_SESSION_COOKIE_NAME)!
     const headers = { cookie: `${USER_SESSION_COOKIE_NAME}=${session}`, origin: ORIGIN, host: HOST }
     const list = await app.inject({ method: 'GET', url: '/api/v1/auth/chatgpt/models', headers })
+    // With no choice yet, `selected` is what the next answer uses: the plan's
+    // first model, since this harness names no install model.
     expect(list.json()).toEqual({
       models: [{ id: 'gpt-6-luna', name: 'GPT-6 Luna' }, { id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol' }],
-      selected: null,
+      selected: 'gpt-6-luna',
     })
     const hidden = await app.inject({ method: 'PUT', url: '/api/v1/auth/chatgpt/model', headers, payload: { modelId: 'gpt-internal' } })
     expect(hidden.statusCode).toBe(403)
@@ -690,6 +693,14 @@ describe('invitations', () => {
     })
     expect(res.statusCode).toBe(403)
   })
+})
+
+test('the plan model is the person\'s choice, then the install\'s model, then the plan\'s first', () => {
+  const models = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]
+  expect(pickChatGptPlanModel(models, 'b', 'a')).toBe('b')
+  expect(pickChatGptPlanModel(models, 'gone', 'b')).toBe('b')
+  expect(pickChatGptPlanModel(models, null, 'not-listed')).toBe('a')
+  expect(pickChatGptPlanModel([], 'b', 'a')).toBeNull()
 })
 
 test('account names come from the email and stay valid', () => {

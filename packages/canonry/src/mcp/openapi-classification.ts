@@ -231,6 +231,17 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/users': 'deferred',
   'POST /api/v1/users': 'deferred',
   'DELETE /api/v1/users/{name}': 'deferred',
+  'GET /api/v1/users/invitations': 'deferred',
+  'POST /api/v1/users/invitations': 'deferred',
+  'DELETE /api/v1/users/invitations/{id}': 'deferred',
+  // Sign in with ChatGPT: browser navigations and a signed-in person's own
+  // ChatGPT settings, resolved from their sign-in cookie. No agent drives them.
+  'GET /api/v1/auth/chatgpt/status': 'excluded-protocol',
+  'GET /api/v1/auth/chatgpt/start': 'excluded-protocol',
+  'GET /api/v1/auth/chatgpt/callback': 'excluded-protocol',
+  'POST /api/v1/auth/chatgpt/disconnect': 'excluded-protocol',
+  'GET /api/v1/auth/chatgpt/models': 'excluded-protocol',
+  'PUT /api/v1/auth/chatgpt/model': 'excluded-protocol',
   'POST /api/v1/projects/{name}/schedule/preview': 'included',
   'PUT /api/v1/projects/{name}/schedule': 'included',
   'GET /api/v1/projects/{name}/schedules': 'included',

@@ -10,7 +10,7 @@ import type { CanonryConfig } from '../config.js'
 import { CanonryMcpToolNames, canonryMcpTools, type CanonryMcpToolName } from '../mcp/tool-registry.js'
 import { configureAeroRuntime, setAeroSystemPrompt } from './runtime.js'
 import { PROVIDER_MODELS, refreshAgentModels } from './providers.js'
-import { applyChatGptPlanTurn, chatGptPlanStreamFn, fundingKey, type ViewerFunding } from './chatgpt-plan.js'
+import { applyChatGptPlanTurn, chatGptPlanStreamFn, fundingKey, preferredChatGptModel, type ViewerFunding } from './chatgpt-plan.js'
 import { createAeroSession, loadAeroSystemPrompt, resolveSessionProviderAndModel } from './session.js'
 import { withoutPersistedToolDetails } from './session-registry.js'
 import { buildSkillDocTools } from './skill-tools.js'
@@ -375,7 +375,7 @@ export class ViewerAeroSessions {
       return { kind: 'install' }
     }
     try {
-      const { access, modelId } = await accounts.resolveModel(userId, this.preferredPlanModel())
+      const { access, modelId } = await accounts.resolveModel(userId, preferredChatGptModel(this.opts.config))
       return { kind: 'plan', connectionId: access.connectionId, modelId }
     } catch (error) {
       if (error instanceof ChatGptPlanError) throw chatGptPlanAppError(error)
@@ -383,16 +383,6 @@ export class ViewerAeroSessions {
     }
   }
 
-  /** The install's own OpenAI Aero model, offered first when the person's plan lists it. */
-  private preferredPlanModel(): string {
-    try {
-      const { provider, modelId } = resolveSessionProviderAndModel(this.opts.config)
-      if (provider === AgentProviderIds.openai) return modelId
-    } catch {
-      // No install provider at all: plan funding does not need one.
-    }
-    return PROVIDER_MODELS[AgentProviderIds.openai].agent
-  }
 
   /**
    * Delete the turn's key rather than revoke it: the key list shows revoked
