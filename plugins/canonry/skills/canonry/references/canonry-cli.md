@@ -106,6 +106,15 @@ right away. `--format json` returns
 nothing: restore an account with `cnry user delete <name>` and `cnry user
 create`. The command has no API route and no MCP tool.
 
+`cnry user invite <email> --role <admin|viewer>` lets that address sign in with
+ChatGPT on an install with `chatgpt.signIn` on: the first sign-in whose
+verified ChatGPT email matches creates the account with that role. Nothing is
+emailed. `cnry user invitations` lists them with status (`pending`,
+`accepted`, `revoked`, `expired`) and `cnry user uninvite <id>` revokes a
+pending one. Invitations expire after 14 days and never attach to an existing
+account. Administrator or full-instance key; no MCP tool. See
+`docs/chatgpt-sign-in.md` for the config and plan usage.
+
 ### Read-only embed mode (#716)
 
 Opt-in, OFF by default. Renders the dashboard "chromeless" (no nav/topbar/settings) so it can be iframed read-only, and emits a fail-closed framing contract. With `--embed` absent, served HTML + headers are byte-for-byte unchanged.

@@ -1,4 +1,4 @@
-import { OutcomeTriggers, USAGE_TELEMETRY_HEADERS, UserRoles, agentBusy } from '@canonry/canonry-contracts'
+import { OutcomeTriggers, USAGE_TELEMETRY_HEADERS, UserRoles, agentBusy, isChatGptAeroError } from '@canonry/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
@@ -80,8 +80,17 @@ function viewerRedact(_key: string, value: unknown): unknown {
   if (!value || typeof value !== 'object' || (value as { role?: unknown }).role !== 'assistant') return value
   const copy: Record<string, unknown> = { ...(value as Record<string, unknown>) }
   for (const key of VIEWER_HIDDEN_ASSISTANT_KEYS) delete copy[key]
-  if (typeof copy.errorMessage === 'string' && copy.errorMessage) copy.errorMessage = VIEWER_ERROR_MESSAGE
+  if (typeof copy.errorMessage === 'string' && copy.errorMessage) copy.errorMessage = viewerErrorText(copy.errorMessage)
   return copy
+}
+
+/**
+ * What a viewer is told when a turn fails. The ChatGPT plan messages are
+ * written for them (connect again, usage limit, plan not eligible) and carry
+ * no provider text, so they pass; anything else becomes the plain message.
+ */
+function viewerErrorText(message: string): string {
+  return isChatGptAeroError(message) ? message : VIEWER_ERROR_MESSAGE
 }
 
 function redactForViewer<T>(value: T): T {
@@ -163,7 +172,7 @@ async function streamAgentTurn(
   const write = (payload: SsePayload): void => {
     if (reply.raw.writableEnded) return
     try {
-      const frame = turn.viewer && payload.type === 'error' ? { type: 'error', message: VIEWER_ERROR_MESSAGE } : payload
+      const frame = turn.viewer && payload.type === 'error' ? { type: 'error', message: viewerErrorText(payload.message) } : payload
       reply.raw.write(`data: ${JSON.stringify(frame, turn.viewer ? viewerRedact : undefined)}\n\n`)
     } catch {
       /* socket may be gone — ignore */

@@ -40,7 +40,9 @@ const SCRYPT_COST = 1 << 15
 const SCRYPT_MAXMEM = 64 * 1024 * 1024
 const SALT_BYTES = 16
 
-const PREFIX = 'scrypt$1$'
+/** Every stored password digest starts with this; anything else matches no password. */
+export const SCRYPT_DIGEST_PREFIX = 'scrypt$1$'
+const PREFIX = SCRYPT_DIGEST_PREFIX
 
 /** Derive the stored form of a password. Never returns anything reversible. */
 export async function hashUserPassword(password: string): Promise<string> {

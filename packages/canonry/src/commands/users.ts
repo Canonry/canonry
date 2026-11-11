@@ -7,6 +7,7 @@ import {
   UserRoles,
   USER_PASSWORD_MIN_LENGTH,
   type UserDto,
+  type UserInvitationDto,
   type UserRole,
 } from '@canonry/canonry-contracts'
 
@@ -139,4 +140,61 @@ export async function deleteUser(name: string, format?: string): Promise<void> {
   }
 
   console.log(`Account "${result.name}" deleted. Any browser signed in as them is signed out now.`)
+}
+
+export async function inviteUser(opts: { email: string; role: string; format?: string }): Promise<void> {
+  const role = parseRole(opts.role)
+  const client = getClient()
+  const invitation = await client.createUserInvitation({ email: opts.email, role })
+
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(invitation, null, 2))
+    return
+  }
+
+  console.log(`Invited ${invitation.email} with ${invitation.role} access, until ${formatIsoDate(invitation.expiresAt)}.\n`)
+  console.log('Nothing is sent. Tell them to open the dashboard and choose "Continue with ChatGPT"')
+  console.log('with the ChatGPT account that uses this email address. Their first sign-in')
+  console.log('creates their account. ChatGPT must have verified the address.')
+}
+
+export async function listUserInvitations(format?: string): Promise<void> {
+  const client = getClient()
+  const { invitations } = await client.listUserInvitations()
+
+  if (format === 'json') {
+    console.log(JSON.stringify({ invitations }, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    emitJsonl(invitations)
+    return
+  }
+
+  if (invitations.length === 0) {
+    console.log('No invitations. Invite someone with: canonry user invite <email> --role viewer')
+    return
+  }
+
+  console.log(`${'EMAIL'.padEnd(32)} ${'ROLE'.padEnd(8)} ${'STATUS'.padEnd(9)} ${'EXPIRES'.padEnd(12)} ACCOUNT / ID`)
+  for (const invitation of invitations) {
+    console.log(
+      `${invitation.email.padEnd(32)} ${invitation.role.padEnd(8)} ${invitation.status.padEnd(9)} ${formatIsoDate(invitation.expiresAt).padEnd(12)} ${describeInvitationTarget(invitation)}`,
+    )
+  }
+}
+
+function describeInvitationTarget(invitation: UserInvitationDto): string {
+  return invitation.acceptedUserName ?? invitation.id
+}
+
+export async function revokeUserInvitation(id: string, format?: string): Promise<void> {
+  const client = getClient()
+  const invitation = await client.revokeUserInvitation(id)
+
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(invitation, null, 2))
+    return
+  }
+
+  console.log(`Invitation for ${invitation.email} revoked. Signing in with ChatGPT will no longer create their account.`)
 }
