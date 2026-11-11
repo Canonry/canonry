@@ -1,4 +1,4 @@
-import { classifyTrafficPath, TrafficPathClasses, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
+import { classifyTrafficPath, pathWithoutQuery, TrafficPathClasses, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import { DEFAULT_AI_CRAWLER_RULES } from './rules.js'
 
 /**
@@ -11,65 +11,109 @@ import { DEFAULT_AI_CRAWLER_RULES } from './rules.js'
  * by itself is read from the method, path and query.
  */
 export const BrowserAgentRequestKinds = {
-  /** A GET the agent made: opening a page or a file. The only kind counted as an AI user fetch hit. */
+  /** A GET the agent made: opening a page, a document or a download. The only kind counted as an AI user fetch hit. */
   page: 'page',
-  /** Another method the agent sent to a page, such as a form post. Kept in agent journeys, not counted. */
+  /** Any other method the agent sent, wherever it went: a form post, a checkout, an API write. Kept in agent journeys, not counted. */
   action: 'action',
-  /** What its page fetched by itself: files, data and API calls, prefetches, beacons, HEAD and OPTIONS. */
+  /** What its page fetched or sent by itself: files, data and API reads, prefetches, beacons, HEAD and OPTIONS. */
   resource: 'resource',
 } as const
 export type BrowserAgentRequestKind = (typeof BrowserAgentRequestKinds)[keyof typeof BrowserAgentRequestKinds]
 
-// First path segments that hold what a page fetches by itself: framework build
-// output, image optimizers and route data (Next.js `/_next/image` and
-// `/_next/data/`, Nuxt, Nuxt Image, Astro), platform analytics, image, function
-// and auth endpoints (Vercel, Cloudflare, Netlify), WordPress theme, plugin and
-// REST files, and API calls (`/api/`, `/graphql`, read as data calls the way the
-// human journeys read them).
-const RESOURCE_SEGMENTS: ReadonlySet<string> = new Set([
-  '_next', '_nuxt', '_ipx', '_astro', '_vercel', 'cdn-cgi', '.netlify',
-  'wp-content', 'wp-includes', 'wp-json', 'api', 'graphql',
-])
-// Endpoints a page calls by itself: Astro's image optimizer, Azure's
-// signed-in user check and WordPress AJAX.
-const RESOURCE_PATHS: ReadonlySet<string> = new Set(['/_image', '/.auth/me', '/wp-admin/admin-ajax.php'])
-// Files a page loads that `classifyTrafficPath` reads as content: web app
-// manifests, and React Router's route data (Remix, Shopify Hydrogen).
-const RESOURCE_EXTENSIONS = /\.(?:webmanifest|data)$/i
 // Query parameters only a page's own fetches carry: Next.js React Server
 // Component payloads (a client-side navigation and the prefetch of every link
-// in view, which logs cannot tell apart) and WooCommerce AJAX.
-const RESOURCE_QUERY_PARAMETERS: readonly string[] = ['_rsc', 'wc-ajax']
+// in view, which logs cannot tell apart), Remix v2 route data (`_data`),
+// Shopify section rendering (`section_id`, `sections`) and WooCommerce AJAX.
+const RESOURCE_QUERY_PARAMETERS: readonly string[] = ['_rsc', '_data', 'section_id', 'sections', 'wc-ajax']
+// Files a person opens or downloads: documents, spreadsheets, slides,
+// e-books, archives and static HTML pages. A GET for one is a page load
+// wherever the file is kept, such as WordPress uploads (`/wp-content/uploads/`)
+// or an API reference page (`/api/fs.html`), and so is a page's own fetch of
+// one, such as a chart's CSV.
+const DOCUMENT_FILE = /\.(?:pdf|docx?|xlsx?|pptx?|od[pst]|rtf|csv|tsv|txt|epub|mobi|zip|html?)$/
+// Folders that hold what a page fetches by itself, matched at any depth so an
+// app served under a sub-path (`/docs/_next/image`, `/blog/wp-json/`) reads
+// the same: framework build output, image optimizers and route data (Next.js
+// incl. `/_next/image` and `/_next/data/`, Nuxt, Nuxt Image, Astro, Blazor
+// WebAssembly's `_framework`), platform analytics, image, function and
+// identity endpoints (Vercel, Cloudflare, Netlify), and WordPress theme,
+// plugin, upload and REST files.
+const RESOURCE_FOLDERS: ReadonlySet<string> = new Set([
+  '_next', '_nuxt', '_ipx', '_astro', '_framework', '_vercel', 'cdn-cgi', '.netlify',
+  'wp-content', 'wp-includes', 'wp-json',
+])
+// Endpoints a page calls by itself, at any depth: Astro's image optimizer and
+// WordPress AJAX.
+const RESOURCE_ENDPOINTS: readonly string[] = ['/_image', '/wp-admin/admin-ajax.php']
+// API calls, as the first path segment only, so a docs site's `/docs/api/...`
+// pages stay pages. An extensionless API reference page at the site root
+// (`/api/reactivity-core`) reads as a call.
+const API_ROOT_FOLDERS: ReadonlySet<string> = new Set(['api', 'graphql'])
+// Azure App Service and Static Web Apps calls a page makes by itself: the
+// signed-in user check and the token refresh. Signing in and out are page loads.
+const AZURE_AUTH_CALLS: ReadonlySet<string> = new Set(['/.auth/me', '/.auth/refresh'])
+// React Router's route data (`/pricing.data`), which `classifyTrafficPath`
+// reads as content.
+const ROUTE_DATA_FILE = /\.data$/
+// Vercel's first-party intake folders for Web Analytics and Speed Insights.
+const VERCEL_BEACON_FOLDERS: ReadonlySet<string> = new Set(['insights', 'speed-insights'])
+// WooCommerce AJAX calls its scripts post by themselves: the cart fragment
+// refresh, the checkout's order review and the product variation lookup.
+const WOOCOMMERCE_BACKGROUND_CALLS: ReadonlySet<string> = new Set(['get_refreshed_fragments', 'update_order_review', 'get_variation'])
 
-function isResourcePath(path: string): boolean {
-  const lower = path.toLowerCase()
-  const trimmed = lower.length > 1 ? lower.replace(/\/+$/, '') || '/' : lower
-  if (RESOURCE_PATHS.has(trimmed) || RESOURCE_EXTENSIONS.test(trimmed)) return true
-  if (RESOURCE_SEGMENTS.has(trimmed.split('/')[1] ?? '')) return true
-  return classifyTrafficPath(trimmed) === TrafficPathClasses.asset
-}
-
-function hasResourceQuery(request: Pick<NormalizedTrafficRequest, 'path' | 'queryString'>): boolean {
-  // Some sources leave the query on the path.
-  const queryStart = request.path.indexOf('?')
-  const pathQuery = queryStart < 0 ? '' : request.path.slice(queryStart + 1).split('#')[0]!
-  const query = request.queryString ?? pathQuery
-  if (!query) return false
-  const params = new URLSearchParams(query)
-  return RESOURCE_QUERY_PARAMETERS.some(name => params.has(name))
+/** The path, lowercased, without its query, fragment or trailing slashes. */
+function comparablePath(path: string): string {
+  const lower = pathWithoutQuery(path).toLowerCase()
+  return lower.length > 1 ? lower.replace(/\/+$/, '') || '/' : lower
 }
 
 /**
- * What a browser agent's request was: a page load it made, an action (a form
- * post) it made, or a resource its page fetched by itself. A request with no
- * method reads as a GET.
+ * A write a page's own scripts send, never the agent's action: Vercel's
+ * analytics and Speed Insights beacons, anything sent to Cloudflare's
+ * `/cdn-cgi/` (browser insights and bot checks; Cloudflare serves that folder
+ * itself), WooCommerce's background AJAX, and WordPress Heartbeat when its
+ * action is in the URL. WordPress's own Heartbeat script sends the action in
+ * the request body, which logs lack, so its heartbeats read as actions.
+ */
+function isBackgroundWrite(path: string, segments: readonly string[], query: URLSearchParams | null): boolean {
+  for (const [index, segment] of segments.entries()) {
+    if (segment === 'cdn-cgi') return true
+    if (segment === '_vercel' && VERCEL_BEACON_FOLDERS.has(segments[index + 1] ?? '')) return true
+  }
+  const wooCommerceCall = query?.get('wc-ajax')
+  if (wooCommerceCall && WOOCOMMERCE_BACKGROUND_CALLS.has(wooCommerceCall)) return true
+  return path.endsWith('/wp-admin/admin-ajax.php') && query?.get('action') === 'heartbeat'
+}
+
+/** A path a page fetches by itself: the folder, endpoint and file lists above, and static files. */
+function isResourcePath(path: string, segments: readonly string[]): boolean {
+  if (AZURE_AUTH_CALLS.has(path) || API_ROOT_FOLDERS.has(segments[0] ?? '')) return true
+  if (segments.some(segment => RESOURCE_FOLDERS.has(segment))) return true
+  if (RESOURCE_ENDPOINTS.some(endpoint => path.endsWith(endpoint))) return true
+  return ROUTE_DATA_FILE.test(path) || classifyTrafficPath(path) === TrafficPathClasses.asset
+}
+
+/**
+ * What a browser agent's request was: a page load it made, an action it sent,
+ * or a resource its page fetched or sent by itself. The method decides first:
+ * HEAD and OPTIONS are resources, and any other method but GET is an action
+ * unless it is a page's background write. A GET is then a resource when its
+ * query marks a page's own fetch, a page when it opens a document or a
+ * download, a resource when its path is one a page fetches by itself, and
+ * otherwise a page. A request with no method reads as a GET.
  */
 export function browserAgentRequestKind(request: Pick<NormalizedTrafficRequest, 'method' | 'path' | 'queryString'>): BrowserAgentRequestKind {
   const method = request.method?.trim().toUpperCase() || 'GET'
   if (method === 'HEAD' || method === 'OPTIONS') return BrowserAgentRequestKinds.resource
-  const path = request.path.split(/[?#]/)[0] || '/'
-  if (isResourcePath(path) || hasResourceQuery(request)) return BrowserAgentRequestKinds.resource
-  return method === 'GET' ? BrowserAgentRequestKinds.page : BrowserAgentRequestKinds.action
+  const path = comparablePath(request.path)
+  const segments = path.split('/').filter(Boolean)
+  const query = request.queryString ? new URLSearchParams(request.queryString) : null
+  if (method !== 'GET') {
+    return isBackgroundWrite(path, segments, query) ? BrowserAgentRequestKinds.resource : BrowserAgentRequestKinds.action
+  }
+  if (query && RESOURCE_QUERY_PARAMETERS.some(name => query.has(name))) return BrowserAgentRequestKinds.resource
+  if (DOCUMENT_FILE.test(path)) return BrowserAgentRequestKinds.page
+  return isResourcePath(path, segments) ? BrowserAgentRequestKinds.resource : BrowserAgentRequestKinds.page
 }
 
 /**

@@ -1,4 +1,4 @@
-import { AgentTrustLevels, classifyTrafficPath, hostOf, TrafficPathClasses, type AgentTrustReason, type NormalizedTrafficRequest, type StoredAgentTrust, type TrafficVerificationManifest, type VerificationStatus } from '@canonry/canonry-contracts'
+import { AgentTrustLevels, classifyTrafficPath, hostOf, pathWithoutQuery, TrafficPathClasses, type AgentTrustReason, type NormalizedTrafficRequest, type StoredAgentTrust, type TrafficVerificationManifest, type VerificationStatus } from '@canonry/canonry-contracts'
 import { withScannerBurst } from './agent-trust.js'
 import { keepsBrowserAgentJourneyRequest } from './browser-agents.js'
 import { classifyAiUserFetch, isSelfTraffic } from './classifier.js'
@@ -33,10 +33,11 @@ export interface ExtractAgentJourneyOptions {
 /**
  * Observed fetches only: a request does not prove navigation, intent or
  * success. Likely fake requests are left out; their hourly totals count them.
- * A browser agent's journey keeps the requests it made, page loads and form
- * posts, and any request that failed, never what its pages fetched by
- * themselves (`keepsBrowserAgentJourneyRequest`): those would show pages it
- * never opened, such as prefetched links.
+ * A browser agent's journey keeps the requests it made (page loads, and
+ * actions such as form posts and checkouts) and any request that failed with
+ * its status. The rest of what its pages fetched by themselves is left out
+ * (`keepsBrowserAgentJourneyRequest`): it would show pages the agent never
+ * opened, such as prefetched links.
  */
 export function extractAgentJourneyRequests(events: readonly NormalizedTrafficRequest[], options: ExtractAgentJourneyOptions = {}): AgentJourneyRequest[] {
   const bursts = options.scannerBurstEventIds ?? findScannerBurstsInBatch(events)
@@ -48,7 +49,7 @@ export function extractAgentJourneyRequests(events: readonly NormalizedTrafficRe
     if (!agent || agent.trust === AgentTrustLevels.likely_fake) continue
     const timestamp = Date.parse(event.observedAt)
     if (!Number.isFinite(timestamp)) continue
-    const path = event.path.split(/[?#]/)[0] || '/'
+    const path = pathWithoutQuery(event.path)
     if (agent.browser) {
       if (!keepsBrowserAgentJourneyRequest(event)) continue
     } else if (classifyTrafficPath(path) === TrafficPathClasses.asset && !/\.json\/?$/i.test(path)) {

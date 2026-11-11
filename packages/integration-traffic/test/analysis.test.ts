@@ -19,7 +19,7 @@ import {
   findAiReferralFollowOns,
   normalizeTrafficPathPattern,
 } from '../src/index.js'
-import { ruleTokens } from './fixtures/rule-tokens.js'
+import { ruleTokenCases } from './fixtures/rule-tokens.js'
 import { firstPublishedIp, vendoredManifest } from './fixtures/vendored-ranges.js'
 
 // Addresses and manifest identities come from the vendored snapshots, so the
@@ -1014,12 +1014,16 @@ describe('classifier rule order', () => {
   // Both classifiers return the first rule that matches, so a rule listed
   // below a broader pattern that also matches its token is never reached.
   // Each token must also stay in its own channel: a user agent that matched
-  // a crawler rule and a user-fetch rule would be counted in both.
-  it.each(ruleTokens())('classifies $token as $ruleId, in its own channel only', ({ ruleId, purpose, userAgent }) => {
-    const evt = event({ userAgent })
+  // a crawler rule and a user-fetch rule would be counted in both. A user
+  // fetch's user agent is one its trust rules accept, never a likely fake.
+  it.each(ruleTokenCases())('classifies $token as $ruleId, in its own channel only', (entry) => {
+    if ('problem' in entry) throw new Error(entry.problem)
+    const evt = event({ userAgent: entry.classifierUserAgent })
+    const userFetch = classifyAiUserFetch(evt)
     expect({
       crawler: classifyCrawler(evt)?.botId ?? null,
-      userFetch: classifyAiUserFetch(evt)?.botId ?? null,
-    }).toEqual(purpose === 'user-agent' ? { crawler: null, userFetch: ruleId } : { crawler: ruleId, userFetch: null })
+      userFetch: userFetch?.botId ?? null,
+    }).toEqual(entry.purpose === 'user-agent' ? { crawler: null, userFetch: entry.ruleId } : { crawler: entry.ruleId, userFetch: null })
+    expect(userFetch?.trust).not.toBe('likely_fake')
   })
 })

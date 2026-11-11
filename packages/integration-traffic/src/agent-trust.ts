@@ -1,6 +1,7 @@
 import {
   AgentTrustLevels,
   AgentTrustReasons,
+  pathWithoutQuery,
   type AgentTrust,
   type AgentTrustReason,
   type TrafficVerificationManifest,
@@ -47,13 +48,13 @@ const ENVIRONMENT_CONFIG = /^(?:production|prod|development|dev|staging|default|
 // and single-page apps' runtime settings (`env.js`, `env.json`). A browser
 // agent's page asks for them, so they are not probes from one.
 const BROWSER_APP_ROOT_FILE = /^(?:appsettings(?:\.[\w-]+)?\.json|env\.js|env\.json)$/
-// Hidden folders a web app's pages call: Azure App Service and Static Web Apps
-// sign-in (`/.auth/me`, `/.auth/login/...`), and Netlify Identity and Git
-// Gateway (the Decap CMS editor).
-const BROWSER_APP_HIDDEN_FOLDERS: ReadonlyMap<string, ReadonlySet<string> | true> = new Map<string, ReadonlySet<string> | true>([
-  ['.auth', true],
-  ['.netlify', new Set(['identity', 'git'])],
-])
+// Hidden-folder endpoints a web app's pages call or link to, matched on the
+// decoded path's segments: Azure App Service and Static Web Apps sign-in
+// (`/.auth/me`, `/.auth/refresh`, `/.auth/login/<provider>` and its
+// `/callback`, `/.auth/logout` and its default landing page
+// `/.auth/logout/complete`, `/.auth/purge/<provider>`), and anything under
+// Netlify Identity and Git Gateway (the Decap CMS editor).
+const BROWSER_APP_ENDPOINT = /^(?:\.auth\/(?:me|refresh|logout(?:\/complete)?|login\/[^/]+(?:\/callback)?|purge\/[^/]+)|\.netlify\/(?:identity|git)(?:\/.*)?)$/
 
 /** Reasons in display order. The first reason of a likely fake request keys its hourly bucket. */
 const REASON_ORDER: readonly AgentTrustReason[] = [
@@ -96,13 +97,6 @@ function isHiddenSegment(segment: string, next: string | undefined): boolean {
   return !(segment === '.netlify' && next !== undefined && NETLIFY_PUBLIC.has(next))
 }
 
-/** A site-root hidden folder a web app's pages call (`BROWSER_APP_HIDDEN_FOLDERS`). */
-function isBrowserAppFolder(segment: string, next: string | undefined): boolean {
-  const children = BROWSER_APP_HIDDEN_FOLDERS.get(segment)
-  if (children === undefined) return false
-  return children === true || (next !== undefined && children.has(next))
-}
-
 function isSecretFile(folders: readonly string[], file: string): boolean {
   if (!folders.every(folder => CONFIG_FOLDERS.has(folder))) return false
   if (folders.length > 0 && ENVIRONMENT_CONFIG.test(file)) return true
@@ -116,8 +110,9 @@ export interface ScannerPathOptions {
   /**
    * The request claims a hosted browser agent (`AiCrawlerRule.browser`). Its
    * pages load app files a link fetcher never asks for, so the files in
-   * `BROWSER_APP_ROOT_FILE` and `BROWSER_APP_HIDDEN_FOLDERS` are not probes.
-   * Every other check applies, `wp-login.php` included.
+   * `BROWSER_APP_ROOT_FILE` and the endpoints in `BROWSER_APP_ENDPOINT` are
+   * not probes. Every other check applies, `wp-login.php` included, and the
+   * key, credential and secret-file checks apply inside those endpoints too.
    */
   browser?: boolean
 }
@@ -130,7 +125,7 @@ export interface ScannerPathOptions {
  */
 export function isScannerPath(rawPath: string, options: ScannerPathOptions = {}): boolean {
   const browser = options.browser === true
-  const pathOnly = (rawPath.split(/[?#]/)[0] ?? '').toLowerCase()
+  const pathOnly = pathWithoutQuery(rawPath).toLowerCase()
   if (ENCODED_TRAVERSAL.test(pathOnly)) return true
   let decoded = pathOnly
   try {
@@ -139,11 +134,11 @@ export function isScannerPath(rawPath: string, options: ScannerPathOptions = {})
     // Keep the raw form; the encoded check above already ran on it.
   }
   const segments = decoded.split(/[\\/]+/).filter(Boolean)
+  const appEndpoint = browser && BROWSER_APP_ENDPOINT.test(segments.join('/'))
   for (const [index, segment] of segments.entries()) {
     if (segment === '..' || segment.endsWith('..')) return true
     if (SCANNER_SEGMENTS.has(segment) || segment.startsWith('wp-config') || segment.endsWith('.env')) return true
-    const appFolder = browser && index === 0 && isBrowserAppFolder(segment, segments[1])
-    if (!appFolder && isHiddenSegment(segment, segments[index + 1])) return true
+    if (!(appEndpoint && index === 0) && isHiddenSegment(segment, segments[index + 1])) return true
     // Process environment and mounted cluster secrets.
     if (segment === 'proc' && segments[index + 1] === 'self') return true
     if (segment === 'var' && segments[index + 1] === 'run' && segments[index + 2] === 'secrets') return true
@@ -153,7 +148,9 @@ export function isScannerPath(rawPath: string, options: ScannerPathOptions = {})
   // The upload folder of old rich-text editors, asked for as a folder.
   if (segments[0] === 'userfiles' && !file.includes('.')) return true
   if (browser && segments.length === 1 && BROWSER_APP_ROOT_FILE.test(file)) return false
-  return isSecretFile(segments.slice(0, -1), file)
+  // Inside an app endpoint the file is checked as if it sat at the site root,
+  // so a key or credential file there (`/.auth/login/id_rsa`) is still a probe.
+  return isSecretFile(appEndpoint ? [] : segments.slice(0, -1), file)
 }
 
 export function sortAgentTrustReasons(reasons: Iterable<AgentTrustReason>): AgentTrustReason[] {
