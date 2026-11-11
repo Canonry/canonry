@@ -37,6 +37,8 @@ import { competitorSuggestionRoutes } from './competitor-suggestions.js'
 import { competitorChangePreviewRoutes } from './competitor-change-preview.js'
 import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
+import { projectSetupRoutes } from './project-setup.js'
+import type { ProjectSetupRoutesOptions } from './project-setup.js'
 import { measurementPlanRoutes } from './measurement-plan.js'
 import type { MeasurementPlanRoutesOptions } from './measurement-plan.js'
 import { measurementServiceRoutes } from './measurement-service.js'
@@ -158,6 +160,7 @@ export type { CredentialChecker } from './user-session.js'
 export type { ApiRequestCompletedInfo, RequestContextOptions } from './request-context.js'
 export type { OutcomeAttribution, OutcomeTelemetryEvent, OutcomeTelemetryInput } from './outcome-telemetry.js'
 export type { FeedbackRequestContext, FeedbackRoutesOptions } from './feedback.js'
+export type { ProviderTestRun } from './settings.js'
 export { credentialFailure } from './feature-outcome.js'
 export { SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from './doctor/checks/site-reachability.js'
 export { runChecks } from './doctor/runner.js'
@@ -247,8 +250,14 @@ export interface ApiRoutesOptions {
   getCachedProviderModels?: ResearchRoutesOptions['getCachedProviderModels']
   /** Callback when a provider config is updated via API */
   onProviderUpdate?: SettingsRoutesOptions['onProviderUpdate']
+  getProviderConnections?: SettingsRoutesOptions['getProviderConnections']
+  onProviderSettingsUpdate?: SettingsRoutesOptions['onProviderSettingsUpdate']
+  onProviderDisconnect?: SettingsRoutesOptions['onProviderDisconnect']
   /** Reload the execution host's provider configuration without restarting it. */
   onProviderReload?: SettingsRoutesOptions['onProviderReload']
+  /** Run a saved provider connection's healthcheck now (a live provider call). Absent: tests answer NOT_IMPLEMENTED. */
+  onProviderTest?: SettingsRoutesOptions['onProviderTest']
+  providerTestTimeoutMs?: SettingsRoutesOptions['providerTestTimeoutMs']
   /** Google OAuth configuration summary + update callback */
   googleSettingsSummary?: SettingsRoutesOptions['google']
   onGoogleSettingsUpdate?: SettingsRoutesOptions['onGoogleUpdate']
@@ -455,7 +464,7 @@ export interface ApiRoutesOptions {
   harvestSearchQueries?: DiscoveryRoutesOptions['harvestSearchQueries']
   /** Discovery harvest embed seam — embeds query strings for the semantic novelty pass. Wire to the Gemini embedder; unset/rejecting degrades novelty to exact-match. */
   embedQueries?: DiscoveryRoutesOptions['embedQueries']
-  /** Technical AEO callback — fires after a `site-audit` run row is created. Wire to `executeSiteAudit`. */
+  /** Agent Readiness callback — fires after a `site-audit` run row is created. Wire to `executeSiteAudit`. */
   onSiteAuditRequested?: TechnicalAeoRoutesOptions['onSiteAuditRequested']
   /** Backlinks feature callbacks — see `backlinksRoutes` for details. */
   getBacklinksStatus?: BacklinksRoutesOptions['getBacklinksStatus']
@@ -721,6 +730,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getBatchEligibleProviderNames: opts.getBatchEligibleProviderNames,
       providerAdapters: opts.providerAdapters,
     } satisfies RunRoutesOptions)
+    await api.register(projectSetupRoutes, {
+      getRunnableProviderNames: opts.getRunnableProviderNames,
+      getEffectiveProviderModels: opts.getEffectiveProviderModels,
+      providerAdapters: opts.providerAdapters,
+    } satisfies ProjectSetupRoutesOptions)
     await api.register(measurementPlanRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
       providerRouteFamilies,
@@ -790,7 +804,12 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
       onProviderUpdate: opts.onProviderUpdate,
+      getProviderConnections: opts.getProviderConnections,
+      onProviderSettingsUpdate: opts.onProviderSettingsUpdate,
+      onProviderDisconnect: opts.onProviderDisconnect,
       onProviderReload: opts.onProviderReload,
+      onProviderTest: opts.onProviderTest,
+      providerTestTimeoutMs: opts.providerTestTimeoutMs,
       google: opts.googleSettingsSummary,
       onGoogleUpdate: opts.onGoogleSettingsUpdate,
       bing: opts.bingSettingsSummary,

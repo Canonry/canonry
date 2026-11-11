@@ -17,6 +17,7 @@ import {
   providerDispatchModeSchema,
   SITE_AUDIT_MAX_PAGE_LIMIT,
   siteAuditPageBudgetSchema,
+  suggestedBrandName,
   type CompetitorAutoAliasMode,
   type ProviderDispatchModesMap,
 } from '@canonry/canonry-contracts'
@@ -26,7 +27,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'create'],
     usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--site-audit-max-pages <1-50000|full>] [--format json]',
-    help: 'Create a project. Pass --domain for the public site to scan. Provider credentials are not required for Page Health.',
+    help: 'Create a project. Pass --domain for the public site to scan; without --display-name, the brand name comes from the domain ("summit-roofing.com" gives "Summit Roofing"). Provider credentials are not required for Agent Readiness.',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -47,14 +48,16 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         'project.create',
         'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--site-audit-max-pages <1-50000|full>] [--format json]',
       )
+      const domain = getString(input.values, 'domain')
       await createProject(name, {
-        domain: getString(input.values, 'domain') ?? name,
+        domain: domain ?? name,
         ownedDomains: getStringArray(input.values, 'owned-domain') ?? [],
         aliases: getStringArray(input.values, 'alias') ?? [],
         qualifiedAliases: getStringArray(input.values, 'qualified-alias') ?? [],
         country: getString(input.values, 'country') ?? 'US',
         language: getString(input.values, 'language') ?? 'en',
-        displayName: getString(input.values, 'display-name') ?? name,
+        // As in dashboard setup, a site's brand name comes from its domain ("summit-roofing.com" gives "Summit Roofing").
+        displayName: getString(input.values, 'display-name') ?? (domain ? suggestedBrandName(domain) : name),
         providers: getStringArray(input.values, 'provider') ?? [],
         providerModels: parseProviderModelAssignments(getStringArray(input.values, 'provider-model')),
         providerDispatchModes: parseDispatchModeAssignments(getStringArray(input.values, 'dispatch-mode')),
@@ -175,6 +178,17 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['project', 'setup'],
+    usage: 'canonry project setup <project> [--format json]',
+    access: OperationAccesses.stored,
+    help: 'Show first-run setup: the Agent Readiness audit scan and the AI Visibility check, each with its latest run, and the next step the server suggests. Stored reads only: no provider calls or crawls. JSON is the API response.',
+    run: async (input) => {
+      const { showProjectSetup } = await import('../commands/project-setup.js')
+      const name = requireProject(input, 'project.setup', 'canonry project setup <project> [--format json]')
+      await showProjectSetup(name, input.format)
+    },
+  },
+  {
     path: ['project', 'delete'],
     usage: 'canonry project delete <name> [--dry-run] [--format json]',
     supportsDryRun: true,
@@ -264,12 +278,12 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project'],
-    usage: 'canonry project <create|update|list|show|delete|add-location|locations|remove-location|set-default-location> [args]',
+    usage: 'canonry project <create|update|list|show|setup|delete|add-location|locations|remove-location|set-default-location> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'project',
-        usage: 'canonry project <create|update|list|show|delete|add-location|locations|remove-location|set-default-location> [args]',
-        available: ['create', 'update', 'list', 'show', 'delete', 'add-location', 'locations', 'remove-location', 'set-default-location'],
+        usage: 'canonry project <create|update|list|show|setup|delete|add-location|locations|remove-location|set-default-location> [args]',
+        available: ['create', 'update', 'list', 'show', 'setup', 'delete', 'add-location', 'locations', 'remove-location', 'set-default-location'],
       })
     },
   },
@@ -322,7 +336,7 @@ function parseNegativeReviewMaxStars(raw: string | undefined): number | null | u
 }
 
 /**
- * A whole number from 1 to the hard limit saves a Site Health page budget,
+ * A whole number from 1 to the hard limit saves an Agent Readiness page budget,
  * `full` saves null (scans cover the full site), absent leaves the stored
  * budget alone. Validated here so a typo never reaches the server.
  */

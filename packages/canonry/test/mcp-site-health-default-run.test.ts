@@ -107,13 +107,13 @@ async function connect(origin: string, scope: 'all' | 'stored-only' = 'all', eag
   return client
 }
 
-describe('Site Health MCP reads without a runId', () => {
+describe('Agent Readiness MCP reads without a runId', () => {
   it('reads retained issue groups and their pages through MCP with the same scan provenance', async () => {
     const { origin, newestPartial, auditedAt } = await cappedSiteServer()
     const mcp = await connect(origin, 'stored-only', false)
     const loaded = await mcp.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'monitoring' } })
     expect(loaded.isError).not.toBe(true)
-    const response = await mcp.callTool({ name: 'canonry_site_health_issues', arguments: { project: PROJECT, limit: 1 } })
+    const response = await mcp.callTool({ name: 'canonry_agent_readiness_issues', arguments: { project: PROJECT, limit: 1 } })
     expect(response.isError).not.toBe(true)
     const issues = siteAuditIssuesResponseSchema.parse(response.structuredContent)
     expect(issues).toMatchObject({
@@ -124,9 +124,8 @@ describe('Site Health MCP reads without a runId', () => {
     })
     expect(issues.attemptId).toEqual(expect.any(String))
     const issue = issues.issues[0]!
-    const pages = await mcp.callTool({ name: 'canonry_site_health_issue_pages', arguments: {
-      project: PROJECT, runId: newestPartial, issueId: issue.id, limit: 1,
-    } })
+    const pageArguments = { project: PROJECT, runId: newestPartial, issueId: issue.id, limit: 1 }
+    const pages = await mcp.callTool({ name: 'canonry_agent_readiness_issue_pages', arguments: pageArguments })
     expect(pages.isError).not.toBe(true)
     expect(pages.structuredContent).toMatchObject({
       project: PROJECT, runId: newestPartial, attemptId: issues.attemptId, auditedAt: issues.auditedAt,
@@ -134,13 +133,21 @@ describe('Site Health MCP reads without a runId', () => {
       pages: [{ nodeKey: 'pricing', url: PAGE_URL, message: 'Low content depth.',
         recommendations: ['Expand the page.'], recommendationsScope: 'factor' }],
     })
+
+    // The deprecated names read the same stored evidence and return it unchanged.
+    const legacyIssues = await mcp.callTool({ name: 'canonry_site_health_issues', arguments: { project: PROJECT, limit: 1 } })
+    expect(legacyIssues.isError).not.toBe(true)
+    expect(legacyIssues.structuredContent).toEqual(response.structuredContent)
+    const legacyPages = await mcp.callTool({ name: 'canonry_site_health_issue_pages', arguments: pageArguments })
+    expect(legacyPages.isError).not.toBe(true)
+    expect(legacyPages.structuredContent).toEqual(pages.structuredContent)
   })
 
   it('audits a page from the newest page-capped scan instead of answering no-crawl', async () => {
     const { origin, newestPartial } = await cappedSiteServer()
     const mcp = await connect(origin)
 
-    const audit = await mcp.callTool({ name: 'canonry_site_health_page_audit', arguments: { project: PROJECT, url: PAGE_URL } })
+    const audit = await mcp.callTool({ name: 'canonry_agent_readiness_page_audit', arguments: { project: PROJECT, url: PAGE_URL } })
     expect(audit.isError).not.toBe(true)
     expect(audit.structuredContent).toMatchObject({
       state: 'ready',
@@ -154,7 +161,7 @@ describe('Site Health MCP reads without a runId', () => {
     })
   })
 
-  it.each(['canonry_site_health_overview', 'canonry_technical_aeo_crawl'])('%s reports that scan as the current crawl', async (tool) => {
+  it.each(['canonry_agent_readiness_overview', 'canonry_site_health_overview', 'canonry_technical_aeo_crawl'])('%s reports that scan as the current crawl', async (tool) => {
     const { origin, newestPartial } = await cappedSiteServer()
     const mcp = await connect(origin)
     const result = await mcp.callTool({ name: tool, arguments: { project: PROJECT } })
@@ -169,10 +176,10 @@ describe('Site Health MCP reads without a runId', () => {
     })
   })
 
-  it('lists that scan\'s pages from canonry_technical_aeo_crawl_pages', async () => {
+  it('lists that scan\'s pages from canonry_agent_readiness_pages', async () => {
     const { origin, newestPartial } = await cappedSiteServer()
     const mcp = await connect(origin)
-    const result = await mcp.callTool({ name: 'canonry_technical_aeo_crawl_pages', arguments: { project: PROJECT } })
+    const result = await mcp.callTool({ name: 'canonry_agent_readiness_pages', arguments: { project: PROJECT } })
     expect(result.isError).not.toBe(true)
     expect(result.structuredContent).toMatchObject({
       hasCrawlData: true,
@@ -184,10 +191,10 @@ describe('Site Health MCP reads without a runId', () => {
     })
   })
 
-  it('qualifies an empty neighbor list from canonry_technical_aeo_link_neighbors as partial', async () => {
+  it('qualifies an empty neighbor list from canonry_agent_readiness_link_neighbors as partial', async () => {
     const { origin, newestPartial } = await cappedSiteServer()
     const mcp = await connect(origin)
-    const result = await mcp.callTool({ name: 'canonry_technical_aeo_link_neighbors', arguments: { project: PROJECT, nodeKey: 'pricing' } })
+    const result = await mcp.callTool({ name: 'canonry_agent_readiness_link_neighbors', arguments: { project: PROJECT, nodeKey: 'pricing' } })
     expect(result.isError).not.toBe(true)
     expect(result.structuredContent).toMatchObject({
       hasCrawlData: true,

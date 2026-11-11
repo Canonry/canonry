@@ -8,11 +8,16 @@ description: Shared Canonry vocabulary, evidence scope, comparison rules, and au
 > **Built-in Aero:** your available `canonry_*` tools are already loaded, and
 > you read this guide through `read_skill_doc` (slug `agent-operations`). Your
 > catalog does not include `canonry_help` or `canonry_load_toolkit`; the
-> connection and navigation steps below are for external MCP hosts. Your
-> project-scoped tools use the current session's project. Dashboard selections
-> are not passed to chat: resolve the requested Property, market, filters, or
-> page before making a scoped claim. The `portfolio-analysis` and `site-health`
-> skill docs cover those investigations for Simple and Advanced portfolios.
+> connection and navigation steps below are for external MCP hosts. It also
+> leaves out the provider connection actions the guide names
+> (`canonry_provider_test`, `canonry_provider_settings_update` and
+> `canonry_providers_reload`): they spend on or change the operator's
+> install-wide provider accounts, so the operator runs them from the dashboard
+> or CLI. Your project-scoped tools use the current session's project.
+> Dashboard selections are not passed to chat: resolve the requested Property,
+> market, filters, or page before making a scoped claim. The
+> `portfolio-analysis` and `site-health` skill docs cover those investigations
+> for Simple and Advanced portfolios.
 
 # Canonry Operations Guide v1
 
@@ -61,6 +66,22 @@ guide plus links to host-native references. It does not replace runtime help.
   compute one signal from the other.
 - `answerMentioned: null` means not checked, not false. Missing runs and empty
   populations mean no measurement, not zero visibility.
+- `citationState: not-measured` (with `cited: null`) means the engine returns no
+  sources, such as a local model without web access, so whether it cites the
+  domain was never observed. It is never a miss: cited rates leave it out and
+  count it as `citationNotMeasured`, and a cited rate with nothing measured is
+  null, not 0. Mention is still measured on those answers. Other reads show the
+  same state in their own shape:
+  - visibility report: an answer's `citationUnavailableReason:
+    citation-not-measured`, or a rate's `reason: citation-not-measured`;
+  - Advanced metrics: `{state: unavailable, reason: citation_not_measured}`;
+  - research and snapshot answers: `citationMeasured: false` (research also
+    sends `citationState: null`);
+  - overview: `citationNotMeasuredQueries`, `citationNotMeasuredPairs` and
+    `citationNotMeasuredCount`;
+  - analytics: the gaps bucket `citationNotMeasured[]` and sources'
+    `citationNotMeasuredAnswers`;
+  - visibility compare: `excludedNotMeasured`.
 - Preserve project, time window, provider, requested/served model, location,
   sample size, and query class when comparing evidence. Use server-returned
   metrics; do not invent a score from incompatible populations.
@@ -75,11 +96,21 @@ guide plus links to host-native references. It does not replace runtime help.
 **Status:** read the stored overview and freshness first. Say when evidence is
 missing instead of silently creating it.
 
-**Setup:** Page Health needs no answer-engine provider; AI Visibility does.
-After a Page Health result on an install with no provider (a `NO_PROVIDER`
+**Setup:** Agent Readiness needs no answer-engine provider; AI Visibility does.
+After an Agent Readiness result on an install with no provider (a `NO_PROVIDER`
 notice, or doctor's `providers.none-configured`), propose AI Visibility setup
 as the next step. The operator adds the provider key in the dashboard or in
-their own terminal; never ask for it in chat.
+their own terminal; never ask for it in chat. A saved key is not a verified one:
+with approval, `canonry settings provider test <name>` or `canonry_provider_test`
+checks the saved connection with the provider now (usually one tiny prompt on
+the operator's account) and reports `connected`, `failed` with the provider's
+reason, or `not-verified`. It needs install administrator authority and
+`settings.write`; while a connection's test is still running, another test of it
+returns `OPERATION_IN_PROGRESS`, so wait for that result. The latest result is
+kept as the connection's `lastTest` (`canonry settings provider-info <name>` or
+`canonry_provider_settings_get`) until its key, endpoint, model, Vertex project,
+region or credentials, or CDP endpoint changes, or the connection is
+disconnected; read it before testing again.
 Rerunning `canonry bootstrap` after a provider change reloads saved provider
 settings on a matching running local server and reports whether they became
 active. If the server is offline, start it to apply the saved settings. For an
@@ -93,8 +124,8 @@ Ports and database settings still need a restart.
 changed separately from why it might have changed. A hypothesis is not a
 measured cause. Propose bounded verification if stored evidence is insufficient.
 
-**Site Health:** read `canonry_site_health_issues` for stored technical findings,
-affected-page counts and example URLs, then `canonry_site_health_issue_pages`
+**Agent Readiness:** read `canonry_agent_readiness_issues` for stored findings,
+affected-page counts and example URLs, then `canonry_agent_readiness_issue_pages`
 for a selected issue's remaining pages. Pin subsequent reads to the returned
 run. Inspect coverage and omissions: a passing score can still have findings,
 an older scan may lack cross-page evidence, and a partial scan cannot establish
@@ -154,8 +185,12 @@ authority without exposing its token. Missing `operator` means unapproved.
 machine. Telemetry reports configured preference, effective state, and any
 environment override; inspecting status never creates an anonymous identifier.
 After approval, `canonry_telemetry_update` changes that preference and
-`canonry_provider_settings_update` changes an already-configured provider's
-model/quota. Both require `settings.write`; neither accepts credentials.
+`canonry_provider_settings_update` changes or resets an already-configured
+provider's model and quota, restores its built-in endpoint, or removes an
+optional Local key. Both require `settings.write`; neither accepts credentials.
+A reset, restoring the endpoint and removing the Local key included, also
+requires install administrator authority. Pass the `revision` from
+`canonry_provider_settings_get` as `expectedRevision` to reject a stale edit.
 Server telemetry reads and updates additionally require operator authority.
 Ordinary audit-history reads omit internal telemetry events and their state.
 

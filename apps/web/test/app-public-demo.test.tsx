@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import React from 'react'
 import { afterEach, beforeAll, expect, onTestFinished, test, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -101,18 +99,10 @@ test.each([false, true])('agent setup navigation is available only outside the p
   if (!demo) expect(mobileLinks[0]!.getAttribute('href')).toBe('/agent-setup')
 })
 
-test('the demo worker pill reads as disabled, not healthy', async () => {
+test('the shell does not show API or worker status pills', async () => {
   const document = await renderDemoApp(await demoHealth())
-  const pill = Array.from(document.querySelectorAll('.health-pill')).find(element => element.textContent?.startsWith('Worker'))
-  expect(pill?.textContent).toBe('Worker disabled')
-  expect(pill?.classList.contains('health-pill-ok')).toBe(false)
-  expect(pill?.classList.contains('health-pill-disabled')).toBe(true)
-  expect(pill?.getAttribute('title')).toBe('Background execution is disabled in this public demo.')
-
-  const css = readFileSync(resolve(import.meta.dirname, '../src/styles.css'), 'utf8')
-  const rule = css.match(/\.health-pill-disabled \{([^}]*)\}/)?.[1] ?? ''
-  expect(rule).not.toBe('')
-  expect(rule).not.toMatch(/positive|negative|caution/)
+  expect(document.querySelector('.health-pill')).toBeNull()
+  expect(document.body.textContent).not.toMatch(/API ok|Worker disabled/)
 })
 
 test('a demo project page offers the Aero preview to the read-only visitor', async () => {
@@ -121,7 +111,8 @@ test('a demo project page offers the Aero preview to the read-only visitor', asy
     path: `/projects/${encodeURIComponent(project.name)}`,
     config: { demo: DEMO, dashboard: { showAgentBar: false } },
   })
-  const bar = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes(`Ask Aero about ${project.name}`))
+  // The bar names the project as people know it: its display name, not the slug.
+  const bar = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes(`Ask Aero about ${project.displayName || project.name}`))
   expect(bar).toBeTruthy()
   // The shell reserves room for the bar, so it never covers the page's end,
   // and the page scroller keeps the same lane clear when focus or
@@ -133,8 +124,8 @@ test('a demo project page offers the Aero preview to the read-only visitor', asy
   expect(footer.querySelector('a[href="https://canonry.ai"]')?.textContent).toBe('Canonry')
   expect(footer.querySelector('a[aria-label="Docs"]')).toBeTruthy()
   const rules = parseCompiledCss(await compileAppStyles([...area.classList]))
-  expect(compiledElementProperty(rules, area, 'padding-bottom')).toBe('6rem')
-  expect(compiledDeclarations(rules, 'html:has(.main-area-agent-bar)')['scroll-padding-bottom']).toBe('6rem')
+  expect(compiledElementProperty(rules, area, 'padding-bottom')).toBe('calc(7rem + env(safe-area-inset-bottom))')
+  expect(compiledDeclarations(rules, 'html:has(.main-area-agent-bar)')['scroll-padding-bottom']).toBe('calc(7rem + env(safe-area-inset-bottom))')
 })
 
 test('the same read-only key outside the demo gets no Aero bar', async () => {

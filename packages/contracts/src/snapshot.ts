@@ -99,7 +99,12 @@ export const snapshotProviderResultSchema = z.object({
   error: z.string().nullable().optional(),
   /** Vendor-neutral answer evidence (answer services); absent for answer engines. */
   evidence: answerEvidenceSchema.nullable().optional(),
-  /** False when the provider's sources are not tied to its answer, so `cited` was not measured. */
+  /**
+   * False when the answer carries no sources tied to it, so `cited` was not
+   * measured: an answer service whose sources are search results only, or an
+   * engine that returns no sources (Local). Absent otherwise unless the answer
+   * recorded `evidence`.
+   */
   citationMeasured: z.boolean().optional(),
 })
 
@@ -121,9 +126,10 @@ export const snapshotSummarySchema = z.object({
   citationCount: z.number().int().nonnegative(),
   /**
    * Successful responses whose citation could be measured: the denominator of
-   * `citationCount`. Lower than `totalComparisons` when a provider's sources
-   * are not tied to its answer, so those answers are neither cited nor not
-   * cited. Absent on reports made before it existed (read `totalComparisons`).
+   * `citationCount`. Lower than `totalComparisons` when a provider returns no
+   * sources tied to its answer (search results only, or no sources at all), so
+   * those answers are neither cited nor not cited. Absent on reports made
+   * before it existed (read `totalComparisons`).
    */
   citationComparisons: z.number().int().nonnegative().optional(),
   topCompetitors: z.array(snapshotCompetitorEntrySchema).default([]),

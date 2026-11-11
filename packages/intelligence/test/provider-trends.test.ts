@@ -10,7 +10,7 @@ function snap(
   provider: string,
   model: string | null,
   queryId: string,
-  citationState: 'cited' | 'not-cited' = 'not-cited',
+  citationState: 'cited' | 'not-cited' | 'not-measured' = 'not-cited',
 ): ProviderTrendSnapshot {
   return { provider, model, queryId, citationState }
 }
@@ -95,6 +95,18 @@ describe('buildProviderTrends', () => {
     const result = buildProviderTrends(runs, snapshotsByRun)
     expect(result.get(providerKey('gemini', null))?.map(p => p.rate)).toEqual([100, 0])
     expect(result.get(providerKey('openai', null))?.map(p => p.rate)).toEqual([0, 100])
+  })
+
+  it('emits a null point, never 0, for a run whose answers from the engine carry no sources', () => {
+    const runs = [run('r1', '2026-05-10'), run('r2', '2026-05-11')]
+    const snapshotsByRun = new Map([
+      ['r1', [snap('local', 'llama3', 'q1', 'not-measured'), snap('gemini', null, 'q1', 'cited'), snap('gemini', null, 'q2')]],
+      // Mixed answers from one engine: rated over the checked one only.
+      ['r2', [snap('local', 'llama3', 'q1', 'not-measured'), snap('gemini', null, 'q1', 'not-measured'), snap('gemini', null, 'q2', 'cited')]],
+    ])
+    const result = buildProviderTrends(runs, snapshotsByRun)
+    expect(result.get(providerKey('local', 'llama3'))?.map(p => p.rate)).toEqual([null, null])
+    expect(result.get(providerKey('gemini', null))?.map(p => p.rate)).toEqual([50, 100])
   })
 
   it('keeps unknown model as the "unknown" key', () => {

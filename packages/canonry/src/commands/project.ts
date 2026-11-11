@@ -151,7 +151,7 @@ export async function showProject(name: string, format?: string): Promise<void> 
   console.log(`  Negative reviews: ${resolveNegativeReviewMaxStars(project.negativeReviewMaxStars)} stars or fewer${project.negativeReviewMaxStars == null ? ' (default)' : ''}`)
   // Absent only from a server that predates the saved budget: say nothing rather than guess.
   if (project.siteAuditMaxPages !== undefined) {
-    console.log(`  Site Health page budget: ${formatSiteAuditPageBudget(project.siteAuditMaxPages)}`)
+    console.log(`  Agent Readiness page budget: ${formatSiteAuditPageBudget(project.siteAuditMaxPages)}`)
   }
   // Absent only from a server that predates the setting.
   if (project.competitorAutoAliases !== undefined) {
@@ -245,7 +245,7 @@ export async function updateProjectSettings(
     clearDispatchModes?: string[]
     /** 1-4 sets the negative-review threshold, null resets it to the default of 3, undefined leaves it. */
     negativeReviewMaxStars?: number | null
-    /** 1-50,000 sets the Site Health page budget, null means the full site, undefined leaves it. */
+    /** 1-50,000 sets the Agent Readiness page budget, null means the full site, undefined leaves it. */
     siteAuditMaxPages?: number | null
     /** Sets the answer-derived competitor alias detection mode; undefined leaves it. */
     competitorAutoAliases?: CompetitorAutoAliasMode

@@ -47,14 +47,22 @@ it.each(['simple', 'advanced'] as const)('replays %s scope, stale evidence, miss
   expect(getVisibilityReport).toHaveBeenCalledExactlyOnceWith('demo', context.selection)
 })
 
-it('rejects an invalid project-owned scope before generation and reads selected Site Health pages exactly', async () => {
+it('rejects an invalid project-owned scope before generation and reads selected Agent Readiness pages exactly', async () => {
   const getVisibilityReport = vi.fn(async () => { throw new Error('Property does not belong to project') })
   await expect(readAeroViewEvidence({ client: { getVisibilityReport } as unknown as ApiClient, projectName: 'demo', context: agentViewContextSchema.parse({ view: 'property', selection: { scope: 'property', scopeKey: 'foreign' } }) })).rejects.toThrow('Property does not belong')
   const getTechnicalAeoPageAudit = vi.fn(async () => ({ state: 'unavailable', reason: 'not-checked' }))
   const page = { runId: 'scan-7', nodeKey: 'node-9' }
   const result = await readAeroViewEvidence({ client: { getTechnicalAeoPageAudit } as unknown as ApiClient, projectName: 'demo', context: { view: 'site-health', page } })
   expect(getTechnicalAeoPageAudit).toHaveBeenCalledExactlyOnceWith('demo', page)
-  expect(result).toMatchObject({ audit: { state: 'unavailable', reason: 'not-checked' } })
+  expect(result).toMatchObject({
+    audit: { state: 'unavailable', reason: 'not-checked' },
+    source: { label: 'Open stored page audit', href: '/api/v1/projects/demo/agent-readiness/crawl/pages/audit?nodeKey=node-9&runId=scan-7' },
+    interpretation: 'A stored Agent Readiness audit scan is not proof of a cause for mention or citation changes.',
+  })
+  const getTechnicalAeoCrawl = vi.fn(async () => ({ hasCrawlData: true, runId: 'scan-8' }))
+  const overview = await readAeroViewEvidence({ client: { getTechnicalAeoCrawl } as unknown as ApiClient, projectName: 'demo', basePath: '/canonry/', context: { view: 'site-health' } })
+  expect(getTechnicalAeoCrawl).toHaveBeenCalledExactlyOnceWith('demo', undefined)
+  expect(overview).toMatchObject({ source: { label: 'Open Agent Readiness', href: '/canonry/projects/demo/agent-readiness?siteHealthRunId=scan-8' } })
 })
 
 

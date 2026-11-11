@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { redactLogString, redactLogValue } from '../src/log-redaction.js'
+import { redactKnownSecrets, redactLogString, redactLogValue } from '../src/log-redaction.js'
 
 describe('log redaction', () => {
   it.each([
@@ -109,5 +109,17 @@ describe('log redaction', () => {
     const redacted = redactLogString(oversized)
     expect(redacted).not.toContain('privatevalue')
     expect(redacted.length).toBeLessThanOrEqual(4096)
+  })
+
+  it('redacts a known credential quoted in plain prose, which pattern redaction misses', () => {
+    const message = 'Incorrect API key provided: sk-fixture-1234. Repeat: sk-fixture-1234'
+    expect(redactLogString(message)).toContain('sk-fixture-1234')
+    expect(redactKnownSecrets(message, ['sk-fixture-1234', undefined, null])).toBe('Incorrect API key provided: [REDACTED]. Repeat: [REDACTED]')
+  })
+
+  it('replaces a longer secret before one it contains, and leaves short values and plain text alone', () => {
+    expect(redactKnownSecrets('token tok-123456-extended', ['tok-123456', 'tok-123456-extended'])).toBe('token [REDACTED]')
+    expect(redactKnownSecrets('abc key failed', ['abc', ''])).toBe('abc key failed')
+    expect(redactKnownSecrets('nothing to hide', ['sk-fixture-1234'])).toBe('nothing to hide')
   })
 })

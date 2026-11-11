@@ -231,6 +231,14 @@ interface PeriodCounts {
    * entering `citationUnknown` (which means "capture unknown", not "no search").
    */
   citationNotSearched: number
+  /**
+   * Snapshots whose engine returns no sources at all (`citationState` is
+   * `not-measured`, a local model). Whether they cite anyone was never
+   * measured, so they leave every citation figure; unlike `citationUnknown`
+   * this is not a capture failure, and unlike `citationNotSearched` the engine
+   * could never have cited. Their mention still counts.
+   */
+  citationNotMeasured: number
   /** The frame records capture completeness (Advanced); legacy rows are always complete. */
   citationEvidence: boolean
   projectCited: number // = cited (project's own citation)
@@ -265,6 +273,7 @@ function countPeriod(
   let cited = 0
   let citationUnknown = 0
   let citationNotSearched = 0
+  let citationNotMeasured = 0
   let competitorCited = 0
   const perProvider = new Map<string, { checked: number; mentioned: number; cited: number }>()
   const mentionedQueries = new Set<string>()
@@ -282,16 +291,20 @@ function countPeriod(
       mentioned += 1
       mentionedQueries.add(snap.queryId)
     }
-    // An incomplete source list proves neither a citation nor its absence, for
-    // the project or a competitor, so the row leaves every citation figure.
-    const citationKnown = snap.citationChecked !== false
+    // An answer whose engine returns no sources measured no citation at all,
+    // and an incomplete source list proves neither a citation nor its
+    // absence, for the project or a competitor: either way the row leaves
+    // every citation figure, counted under its own reason.
+    const notMeasured = snap.citationState === CitationStates['not-measured']
+    const citationKnown = !notMeasured && snap.citationChecked !== false
     // A no-search answer has complete capture and zero cited domains by
     // construction; it never had a chance to cite, so it is not a searched
     // miss and leaves the cited denominator (counted separately as
     // citationNotSearched). `unknown` detection stays in: an unobserved absence
     // must not be laundered into a proven no-search.
     const noRetrieval = citationKnown && snap.retrievalStatus === RetrievalStatuses['not-used']
-    if (!citationKnown) citationUnknown += 1
+    if (notMeasured) citationNotMeasured += 1
+    else if (!citationKnown) citationUnknown += 1
     else if (noRetrieval) citationNotSearched += 1
     else total += 1
     const isCited = citationKnown && !noRetrieval && snap.citationState === CitationStates.cited
@@ -355,6 +368,7 @@ function countPeriod(
     cited,
     citationUnknown,
     citationNotSearched,
+    citationNotMeasured,
     citationEvidence: snaps.some(snapshot => snapshot.citationChecked !== undefined),
     projectCited: cited,
     competitorCited,
@@ -459,11 +473,14 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const toShare = shareCounts(toShareCounts)
 
   // Frames that record capture completeness say how many rows each citation
-  // figure had to leave out; legacy frames are complete by construction.
-  const citationPeriod = (c: PeriodCounts, value: VisibilityCompareMetricPeriod): VisibilityCompareMetricPeriod =>
-    c.citationEvidence
-      ? { ...value, excludedUnknown: c.citationUnknown, ...(c.citationNotSearched > 0 ? { excludedNoRetrieval: c.citationNotSearched } : {}) }
-      : value
+  // figure had to leave out; legacy frames are complete by construction. Any
+  // frame says how many rows came from engines that return no sources.
+  const citationPeriod = (c: PeriodCounts, value: VisibilityCompareMetricPeriod): VisibilityCompareMetricPeriod => {
+    const measured = c.citationNotMeasured > 0 ? { ...value, excludedNotMeasured: c.citationNotMeasured } : value
+    return c.citationEvidence
+      ? { ...measured, excludedUnknown: c.citationUnknown, ...(c.citationNotSearched > 0 ? { excludedNoRetrieval: c.citationNotSearched } : {}) }
+      : measured
+  }
 
   const metrics: VisibilityCompareMetric[] = [
     metric(
@@ -523,14 +540,24 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
     // all; it is not an unknown one.
     const selected = snapshots.filter(snapshot => queryClassOf(snapshot) === queryClass
       && (signal === 'cited' || snapshot.mentionApplicable !== false))
+    // An answer whose engine returns no sources is reported apart from an
+    // unknown one: it is a property of the engine, not a capture failure.
+    const notMeasured = signal === 'cited'
+      ? selected.filter(snapshot => snapshot.citationState === CitationStates['not-measured']).length
+      : 0
     const checked = selected.filter(snapshot => signal === 'mention'
       ? typeof snapshot.answerMentioned === 'boolean'
-      : snapshot.citationChecked !== false
+      : snapshot.citationState !== CitationStates['not-measured']
+        && snapshot.citationChecked !== false
         && snapshot.retrievalStatus !== RetrievalStatuses['not-used'])
     const numerator = checked.filter(snapshot => signal === 'mention'
       ? snapshot.answerMentioned === true
       : snapshot.citationState === CitationStates.cited).length
-    return { ...period(numerator, checked.length), excludedUnknown: selected.length - checked.length }
+    return {
+      ...period(numerator, checked.length),
+      excludedUnknown: selected.length - checked.length - notMeasured,
+      ...(notMeasured > 0 ? { excludedNotMeasured: notMeasured } : {}),
+    }
   }
   for (const queryClass of ['branded', 'non-brand'] as const) {
     for (const signal of ['mention', 'cited'] as const) {

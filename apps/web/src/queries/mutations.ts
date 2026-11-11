@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { RunKinds } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses } from '@canonry/canonry-contracts'
 import {
   ApiError,
   type ApiRun,
@@ -31,10 +31,12 @@ function useWriteGuard(): () => void {
   return () => { assertCanWrite(account) }
 }
 
-function queuedTitleForRun(kind: string) {
-  if (kind === 'gsc-sync') return 'GSC sync queued'
-  if (kind === 'inspect-sitemap') return 'Sitemap inspection queued'
-  return 'AI Visibility check queued'
+function queuedTitleForRun(run: Pick<ApiRun, 'kind' | 'status'>) {
+  if (run.kind === RunKinds['gsc-sync']) return 'GSC sync queued'
+  if (run.kind === RunKinds['inspect-sitemap']) return 'Sitemap inspection queued'
+  // As the Agent Readiness audit scan toast does: a run the response reports as
+  // already underway is not announced as queued.
+  return run.status === RunStatuses.running ? 'AI Visibility check already running' : 'AI Visibility check queued'
 }
 
 function queuedDetailForRun(projectLabel: string | undefined, kind: string) {
@@ -47,6 +49,8 @@ function queuedDetailForRun(projectLabel: string | undefined, kind: string) {
 function queueTrackedRunToast(run: ApiRun, options: {
   projectLabel?: string
   sourceAction: TrackedRunSourceAction
+  /** The caller shows the queued run itself; its finish is still announced. */
+  quiet?: boolean
 }) {
   trackRun({
     id: run.id,
@@ -54,11 +58,12 @@ function queueTrackedRunToast(run: ApiRun, options: {
     kind: run.kind,
     projectLabel: options.projectLabel,
     sourceAction: options.sourceAction,
-    lastAnnouncedStatus: 'queued',
+    lastAnnouncedStatus: run.status,
   })
+  if (options.quiet) return
 
   addToast({
-    title: queuedTitleForRun(run.kind),
+    title: queuedTitleForRun(run),
     detail: queuedDetailForRun(options.projectLabel, run.kind),
     tone: 'neutral',
     dedupeKey: `run:${run.id}`,
@@ -175,11 +180,14 @@ export function useTriggerRun() {
       opts?: Parameters<typeof triggerRun>[1]
       projectLabel?: string
       sourceAction: TrackedRunSourceAction
+      /** The caller shows the queued run itself, so a queued toast would repeat it. */
+      suppressQueuedToast?: boolean
     }) => triggerRun(projectName, opts),
     onSuccess: (run, variables) => {
       queueTrackedRunToast(run, {
         projectLabel: variables.projectLabel ?? variables.projectName,
         sourceAction: variables.sourceAction,
+        quiet: variables.suppressQueuedToast,
       })
     },
     onError: (error, variables) => {
@@ -221,6 +229,8 @@ export function useTriggerSiteAudit() {
       projectId: string
       projectLabel?: string
       suppressErrorToast?: boolean
+      /** The caller shows the queued scan itself, so a queued toast would repeat it. */
+      suppressQueuedToast?: boolean
       body?: Parameters<typeof triggerSiteAudit>[1]
     }) => triggerSiteAudit(projectName, body),
     onSuccess: (result, variables) => {
@@ -232,8 +242,9 @@ export function useTriggerSiteAudit() {
         sourceAction: 'site-audit',
         lastAnnouncedStatus: result.status,
       })
+      if (variables.suppressQueuedToast) return
       addToast({
-        title: result.status === 'running' ? 'Site Health scan already running' : 'Site Health scan queued',
+        title: result.status === 'running' ? 'Agent Readiness audit scan already running' : 'Agent Readiness audit scan queued',
         detail: `${variables.projectLabel ?? variables.projectName} will refresh automatically when the scan finishes.`,
         tone: 'neutral',
         dedupeKey: `run:${result.runId}`,

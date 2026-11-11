@@ -176,9 +176,9 @@ export interface SchedulerCallbacks {
    */
   onBacklinksSyncRequested?: (projectName: string) => void
   /**
-   * Fired when a site-audit (Technical AEO) schedule triggers. The scheduler
+   * Fired when a site-audit (Agent Readiness) schedule triggers. The scheduler
    * owns run-row creation (like gbp-sync) so it can hand the host a runId; the
-   * host runs the same worker the manual POST /technical-aeo/runs route uses,
+   * host runs the same worker the manual POST /agent-readiness/runs route uses,
    * with `opts.maxPages` as its page budget: a scheduled audit covers the full
    * site, up to the hard page limit, the same budget a manual run defaults to.
    * A site-audit needs no `sourceId` / providers. Skipped (without orphaning a
@@ -778,7 +778,7 @@ export class Scheduler {
       }
 
       if (kind === SchedulableRunKinds['site-audit']) {
-        // Technical AEO: crawl root, sitemap, and linked pages. Like
+        // Agent Readiness: crawl root, sitemap, and linked pages. Like
         // gbp-sync, the scheduler creates the run row and hands the host a
         // runId. A full-site crawl can run for minutes, so skip (without
         // orphaning a run row) when one is already queued/running.

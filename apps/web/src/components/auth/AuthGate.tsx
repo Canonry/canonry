@@ -454,7 +454,6 @@ export function AuthGate() {
           ) : authState === 'api-key-error' ? (
             <>
               <CardHeader>
-                <p className="eyebrow eyebrow-soft">Dashboard access</p>
                 <h1 className="text-heading-24 text-primary">Could not verify API key access</h1>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -473,13 +472,12 @@ export function AuthGate() {
           ) : authState === 'account-login' ? (
             <>
               <CardHeader>
-                <p className="eyebrow eyebrow-soft">Dashboard access</p>
                 <h1 className="text-heading-24 text-primary">Sign in to Canonry</h1>
               </CardHeader>
               <CardContent>
                 {sessionExpired ? (
                   <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
-                    You were signed out — please sign in again.
+                    You were signed out. Sign in again.
                   </p>
                 ) : null}
                 <form className="space-y-4" onSubmit={asyncHandler(handleAccountSignIn)}>
@@ -525,7 +523,6 @@ export function AuthGate() {
           ) : authState === 'setup' ? (
             <>
               <CardHeader>
-                <p className="eyebrow eyebrow-soft">First-time setup</p>
                 <h1 className="text-heading-24 text-primary">Create a dashboard password</h1>
                 <CardDescription>{SETUP_DESCRIPTION}</CardDescription>
               </CardHeader>
@@ -625,7 +622,6 @@ export function AuthGate() {
           ) : (
             <>
               <CardHeader>
-                <p className="eyebrow eyebrow-soft">Dashboard access</p>
                 <h1 className="text-heading-24 text-primary">Sign in to Canonry</h1>
                 <CardDescription>
                   {sharedLoginMethod === 'api-key'
@@ -636,7 +632,7 @@ export function AuthGate() {
               <CardContent>
                 {sessionExpired ? (
                   <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
-                    Your session expired — please sign in again.
+                    Your session expired. Sign in again.
                   </p>
                 ) : null}
                 <form className="space-y-4" onSubmit={asyncHandler(handleLogin)}>

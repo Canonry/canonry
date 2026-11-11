@@ -18,7 +18,7 @@ export function detectProviderPickups(currentRun: RunData, previousRun: RunData)
   const previousCitedQueries = new Set<string>()
   const previousCitedPairs = new Set<string>()
   for (const snap of previousRun.snapshots) {
-    if (!snap.cited) continue
+    if (snap.cited !== true) continue
     previousCitedQueries.add(snap.query)
     previousCitedPairs.add(`${snap.query}:${snap.provider}`)
   }
@@ -26,7 +26,7 @@ export function detectProviderPickups(currentRun: RunData, previousRun: RunData)
   const result: ProviderPickup[] = []
   const seen = new Set<string>()
   for (const snap of currentRun.snapshots) {
-    if (!snap.cited) continue
+    if (snap.cited !== true) continue
     if (!previousCitedQueries.has(snap.query)) continue
     const key = `${snap.query}:${snap.provider}`
     if (!previousObservedPairs.has(key)) continue

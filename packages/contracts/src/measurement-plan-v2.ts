@@ -472,6 +472,8 @@ export const measurementMetricUnavailableReasonSchema = z.enum([
   'evidence_incomplete',
   'identity_ambiguous',
   'not_applicable',
+  // Every answer came from an engine that returns no sources, so citation was never measured.
+  'citation_not_measured',
 ])
 export type MeasurementMetricUnavailableReason = z.output<typeof measurementMetricUnavailableReasonSchema>
 
@@ -497,10 +499,19 @@ export const measurementMetricValueSchema = z.discriminatedUnion('state', [
      * such an answer did capture is not counted either. Absent means none.
      */
     unchecked: z.number().int().positive().optional(),
+    /**
+     * Citation coverage only: answers left out of numerator and denominator
+     * because their engine returns no sources (a local model), so whether they
+     * cite the Property was never measured. Absent means none.
+     */
+    citationNotMeasured: z.number().int().positive().optional(),
   }).strict().superRefine((value, ctx) => {
     // On the object, not the union, so `options[0]` (a ranked row) keeps the rule.
     if (value.unattributed !== undefined && value.unchecked !== undefined) {
       ctx.addIssue({ code: 'custom', path: ['unchecked'], message: 'A metric reads one signal: unattributed (mention) and unchecked (citation) cannot share it' })
+    }
+    if (value.unattributed !== undefined && value.citationNotMeasured !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['citationNotMeasured'], message: 'A metric reads one signal: unattributed (mention) and citationNotMeasured (citation) cannot share it' })
     }
   }),
   z.object({

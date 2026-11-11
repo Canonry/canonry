@@ -308,10 +308,6 @@ test('scoped keys may reuse saved OpenRouter routes but need settings.write to i
     expect(configured.statusCode, configured.body).toBe(200)
     const assignSaved = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/apply-assignments', headers: { ...writerHeaders, 'idempotency-key': 'route-assign-saved', 'if-match': target.json().etag as string }, payload: assignment })
     expect(assignSaved.statusCode, assignSaved.body).toBe(200)
-    const savedRun = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/runs', headers: writerHeaders, payload: { providers: [route] } })
-    expect(savedRun.statusCode, savedRun.body).toBe(201)
-    expect(db.select().from(runs).all()).toHaveLength(1)
-    db.update(runs).set({ status: 'completed', finishedAt: new Date().toISOString() }).run()
 
     const compile = async () => app.inject({
       method: 'POST',
@@ -329,6 +325,11 @@ test('scoped keys may reuse saved OpenRouter routes but need settings.write to i
     })
     expect(firstPublish.statusCode, firstPublish.body).toBe(200)
     expect(firstPublish.json()).toMatchObject({ published: true, active: { revision: 1 } })
+
+    const savedRun = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/runs', headers: writerHeaders, payload: { providers: [route] } })
+    expect(savedRun.statusCode, savedRun.body).toBe(201)
+    expect(db.select().from(runs).all()).toHaveLength(1)
+    db.update(runs).set({ status: 'completed', finishedAt: new Date().toISOString() }).run()
 
     const narrowed = await app.inject({
       method: 'PATCH',

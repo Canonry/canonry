@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { UiTelemetryEvent } from '@canonry/canonry-contracts'
 import { FeedbackPanel } from '../src/components/shared/FeedbackPanel.js'
@@ -7,6 +7,7 @@ import { AccountProvider } from '../src/contexts/account-context.js'
 import { heyClient } from '../src/api.js'
 import { configureUiTelemetry, resetUiTelemetryForTests, setUiPageFromRoute } from '../src/lib/ui-telemetry.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
+import { openFeedbackPanel } from '../src/lib/feedback-panel.js'
 
 let restoreFetch: (() => void) | undefined
 let client: QueryClient
@@ -107,4 +108,18 @@ it.each(['viewer', 'embed', 'demo'] as const)('does not offer feedback in %s mod
   mount(mode === 'viewer')
   expect(screen.queryByRole('button', { name: 'Feedback', exact: true })).toBeNull()
   expect(fetch).not.toHaveBeenCalled()
+})
+
+it('opens the same panel when another page asks for it, ready to type', () => {
+  mount()
+  expect(screen.queryByRole('dialog', { name: 'Share feedback' })).toBeNull()
+  act(() => { openFeedbackPanel() })
+  expect(screen.getByRole('dialog', { name: 'Share feedback' })).toBeTruthy()
+  expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Your feedback' }))
+})
+
+it('stays closed for a viewer, who cannot send feedback, even when another page asks', () => {
+  mount(true)
+  act(() => { openFeedbackPanel() })
+  expect(screen.queryByRole('dialog', { name: 'Share feedback' })).toBeNull()
 })

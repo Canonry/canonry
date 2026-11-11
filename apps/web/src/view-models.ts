@@ -1,9 +1,13 @@
-import type { InsightActionGroup, McpHealth, MentionIdentity, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@canonry/canonry-contracts'
+import type { InsightActionGroup, McpHealth, MentionIdentity, ProjectDto, ProjectOverviewDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview, ProviderConnectionLastTestDto } from '@canonry/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 /** `disabled` is a service switched off on purpose, such as the public demo's worker. */
 export type HealthState = 'checking' | 'ok' | 'disabled' | 'error'
-export type CitationState = 'cited' | 'lost' | 'emerging' | 'not-cited' | 'pending'
+/**
+ * `not-measured`: the engine returns no sources (a local model), so whether it
+ * cites the project was never observed. Never a miss, never lost or new.
+ */
+export type CitationState = 'cited' | 'lost' | 'emerging' | 'not-cited' | 'not-measured' | 'pending'
 export type VisibilityState = 'visible' | 'not-visible' | 'pending'
 /** Canonical-vocabulary equivalent of `VisibilityState`. New consumers prefer this. */
 export type MentionState = 'mentioned' | 'not-mentioned' | 'pending'
@@ -81,15 +85,10 @@ export interface PortfolioProjectVm {
   project: ProjectDto
   /** False when saved mention evidence is unavailable; zero is a measured result. */
   hasMeasurement?: boolean
-  /** Headline metric — Mention Coverage (% of tracked queries whose AI answer
-   *  text mentioned the brand). This is the key portfolio metric, not cited. */
-  mentionScore: number
-  mentionDelta: string
-  mentionTone: MetricTone
+  /** Server-owned class populations; never substitute the legacy pooled gauge. */
+  mentionPopulations?: NonNullable<ProjectOverviewDto['mentionCoverage']>['populations']
   providerCoverage?: string
   lastRun: RunListItemVm
-  insight: string
-  trend: number[]
   competitorPressureLabel: string
 }
 
@@ -221,6 +220,8 @@ export type MovementComparisonVm = MovementComparisonDto
 export interface QueryCountsVm {
   cited: number
   total: number
+  /** Queries none of whose answers carries sources; outside every citation figure's base. */
+  citationNotMeasured: number
 }
 
 export interface ProjectCommandCenterVm {
@@ -228,6 +229,7 @@ export interface ProjectCommandCenterVm {
   contextLabel: string
   /** Primary headline gauge — Mention Coverage. The dashboard renders this as the big radial gauge. */
   mentionSummary: ScoreSummaryVm
+  mentionCoverage?: ProjectOverviewDto['mentionCoverage']
   /** Secondary tile — Citation Coverage (legacy "Answer Visibility"). */
   visibilitySummary: ScoreSummaryVm
   /** Mention Share — head-to-head competitive metric. Carries breakdown so
@@ -306,23 +308,25 @@ export interface ProviderStatusVm {
   modelHint?: string
   model?: string
   defaultModel?: string
-  state: 'ready' | 'needs-config'
+  state: 'configured' | 'ready' | 'needs-config'
   detail: string
   quota?: {
     maxConcurrency: number
     maxRequestsPerMinute: number
     maxRequestsPerDay: number
   }
+  /** The saved connection revision, when the settings read lists connection details. */
+  revision?: string
+  /** The server's latest test of the connection's active settings, when the settings read lists connection details. */
+  lastTest?: ProviderConnectionLastTestDto | null
 }
 
 export interface GoogleSettingsVm {
   state: 'ready' | 'needs-config'
-  detail: string
 }
 
 export interface BingSettingsVm {
   state: 'ready' | 'needs-config'
-  detail: string
 }
 
 export interface SettingsVm {

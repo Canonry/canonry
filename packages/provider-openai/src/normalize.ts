@@ -72,7 +72,8 @@ export function validateConfig(config: OpenAIConfig): OpenAIHealthcheckResult {
   }
 }
 
-export async function healthcheck(config: OpenAIConfig): Promise<OpenAIHealthcheckResult> {
+/** Once `signal` aborts, no further attempt starts and the request in flight is cancelled. */
+export async function healthcheck(config: OpenAIConfig, signal?: AbortSignal): Promise<OpenAIHealthcheckResult> {
   const validation = validateConfig(config)
   if (!validation.ok) return validation
 
@@ -82,7 +83,8 @@ export async function healthcheck(config: OpenAIConfig): Promise<OpenAIHealthche
       client.responses.create({
         model: config.model ?? DEFAULT_MODEL,
         input: 'Say "ok"',
-      }),
+      }, { signal }),
+      { signal },
     )
     const text = extractResponseText(response)
     return {

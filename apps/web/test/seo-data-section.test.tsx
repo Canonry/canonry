@@ -4,6 +4,7 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { afterEach, expect, test, vi } from 'vitest'
 import { SeoRunStatuses, type ScheduleDto, type SeoContext, type SeoMarketRankingCounts, type SeoMarketRankingRow, type SeoMarketRankingSummary, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword, type SeoRun } from '@canonry/canonry-contracts'
 import { SeoDataSection } from '../src/components/project/SeoDataSection.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 
 // These tests own the browser transport/lifecycle boundary. Provider arithmetic
@@ -68,7 +69,7 @@ afterEach(() => {
   delete window.__CANONRY_CONFIG__
 })
 
-async function mount(profileId: string | null = 'simple', runId?: string, extra: Record<string, string> = {}) {
+async function mount(profileId: string | null = 'simple', runId?: string, extra: Record<string, string> = {}, accountRole?: 'admin' | 'viewer') {
   const client = createQueryClient()
   client.setDefaultOptions({ queries: { retry: false, gcTime: 0, staleTime: Infinity }, mutations: { retry: false } })
   clients.push(client)
@@ -86,7 +87,7 @@ async function mount(profileId: string | null = 'simple', runId?: string, extra:
   for (const [key, value] of Object.entries(extra)) search.set(key, value)
   const router = createRouter({ routeTree: root.addChildren([route]), history: createMemoryHistory({ initialEntries: [`/projects/example/seo-data?${search}`] }) })
   await router.load()
-  render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>)
+  render(<AccountProvider account={accountRole ? { name: 'operator', role: accountRole } : null}><QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider></AccountProvider>)
   return { client, router }
 }
 
@@ -242,12 +243,17 @@ test.each([SeoRunStatuses.completed, SeoRunStatuses.partial, null])('selected pr
   }
 })
 
-test.each([{ hasSavedProfile: false, demo: false }, { hasSavedProfile: true, demo: false }, { hasSavedProfile: true, demo: true }])('unconfigured SEO preserves evidence and offers setup only outside demos ($hasSavedProfile, $demo)', async ({ hasSavedProfile, demo }) => {
+test.each([
+  { hasSavedProfile: false, demo: false, role: 'admin' as const },
+  { hasSavedProfile: false, demo: false, role: 'viewer' as const },
+  { hasSavedProfile: true, demo: false, role: 'admin' as const },
+  { hasSavedProfile: true, demo: true, role: 'admin' as const },
+])('unconfigured SEO preserves evidence and offers role-appropriate host setup outside demos ($hasSavedProfile, $demo, $role)', async ({ hasSavedProfile, demo, role }) => {
   if (demo) window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
   const reason = 'SEO execution is not configured on this host.'
   vi.stubGlobal('fetch', async (request: Request) => {
     const url = new URL(request.url)
-    if (url.pathname.endsWith('/context')) return json({ ...context, available: false, reason, connections: [], scopes: [{ ...context.scopes[0], supported: false, capabilities: [], reason }] })
+    if (url.pathname.endsWith('/context')) return json({ ...context, available: false, reason, access: { canWrite: role === 'admin', canRun: role === 'admin' }, connections: [], scopes: [{ ...context.scopes[0], supported: false, capabilities: [], reason }] })
     if (url.pathname.endsWith('/profiles')) return json({ profiles: hasSavedProfile ? [simple] : [] })
     if (hasSavedProfile && url.pathname.endsWith('/overview')) {
       const value = overview(simple)
@@ -256,13 +262,14 @@ test.each([{ hasSavedProfile: false, demo: false }, { hasSavedProfile: true, dem
     if (hasSavedProfile && url.pathname.endsWith('/ranked-keywords')) return json({ runId: saved.id, total: 1, limit: 25, offset: 0, items: [ranked] })
     throw new Error(`Unexpected unconfigured-source request ${request.method} ${url.pathname}`)
   })
-  await mount(hasSavedProfile ? simple.id : null)
+  await mount(hasSavedProfile ? simple.id : null, undefined, {}, role)
   if (hasSavedProfile) {
     await screen.findByText('saved keyword')
     expect(screen.getByRole('heading', { name: 'SEO', exact: true })).toBeTruthy()
     if (demo) {
       expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
       expect(screen.queryByText(reason)).toBeNull()
+      expect(screen.queryByRole('link', { name: 'SEO setup guide' })).toBeNull()
       expect(screen.getByText(/Fictional demo data/)).toBeTruthy()
     } else {
       expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Refresh data' }).disabled).toBe(true)
@@ -270,8 +277,13 @@ test.each([{ hasSavedProfile: false, demo: false }, { hasSavedProfile: true, dem
     }
   } else {
     await screen.findByRole('heading', { name: 'Configure an SEO data provider' })
-    expect(screen.getByText('Connect a provider before creating an SEO profile.')).toBeTruthy()
-    expect(screen.queryByText(/administrator/i)).toBeNull()
+    if (role === 'admin') {
+      expect(screen.getByText('SEO sources are configured on the Canonry server.')).toBeTruthy()
+      expect(screen.getByRole('link', { name: 'SEO setup guide' }).getAttribute('href')).toBe('https://github.com/Canonry/canonry/blob/main/docs/seo-data.md#host-configuration')
+    } else {
+      expect(screen.getByText('Ask your Canonry administrator to connect an SEO data source.')).toBeTruthy()
+      expect(screen.queryByRole('link', { name: 'SEO setup guide' })).toBeNull()
+    }
     expect(screen.queryByRole('combobox', { name: 'SEO profile' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
     expect(screen.queryByRole('table')).toBeNull()

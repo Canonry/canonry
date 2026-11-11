@@ -3,8 +3,8 @@ import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@canonry/canonry-db'
-import type { GbpReviewAlertState, HealthAlertCopy, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload, UnrecognizedAgentWebhookPayload } from '@canonry/canonry-contracts'
-import { HEALTH_NO_LONGER_URGENT, businessProfileReviewsCover, isNegativeReviewRating, resolveNegativeReviewMaxStars } from '@canonry/canonry-contracts'
+import type { CitationState, GbpReviewAlertState, HealthAlertCopy, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload, UnrecognizedAgentWebhookPayload } from '@canonry/canonry-contracts'
+import { CitationStates, HEALTH_NO_LONGER_URGENT, businessProfileReviewsCover, isCitationStateMeasured, isNegativeReviewRating, readCitationState, resolveNegativeReviewMaxStars } from '@canonry/canonry-contracts'
 import { RunKinds, RunStatuses } from '@canonry/canonry-contracts'
 import type { RunCompletionOrigin, SiteHealthIssueWebhookPayload } from '@canonry/canonry-contracts'
 import type { AnalysisResult, Insight } from '@canonry/canonry-intelligence'
@@ -302,8 +302,8 @@ export class Notifier {
       events.push('run.failed')
     }
 
-    const lostTransitions = transitions.filter(t => t.to === 'not-cited' && t.from === 'cited')
-    const gainedTransitions = transitions.filter(t => t.to === 'cited' && t.from === 'not-cited')
+    const lostTransitions = transitions.filter(t => t.to === CitationStates['not-cited'] && t.from === CitationStates.cited)
+    const gainedTransitions = transitions.filter(t => t.to === CitationStates.cited && t.from === CitationStates['not-cited'])
 
     if (lostTransitions.length > 0) events.push('citation.lost')
     if (gainedTransitions.length > 0) events.push('citation.gained')
@@ -1411,6 +1411,7 @@ export class Notifier {
         provider: querySnapshots.provider,
         location: querySnapshots.location,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
       })
       .from(querySnapshots)
       .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
@@ -1423,6 +1424,7 @@ export class Notifier {
         provider: querySnapshots.provider,
         location: querySnapshots.location,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
       })
       .from(querySnapshots)
       .where(inArray(querySnapshots.runId, previousRunIds))
@@ -1435,22 +1437,31 @@ export class Notifier {
     // Orphan snapshots (queryId NULL, post-v58: tracked query was deleted)
     // are skipped — they all collide under a null key and a transition on
     // a no-longer-tracked query isn't useful to notify on.
-    const prevMap = new Map<string, string>()
+    //
+    // States are read through `readCitationState`, and an answer whose
+    // citation was not measured (the engine returns no sources) has no state
+    // to move from or to. Comparing raw rows would turn the first sweep after
+    // an upgrade into a burst of `not-cited → not-measured` transitions.
+    const prevMap = new Map<string, CitationState>()
     for (const s of previousSnapshots) {
       if (s.queryId == null) continue
-      prevMap.set(`${s.queryId}:${s.provider}:${s.location ?? ''}`, s.citationState)
+      const state = readCitationState(s)
+      if (!isCitationStateMeasured(state)) continue
+      prevMap.set(`${s.queryId}:${s.provider}:${s.location ?? ''}`, state)
     }
 
     const transitions: Array<{ query: string; from: string; to: string; provider: string; location: string | null }> = []
     for (const s of currentSnapshots) {
       if (s.queryId == null) continue
+      const state = readCitationState(s)
+      if (!isCitationStateMeasured(state)) continue
       const key = `${s.queryId}:${s.provider}:${s.location ?? ''}`
       const prevState = prevMap.get(key)
-      if (prevState && prevState !== s.citationState) {
+      if (prevState && prevState !== state) {
         transitions.push({
           query: s.query ?? s.queryId,
           from: prevState,
-          to: s.citationState,
+          to: state,
           provider: s.provider,
           location: s.location,
         })

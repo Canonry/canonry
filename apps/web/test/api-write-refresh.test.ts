@@ -4,17 +4,19 @@ import { waitFor } from '@testing-library/react'
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
+  getApiV1ProjectsByNameRunPreviewOptions,
   getApiV1ProjectsByNameGoogleGscPerformanceOptions,
   getApiV1ProjectsByNameBingStatusOptions,
   getApiV1ProjectsByNameGaStatusOptions,
-  getApiV1ProjectsByNameTechnicalAeoRunsOptions,
+  getApiV1ProjectsByNameAgentConversationsOptions,
+  getApiV1ProjectsByNameAgentReadinessRunsOptions,
   getApiV1ProjectsOptions,
   getApiV1RunsOptions,
   getApiV1ProjectsQueryKey,
   getApiV1SettingsOptions,
 } from '@canonry/canonry-api-client/react-query'
 import { postApiV1ProjectsByNameAdsSync, postApiV1ProjectsByNameGbpSync, postApiV1ProjectsByNameGoogleAdsSync, postApiV1ProjectsByNameGtmSync, postApiV1ProjectsByNameQueryTrackingCommit, postApiV1ProjectsByNameQueryTrackingPreview, putApiV1ProjectsByName } from '@canonry/canonry-api-client'
-import { appendQueries, applyProjectConfig, deleteProject, fetchSettings, heyClient, inspectBingSitemap, recordOnboardingEvent, removeLocation, triggerAllRuns, triggerGscSync, triggerInspectSitemap, triggerRun, triggerSiteAudit, updateGoogleAuthConfig } from '../src/api.js'
+import { appendQueries, applyProjectConfig, deleteAgentConversation, deleteProject, fetchSettings, heyClient, inspectBingSitemap, recordOnboardingEvent, removeLocation, triggerAllRuns, triggerGscSync, triggerInspectSitemap, triggerRun, triggerSiteAudit, updateGoogleAuthConfig } from '../src/api.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch as installMockFetch, pathOf } from './mock-fetch.js'
 
@@ -61,6 +63,7 @@ test.each(['simple', 'advanced'])('%s project writes refresh generated and compo
     }
     if (requestPath === path) return jsonResponse({ id: 'alpha-id', name, configRevision: revision, measurement: mode === 'advanced' ? { revision } : null })
     if (requestPath === `${path}/query-tracking`) return jsonResponse({ revision })
+    if (requestPath === `${path}/run-preview`) return jsonResponse({ requestCount: revision })
     if (requestPath === '/api/v1/projects/beta') {
       otherReads += 1
       return jsonResponse({ id: 'beta-id', name: 'beta', configRevision: 9 })
@@ -75,6 +78,8 @@ test.each(['simple', 'advanced'])('%s project writes refresh generated and compo
   const trackingOptions = getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name } })
   const tracking = new QueryObserver(queryClient, { ...trackingOptions, staleTime: Infinity })
   onTestFinished(tracking.subscribe(() => {}))
+  const preview = new QueryObserver(queryClient, { ...getApiV1ProjectsByNameRunPreviewOptions({ client: heyClient, path: { name } }), staleTime: Infinity })
+  onTestFinished(preview.subscribe(() => {}))
   const composite = await observe(queryClient, ['project-dashboard-full', 'alpha-id', 'none', 'overview'], async () => ({ revision }))
   const otherOptions = getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: 'beta' } })
   const other = new QueryObserver(queryClient, { ...otherOptions, staleTime: Infinity })
@@ -90,6 +95,7 @@ test.each(['simple', 'advanced'])('%s project writes refresh generated and compo
 
   await waitFor(() => expect(project.getCurrentResult().data?.configRevision).toBe(2))
   expect(tracking.getCurrentResult().data).toEqual({ revision: 2 })
+  await waitFor(() => expect(preview.getCurrentResult().data?.requestCount).toBe(2))
   expect(composite.getCurrentResult().data).toEqual({ revision: 2 })
   expect(otherReads).toBe(1)
 })
@@ -102,6 +108,7 @@ test('settings saves refresh both settings consumers', async () => {
       return jsonResponse({ configured })
     }
     if (pathOf(url) === '/api/v1/settings') return jsonResponse({ google: { configured } })
+    if (pathOf(url) === '/api/v1/projects/alpha/run-preview') return jsonResponse({ canStart: configured })
     return jsonResponse({})
   })
   onTestFinished(restore)
@@ -109,12 +116,15 @@ test('settings saves refresh both settings consumers', async () => {
   const generated = new QueryObserver(queryClient, getApiV1SettingsOptions({ client: heyClient }))
   onTestFinished(generated.subscribe(() => {}))
   const legacy = await observe(queryClient, ['settings'], fetchSettings)
+  const preview = new QueryObserver(queryClient, getApiV1ProjectsByNameRunPreviewOptions({ client: heyClient, path: { name: 'alpha' } }))
+  onTestFinished(preview.subscribe(() => {}))
   await waitFor(() => expect(generated.getCurrentResult().data?.google.configured).toBe(false))
 
   await updateGoogleAuthConfig({ clientId: 'test-client', clientSecret: 'test-secret' })
 
   await waitFor(() => expect(generated.getCurrentResult().data?.google.configured).toBe(true))
   expect(legacy.getCurrentResult().data?.google.configured).toBe(true)
+  await waitFor(() => expect(preview.getCurrentResult().data?.canStart).toBe(true))
 })
 
 test('YAML apply refreshes cached project views even when they are not mounted', async () => {
@@ -304,8 +314,9 @@ test.each([
   { scope: 'ads-sync', launch: () => postApiV1ProjectsByNameAdsSync({ client: heyClient, path: { name: 'alpha' } }) },
   { scope: 'google-ads-sync', launch: () => postApiV1ProjectsByNameGoogleAdsSync({ client: heyClient, path: { name: 'alpha' } }) },
   { scope: 'gtm-sync', launch: () => postApiV1ProjectsByNameGtmSync({ client: heyClient, path: { name: 'alpha' } }) },
-])('$scope job launch refreshes run state without rereading stored evidence, analytics, or Google data', async ({ scope, launch }) => {
+])('$scope job launch refreshes run state without rereading stored evidence, portfolio overviews, analytics, or Google data', async ({ scope, launch }) => {
   let runReads = 0
+  let overviewReads = 0
   let analyticsReads = 0
   let googleReads = 0
   let evidenceReads = 0
@@ -319,7 +330,7 @@ test.each([
       return jsonResponse(scope === 'all' ? [] : scope === 'site-audit' ? { runId: 'queued-run', status: 'queued' } : { id: 'queued-run' })
     }
     if (pathOf(url) === '/api/v1/projects/alpha') return jsonResponse({ id: 'alpha-id', name: 'alpha' })
-    if (pathOf(url) === '/api/v1/projects/alpha/technical-aeo/runs') {
+    if (pathOf(url) === '/api/v1/projects/alpha/agent-readiness/runs') {
       scanReads += 1
       return jsonResponse({ scans: queued && scope === 'site-audit' ? [{ runId: 'queued-run', status: 'queued' }] : [] })
     }
@@ -337,7 +348,7 @@ test.each([
   const project = new QueryObserver(queryClient, getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: 'alpha' } }))
   onTestFinished(project.subscribe(() => {}))
   await waitFor(() => expect(project.getCurrentResult().data?.id).toBe('alpha-id'))
-  const scans = new QueryObserver(queryClient, getApiV1ProjectsByNameTechnicalAeoRunsOptions({ client: heyClient, path: { name: 'alpha' } }))
+  const scans = new QueryObserver(queryClient, getApiV1ProjectsByNameAgentReadinessRunsOptions({ client: heyClient, path: { name: 'alpha' } }))
   onTestFinished(scans.subscribe(() => {}))
   await waitFor(() => expect(scans.getCurrentResult().isSuccess).toBe(true))
   await observe(queryClient, ['project-dashboard-full', 'alpha-id', 'none', 'evidence'], async () => {
@@ -346,6 +357,12 @@ test.each([
     return { project: { id: 'alpha-id', name: 'alpha' }, queries: [], timeline: [], latestRunDetails: [] }
   })
   await observe(queryClient, ['analytics-metrics', 'alpha', '90d'], async () => { analyticsReads += 1; return { trend: [] } })
+  // The Overview page's per-project overview: it counts runs in progress from
+  // the run list, so a queued job never reads it again.
+  await observe(queryClient, ['project-overview-slim', 'alpha-id', 'no-run'], async () => {
+    overviewReads += 1
+    return { project: { id: 'alpha-id', name: 'alpha' }, overview: null }
+  })
   const google = new QueryObserver(queryClient, getApiV1ProjectsByNameGoogleGscPerformanceOptions({ client: heyClient, path: { name: 'alpha' } }))
   onTestFinished(google.subscribe(() => {}))
   await waitFor(() => expect(google.getCurrentResult().isSuccess).toBe(true))
@@ -354,6 +371,7 @@ test.each([
   await waitFor(() => expect(runReads).toBe(2))
   try {
     expect(evidenceReads).toBe(1)
+    expect(overviewReads).toBe(1)
     expect(analyticsReads).toBe(1)
     expect(googleReads).toBe(1)
     if (scope === 'site-audit') {
@@ -366,6 +384,46 @@ test.each([
     releaseRuns(jsonResponse([]))
     await write
   }
+})
+
+// Aero's reads and Agent Readiness's reads share the generated
+// `getApiV1ProjectsByNameAgent` prefix. An Aero write (here, deleting a saved
+// conversation) refreshes Aero's own reads and must not re-read scan history.
+test('an Aero conversation write refreshes Aero reads without re-reading Agent Readiness audit scans', async () => {
+  let conversationReads = 0
+  let scanReads = 0
+  const deletes: string[] = []
+  const restore = mockFetch((url, init) => {
+    const requestPath = pathOf(url)
+    if (init?.method === 'DELETE') {
+      deletes.push(requestPath)
+      return jsonResponse({ id: 'c1', status: 'deleted' })
+    }
+    if (requestPath === '/api/v1/projects/alpha/agent/conversations') {
+      conversationReads += 1
+      return jsonResponse({ conversations: [], currentConversationId: null, nextOffset: null })
+    }
+    if (requestPath === '/api/v1/projects/alpha/agent-readiness/runs') {
+      scanReads += 1
+      return jsonResponse({ scans: [] })
+    }
+    return jsonResponse({ error: { message: `Unexpected ${requestPath}` } }, 404)
+  })
+  onTestFinished(restore)
+  const queryClient = client()
+  const conversations = new QueryObserver(queryClient, getApiV1ProjectsByNameAgentConversationsOptions({ client: heyClient, path: { name: 'alpha' } }))
+  onTestFinished(conversations.subscribe(() => {}))
+  const scans = new QueryObserver(queryClient, getApiV1ProjectsByNameAgentReadinessRunsOptions({ client: heyClient, path: { name: 'alpha' } }))
+  onTestFinished(scans.subscribe(() => {}))
+  await waitFor(() => expect(conversations.getCurrentResult().isSuccess && scans.getCurrentResult().isSuccess).toBe(true))
+  expect([conversationReads, scanReads]).toEqual([1, 1])
+
+  await deleteAgentConversation('alpha', 'c1')
+
+  expect(deletes).toEqual(['/api/v1/projects/alpha/agent/conversations/c1'])
+  await waitFor(() => expect(conversationReads).toBe(2))
+  expect(scanReads).toBe(1)
+  expect(scans.getCurrentResult().isStale).toBe(false)
 })
 
 test.each([

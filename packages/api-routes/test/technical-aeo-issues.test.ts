@@ -49,7 +49,7 @@ describe('stored audit issue feed', () => {
       fetchState: 'html', auditState: 'complete', auditScore: 100, auditFields, createdAt: NOW, updatedAt: NOW }).run()
   }
   const list = async (name = 'issues', query = '') => {
-    const res = await app.inject(`/api/v1/projects/${name}/technical-aeo/issues${query}`)
+    const res = await app.inject(`/api/v1/projects/${name}/agent-readiness/issues${query}`)
     expect(res.statusCode).toBe(200)
     return siteAuditIssuesResponseSchema.parse(res.json())
   }

@@ -1,7 +1,18 @@
+import { schedulePreviewRequestSchema, formatZonedTimestamp, type SchedulePreviewRequest } from '@canonry/canonry-contracts'
 import type { ScheduleDto, SiteAuditScheduleChecks } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
+
+export async function previewSchedule(project: string, timing: Partial<SchedulePreviewRequest>, format?: string): Promise<void> {
+  const parsed = schedulePreviewRequestSchema.safeParse(timing)
+  if (!parsed.success) throw usageError('Invalid schedule timing', { message: parsed.error.issues.map(issue => issue.message).join('; ') })
+  const preview = await getClient().previewSchedule(project, parsed.data)
+  if (format === 'jsonl') { emitJsonl([preview]); return }
+  if (format === 'json') { console.log(JSON.stringify(preview, null, 2)); return }
+  console.log(`Next run: ${preview.nextRunAt ? formatZonedTimestamp(preview.nextRunAt, preview.timezone) : 'No future occurrence'}`)
+  console.log('Preview only. No schedule was saved or enabled.')
+}
 
 export async function listSchedules(project: string, format?: string): Promise<void> {
   const schedules = await getClient().listSchedules(project)

@@ -110,7 +110,6 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
     <section className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Automation</p>
           <h2>Notifications</h2>
         </div>
         {canManage && notifs !== 'loading' && (
@@ -157,13 +156,13 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
               disabled={saving || !webhookUrl.trim() || selectedEvents.length === 0}
               onClick={asyncHandler(handleAdd)}
             >
-              {saving ? 'Adding...' : 'Add webhook'}
+              {saving ? 'Adding…' : 'Add webhook'}
             </Button>
           </div>
         </div>
       )}
 
-      {notifs === 'loading' && <p className="supporting-copy">Loading...</p>}
+      {notifs === 'loading' && <p className="supporting-copy">Loading…</p>}
 
       {notifs !== 'loading' && notifs.length === 0 && !adding && (
         <Card className="surface-card compact-card">

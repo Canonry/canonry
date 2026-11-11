@@ -173,6 +173,12 @@ function campaignCell(name: string, column: string) {
   expect(index).toBeGreaterThanOrEqual(0)
   return within(campaignRow(name)).getAllByRole('cell')[index]!
 }
+function provenanceValue(details: HTMLElement, label: string) {
+  const value = within(details).getByText(label).nextElementSibling
+  expect(value?.tagName).toBe('DD')
+  return value?.textContent ?? ''
+}
+
 function metricTile(label: string) {
   const text = screen.getAllByText(label).find(element => element.tagName === 'SPAN' || element.tagName === 'DT')!
   expect(text).toBeDefined()
@@ -206,10 +212,10 @@ describe('GoogleAdsPerformanceSection', () => {
     expect(screen.queryByText('↑ 25% vs prior 14d')).toBeNull()
     expect(screen.queryByText('↓ 10% vs prior 14d')).toBeNull()
 
-    // Window label reads the closed range, and the open capture day is named
-    // as excluded rather than silently dropped.
+    // The header names the closed range. Capture-day provenance lives in
+    // Performance data details, not in one combined sentence.
     expect(screen.getByText(/Aug 1, 2026 to Aug 14, 2026/)).toBeTruthy()
-    expect(screen.getByText(/Aug 15, 2026 still open, excluded/)).toBeTruthy()
+    expect(screen.queryByText(/still open, excluded/)).toBeNull()
 
     // Daily series, including the densified day marked as measured zero.
     // The screen-reader list mirrors the PLOTTED series, so it reads
@@ -433,11 +439,37 @@ describe('GoogleAdsPerformanceSection', () => {
     }
   })
 
-  test('names the time zone that decides when a day closes', async () => {
+  test('keeps snapshot provenance in performance data details', async () => {
     renderSection(performanceDto())
 
     await waitFor(() => expect(screen.getAllByText('Spend').length).toBeGreaterThan(0))
-    expect(screen.getByText(/days close in America\/Los_Angeles/)).toBeTruthy()
+    const details = screen.getByText('Performance data details', { selector: 'summary' }).closest('details') as HTMLDetailsElement
+    expect(details.open).toBe(false)
+    fireEvent.click(details.querySelector('summary')!)
+    expect(details.open).toBe(true)
+    expect(provenanceValue(details, 'Google Ads customer')).toBe('5550001234')
+    expect(provenanceValue(details, 'Latest closed day')).toBe('Aug 14, 2026')
+    expect(provenanceValue(details, 'Open day excluded')).toBe('Aug 15, 2026')
+    expect(provenanceValue(details, 'Account time zone')).toBe('Days close in America/Los_Angeles')
+    const captured = provenanceValue(details, 'Snapshot captured')
+    expect(captured).toMatch(/2026/)
+    expect(captured).not.toContain('2026-08-15T')
+  })
+
+  test('omits open-day and time-zone provenance when the snapshot does not supply them', async () => {
+    renderSection(performanceDto({
+      source: { ...performanceDto().source!, openDate: null, timeZone: null },
+    }))
+
+    await waitFor(() => expect(screen.getAllByText('Spend').length).toBeGreaterThan(0))
+    const details = screen.getByText('Performance data details', { selector: 'summary' }).closest('details') as HTMLDetailsElement
+    fireEvent.click(details.querySelector('summary')!)
+    expect(within(details).queryByText('Open day excluded')).toBeNull()
+    expect(within(details).queryByText('Account time zone')).toBeNull()
+    expect(within(details).queryByText(/Days close in/)).toBeNull()
+    expect(provenanceValue(details, 'Google Ads customer')).toBe('5550001234')
+    expect(provenanceValue(details, 'Latest closed day')).toBe('Aug 14, 2026')
+    expect(provenanceValue(details, 'Snapshot captured')).toMatch(/2026/)
   })
 
   test('does not claim a sync is running when no day has closed', async () => {

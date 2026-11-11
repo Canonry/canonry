@@ -973,6 +973,19 @@ describe('operator CLI contract', () => {
     }
   })
 
+  it('doctor on an unconfigured install exits 1 with CONFIG_REQUIRED, not a retryable system error', async () => {
+    fs.rmSync(path.join(tmpDir, 'config.yaml'))
+
+    const result = await invokeCli(['doctor', '--format', 'json'])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe('')
+    const parsed = JSON.parse(result.stderr) as { error: { code: string; message: string; details: { configPath: string } } }
+    expect(parsed.error.code).toBe('CONFIG_REQUIRED')
+    expect(parsed.error.message).toMatch(/^Config not found at .*config\.yaml\.\nRun "canonry bootstrap"/)
+    expect(parsed.error.details.configPath).toBe(path.join(tmpDir, 'config.yaml'))
+  })
+
   it('prints a typed JSON error for telemetry enable when config is missing', async () => {
     fs.rmSync(path.join(tmpDir, 'config.yaml'))
 

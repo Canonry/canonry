@@ -13,6 +13,7 @@ import {
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
+import { citedBase } from '../snapshot-cell.js'
 
 export interface VisibilityStatsOptions {
   since?: string
@@ -180,9 +181,14 @@ function printVisibilityCompare(data: VisibilityCompareDto): void {
   }
 }
 
-/** Cited = cited/total; Mentioned = mentioned/checked (checked excludes "not checked"). */
+/**
+ * Cited = cited over the snapshots whose citation was measured; `n/m` when
+ * every snapshot came from an engine that returns no sources. Mentioned =
+ * mentioned/checked (checked excludes "not checked").
+ */
 function citedCell(c: VisibilityStatsCounts): string {
-  return `${c.cited}/${c.total}`
+  const measured = citedBase(c.total, c.citationNotMeasured)
+  return measured === 0 && c.total > 0 ? 'n/m' : `${c.cited}/${measured}`
 }
 function mentionedCell(c: VisibilityStatsCounts): string {
   return `${c.mentioned}/${c.checked}`
@@ -197,7 +203,7 @@ function printVisibilityStats(data: VisibilityStatsDto): void {
 
   console.log('Visibility stats (cited = source list, mentioned = answer text)')
   console.log(`Window: ${windowParts.join(' · ')}`)
-  console.log('Cited = cited/total snapshots · Mentioned = mentioned/checked (checked excludes "not checked")')
+  console.log('Cited = cited/measured snapshots (n/m: the engine returns no sources) · Mentioned = mentioned/checked (checked excludes "not checked")')
   console.log('')
 
   if (data.queries.length === 0) {

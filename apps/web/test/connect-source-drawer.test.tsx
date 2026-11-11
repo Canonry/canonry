@@ -1,10 +1,13 @@
 import React, { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { TrafficPage } from '../src/pages/TrafficPage.js'
+import { createDashboardFixture } from '../src/mock-data.js'
+import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 
 import {
   ConnectSourceDrawer,
@@ -82,6 +85,28 @@ test('reopening the drawer after closing from a form step returns to the source 
   fireEvent.click(screen.getByText('reopen-drawer'))
   expect(screen.getByText('Connect a traffic source')).toBeTruthy()
   expect(screen.queryByText('Connect a WordPress site')).toBeNull()
+})
+
+test('Escape restores focus to the Traffic page control that opened the drawer', async () => {
+  const project = createDashboardFixture().dashboard.projects[0]!.project
+  onTestFinished(mockFetch(url => {
+    const path = pathOf(url)
+    if (path === '/api/v1/projects') return jsonResponse([project])
+    if (path.endsWith('/traffic/sources')) return jsonResponse({ sources: [] })
+    throw new Error(`Unexpected request: ${path}`)
+  }))
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  render(<QueryClientProvider client={queryClient}><TrafficPage /></QueryClientProvider>)
+  await screen.findByText(`No traffic sources connected for ${project.name}.`)
+  for (const opener of screen.getAllByRole('button', { name: 'Connect a source' })) {
+    opener.focus()
+    fireEvent.click(opener)
+    const dialog = await screen.findByRole('dialog', { name: 'Connect a traffic source' })
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(opener))
+  }
 })
 
 test('choosing a different source returns to the picker without closing the drawer', () => {

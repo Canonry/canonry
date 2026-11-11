@@ -91,7 +91,8 @@ export function validateConfig(config: GeminiConfig): GeminiHealthcheckResult {
   }
 }
 
-export async function healthcheck(config: GeminiConfig): Promise<GeminiHealthcheckResult> {
+/** Once `signal` aborts, no further attempt starts and the request in flight is cancelled. */
+export async function healthcheck(config: GeminiConfig, signal?: AbortSignal): Promise<GeminiHealthcheckResult> {
   const validation = validateConfig(config)
   if (!validation.ok) return validation
 
@@ -102,7 +103,9 @@ export async function healthcheck(config: GeminiConfig): Promise<GeminiHealthche
       client.models.generateContent({
         model,
         contents: 'Say "ok"',
+        ...(signal ? { config: { abortSignal: signal } } : {}),
       }),
+      { signal },
     )
     const text = result.text ?? ''
     const backend = isVertexConfig(config) ? 'vertex ai' : 'api key'

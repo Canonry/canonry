@@ -22,5 +22,5 @@ export function RunDetailLink({ run, projectName, children, className, label }: 
       aria-label={label}
     >{children}</Link>
   }
-  return <button type="button" className={className} aria-label={label} onClick={() => openRun(run.id)}>{children}</button>
+  return <button type="button" className={className} aria-label={label} onClick={event => { event.currentTarget.focus(); openRun(run.id) }}>{children}</button>
 }

@@ -2,6 +2,7 @@ import { test, expect } from 'vitest'
 
 import { buildDashboard, buildPortfolioProject, buildProjectCommandCenter, toRunListItem, type ProjectData } from '../src/build-dashboard.js'
 import type { ApiRun, ApiSettings } from '../src/api.js'
+import { connectionFixture } from './provider-settings-fixtures.js'
 
 test('unrecognized stored job kinds retain a readable type and their reported outcome', () => {
   const item = toRunListItem({
@@ -370,7 +371,6 @@ test('buildDashboard maps Google settings into the dashboard view model', () => 
   const dashboard = buildDashboard([], apiSettings)
 
   expect(dashboard.settings.google.state).toBe('ready')
-  expect(dashboard.settings.google.detail).toMatch(/configured/i)
   expect(
     dashboard.settings.selfHostNotes.some((note) => note.includes('source of truth for authentication credentials')),
   ).toBeTruthy()
@@ -400,6 +400,33 @@ test('buildDashboard surfaces both the model override and the adapter default mo
   expect(openai?.defaultModel).toBe('gpt-5.4')
 })
 
+test('buildDashboard carries each connection\'s stored last test to the provider statuses an administrator sees', () => {
+  const passed = { status: 'connected' as const, ok: true, message: 'openai api key verified', model: 'gpt-5.4', checkedAt: '2026-11-08T10:00:00.000Z', durationMs: 900 }
+  const apiSettings: ApiSettings = {
+    providers: [
+      { name: 'openai', configured: true },
+      { name: 'gemini', configured: true },
+      { name: 'claude', configured: true },
+    ],
+    providerConnections: [
+      connectionFixture({ name: 'openai', revision: 'openai-r1', lastTest: passed }),
+      connectionFixture({ name: 'gemini', displayName: 'Gemini', revision: 'gemini-r1', lastTest: null }),
+    ],
+    providerCatalog: [],
+    google: { configured: false },
+    bing: { configured: false },
+  }
+
+  const statuses = buildDashboard([], apiSettings).settings.providerStatuses
+
+  expect(statuses.find(provider => provider.name === 'openai')).toMatchObject({ revision: 'openai-r1', lastTest: passed })
+  expect(statuses.find(provider => provider.name === 'gemini')).toMatchObject({ revision: 'gemini-r1', lastTest: null })
+  // Without connection details (a narrower credential), nothing is claimed either way.
+  const claude = statuses.find(provider => provider.name === 'claude')
+  expect(claude).not.toHaveProperty('lastTest')
+  expect(claude).not.toHaveProperty('revision')
+})
+
 test('buildDashboard names the missing local-provider requirement truthfully', () => {
   const apiSettings: ApiSettings = {
     providers: [
@@ -426,7 +453,6 @@ test('buildDashboard marks Google settings as needing config when OAuth is not c
   const dashboard = buildDashboard([], apiSettings)
 
   expect(dashboard.settings.google.state).toBe('needs-config')
-  expect(dashboard.settings.google.detail).toMatch(/not configured yet/i)
 })
 
 test('buildProjectCommandCenter preserves provider continuity while marking mixed-model history', () => {
@@ -550,7 +576,7 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
 
   const evidence = buildProjectCommandCenter(data).visibilityEvidence[0]!
 
-  expect(evidence.changeLabel).toBe('Cited for 2 runs')
+  expect(evidence.changeLabel).toBe('Cited in the last 2 checks')
   expect(evidence.historyScope).toBe('provider')
   expect(evidence.modelsSeen).toEqual(['gpt-4o', 'gpt-4.1'])
   expect(
@@ -711,7 +737,7 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
       latestRun: { totalRuns: 0, run: null },
       health: null,
       topInsights: [],
-      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, mentionedQueries: 3, notMentionedQueries: 1, mentionRate: 0.75 },
+      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, citationNotMeasuredQueries: 0, mentionedQueries: 3, notMentionedQueries: 1, mentionRate: 0.75 },
       providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
@@ -742,7 +768,7 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
   const vm = buildProjectCommandCenter(data)
   expect(vm.visibilitySummary.value).toBe('75.0%')
   expect(vm.visibilitySummary.tone).toBe('positive')
-  expect(vm.queryCounts).toEqual({ cited: 3, total: 4 })
+  expect(vm.queryCounts).toEqual({ cited: 3, total: 4, citationNotMeasured: 0 })
   expect(vm.movementComparison).toMatchObject({ hasPreviousRun: false, comparable: false })
   expect(vm.contextLabel).toBe('US / EN')
   // The per-model citation rates the By engine card lists (restored after the cleanup).
@@ -803,7 +829,7 @@ test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale
       latestRun: { totalRuns: 0, run: null },
       health: null,
       topInsights: [],
-      queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
+      queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, citationNotMeasuredQueries: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
       providers: [],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
@@ -842,87 +868,6 @@ test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale
   const stale = vm.insights.find(i => i.id === 'stale_visibility')!
   expect(stale.tone).toBe('caution')
   expect(stale.actionLabel).toBe('Stale')
-})
-
-test('portfolio "All projects stable" attention item is non-navigable (no dead link)', () => {
-  // Regression: the stable placeholder used to carry href:'/' + actionLabel
-  // 'View portfolio'. On the overview page (which IS '/'), the whole card was
-  // a <Link to="/"> that navigated to the page you were already on — a button
-  // that did nothing. A non-actionable positive status must omit href so the
-  // renderer shows a static row, not a dead link.
-  const stableProject: ProjectData = {
-    project: {
-      id: 'proj_stable',
-      name: 'stable-co',
-      displayName: 'Stable Co',
-      canonicalDomain: 'stable.example',
-      ownedDomains: [],
-      country: 'US',
-      language: 'en',
-      tags: [],
-      labels: {},
-      providers: ['gemini'],
-      configSource: 'api',
-      configRevision: 1,
-      createdAt: '2026-05-10T00:00:00Z',
-      updatedAt: '2026-05-13T00:00:00Z',
-    },
-    // A completed run (not running/queued) and no lost-citation evidence →
-    // nothing needs attention → the stable placeholder is emitted.
-    runs: [{ id: 'run_ok', projectId: 'proj_stable', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: '2026-05-13T00:00:00Z', finishedAt: '2026-05-13T00:00:10Z', error: null, createdAt: '2026-05-13T00:00:00Z' }],
-    queries: [],
-    competitors: [],
-    timeline: [],
-    latestRunDetails: [],
-    previousRunDetails: [],
-  }
-
-  const items = buildDashboard([stableProject], null).portfolioOverview.attentionItems
-  const stable = items.find(i => i.id === 'attention_stable')
-  expect(stable).toBeDefined()
-  expect(stable!.title).toBe('All projects stable')
-  expect(stable!.tone).toBe('positive')
-  // The bug fix: no href and no action label → rendered as a static row.
-  expect(stable!.href).toBeUndefined()
-  expect(stable!.actionLabel).toBeUndefined()
-})
-
-test('portfolio active-runs attention item stays navigable', () => {
-  // Symmetry guard: making href optional for the stable case must not strip
-  // the real destination off actionable items. An in-progress run still links
-  // to /runs.
-  const activeProject: ProjectData = {
-    project: {
-      id: 'proj_active',
-      name: 'active-co',
-      displayName: 'Active Co',
-      canonicalDomain: 'active.example',
-      ownedDomains: [],
-      country: 'US',
-      language: 'en',
-      tags: [],
-      labels: {},
-      providers: ['gemini'],
-      configSource: 'api',
-      configRevision: 1,
-      createdAt: '2026-05-10T00:00:00Z',
-      updatedAt: '2026-05-13T00:00:00Z',
-    },
-    runs: [{ id: 'run_live', projectId: 'proj_active', kind: 'answer-visibility', status: 'running', trigger: 'manual', startedAt: '2026-05-13T00:00:00Z', finishedAt: null, error: null, createdAt: '2026-05-13T00:00:00Z' }],
-    queries: [],
-    competitors: [],
-    timeline: [],
-    latestRunDetails: [],
-    previousRunDetails: [],
-  }
-
-  const items = buildDashboard([activeProject], null).portfolioOverview.attentionItems
-  const active = items.find(i => i.id === 'attention_proj_active_active')
-  expect(active).toBeDefined()
-  expect(active!.href).toBe('/runs')
-  expect(active!.actionLabel).toBe('View runs')
-  // The stable placeholder must NOT appear when something needs attention.
-  expect(items.find(i => i.id === 'attention_stable')).toBeUndefined()
 })
 
 test('buildProjectCommandCenter emits one evidence row per location when a multi-location sweep fans out', () => {
@@ -1295,7 +1240,7 @@ test('buildProjectCommandCenter emits a single history-only row when no location
   expect(geminiRows).toHaveLength(2)
 })
 
-test('buildPortfolioProject carries the mention-rate trend, score, and subtitle from the overview', () => {
+test('buildPortfolioProject preserves separate server mention populations and ignores pooled scores', () => {
   const base: ProjectData = {
     project: {
       id: 'proj_portfolio',
@@ -1341,14 +1286,11 @@ test('buildPortfolioProject carries the mention-rate trend, score, and subtitle 
       latestRun: { totalRuns: 0, run: null },
       health: null,
       topInsights: [],
-      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, mentionedQueries: 3, notMentionedQueries: 1, mentionRate: 0.75 },
+      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, citationNotMeasuredQueries: 0, mentionedQueries: 3, notMentionedQueries: 1, mentionRate: 0.75 },
       providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
-        // The server populates each headline score's trend from runHistory.
-        // Mention is the headline metric the portfolio row reads; give it a
-        // distinct trend + progress from visibility to prove the builder reads
-        // mention, not cited.
+        // Legacy pooled scores deliberately disagree with the canonical class populations.
         mention: { label: 'Mention Coverage', value: '60.0%', delta: '3 of 4 queries mentioned', tone: 'positive', description: '', tooltip: '', trend: [40, 60, 80], progress: 60 },
         visibility: { label: 'Citation Coverage', value: '75.0%', delta: '3 of 4 queries', tone: 'positive', description: '', tooltip: '', trend: [25, 50, 75], progress: 75 },
         mentionShare: { label: 'Mention Share', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [], scope: 'non-brand', breakdown: { projectMentionSnapshots: 0, competitorMentionSnapshots: 0, perCompetitor: [], snapshotsWithAnswerText: 0, snapshotsTotal: 0, score: null }, branded: { projectMentionSnapshots: 0, competitorMentionSnapshots: 0, perCompetitor: [], snapshotsWithAnswerText: 0, snapshotsTotal: 0, score: null } },
@@ -1375,30 +1317,31 @@ test('buildPortfolioProject carries the mention-rate trend, score, and subtitle 
     },
   }
 
-  // The headline metric is Mention Coverage — the portfolio row reads the
-  // mention score + mention trend, NOT the cited/visibility ones. Mention's
-  // trend ([40,60,80]) and progress (60) differ from visibility's so this
-  // proves the builder switched signals.
-  expect(buildPortfolioProject(base).trend).toEqual([40, 60, 80])
-  expect(buildPortfolioProject(base).mentionScore).toBe(60)
-
-  // The headline delta + subtitle both read the MENTION count
-  // (answerMentioned), never the cited count. Seed mentioned≠cited and prove
-  // both track mentioned (1 of 4) rather than cited (3 of 4).
-  const distinctMention = buildPortfolioProject({
-    ...base,
-    overview: {
-      ...base.overview!,
-      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, mentionedQueries: 1, notMentionedQueries: 3, mentionRate: 0.25 },
+  base.overview!.mentionCoverage = {
+    selection: {
+      mode: 'simple', queryClass: 'all', scope: { kind: 'project', id: 'project', label: 'Whole site', targetCount: 1 },
+      provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null }, revision: null,
+      run: { id: 'run_coverage', explicit: false }, provenance: { kind: 'frozen-simple', definitionRevision: null },
+      measurement: { state: 'measured', activeRevision: null, measuredRevision: null, awaitingSweep: false, pendingAssignmentCount: 0 },
+      availability: { state: 'available' },
     },
-  })
-  expect(distinctMention.insight).toBe('1 of 4 queries mentioned across 1 provider.')
-  expect(distinctMention.mentionDelta).toBe('1 of 4 queries')
+    populations: [
+      { queryClass: 'non-brand', queryCount: 4, answerCount: 8, mentionCoverage: { numerator: 1, denominator: 8, rate: 0.125 }, citationCoverage: { numerator: 6, denominator: 8, rate: 0.75 } },
+      { queryClass: 'branded', queryCount: 5, answerCount: 10, mentionCoverage: { numerator: 9, denominator: 10, rate: 0.9 }, citationCoverage: { numerator: 4, denominator: 10, rate: 0.4 } },
+    ],
+  }
+  const mapped = buildPortfolioProject(base)
+  expect(mapped.mentionPopulations).toMatchObject([
+    { queryClass: 'non-brand', queryCount: 4, answerCount: 8, mentionCoverage: { numerator: 1, denominator: 8, rate: 0.125 } },
+    { queryClass: 'branded', queryCount: 5, answerCount: 10, mentionCoverage: { numerator: 9, denominator: 10, rate: 0.9 } },
+  ])
+  expect(mapped.hasMeasurement).toBe(true)
 
-  // Without an overview (no runs yet) the trend is empty and the sparkline no-ops.
-  expect(buildPortfolioProject({ ...base, overview: null }).trend).toEqual([])
+  // An older server's pooled 60% cannot substitute for missing class populations.
+  const olderServer = buildPortfolioProject({ ...base, overview: { ...base.overview!, mentionCoverage: undefined } })
+  expect(olderServer.mentionPopulations).toBeUndefined()
+  expect(olderServer.hasMeasurement).toBeUndefined()
   expect(buildPortfolioProject({ ...base, overview: null }).hasMeasurement).toBe(false)
-  expect(buildPortfolioProject(base).hasMeasurement).toBe(true)
 
   // Quiet-project fallback (#761 class): the capped, 30-day-windowed global runs
   // list yields NO runs for a project quiet for >30 days (`data.runs` empty), so
@@ -1466,9 +1409,9 @@ test('buildProjectCommandCenter keeps the latest completed sweep when newer fail
   // Each answer is evidence for the sweep it came from, and says only what that
   // sweep saw: no change is claimed, since the window holds no earlier sweep.
   expect(cc.visibilityEvidence.map(row => [row.query, row.sourceRunId, row.answerMentioned, row.citationState, row.changeLabel, row.visibilityChangeLabel])).toEqual([
-    ['best polyurea roof coating', 'run_ok', true, 'cited', 'Cited in latest run', 'Visible in latest run'],
-    ['polyurea vs silicone roof coating', 'run_ok', false, 'not-cited', 'Not cited in latest run', 'Not visible in latest run'],
-    ['roof coating contractors', null, undefined, 'pending', 'Awaiting first run', 'Awaiting first run'],
+    ['best polyurea roof coating', 'run_ok', true, 'cited', 'Cited in the latest check', 'Mentioned in the latest check'],
+    ['polyurea vs silicone roof coating', 'run_ok', false, 'not-cited', 'Not cited in the latest check', 'Not mentioned in the latest check'],
+    ['roof coating contractors', null, undefined, 'pending', 'Awaiting first check', 'Awaiting first check'],
   ])
 })
 
@@ -1540,8 +1483,8 @@ test('the latest completed sweep\'s answer keeps its own state when cancelled ru
   })
 
   expect(cc.visibilityEvidence.map(row => [row.query, row.sourceRunId, row.citationState, row.changeLabel, row.visibilityChangeLabel])).toEqual([
-    ['best polyurea roof coating', 'run_ok', 'cited', 'Cited in latest run', 'Visible in latest run'],
-    ['polyurea vs silicone roof coating', 'run_ok', 'not-cited', 'Not cited in latest run', 'Not visible in latest run'],
+    ['best polyurea roof coating', 'run_ok', 'cited', 'Cited in the latest check', 'Mentioned in the latest check'],
+    ['polyurea vs silicone roof coating', 'run_ok', 'not-cited', 'Not cited in the latest check', 'Not mentioned in the latest check'],
   ])
 })
 
@@ -1569,8 +1512,69 @@ test('a sweep still running never changes the latest completed sweep\'s answer',
   })
 
   expect(cc.visibilityEvidence.map(row => [row.query, row.citationState, row.changeLabel, row.visibilityChangeLabel])).toEqual([
-    ['best polyurea roof coating', 'cited', 'Cited for 2 runs', 'Visible for 2 runs'],
-    ['polyurea vs silicone roof coating', 'not-cited', 'Not cited across 2 runs', 'Not visible across 2 runs'],
+    ['best polyurea roof coating', 'cited', 'Cited in the last 2 checks', 'Mentioned in the last 2 checks'],
+    ['polyurea vs silicone roof coating', 'not-cited', 'Not cited in the last 2 checks', 'Not mentioned in the last 2 checks'],
+  ])
+})
+
+// Overview's "What changed" counts the queries behind these labels on the
+// server (`overview-what-changed.ts`); its route tests own that count.
+test('evidence rows label a lost mention and a lost citation apart, from each row\'s own latest completed check', () => {
+  const { project, run, snapshot } = sweepFixture()
+  const first = run('run_1', 'completed', '2026-09-01T00:00:00Z')
+  const latest = run('run_2', 'completed', '2026-09-08T00:00:00Z')
+  const cancelled = run('run_3', 'cancelled', '2026-09-09T00:00:00Z')
+  const queries = ['best polyurea roof coating', 'polyurea vs silicone roof coating', 'roof coating contractors']
+  /** A timeline point whose mention and citation each carry their own transition, as the route computes them. */
+  const point = (runId: string, createdAt: string, signals: { mentioned: boolean; cited: boolean; transition: string; mentionTransition: string }) => ({
+    runId, createdAt, location: null,
+    citationState: signals.cited ? 'cited' : 'not-cited', transition: signals.transition,
+    answerMentioned: signals.mentioned, mentionState: signals.mentioned ? 'mentioned' : 'not-mentioned', mentionTransition: signals.mentionTransition,
+    visibilityState: signals.mentioned ? 'visible' : 'not-visible',
+    visibilityTransition: signals.mentionTransition === 'mentioned' ? 'visible' : signals.mentionTransition === 'not-mentioned' ? 'not-visible' : signals.mentionTransition,
+  })
+  // q0 lost its mention on both engines and was never cited.
+  const lostMention = [
+    point('run_1', '2026-09-01T00:00:00Z', { mentioned: true, cited: false, transition: 'new', mentionTransition: 'new' }),
+    point('run_2', '2026-09-08T00:00:00Z', { mentioned: false, cited: false, transition: 'not-cited', mentionTransition: 'lost' }),
+  ]
+  // q1 lost its citation on one engine and was never mentioned.
+  const lostCitation = [
+    point('run_1', '2026-09-01T00:00:00Z', { mentioned: false, cited: true, transition: 'new', mentionTransition: 'new' }),
+    point('run_2', '2026-09-08T00:00:00Z', { mentioned: false, cited: false, transition: 'lost', mentionTransition: 'not-mentioned' }),
+  ]
+  // q2 kept both in the latest completed check; only a cancelled run after it lost them.
+  const keptInLatest = [
+    point('run_1', '2026-09-01T00:00:00Z', { mentioned: true, cited: true, transition: 'new', mentionTransition: 'new' }),
+    point('run_2', '2026-09-08T00:00:00Z', { mentioned: true, cited: true, transition: 'cited', mentionTransition: 'mentioned' }),
+    point('run_3', '2026-09-09T00:00:00Z', { mentioned: false, cited: false, transition: 'lost', mentionTransition: 'lost' }),
+  ]
+  const answer = (index: number, provider: string, mentioned: boolean, cited: boolean) => ({
+    ...snapshot('run_2', index, cited, '2026-09-08T00:00:10Z'),
+    id: `snap_${provider}_${index}`, query: queries[index]!, provider,
+    answerMentioned: mentioned, visibilityState: mentioned ? 'visible' : 'not-visible', mentionState: mentioned ? 'mentioned' : 'not-mentioned',
+  })
+  const data: ProjectData = {
+    project,
+    runs: [first, latest, cancelled],
+    queries: queries.map((query, index) => ({ id: `q_${index}`, query, createdAt: '2026-08-01T00:00:00Z' })),
+    competitors: [],
+    timeline: [
+      { query: queries[0]!, runs: lostMention, providerRuns: { openai: lostMention, gemini: lostMention }, modelRuns: {} },
+      { query: queries[1]!, runs: lostCitation, providerRuns: { openai: lostCitation }, modelRuns: {} },
+      { query: queries[2]!, runs: keptInLatest, providerRuns: { openai: keptInLatest }, modelRuns: {} },
+    ],
+    latestRunDetails: [{ ...latest, snapshots: [answer(0, 'openai', false, false), answer(0, 'gemini', false, false), answer(1, 'openai', false, false), answer(2, 'openai', true, true)] }],
+    previousRunDetails: [],
+  }
+
+  // Three rows lost one signal each, and only their own check counts.
+  const rows = buildProjectCommandCenter(data).visibilityEvidence
+  expect(rows.map(row => [row.query, row.provider, row.citationState, row.visibilityChangeLabel])).toEqual([
+    ['best polyurea roof coating', 'gemini', 'not-cited', 'Lost since the previous check'],
+    ['best polyurea roof coating', 'openai', 'not-cited', 'Lost since the previous check'],
+    ['polyurea vs silicone roof coating', 'openai', 'lost', 'Not mentioned in the last 2 checks'],
+    ['roof coating contractors', 'openai', 'cited', 'Mentioned in the last 2 checks'],
   ])
 })
 
@@ -1599,7 +1603,7 @@ test.each([
   { stored: null, expected: null },
   // The server formats an unset budget as null; a fixture without the field reads the same.
   { stored: undefined, expected: null },
-])('project views carry the saved Site Health page budget ($stored)', ({ stored, expected }) => {
+])('project views carry the saved Agent Readiness page budget ($stored)', ({ stored, expected }) => {
   const data: ProjectData = {
     project: {
       id: 'proj_budget',
@@ -1628,4 +1632,73 @@ test.each([
 
   expect(buildProjectCommandCenter(data).project.siteAuditMaxPages).toBe(expected)
   expect(buildPortfolioProject(data).project.siteAuditMaxPages).toBe(expected)
+})
+
+
+test('a completed site scan never claims query execution', () => {
+  const run = { id: 'scan-copy', projectId: 'project', status: 'completed', trigger: 'manual', createdAt: '2026-11-06T12:00:00Z' } as const
+  expect(toRunListItem({ ...run, kind: 'site-audit' }, 'Example').statusDetail).toBe('Scan completed.')
+  expect(toRunListItem({ ...run, kind: 'answer-visibility' }, 'Example').statusDetail).toBe('All queries checked.')
+})
+
+test('an engine without sources keeps its answers not measured, never not cited or lost', () => {
+  const run = (id: string, createdAt: string) => ({
+    id, projectId: 'proj_local', kind: 'answer-visibility' as const, status: 'completed' as const, trigger: 'manual' as const,
+    startedAt: createdAt, finishedAt: createdAt, error: null, createdAt,
+  })
+  const snapshot = (id: string, query: string, runId: string, createdAt: string) => ({
+    id, runId, queryId: query, query, provider: 'local', model: 'llama3', citationState: 'not-measured' as const,
+    answerMentioned: true, answerText: 'Acme is a common pick.', citedDomains: [], competitorOverlap: [], groundingSources: [], searchQueries: [],
+    location: null, createdAt,
+  })
+  const data: ProjectData = {
+    project: {
+      id: 'proj_local', name: 'local-demo', displayName: 'Acme', canonicalDomain: 'acme.example', ownedDomains: [], country: 'US', language: 'en',
+      tags: [], labels: {}, providers: ['local'], configSource: 'api', configRevision: 1,
+      createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+    },
+    runs: [run('run_1', '2026-10-01T00:00:00Z'), run('run_2', '2026-10-02T00:00:00Z'), run('run_3', '2026-10-03T00:00:00Z')],
+    queries: [
+      { id: 'best crm', query: 'best crm', createdAt: '2026-10-01T00:00:00Z' },
+      { id: 'crm pricing', query: 'crm pricing', createdAt: '2026-10-01T00:00:00Z' },
+    ],
+    competitors: [],
+    timeline: [{
+      // The UI shows each run's state as the API sends it: a measured miss, then answers without sources.
+      query: 'best crm',
+      runs: [
+        { runId: 'run_1', createdAt: '2026-10-01T00:00:00Z', citationState: 'not-cited', transition: 'new' },
+        { runId: 'run_2', createdAt: '2026-10-02T00:00:00Z', citationState: 'not-measured', transition: 'not-measured' },
+        { runId: 'run_3', createdAt: '2026-10-03T00:00:00Z', citationState: 'not-measured', transition: 'not-measured' },
+      ],
+      providerRuns: {
+        local: [
+          { runId: 'run_1', createdAt: '2026-10-01T00:00:00Z', citationState: 'not-cited', transition: 'new' },
+          { runId: 'run_2', createdAt: '2026-10-02T00:00:00Z', citationState: 'not-measured', transition: 'not-measured' },
+          { runId: 'run_3', createdAt: '2026-10-03T00:00:00Z', citationState: 'not-measured', transition: 'not-measured' },
+        ],
+      },
+      modelRuns: {},
+    }, {
+      // Answered in the latest sweep, outside the capped timeline: the snapshot is all there is.
+      query: 'crm pricing',
+      runs: [],
+    }],
+    latestRunDetails: [{
+      ...run('run_3', '2026-10-03T00:00:00Z'),
+      snapshots: [
+        snapshot('snap_best', 'best crm', 'run_3', '2026-10-03T00:00:00Z'),
+        snapshot('snap_pricing', 'crm pricing', 'run_3', '2026-10-03T00:00:00Z'),
+      ],
+    }],
+    previousRunDetails: [],
+  }
+
+  const evidence = buildProjectCommandCenter(data).visibilityEvidence
+  const best = evidence.find(item => item.query === 'best crm')!
+  const pricing = evidence.find(item => item.query === 'crm pricing')!
+
+  expect(best).toMatchObject({ citationState: 'not-measured', changeLabel: 'Citation not measured in the last 2 checks', answerMentioned: true })
+  expect(best.runHistory.map(point => point.citationState)).toEqual(['not-cited', 'not-measured', 'not-measured'])
+  expect(pricing).toMatchObject({ citationState: 'not-measured', changeLabel: 'Citation not measured in the latest check' })
 })

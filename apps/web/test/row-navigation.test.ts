@@ -55,6 +55,19 @@ describe('shouldNavigateFromRowClick', () => {
     el.remove()
   })
 
+  it('still navigates a row whose whole table sits inside a disclosure', () => {
+    const disclosure = document.createElement('details')
+    disclosure.open = true
+    const table = document.createElement('table')
+    const row = table.createTBody().insertRow()
+    const cell = row.insertCell()
+    cell.textContent = '116'
+    disclosure.appendChild(table)
+    document.body.appendChild(disclosure)
+    expect(shouldNavigateFromRowClick(click({ target: cell, currentTarget: row }))).toBe(true)
+    disclosure.remove()
+  })
+
   it('navigates when the click came from plain text in a cell', () => {
     const cell = document.createElement('td')
     cell.textContent = '116'

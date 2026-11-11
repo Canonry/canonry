@@ -172,6 +172,7 @@ function metricReason(reason: MeasurementRate['reason']): MeasurementMetricUnava
     case 'aliasless':
     case 'no-competitors':
     case 'no-project-aliases': return 'not_applicable'
+    case 'citation-not-measured': return 'citation_not_measured'
     default: return 'evidence_incomplete'
   }
 }
@@ -188,6 +189,8 @@ function coverageMetric(rate: MeasurementRate): MetricValue {
     ...(rate.unattributed === undefined ? {} : { unattributed: rate.unattributed }),
     // Saved answers the citation rate left out because their source capture was incomplete.
     ...(rate.unchecked === undefined ? {} : { unchecked: rate.unchecked }),
+    // Answers the citation rate left out because their engine returns no sources.
+    ...(rate.citationNotMeasured === undefined ? {} : { citationNotMeasured: rate.citationNotMeasured }),
   }
 }
 
@@ -270,7 +273,8 @@ interface TargetPopulation {
   /**
    * Every measured answer, with or without text: the population the source
    * lists read. Source capture is independent of answer-text capture, and
-   * citation coverage already counts an answer whose text did not land.
+   * citation coverage already counts an answer whose text did not land. An
+   * answer whose engine returns no sources has no list to read and is left out.
    */
   sourceAnswers: SourceAnswer[]
 }
@@ -325,7 +329,7 @@ function createTargetAnswerReader(
     if (slots) slots.add(row.expectedSlotId)
     else citedSlotsByEdge.set(row.usageEdgeId, new Set([row.expectedSlotId]))
   }
-  const incompleteObservationIds = new Set(materialized.evidence.diagnostics.evidenceIncompleteObservationIds)
+  const notMeasuredObservationIds = new Set(materialized.evidence.diagnostics.citationNotMeasuredObservationIds)
   const questionsById = new Map(plan.querySnapshots.map(question => [question.queryId, question.queryText]))
   const provider = filters.provider === undefined ? undefined : normalizeText(filters.provider)
   const location = filters.location === undefined ? undefined : normalizeMeasurementLocation(filters.location)
@@ -366,7 +370,7 @@ function createTargetAnswerReader(
           snapshot,
           citedUrls: observation.citedUrls ?? observation.historicalCitedUrls ?? [],
         }
-        sourceAnswers.push(sourced)
+        if (!notMeasuredObservationIds.has(snapshot.id)) sourceAnswers.push(sourced)
         if (snapshot.answerText === null) continue
         answers.push({
           ...sourced,
@@ -375,7 +379,11 @@ function createTargetAnswerReader(
           mentioned: target.mentionNotApplicable
             ? null
             : answerBySlot?.get(slot.id)?.mentioned ?? null,
-          cited: citedSlotIds?.has(slot.id) ? true : incompleteObservationIds.has(snapshot.id) ? null : false,
+          // The kernel's per-answer value: null when the sources were partly
+          // saved or the engine returns none, so neither is ever a miss. An
+          // answer with a null citation is in no miss count and names nobody
+          // "instead" (`forEachNameWrittenInstead`).
+          cited: citedSlotIds?.has(slot.id) ? true : answerBySlot?.get(slot.id)?.cited ?? null,
         })
       }
     }

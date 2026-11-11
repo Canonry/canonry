@@ -11,12 +11,12 @@ import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 
-// Regression coverage for the "Mentioned" / "Pressure" stat-cell alignment
-// defect on the /projects overview rows: the two stat cells in a
+// Regression coverage for the "Mentioned" / "Competitor pressure" stat-cell
+// alignment defect on the Overview rows: the two stat cells in a
 // `.project-row` must expose the SAME label/value/caption structure so
 // `lg:items-center` can center them onto a shared baseline. Before the fix,
-// "Mentioned" carried an optional 4th providerCoverage line and "Pressure"
-// had no caption at all, so the two cells drifted to different heights.
+// "Mentioned" carried an optional 4th providerCoverage line and the pressure
+// cell had no caption at all, so the two cells drifted to different heights.
 //
 // Renders via `renderToStaticMarkup` + `DOMParser`, mirroring
 // `dashboard-class-baseline.test.tsx` and `app.test.tsx` — this suite is a
@@ -75,26 +75,41 @@ test('every project row has exactly two stat cells, each a three-slot label/valu
   }
 })
 
-test('the pressure label reads the single word "Pressure" and keeps its full meaning for screen readers', async () => {
+test('the competitor pressure label names its metric, the same for sight and screen readers', async () => {
   const doc = await renderOverview()
 
   const rows = [...doc.querySelectorAll('.project-row')]
-  expect(rows.length).toBeGreaterThan(0)
+  expect(rows.length).toBe(3)
 
   for (const row of rows) {
     const [, pressureBlock] = statBlocks(row)
     const label = pressureBlock!.querySelector('.metric-inline-label')!
 
-    // The VISIBLE token is one word so it can never wrap in the 9rem column.
-    // `aria-label` on a <p> is not a valid accessible name (role `paragraph`
-    // does not support naming), so the full meaning has to ride a
-    // visually-hidden span instead — assert both halves separately.
-    const visible = label.querySelector('[aria-hidden="true"]')!
-    expect(visible.textContent).toBe('Pressure')
-    expect(visible.textContent).not.toMatch(/\s/)
-    expect(label.querySelector('.sr-only')!.textContent).toBe('Competitor pressure')
-    expect(label.getAttribute('aria-label')).toBe(null)
+    // A bare "Pressure" left the figure undefined for sighted readers.
+    expect(label.textContent).toBe('Competitor pressure')
+    expect(label.querySelector('[aria-hidden="true"], .sr-only')).toBeNull()
   }
+})
+
+test('a project with no competitors reads "No competitors set", not the API\'s "None"', async () => {
+  const doc = await renderOverview(fixture => {
+    const commandCenter = (id: string) => fixture.dashboard.projects.find(entry => entry.project.id === id)!
+    const portfolioRow = (id: string) => fixture.dashboard.portfolioOverview.projects.find(entry => entry.project.id === id)!
+    // The API scores a project with no competitors "None", the same word as
+    // tracked competitors that never appear.
+    commandCenter('project_citypoint').competitors = []
+    portfolioRow('project_citypoint').competitorPressureLabel = 'None'
+    portfolioRow('project_harbor').competitorPressureLabel = 'None'
+    // Not yet measured outranks the missing competitors.
+    commandCenter('project_northstar').competitors = []
+    portfolioRow('project_northstar').hasMeasurement = false
+  })
+
+  const rows = [...doc.querySelectorAll('.project-row')]
+  expect(rows.map(row => row.querySelector('.project-name')!.textContent)).toEqual(['Citypoint Dental NYC', 'Harbor Legal Group', 'Northstar Orthopedics'])
+  expect(rows.map(row => statBlocks(row)[1]!.querySelector('.metric-inline-value')!.textContent)).toEqual([
+    'No competitors set', 'None', 'Not measured',
+  ])
 })
 
 test('a partial sweep keeps its data-validity caveat in the caution tone rather than as faint text', async () => {
@@ -110,10 +125,10 @@ test('a partial sweep keeps its data-validity caveat in the caution tone rather 
   const partialCaption = partialMention!.querySelector('.metric-inline-caption')!
   // Caution tone is the whole point: it is why the score above reads amber.
   expect(partialCaption.getAttribute('class')).toContain('text-caution')
-  expect(partialCaption.textContent).toBe('Partial check: 2 of 4 engines')
+  expect(partialCaption.textContent).toBe('Partial check: 61 of 100 answers · 2 of 4 engines')
   // Truncation is expected in a 9rem column, so the full text must survive on
   // the title attribute where a hover can still reach it.
-  expect(partialCaption.getAttribute('title')).toBe('2 of 4 engines')
+  expect(partialCaption.getAttribute('title')).toBe('61 of 100 answers · 2 of 4 engines')
 
   // A complete sweep carries no caveat and must NOT borrow the caution tone.
   const fullCaption = fullMention!.querySelector('.metric-inline-caption')!
@@ -147,24 +162,40 @@ test('does not report unconfigured providers to a viewer whose settings are unav
   expect(doc.body.textContent).toContain('Infrastructure')
 })
 
-test('shows each project mention rate through formatPercent, not as a bare number', async () => {
+test('shows non-brand server rates, names, and counts without mixing branded or unclassified answers', async () => {
   const doc = await renderOverview(fixture => {
-    // 2 of 3 queries mentioned is 66.666667 on the wire; the others are whole.
-    fixture.dashboard.portfolioOverview.projects[0]!.mentionScore = 66.666667
+    const [first, second, third] = fixture.dashboard.portfolioOverview.projects
+    first!.project.displayName = 'Human project name'
+    first!.mentionPopulations = [
+      { queryClass: 'non-brand', queryCount: 2, answerCount: 3, mentionCoverage: { numerator: 2, denominator: 3, rate: 0.66666667 }, citationCoverage: { numerator: 1, denominator: 3, rate: 0.33333333 } },
+      { queryClass: 'branded', queryCount: 5, answerCount: 10, mentionCoverage: { numerator: 9, denominator: 10, rate: 0.9 }, citationCoverage: { numerator: 4, denominator: 10, rate: 0.4 } },
+    ]
+    second!.mentionPopulations = [{ queryClass: 'non-brand', queryCount: 2, answerCount: 2, mentionCoverage: { numerator: 0, denominator: 2, rate: 0 }, citationCoverage: { numerator: 1, denominator: 2, rate: 0.5 } }]
+    third!.mentionPopulations = [{ queryClass: 'unknown', queryCount: 1, answerCount: 1, mentionCoverage: { numerator: 1, denominator: 1, rate: 1 }, citationCoverage: { numerator: 0, denominator: 1, rate: 0 } }]
   })
-  const mentioned = [...doc.querySelectorAll('.project-row')]
-    .map(row => statBlocks(row)[0]!.querySelector('.metric-inline-value')?.textContent)
-  expect(mentioned).toEqual(['66.7%', '74.0%', '58.0%'])
+  const rows = [...doc.querySelectorAll('.project-row')]
+  expect(rows.map(row => statBlocks(row)[0]!.querySelector('.metric-inline-value')?.textContent)).toEqual([
+    '66.7% · non-brand queries', '0% · non-brand queries', 'Not measured · non-brand queries',
+  ])
+  expect(rows.map(row => statBlocks(row)[0]!.querySelector('.metric-inline-caption')?.textContent)).toEqual(['2 of 3 answers', '0 of 2 answers', 'Not measured'])
+  expect(rows[0]!.querySelector('.project-name')!.textContent).toBe('Human project name')
+  expect(rows[0]!.querySelector('a')!.getAttribute('href')).not.toContain('Human')
+  const branded = rows[0]!.querySelector('details')!
+  expect(branded.hasAttribute('open')).toBe(false)
+  expect(branded.querySelector('summary')!.textContent).toBe('Branded queries')
+  expect(branded.textContent).toContain('90.0% · branded queries · 9 of 10 answers')
+  expect(rows[2]!.querySelector('summary')!.textContent).toBe('Unclassified queries')
+  // The API exposes no class-specific trend to place beside these figures.
+  expect(doc.querySelector('.project-row .sparkline')).toBeNull()
 })
 
-test('shows an awaiting-baseline state rather than zero performance or stable results', async () => {
+// "What changed" says awaiting rather than all clear through the shared
+// roll-up (`portfolioWhatChangedItems`), which owns that choice.
+test('shows an awaiting-baseline state rather than zero performance', async () => {
   const doc = await renderOverview(fixture => {
-    fixture.dashboard.portfolioOverview.projects.forEach(project => { project.hasMeasurement = false; project.mentionScore = 0 })
-    fixture.dashboard.portfolioOverview.attentionItems = [{ id: 'attention_stable', tone: 'positive', title: 'All projects stable', detail: 'No changes' }]
+    fixture.dashboard.portfolioOverview.projects.forEach(project => { project.hasMeasurement = false; project.mentionPopulations = undefined })
   }, true)
-  expect([...doc.querySelectorAll('.metric-inline-value')].map(node => node.textContent)).toEqual(Array(6).fill('Not measured'))
-  expect(doc.body.textContent).toContain('Awaiting first measurement')
-  expect(doc.body.textContent).not.toContain('All projects stable')
+  expect([...doc.querySelectorAll('.metric-inline-value')].map(node => node.textContent)).toEqual(Array.from({ length: 3 }, () => ['Not measured · non-brand queries', 'Not measured']).flat())
 })
 
 
@@ -241,7 +272,7 @@ test('when any project shows sentiment, every row keeps the same columns so Ment
     // Same grid template and the same number of stat cells in every row.
     expect(row.classList.contains('project-row-with-sentiment')).toBe(true)
     expect(row.querySelectorAll(':scope > .project-row-stat')).toHaveLength(3)
-    expect(row.querySelector(':scope > .project-row-stat .metric-inline-label')!.textContent).toBe('Mentioned')
+    expect(row.querySelector(':scope > .project-row-stat .metric-inline-label')!.textContent).toBe('Mentioned · non-brand')
   }
   const placeholders = doc.querySelectorAll('[data-sentiment-placeholder]')
   expect(placeholders).toHaveLength(rows.length - 1)

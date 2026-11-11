@@ -12,7 +12,7 @@ import { isMachineFormat } from '../cli-error.js'
 
 const SURFACE_TITLES: Record<TrendSurface, string> = {
   'index-coverage': 'Index coverage',
-  'site-health': 'Site Health',
+  'site-health': 'Agent Readiness',
   backlinks: 'Backlinks',
 }
 

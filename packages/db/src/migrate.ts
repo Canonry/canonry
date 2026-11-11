@@ -5461,6 +5461,61 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       )`,
     ],
   },
+  {
+    version: 215,
+    name: 'provider-connection-tests',
+    // One row per connection: the latest test result and a keyed hash of the
+    // registration it checked. No status CHECK, so a status a later release
+    // adds needs no table rebuild; readers validate rows against the contract.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS provider_connection_tests (
+        provider     TEXT PRIMARY KEY NOT NULL,
+        fingerprint  TEXT NOT NULL,
+        status       TEXT NOT NULL,
+        message      TEXT NOT NULL,
+        model        TEXT,
+        checked_at   TEXT NOT NULL,
+        duration_ms  INTEGER NOT NULL
+      )`,
+    ],
+  },
+  {
+    version: 216,
+    name: 'run-provider-failures',
+    // A running sweep's failures so far, so a reader sees them before the run
+    // ends. Nullable: existing runs have none to report.
+    statements: [
+      `ALTER TABLE runs ADD COLUMN provider_failures TEXT`,
+    ],
+  },
+  {
+    version: 217,
+    name: 'run-planned-answers',
+    // The answers a sweep set out to collect, written when it starts, so a
+    // reader can show progress without remembering the launch. Nullable:
+    // existing runs never recorded one.
+    statements: [
+      `ALTER TABLE runs ADD COLUMN planned_answers INTEGER`,
+    ],
+  },
+  {
+    version: 218,
+    name: 'site-health-notify-state-repair',
+    // v214 again. Before this release merged the one that shipped v214, its
+    // provider-connection-tests, run-provider-failures and run-planned-answers
+    // migrations were numbered 214-216 (now 215-217). A database that applied
+    // them under those numbers skipped v214, since only versions above the
+    // highest applied one run. Everywhere else the table exists: a no-op.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS site_health_notify_state (
+        project_id     TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        reported_keys  TEXT NOT NULL DEFAULT '[]',
+        run_id         TEXT NOT NULL,
+        updated_at     TEXT NOT NULL,
+        notified_at    TEXT
+      )`,
+    ],
+  },
 ]
 
 /**

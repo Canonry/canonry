@@ -503,6 +503,29 @@ test('a caller-supplied embed-tabs header still narrows within the configured al
   }
 })
 
+test('a saved technical-aeo embed grant still reads Agent Readiness at both path segments', async () => {
+  // The tab was renamed to agent-readiness. An install or dashboard that still
+  // lists the old key keeps its grant, under either spelling and either path.
+  const embedded = await bootEmbedApp(['overview', 'technical-aeo'])
+  try {
+    for (const url of ['/api/v1/projects/sample/agent-readiness', '/api/v1/projects/sample/technical-aeo/crawl']) {
+      for (const header of ['technical-aeo', 'agent-readiness']) {
+        const res = await embedded.inject({ method: 'GET', url, headers: { ...withKey(ROOT_KEY), 'x-canonry-embed-tabs': header } })
+        expect(res.statusCode, `${url} with ${header}`).toBe(200)
+      }
+    }
+
+    const outsideGrant = await embedded.inject({
+      method: 'GET',
+      url: '/api/v1/projects/sample/agent-readiness',
+      headers: { ...withKey(ROOT_KEY), 'x-canonry-embed-tabs': 'overview' },
+    })
+    expect(outsideGrant.statusCode).toBe(403)
+  } finally {
+    await embedded.close()
+  }
+})
+
 test('the overview embed tab permits stored competitor history but no competitor write', async () => {
   const embedded = await bootEmbedApp(['overview'])
   try {

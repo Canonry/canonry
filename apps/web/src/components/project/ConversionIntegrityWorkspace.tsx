@@ -805,7 +805,9 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
 
   function focusElement(element: HTMLElement | null) {
     if (!element) return
-    const naturallyFocusable = element.matches('a[href], button, input, select, textarea, [contenteditable="true"]')
+    // `<summary>` is in the tab order on its own. Forcing tabindex=-1 removes
+    // that stop after the runtime checklist action reveals it.
+    const naturallyFocusable = element.matches('a[href], button, input, select, textarea, summary, [contenteditable="true"]')
     if (!naturallyFocusable && !element.hasAttribute('tabindex')) element.tabIndex = -1
     element.focus({ preventScroll: true })
   }

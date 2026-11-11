@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { parseAllDocuments } from 'yaml'
 
 import { Button } from '../ui/button.js'
@@ -10,6 +10,7 @@ import { useAccount } from '../../contexts/account-context.js'
 
 export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
   const { canWrite } = useAccount()
+  const inputId = useId()
   const [yamlText, setYamlText] = useState('')
   const [applying, setApplying] = useState(false)
   const [results, setResults] = useState<string[]>([])
@@ -62,16 +63,11 @@ export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
   }
 
   return (
-    <section className="mt-8">
-      <div className="page-section-divider" />
-      <div className="section-head mt-6">
-        <div>
-          <p className="eyebrow eyebrow-soft">Config as code</p>
-          <h2 className="text-heading-14 text-strong">Apply YAML</h2>
-        </div>
-      </div>
-      <p className="text-muted text-copy-14 mb-3">Paste a <code className="text-secondary">canonry.yaml</code> config (multi-document YAML with <code className="text-secondary">---</code> separators supported).</p>
+    <section>
+      <label htmlFor={inputId} className="mb-2 block text-label-14-strong text-heading">Configuration YAML</label>
+      <p className="text-secondary text-copy-14 mb-3">Paste <code>canonry.yaml</code>. Separate multiple projects with <code>---</code>.</p>
       <textarea
+        id={inputId}
         className="setup-input w-full text-copy-13-mono"
         rows={10}
         placeholder={'apiVersion: canonry/v1\nkind: Project\nmetadata:\n  name: my-project\nspec:\n  canonicalDomain: example.com\n  country: US\n  language: en\n  queries: []'}
@@ -90,7 +86,7 @@ export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
       )}
       <div className="mt-3">
         <Button type="button" disabled={!yamlText.trim() || applying} onClick={asyncHandler(handleApply)}>
-          {applying ? 'Applying...' : 'Apply'}
+          {applying ? 'Applying…' : 'Apply'}
         </Button>
       </div>
     </section>

@@ -13,7 +13,7 @@
 
 <p align="center">
   <strong>The agent-first AEO operating platform.</strong><br/>
-  Track mentions and citations across ChatGPT, Claude, Gemini, Meta Muse, and more. Join them with Search Console, GA4, ads, AI crawler traffic, site audits, and SEO data. Then let your agent create content, publish fixes, manage ChatGPT ads, get pages indexed, and measure what changed.<br/>
+  Track mentions and citations across ChatGPT, Claude, Gemini, Meta Muse, and more. Join them with Search Console, GA4, ads, AI crawler traffic, Agent Readiness site audits, and SEO data. Then let your agent create content, publish fixes, manage ChatGPT ads, get pages indexed, and measure what changed.<br/>
   <sub>Open source · Self-hosted · Bring your own keys</sub>
 </p>
 
@@ -48,11 +48,13 @@ See what AI agents actually do on your site, from your server logs: which pages 
 
 <a href="skills/canonry/references/server-side-traffic.md"><picture><source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/traffic-mobile.png" /><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/traffic.png" alt="Server traffic for the last 24 hours: 105 AI crawler visits, 35 AI user fetches, and 46 AI referral sessions, with an hourly chart, with sample data" width="100%" /></picture></a>
 
-### Site Health
+<a id="site-health"></a>
 
-Crawl your site, score each page for AI readiness, and map the internal links between pages. Each finding lists the pages it affects. [Docs →](skills/canonry/references/canonry-cli.md#site-health-technical-aeo-compatibility)
+### Agent Readiness
 
-<a href="skills/canonry/references/canonry-cli.md#site-health-technical-aeo-compatibility"><picture><source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/site-health-mobile.png" /><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/site-health.png" alt="Site map of 205 crawled pages and the links between them, beside a list of site sections, with sample data" width="100%" /></picture></a>
+A site audit for AI agents. Crawl your site and score how well agents and answer engines can reach, read, and cite each page: AI crawler access, `llms.txt`, structured data, extractable content, and more. Each finding lists the pages it affects, and a map shows the internal links between pages. [Docs →](skills/canonry/references/canonry-cli.md#agent-readiness) · [Audit engine →](https://github.com/Canonry/agent-readiness)
+
+<a href="skills/canonry/references/canonry-cli.md#agent-readiness"><picture><source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/site-health-mobile.png" /><img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/readme/site-health.png" alt="Site map of 205 crawled pages and the links between them, beside a list of site sections, with sample data" width="100%" /></picture></a>
 
 <a id="seo-data"></a>
 
@@ -86,7 +88,7 @@ Let your agent run ChatGPT Ads: sync campaigns and daily results, create and edi
 
 **An example job for your connected agent:**
 
-> Find where competitors get cited and we don't. Use search data and the site audit to prepare a pull request or WordPress draft for review. After it ships, rerun checks and report what changed.
+> Find where competitors get cited and we don't. Use search data and the Agent Readiness audit scan to prepare a pull request or WordPress draft for review. After it ships, rerun checks and report what changed.
 
 ## How it works
 
@@ -171,11 +173,11 @@ Use the official Canonry docs:
 Pick one path and stay on it. Use connected Canonry tools (plugin or MCP) only if you have them and I have not pointed you at a specific install. A connected tool runs in its own process and never sees `CANONRY_CONFIG_DIR`, `CANONRY_PORT`, or anything else you export in a shell, so it always acts on my default install. If I named a config directory, a port, or a sandbox, that is the shell path: use `cnry` and tell me which path you chose. Never mix the two in one run, and never create a duplicate project. The `cnry` and `canonry` commands are interchangeable.
 
 1. Ask for my public domain, country, and language. Do not create or scan anything yet. Country and language are only applied when a project is created, so if you reuse an existing project, report its country and language instead of changing them.
-2. Shell path only: confirm `cnry` is on PATH, then run `cnry --version`. If Canonry is missing, propose `npm install -g @canonry/canonry` and wait for approval. Then run `cnry doctor --format json`, which is the command that says whether config, database, and server are in place. `cnry --version` does not read config and succeeds on a completely unconfigured install, so it cannot answer this. If config is missing, run `cnry bootstrap` yourself: it is not interactive, takes about a second, and is safe to rerun. Do not hand it to me and wait. The interactive command is `cnry init`, which is optional provider and OAuth setup that Page Health does not need. Bootstrap prints an API key, so do not repeat its output back to me, and never ask me to paste passwords, API keys, OAuth credentials, or command output.
+2. Shell path only: confirm `cnry` is on PATH, then run `cnry --version`. If Canonry is missing, propose `npm install -g @canonry/canonry` and wait for approval. Then run `cnry doctor --format json`, which is the command that says whether config, database, and server are in place. `cnry --version` does not read config and succeeds on a completely unconfigured install, so it cannot answer this. If config is missing, run `cnry bootstrap` yourself: it is not interactive, takes about a second, and is safe to rerun. Do not hand it to me and wait. The interactive command is `cnry init`, which is optional provider and OAuth setup that Agent Readiness does not need. Bootstrap prints an API key, so do not repeat its output back to me, and never ask me to paste passwords, API keys, OAuth credentials, or command output.
 3. Confirm the API is reachable. `cnry doctor --format json` reports it, and any project read exits non-zero with `CONNECTION_ERROR` when it is not. If it is unreachable, propose `cnry start` and wait for approval. Use `cnry start`, which is the background daemon, and not `cnry serve`, which runs in the foreground and will block you until I stop it, even though some error messages suggest it. Stop anything you started with `cnry stop`.
-4. List projects with the connected project tool or `cnry project list --format json`, and reuse one whose domain matches. Confirm the proposed name is not already assigned to a different domain. To find out whether a project has already been scanned, run `cnry technical-aeo score <project> --format json` with no `--run-id`, which reports the latest run. Read the `hasData` field, not the score: this command exits 0 and reports `aggregateScore: 0` for a project that has never been scanned, so reading the score alone would have you tell me my site scored zero. If `hasData` is true and `runStatus` is `completed` or `partial`, read that scan instead of starting a new one. If no project matches, show the exact create operation and wait for approval.
-5. Propose a bounded Site Health scan: `--max-pages 100` for a first look, plus whether dead-link checking is on (it is off unless you pass `--check-dead-links`). Show the connected operation or the exact `cnry technical-aeo run <project> --max-pages 100 --wait --format json` command with the project name filled in, and wait for separate approval before scanning. `--wait` polls for up to 15 minutes and returns only the run id and status. If the status it returns is still `queued` or `running`, the scan has not finished: do not rerun it or report results, poll `cnry technical-aeo progress <project> --run-id <run-id> --format json` until it is terminal. If `--wait` outruns your own tool timeout first, recover the run id with `cnry technical-aeo score <project> --format json` and poll the same way.
-6. When the run is `completed` or `partial`, read `cnry technical-aeo crawl <project> --run-id <run-id> --format json` first. It is the only one of these commands that carries `termination` and `complete`; the score and pages commands do not. Then read `cnry technical-aeo score <project> --run-id <run-id> --format json` and `cnry technical-aeo pages <project> --run-id <run-id> --sort score-asc --limit 10 --format jsonl`. Tell me the termination reason in plain words and whether the scan covered the whole site or stopped at a page, link, depth, or time limit. A `partial` run scored the pages it reached and not my site, so never present it as a full-site result. If it stopped early, the fix depends on the reason, so say which: a page or depth limit needs a larger budget, a time limit needs a smaller scan (a lower `--max-pages` or `--max-depth`). If the run failed or was cancelled, inspect the run error and stop.
+4. List projects with the connected project tool or `cnry project list --format json`, and reuse one whose domain matches. Confirm the proposed name is not already assigned to a different domain. To find out whether a project has already been scanned, run `cnry agent-readiness score <project> --format json` with no `--run-id`, which reports the latest run. Read the `hasData` field, not the score: this command exits 0 and reports `aggregateScore: 0` for a project that has never been scanned, so reading the score alone would have you tell me my site scored zero. If `hasData` is true and `runStatus` is `completed` or `partial`, read that scan instead of starting a new one. If no project matches, show the exact create operation and wait for approval.
+5. Propose a bounded Agent Readiness audit scan: `--max-pages 100` for a first look, plus whether dead-link checking is on (it is off unless you pass `--check-dead-links`). Show the connected operation or the exact `cnry agent-readiness run <project> --max-pages 100 --wait --format json` command with the project name filled in, and wait for separate approval before scanning. `--wait` polls for up to 15 minutes and returns only the run id and status. If the status it returns is still `queued` or `running`, the scan has not finished: do not rerun it or report results, poll `cnry agent-readiness progress <project> --run-id <run-id> --format json` until it is terminal. If `--wait` outruns your own tool timeout first, recover the run id with `cnry runs <project> --kind site-audit --limit 1 --format json`, which returns the newest scan whatever its status, and poll the same way.
+6. When the run is `completed` or `partial`, read `cnry agent-readiness overview <project> --run-id <run-id> --format json` first. It is the only one of these commands that carries `termination` and `complete`; the score and page-scores commands do not. Then read `cnry agent-readiness score <project> --run-id <run-id> --format json` and `cnry agent-readiness page-scores <project> --run-id <run-id> --sort score-asc --limit 10 --format jsonl`. Tell me the termination reason in plain words and whether the scan covered the whole site or stopped at a page, link, depth, or time limit. A `partial` run scored the pages it reached and not my site, so never present it as a full-site result. If it stopped early, the fix depends on the reason, so say which: a page or depth limit needs a larger budget, a time limit needs a smaller scan (a lower `--max-pages` or `--max-depth`). If the run failed or was cancelled, inspect the run error and stop.
 7. Summarize only completed evidence, then propose AI Visibility setup. Ask before you add queries, connect providers, start a provider-backed or quota-consuming run, edit files, or publish.
 ```
 
@@ -205,7 +207,7 @@ cnry bootstrap
 cnry serve
 ```
 
-Then open [http://127.0.0.1:4100/setup](http://127.0.0.1:4100/setup) and follow the setup to scan your site. The crawl saves a Page Health baseline. AI Visibility is optional and has a separate setup.
+Then open [http://127.0.0.1:4100/setup](http://127.0.0.1:4100/setup) and follow the setup to scan your site. The crawl saves an Agent Readiness baseline. AI Visibility is optional and has a separate setup.
 
 <details>
 <summary>Scan and read results from the terminal</summary>
@@ -214,17 +216,17 @@ Keep `cnry serve` active. In a second terminal, create a project and start a bou
 
 ```bash
 cnry project create my-site --domain example.com --country US --language en
-cnry technical-aeo run my-site --max-pages 100 --wait --format json
+cnry agent-readiness run my-site --max-pages 100 --wait --format json
 ```
 
 Read the run ID and status from the output. If the status is `completed` or `partial`, read evidence from that run:
 
 ```bash
-cnry technical-aeo score my-site --run-id <run-id> --format json
-cnry technical-aeo pages my-site --run-id <run-id> --sort score-asc --limit 10 --format jsonl
+cnry agent-readiness score my-site --run-id <run-id> --format json
+cnry agent-readiness page-scores my-site --run-id <run-id> --sort score-asc --limit 10 --format jsonl
 ```
 
-`--wait` polls for up to 15 minutes. If the scan remains active, use `cnry technical-aeo progress <project> --run-id <id> --format json`.
+`--wait` polls for up to 15 minutes. If the scan remains active, use `cnry agent-readiness progress <project> --run-id <id> --format json`.
 If the scan fails or is cancelled, read the error with `cnry run show <run-id> --format json`.
 
 </details>
@@ -294,8 +296,8 @@ For a configured portfolio destination, select one `--market <key>` or `--proper
 
 | Problem | Next step |
 |---|---|
-| Site scan is still active | Read exact counters with `cnry technical-aeo progress <project> --run-id <id> --format json`. |
-| Site scan failed | Read the error with `cnry run show <run-id> --format json`. Read the last phase and counters with the progress command. |
+| Agent Readiness audit scan is still active | Read exact counters with `cnry agent-readiness progress <project> --run-id <id> --format json`. |
+| Agent Readiness audit scan failed | Read the error with `cnry run show <run-id> --format json`. Read the last phase and counters with the progress command. |
 | No visibility results | Inspect existing work with `cnry runs <project> --format json`, then `cnry run show <run-id> --format json`. This does not start another paid run. |
 | `npm install` fails on `node-gyp` | Install build tools for `better-sqlite3` ([guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md)). |
 

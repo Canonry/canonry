@@ -56,6 +56,7 @@ import {
   notificationDtoSchema,
   projectDtoSchema,
   providerBatchSummaryDtoSchema,
+  providerConnectionLastTestDtoSchema,
   queryDtoSchema,
   querySnapshotDtoSchema,
   recommendationExplanationDtoSchema,
@@ -271,6 +272,8 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       providerDispatchModes: 'Exposed as `dispatchModes` on the run DTO ({} when null).',
       pendingProviderErrors: 'Sync-provider errors held while finalization waits on a provider batch; folded into `error` at finalize.',
+      providerFailures: 'Exposed as `providerFailures` on the run detail while the run is queued or running; a finished run reports them in `error`.',
+      plannedAnswers: 'Exposed as `plannedAnswers` on the run detail once a sweep records it, and as `progress.answersPlanned` on the setup read.',
     },
   },
   runFills: {
@@ -300,6 +303,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
   providerBatchRequests: {
     kind: 'internal-only',
     reason: 'Maps each batch line\'s custom_id to its slot for ingest; answers surface as query snapshots.',
+  },
+  providerConnectionTests: {
+    kind: 'dto',
+    dto: providerConnectionLastTestDtoSchema,
+    internal: {
+      provider: 'The row key; the result is returned as lastTest on that provider connection, not as a row of its own.',
+      fingerprint: 'Keyed hash of the registration the test checked; it only decides whether the row still describes the active settings and never leaves the server.',
+    },
   },
   querySnapshots: {
     kind: 'dto',

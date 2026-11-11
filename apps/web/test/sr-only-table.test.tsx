@@ -53,14 +53,14 @@ import { VisibilityTrendSection } from '../src/components/project/VisibilityTren
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
 function provider(citationRate: number, mentionRate: number) {
-  return { citationRate, cited: 1, total: 4, mentionRate, mentionedCount: 2 }
+  return { citationRate, cited: 1, total: 4, citationNotMeasured: 0, mentionRate, mentionedCount: 2 }
 }
 
 const BUCKETS = [
   {
     startDate: '2026-04-01T00:00:00.000Z', endDate: '2026-04-08T00:00:00.000Z',
     dataStartDate: '2026-04-03T14:20:00.000Z', dataEndDate: '2026-04-03T14:20:00.000Z', sweepCount: 1,
-    citationRate: 0.25, cited: 1, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+    citationRate: 0.25, cited: 1, total: 4, citationNotMeasured: 0, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { scope: 'non-brand', rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 },
     byProvider: { gemini: provider(0.25, 0.5), openai: provider(0.5, 0.25) },
     modelEvidenceByProvider: { gemini: { status: 'known', model: 'gemini-2.0-flash' }, openai: { status: 'unknown' } },
@@ -68,7 +68,7 @@ const BUCKETS = [
   {
     startDate: '2026-04-08T00:00:00.000Z', endDate: '2026-04-15T00:00:00.000Z',
     dataStartDate: '2026-04-11T08:05:00.000Z', dataEndDate: '2026-04-11T08:05:00.000Z', sweepCount: 1,
-    citationRate: 0.75, cited: 3, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+    citationRate: 0.75, cited: 3, total: 4, citationNotMeasured: 0, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { scope: 'non-brand', rate: 0.75, projectMentionSnapshots: 3, competitorMentionSnapshots: 1 },
     byProvider: { gemini: provider(0.75, 0.5) },
     modelEvidenceByProvider: { gemini: { status: 'known', model: 'gemini-2.0-flash' } },

@@ -1,5 +1,5 @@
-import type { NormalizedQueryResult } from '@canonry/canonry-contracts'
-import { hostMatchesDomain } from '@canonry/canonry-contracts'
+import type { CitationState, NormalizedQueryResult } from '@canonry/canonry-contracts'
+import { CitationStates, hostMatchesDomain, isCitationMeasurable } from '@canonry/canonry-contracts'
 
 /**
  * Of the domains an engine cited for a (query, provider) snapshot, return the
@@ -25,22 +25,29 @@ export function pickProjectCitedDomain(
   return undefined
 }
 
+/**
+ * The citation state to record for one answer. An answer whose engine returns
+ * no sources tied to it (`isCitationMeasurable` false, such as a local model
+ * with no web access) records `not-measured`, never a miss.
+ */
 export function determineCitationState(
   normalized: NormalizedQueryResult,
   domains: string[],
-): 'cited' | 'not-cited' {
+): CitationState {
+  if (!isCitationMeasurable(normalized)) return CitationStates['not-measured']
+
   for (const canonicalDomain of domains) {
     if (normalized.citedDomains.some(d => hostMatchesDomain(d, canonicalDomain))) {
-      return 'cited'
+      return CitationStates.cited
     }
 
     for (const source of normalized.groundingSources) {
-      if (hostMatchesDomain(source.uri, canonicalDomain)) return 'cited'
-      if (source.title && hostMatchesDomain(source.title, canonicalDomain)) return 'cited'
+      if (hostMatchesDomain(source.uri, canonicalDomain)) return CitationStates.cited
+      if (source.title && hostMatchesDomain(source.title, canonicalDomain)) return CitationStates.cited
     }
   }
 
-  return 'not-cited'
+  return CitationStates['not-cited']
 }
 
 /** Domains from the final citation list that belong to tracked competitors. */

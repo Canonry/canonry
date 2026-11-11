@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { CitationState } from '@canonry/canonry-contracts'
 import {
   buildRunHistory,
   DEFAULT_RUN_HISTORY_LIMIT,
@@ -13,7 +14,7 @@ function run(id: string, createdAt: string, status: string = 'completed'): RunHi
 function snap(
   _runId: string,
   queryId: string,
-  citationState: string = 'cited',
+  citationState: CitationState = 'cited',
   answerMentioned: boolean = false,
 ): RunHistorySnapshot {
   return { queryId, citationState, answerMentioned }
@@ -34,12 +35,41 @@ describe('buildRunHistory', () => {
         createdAt: '2026-01-01T00:00:00Z',
         citedCount: 1,
         totalCount: 1,
+        citationNotMeasuredCount: 0,
         citationRate: 100,
         mentionedCount: 1,
         mentionRate: 100,
         status: 'completed',
       },
     ])
+  })
+
+  // An engine that returns no sources answers queries but measures no citation.
+  it('rates citation over queries with a checked answer and mention over every query (mixed engines)', () => {
+    const runs = [run('r1', '2026-01-01T00:00:00Z')]
+    const snapshots = new Map([['r1', [
+      // q1: Gemini cites, Local mentions. q2: Gemini does not cite. q3: only Local answered.
+      snap('r1', 'q1', 'cited', false),
+      snap('r1', 'q1', 'not-measured', true),
+      snap('r1', 'q2', 'not-cited', false),
+      snap('r1', 'q3', 'not-measured', true),
+    ]]])
+    const [point] = buildRunHistory(runs, snapshots)
+    expect(point).toMatchObject({
+      citedCount: 1,
+      totalCount: 3,
+      citationNotMeasuredCount: 1,
+      citationRate: 50,
+      mentionedCount: 2,
+      mentionRate: 66.666667,
+    })
+  })
+
+  it('has a null citation rate for a run whose answers carry no sources, never 0', () => {
+    const runs = [run('r1', '2026-01-01T00:00:00Z')]
+    const snapshots = new Map([['r1', [snap('r1', 'q1', 'not-measured', true), snap('r1', 'q2', 'not-measured', false)]]])
+    const [point] = buildRunHistory(runs, snapshots)
+    expect(point).toMatchObject({ citedCount: 0, totalCount: 2, citationNotMeasuredCount: 2, citationRate: null, mentionRate: 50 })
   })
 
   it('orders points chronologically (oldest first)', () => {
@@ -129,6 +159,7 @@ describe('buildRunHistory', () => {
       createdAt: '2026-01-01T00:00:00Z',
       citedCount: 0,
       totalCount: 0,
+      citationNotMeasuredCount: 0,
       citationRate: 0,
       mentionedCount: 0,
       mentionRate: 0,

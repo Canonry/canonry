@@ -81,6 +81,27 @@ export function openRouterRouteName(model: string): string {
   return route
 }
 
+/** Engine names as people read them; provider keys are lowercase. */
+const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  claude: 'Claude',
+  openai: 'OpenAI',
+  gemini: 'Gemini',
+  perplexity: 'Perplexity',
+  muse: 'Muse',
+  local: 'Local',
+  openrouter: 'OpenRouter',
+}
+
+/**
+ * A provider's name as people read it ("OpenAI", "OpenRouter") where the
+ * server's provider catalog is not loaded: the built-in name, else the key with
+ * a capital first letter. For the account behind a routed model, pass its
+ * `providerConnectionName` first.
+ */
+export function defaultProviderDisplayName(name: string): string {
+  return PROVIDER_DISPLAY_NAMES[name.trim().toLowerCase()] ?? name.charAt(0).toUpperCase() + name.slice(1)
+}
+
 /**
  * Connection credentials, quotas and account holds are shared by its routes.
  * Pass the families of the adapters in scope; the default knows OpenRouter.
@@ -392,6 +413,12 @@ export interface ProviderHealthcheckResult {
   provider: string
   message: string
   model?: string
+  /**
+   * False when `ok` holds without any request to the provider: it documents no
+   * free check, so the saved settings stay unproven until the first real
+   * request. Absent means a passing check reached the provider.
+   */
+  verified?: boolean
 }
 
 export interface ProviderAdapter {
@@ -431,7 +458,12 @@ export interface ProviderAdapter {
   /** Read model metadata only; must never generate an answer or spend query quota. */
   listModels?(config: ProviderConfig, signal: AbortSignal): Promise<ModelDefinition[]>
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult
-  healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult>
+  /**
+   * Check the saved settings against the provider now. Once `signal` aborts,
+   * the check sends nothing more: its retries stop and its request in flight
+   * is cancelled, so a check nobody waits for stops spending.
+   */
+  healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult>
   executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult>
   /**
    * The first half of `executeTrackedQuery`: the exact request it sends. An

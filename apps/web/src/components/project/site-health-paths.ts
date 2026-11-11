@@ -1,5 +1,5 @@
 /**
- * How Site Health writes a crawled page in a list cell.
+ * How Agent Readiness writes a crawled page in a list cell.
  *
  * Every URL in one scan usually shares the crawl root's host, so repeating
  * `https://example.com/` in front of each row costs a column of width and

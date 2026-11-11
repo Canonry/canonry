@@ -4,12 +4,15 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
+import { within } from '@testing-library/react'
 
 import type { VisibilityReportResponse } from '@canonry/canonry-contracts'
 import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
+  getApiV1ProjectsQueryKey,
+  getApiV1RunsByIdQueryKey,
 } from '@canonry/canonry-api-client/react-query'
 import { fetchHealthCheck, fetchServiceStatus, heyClient } from '../src/api.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
@@ -52,6 +55,11 @@ function seedNoMeasurementPlan(queryClient: QueryClient, fixture: ReturnType<typ
       { active: null },
     )
   }
+}
+
+/** Pages that read the project list directly mount their content once it resolves. */
+function seedProjectList(queryClient: QueryClient, fixture: ReturnType<typeof createDashboardFixture>): void {
+  queryClient.setQueryData(getApiV1ProjectsQueryKey({ client: heyClient }), fixture.dashboard.projects.map(entry => entry.project))
 }
 
 function visibilityReportQuery(projectName: string, selection: VisibilitySelectionState) {
@@ -160,6 +168,7 @@ async function renderApp(
   options: Parameters<typeof createDashboardFixture>[0] = {},
   mutateFixture?: (fixture: ReturnType<typeof createDashboardFixture>) => void,
   trackedQueries: Record<string, { query: string }[]> = {},
+  seedClient?: (queryClient: QueryClient, fixture: ReturnType<typeof createDashboardFixture>) => void,
 ): Promise<string> {
   const fixture = createDashboardFixture(options)
   mutateFixture?.(fixture)
@@ -172,6 +181,7 @@ async function renderApp(
 
   seedNoMeasurementPlan(queryClient, fixture)
   seedVisibilityReport(queryClient, fixture, pathname)
+  seedClient?.(queryClient, fixture)
 
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
@@ -188,15 +198,54 @@ async function renderApp(
 test('overview route renders the premium portfolio dashboard', async () => {
   const html = await renderApp('/')
 
-  expect(html).toMatch(/All projects/)
-  expect(html).toContain('<span>All projects</span>')
-  expect(html).toContain('<span class="breadcrumb-current">All projects</span>')
   expect(html).toContain('Open navigation')
   expect(html).toMatch(/Visibility across all projects/)
   expect(html).toMatch(/Infrastructure/)
   expect(html).toMatch(/Citypoint Dental NYC/)
   expect(html).toMatch(/Harbor Legal Group/)
   expect(html).toMatch(/src="\.\/favicon\.svg"/)
+})
+
+// DESIGN.md: the sidebar label and the destination's page title match, and
+// one destination has one name wherever it is named.
+test('the root destination is named Overview in the sidebar, breadcrumb, page title and brand link', async () => {
+  const overview = new DOMParser().parseFromString(await renderApp('/'), 'text/html')
+  const sidebar = overview.querySelector('#desktop-sidebar')!
+  expect(sidebar.querySelector('a.sidebar-link[href="/"]')?.textContent).toBe('Overview')
+  expect(overview.querySelector('h1.page-title')?.textContent).toBe('Overview')
+  // On its own page the trail is the one crumb, never "Overview > Overview".
+  const ownTrail = overview.querySelector('nav[aria-label="Breadcrumb"]')!
+  expect(ownTrail.textContent).toBe('Overview')
+  expect(ownTrail.querySelector('a')).toBeNull()
+  expect(sidebar.querySelector('.brand-icon-link')?.getAttribute('aria-label')).toBe('Canonry overview')
+
+  const runs = new DOMParser().parseFromString(await renderApp('/runs'), 'text/html')
+  const trail = runs.querySelector('nav[aria-label="Breadcrumb"]')!
+  expect([...trail.querySelectorAll('a')].map(link => [link.textContent, link.getAttribute('href')])).toEqual([['Overview', '/']])
+  expect(trail.querySelector('.breadcrumb-current')?.textContent).toBe('Runs')
+  expect(runs.querySelector('.topbar')?.textContent).not.toMatch(/All projects|Home/)
+  expect(runs.querySelector('#desktop-sidebar a.sidebar-link[href="/"]')?.textContent).toBe('Overview')
+})
+
+test('the setup breadcrumb names the page as its heading does', async () => {
+  const crumb = async (path: string) => new DOMParser().parseFromString(await renderApp(path), 'text/html')
+    .querySelector('nav[aria-label="Breadcrumb"] .breadcrumb-current')?.textContent
+  expect(await crumb('/setup?experience=platform')).toBe('Add a project')
+  expect(await crumb('/setup?project=citypoint-dental')).toBe('Project setup')
+  // The first setup and the established wizard keep the plain crumb.
+  expect(await crumb('/setup?project=citypoint-dental&onboarding=first-run')).toBe('Setup')
+  expect(await crumb('/setup?experience=legacy')).toBe('Setup')
+  expect(await crumb('/setup')).toBe('Setup')
+})
+
+test('the sidebar shows the version once, in the brand lockup, and keeps the product links', async () => {
+  const doc = new DOMParser().parseFromString(await renderApp('/'), 'text/html')
+  const sidebar = doc.querySelector('#desktop-sidebar')!
+
+  expect(sidebar.textContent?.match(/vphase-1/g)).toEqual(['vphase-1'])
+  expect(sidebar.querySelector('.brand-version')?.textContent).toBe('vphase-1')
+  expect(sidebar.querySelector('.footer-version')).toBeNull()
+  expect([...sidebar.querySelectorAll('.footer a')].map(link => link.getAttribute('aria-label') ?? link.textContent)).toEqual(['Canonry', 'GitHub', 'Docs', 'Changelog'])
 })
 
 test('project route renders a concise visibility summary with progressive detail', async () => {
@@ -211,10 +260,19 @@ test('project route renders a concise visibility summary with progressive detail
   // embed configs pass that id on the wire (CANONRY_EMBED_PROJECT_TABS), so
   // renaming it would break an existing install's allowlist.
   expect(html).toMatch(/AI Visibility/)
-  expect(html).toMatch(/Search Engines/)
-  // The route/embed token remains `technical-aeo`; only the product label changes.
-  expect(html).toMatch(/Site Health/)
-  expect(html).toMatch(/Queries/)
+  // Agent Readiness is one name: the tab label, its `agent-readiness` route and embed token.
+  expect(html).toMatch(/Agent Readiness/)
+  expect(html).not.toMatch(/Site Health/)
+  const subnav = new DOMParser().parseFromString(html, 'text/html').querySelector('.project-subnav')
+  const visibleTabs = [...(subnav?.querySelectorAll('.project-subnav-link') ?? [])]
+    .filter(link => !link.closest('.project-subnav-measure'))
+    .map(link => link.textContent?.trim())
+  expect(visibleTabs).toEqual([
+    'AI Visibility', 'Queries', 'Search engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'More',
+  ])
+  const projectSettings = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('a.sidebar-link')]
+    .find(link => link.textContent?.includes('Project settings'))
+  expect(projectSettings?.getAttribute('href')).toBe('/projects/Citypoint%20Dental%20NYC/settings')
   // The trend chart is the first card after the tabs: no Visibility card above it.
   const doc = new DOMParser().parseFromString(html, 'text/html')
   expect(doc.getElementById('overview-brief-title')).toBeNull()
@@ -256,22 +314,23 @@ test('runs route renders the operational timeline and filters', async () => {
   const html = await renderApp('/runs')
 
   expect(html).toMatch(/Runs/)
-  expect(html).toMatch(/All runs/)
+  expect(html).toMatch(/All statuses/)
   expect(html).toMatch(/Queued follow-up after local ranking movement/)
   expect(html).toMatch(/Citation losses on emergency-intent prompts/)
 })
 
-test('settings route renders provider state, quota summary, and service health', async () => {
+test('settings route loads connection details while retaining integration and service health', async () => {
   const html = await renderApp('/settings')
 
   expect(html).toMatch(/Settings/)
-  expect(html).toMatch(/Rate limit/)
+  expect(html).toMatch(/Provider connections/)
+  expect(html).toMatch(/Loading connections/)
   expect(html).toMatch(/Service health/)
-  expect(html).toMatch(/Gemini/)
+  expect(html).toMatch(/Google OAuth/)
 })
 
 test('traffic route offers a source-agnostic connect entry point', async () => {
-  const html = await renderApp('/traffic')
+  const html = await renderApp('/traffic', {}, undefined, {}, seedProjectList)
 
   expect(html).toMatch(/Traffic sources/)
   expect(html).toMatch(/Connect a source/)
@@ -283,7 +342,8 @@ test('settings route renders the shared Google OAuth configuration card', async 
   const html = await renderApp('/settings')
 
   expect(html).toMatch(/Google OAuth/)
-  expect(html).toMatch(/~\/\.canonry\/config\.yaml/)
+  // The config folder is named by how it is chosen, since a server can start with CANONRY_CONFIG_DIR.
+  expect(html).toMatch(/config\.yaml in the config folder: ~\/\.canonry, or the folder CANONRY_CONFIG_DIR names/)
   expect(html).toMatch(/Configure Google OAuth|Update OAuth app/)
 })
 
@@ -310,15 +370,17 @@ test('setup resumes at queries when a durable project has no query basket', asyn
   expect(html).toMatch(/Add queries/)
 })
 
-test('setup blocks progress until API, worker, and provider readiness pass', async () => {
+test('setup requires a configured provider before continuing and offers inline key entry', async () => {
   const html = await renderApp('/setup?experience=legacy', { providerNeedsConfig: true }, (fixture) => {
     fixture.dashboard.projects = []
     fixture.dashboard.runs = []
   })
 
-  expect(html).toMatch(/Launch is blocked until at least one provider is configured/)
-  expect(html).toMatch(/Paste a Gemini key/)
-  expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Continue<\/button>/)
+  const container = document.createElement('div')
+  container.innerHTML = html
+  const setup = within(container)
+  expect(setup.getByLabelText('Gemini API key').getAttribute('type')).toBe('password')
+  expect(setup.getByRole('button', { name: 'Continue', exact: true }).hasAttribute('disabled')).toBe(true)
 })
 
 test('setup treats a cancelled first run as retryable, not complete', async () => {
@@ -334,11 +396,28 @@ test('setup treats a cancelled first run as retryable, not complete', async () =
     fixture.dashboard.runs = [cancelled]
   }, {
     'Citypoint Dental NYC': [{ query: 'emergency dentist brooklyn' }],
+  }, (queryClient, fixture) => {
+    const run = fixture.dashboard.runs[0]!
+    // Static markup never fetches. The wizard waits for this run's details
+    // before it will call a resumed check cancelled or complete.
+    queryClient.setQueryData(
+      getApiV1RunsByIdQueryKey({ client: heyClient, path: { id: run.id } }),
+      {
+        id: run.id,
+        projectId: run.projectId,
+        kind: run.kind,
+        status: 'cancelled',
+        createdAt: run.createdAt,
+        snapshots: [],
+      },
+    )
   })
 
   expect(html).toMatch(/Cancelled/)
+  expect(html).toMatch(/The check was cancelled before it produced a baseline/)
   expect(html).toMatch(/Retry check/)
   expect(html).not.toMatch(/Setup is complete/)
+  expect(html).not.toMatch(/The check finished without saving any engine results/)
 })
 
 test('setup recognizes an older baseline outside the global run window', async () => {
@@ -347,8 +426,8 @@ test('setup recognizes an older baseline outside the global run window', async (
     fixture.dashboard.runs = []
   })
 
-  expect(html).toMatch(/Setup is complete/)
-  expect(html).not.toMatch(/Launch AI Visibility check/)
+  expect(html).toMatch(/has saved AI Visibility results/)
+  expect(html).not.toMatch(/>Run check</)
 })
 
 test('overview route renders first-run onboarding guidance when there are no projects', async () => {
@@ -364,7 +443,7 @@ test('default overview covers multiple projects and recent runs', async () => {
 
   expect(html).toMatch(/Northstar Orthopedics/)
   expect(html).toMatch(/One follow-up run is queued/)
-  expect(html).toMatch(/System health/)
+  expect(html).toMatch(/Infrastructure/)
 })
 
 test('setup route renders step indicator with all step labels', async () => {
@@ -412,10 +491,21 @@ test('project route keeps server insights out of the Simple overview', async () 
   expect(html).not.toMatch(/What needs your attention/)
 })
 
-test('project search console route renders the Search Engines section', async () => {
+test('project search console route renders the Search engines section', async () => {
   const html = await renderApp('/projects/project_citypoint/search-console')
+  const page = document.createElement('div')
+  page.innerHTML = html
+  // Tab names come from aria-labelledby. A detached tree's root is the div,
+  // which has no getElementById, so the nodes have to be in the document.
+  document.body.appendChild(page)
+  onTestFinished(() => page.remove())
+  const google = within(page).getByRole('tab', { name: 'Google' })
+  const bing = within(page).getByRole('tab', { name: 'Bing' })
+  expect(google.tabIndex).toBe(0)
+  expect(bing.tabIndex).toBe(-1)
+  expect(within(page).getByRole('tabpanel', { name: 'Google' }).id).toBe(google.getAttribute('aria-controls'))
 
-  expect(html).toMatch(/Search Engines/)
+  expect(html).toMatch(/Search engines/)
   expect(html).toMatch(/Search engine workspaces/)
   expect(html).toMatch(/Google Search Console/)
   expect(html).toMatch(/>Google</)

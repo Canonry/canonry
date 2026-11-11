@@ -570,6 +570,27 @@ export function parseBoundedRate(value: number | null): number | null {
 }
 
 
+/**
+ * A project's market as people read it: "United States · English". A code the
+ * runtime cannot name stays as written, and an empty value reads "Country" or
+ * "Language", so the label never collapses to " · ".
+ */
+export function formatLocaleLabel(country: string, language: string): string {
+  const region = country.trim()
+  const lang = language.trim()
+  const regionName = region.length === 2 ? localeDisplayName('region', region.toUpperCase()) : undefined
+  const languageName = lang ? localeDisplayName('language', lang.toLowerCase()) : undefined
+  return `${regionName ?? (region || 'Country')} · ${languageName ?? (lang || 'Language')}`
+}
+
+function localeDisplayName(type: 'region' | 'language', code: string): string | undefined {
+  try {
+    return new Intl.DisplayNames(['en'], { type }).of(code)
+  } catch {
+    return undefined
+  }
+}
+
 /** A scheduled instant in its configured timezone, with an explicit zone label. */
 export function formatZonedTimestamp(iso: string, timeZone = 'UTC'): string | null {
   const date = new Date(iso)

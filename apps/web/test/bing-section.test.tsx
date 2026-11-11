@@ -55,15 +55,19 @@ function listBody(groupBy: string, key: 'query' | 'page', rows: unknown[]) {
 
 const snapshot = (kind: string, payload: unknown, status = 'ok', error: string | null = null) => ({ kind, status, payload, error, syncedAt: SYNCED_AT })
 
-function mountBing({ synced = true, liveFails = false, embed = false, sitemapIndex = false, crawlErrors = 0, trafficSplit = false, readsFail = false, submitFails = false, runs = [] }: { synced?: boolean; liveFails?: boolean; embed?: boolean; sitemapIndex?: boolean; crawlErrors?: number; trafficSplit?: boolean; readsFail?: boolean; submitFails?: boolean; runs?: Array<Record<string, unknown>> } = {}) {
+function mountBing({ synced = true, liveFails = false, embed = false, demo = false, sitemapIndex = false, crawlErrors = 0, trafficSplit = false, readsFail = false, submitFails = false, runs = [] }: { synced?: boolean; liveFails?: boolean; embed?: boolean; demo?: boolean; sitemapIndex?: boolean; crawlErrors?: number; trafficSplit?: boolean; readsFail?: boolean; submitFails?: boolean; runs?: Array<Record<string, unknown>> } = {}) {
   // The project's bing-sync runs, newest first. Starting a sync adds a queued one.
   let syncRuns = runs
   if (embed) window.__CANONRY_CONFIG__ = { embed: { enabled: true } } as typeof window.__CANONRY_CONFIG__
+  if (demo) window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
   const requests: Array<{ method: string; path: string; search: URLSearchParams }> = []
   const restore = mockFetch((url, init) => {
     const parsed = new URL(url)
     const path = parsed.pathname
     requests.push({ method: init?.method ?? 'GET', path, search: parsed.searchParams })
+    if (demo && !/\/bing\/(?:status|coverage|inspections)$/.test(path)) {
+      return jsonResponse({ error: { code: 'DEMO_READ_ONLY', message: 'This action is unavailable in the view-only demo.' } }, 403)
+    }
     if (path.endsWith('/bing/status')) return jsonResponse({ connected: true, domain: 'example.com', siteUrl: SITE, createdAt: SYNCED_AT, updatedAt: SYNCED_AT })
     if (path.endsWith('/bing/sync')) {
       const run = { id: 'run-1', projectId: 'p1', kind: 'bing-sync', status: 'queued', trigger: 'manual', createdAt: SYNCED_AT }
@@ -86,7 +90,7 @@ function mountBing({ synced = true, liveFails = false, embed = false, sitemapInd
     if (path.endsWith('/trends')) return jsonResponse({ project: 'sample', surface: 'index-coverage', window: '30d', startDate: null, endDate: null, groups: [] })
     if (path.endsWith('/bing/keyword-demand')) return jsonResponse({ market: { country: 'us', language: 'en-US' }, rows: [{ query: 'garage heater', country: 'us', language: 'en-US', latestWeek: '2026-10-25', latestImpressions: 510, latestBroadImpressions: 900, avgWeeklyImpressions: 480.4, weeks: 26, syncedAt: SYNCED_AT }], history: [] })
     if (path.endsWith('/bing/coverage')) return jsonResponse({ summary: { total: 3, indexed: 2, notIndexed: 1, unknown: 0, percentage: 66.7 }, lastInspectedAt: SYNCED_AT, indexed: [], notIndexed: [{ id: 'n1', url: `${SITE}old/`, httpCode: 404, inIndex: false, lastCrawledDate: null, inIndexDate: null, inspectedAt: SYNCED_AT }], unknown: [] })
-    if (path.endsWith('/bing/inspections')) return jsonResponse([])
+    if (path.endsWith('/bing/inspections')) return jsonResponse([{ id: 'i1', url: `${SITE}pricing/`, httpCode: 200, inIndex: true, lastCrawledDate: SYNCED_AT, inIndexDate: SYNCED_AT, inspectedAt: SYNCED_AT }])
     if (path.endsWith('/bing/crawl-stats')) {
       return jsonResponse(crawlErrors > 0
         ? { rows: [{ date: '2026-10-31', crawledPages: 40, inIndex: 2, crawlErrors, inLinks: 9, code2xx: 35, code301: 1, code302: 0, code4xx: 2, code5xx: 0, allOtherCodes: 0, blockedByRobotsTxt: 0, connectionTimeout: 0, containsMalware: 0, dnsFailures: 0 }], window: traffic.window, latestAvailableDate: '2026-10-31' }
@@ -163,7 +167,8 @@ test('a shared basis is printed once when every figure used the same period', as
 
 test('a failed load says so instead of claiming there is no data yet', async () => {
   mountBing({ readsFail: true })
-  expect(await screen.findByText(/Could not load Bing data:/)).not.toBeNull()
+  expect(await screen.findByText('Could not load Bing data: database is locked')).not.toBeNull()
+  expect(screen.queryByText(/INTERNAL_ERROR/)).toBeNull()
   expect(screen.getByRole('button', { name: 'Retry' })).not.toBeNull()
   expect(screen.queryByRole('heading', { name: 'No Bing search data yet' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Sync Bing data now' })).toBeNull()
@@ -303,10 +308,61 @@ test('an embed shows the stored data with no live reads or writes', async () => 
   expect(screen.queryByRole('button', { name: 'Disconnect' })).toBeNull()
 })
 
+test('the public demo shows saved coverage and inspections without unsupported reads or actions', async () => {
+  const { requests } = mountBing({ demo: true })
+  expect(await screen.findByTitle(`${SITE}old/`)).not.toBeNull()
+  expect(screen.getByRole('heading', { name: 'Index coverage' })).not.toBeNull()
+  expect(screen.getByRole('button', { name: 'This demo includes saved index coverage and URL inspections.' })).not.toBeNull()
+  expect(screen.queryByRole('tab', { name: 'Crawl by day' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /Submit/ })).toBeNull()
+  fireEvent.click(await screen.findByRole('tab', { name: 'Inspections (1)' }))
+  expect(await screen.findByTitle(`${SITE}pricing/`)).not.toBeNull()
+  expect(screen.queryByRole('textbox', { name: 'URL to inspect' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Disconnect', hidden: true })).toBeNull()
+  expect(screen.queryByRole('button', { name: /Retry|Sync Bing data now/ })).toBeNull()
+  expect(screen.queryByText(/Could not load Bing|DEMO_READ_ONLY/)).toBeNull()
+  expect(requests.map(({ method, path }) => `${method} ${path}`).sort()).toEqual([
+    'GET /api/v1/projects/sample/bing/coverage',
+    'GET /api/v1/projects/sample/bing/inspections',
+    'GET /api/v1/projects/sample/bing/status',
+  ])
+})
+
 test('the position change follows the API difference, and says when there is none', () => {
   expect(bingPositionChange(null)).toEqual({ kind: 'note', text: 'No comparison period' })
   const base = { days: 30, prior: weeklyTotals, difference: { clicks: 0, impressions: 0, ctr: 0, avgImpressionPosition: 1.25 } }
   expect(bingPositionChange(base)).toEqual({ kind: 'delta', amount: '1.3', direction: 'up', tone: 'worse', basis: 'vs prior 30 days' })
   expect(bingPositionChange({ ...base, difference: { ...base.difference, avgImpressionPosition: 0 } })).toMatchObject({ direction: 'flat', tone: 'neutral' })
   expect(bingPositionChange({ ...base, difference: { ...base.difference, avgImpressionPosition: null } })).toEqual({ kind: 'note', text: 'No position in the prior 30 days' })
+})
+
+test('each Bing tab group takes one tab stop and switches its list from the keyboard', async () => {
+  mountBing()
+
+  const queries = await screen.findByRole('tab', { name: 'Queries' })
+  const pages = screen.getByRole('tab', { name: 'Pages' })
+  expect([queries.tabIndex, pages.tabIndex]).toEqual([0, -1])
+  expect(await within(screen.getByRole('tabpanel', { name: 'Queries' })).findByRole('button', { name: 'Show details for garage heater' })).not.toBeNull()
+  queries.focus()
+  fireEvent.keyDown(queries, { key: 'ArrowRight' })
+  expect(document.activeElement).toBe(pages)
+  expect([queries.tabIndex, pages.tabIndex]).toEqual([-1, 0])
+  expect(await within(screen.getByRole('tabpanel', { name: 'Pages' })).findByTitle(`${SITE}pricing/`)).not.toBeNull()
+
+  const notIndexed = screen.getByRole('tab', { name: 'Not indexed (1)' })
+  const lists = within(screen.getByRole('tablist', { name: 'Bing index and crawl lists' })).getAllByRole('tab')
+  expect(lists.map(tab => [tab.textContent, tab.tabIndex])).toEqual([
+    ['Not indexed (1)', 0], ['Status unknown (0)', -1], ['Indexed (0)', -1], ['Inspections (1)', -1], ['Crawl by day', -1],
+  ])
+  expect(await within(screen.getByRole('tabpanel', { name: 'Not indexed (1)' })).findByTitle(`${SITE}old/`)).not.toBeNull()
+  notIndexed.focus()
+  fireEvent.keyDown(notIndexed, { key: 'End' })
+  const crawl = screen.getByRole('tab', { name: 'Crawl by day' })
+  expect(document.activeElement).toBe(crawl)
+  expect(await within(screen.getByRole('tabpanel', { name: 'Crawl by day' })).findByText('No crawl stats stored yet.')).not.toBeNull()
+  fireEvent.keyDown(crawl, { key: 'ArrowLeft' })
+  expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Inspections (1)' }))
+  expect(await within(screen.getByRole('tabpanel', { name: 'Inspections (1)' })).findByTitle(`${SITE}pricing/`)).not.toBeNull()
+  fireEvent.keyDown(document.activeElement!, { key: 'Home' })
+  expect(document.activeElement).toBe(notIndexed)
 })

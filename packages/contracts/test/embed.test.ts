@@ -7,6 +7,7 @@ import {
   embedProjectTabsError,
   embedClientConfigForRequest,
   normalizeIdTokens,
+  normalizeEmbedProjectTabs,
   parseEmbedQueryLimit,
   serializeForInlineScript,
   type ResolvedEmbedConfig,
@@ -201,9 +202,11 @@ describe('embedClientConfigForRequest', () => {
   })
 
   it('REPLACES projectTabs with the per-request override (CSV string), normalized', () => {
+    // Normalized like the boot config: lowercased, and the renamed
+    // technical-aeo key read as agent-readiness.
     expect(embedClientConfigForRequest(enabled, 'Overview, technical-aeo')).toEqual({
       enabled: true,
-      projectTabs: ['overview', 'technical-aeo'],
+      projectTabs: ['overview', 'agent-readiness'],
     })
   })
 
@@ -225,7 +228,7 @@ describe('embedClientConfigForRequest', () => {
     const noTabs: ResolvedEmbedConfig = { enabled: true, allowedOrigins: [] }
     expect(embedClientConfigForRequest(noTabs, 'overview,technical-aeo')).toEqual({
       enabled: true,
-      projectTabs: ['overview', 'technical-aeo'],
+      projectTabs: ['overview', 'agent-readiness'],
     })
   })
 
@@ -322,5 +325,29 @@ describe('serializeForInlineScript', () => {
   it('leaves ordinary config byte-identical to JSON.stringify (no < > & present)', () => {
     const cfg = { basePath: '/canonry', embed: { enabled: true, projectTabs: ['overview', 'technical-aeo'] } }
     expect(serializeForInlineScript(cfg)).toBe(JSON.stringify(cfg))
+  })
+})
+
+describe('normalizeEmbedProjectTabs', () => {
+  it('keeps a saved technical-aeo grant under its agent-readiness key', () => {
+    expect(normalizeEmbedProjectTabs(['Overview', 'technical-aeo'])).toEqual(['overview', 'agent-readiness'])
+    expect(normalizeEmbedProjectTabs([' TECHNICAL-AEO '])).toEqual(['agent-readiness'])
+  })
+
+  it('collapses the old and new key to one grant, in first-seen order', () => {
+    expect(normalizeEmbedProjectTabs(['technical-aeo', 'overview', 'agent-readiness'])).toEqual(['agent-readiness', 'overview'])
+  })
+
+  it('leaves other keys to normalizeIdTokens, including an empty list', () => {
+    expect(normalizeEmbedProjectTabs(['Overview', 'report'])).toEqual(['overview', 'report'])
+    expect(normalizeEmbedProjectTabs([])).toBeUndefined()
+  })
+})
+
+describe('embedClientConfigForRequest project-tab override', () => {
+  it('reads a renamed technical-aeo tab from the per-dashboard header as agent-readiness', () => {
+    const resolved: ResolvedEmbedConfig = { enabled: true, allowedOrigins: ['https://client.example'] }
+    expect(embedClientConfigForRequest(resolved, 'overview, technical-aeo')?.projectTabs).toEqual(['overview', 'agent-readiness'])
+    expect(embedClientConfigForRequest(resolved, ['agent-readiness', 'technical-aeo'])?.projectTabs).toEqual(['agent-readiness'])
   })
 })

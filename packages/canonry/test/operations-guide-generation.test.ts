@@ -3,6 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
+import { buildMcpAgentTools, type AgentMcpAdapterContext } from '../src/agent/mcp-to-agent-tool.js'
+import { canonryMcpTools } from '../src/mcp/tool-registry.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const moduleUrl = new URL('../../../scripts/sync-agent-operations.mjs', import.meta.url).href
@@ -28,6 +30,19 @@ it('reproduces the checked-in runtime and native skill exactly', () => {
   for (const external of [source, rendered.skillMarkdown, rendered.generated]) {
     expect(external).not.toContain('Built-in Aero')
   }
+})
+
+it("names, in Aero's preface, each tool the guide offers that built-in Aero cannot call", () => {
+  const aero = renderAgentOperations(source).aeroReferenceMarkdown
+  // Aero's copy is its preface, then the guide from its title on.
+  const guideStart = aero.indexOf('\n# ') + 1
+  const preface = aero.slice(0, guideStart)
+  const offered = new Set(aero.slice(guideStart).match(/\bcanonry_[a-z][a-z_]*[a-z]\b/g))
+  const client = {} as AgentMcpAdapterContext['client']
+  const catalog = new Set(buildMcpAgentTools(canonryMcpTools, { client, projectName: 'demo' }).map(tool => tool.name))
+  const unavailable = [...offered].filter(name => !catalog.has(name))
+  expect(unavailable).toEqual(expect.arrayContaining(['canonry_help', 'canonry_provider_test']))
+  for (const name of unavailable) expect(preface, name).toContain(`\`${name}\``)
 })
 
 it('detects both source drift and hand-edited generated skills without changing files in check mode', () => {

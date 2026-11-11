@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import { useQuery, useQueries } from '@tanstack/react-query'
+import { useQuery, useQueries, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import {
   fetchProjectOverview,
@@ -27,6 +27,23 @@ import { useInitialDashboard } from '../contexts/dashboard-context.js'
  * Overview attention items come from the server summary; this hook does not
  * fetch answer bodies or derive evidence-based alerts in the browser.
  */
+/**
+ * The project's most recently loaded overview, under whichever key it was
+ * read. `useQueries` gives a changed key a new observer with nothing of its
+ * own to keep, so `keepPreviousData` would show nothing; the cache still
+ * holds the earlier key's overview.
+ */
+function lastLoadedOverview(queryClient: QueryClient, projectId: string): ProjectData | undefined {
+  let latest: { updatedAt: number; data: ProjectData } | undefined
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: ['project-overview-slim', projectId] })) {
+    const data = query.state.data as ProjectData | undefined
+    if (data !== undefined && (latest === undefined || query.state.dataUpdatedAt > latest.updatedAt)) {
+      latest = { updatedAt: query.state.dataUpdatedAt, data }
+    }
+  }
+  return latest?.data
+}
+
 interface DashboardOverviewOptions {
   includeSettings?: boolean
   /** Keep project/run metadata available without starting per-project `/overview` reads. */
@@ -42,6 +59,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
   const includeOverviews = options.includeOverviews ?? true
   const pauseProjectPolling = options.pauseProjectPolling ?? false
   const { isAdmin } = useAccount()
+  const queryClient = useQueryClient()
   const loadActivity = !effectiveInitial && includeOverviews && !isEmbed()
 
   // Scope to answer-visibility so integration syncs don't fill the 500-row
@@ -52,7 +70,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
     staleTime: RUNS_STALE_MS,
     refetchInterval: (query) => {
       const runs = query.state.data
-      const hasActive = runs?.some(r => r.status === 'running' || r.status === 'queued')
+      const hasActive = runs?.some(r => r.status === RunStatuses.running || r.status === RunStatuses.queued)
       return hasActive ? 3000 : RUNS_STALE_MS
     },
   })
@@ -76,7 +94,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
       // Fast poll only when setup needs it (zero projects) or a sweep is active;
       // otherwise idle at 30s — cuts 30 req/min → ~2 req/min per tab.
       const hasActive = (runsQuery.data as { status: string }[] | undefined)?.some(
-        r => r.status === 'running' || r.status === 'queued',
+        r => r.status === RunStatuses.running || r.status === RunStatuses.queued,
       )
       const needsFast = (data?.length ?? 0) === 0 || !!hasActive
       return needsFast ? PROJECTS_REFRESH_MS : PROJECTS_REFRESH_IDLE_MS
@@ -105,12 +123,14 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
       // after a sweep completes. Mirrors the pattern in `useDashboard`.
       const completedRuns = projectRuns
         .filter(r =>
-          (r.status === 'completed' || r.status === 'partial')
-          && r.kind === 'answer-visibility'
-          && r.trigger !== 'probe')
+          (r.status === RunStatuses.completed || r.status === RunStatuses.partial)
+          && r.kind === RunKinds['answer-visibility']
+          && r.trigger !== RunTriggers.probe)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       const cacheBustKey = completedRuns.length > 0 ? completedRuns[0]!.id : 'no-run'
 
+      // Starting, queuing or failing a run never refetches the overview:
+      // "What changed" takes runs in progress from this polled run list.
       return {
         queryKey: ['project-overview-slim', project.id, cacheBustKey] as const,
         queryFn: async (): Promise<ProjectData> => {
@@ -131,6 +151,10 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
         },
         enabled: !effectiveInitial && includeOverviews && projectsQuery.isSuccess && runsQuery.isSuccess,
         staleTime: STATIC_VISIBILITY_STALE_MS,
+        // A completed sweep changes the key. Keep the project's last overview
+        // on screen until the new one lands, rather than blanking the page to
+        // its skeleton.
+        placeholderData: () => lastLoadedOverview(queryClient, project.id),
       }
     }),
   })

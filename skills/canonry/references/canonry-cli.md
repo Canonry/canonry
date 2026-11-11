@@ -39,12 +39,12 @@ cnry dashboard reset-password                  # clear a forgotten dashboard pas
 cnry --version
 ```
 
-`cnry bootstrap` is the provider-free Page Health path. It stores state under
+`cnry bootstrap` is the provider-free Agent Readiness path. It stores state under
 `$CANONRY_CONFIG_DIR` when set, otherwise `~/.canonry`, and prints a new API key
 once. With no provider, its `--format json` output lists `nextSteps` for adding
-one, and `technical-aeo run|score|crawl` / `site-health overview` print a
+one, and `agent-readiness run|score|overview` print a
 `NO_PROVIDER` notice on stderr (one `{"notice":{...}}` line for JSON): AI
-Visibility is the next step after Page Health. The operator adds the key in the
+Visibility is the next step after Agent Readiness. The operator adds the key in the
 dashboard or in their own terminal; never ask for it in chat. `cnry settings
 provider` registers a provider on the running server immediately. `cnry init` is the optional interactive path when provider/OAuth setup is
 wanted at the same time. An agent must ask the operator to run either
@@ -132,8 +132,9 @@ pm2 restart canonry
 
 ```bash
 cnry project list                              # list all projects
-cnry project create <name> --domain <url> --country US --language en
+cnry project create <name> --domain <url> --country US --language en   # brand name from the domain unless --display-name
 cnry project show <name>                       # project detail
+cnry project setup <name>                      # first-run setup: Agent Readiness audit scan, AI Visibility check, next step
 cnry project update <name>                     # update project settings
 cnry project update <name> --add-lead-event book_demo --remove-lead-event old_event
 cnry project update <name> --no-count-key-events   # count only the lead events above, not the GA4 property's key events (--count-key-events turns it back on)
@@ -143,7 +144,7 @@ cnry project update <name> --display-name "Sample Brand" --expect-revision 4
 cnry project update <name> --dispatch-mode claude=batch   # scheduled sweeps batch this provider (repeatable; see Batch mode below)
 cnry project update <name> --clear-dispatch-mode claude   # back to sync
 cnry project update <name> --negative-review-max-stars 2   # review.negative for 1-2 star Google reviews only (1-4, or "default" for 3)
-cnry project update <name> --site-audit-max-pages 2500   # Site Health page budget for scans that set none (1-50000, or "full" for the full site); create takes it too, spec.siteAuditMaxPages in apply
+cnry project update <name> --site-audit-max-pages 2500   # Agent Readiness page budget for scans that set none (1-50000, or "full" for the full site); create takes it too, spec.siteAuditMaxPages in apply
 cnry project update <name> --competitor-auto-aliases apply   # store answer-derived competitor names after each sweep (off | preview | apply; default preview logs only); spec.competitorAutoAliases in apply
 cnry project update <name> --add-qualified-alias "Acme NYC"      # sentiment treats this existing alias as the brand's own name (see Brand aliases)
 cnry project update <name> --remove-qualified-alias "Acme NYC"   # repeatable; create takes --qualified-alias
@@ -152,6 +153,8 @@ cnry project delete <name> --dry-run           # preview cascade impact (GET /de
 cnry status <project>                          # stored run, integration and health status for one project
 cnry status --all [--problems]                 # stored status for every project and connected integration
 ```
+
+`project setup` reads `GET /projects/<name>/setup` from stored state only: no provider call, crawl or write. Each track is the latest non-probe run of its kind (`not_started` when there is none): the Agent Readiness audit scan (`site-audit`) and the AI Visibility check (`answer-visibility`). A check that measured every location is one sweep of sibling runs (`aiVisibility.runIds`, newest first), read as one check: running while any run is, partial when only some saved results. Neither gates the other. A queued or running track reports stored progress (scan pages found and checked against its page budget; check answers saved against the answers it planned), a completed or partial one its result (scan score and pages scored; check answers, engines, and query counts with non-brand and branded kept apart, and text output labels it `Baseline` or `Latest check`). `aiVisibility.baselineRunId` names the baseline, the first check to finish with a result, in every state (null before any); the latest check is the baseline when `runId` equals it, and a failed one its reason; a failed check also lists each engine's failure kind (`failedEngines[].code`, such as `PROVIDER_BILLING` for an account out of credit), and text output adds the step that fixes it. `aiVisibility.blockedBy` is the run preview's readiness (`no_engine`, `no_queries`, `plan_unpublished`, `engines_failing`; Simple and Advanced). `nextAction` is the server's next step: `run_agent_readiness`, `retry_agent_readiness`, `connect_engine`, `add_queries`, `publish_plan`, `run_ai_visibility`, `repair_ai_visibility`, `wait` or `open_project`; text output prints it as a `Next:` command. It names a step and grants nothing: the scan and the check (which spends the operator's AI engine accounts) each need approval. `--format json` is the API object; MCP `canonry_project_setup` returns the same.
 
 Project updates use PATCH and preserve omitted settings and config source. Measurement
 flags are repeatable: `--lead-event`, `--brand-term`, and `--marketing-host` replace
@@ -222,6 +225,7 @@ cnry snapshot "Acme Corp" --domain acme.example.com --provider-mode api  # all c
 cnry snapshot "Acme Corp" --domain acme.example.com --provider-mode browser --queries "best widget suppliers"
 
 cnry run <project>                             # sweep all configured providers
+cnry run preview <project> --format json       # stored-only workload/admission for the next default full manual sweep
 cnry run <project> --provider gemini           # single provider only
 cnry run <project> --query "alpha" --query "beta"  # scope sweep to a subset of tracked queries (repeatable)
 cnry run <project> --wait                      # block until complete (a batch run: until batch-pending, then exit 0); exit 2 if the run failed
@@ -249,6 +253,8 @@ The newest limited rows retain chronological order. Traffic sync rows include
 `sourceId` when stored, and human output shows failed and partial errors.
 JSON is the API array; JSONL emits each run with its project. With no second
 positional, `run list` retains the sweep shorthand for a project named `list`.
+
+`run preview` reports query classes, engines/models, locations and Advanced published revision/assignments. `expectedRequestCount` counts planned answer slots; `requestCount` excludes unavailable engines and held provider accounts. It makes no provider calls or writes, reserves no work, and does not preview scoped, forced, or all-location overrides. A draft-only Advanced project must be published before an ordinary sweep.
 
 Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 
@@ -340,8 +346,9 @@ because generation spends provider quota.
 Two independent signals per (query × provider): **mention** (`answerMentioned` — brand named in the answer text; the **primary** read) and **citation** (`cited`/`citedDomains` — domain in the grounding sources; **secondary**). Read mention first. Never compute one from the other; never coerce `answerMentioned` null → false (null = "not checked").
 
 ```bash
-cnry evidence <project>                        # per-query [C/c][M/m] cell + Mentioned: X / Y / Cited: X / Y
-cnry evidence <project> --format json          # JSON output
+cnry citations visibility <project>            # two-glyph [citation][mention] cell per (query × engine) + Cite/Ment counts
+cnry evidence <project>                        # latest citation per query (✓ cited / ✗ not-cited / · not measured) + Cited: X / Y
+cnry evidence <project> --format json          # JSON output: each query's runs with citation and mention state
 cnry history <project>                         # audit trail
 cnry history <project> --entity-type competitor --format json
 cnry history <project> --action-prefix competitors. --exclude-entity-type traffic_source --since 2026-10-01T00:00:00Z --until 2026-10-02T00:00:00Z
@@ -369,18 +376,21 @@ Project exports redact notification webhook URLs by default as `redacted://<host
 Applying that export preserves the existing notification ID, signing secret, source, enabled state and creation time. The HTTPS `/redacted` placeholder from notification listings also preserves the matched stored destination. A real URL change appears in preview and audit as a URL-change marker without exposing its path or secret.
 Use `--include-secrets` only when the credential has administrator authority. The CLI prints a redaction note to stderr when URLs remain redacted.
 
-Output uses a two-glyph cell per (query × provider): `[C/c][M/m]` — uppercase = present, lowercase = absent, `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). Always print the legend before the table; never collapse the two signals into one cell.
+`cnry citations visibility` prints a two-glyph cell per (query × engine): citation first, mention second. Uppercase = present, lowercase = absent, `·` = citation not measured (the engine returns no sources, such as a local model), `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). The legend prints above the table; never collapse the two signals into one cell.
 
 ```
-Legend: [C/c][M/m]  C=cited c=not-cited  M=mentioned m=not-mentioned  –=no snapshot
-
-[C][M]  acme corp ny       ← mentioned AND cited
-[c][M]  best crm for smb    ← mentioned, not cited (mention win, citation gap)
-[C][m]  crm pricing         ← cited, not mentioned (citation without share of voice)
-[c][m]  free crm tools      ← neither
+(cell = [citation][mention];  C=cited c=not ·=not measured, M=mentioned m=not, –=no data)
+Query             gemini  local  openai  Cite  Ment
+acme corp ny      CM      ·M     CM      2/2   3/3   ← mentioned AND cited
+best crm for smb  cM      ·M     cM      0/2   3/3   ← mentioned, not cited (mention win, citation gap)
+crm pricing       Cm      ·m     cm      1/2   0/3   ← cited, not mentioned (citation without share of voice)
+free crm tools    cm      ·m     cm      0/2   0/3   ← neither
+crm for agencies  –       ·M     –       ·     1/1   ← mentioned; citation not measured (no sources), never a citation gap
 ```
 
-Summary: `Mentioned: X / Y` (primary) and `Cited: X / Y` (secondary) are reported independently — a query can be one, both, or neither.
+`Cite` is the engines that cited the query over those whose sources were checked (`·` when none were); `Ment` is the engines that mentioned it over those that answered. `Cited in sources: X/Y engines` and `Mentioned in answers: X/Y engines` above the table report the two signals independently — a query can be one, both, or neither.
+
+`cnry evidence` prints each query's latest citation instead: `✓ cited`, `✗ not-cited` or `· not measured (no sources)`, with a transition such as `(lost)`. Its summary is `Cited: X / Y`, where `Y` counts only queries whose latest answers carried sources, and `Not measured: N` lists the rest apart. It prints no mention line; `--format json` carries each run's `mentionState` and `mentionTransition`.
 
 ## Results Export (historical observations)
 
@@ -395,7 +405,7 @@ cnry results export <project> --include-probes         # opt IN to probe runs (e
 Bulk download of every persisted answer-visibility query × provider observation — one record per snapshot, ordered by run then snapshot. This is the raw-history primitive; use `visibility-stats` for aggregates and `visibility-compare` for month-over-month claims.
 
 Behavior to know:
-- **Citation and mention stay independent** per record: `citationState`/`cited` describe source-list attribution; `answerMentioned`/`mentionState` describe answer-text presence. `answerMentioned: null` means "not evaluated" (legacy snapshot), never not-mentioned.
+- **Citation and mention stay independent** per record: `citationState`/`cited` describe source-list attribution; `answerMentioned`/`mentionState` describe answer-text presence. `answerMentioned: null` means "not evaluated" (legacy snapshot), never not-mentioned. `citationState: not-measured` with `cited: null` (an empty CSV cell) means the engine returns no sources, never not-cited; an older row of such an engine that stored `not-cited` exports as `not-measured`.
 - `query` is the snapshot-time text, so removed tracked queries keep their history; `queryId` is null for them.
 - Includes completed, partial, and failed answer-visibility runs. Probe runs and other run kinds (site-audit etc.) are excluded unless `--include-probes`.
 - CSV cells are spreadsheet-injection-safe (leading `=`, `+`, `-`, `@` neutralized) and JSON-array columns (`cited_domains_json`, …) are embedded JSON strings.
@@ -408,7 +418,7 @@ Behavior to know:
 ```bash
 cnry analytics <project>                       # default analytics view
 cnry analytics <project> --feature metrics     # mention + citation rate trends (BrandMetricsDto: mentionTrend primary, trend secondary)
-cnry analytics <project> --feature gaps        # brand gap analysis — mention buckets (mentionedQueries[]/mentionGap[]/notMentioned[]) primary, cited buckets (cited[]/gap[]/uncited[]) secondary
+cnry analytics <project> --feature gaps        # brand gap analysis — mention buckets (mentionedQueries[]/mentionGap[]/notMentioned[]) primary, cited buckets (cited[]/gap[]/uncited[], plus citationNotMeasured[] for queries whose engines return no sources) secondary
 cnry analytics <project> --feature sources     # source breakdown by category
 cnry analytics <project> --window 7d           # time window: 7d, 30d, 90d, all
 cnry analytics <project> --feature metrics --query-class non-brand  # branded|non-brand answers only (metrics and sources); omitted = all, which pools both
@@ -444,7 +454,7 @@ cnry bing submit-sitemap <project> <url>   # ask Bing to read a sitemap (adds a 
 cnry google submit-sitemap <project> <url> # the same for Google
 ```
 
-Canonry compares three stored lists: the sitemap files the latest Site Health scan read pages from (`site.sitemaps`), Search Console's list (stored by every Google sync, files inside each index included) and Bing's (stored by `bing sync`). For each engine, `missing` holds sitemaps the site declares, or someone submitted to the other engine, that this engine lacks (not offered from the other engine: a sitemap it only found by itself, one it reports errors for, or an index on a host where this engine already has every sitemap the site declares); a file inside a missing index is left out, since adding the index covers it. Google is offered only sitemaps inside the connected property, Bing only its site's host and subdomains. An engine is `null` until its list has been read once; after that an empty list means it has none. `submittedAt: null` on a top-level row means the engine found the sitemap itself; on a file inside an index it came through the index. A new submission shows in the stored list after that engine's next sync.
+Canonry compares three stored lists: the sitemap files the latest Agent Readiness audit scan read pages from (`site.sitemaps`), Search Console's list (stored by every Google sync, files inside each index included) and Bing's (stored by `bing sync`). For each engine, `missing` holds sitemaps the site declares, or someone submitted to the other engine, that this engine lacks (not offered from the other engine: a sitemap it only found by itself, one it reports errors for, or an index on a host where this engine already has every sitemap the site declares); a file inside a missing index is left out, since adding the index covers it. Google is offered only sitemaps inside the connected property, Bing only its site's host and subdomains. An engine is `null` until its list has been read once; after that an empty list means it has none. `submittedAt: null` on a top-level row means the engine found the sitemap itself; on a file inside an index it came through the index. A new submission shows in the stored list after that engine's next sync.
 
 ### Stored trend figures (`cnry trends`)
 
@@ -452,7 +462,7 @@ The figures a dashboard tab's trend card leads with, from stored data only: each
 
 ```bash
 cnry trends <project> --surface index-coverage          # Google and Bing indexed / not indexed pages, last 90 days by default
-cnry trends <project> --surface site-health             # site score and pages checked, one reading per scan, all history by default
+cnry trends <project> --surface site-health             # Agent Readiness score and pages checked, one reading per scan, all history by default
 cnry trends <project> --surface backlinks --window 90d  # referring domains, linking hosts and top-10 concentration per Common Crawl release
 cnry trends <project> --surface index-coverage --start 2026-08-01 --end 2026-08-31  # your own calendar range instead of a window
 cnry trends <project> --surface backlinks --format json # TrendsResponse; jsonl degrades to the json document
@@ -469,7 +479,7 @@ cnry trends <project> --surface backlinks --format json # TrendsResponse; jsonl 
 Per-query mention (answer-text) and citation (source-list) **counts with a sample size**, pooled across many answer-visibility runs — the data to compute a confidence-aware proportion (e.g. Wilson) or detect drift without fetching every run. Backed by `GET /api/v1/projects/<name>/visibility-stats` and the `canonry_visibility_stats` MCP tool. Probe runs and non-`answer-visibility` runs are excluded; only completed/partial runs count. `--share-of-voice` adds a head-to-head vs tracked competitors (`project / (project + competitor)` brand mentions) — the primitive for a month-over-month client report: call it with `--month <this>` and `--month <last>` and compare. **It is scoped to NON-BRAND queries by default and the response echoes `queryClass`.** A branded query hands the model your name, so you are mentioned on ~all of them and a competitor structurally cannot be; a pooled figure therefore reports brand recall as category placement (measured: one basket read 42% / rank 1 pooled and 3% / rank LAST non-brand). Pass `--query-class branded` for the recall figure. There is no "all" — the two never share a denominator. `--query-class` scopes share of voice only, never the counts: `TOTAL` (JSON `totals`) pools both classes, and the lines under it (JSON `byQueryClass`, plus `queryClass` on each query) split mention and citation counts into non-brand, branded and unclassified. Read the non-brand line for competitive placement.
 
 ```bash
-cnry visibility-stats <project>                                   # all runs; per-query cited/total + mentioned/checked + pooled TOTAL
+cnry visibility-stats <project>                                   # all runs; per-query cited/measured (n/m: no sources) + mentioned/checked + pooled TOTAL
 cnry visibility-stats <project> --last-runs 10                    # most recent 10 runs (mutually exclusive with --since/--until/--month)
 cnry visibility-stats <project> --since 2026-06-01 --until 2026-06-30   # ISO date/time window on run createdAt
 cnry visibility-stats <project> --month 2026-06                    # a whole calendar month (YYYY-MM), expanded to that month's UTC bounds
@@ -488,52 +498,61 @@ cnry visibility-compare <project> --from 2026-05 --to 2026-06 --scope property -
 - **Use `visibility-compare` for any month-over-month AEO claim.** It leads with **share of voice** (less exposed to an engine's broad naming propensity than an absolute rate, `driftRobust: true`), pools rates per-snapshot (invariant to sweep count), restricts to the query/provider PAIRS present in BOTH months, then to providers with one known, identical configured model id in both months, and attaches a Wilson 95% interval + a `verdict` to every metric. Verdicts: **`within-noise`** = NO confirmed change (never report it as a decline); **`moved`** = a real directional move; **`model-discontinuous` / `model-unknown`** = the engine's configured model changed, was mixed within a month, or is unrecorded, so no directional call is made (do not attribute the swing to the site). Read `continuity` (`status` + per-provider evidence) for what was excluded — `continuity` is the gate, `modelChanges` is advisory. A silent upstream version bump under an unchanged configured id remains undetectable. `lowRunCount` flags a month under 5 sweeps, where intervals are too wide to resolve a move.
 - **Class rates:** `mention-rate-branded`, `cited-rate-branded`, `mention-rate-non-brand` and `cited-rate-non-brand` never pool the classes; a missing split reads `classification-unavailable`, and `excludedUnknown` counts rows without that metric's own signal. On an Advanced project without `--scope`/`--market-key`, the four original metrics keep the project frame while the class rates come from the frozen frame in **`classComparison`**: read `classComparison.continuity` (and its `basket`/run counts) as the gate for those four rates, not the top-level `continuity`. `--scope`/`--market-key` answer entirely from the frozen frame at the top level and are refused when a month holds unreconstructable schema-v1 runs.
 
-- **Tri-state aware:** `checked` counts only snapshots where `answerMentioned` was recorded — `null` ("not checked") is **excluded**, never counted as not-mentioned. So `checked` is the correct `n` for a mention proportion. `mentionRate = mentioned/checked`; `citedRate = cited/total` (citation_state is always populated, so the citation `n` is `total`). Both rates are `null` when their denominator is 0 (undefined over no samples).
+- **Tri-state aware:** `checked` counts only snapshots where `answerMentioned` was recorded — `null` ("not checked") is **excluded**, never counted as not-mentioned. So `checked` is the correct `n` for a mention proportion. `mentionRate = mentioned/checked`; `citedRate = cited/(total - citationNotMeasured)`, where `citationNotMeasured` counts answers whose engine returns no sources (never a miss). Both rates are `null` when their denominator is 0 (undefined over no samples).
 - **Date-only window:** `--since`/`--until` accept a full ISO instant or a bare `YYYY-MM-DD`. A date-only `--until 2026-06-30` covers the **whole** UTC day (through 23:59:59.999), so same-day runs are included; a date-only `--since` is that day's start.
 - **Unbounded by default:** with no `--since`/`--until`/`--last-runs`, every completed/partial run is pooled (`window.runCount` reports how many). For a recent sample, bound it with `--last-runs N`.
 - **`groupBy` in the payload:** present (`"provider"`) only with `--by-provider`; omitted otherwise (absent = no breakdown) — the generated SDK types it `groupBy?: 'provider'`.
 - **mention vs cited stay independent** — a model can do either, both, or neither. Don't read one from the other.
 
-## Site Health (technical-aeo compatibility)
+<a id="site-health-technical-aeo-compatibility"></a>
 
-Site-wide technical audit (structured data, AI-readable content, AI-crawler access, content depth/freshness/extractability, …) powered by `@canonry/agent-readiness`'s `runSiteCrawl`. Runs as the `site-audit` run kind — discovers in-scope URLs from the project root, sitemaps, and internal links; stores the URL/link graph; audits eligible HTML pages; and rolls the results into one 0–100 site score. Pure HTTP, no LLM cost; a large site can take minutes, so it runs in the background. `site-health` is the operator-facing CLI name; `technical-aeo` remains compatible.
+## Agent Readiness
+
+Site-wide Agent Readiness audit scan (structured data, AI-readable content, AI-crawler access, content depth/freshness/extractability, agent integrations, …) powered by `@canonry/agent-readiness`'s `runSiteCrawl`. Runs as the `site-audit` run kind — discovers in-scope URLs from the project root, sitemaps, and internal links; stores the URL/link graph; audits eligible HTML pages; and rolls the results into one 0–100 Agent Readiness score. Pure HTTP, no LLM cost; a large site can take minutes, so it runs in the background. The API serves the same data under `/api/v1/projects/<name>/agent-readiness/…`, and the MCP tools are `canonry_agent_readiness_*`.
 
 ```bash
-cnry technical-aeo run <project> --wait                 # full crawl + audit; without --max-pages uses the project's saved page budget, else the full site (up to 50,000 pages); edges derived from the page count unless --max-edges is set; --wait polls up to 15 minutes, so follow a longer scan with technical-aeo progress
-cnry technical-aeo run <project> --sitemap-url <url> --max-pages 5000 --max-edges 250000 --max-depth 12   # optional crawl seeds and custom budgets; hard caps are 50,000 pages / 1,000,000 edges
-cnry technical-aeo run <project> --check-dead-links --wait   # opt in to dead-link checks; they are off by default
-cnry technical-aeo progress <project> --run-id <id> [--format json] # exact durable phase and pages found / checked / failed counters; never a synthesized percentage
-cnry technical-aeo crawl <project> [--run-id <id>] [--format json]   # crawl metadata, budgets, completeness, and termination
-cnry site-health overview <project> [--run-id <id>] [--format json] # operator-facing alias for crawl metadata
-cnry site-health issues <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl] # stored findings including passing-score issues, affected-page counts and example URLs
-cnry site-health issue-pages <project> --issue-id <id> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl] # affected URLs for one issue; pin the run from the issue list
-cnry site-health page-audit <project> (--node-key <key>|--url <url>) [--run-id <id>] [--format json] # exact audit score, factor findings, recommendations, and crawl provenance for one graph page
-cnry site-health subgraph <project> [--node-key <key>|--url <url>] [--hops <n>] [--max-nodes <n>] [--max-edges <n>] [--format json] # focused semantic graph (MCP defaults to 25 nodes / 50 edges)
-cnry site-health path <project> (--to-node-key <key>|--to-url <url>) [--from-node-key <key>|--from-url <url>] [--max-depth <n>] [--format json] # directed shortest followable-link path
-cnry site-health changes <project> [--from-run-id <id>] [--to-run-id <id>] [--scope all|pages|links] [--change all|added|removed|changed] [--cursor <cursor>] [--limit <n>] [--format json|jsonl] # canonical scan diff; either scan ID is optional; JSONL begins with scan/cursor/filter metadata
-cnry technical-aeo changes <project> [--from-run-id <id>] [--to-run-id <id>] [--scope all|pages|links] [--change all|added|removed|changed] [--cursor <cursor>] [--limit <n>] [--format json|jsonl] # compatibility alias with the same independently optional scan IDs
-cnry technical-aeo crawl-pages <project> [--fetch-state <state>] [--indexability-state <state>] [--url-versions include|exclude|only] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # bounded URL inventory with depth and link score; --url-versions exclude lists pages only, as the dashboard does
-cnry technical-aeo page-audit <project> (--node-key <key>|--url <url>) [--run-id <id>] [--format json] # compatibility alias for one page's exact audit evidence
-cnry technical-aeo structure <project> [--parent-path <path>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # one level of the path hierarchy
-cnry technical-aeo links <project> [--source-url <url>] [--target-url <url>] [--followable|--nofollow] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # bounded internal-link edges
-cnry technical-aeo links neighbors <project> (--node-key <key>|--url <url>) [--limit <n>] [--format json]   # bounded inbound/outbound neighborhood
-cnry technical-aeo dead-links <project> [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # disabled unless the run opted in
-cnry technical-aeo score <project> [--format json]      # site score + per-factor scorecard (avg + pass/partial/fail per page) + delta vs the previous audit
-cnry technical-aeo pages <project> [--status error] [--sort score-asc|score-desc|url] [--format json|jsonl]   # audited-page compatibility view (worst-first by default)
-cnry technical-aeo trend <project> [--format json|jsonl] # aggregate-score history across past audits
+# Scan
+cnry agent-readiness run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--check-dead-links] [--include-geo] [--no-agent-skills] [--wait] [--format json]
+cnry agent-readiness run <project> --wait                 # full crawl + audit; without --max-pages uses the project's saved page budget, else the full site (up to 50,000 pages); edges derived from the page count unless --max-edges is set; --wait polls up to 15 minutes, so follow a longer scan with agent-readiness progress
+cnry agent-readiness run <project> --sitemap-url <url> --max-pages 5000 --max-edges 250000 --max-depth 12   # optional crawl seeds and custom budgets; hard caps are 50,000 pages / 1,000,000 edges
+cnry agent-readiness run <project> --check-dead-links --wait   # opt in to dead-link checks; they are off by default
+cnry agent-readiness progress <project> --run-id <id> [--format json]   # exact durable phase and pages found / checked / failed counters; never a synthesized percentage
 cnry schedule set <project> --kind site-audit --preset weekly   # keep it fresh
 cnry schedule set <project> --kind site-audit --check-dead-links --include-geo   # make every scheduled scan a deep scan (keeps the timing)
+
+# Score
+cnry agent-readiness score <project> [--run-id <id>] [--format json]   # Agent Readiness score + per-factor scorecard (avg + pass/partial/fail per page) + delta vs the previous scan
+cnry agent-readiness page-scores <project> [--run-id <id>] [--status success|error] [--sort score-asc|score-desc|url] [--limit <n>] [--format json|jsonl]   # per-page scores of audited pages (worst-first by default); --status error lists unreachable pages
+cnry agent-readiness trend <project> [--limit <n>] [--format json|jsonl]   # Agent Readiness score history across past scans
+
+# Scan overview, pages, and findings
+cnry agent-readiness overview <project> [--run-id <id> | --date YYYY-MM-DD] [--format json]   # crawl metadata, budgets, completeness, and termination
+cnry agent-readiness pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--url-versions include|exclude|only] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # bounded URL inventory with depth and link score; --url-versions exclude lists pages only, as the dashboard does
+cnry agent-readiness page-audit <project> (--node-key <key>|--url <url>) [--run-id <id>] [--format json]   # exact audit score, factor findings, recommendations, and crawl provenance for one graph page
+cnry agent-readiness issues <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # stored findings including passing-score issues, affected-page counts and example URLs
+cnry agent-readiness issue-pages <project> --issue-id <id> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # affected URLs for one issue; pin the run from the issue list
+
+# Site structure and links
+cnry agent-readiness structure <project> [--run-id <id>] [--parent-path <path>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # one level of the path hierarchy
+cnry agent-readiness links <project> [--run-id <id>] [--source-url <url>] [--target-url <url>] [--followable|--nofollow] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # bounded internal-link edges
+cnry agent-readiness neighbors <project> (--node-key <key>|--url <url>) [--run-id <id>] [--limit <n>] [--format json]   # bounded inbound/outbound neighborhood of one page
+cnry agent-readiness dead-links <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # disabled unless the run opted in
+cnry agent-readiness subgraph <project> [--run-id <id>] [--node-key <key>|--url <url>] [--hops <n>] [--max-nodes <n>] [--max-edges <n>] [--format json]   # focused semantic graph (MCP defaults to 25 nodes / 50 edges)
+cnry agent-readiness path <project> (--to-node-key <key>|--to-url <url>) [--run-id <id>] [--from-node-key <key>|--from-url <url>] [--max-depth <n>] [--format json]   # directed shortest followable-link path
+cnry agent-readiness changes <project> [--from-run-id <id>] [--to-run-id <id>] [--scope all|pages|links] [--change all|added|removed|changed] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]   # canonical scan diff; either scan ID is optional; JSONL begins with scan/cursor/filter metadata
 ```
+
+**Deprecated names.** The older `technical-aeo …` and `site-health …` commands still work as aliases, with the same flags, output, JSON, and exit codes; they will be removed only in a future major version. Four subcommands have new names: `technical-aeo crawl` and `site-health overview` are `agent-readiness overview`; `technical-aeo crawl-pages` and `site-health pages` are `agent-readiness pages`; `technical-aeo pages` is `agent-readiness page-scores`; and `technical-aeo links neighbors` and `site-health neighbors` are `agent-readiness neighbors`. Every other subcommand keeps its name.
 
 Agent integration checks run by default, inspecting discoverable actions, forms, and tool links. Use `--no-agent-skills` to disable them. Geographic checks are off by default; `--include-geo` adds location and service-area signals. Both selections change scan identity. Lighthouse is not exposed by Canonry.
 
 A scheduled scan always covers the full site (or the project's saved page budget). Which checks it runs belongs to the schedule: `schedule set --kind site-audit` takes the same `--check-dead-links`, `--include-geo` and `--no-agent-skills` flags as a manual scan, and any of them sets the whole list of checks. `--default-checks` goes back to the defaults (no dead links, no location checks, agent checks on). Without these flags the schedule keeps its checks, so moving, pausing or resuming it never drops them; check flags alone keep the current timing. `schedule show` prints them on a `Checks:` line, and the API returns them as `siteAudit` (PUT `siteAudit`: omit to keep, `null` to reset).
 
-For agent site readiness, begin with `cnry technical-aeo score <project> --format json`. Use `cnry site-health overview <project>` only to add crawl metadata; it never replaces the score. Use `cnry site-health page-audit` (MCP: `canonry_site_health_page_audit`) to tie a selected graph page's audit score to exact findings and fixes. Link score is importance, not an audit verdict. Then request a focused neighborhood, a shortest path, or scan-to-scan changes. Do not ask an agent to materialize the interactive graph: it can exceed the MCP tool-result limit. The matching traversal tools are `canonry_site_health_subgraph`, `canonry_site_health_path`, and `canonry_site_health_changes`; the subgraph tool defaults to a small focused result and should be expanded only when needed.
+To assess Agent Readiness, begin with `cnry agent-readiness score <project> --format json`. Use `cnry agent-readiness overview <project>` only to add crawl metadata; it never replaces the score. Use `cnry agent-readiness page-audit` (MCP: `canonry_agent_readiness_page_audit`) to tie a selected graph page's audit score to exact findings and fixes. Link score is importance, not an audit verdict. Then request a focused neighborhood, a shortest path, or scan-to-scan changes. Do not ask an agent to materialize the interactive graph: it can exceed the MCP tool-result limit. The matching traversal tools are `canonry_agent_readiness_subgraph`, `canonry_agent_readiness_path`, and `canonry_agent_readiness_changes`; the subgraph tool defaults to a small focused result and should be expanded only when needed.
 
-- The score is only available after at least one audit runs — `score` returns `hasData: false` until then.
-- URL versions are not scored. A parameter address (a filter, view or cache setting) whose canonical names the same path is a copy of that page: the audit fetches it to learn that, then leaves it out of the score, the factor counts, `technical-aeo pages` and the fix lists. `inventorySummary.urlVersions` counts them, each one's `auditState` is `url-version` with `urlVersionOf` naming its page, and `crawl-pages --url-versions only` lists them. Once 3 addresses with the same parameter pattern (site section plus parameter names) prove to be copies, the crawl stops fetching that pattern, unless one of them turns out to be a page of its own; those copies have no rows, and `inventorySummary.urlVersionsNotFetched` counts them. The URL versions a scan found are `urlVersions + urlVersionsNotFetched`, which is the number the dashboard and `technical-aeo crawl` show. A parameter page with no such canonical (`?page=2`, `?id=123`) is scored like any page. Scans made before this rule scored every address.
-- `issues` and `issue-pages` read stored evidence only; `technical-aeo` aliases expose the same commands. JSONL begins with provenance, coverage, total and continuation metadata, including for an empty result. An unavailable cross-page source in an older scan is not a measured zero, and a partial scan cannot establish site-wide absence. Follow the cursor before claiming a complete list. Issue dispositions guide review; advisory metadata findings do not automatically justify an edit or a blog post.
+- The score is only available after at least one scan runs — `score` returns `hasData: false` until then.
+- URL versions are not scored. A parameter address (a filter, view or cache setting) whose canonical names the same path is a copy of that page: the audit fetches it to learn that, then leaves it out of the score, the factor counts, `agent-readiness page-scores` and the fix lists. `inventorySummary.urlVersions` counts them, each one's `auditState` is `url-version` with `urlVersionOf` naming its page, and `agent-readiness pages --url-versions only` lists them. Once 3 addresses with the same parameter pattern (site section plus parameter names) prove to be copies, the crawl stops fetching that pattern, unless one of them turns out to be a page of its own; those copies have no rows, and `inventorySummary.urlVersionsNotFetched` counts them. The URL versions a scan found are `urlVersions + urlVersionsNotFetched`, which is the number the dashboard and `agent-readiness overview` show. A parameter page with no such canonical (`?page=2`, `?id=123`) is scored like any page. Scans made before this rule scored every address.
+- `issues` and `issue-pages` read stored evidence only. JSONL begins with provenance, coverage, total and continuation metadata, including for an empty result. An unavailable cross-page source in an older scan is not a measured zero, and a partial scan cannot establish site-wide absence. Follow the cursor before claiming a complete list. Issue dispositions guide review; advisory metadata findings do not automatically justify an edit or a blog post.
 - Reads without `--run-id` use the newest scan that published a crawl, including one that stopped at its page budget (`complete: false`, `termination: max-pages`). A failed, cancelled, or still-running scan never replaces it. `changes` compares complete crawls only.
 - Graph reads are server-paged and bounded. Use `--run-id` to inspect a specific retained run.
 - A subgraph with `countAccuracy: "lower-bound"` hit a traversal cap: totals and omissions are minimums, not site-wide counts. Its `complete` and `termination` fields apply to every observation.
@@ -721,7 +740,7 @@ cnry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
 cnry schedule set <project> --kind data-refresh --preset daily   # refresh all connected GSC/Bing (coverage + full data sync)/GA/GBP integrations (no --source)
 cnry schedule set <project> --kind backlinks-sync --preset weekly # re-probe Common Crawl; sync only when a newer rolling window is published (no --source/--provider)
 cnry doctor --project <project> --check site.reachability   # probe the homepage now; the server also probes every 10 min and pages health.degraded after two failed passes
-cnry schedule set <project> --kind site-audit --preset weekly     # Technical AEO: bounded full-site crawl and audit (no --source/--provider)
+cnry schedule set <project> --kind site-audit --preset weekly     # Agent Readiness audit scan: bounded full-site crawl and audit (no --source/--provider)
 cnry schedule set <project> --kind site-audit --check-dead-links --include-geo   # weekly deep scan: dead links + location checks on every scheduled scan
 cnry schedule set <project> --kind seo-sync --cron '0 7 2 * *'  # paid SEO refresh of every saved profile, monthly (needs seo.run; no --source/--provider)
 cnry schedule show <project>
@@ -757,6 +776,16 @@ A webhook that lists either event receives **only the health events it lists**, 
 
 > **No mention events yet.** Notification events cover the citation signal only — there are **no** `mention.lost` / `mention.gained` events today. For mention-first monitoring, read `scores.mentionCoverage` / `scores.mentionShare` via `cnry overview` (or the `insight.*` events, which can be driven by mention-side insights); do not wire automation to mention events that aren't emitted.
 
+**What changed.** `cnry overview <project>` prints the dashboard's "What changed" rows: the queries that lost a mention and those that lost a citation in the latest check (each query once, the two signals counted apart, with the engines, locations, and for Advanced the Properties and markets that lost it) and the runs in progress. `cnry overview --all` prints the portfolio's rows under its table. JSON carries them as `whatChanged`: `lostMentions` / `lostCitations` (`queryCount`, at most 25 `queries`, `truncated`), `activeRuns`, the rows as `items`, and `comparison`. Simple compares each engine's answer with its previous check of the same query and location; Advanced compares each Property's answer with the comparable previous sweep.
+
+`comparison` is `{ "state": "available", "previousRunIds" }` when the latest check was compared. Otherwise it is `{ "state": "unavailable", "reason" }`, and the lost counts are 0 because nothing was compared, not because nothing was lost:
+
+- `not-measured`: the project has no completed check yet. It says nothing about any answer's citation.
+- `no-previous-check`: the latest check is the first, so there is nothing earlier to compare it with.
+- Advanced only: `definition-changed` (the previous sweep measured another plan definition), `model-changed` (it asked other engines or models), `partial-run` (the latest or previous sweep is partial), `legacy-plan` (a schema v1 plan freezes no Property definition; republish setup) and `unreadable` (the previous sweep can't be read).
+
+A project whose overview `cnry overview --all` can't read keeps its table row, marked "Couldn't be loaded" with the reason, and What changed names it instead of counting it as clear, as the dashboard does. In JSON it is `{ "project", "error": { "code", "message" } }` in its place. Once everything is printed the command exits with `OVERVIEW_INCOMPLETE` (`details.projects` names them): `2` when a retry may help (a server or network failure), otherwise `1`. Exit `0` means every element is a full overview.
+
 ## Provider Settings & Quotas
 
 ```bash
@@ -765,6 +794,12 @@ cnry settings --format json
 cnry settings reload-providers --format json   # apply the server's saved provider config
 cnry settings provider gemini --api-key <KEY> --model gemini-flash-latest
 cnry settings provider openai --max-per-day 1000 --max-per-minute 20
+cnry settings provider-info openai --format json   # saved config, defaults and project impact
+cnry settings provider test openai --format json   # check the saved key with the provider now
+cnry settings provider openai --reset-model --reset-limits
+cnry settings provider local --remove-key         # remove an optional Local key
+cnry settings disconnect-provider openai          # inspect impact; makes no changes
+cnry settings disconnect-provider openai --confirm --if-impact-revision <REVISION>
 cnry settings provider perplexity --api-key <KEY> --model fast
 cnry settings provider muse --api-key <KEY> --model muse-spark-1.3
 cnry settings provider openrouter --api-key <KEY>
@@ -772,7 +807,40 @@ cnry settings provider openrouter --api-key <KEY>
 
 Perplexity runs on its Agent API. `--model` takes a preset (`fast` default, `low`, `medium`, `high`, `xhigh`) or a `vendor/model` slug such as `perplexity/sonar`. Retired Sonar names still work and run as their replacement (`sonar` → `fast`, `sonar-pro` → `low`).
 
-Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`
+Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`.
+Use `--reset-limits` to inherit all connection limits, or repeat
+`--reset-quota maxConcurrency|maxRequestsPerMinute|maxRequestsPerDay` for individual
+fields. `--reset-model` removes the connection override. `--reset-base-url` restores a built-in endpoint (Local requires an explicit endpoint). Project overrides remain
+independent. `--if-revision <revision>` from `provider-info` rejects stale updates.
+
+`provider-info` is a stored read: it exposes no credentials and makes no vendor
+calls. It returns editable capabilities, effective/default/overridden limits,
+host-managed Vertex/batch/pricing settings, active-work blockers, and projects
+that reference the connection through defaults, schedules or Advanced plans/drafts.
+Disconnect previews use the same response. Without `--confirm` no state changes;
+with it, the connection is removed from the connected server's saved config and
+runtime. Project selections and result history remain available, and the key is
+not revoked at its vendor. Reconnect before running those engine selections again.
+Pass the preview's `impactRevision` with `--if-impact-revision` to reject changed
+project impact. Resets and disconnect require install administrator authority and
+`settings.write`; host-managed credentials must be changed on the host.
+
+`provider test <name>` checks a saved connection with the provider now, using
+the server's active settings, and changes no settings. Most answer engines answer one
+tiny prompt on the provider account; Local lists its models; OpenRouter reads its
+key; a search answer service with no free key check makes no request. `status` is
+`connected`, `failed` (with the provider's redacted reason; no answer within 30
+seconds also fails) or `not-verified` (saved, but the first real request is the
+first proof). Exit 0 for `connected` and `not-verified`, 2 for `failed` after the
+result is printed, 1 for an unknown or unconfigured provider, or one whose
+previous test is still running. It requires install administrator authority and
+`settings.write` (a project-scoped or narrower key is refused) and refuses
+read-only and `--stored-only` use. A passing test proves the key and endpoint,
+not the account's quota. The server keeps the latest result as the connection's
+`lastTest`, shown by `settings` and `provider-info` (JSON and text), until the
+key, endpoint, model, Vertex project, region or credentials, or CDP endpoint
+changes, or the connection is disconnected; request-limit, batch and pricing
+edits keep it. Read it before testing again.
 
 `reload-providers` rereads the connected server's config file: provider keys,
 models, Vertex AI settings, batch settings, pricing, quotas, and CDP. Any config
@@ -1884,11 +1952,12 @@ Compact reference for the composite / keyed commands agents read most (shapes ca
 
 | Command | JSON output shape (top-level keys → DTO) | `jsonl` |
 |---|---|---|
+| `cnry project setup <p>` | `ProjectSetupDto` @ `contracts/project-setup.ts`: `{ project{name,displayName,canonicalDomain}, complete, firstResultAt, nextAction, tracks{ agentReadiness{state,runId,startedAt,finishedAt,progress{phase,pagesFound,pagesChecked,pageLimit,linksFound,pagesFailed}\|null,result{score,pagesScored}\|null,error}, aiVisibility{state,runId,runIds[],startedAt,finishedAt,baselineRunId,mode,blockedBy,engines[],queries{total,nonBrand,branded,unclassified},progress{answersSaved,answersPlanned}\|null,providerFailures,result{first,answers,engines,queryCounts,queryCountsByClass}\|null,error,failedEngines[{provider,code,message,skipped}]\|null} } }`. `complete` = each track has produced a result (a completed or partial non-probe run) at least once; a newer run in progress does not undo it. | → degrades to the `json` document |
 | `cnry status --all [--problems]` | `InstanceStatusDto` @ `contracts/status.ts`: `{ generatedAt, summary{projects,ok,failing,warning,stale,neverSynced}, projects[{project,displayName,state,health,integrations[]}] }`. Stored reads only; a successful read exits 0 even when rows are failing. | One integration per line as `{project, health, ...row}`; a project without integration rows emits `{project,state,health}`. Single-project `status <p>` keeps its JSON envelope and emits one compact record for JSONL. Stored health failures and warnings affect project state, summary and `--problems`; explicit project reads always retain health. |
 | `cnry doctor [--project p] [--all] [--report-month YYYY-MM]` | `{ scope, project, reportMonths?, generatedAt, durationMs, summary{total,ok,warn,fail,skipped}, checks[] }` — `DoctorReportDto` @ `contracts/doctor.ts`. `checks[]` = `CheckResultDto{ id, category, scope, title, status(ok\|warn\|fail\|skipped), notificationPolicy?(health\|silent), code, summary, remediation?, details?, durationMs }`. `report.*` checks are silent report-readiness advisories: they never page or change health state. `--report-month` picks the month they grade (default: the current month, plus the closed month through day 3, when only the closed month is graded). With `--all`: an object keyed by `__global__` + each project name, each value a full report. | ✅ one check / line as `{project, …check}`; still exits non-zero if any `fail` |
-| `cnry analytics <p> [--feature metrics\|gaps\|sources] [--window 7d\|30d\|90d\|all]` | Object **keyed by feature**: `{ metrics?, gaps?, sources? }` (all three present with no `--feature`; one with `--feature X`). `metrics`=`BrandMetricsDto{ window, buckets[], overall, byProvider, trend, mentionTrend, queryChanges[] }`; `gaps`=`GapAnalysisDto{ cited[], gap[], uncited[], mentionedQueries[], mentionGap[], notMentioned[], runId, window }` (each `[]`=`GapQuery`); `sources`=`SourceBreakdownDto` (same shape as `cnry sources`, below). @ `contracts/analytics.ts` | → degrades to the `json` document |
+| `cnry analytics <p> [--feature metrics\|gaps\|sources] [--window 7d\|30d\|90d\|all]` | Object **keyed by feature**: `{ metrics?, gaps?, sources? }` (all three present with no `--feature`; one with `--feature X`). `metrics`=`BrandMetricsDto{ window, buckets[], overall, byProvider, trend, mentionTrend, queryChanges[] }` (each metric's `citationRate` is over `citedTotal`, the answers whose sources were checked, and null when no answer carries sources; the human output prints "not measured"); `gaps`=`GapAnalysisDto{ cited[], gap[], uncited[], citationNotMeasured[], mentionedQueries[], mentionGap[], notMentioned[], runId, window }` (each `[]`=`GapQuery`; `citationNotMeasured` holds queries whose latest answers all lack sources; `consistency.citedRuns` is out of `consistency.citedTotalRuns`); `sources`=`SourceBreakdownDto` (same shape as `cnry sources`, below). @ `contracts/analytics.ts` | → degrades to the `json` document |
 | `cnry sources <p> [--rank] [--limit N] [--by-provider] [--window …]` | `SourceBreakdownDto{ overall[], byQuery, ranked, byProvider, runId, window, limit }` @ `contracts/analytics.ts`. `ranked`/each `byProvider[name]` = `RankedSourceList{ totalCitedSlots, domainTotal, entries[], truncatedDomainCount, truncatedCitedSlots, bySurfaceClass[] }`; `entries[]`=`SourceRankEntry{ domain, count, percentage, category, label, surfaceClass }`; `bySurfaceClass[]`=`SurfaceClassCount{ surfaceClass, label, count, percentage, domainCount }`. `surfaceClass` ∈ own \| direct-competitor \| ota-aggregator \| editorial-media \| other. | ✅ streams `ranked.entries` one / line as `{project, …entry}` |
-| `cnry visibility-stats <p> [--since <iso>] [--until <iso>] [--month <YYYY-MM>] [--last-runs N] [--by-provider] [--share-of-voice] [--query-class branded\|non-brand]` | `VisibilityStatsDto{ project, groupBy, window{since,until,lastRuns,runCount}, totals, byProvider?[], queries[], shareOfVoice? }` @ `contracts/visibility-stats.ts`. Each query / provider / totals entry = `{ total, checked, mentioned, cited, mentionRate, citedRate }` (+ `query`/`queryId`/`firstObserved`/`lastObserved` on queries, + `provider`/observed on provider entries). `checked`=snapshots with non-null `answerMentioned` (tri-state n for mention); `mentionRate=mentioned/checked`, `citedRate=cited/total`, both `null` on a 0 denominator. `byProvider`/per-query `providers` present only with `--by-provider`; counts sum to pooled. `--month YYYY-MM` echoes the resolved `window.since`/`until`. `shareOfVoice` present only with `--share-of-voice` = `{ queryClass, percent, projectMentions, competitorMentions, snapshotsWithAnswerText, perCompetitor[{domain,mentions}] }`; `percent` (0-100) = `projectMentions/(projectMentions+competitorMentions)`, `null` when no competitors configured. `queryClass` is what was actually served: `non-brand` (the default), `branded` (via `--query-class`), or `pooled` — which appears ONLY when the project has no usable brand alias to split by, never as a default. Branded and non-brand never share a denominator. | ✅ streams `queries` one / line as `{project, runCount, …query}` (envelope-only `shareOfVoice` not in the jsonl rows) |
+| `cnry visibility-stats <p> [--since <iso>] [--until <iso>] [--month <YYYY-MM>] [--last-runs N] [--by-provider] [--share-of-voice] [--query-class branded\|non-brand]` | `VisibilityStatsDto{ project, groupBy, window{since,until,lastRuns,runCount}, totals, byProvider?[], queries[], shareOfVoice? }` @ `contracts/visibility-stats.ts`. Each query / provider / totals entry = `{ total, citationNotMeasured, checked, mentioned, cited, mentionRate, citedRate }` (+ `query`/`queryId`/`firstObserved`/`lastObserved` on queries, + `provider`/observed on provider entries). `checked`=snapshots with non-null `answerMentioned` (tri-state n for mention); `citationNotMeasured`=snapshots whose engine returns no sources (never a miss); `mentionRate=mentioned/checked`, `citedRate=cited/(total-citationNotMeasured)`, both `null` on a 0 denominator. `byProvider`/per-query `providers` present only with `--by-provider`; counts sum to pooled. `--month YYYY-MM` echoes the resolved `window.since`/`until`. `shareOfVoice` present only with `--share-of-voice` = `{ queryClass, percent, projectMentions, competitorMentions, snapshotsWithAnswerText, perCompetitor[{domain,mentions}] }`; `percent` (0-100) = `projectMentions/(projectMentions+competitorMentions)`, `null` when no competitors configured. `queryClass` is what was actually served: `non-brand` (the default), `branded` (via `--query-class`), or `pooled` — which appears ONLY when the project has no usable brand alias to split by, never as a default. Branded and non-brand never share a denominator. | ✅ streams `queries` one / line as `{project, runCount, …query}` (envelope-only `shareOfVoice` not in the jsonl rows) |
 | `cnry trends <p> --surface index-coverage\|site-health\|backlinks [--window 7d\|30d\|90d\|all \| --start YYYY-MM-DD --end YYYY-MM-DD]` | `TrendsResponse{ project, surface, window (null for a date range), startDate, endDate, groups[] }` @ `contracts/trends.ts`. Each group = `{ key, label, figures[] }`; each figure = `TrendFigure{ key, label, unit(count\|score\|fraction), better(higher\|lower\|neither), value, asOf, change{ difference, ratio, tone(better\|worse\|neutral), basis{ type: first-in-window, date, observedAt, label } }\|null, series[{ date, observedAt, label, value }], recordedFrom }`. A group that never recorded a reading is omitted; an empty surface has no groups and null dates. | → degrades to the `json` document |
 | `cnry google coverage <p>` (index coverage) | `{ summary{total,indexed,notIndexed,deindexed,percentage}, lastInspectedAt, lastSyncedAt, indexed[], notIndexed[], deindexed[], reasonGroups[] }` — `GscCoverageSummaryDto` @ `contracts/google.ts`. `indexed[]`/`notIndexed[]`=`GscUrlInspectionDto`, `deindexed[]`=`GscDeindexedRowDto`. | → degrades to the `json` document. The single-array reads `google inspections` / `coverage-history` / `deindexed` **stream** `jsonl`. |
 | `cnry google query-totals <p> [--start …] [--end …] [--window …] [--limit N] [--offset N]` | `GscQueryTotalsDto{ rows[], totalMatching, truncated, window }` @ `contracts/google.ts`. Each row = `{ query, clicks, impressions, ctr, position, days, source(google\|page-summed\|mixed) }`; `window` = `GscWindowRange{ startDate, endDate, latestDataDate, daysSinceLatestData }` plus `earliestDataDate` (first stored per-query date, `null` with none; a window starting before it is only partly covered). Named queries only: the rows do not add up to the property total. | Streams one line per query, each tagged with `project` and `window`. |

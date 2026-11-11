@@ -946,6 +946,50 @@ describe('ConversionIntegrityWorkspace', () => {
     queryClient.clear()
   })
 
+  test('opens the runtime checklist and keeps its summary in the tab order', async () => {
+    const requested: string[] = []
+    installMarketingFetch({
+      contracts: [contract],
+      integrity: () => ({
+        assessment: {
+          contract,
+          status: 'runtime-unverified',
+          evaluatedAt: capturedAt,
+          findings: [{
+            code: 'runtime-event-not-observed',
+            subject: 'purchase',
+            outcome: 'unknown',
+            status: 'runtime-unverified',
+            evidenceIds: [],
+          }],
+        },
+        googleAdsSnapshot: null,
+        gtmSnapshot: null,
+      }),
+    }, requested)
+    const scrollIntoView = installScrollSpy()
+    const { queryClient } = renderWorkspace()
+
+    const review = await screen.findByRole('button', { name: 'Review runtime verification' })
+    const checklist = screen.getByText('Runtime verification checklist', { selector: 'summary' })
+    const guidance = checklist.closest('details') as HTMLDetailsElement
+    expect(guidance.id).toBe('conversion-integrity-runtime-guidance')
+    expect(guidance.open).toBe(false)
+    expect(checklist.getAttribute('tabindex')).toBeNull()
+
+    review.focus()
+    fireEvent.click(review)
+
+    await waitFor(() => expect(guidance.open).toBe(true))
+    await waitFor(() => expect(document.activeElement).toBe(checklist))
+    expect(checklist.getAttribute('tabindex')).toBeNull()
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    expect(guidance.textContent).toContain('example.com')
+    expect(guidance.textContent).toContain('purchase')
+
+    queryClient.clear()
+  })
+
   test('focuses assessment findings and retains the exact integrity snapshot anchors', async () => {
     const requested: string[] = []
     installMarketingFetch({

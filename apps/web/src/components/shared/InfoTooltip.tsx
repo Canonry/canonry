@@ -1,11 +1,7 @@
-import { useState, useRef, useCallback, useLayoutEffect } from 'react'
+import { useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle } from 'lucide-react'
-
-interface TooltipPos {
-  top: number
-  left: number
-}
+import { useTooltipPosition } from '../../hooks/use-tooltip-position.js'
 
 /**
  * Inline help affordance. The trigger is a real <button> so it is reachable by
@@ -24,52 +20,24 @@ export function InfoTooltip({ text, placement = 'top', tone = 'info', label }: {
   /** Visible words beside the icon, three or four at most. */
   label?: string
 }) {
-  const [pos, setPos] = useState<TooltipPos | null>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const bubbleRef = useRef<HTMLSpanElement>(null)
+  const { open, triggerRef, bubbleRef, style, show, hide, hideAfterPointerLeaves } = useTooltipPosition(placement, '14rem')
   const wasOpenBeforePointer = useRef(false)
 
-  const show = useCallback(() => {
-    if (!triggerRef.current) return
-    const rect = triggerRef.current.getBoundingClientRect()
-    const center = rect.left + rect.width / 2
-    const halfWidth = Math.min(224, window.innerWidth - 16) / 2
-    setPos({
-      top: placement === 'bottom' ? rect.bottom : rect.top,
-      left: placement === 'bottom' ? Math.max(halfWidth + 8, Math.min(center, window.innerWidth - halfWidth - 8)) : center,
-    })
-  }, [placement])
-
-  useLayoutEffect(() => {
-    if (placement !== 'bottom' || !pos || !bubbleRef.current) return
-    const overflow = bubbleRef.current.getBoundingClientRect().bottom - window.innerHeight + 8
-    if (overflow <= 0) return
-    const top = Math.max(0, pos.top - overflow)
-    if (top !== pos.top) setPos({ ...pos, top })
-  }, [placement, pos])
-
-  const hide = useCallback(() => setPos(null), [])
-
-  const toggle = useCallback(() => {
-    if (pos === null) show()
-    else hide()
-  }, [pos, show, hide])
-
   return (
-    <span className="info-tooltip-wrapper" onMouseEnter={show} onMouseLeave={hide}>
+    <span className="info-tooltip-wrapper" onMouseEnter={show} onMouseLeave={hideAfterPointerLeaves}>
       <button
         ref={triggerRef}
         type="button"
         className={`info-tooltip-trigger${label ? ' info-tooltip-trigger-labeled' : ''}${tone === 'caution' ? ' info-tooltip-trigger-caution' : ''}`}
         aria-label={text}
-        aria-expanded={pos !== null}
+        aria-expanded={open}
         onFocus={show}
         onBlur={hide}
-        onPointerDown={() => { wasOpenBeforePointer.current = pos !== null && triggerRef.current?.ownerDocument.activeElement === triggerRef.current }}
+        onPointerDown={() => { wasOpenBeforePointer.current = open && triggerRef.current?.ownerDocument.activeElement === triggerRef.current }}
         onClick={event => {
           // Pointer focus can open the bubble before click fires. Preserve the
           // state from before that focus, so the first touch tap stays open.
-          if (event.detail === 0) toggle()
+          if (event.detail === 0) { if (open) hide(); else show() }
           else if (wasOpenBeforePointer.current) hide()
           else show()
         }}
@@ -87,20 +55,14 @@ export function InfoTooltip({ text, placement = 'top', tone = 'info', label }: {
           )}
         {label ? <span aria-hidden="true">{label}</span> : null}
       </button>
-      {pos !== null && createPortal(
+      {open && createPortal(
         <span
           ref={bubbleRef}
           aria-hidden="true"
           className="material-tooltip px-3 py-2 text-copy-13 text-secondary"
-          style={{
-            position: 'fixed',
-            top: pos.top,
-            left: pos.left,
-            transform: placement === 'bottom' ? 'translateX(-50%) translateY(8px)' : 'translateX(-50%) translateY(calc(-100% - 8px))',
-            zIndex: 9999,
-            pointerEvents: 'none',
-            width: placement === 'bottom' ? 'min(14rem, calc(100vw - 1rem))' : '14rem',
-          }}
+          style={style}
+          onMouseEnter={show}
+          onMouseLeave={hideAfterPointerLeaves}
         >
           {text}
         </span>,

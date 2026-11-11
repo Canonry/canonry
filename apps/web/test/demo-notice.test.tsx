@@ -32,7 +32,7 @@ const FEATURE_LINKS: readonly [string, string][] = [
   ['Properties & markets', '/projects/harbor-resorts'],
   ['Queries & research', '/projects/harbor-resorts/queries'],
   ['Activity', '/projects/harbor-resorts/activity'],
-  ['Site health', '/projects/summit-roofing/technical-aeo'],
+  ['Agent Readiness', '/projects/summit-roofing/agent-readiness'],
   ['Local presence', '/projects/summit-roofing/local'],
   ['Backlinks', '/projects/summit-roofing/backlinks'],
 ]
@@ -132,7 +132,7 @@ describe('public demo notice', () => {
     expect(within(examples).getAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')])).toEqual(EXAMPLE_LINKS)
     const directory = within(details).getByRole('navigation', { name: 'Demo feature directory' })
     expect(within(directory).getAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')])).toEqual(FEATURE_LINKS)
-    expect(within(directory).getByRole('link', { name: 'Site health' }).getAttribute('href')).toBe('/projects/summit-roofing/technical-aeo')
+    expect(within(directory).getByRole('link', { name: 'Agent Readiness' }).getAttribute('href')).toBe('/projects/summit-roofing/agent-readiness')
     for (const link of details.querySelectorAll('a')) expect(link.hasAttribute('target')).toBe(false)
     expect(within(details).getByText(AGENT_SENTENCE)).toBeTruthy()
 
@@ -146,7 +146,7 @@ describe('public demo notice', () => {
   it('prefixes demo links with the public base path', () => {
     const banner = renderDemo('/demo/')
     expect(within(banner).getByRole('link', { name: 'Standard business' }).getAttribute('href')).toBe('/demo/projects/summit-roofing')
-    expect(within(banner).getByRole('link', { name: 'Site health' }).getAttribute('href')).toBe('/demo/projects/summit-roofing/technical-aeo')
+    expect(within(banner).getByRole('link', { name: 'Agent Readiness' }).getAttribute('href')).toBe('/demo/projects/summit-roofing/agent-readiness')
   })
 
   it('keeps the strip slim and shows the agent sentence inside Explore on small screens', () => {

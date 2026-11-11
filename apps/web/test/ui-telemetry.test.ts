@@ -115,6 +115,18 @@ describe('ui telemetry', () => {
     expect(actions(sent)).toEqual([['sweep.launch', undefined], ['integration.connect', 'ga']])
   })
 
+  it('counts an Agent Readiness audit scan launch on the route the dashboard calls', () => {
+    const { sent } = capture()
+    setUiPageFromRoute('/projects/$projectName/agent-readiness')
+    recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/agent-readiness/runs', status: 202 })
+    expect(sent.map(e => [e.event, e.page, e.tab])).toEqual([
+      ['ui.page_viewed', '/projects/:projectName/agent-readiness', 'agent-readiness'],
+      ['ui.action', '/projects/:projectName/agent-readiness', 'agent-readiness'],
+    ])
+    expect(actions(sent)).toEqual([['site_audit.launch', undefined]])
+    for (const event of sent) expect(uiTelemetryEventSchema.safeParse(event).success).toBe(true)
+  })
+
   it('counts a sitemap submit from either engine card, tagged with the engine', () => {
     const { sent } = capture()
     setUiPageFromRoute('/projects/$projectName/search-console')
@@ -171,7 +183,7 @@ describe('ui telemetry', () => {
     recordUiApiResult({ method: 'PUT', route: '/api/v1/projects/{name}/measurement-plan/draft/actions/upsert-target', status: 412 })
     recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/measurement-plan/draft/actions/publish', status: 409 })
     recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}/measurement-plan', status: 404 })
-    recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}/technical-aeo/runs/{runId}/progress', status: 404 })
+    recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/progress', status: 404 })
     recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}/backlinks/domains', status: 404 })
     recordUiApiResult({ method: 'POST', route: '/api/v1/projects', status: 409 })
     recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}', status: 401 })
