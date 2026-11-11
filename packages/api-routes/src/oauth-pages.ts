@@ -73,6 +73,11 @@ button { min-height: 36px; border: 1px solid transparent; border-radius: 6px; pa
 .secondary:hover { background: var(--hover); border-color: var(--border-strong); }
 .secondary:active { background: var(--border); }
 :where(input, button, a):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.button-link { display: flex; align-items: center; justify-content: center; min-height: 40px; margin-top: 24px; border-radius: 6px; padding: 9px 14px; font-weight: 500; text-decoration: none; transition: background-color 150ms ease-out; }
+.button-link.primary:hover { text-decoration: none; }
+.or { display: flex; align-items: center; gap: 12px; margin-top: 20px; color: var(--secondary); font-size: 13px; }
+.or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.or + form { margin-top: 16px; }
 @media (max-width: 480px) {
   main { padding: 32px 16px; align-items: flex-start; }
   .panel { padding: 24px; }
@@ -119,14 +124,24 @@ ${body}
 </div></main></body></html>`
 }
 
-/** Minimal self-contained sign-in. No SPA route, no bundle, no base-path trap. */
-export function renderSignInPage(o: { action: string; error: string | null; fontUrl?: string }): string {
+/**
+ * Minimal self-contained sign-in. No SPA route, no bundle, no base-path trap.
+ *
+ * With `chatgptUrl`, Continue with ChatGPT comes first and returns to this same
+ * authorization request, which then finds the new session and asks for
+ * approval; people whose account has no password can approve too.
+ */
+export function renderSignInPage(o: { action: string; error: string | null; fontUrl?: string; chatgptUrl?: string | null }): string {
+  const chatgpt = o.chatgptUrl
+    ? `<a class="button-link primary" data-oai-siwc-button href="${escapeHtml(o.chatgptUrl)}">Continue with ChatGPT</a>
+<p class="or">or</p>`
+    : ''
   return gatePage('Sign in', `<h1 id="gate-title">Sign in to continue</h1>
 ${o.error ? `<p class="err" role="alert">${escapeHtml(o.error)}</p>` : ''}
-<form method="post" action="${escapeHtml(o.action)}">
-<div class="field"><label for="name">Name</label><input id="name" type="text" name="name" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus></div>
+${chatgpt}<form method="post" action="${escapeHtml(o.action)}">
+<div class="field"><label for="name">Name</label><input id="name" type="text" name="name" autocomplete="username" autocapitalize="none" spellcheck="false"${o.chatgptUrl ? '' : ' autofocus'}></div>
 <div class="field"><label for="password">Password</label><input id="password" type="password" name="password" autocomplete="current-password"></div>
-<div class="actions single"><button class="primary" type="submit">Sign in</button></div>
+<div class="actions single"><button class="${o.chatgptUrl ? 'secondary' : 'primary'}" type="submit">Sign in</button></div>
 </form>`, o.fontUrl)
 }
 

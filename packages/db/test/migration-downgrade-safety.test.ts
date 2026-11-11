@@ -219,7 +219,7 @@ const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([
   // handlers no longer null the ledger rows. Idempotent: a table without the
   // key is skipped.
   165,
-  // v220 makes NO schema change: it moves crawler rows whose sampled user
+  // v221 makes NO schema change: it moves crawler rows whose sampled user
   // agent is Claude-SearchBot from bot_id `anthropic-claudebot` to
   // `claude-searchbot` (with their provenance sidecar rows) and relabels the
   // matching crawler samples' classifier JSON. Downgrade-safe: `bot_id` is
@@ -231,7 +231,7 @@ const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([
   // resumes past the migrations creating these tables must skip the move.
   // Idempotent: the source rows are deleted after the copy, so a rerun
   // selects nothing, and the copy adds into an existing row instead of failing.
-  220,
+  221,
 ])
 
 test(`migrations after v${DOWNGRADE_BASELINE} define no run() hook unless explicitly allowlisted`, () => {

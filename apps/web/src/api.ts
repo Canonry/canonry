@@ -1,4 +1,5 @@
 import { postApiV1ProjectsByNameSchedulePreview } from '@canonry/canonry-api-client'
+import type { ChatGptModelListDto, ChatGptStatusDto } from '@canonry/canonry-contracts'
 import type { SchedulePreviewRequest, SchedulePreviewDto } from '@canonry/canonry-contracts'
 import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto, ProviderConnectionSettingsDto, ProviderConnectionTestResultDto, ProviderConnectionsUnavailableDto, ProviderSettingsUpdateRequest, ProviderReloadResponseDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
@@ -134,6 +135,10 @@ import {
   getApiV1ProjectsByNameTrends,
   postApiV1TelemetryOnboarding,
   getApiV1KeysSelf,
+  getApiV1AuthChatgptStatus,
+  getApiV1AuthChatgptModels,
+  putApiV1AuthChatgptModel,
+  postApiV1AuthChatgptDisconnect,
 } from '@canonry/canonry-api-client'
 import type { RunDto, RunDetailDto } from '@canonry/canonry-api-client'
 export type { ProjectOverviewDto }
@@ -1119,6 +1124,8 @@ export function fetchCurrentApiKey(): Promise<ApiKeyDto> {
 export interface ApiAccountSession {
   authRequired: boolean
   user: { name: string; role: 'admin' | 'viewer' } | null
+  /** Sign-in methods beyond name and password; absent when there are none. */
+  signInMethods?: { chatgpt: boolean }
 }
 
 export function fetchAccountSession(): Promise<ApiAccountSession> {
@@ -1134,6 +1141,37 @@ export function signInWithAccount(name: string, password: string): Promise<ApiAc
 
 export function signOutOfAccount(): Promise<void> {
   return apiFetch('/auth/logout', { method: 'POST' })
+}
+
+/**
+ * Where the browser goes to sign in with ChatGPT, or to connect a signed-in
+ * person's ChatGPT plan. A navigation, not a request: the server answers with
+ * a redirect to OpenAI and later back to `returnTo`, which it only honours
+ * inside the dashboard.
+ */
+export function chatGptStartUrl(intent: 'login' | 'connect', returnTo?: string): string {
+  const params = new URLSearchParams({ intent })
+  if (returnTo) params.set('returnTo', returnTo)
+  return `${API_BASE}/auth/chatgpt/start?${params.toString()}`
+}
+
+/** What the install offers for ChatGPT, and the signed-in person's link and plan. */
+export function fetchChatGptStatus(): Promise<ChatGptStatusDto> {
+  return invokeWeb<ChatGptStatusDto>(() => getApiV1AuthChatgptStatus({ client: heyClient }))
+}
+
+/** The models the signed-in person's ChatGPT plan offers, and the one Aero uses. */
+export function fetchChatGptModels(): Promise<ChatGptModelListDto> {
+  return invokeWeb<ChatGptModelListDto>(() => getApiV1AuthChatgptModels({ client: heyClient }))
+}
+
+export function chooseChatGptModel(modelId: string): Promise<{ modelId: string }> {
+  return invokeWeb<{ modelId: string }>(() => putApiV1AuthChatgptModel({ client: heyClient, body: { modelId } }))
+}
+
+/** Stop using the signed-in person's ChatGPT plan. `revoked` is false when OpenAI did not confirm. */
+export function disconnectChatGpt(): Promise<{ disconnected: boolean; revoked: boolean }> {
+  return invokeWeb<{ disconnected: boolean; revoked: boolean }>(() => postApiV1AuthChatgptDisconnect({ client: heyClient }))
 }
 
 // /health is outside /api/v1 — keep on raw fetch.

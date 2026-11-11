@@ -228,6 +228,10 @@ Hold the collector response when checking opt-out delivery; an immediate respons
 
 Flag-driven, no prompts; delegates to `ApiClient.listApiKeys` / `createApiKey` / `revokeApiKey` / `getApiKeySelf`. Registered via `src/cli-commands/keys.ts`.
 
+### Account invitations
+
+`src/commands/users.ts` also holds the Sign in with ChatGPT invitation commands: `user invite <email> --role <admin|viewer>`, `user invitations` (`--format json|jsonl`), and `user uninvite <id>`, over `ApiClient.createUserInvitation` / `listUserInvitations` / `revokeUserInvitation`. Like the other account commands they have no MCP tool: accounts belong to the operator, not to agents. See `docs/chatgpt-sign-in.md`.
+
 ### Skills and native plugins
 
 `src/commands/skills.ts` — `installSkills` / `listSkills` — reconciles bundled `skills/<name>/` trees into a user's `.claude/skills/<name>/` **additively**:

@@ -5533,6 +5533,71 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   },
   {
     version: 220,
+    name: 'chatgpt-sign-in',
+    // Sign in with ChatGPT: linked identities, email invitations, each
+    // person's plan grant for their own Aero turns, and in-flight sign-ins.
+    // Additive only. Accounts created through an invitation keep the users
+    // table's NOT NULL password column with a marker no password can match,
+    // so the account table is not rebuilt on large installs.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS user_external_identities (
+        id            TEXT PRIMARY KEY,
+        user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider      TEXT NOT NULL CHECK (provider IN ('chatgpt')),
+        issuer        TEXT NOT NULL,
+        client_id     TEXT NOT NULL,
+        subject       TEXT NOT NULL,
+        email         TEXT,
+        created_at    TEXT NOT NULL,
+        last_login_at TEXT
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_external_identities_subject
+        ON user_external_identities(issuer, client_id, subject)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_external_identities_user_provider
+        ON user_external_identities(user_id, provider)`,
+      `CREATE TABLE IF NOT EXISTS user_invitations (
+        id               TEXT PRIMARY KEY,
+        email            TEXT NOT NULL,
+        email_key        TEXT NOT NULL,
+        role             TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+        created_by_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at       TEXT NOT NULL,
+        expires_at       TEXT NOT NULL,
+        accepted_at      TEXT,
+        accepted_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        revoked_at       TEXT
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_user_invitations_email ON user_invitations(email_key)`,
+      `CREATE TABLE IF NOT EXISTS chatgpt_plan_connections (
+        user_id           TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        id                TEXT NOT NULL UNIQUE,
+        identity_id       TEXT NOT NULL REFERENCES user_external_identities(id) ON DELETE CASCADE,
+        status            TEXT NOT NULL CHECK (status IN ('connected', 'reconnect-required')),
+        scopes            TEXT NOT NULL,
+        tokens            TEXT NOT NULL,
+        access_expires_at TEXT NOT NULL,
+        model_id          TEXT,
+        revision          INTEGER NOT NULL DEFAULT 0,
+        connected_at      TEXT NOT NULL,
+        updated_at        TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS chatgpt_login_transactions (
+        state_hash   TEXT PRIMARY KEY,
+        browser_hash TEXT NOT NULL,
+        intent       TEXT NOT NULL CHECK (intent IN ('login', 'connect')),
+        user_id      TEXT REFERENCES users(id) ON DELETE CASCADE,
+        nonce        TEXT NOT NULL,
+        scopes       TEXT NOT NULL,
+        return_to    TEXT,
+        created_at   TEXT NOT NULL,
+        expires_at   TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chatgpt_login_transactions_expires
+        ON chatgpt_login_transactions(expires_at)`,
+    ],
+  },
+  {
+    version: 221,
     name: 'claude-searchbot-own-bot',
     // Claude-SearchBot, Anthropic's search crawler, now has its own classifier
     // rule (`claude-searchbot`, purpose search). The `anthropic-claudebot` rule
@@ -5559,7 +5624,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
 ]
 
 /**
- * v220: move stored Claude-SearchBot crawler hits from `anthropic-claudebot`
+ * v221: move stored Claude-SearchBot crawler hits from `anthropic-claudebot`
  * to `claude-searchbot`. The crawler table is scanned once, into a temporary
  * list of the rows to move; their provenance rows are then found by key. The
  * copy adds into a row already under the new id, and deleting the old rows
@@ -5568,9 +5633,9 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
  */
 function moveClaudeSearchBotRows(tx: MigrationDb): void {
   if (tableExists(tx, 'crawler_events_hourly')) {
-    tx.run(sql.raw('DROP TABLE IF EXISTS temp.v220_moved'))
+    tx.run(sql.raw('DROP TABLE IF EXISTS temp.v221_moved'))
     tx.run(sql.raw(
-      `CREATE TEMP TABLE v220_moved AS
+      `CREATE TEMP TABLE v221_moved AS
          SELECT rowid AS rid, project_id, source_id, ts_hour, verification_status, path_normalized, status
            FROM crawler_events_hourly
           WHERE bot_id = 'anthropic-claudebot' AND sampled_user_agent LIKE '%Claude-SearchBot/%'`,
@@ -5579,7 +5644,7 @@ function moveClaudeSearchBotRows(tx: MigrationDb): void {
     tx.run(sql.raw(
       `INSERT INTO crawler_events_hourly (project_id, source_id, ts_hour, bot_id, operator, verification_status, path_normalized, status, hits, sampled_user_agent, created_at, updated_at)
        SELECT c.project_id, c.source_id, c.ts_hour, 'claude-searchbot', c.operator, c.verification_status, c.path_normalized, c.status, c.hits, c.sampled_user_agent, c.created_at, c.updated_at
-         FROM v220_moved t JOIN crawler_events_hourly c ON c.rowid = t.rid
+         FROM v221_moved t JOIN crawler_events_hourly c ON c.rowid = t.rid
         WHERE true
        ON CONFLICT (project_id, source_id, ts_hour, bot_id, verification_status, path_normalized, status)
        DO UPDATE SET hits = crawler_events_hourly.hits + excluded.hits,
@@ -5589,7 +5654,7 @@ function moveClaudeSearchBotRows(tx: MigrationDb): void {
       tx.run(sql.raw(
         `INSERT INTO crawler_verification_manifests_hourly (project_id, source_id, ts_hour, bot_id, verification_status, path_normalized, status, manifest_id, manifest_json, hits, created_at, updated_at)
          SELECT m.project_id, m.source_id, m.ts_hour, 'claude-searchbot', m.verification_status, m.path_normalized, m.status, m.manifest_id, m.manifest_json, m.hits, m.created_at, m.updated_at
-           FROM v220_moved t JOIN crawler_verification_manifests_hourly m
+           FROM v221_moved t JOIN crawler_verification_manifests_hourly m
              ON m.project_id = t.project_id AND m.source_id = t.source_id AND m.ts_hour = t.ts_hour
             AND m.bot_id = 'anthropic-claudebot' AND m.verification_status = t.verification_status
             AND m.path_normalized = t.path_normalized AND m.status = t.status
@@ -5599,8 +5664,8 @@ function moveClaudeSearchBotRows(tx: MigrationDb): void {
                        updated_at = max(crawler_verification_manifests_hourly.updated_at, excluded.updated_at)`,
       ))
     }
-    tx.run(sql.raw('DELETE FROM crawler_events_hourly WHERE rowid IN (SELECT rid FROM v220_moved)'))
-    tx.run(sql.raw('DROP TABLE v220_moved'))
+    tx.run(sql.raw('DELETE FROM crawler_events_hourly WHERE rowid IN (SELECT rid FROM v221_moved)'))
+    tx.run(sql.raw('DROP TABLE v221_moved'))
   }
   if (tableExists(tx, 'raw_event_samples')) {
     tx.run(sql.raw(

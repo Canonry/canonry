@@ -691,16 +691,16 @@ test('migration 65 splits legacy mistral-ai rows by sampled user agent', () => {
   expect(new Set(crawlers.map(r => r.pathNormalized))).toEqual(new Set(['/blog/post-b', '/blog/post-c']))
 })
 
-test('migration 220 moves Claude-SearchBot crawler rows, provenance and samples off ClaudeBot', () => {
+test('migration 221 moves Claude-SearchBot crawler rows, provenance and samples off ClaudeBot', () => {
   // The `anthropic-claudebot` rule (training) used to match Claude-SearchBot,
-  // so its hits were stored as ClaudeBot. Upgrading a v219 database through
+  // so its hits were stored as ClaudeBot. Upgrading a v220 database through
   // the runner moves each row whose sampled user agent is Claude-SearchBot to
   // `claude-searchbot`, with its manifest sidecar rows, and relabels the
   // crawler samples.
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-traffic-v220-'))
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-traffic-v221-'))
   onTestFinished(() => cleanup(tmpDir))
   const db = createClient(path.join(tmpDir, 'test.db'))
-  migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 220))
+  migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 221))
   seedProject(db)
   const now = '2026-11-10T12:00:00.000Z'
   insertLegacyRow(db, 'traffic_sources', {
@@ -776,9 +776,9 @@ test('migration 220 moves Claude-SearchBot crawler rows, provenance and samples 
   })
 
   // A second run finds nothing left to move.
-  const v220 = MIGRATION_VERSIONS.find(migration => migration.version === 220)
-  expect(v220?.name).toBe('claude-searchbot-own-bot')
-  v220!.run!(db)
+  const v221 = MIGRATION_VERSIONS.find(migration => migration.version === 221)
+  expect(v221?.name).toBe('claude-searchbot-own-bot')
+  v221!.run!(db)
   expect(tables()).toEqual(upgraded)
 })
 

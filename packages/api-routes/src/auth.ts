@@ -501,6 +501,18 @@ export function shouldSkipAuth(url: string): boolean {
   // Both routes resolve the cookie themselves, and the DELETE runs its own
   // same-origin check below.
   if (url.endsWith('/auth/sessions')) return true
+  // Sign in with ChatGPT. `start` and `callback` run before anyone is signed
+  // in; the rest are a person's own ChatGPT settings, which must work for a
+  // view-only person too. Each resolves the sign-in cookie itself, and the
+  // writes run their own same-origin check (chatgpt-routes.ts).
+  if (
+    url.endsWith('/auth/chatgpt/status')
+    || url.endsWith('/auth/chatgpt/start')
+    || url.endsWith('/auth/chatgpt/callback')
+    || url.endsWith('/auth/chatgpt/disconnect')
+    || url.endsWith('/auth/chatgpt/models')
+    || url.endsWith('/auth/chatgpt/model')
+  ) return true
   // Cloudflare Worker ingest carries its own per-source bearer + HMAC
   // (verified inside the route handler). A canonry `cnry_*` key isn't
   // available to the Worker — that would defeat the per-source isolation.

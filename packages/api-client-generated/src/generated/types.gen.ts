@@ -4124,6 +4124,9 @@ export type AuthSessionDto = {
         name: string;
         role: 'admin' | 'viewer';
     } | null;
+    signInMethods?: {
+        chatgpt: boolean;
+    };
 };
 
 export type BacklinkHistoryEntry = {
@@ -19523,6 +19526,63 @@ export type CreateUserRequest = {
     role: 'admin' | 'viewer';
 };
 
+export type UserInvitationDto = {
+    id: string;
+    email: string;
+    role: 'admin' | 'viewer';
+    status: 'pending' | 'accepted' | 'revoked' | 'expired';
+    createdAt: string;
+    expiresAt: string;
+    acceptedAt: string | null;
+    acceptedUserName: string | null;
+};
+
+export type UserInvitationListDto = {
+    invitations: Array<{
+        id: string;
+        email: string;
+        role: 'admin' | 'viewer';
+        status: 'pending' | 'accepted' | 'revoked' | 'expired';
+        createdAt: string;
+        expiresAt: string;
+        acceptedAt: string | null;
+        acceptedUserName: string | null;
+    }>;
+};
+
+export type CreateUserInvitationRequest = {
+    email: string;
+    role: 'admin' | 'viewer';
+};
+
+export type ChatGptStatusDto = {
+    signInEnabled: boolean;
+    planUsageEnabled: boolean;
+    planRequired: boolean;
+    usageUrl: string;
+    account: {
+        linked: boolean;
+        email: string | null;
+        plan: {
+            status: 'not-connected' | 'connected' | 'reconnect-required';
+            modelId: string | null;
+            connectedAt: string | null;
+        };
+    } | null;
+};
+
+export type ChatGptModelListDto = {
+    models: Array<{
+        id: string;
+        name: string;
+    }>;
+    selected: string | null;
+};
+
+export type ChatGptModelSelectionRequest = {
+    modelId: string;
+};
+
 export type LoginRequest = {
     name: string;
     password: string;
@@ -28042,6 +28102,267 @@ export type DeleteApiV1UsersByNameResponses = {
 };
 
 export type DeleteApiV1UsersByNameResponse = DeleteApiV1UsersByNameResponses[keyof DeleteApiV1UsersByNameResponses];
+
+export type GetApiV1UsersInvitationsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/users/invitations';
+};
+
+export type GetApiV1UsersInvitationsErrors = {
+    /**
+     * Not permitted to list invitations.
+     */
+    403: ErrorEnvelope;
+};
+
+export type GetApiV1UsersInvitationsError = GetApiV1UsersInvitationsErrors[keyof GetApiV1UsersInvitationsErrors];
+
+export type GetApiV1UsersInvitationsResponses = {
+    /**
+     * Invitations returned.
+     */
+    200: UserInvitationListDto;
+};
+
+export type GetApiV1UsersInvitationsResponse = GetApiV1UsersInvitationsResponses[keyof GetApiV1UsersInvitationsResponses];
+
+export type PostApiV1UsersInvitationsData = {
+    body: CreateUserInvitationRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/users/invitations';
+};
+
+export type PostApiV1UsersInvitationsErrors = {
+    /**
+     * Invalid email or role, or a view-only first account.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Not permitted to invite.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1UsersInvitationsError = PostApiV1UsersInvitationsErrors[keyof PostApiV1UsersInvitationsErrors];
+
+export type PostApiV1UsersInvitationsResponses = {
+    /**
+     * Invitation created.
+     */
+    201: UserInvitationDto;
+};
+
+export type PostApiV1UsersInvitationsResponse = PostApiV1UsersInvitationsResponses[keyof PostApiV1UsersInvitationsResponses];
+
+export type DeleteApiV1UsersInvitationsByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Invitation ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/users/invitations/{id}';
+};
+
+export type DeleteApiV1UsersInvitationsByIdErrors = {
+    /**
+     * The invitation is no longer pending.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Not permitted to revoke invitations.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Invitation not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type DeleteApiV1UsersInvitationsByIdError = DeleteApiV1UsersInvitationsByIdErrors[keyof DeleteApiV1UsersInvitationsByIdErrors];
+
+export type DeleteApiV1UsersInvitationsByIdResponses = {
+    /**
+     * Invitation revoked.
+     */
+    200: UserInvitationDto;
+};
+
+export type DeleteApiV1UsersInvitationsByIdResponse = DeleteApiV1UsersInvitationsByIdResponses[keyof DeleteApiV1UsersInvitationsByIdResponses];
+
+export type GetApiV1AuthChatgptStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/chatgpt/status';
+};
+
+export type GetApiV1AuthChatgptStatusResponses = {
+    /**
+     * Status returned.
+     */
+    200: ChatGptStatusDto;
+};
+
+export type GetApiV1AuthChatgptStatusResponse = GetApiV1AuthChatgptStatusResponses[keyof GetApiV1AuthChatgptStatusResponses];
+
+export type GetApiV1AuthChatgptStartData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * `login` (default) or `connect`.
+         */
+        intent?: string;
+        /**
+         * Dashboard path to return to afterwards. Anything outside the dashboard is ignored.
+         */
+        returnTo?: string;
+    };
+    url: '/api/v1/auth/chatgpt/start';
+};
+
+export type GetApiV1AuthChatgptStartErrors = {
+    /**
+     * Too many sign-ins started from this address.
+     */
+    429: ErrorEnvelope;
+};
+
+export type GetApiV1AuthChatgptStartError = GetApiV1AuthChatgptStartErrors[keyof GetApiV1AuthChatgptStartErrors];
+
+export type GetApiV1AuthChatgptCallbackData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * OAuth authorization code.
+         */
+        code?: string;
+        /**
+         * OAuth state.
+         */
+        state?: string;
+        /**
+         * OAuth error code.
+         */
+        error?: string;
+    };
+    url: '/api/v1/auth/chatgpt/callback';
+};
+
+export type GetApiV1AuthChatgptCallbackErrors = {
+    /**
+     * Too many sign-in callbacks from this address.
+     */
+    429: ErrorEnvelope;
+};
+
+export type GetApiV1AuthChatgptCallbackError = GetApiV1AuthChatgptCallbackErrors[keyof GetApiV1AuthChatgptCallbackErrors];
+
+export type PostApiV1AuthChatgptDisconnectData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/chatgpt/disconnect';
+};
+
+export type PostApiV1AuthChatgptDisconnectErrors = {
+    /**
+     * Not signed in.
+     */
+    401: ErrorEnvelope;
+    /**
+     * The request did not come from the dashboard.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1AuthChatgptDisconnectError = PostApiV1AuthChatgptDisconnectErrors[keyof PostApiV1AuthChatgptDisconnectErrors];
+
+export type PostApiV1AuthChatgptDisconnectResponses = {
+    /**
+     * Disconnected.
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type PostApiV1AuthChatgptDisconnectResponse = PostApiV1AuthChatgptDisconnectResponses[keyof PostApiV1AuthChatgptDisconnectResponses];
+
+export type GetApiV1AuthChatgptModelsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/chatgpt/models';
+};
+
+export type GetApiV1AuthChatgptModelsErrors = {
+    /**
+     * Not signed in.
+     */
+    401: ErrorEnvelope;
+    /**
+     * No plan connected, or it needs connecting again.
+     */
+    409: ErrorEnvelope;
+    /**
+     * OpenAI did not answer.
+     */
+    503: ErrorEnvelope;
+};
+
+export type GetApiV1AuthChatgptModelsError = GetApiV1AuthChatgptModelsErrors[keyof GetApiV1AuthChatgptModelsErrors];
+
+export type GetApiV1AuthChatgptModelsResponses = {
+    /**
+     * Models returned.
+     */
+    200: ChatGptModelListDto;
+};
+
+export type GetApiV1AuthChatgptModelsResponse = GetApiV1AuthChatgptModelsResponses[keyof GetApiV1AuthChatgptModelsResponses];
+
+export type PutApiV1AuthChatgptModelData = {
+    body: ChatGptModelSelectionRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/chatgpt/model';
+};
+
+export type PutApiV1AuthChatgptModelErrors = {
+    /**
+     * Not signed in.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Your plan does not offer that model, or the request did not come from the dashboard.
+     */
+    403: ErrorEnvelope;
+    /**
+     * No plan connected, or it needs connecting again.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PutApiV1AuthChatgptModelError = PutApiV1AuthChatgptModelErrors[keyof PutApiV1AuthChatgptModelErrors];
+
+export type PutApiV1AuthChatgptModelResponses = {
+    /**
+     * Model chosen.
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type PutApiV1AuthChatgptModelResponse = PutApiV1AuthChatgptModelResponses[keyof PutApiV1AuthChatgptModelResponses];
 
 export type PostApiV1SnapshotData = {
     body: SnapshotRequest;
