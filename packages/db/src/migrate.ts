@@ -5628,7 +5628,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     // page loads as AI user fetches. Hours a source wrote before were counted
     // under older rules: every file, data call and beacon their pages made
     // counted (high), or the older trust rules judged whole visits likely fake
-    // (low). Hourly rows keep no method or query, so they cannot be recounted.
+    // (low). They were not recounted (hourly rows keep no method or query).
     // Stamp where the older count ended on sources holding such hours: the end
     // of the last one, or the upgrade time if that is earlier. A fresh install
     // holds none and stamps nothing.

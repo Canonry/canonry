@@ -419,7 +419,7 @@ export function buildTrafficProbeReport(
       else likelyFakeBuckets.set(key, { tsHour, botId: aiUserFetch.botId, operator: aiUserFetch.operator, reason, hits: 1 })
     } else if (aiUserFetch && !countsAsAiUserFetchHit(aiUserFetch, event)) {
       // A browser agent's page loads are its user fetches. The files, data
-      // calls and prefetches its pages made, and its form posts, are not.
+      // calls and prefetches its pages made, and its actions, are not.
       aiUserFetchBrowserNonPageHits += 1
     } else if (aiUserFetch) {
       aiUserFetchHits += 1

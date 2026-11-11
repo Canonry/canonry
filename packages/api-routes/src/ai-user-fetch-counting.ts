@@ -9,8 +9,8 @@ import { BROWSER_AGENT_BOT_IDS } from '@canonry/canonry-integration-traffic'
  * (`traffic_sources.ai_user_fetch_older_count_until`), or null when none holds
  * such an hour. Earlier hours were counted differently: some counted every
  * file, data call and beacon those agents' pages made and read high, some had
- * whole visits judged likely fake and read low, and hourly rows keep no method
- * or query, so they cannot be recounted. Archived sources count: their rows
+ * whole visits judged likely fake and read low. They were not recounted
+ * (hourly rows keep no method or query). Archived sources count: their rows
  * stay in the series.
  */
 export function aiUserFetchOlderCountUntil(

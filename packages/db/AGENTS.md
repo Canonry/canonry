@@ -161,12 +161,19 @@ the source/project and are dropped 44 days after the newest arrival: the
 30-day lookback plus a Queue's longest retention.
 
 Migration 222 adds nullable `traffic_sources.ai_user_fetch_older_count_until`:
-when the source's AI user fetch hours began counting only the page loads of
-hosted browser agents (Google-Agent, Claude-Agent). Its run hook stamps the
-upgrade time on sources holding such an agent's hourly rows, or Claude-Agent's
-unrecognized-agent rows; NULL elsewhere, and on a fresh install. The stored
-traffic pass stamps a source when it moves Claude-Agent's older hours in, and a
-backfill clears it once no browser-agent hour before its window remains.
+the exclusive end of the last hour whose hosted browser agent (Google-Agent,
+Claude-Agent) AI user fetches the source counted under older rules; from it on,
+those agents count their page loads only. Its run hook sets it, in one pass over
+`ai_user_fetch_events_hourly` and `ai_user_fetch_likely_fake_hourly`, to the
+earlier of the upgrade time and the end of the source's last such agent's hour;
+NULL elsewhere and on a fresh install, and a value already set stays. It reads
+no unrecognized-agent rows. The stored traffic pass marks a source when it moves
+a browser agent's older hours into the AI user fetch counts (Claude-Agent's
+unrecognized hours), and marks every source holding browser-agent hours when
+the browser-agent request rules differ from those its last completed run
+recorded, or none were recorded; it only moves a mark later.
+A replace-mode backfill moves the mark back to the end of the last browser-agent
+hour before its window, never later, or clears it when none remains.
 
 Traffic delivery adapters use `traffic_event_receipts` for durable idempotency.
 Claim `(source_id, event_id)` in the same transaction as rollup writes and

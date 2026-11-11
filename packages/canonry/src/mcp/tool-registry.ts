@@ -3243,7 +3243,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_samples',
     title: 'Read stored traffic samples',
-    description: 'Read the stored sampled tail of server-side traffic with 30-day retention. Sample rows are not a count of visits. Default kind excludes unknown requests. Project/source only; Property, Target and market dimensions are unavailable. No provider call or write.',
+    description: 'Read the stored sampled tail of server-side traffic with 30-day retention. Sample rows are not a count of visits. Default kind excludes unknown requests. A browser agent\'s (Google-Agent, Claude-Agent) AI user fetch sample carries classifier.aiUserFetch.requestKind; unless it is likely fake, only a page sample was counted as an AI user fetch. Project/source only; Property, Target and market dimensions are unavailable. No provider call or write.',
     access: 'read', tier: 'traffic', inputSchema: trafficSamplesQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/traffic/samples'],
     handler: (client, input) => { const { project, ...query } = input; return client.trafficListSamples(project, query) },
@@ -3352,7 +3352,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_sync',
     title: 'Sync traffic source',
-    description: 'Pull a Cloud Run, WordPress, Vercel, or Cloudflare Queue traffic source, classify crawler / AI-referral / unknown traffic, and upsert hourly rollups plus raw samples. Time-window pulls clamp forward to lastSyncedAt. WordPress uses a fixed bounded window, defaults a new or idle source to 365d, validates the returned events remain inside that window, and serializes syncs with a source lease.',
+    description: 'Pull a Cloud Run, WordPress, Vercel, or Cloudflare Queue traffic source, classify crawler / AI user fetch / AI-referral / unknown traffic, and upsert hourly rollups plus raw samples. A browser agent\'s (Google-Agent, Claude-Agent) requests other than page loads go to no rollup; the result counts them in aiUserFetchBrowserNonPageHits. Time-window pulls clamp forward to lastSyncedAt. WordPress uses a fixed bounded window, defaults a new or idle source to 365d, validates the returned events remain inside that window, and serializes syncs with a source lease.',
     access: 'write',
     tier: 'traffic',
     inputSchema: trafficSyncInputSchema,

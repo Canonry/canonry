@@ -499,7 +499,8 @@ export const cloudflareWorkerIngestResponseSchema = z.object({
   /**
    * Requests from browser agents (Google-Agent, Claude-Agent) other than page
    * loads: the files, data calls, prefetches and beacons their pages made, and
-   * form posts. No bucket holds them, so the push reports them as a sync does.
+   * their actions (form posts, checkouts, API writes). No bucket holds them,
+   * so the push reports them as a sync does.
    */
   aiUserFetchBrowserNonPageHits: z.number().int().nonnegative(),
 })
@@ -519,8 +520,8 @@ export const trafficSyncResponseSchema = z.object({
   /**
    * Requests from browser agents (Google-Agent, Claude-Agent) other than page
    * loads: the files, data calls, prefetches and beacons their pages made, and
-   * form posts. Never in `aiUserFetchHits`. Optional so a newer client reads
-   * an older API.
+   * their actions (form posts, checkouts, API writes). Never in
+   * `aiUserFetchHits`. Optional so a newer client reads an older API.
    */
   aiUserFetchBrowserNonPageHits: z.number().int().nonnegative().optional(),
   aiReferralHits: z.number().int().nonnegative(),
@@ -836,8 +837,8 @@ export const trafficEventsResponseSchema = z.object({
      * older rules, or null when none holds such an hour. From it on, those
      * agents count their page loads only. Earlier hours were counted
      * differently and can read high (every file, data call and beacon counted)
-     * or low (whole visits judged likely fake); stored hourly rows keep no
-     * method or query, so they cannot be recounted. Not bound to the window.
+     * or low (whole visits judged likely fake); they were not recounted
+     * (stored hourly rows keep no method or query). Not bound to the window.
      * `trends.aiUserFetchHits` is fitted only over buckets that begin at or
      * after it. Optional so a newer client reads an older API.
      */
@@ -975,10 +976,11 @@ export const trafficSampleClassifierSchema = z.object({
     browser: z.boolean().nullish().catch(null),
     /**
      * A browser agent's request kind, read at ingest from its method, path and
-     * query. Unless the sample is likely fake, only a `page` sample was counted
-     * as an AI user fetch hit; `action` and `resource` samples were counted
-     * only in a sync's `aiUserFetchBrowserNonPageHits`. Absent for link
-     * fetchers and on samples stored before it was recorded.
+     * query, or from the path alone when the stored-traffic pass relabeled the
+     * sample. Unless the sample is likely fake, only a `page` sample was
+     * counted as an AI user fetch hit; ingest counted `action` and `resource`
+     * requests only in the write's `aiUserFetchBrowserNonPageHits`. Absent for
+     * link fetchers and on samples stored before it was recorded.
      */
     requestKind: browserAgentRequestKindSchema.nullish().catch(null),
   }).nullable().default(null),

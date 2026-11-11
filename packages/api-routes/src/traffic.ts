@@ -5435,8 +5435,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         // window-bound.
         const referralCountingChangedAt = aiReferralOlderCountUntil(app.db, { projectId: project.id, sourceId: sourceIdParam })
         const referralCountingChangedMs = referralCountingChangedAt === null ? null : Date.parse(referralCountingChangedAt)
-        // User-fetch hours that counted every request of a browser agent, not
-        // only its page loads, read high and cannot be recounted either.
+        // User-fetch hours whose browser-agent requests were counted under
+        // older rules can read high or low, and were not recounted.
         const userFetchCountingChangedAt = aiUserFetchOlderCountUntil(app.db, { projectId: project.id, sourceId: sourceIdParam })
         const userFetchCountingChangedMs = userFetchCountingChangedAt === null ? null : Date.parse(userFetchCountingChangedAt)
         const coverageStart = firsts.length ? firsts.slice().sort()[0]! : null

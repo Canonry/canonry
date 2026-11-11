@@ -2936,8 +2936,8 @@ export const trafficSources = sqliteTable('traffic_sources', {
    * Claude-Agent) AI user fetches this source counted under older rules; hours
    * from it on count those agents' page loads only. Older hours were counted
    * differently and can read high (every file, data call and beacon counted)
-   * or low (whole visits judged likely fake); hourly rows keep no method or
-   * query, so they cannot be recounted. NULL when the source holds no such
+   * or low (whole visits judged likely fake); they were not recounted
+   * (hourly rows keep no method or query). NULL when the source holds no such
    * hour. Set by migration v222 and by the stored traffic pass; a replace-mode
    * backfill moves it back to the end of the last browser-agent hour before
    * its window, or clears it when none remains. Trend fits and comparisons

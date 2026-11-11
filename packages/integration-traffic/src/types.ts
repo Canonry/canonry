@@ -28,8 +28,9 @@ export interface AiCrawlerRule {
    * agents only. It loads a page the way a person's browser does, so most of
    * its requests are files, data calls and prefetches the page made by itself
    * (`browserAgentRequestKind`). Only its page loads count as AI user fetch
-   * hits; journeys keep page loads and form posts. The scanner check spares
-   * the app files such pages load (`isScannerPath`).
+   * hits; journeys keep its page loads, its actions and any request that
+   * failed. The scanner check spares the app files and sign-in endpoints such
+   * pages load (`isScannerPath`).
    */
   browser?: boolean
 }
@@ -139,7 +140,7 @@ export interface AiReferralEventHourlyBucket {
 /**
  * An AI user fetch as its sample records it. A browser agent's sample also
  * says what its request was (`browserAgentRequestKind`), so its counted page
- * loads read apart from the files, data calls and form posts that were not.
+ * loads read apart from the resources and actions that were not.
  */
 export interface SampledAiUserFetch extends ClassifiedAiUserFetch {
   /** Browser agents only. */
@@ -187,7 +188,8 @@ export interface TrafficProbeReport {
     /**
      * Requests from browser agents (Google-Agent, Claude-Agent) other than
      * page loads: the files, data calls, prefetches and beacons their pages
-     * made, and form posts. Never in `aiUserFetchHits` or its buckets.
+     * made, and their actions (form posts, checkouts, API writes). Never in
+     * `aiUserFetchHits` or its buckets.
      */
     aiUserFetchBrowserNonPageHits: number
     aiReferralSessions: number

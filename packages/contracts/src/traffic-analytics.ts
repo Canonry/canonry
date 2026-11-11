@@ -44,7 +44,7 @@ export const trafficActivitySummarySchema = z.object({
    * under older rules, or null when none holds such an hour. From it on, those
    * agents count their page loads only. Earlier hours were counted differently
    * and can read high (every file, data call and beacon counted) or low (whole
-   * visits judged likely fake); they cannot be recounted, so the AI user fetch
+   * visits judged likely fake); they were not recounted, so the AI user fetch
    * delta is null while the prior window starts before it. Not window-bound.
    * Optional so a newer client reads an older API.
    */

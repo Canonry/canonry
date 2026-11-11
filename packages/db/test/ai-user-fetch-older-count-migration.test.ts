@@ -11,7 +11,7 @@ import { insertLegacyProject, insertLegacyRow } from './legacy-rows.js'
  * Hosted browser agents (Google-Agent, Claude-Agent) now count only their page
  * loads as AI user fetches. Hours a source wrote before were counted under
  * older rules: every file, data call and beacon their pages made counted, or
- * the older trust rules judged whole visits likely fake. They cannot be
+ * the older trust rules judged whole visits likely fake. They were not
  * recounted, so v222 marks where that older count ended on each source holding
  * such hours: the end of its last one, or the upgrade time if that is earlier.
  */

@@ -82,10 +82,13 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     purpose: 'training',
     // ClaudeBot is Anthropic's training crawler. `Claude-Web/` and
     // `anthropic-ai` are older Anthropic tokens it no longer documents.
-    // There is deliberately no Claude-*Bot family pattern: a bot Anthropic
-    // adds later is not training traffic by default, so until it gets its
-    // own rule it is stored as an unrecognized agent and raises
-    // `traffic.agent.discovered`.
+    // There is deliberately no Claude-*Bot family pattern: a Claude bot
+    // Anthropic adds later is not training traffic by default, so until it
+    // gets its own rule it is stored as an unrecognized agent, which keeps
+    // its GET and HEAD requests for anything but a static file (the rest
+    // count only in `unknownHits`). Only `canonry serve` alerts on such a
+    // name (`traffic.agent.discovered`), and only under the conditions in
+    // this package's AGENTS.md ("Rule order").
     userAgentPatterns: [
       /ClaudeBot\//i,
       /Claude-Web\//i,
@@ -305,11 +308,11 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     product: 'xAI-Bot',
     purpose: 'crawl',
     // xAI documents its crawler at https://x.ai/bots/ as `xAI-Bot/<version>`.
-    // Operators have also observed `Grok-Bot/...` in production logs. xAI
-    // has been less consistent than OpenAI/Anthropic about publishing every
-    // UA variant they ship, so the pattern is intentionally permissive
-    // across the xAI/Grok family — better to over-match the operator than
-    // leave real hits in the `unknown` bucket. A separate `purpose:
+    // Operators have also observed `Grok-Bot/...` and `GrokBot/...` in
+    // production logs. xAI has been less consistent than OpenAI/Anthropic
+    // about publishing every UA variant they ship, so the rule lists each
+    // token seen, as a literal: any other xAI or Grok name arrives as an
+    // unrecognized agent until it is added here. A separate `purpose:
     // 'user-agent'` Grok rule can be added later if xAI ships a citation
     // user-fetcher UA (the way OpenAI ships ChatGPT-User alongside GPTBot).
     userAgentPatterns: [/xAI-Bot\//i, /Grok-Bot\//i, /GrokBot\//i],
