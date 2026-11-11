@@ -121,7 +121,7 @@ export const AI_TRAFFIC_HISTORY_COPY = {
     'An AI engine fetching a page live while answering someone, rather than crawling it for an index. A browser agent (Google-Agent, Claude-Agent) counts its page loads only, not the files its pages load.'
     + (olderThrough === null
       ? ''
-      : ` Days through ${formatChartDateLabel(olderThrough)} were counted under older rules, which counted some of those files and missed some page loads, so they can read high or low and cannot be recounted.`),
+      : ` Days through ${formatChartDateLabel(olderThrough)} were counted under older rules, which counted some of those files and missed some page loads, so they can read high or low. They were not recounted.`),
   pageFetchesSeries: PAGE_FETCHES_NAME,
   /** Hover label for page fetches counted before browser agents counted page loads only. */
   olderPageFetchesSeries: `${PAGE_FETCHES_NAME} (older count)`,
