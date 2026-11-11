@@ -1,6 +1,6 @@
 import { AgentTrustLevels, classifyTrafficPath, hostOf, TrafficPathClasses, type AgentTrustReason, type NormalizedTrafficRequest, type StoredAgentTrust, type TrafficVerificationManifest, type VerificationStatus } from '@canonry/canonry-contracts'
 import { withScannerBurst } from './agent-trust.js'
-import { browserAgentRequestKind, BrowserAgentRequestKinds } from './browser-agents.js'
+import { keepsBrowserAgentJourneyRequest } from './browser-agents.js'
 import { classifyAiUserFetch, isSelfTraffic } from './classifier.js'
 import { maskJourneyPath } from './journey.js'
 import { findScannerBurstsInBatch } from './scanner-bursts.js'
@@ -34,8 +34,9 @@ export interface ExtractAgentJourneyOptions {
  * Observed fetches only: a request does not prove navigation, intent or
  * success. Likely fake requests are left out; their hourly totals count them.
  * A browser agent's journey keeps the requests it made, page loads and form
- * posts, never what its pages fetched by themselves (`browserAgentRequestKind`):
- * those would show pages it never opened, such as prefetched links.
+ * posts, and any request that failed, never what its pages fetched by
+ * themselves (`keepsBrowserAgentJourneyRequest`): those would show pages it
+ * never opened, such as prefetched links.
  */
 export function extractAgentJourneyRequests(events: readonly NormalizedTrafficRequest[], options: ExtractAgentJourneyOptions = {}): AgentJourneyRequest[] {
   const bursts = options.scannerBurstEventIds ?? findScannerBurstsInBatch(events)
@@ -49,7 +50,7 @@ export function extractAgentJourneyRequests(events: readonly NormalizedTrafficRe
     if (!Number.isFinite(timestamp)) continue
     const path = event.path.split(/[?#]/)[0] || '/'
     if (agent.browser) {
-      if (browserAgentRequestKind(event) === BrowserAgentRequestKinds.resource) continue
+      if (!keepsBrowserAgentJourneyRequest(event)) continue
     } else if (classifyTrafficPath(path) === TrafficPathClasses.asset && !/\.json\/?$/i.test(path)) {
       // JSON may be a link fetcher's direct API response, not a page subresource.
       continue

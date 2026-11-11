@@ -72,6 +72,40 @@ export function browserAgentRequestKind(request: Pick<NormalizedTrafficRequest, 
   return method === 'GET' ? BrowserAgentRequestKinds.page : BrowserAgentRequestKinds.action
 }
 
+/**
+ * Version of the browser-agent request rules: `browserAgentRequestKind`,
+ * `countsAsAiUserFetchHit` and `keepsBrowserAgentJourneyRequest`. Bump it when
+ * a change to them alters which requests count as AI user fetch hits or which
+ * journey requests are kept, so the stored-traffic pass runs again and marks
+ * the sources whose stored hours were counted the old way.
+ */
+export const BROWSER_AGENT_REQUEST_RULES_VERSION = 1
+
+/**
+ * Whether an AI user fetch that is not likely fake counts as a hit: every
+ * request of a link fetcher, and only a browser agent's page loads. Likely
+ * fakes are routed to their own counts before this check, at ingest and in the
+ * stored-traffic pass alike.
+ */
+export function countsAsAiUserFetchHit(
+  fetch: { browser?: boolean },
+  request: Pick<NormalizedTrafficRequest, 'method' | 'path' | 'queryString'>,
+): boolean {
+  return !fetch.browser || browserAgentRequestKind(request) === BrowserAgentRequestKinds.page
+}
+
+/**
+ * Whether a browser agent's request stays in its agent journey: the page loads
+ * and actions it made, and any request that failed (HTTP 400-599), so a blocked
+ * file, data call or API request stays visible with its error.
+ */
+export function keepsBrowserAgentJourneyRequest(
+  request: Pick<NormalizedTrafficRequest, 'method' | 'path' | 'queryString' | 'status'>,
+): boolean {
+  if (request.status !== null && request.status >= 400) return true
+  return browserAgentRequestKind(request) !== BrowserAgentRequestKinds.resource
+}
+
 /** Bot ids of the hosted browser agents (`AiCrawlerRule.browser`). */
 export const BROWSER_AGENT_BOT_IDS: readonly string[] = DEFAULT_AI_CRAWLER_RULES
   .filter(rule => rule.browser === true)
