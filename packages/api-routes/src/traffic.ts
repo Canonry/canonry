@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { countableReferralCondition, referralLandedCondition } from './ai-referral-status.js'
 import { and, desc, eq, gt, gte, inArray, lt, lte, sql, type SQL } from 'drizzle-orm'
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify'
 import { cloudflareWorkerVersionFor } from './cloudflare-worker-version.js'
 import {
   CLOUDFLARE_QUEUE_BATCH_SIZE,
@@ -69,6 +69,7 @@ import {
   OutcomeStatuses,
 } from '@canonry/canonry-contracts'
 import type {
+  CloudflareWorkerIngestResponse,
   NormalizedTrafficRequest,
   OutcomeReasonCode,
   RunStatus,
@@ -309,6 +310,8 @@ export interface TrafficIngestedEvent {
   crawlerHits: number
   aiReferralHits: number
   aiUserFetchHits: number
+  /** Browser-agent requests other than page loads; never in `aiUserFetchHits`. */
+  aiUserFetchBrowserNonPageHits: number
   durationMs: number
   /** Why the push was refused; present only when failed. */
   reasonCode?: OutcomeReasonCode
@@ -535,6 +538,19 @@ const TRAFFIC_BACKFILL_LEASE_TTL_MS = 5 * 60_000
 const TRAFFIC_BACKFILL_LEASE_RENEW_MS = 60_000
 const DEFAULT_CLOUDFLARE_INGEST_RATE_LIMIT_MAX = 6_000
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i
+
+/**
+ * A browser agent's requests other than page loads go to no bucket, so every
+ * write path reports how many it left out: in its response where it has one,
+ * and in the log, the only trace a scheduled sync or a backfill leaves.
+ */
+function logBrowserAgentNonPageHits(log: FastifyBaseLogger, fields: { sourceId: string, runId: string, hits: number }): void {
+  if (fields.hits === 0) return
+  log.info(
+    { sourceId: fields.sourceId, runId: fields.runId, aiUserFetchBrowserNonPageHits: fields.hits },
+    'Browser agent requests other than page loads were not counted as AI user fetches',
+  )
+}
 
 function sha256Hex(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex')
@@ -1850,6 +1866,9 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
             crawlerHits: report.totals.crawlerHits,
             aiReferralHits: report.totals.aiReferralHits,
             aiUserFetchHits: report.totals.aiUserFetchHits,
+            ...(report.totals.aiUserFetchBrowserNonPageHits > 0
+              ? { aiUserFetchBrowserNonPageHits: report.totals.aiUserFetchBrowserNonPageHits }
+              : {}),
           },
         }
       : {
@@ -1857,6 +1876,8 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           reasonCode: commitOutcome === 'source-inactive' ? OutcomeReasonCodes.NOT_CONNECTED : OutcomeReasonCodes.UNSUPPORTED,
         })
     if (commitOutcome === 'source-inactive' || commitOutcome === 'wordpress-backfill-unsupported') return
+    // The backfill response already returned, so the log reports what the replaced window left out.
+    logBrowserAgentNonPageHits(app.log, { sourceId: sourceRow.id, runId, hits: report.totals.aiUserFetchBrowserNonPageHits })
   } catch (e) {
     markFailed(`Backfill rollup write failed: ${describeError(e)}`)
     reportBackfill(failedOutcome(e))
@@ -2935,12 +2956,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   }, async (request, reply) => {
     const ingestStartedMs = Date.now()
     // Telemetry only after authentication: an unauthenticated caller never reaches it.
-    const reportIngest = (outcome: Pick<TrafficIngestedEvent, 'events' | 'crawlerHits' | 'aiReferralHits' | 'aiUserFetchHits'> | { failure: unknown; reasonCode?: OutcomeReasonCode }) => {
+    const reportIngest = (outcome: Pick<TrafficIngestedEvent, 'events' | 'crawlerHits' | 'aiReferralHits' | 'aiUserFetchHits' | 'aiUserFetchBrowserNonPageHits'> | { failure: unknown; reasonCode?: OutcomeReasonCode }) => {
       try {
         opts.onTrafficIngested?.('failure' in outcome
           ? {
               sourceType: TrafficSourceTypes.cloudflare, status: 'failed', events: 0, crawlerHits: 0, aiReferralHits: 0,
-              aiUserFetchHits: 0, durationMs: Date.now() - ingestStartedMs, ...routeOutcomeFailure(outcome.failure, outcome.reasonCode),
+              aiUserFetchHits: 0, aiUserFetchBrowserNonPageHits: 0, durationMs: Date.now() - ingestStartedMs,
+              ...routeOutcomeFailure(outcome.failure, outcome.reasonCode),
             }
           : { sourceType: TrafficSourceTypes.cloudflare, status: 'succeeded', ...outcome, durationMs: Date.now() - ingestStartedMs })
       } catch {
@@ -3050,9 +3072,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       crawlerHits: writeResult.crawlerHits,
       aiReferralHits: writeResult.aiReferralHits,
       aiUserFetchHits: writeResult.aiUserFetchHits,
+      aiUserFetchBrowserNonPageHits: writeResult.aiUserFetchBrowserNonPageHits,
     })
 
-    return reply.status(200).send({
+    const response: CloudflareWorkerIngestResponse = {
       acceptedEvents: writeResult.acceptedEvents,
       droppedEvents: normalizationDrops + writeResult.duplicateEvents,
       workerVersionAck: workerVersion,
@@ -3060,7 +3083,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       aiUserFetchBucketRows: writeResult.aiUserFetchBucketRows,
       aiReferralBucketRows: writeResult.aiReferralBucketRows,
       sampleRows: writeResult.sampleRows,
-    })
+      aiUserFetchBrowserNonPageHits: writeResult.aiUserFetchBrowserNonPageHits,
+    }
+    return reply.status(200).send(response)
   })
 
   // POST /projects/:name/traffic/sources/:id/sync
@@ -3158,6 +3183,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           projectId: project.id, actor: 'api', action: 'traffic.cloudflare.queue-synced',
           entityType: 'traffic_source', entityId: sourceRow.id,
         })
+        logBrowserAgentNonPageHits(request.log, { sourceId: sourceRow.id, runId, hits: aiUserFetchBrowserNonPageHits })
         try {
           opts.onTrafficSynced?.({
             status: 'completed', sourceType: sourceRow.sourceType, sourceId: sourceRow.id,
@@ -4387,6 +4413,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         'Dropped Canonry self-traffic before rollup; excluded from pulledEvents',
       )
     }
+    logBrowserAgentNonPageHits(request.log, { sourceId: sourceRow.id, runId, hits: aiUserFetchBrowserNonPageHitsCount })
 
     // Fire-and-forget telemetry. Never let a hook block the response.
     try {

@@ -2,6 +2,7 @@ import type {
   AgentTrust,
   AgentTrustReason,
   AiReferralTrafficClass,
+  BrowserAgentRequestKind,
   NormalizedTrafficRequest,
   TrafficVerificationManifest,
 } from '@canonry/canonry-contracts'
@@ -135,6 +136,16 @@ export interface AiReferralEventHourlyBucket {
   organicHits: number
 }
 
+/**
+ * An AI user fetch as its sample records it. A browser agent's sample also
+ * says what its request was (`browserAgentRequestKind`), so its counted page
+ * loads read apart from the files, data calls and form posts that were not.
+ */
+export interface SampledAiUserFetch extends ClassifiedAiUserFetch {
+  /** Browser agents only. */
+  requestKind?: BrowserAgentRequestKind
+}
+
 export interface TrafficProbeSample {
   eventId: string
   observedAt: string
@@ -145,7 +156,7 @@ export interface TrafficProbeSample {
   userAgent: string | null
   referer: string | null
   crawler: ClassifiedCrawler | null
-  aiUserFetch: ClassifiedAiUserFetch | null
+  aiUserFetch: SampledAiUserFetch | null
   aiReferral: ClassifiedAiReferral | null
 }
 

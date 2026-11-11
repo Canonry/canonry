@@ -1,5 +1,6 @@
 import { formatValidationIssues, trafficSamplesQuerySchema, type TrafficSamplesQuery, trafficUnrecognizedAgentsQuerySchema, type TrafficUnrecognizedAgentsQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@canonry/canonry-contracts'
 import type {
+  BrowserAgentRequestKind,
   CloudflareQueueDrainStopReason,
   CloudflareQueueDrainSummary,
   RunDetailDto,
@@ -9,11 +10,12 @@ import type {
   TrafficEventsResponse,
   TrafficSeriesGranularity,
   TrafficSourceDto,
+  TrafficSampleClassifier,
   TrafficSourceListResponse,
   TrafficStatusResponse,
   TrafficSyncResponse,
 } from '@canonry/canonry-contracts'
-import { RunStatuses, TRAFFIC_EVENT_KIND_FILTER_HINT, TrafficEventKinds, trafficSeriesGranularitySchema, describeError, formatPercent, parseTrafficAnalyticsPeriod, parseTrafficEventKindFilter } from '@canonry/canonry-contracts'
+import { AgentTrustLevels, BrowserAgentRequestKinds, RunStatuses, TRAFFIC_EVENT_KIND_FILTER_HINT, TrafficEventKinds, trafficSeriesGranularitySchema, describeError, formatPercent, parseTrafficAnalyticsPeriod, parseTrafficEventKindFilter } from '@canonry/canonry-contracts'
 import fs from 'node:fs'
 import { getCloudflareTrafficConnectionBySourceId } from '../cloudflare-traffic-config.js'
 import {
@@ -1101,13 +1103,28 @@ export async function trafficSamples(project: string, opts: Omit<TrafficSamplesQ
   console.log(`Stored traffic samples for "${project}": ${result.samples.length} of ${result.totalRows} matching sample rows. Sampled tail, not visits; use traffic events for totals.`)
   console.log('Retention: 30 days. Caps: 100 per sync, 500 per backfill, 100 per source per push hour.')
   console.log('traffic status shows the last-24h sample count per source, including unknown samples. This selection excludes unknown unless requested.')
+  if (result.samples.some(sample => uncountedBrowserAgentRequestKind(sample.classifier.aiUserFetch) !== null)) {
+    console.log('Browser agents count only page loads. "not counted" marks a resource (a file, data call, prefetch or beacon its page fetched) or an action (a form post).')
+  }
   for (const sample of result.samples) {
     const classifier = sample.classifier.aiReferral ?? sample.classifier.aiUserFetch ?? sample.classifier.crawler
-    // Agent samples carry their trust verdict, so likely fakes stay recognizable here.
-    const trust = sample.classifier.aiUserFetch?.trust
-    const label = classifier?.product ? (trust ? `${classifier.product} (${trust})` : classifier.product) : '-'
+    // Agent samples carry their trust verdict, so likely fakes stay recognizable
+    // here, and a browser agent's uncounted requests say so.
+    const userFetch = sample.classifier.aiUserFetch
+    const uncounted = uncountedBrowserAgentRequestKind(userFetch)
+    const qualifiers = [...(userFetch?.trust ? [userFetch.trust] : []), ...(uncounted ? [`${uncounted}, not counted`] : [])]
+    const label = classifier?.product ? (qualifiers.length > 0 ? `${classifier.product} (${qualifiers.join('; ')})` : classifier.product) : '-'
     console.log([sample.ts, sample.kind, sample.status ?? '-', sample.pathNormalized, sample.refererHost ?? '-', label, sample.userAgent ?? '-'].join('  '))
   }
+}
+
+/**
+ * The kind of a browser agent's request that was not counted as an AI user
+ * fetch, or null: only page loads count, and a likely fake is counted on its own.
+ */
+function uncountedBrowserAgentRequestKind(userFetch: TrafficSampleClassifier['aiUserFetch']): BrowserAgentRequestKind | null {
+  if (!userFetch?.requestKind || userFetch.requestKind === BrowserAgentRequestKinds.page || userFetch.trust === AgentTrustLevels.likely_fake) return null
+  return userFetch.requestKind
 }
 
 export async function trafficUnrecognized(project: string, opts: TrafficUnrecognizedAgentsQuery & { format?: string }): Promise<void> {

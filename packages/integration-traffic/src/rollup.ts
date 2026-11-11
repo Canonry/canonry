@@ -2,7 +2,7 @@ import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@canonry/
 import { AiReferralTrafficClasses, hostOf, isLocationRedirectStatus, JOURNEY_LOOKBACK_DAYS, JOURNEY_VISIT_IDLE_MINUTES } from '@canonry/canonry-contracts'
 import { AgentTrustLevels } from '@canonry/canonry-contracts'
 import { withScannerBurst } from './agent-trust.js'
-import { countsAsAiUserFetchHit } from './browser-agents.js'
+import { browserAgentRequestKind, countsAsAiUserFetchHit } from './browser-agents.js'
 import { classifyAiReferral, classifyAiUserFetch, classifyCrawler, isSelfTraffic } from './classifier.js'
 import { isStepReferer, siteDomainHosts } from './journey.js'
 import { findScannerBurstsInBatch } from './scanner-bursts.js'
@@ -506,7 +506,9 @@ export function buildTrafficProbeReport(
       userAgent: event.userAgent,
       referer: event.referer,
       crawler,
-      aiUserFetch,
+      // A browser agent's sample says what its request was: only its page
+      // loads count, and samples keep no method or query to tell them apart.
+      aiUserFetch: aiUserFetch?.browser ? { ...aiUserFetch, requestKind: browserAgentRequestKind(event) } : aiUserFetch,
       aiReferral,
     })
     if (samples.length > sampleLimit) samples.shift()
