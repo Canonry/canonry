@@ -106,7 +106,9 @@ describe('publisher payload normalization', () => {
     sailService: 'Claude-Agent',
   }
   // The shape Anthropic publishes at https://claude.com/.well-known/sail, plus
-  // a second service and prefix set the decoder must leave out.
+  // a second service and prefix set the decoder must leave out. The reader
+  // rejects documentation ranges (they are not globally reachable), so these
+  // are ordinary public cloud addresses.
   const sailBody = `schema        = "draft-kelley-webbotauth-sail-00"
 modified      = 2026-10-22T18:36:00Z
 expires_after = 3600  # seconds
@@ -116,14 +118,14 @@ name          = "agentic-browser-use"
 # \`exclusive=true\` means that all traffic from these ranges will be documented in this file.
 exclusive     = true
 ipv4_prefixes = [
-  "192.0.2.10",
-  "198.51.100.0/24", # a range, kept as published
+  "34.120.0.10",
+  "35.190.0.0/24", # a range, kept as published
 ]
-ipv6_prefixes = ["2001:db8::1"]
+ipv6_prefixes = ["2600:1900:4000::1"]
 
 [[prefix_sets]]
 name          = "other-service"
-ipv4_prefixes = ["203.0.113.5"]
+ipv4_prefixes = ["34.120.9.9"]
 ipv6_prefixes = []
 
 [[services]]
@@ -140,10 +142,34 @@ prefix_sets = ["other-service"]
     expect(decodeSourcePayload(sailSource, sailBody)).toEqual({
       creationTime: '2026-10-22T18:36:00Z',
       prefixes: [
-        { ipv4Prefix: '192.0.2.10/32' },
-        { ipv4Prefix: '198.51.100.0/24' },
-        { ipv6Prefix: '2001:db8::1/128' },
+        { ipv4Prefix: '34.120.0.10/32' },
+        { ipv4Prefix: '35.190.0.0/24' },
+        { ipv6Prefix: '2600:1900:4000::1/128' },
       ],
+    })
+  })
+
+  it('reads a service\'s own prefixes, matches names without case, and allows tabs in strings', () => {
+    // Draft-00: prefixes listed on a service act as an anonymous prefix set,
+    // and identifiers compare ASCII-case-insensitively. TOML allows a raw tab
+    // inside a basic string.
+    const body = sailBody
+      .replace('name        = "Claude-Agent"', 'name        = "claude-agent"\nipv4_prefixes = ["34.121.0.1", "34.120.0.10"]')
+      .replace('prefix_sets = ["agentic-browser-use"]', 'prefix_sets = ["Agentic-Browser-Use"]')
+      .replace('expires_after', 'note          = "tab\there"\nexpires_after')
+    expect(decodeSourcePayload(sailSource, body)).toEqual({
+      creationTime: '2026-10-22T18:36:00Z',
+      prefixes: [
+        { ipv4Prefix: '34.121.0.1/32' },
+        { ipv4Prefix: '34.120.0.10/32' },
+        { ipv4Prefix: '35.190.0.0/24' },
+        { ipv6Prefix: '2600:1900:4000::1/128' },
+      ],
+    })
+    const direct = sailBody.replace('prefix_sets = ["agentic-browser-use"]', 'ipv6_prefixes = ["2600:1900:4000::/48"]')
+    expect(decodeSourcePayload(sailSource, direct)).toEqual({
+      creationTime: '2026-10-22T18:36:00Z',
+      prefixes: [{ ipv6Prefix: '2600:1900:4000::/48' }],
     })
   })
 
@@ -151,9 +177,16 @@ prefix_sets = ["other-service"]
     ['a newer SAIL draft', sailBody.replace('sail-00', 'sail-01'), /SAIL schema draft-kelley-webbotauth-sail-01 is not/],
     ['a missing service', sailBody.replace('"Claude-Agent"', '"Someone-Else"'), /lists service Claude-Agent 0 times/],
     ['a missing prefix set', sailBody.replace('["agentic-browser-use"]', '["missing"]'), /prefix set missing appears 0 times/],
-    ['an IPv6 address among IPv4 prefixes', sailBody.replace('"192.0.2.10"', '"2001:db8::2"'), /is not IPv4/],
+    ['a dangling reference in another service', sailBody.replace('["other-service"]', '["nowhere"]'), /prefix set nowhere appears 0 times/],
+    ['a file with no expiry', sailBody.replace('expires_after = 3600  # seconds\n', ''), /no expires or expires_after/],
+    ['a prefix covering private space', sailBody.replace('"35.190.0.0/24"', '"0.0.0.0/0"'), /not globally reachable/],
+    ['a documentation prefix', sailBody.replace('"2600:1900:4000::1"', '"2001:db8::1"'), /not globally reachable/],
+    ['a carve-out by another service', sailBody.replace('["34.120.9.9"]', '["35.190.0.7"]'), /carve-outs are not supported/],
+    ['an IPv6 address among IPv4 prefixes', sailBody.replace('"34.120.0.10"', '"2600:1900:4000::2"'), /is not IPv4/],
+    ['a padded prefix', sailBody.replace('"34.120.0.10"', '" 34.120.0.10"'), /is not a valid IP prefix/],
+    ['an escape TOML does not define', sailBody.replace('expires_after', 'note          = "a\\/b"\nexpires_after'), /unsupported string/],
     ['a plain table', sailBody.replace('[[services]]\nname        = "Other"', '[meta]\nname        = "Other"'), /unsupported syntax/],
-    ['an unclosed array', `${sailBody}extra = [\n  "192.0.2.99",\n`, /array extra is never closed/],
+    ['an unclosed array', `${sailBody}extra = [\n  "34.120.0.99",\n`, /array extra is never closed/],
   ])('fails the refresh on %s rather than guessing', (_case, body, error) => {
     expect(() => decodeSourcePayload(sailSource, body)).toThrow(error)
   })

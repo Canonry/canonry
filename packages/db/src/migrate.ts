@@ -5560,47 +5560,47 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
 
 /**
  * v220: move stored Claude-SearchBot crawler hits from `anthropic-claudebot`
- * to `claude-searchbot`. The copy adds into a row already under the new id,
- * the provenance rows follow their parent row, and the old rows go last, so a
- * rerun finds nothing to move.
+ * to `claude-searchbot`. The crawler table is scanned once, into a temporary
+ * list of the rows to move; their provenance rows are then found by key. The
+ * copy adds into a row already under the new id, and deleting the old rows
+ * removes their provenance rows through the foreign key's cascade (v139), as
+ * every other deleter of this table relies on. A rerun finds nothing to move.
  */
 function moveClaudeSearchBotRows(tx: MigrationDb): void {
   if (tableExists(tx, 'crawler_events_hourly')) {
+    tx.run(sql.raw('DROP TABLE IF EXISTS temp.v220_moved'))
+    tx.run(sql.raw(
+      `CREATE TEMP TABLE v220_moved AS
+         SELECT rowid AS rid, project_id, source_id, ts_hour, verification_status, path_normalized, status
+           FROM crawler_events_hourly
+          WHERE bot_id = 'anthropic-claudebot' AND sampled_user_agent LIKE '%Claude-SearchBot/%'`,
+    ))
+    // `WHERE true` keeps SQLite from reading the upsert's ON as the join's.
     tx.run(sql.raw(
       `INSERT INTO crawler_events_hourly (project_id, source_id, ts_hour, bot_id, operator, verification_status, path_normalized, status, hits, sampled_user_agent, created_at, updated_at)
-       SELECT project_id, source_id, ts_hour, 'claude-searchbot', operator, verification_status, path_normalized, status, hits, sampled_user_agent, created_at, updated_at
-         FROM crawler_events_hourly
-        WHERE bot_id = 'anthropic-claudebot' AND sampled_user_agent LIKE '%Claude-SearchBot/%'
+       SELECT c.project_id, c.source_id, c.ts_hour, 'claude-searchbot', c.operator, c.verification_status, c.path_normalized, c.status, c.hits, c.sampled_user_agent, c.created_at, c.updated_at
+         FROM v220_moved t JOIN crawler_events_hourly c ON c.rowid = t.rid
+        WHERE true
        ON CONFLICT (project_id, source_id, ts_hour, bot_id, verification_status, path_normalized, status)
        DO UPDATE SET hits = crawler_events_hourly.hits + excluded.hits,
                      updated_at = max(crawler_events_hourly.updated_at, excluded.updated_at)`,
     ))
     if (tableExists(tx, 'crawler_verification_manifests_hourly')) {
-      const parentIsSearchBot = `EXISTS (
-        SELECT 1 FROM crawler_events_hourly p
-         WHERE p.project_id = m.project_id AND p.source_id = m.source_id AND p.ts_hour = m.ts_hour
-           AND p.bot_id = m.bot_id AND p.verification_status = m.verification_status
-           AND p.path_normalized = m.path_normalized AND p.status = m.status
-           AND p.sampled_user_agent LIKE '%Claude-SearchBot/%'
-      )`
       tx.run(sql.raw(
         `INSERT INTO crawler_verification_manifests_hourly (project_id, source_id, ts_hour, bot_id, verification_status, path_normalized, status, manifest_id, manifest_json, hits, created_at, updated_at)
          SELECT m.project_id, m.source_id, m.ts_hour, 'claude-searchbot', m.verification_status, m.path_normalized, m.status, m.manifest_id, m.manifest_json, m.hits, m.created_at, m.updated_at
-           FROM crawler_verification_manifests_hourly m
-          WHERE m.bot_id = 'anthropic-claudebot' AND ${parentIsSearchBot}
+           FROM v220_moved t JOIN crawler_verification_manifests_hourly m
+             ON m.project_id = t.project_id AND m.source_id = t.source_id AND m.ts_hour = t.ts_hour
+            AND m.bot_id = 'anthropic-claudebot' AND m.verification_status = t.verification_status
+            AND m.path_normalized = t.path_normalized AND m.status = t.status
+          WHERE true
          ON CONFLICT (project_id, source_id, ts_hour, bot_id, verification_status, path_normalized, status, manifest_id)
          DO UPDATE SET hits = crawler_verification_manifests_hourly.hits + excluded.hits,
                        updated_at = max(crawler_verification_manifests_hourly.updated_at, excluded.updated_at)`,
       ))
-      tx.run(sql.raw(
-        `DELETE FROM crawler_verification_manifests_hourly AS m
-          WHERE m.bot_id = 'anthropic-claudebot' AND ${parentIsSearchBot}`,
-      ))
     }
-    tx.run(sql.raw(
-      `DELETE FROM crawler_events_hourly
-        WHERE bot_id = 'anthropic-claudebot' AND sampled_user_agent LIKE '%Claude-SearchBot/%'`,
-    ))
+    tx.run(sql.raw('DELETE FROM crawler_events_hourly WHERE rowid IN (SELECT rid FROM v220_moved)'))
+    tx.run(sql.raw('DROP TABLE v220_moved'))
   }
   if (tableExists(tx, 'raw_event_samples')) {
     tx.run(sql.raw(
@@ -6163,6 +6163,7 @@ export function migrate(
   // statement is either CREATE/INDEX IF NOT EXISTS, an idempotent UPDATE,
   // or an ALTER TABLE ADD COLUMN whose duplicate-column error we swallow.
   const appliedVersion = getAppliedVersion(db)
+  let appliedAny = false
 
   for (const mv of versions) {
     if (mv.version <= appliedVersion) continue
@@ -6184,8 +6185,16 @@ export function migrate(
         mv.run?.(tx)
         recordMigration(tx, mv.version, mv.name)
       })
+      appliedAny = true
     } finally {
       if (mv.disableForeignKeys) db.run(sql.raw('PRAGMA foreign_keys = ON'))
     }
   }
+
+  // A version that rewrites many rows leaves the -wal file at its peak size,
+  // and SQLite never shrinks it while a connection stays open, so a server
+  // would hold that disk for its whole life. Truncate it once after upgrading.
+  // With another connection still reading, SQLite waits up to the busy
+  // timeout and then leaves the file as it is; it never raises an error.
+  if (appliedAny) db.all(sql.raw('PRAGMA wal_checkpoint(TRUNCATE)'))
 }

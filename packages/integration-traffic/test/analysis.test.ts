@@ -837,8 +837,9 @@ describe('traffic analysis', () => {
 
   it('routes Claude-Agent to ai-user-fetch, not crawler', () => {
     // Anthropic-hosted browsers acting for a person send a real Chrome UA
-    // with a `compatible; Claude-Agent/1.0` token. Before its rule this
-    // matched nothing and read as a person's browser.
+    // with a `compatible; Claude-Agent/1.0` token. Before its rule no rule
+    // matched it: traffic stored it as the unrecognized agent `claude-agent`
+    // and journeys read it as a person's browser.
     const evt = event({ userAgent: CLAUDE_AGENT_UA })
     expect(classifyCrawler(evt)).toBeNull()
     expect(classifyAiUserFetch(evt)).toMatchObject({
@@ -847,6 +848,21 @@ describe('traffic analysis', () => {
       product: 'Claude-Agent',
       verificationStatus: 'claimed_unverified',
     })
+    // Anthropic says to match the token, which may come without a version.
+    expect(classifyAiUserFetch(event({
+      userAgent: CLAUDE_AGENT_UA.replace('Claude-Agent/1.0', 'Claude-Agent'),
+    }))).toMatchObject({ botId: 'claude-agent' })
+  })
+
+  it('does not count third-party tools named after Claude as Claude-Agent', () => {
+    for (const userAgent of [
+      'claude-agent/0.3.1 (+https://github.com/someone/claude-agent)',
+      'Mozilla/5.0 (compatible; my-claude-agent/1.0)',
+      'claude-agent-sdk/0.1.30 (sdk-ts)',
+      'python-httpx/0.27 claude-agent-sdk-python/0.0.20',
+    ]) {
+      expect(classifyAiUserFetch(event({ userAgent })), userAgent).toBeNull()
+    }
   })
 
   it('promotes Claude-Agent using Anthropic\'s Claude-Agent egress list', () => {

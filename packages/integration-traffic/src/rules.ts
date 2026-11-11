@@ -116,12 +116,16 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     // a real Chrome user agent with `compatible; Claude-Agent/<version>`
     // added; Anthropic says to match the token, since the rest changes.
     // Like Google-Agent, a full browser also loads a page's assets.
+    // The token must follow whitespace, `;` or `(` and end at a non-name
+    // character, so a version-less `Claude-Agent` still matches but
+    // third-party tools that lead with their own name (`claude-agent/0.3`,
+    // `claude-agent-sdk/0.1`) or embed it (`my-claude-agent/1.0`) do not.
     // src: https://support.claude.com/en/articles/18234133-how-do-anthropic-hosted-browsers-identify-themselves-when-they-browse-the-web-on-a-user-s-behalf
     id: 'claude-agent',
     operator: 'Anthropic',
     product: 'Claude-Agent',
     purpose: 'user-agent',
-    userAgentPatterns: [/Claude-Agent\//i],
+    userAgentPatterns: [/(?<=[\s;(])Claude-Agent(?![\w-])/i],
   },
   {
     id: 'perplexity-bot',
@@ -420,7 +424,9 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
   'Claude-Web/',
   'Claude-SearchBot/',
   'Claude-User/',
-  'Claude-Agent/',
+  // No slash: Anthropic says to match the token, which may come without a
+  // version. The edge list stays broad; the server rule is the strict match.
+  'Claude-Agent',
   'anthropic-ai',
   'PerplexityBot/',
   'Perplexity-User/',

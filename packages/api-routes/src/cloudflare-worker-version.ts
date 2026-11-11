@@ -15,3 +15,13 @@ export const CURRENT_CLOUDFLARE_WORKER_VERSION = '1.1.2'
 export function cloudflareWorkerVersionFor(options: { forwardPageViews: boolean }): string {
   return `${CURRENT_CLOUDFLARE_WORKER_VERSION}${options.forwardPageViews ? CLOUDFLARE_PAGE_VIEWS_VERSION_SUFFIX : ''}`
 }
+
+/**
+ * Whether a deployed Worker's reported version says it forwards page views.
+ * Any version with the suffix does: a bump for an unrelated change (a new
+ * bot keyword) must not make journeys call a page-view Worker incomplete.
+ * The doctor's worker-version check is what flags an older Worker.
+ */
+export function workerReportsPageViews(version: string | null | undefined): boolean {
+  return version?.endsWith(CLOUDFLARE_PAGE_VIEWS_VERSION_SUFFIX) ?? false
+}

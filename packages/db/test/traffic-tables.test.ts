@@ -17,7 +17,7 @@ import {
   rawEventSamples,
 } from '../src/index.js'
 import { MIGRATION_VERSIONS } from '../src/migrate.js'
-import { insertLegacyProject } from './legacy-rows.js'
+import { insertLegacyProject, insertLegacyRow } from './legacy-rows.js'
 
 function createTempDb() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-traffic-test-'))
@@ -693,97 +693,93 @@ test('migration 65 splits legacy mistral-ai rows by sampled user agent', () => {
 
 test('migration 220 moves Claude-SearchBot crawler rows, provenance and samples off ClaudeBot', () => {
   // The `anthropic-claudebot` rule (training) used to match Claude-SearchBot,
-  // so its hits were stored as ClaudeBot. v220 moves each row whose sampled
-  // user agent is Claude-SearchBot to `claude-searchbot`, carrying its
-  // manifest sidecar rows, and relabels the crawler samples.
-  const { db, tmpDir } = createTempDb()
+  // so its hits were stored as ClaudeBot. Upgrading a v219 database through
+  // the runner moves each row whose sampled user agent is Claude-SearchBot to
+  // `claude-searchbot`, with its manifest sidecar rows, and relabels the
+  // crawler samples.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-traffic-v220-'))
   onTestFinished(() => cleanup(tmpDir))
+  const db = createClient(path.join(tmpDir, 'test.db'))
+  migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 220))
   seedProject(db)
   const now = '2026-11-10T12:00:00.000Z'
-  db.insert(trafficSources).values({
-    id: 'src_claude',
-    projectId: 'proj_1',
-    sourceType: 'cloud-run',
-    displayName: 'Cloud Run',
-    status: 'connected',
-    configJson: {},
-    createdAt: now,
-    updatedAt: now,
-  }).run()
+  insertLegacyRow(db, 'traffic_sources', {
+    id: 'src_claude', project_id: 'proj_1', source_type: 'cloud-run', display_name: 'Cloud Run',
+    status: 'connected', config_json: {}, created_at: now, updated_at: now,
+  })
 
   const searchBotUa = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; +Claude-SearchBot@anthropic.com)'
   const claudeBotUa = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)'
-  const key = {
-    projectId: 'proj_1',
-    sourceId: 'src_claude',
-    tsHour: '2026-11-10T11:00:00.000Z',
-    verificationStatus: 'verified',
-    status: 200,
-  }
-  const row = (botId: string, pathNormalized: string, hits: number, sampledUserAgent: string | null) => ({
-    ...key, botId, operator: 'Anthropic', pathNormalized, hits, sampledUserAgent, createdAt: now, updatedAt: now,
-  })
+  const key = { project_id: 'proj_1', source_id: 'src_claude', ts_hour: '2026-11-10T11:00:00.000Z', verification_status: 'verified', status: 200 }
+  const crawlerRow = (botId: string, pathNormalized: string, hits: number, sampledUserAgent: string | null) =>
+    insertLegacyRow(db, 'crawler_events_hourly', {
+      ...key, bot_id: botId, operator: 'Anthropic', path_normalized: pathNormalized, hits,
+      sampled_user_agent: sampledUserAgent, created_at: now, updated_at: now,
+    })
   const manifest = (version: string) => ({ id: `anthropic#${version}`, source: 'https://claude.com/crawling/bots.json', version })
-  const provenance = (botId: string, pathNormalized: string, version: string, hits: number) => ({
-    ...key, botId, pathNormalized, manifestId: manifest(version).id, manifestJson: manifest(version), hits, createdAt: now, updatedAt: now,
-  })
-  db.insert(crawlerEventsHourly).values([
-    row('anthropic-claudebot', '/docs', 7, searchBotUa),
-    row('anthropic-claudebot', '/pricing', 5, claudeBotUa),
-    row('anthropic-claudebot', '/about', 2, null),
-    // A row already under the new id takes the moved hits instead of failing.
-    row('claude-searchbot', '/docs', 2, searchBotUa),
-  ]).run()
-  db.insert(crawlerVerificationManifestsHourly).values([
-    provenance('anthropic-claudebot', '/docs', 'v1', 3),
-    provenance('anthropic-claudebot', '/docs', 'v2', 4),
-    provenance('anthropic-claudebot', '/pricing', 'v2', 5),
-    provenance('claude-searchbot', '/docs', 'v2', 2),
-  ]).run()
+  const provenanceRow = (botId: string, pathNormalized: string, version: string, hits: number) =>
+    insertLegacyRow(db, 'crawler_verification_manifests_hourly', {
+      ...key, bot_id: botId, path_normalized: pathNormalized, manifest_id: manifest(version).id,
+      manifest_json: manifest(version), hits, created_at: now, updated_at: now,
+    })
+  // /guide is a plain move, the path a real upgrade takes. /docs also has a
+  // `claude-searchbot` row already, so its moved hits add into that row.
+  crawlerRow('anthropic-claudebot', '/guide', 4, searchBotUa)
+  crawlerRow('anthropic-claudebot', '/docs', 7, searchBotUa)
+  crawlerRow('claude-searchbot', '/docs', 2, searchBotUa)
+  crawlerRow('anthropic-claudebot', '/pricing', 5, claudeBotUa)
+  crawlerRow('anthropic-claudebot', '/about', 2, null)
+  provenanceRow('anthropic-claudebot', '/guide', 'v1', 4)
+  provenanceRow('anthropic-claudebot', '/docs', 'v1', 3)
+  provenanceRow('anthropic-claudebot', '/docs', 'v2', 4)
+  provenanceRow('claude-searchbot', '/docs', 'v2', 2)
+  provenanceRow('anthropic-claudebot', '/pricing', 'v2', 5)
   const crawlerDetails = (botId: string, product: string, purpose: string) => ({
     crawler: { botId, operator: 'Anthropic', product, purpose, verificationStatus: 'verified' },
     aiUserFetch: null,
     aiReferral: null,
   })
-  const sample = (id: string, userAgent: string, classifierDetailsJson: Record<string, unknown>) => ({
-    id, projectId: 'proj_1', sourceId: 'src_claude', ts: now, eventType: 'crawler', userAgent, pathNormalized: '/docs', status: 200, classifierDetailsJson, createdAt: now,
-  })
-  db.insert(rawEventSamples).values([
-    sample('sample_search', searchBotUa, crawlerDetails('anthropic-claudebot', 'ClaudeBot', 'training')),
-    sample('sample_claudebot', claudeBotUa, crawlerDetails('anthropic-claudebot', 'ClaudeBot', 'training')),
-  ]).run()
+  for (const [id, userAgent] of [['sample_search', searchBotUa], ['sample_claudebot', claudeBotUa]] as const) {
+    insertLegacyRow(db, 'raw_event_samples', {
+      id, project_id: 'proj_1', source_id: 'src_claude', ts: now, event_type: 'crawler', user_agent: userAgent,
+      path_normalized: '/docs', status: 200, classifier_details_json: crawlerDetails('anthropic-claudebot', 'ClaudeBot', 'training'),
+      created_at: now,
+    })
+  }
 
-  const v220 = MIGRATION_VERSIONS.find(v => v.version === 220)
+  migrate(db)
+
+  const tables = () => ({
+    crawlers: db.select().from(crawlerEventsHourly).all().map(r => `${r.botId} ${r.pathNormalized} ${r.hits}`).sort(),
+    provenance: db.select().from(crawlerVerificationManifestsHourly).all()
+      .map(r => `${r.botId} ${r.pathNormalized} ${r.manifestId} ${r.hits}`).sort(),
+    samples: Object.fromEntries(db.select().from(rawEventSamples).all().map(s => [s.id, s.classifierDetailsJson])),
+  })
+  const upgraded = tables()
+  expect(upgraded).toEqual({
+    crawlers: [
+      'anthropic-claudebot /about 2',
+      'anthropic-claudebot /pricing 5',
+      'claude-searchbot /docs 9',
+      'claude-searchbot /guide 4',
+    ],
+    provenance: [
+      'anthropic-claudebot /pricing anthropic#v2 5',
+      'claude-searchbot /docs anthropic#v1 3',
+      'claude-searchbot /docs anthropic#v2 6',
+      'claude-searchbot /guide anthropic#v1 4',
+    ],
+    samples: {
+      sample_search: crawlerDetails('claude-searchbot', 'Claude-SearchBot', 'search'),
+      sample_claudebot: crawlerDetails('anthropic-claudebot', 'ClaudeBot', 'training'),
+    },
+  })
+
+  // A second run finds nothing left to move.
+  const v220 = MIGRATION_VERSIONS.find(migration => migration.version === 220)
   expect(v220?.name).toBe('claude-searchbot-own-bot')
   v220!.run!(db)
-  const afterFirstRun = {
-    crawlers: db.select().from(crawlerEventsHourly).all(),
-    provenance: db.select().from(crawlerVerificationManifestsHourly).all(),
-    samples: db.select().from(rawEventSamples).all(),
-  }
-  // A second run finds nothing left to move.
-  v220!.run!(db)
-
-  const byKey = <T extends { botId: string, pathNormalized: string, hits: number }>(rows: T[], extra: (r: T) => string = () => '') =>
-    rows.map(r => `${r.botId} ${r.pathNormalized}${extra(r)} ${r.hits}`).sort()
-  expect(byKey(db.select().from(crawlerEventsHourly).all())).toEqual([
-    'anthropic-claudebot /about 2',
-    'anthropic-claudebot /pricing 5',
-    'claude-searchbot /docs 9',
-  ])
-  expect(byKey(db.select().from(crawlerVerificationManifestsHourly).all(), r => ` ${r.manifestId}`)).toEqual([
-    'anthropic-claudebot /pricing anthropic#v2 5',
-    'claude-searchbot /docs anthropic#v1 3',
-    'claude-searchbot /docs anthropic#v2 6',
-  ])
-  const samples = new Map(db.select().from(rawEventSamples).all().map(s => [s.id, s.classifierDetailsJson]))
-  expect(samples.get('sample_search')).toEqual(crawlerDetails('claude-searchbot', 'Claude-SearchBot', 'search'))
-  expect(samples.get('sample_claudebot')).toEqual(crawlerDetails('anthropic-claudebot', 'ClaudeBot', 'training'))
-  expect({
-    crawlers: db.select().from(crawlerEventsHourly).all(),
-    provenance: db.select().from(crawlerVerificationManifestsHourly).all(),
-    samples: db.select().from(rawEventSamples).all(),
-  }).toEqual(afterFirstRun)
+  expect(tables()).toEqual(upgraded)
 })
 
 test('traffic_sources cascade deletes all dependent rows when project is removed', () => {
