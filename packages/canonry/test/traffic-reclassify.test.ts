@@ -245,6 +245,10 @@ describe('reclassifyStoredTraffic', () => {
     expect(userFetchRows(db)).toEqual([{ tsHour: '2026-10-20T10:00:00.000Z', botId: 'claude-agent', pathNormalized: '/pricing', hits: 1 }])
     expect(fakeRows(db)).toEqual([{ botId: 'claude-agent', reason: 'scanner-path', hits: 1 }])
     expect(sampleTypes(db)).toEqual({ page: 'ai_user_fetch', probe: 'ai_user_fetch', script: 'ai_user_fetch' })
+    // Like an ingested sample, each says what kind of request it was, so a reader can tell the counted page load.
+    const kinds = Object.fromEntries(db.select({ id: rawEventSamples.id, details: rawEventSamples.classifierDetailsJson }).from(rawEventSamples).all()
+      .map(row => [row.id, (row.details as { aiUserFetch?: { requestKind?: string } } | null)?.aiUserFetch?.requestKind]))
+    expect(kinds).toEqual({ page: 'page', probe: 'resource', script: 'resource' })
   })
 
   it('reads the migration time as UTC whatever the process time zone', async () => {

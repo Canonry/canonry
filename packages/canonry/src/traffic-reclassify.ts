@@ -38,6 +38,7 @@ import {
   BROWSER_AGENT_BOT_IDS,
   BROWSER_AGENT_REQUEST_RULES_VERSION,
   BROWSER_SHAPED_AGENT_MARKERS,
+  browserAgentRequestKind,
   classifyAiUserFetch,
   classifyCrawler,
   countsAsAiUserFetchHit,
@@ -57,6 +58,7 @@ import {
   unrecognizedAgentName,
   type ClassifiedAiUserFetch,
   type ClassifiedCrawler,
+  type SampledAiUserFetch,
 } from '@canonry/canonry-integration-traffic'
 import { createLogger } from './logger.js'
 
@@ -650,7 +652,7 @@ async function reclassifyUnknownSamples(db: DatabaseClient, ctx: PassContext): P
           eventType: verdict.kind === 'user-fetch' ? RawEventSampleEventTypes.aiUserFetch : RawEventSampleEventTypes.crawler,
           classifierDetailsJson: {
             crawler: verdict.kind === 'crawler' ? { ...verdict.crawler, verificationManifest: null } : null,
-            aiUserFetch: verdict.kind === 'user-fetch' ? { ...verdict.fetch, verificationManifest: null } : null,
+            aiUserFetch: verdict.kind === 'user-fetch' ? sampledUserFetch(verdict.fetch, sample.pathNormalized) : null,
             aiReferral: null,
           },
         }).where(eq(table.id, sample.id)).run()
@@ -976,7 +978,7 @@ function crawlerSampleRelabel(details: Record<string, unknown>, sample: { userAg
       return {
         kind: 'relabel',
         eventType: RawEventSampleEventTypes.aiUserFetch,
-        details: { ...details, crawler: null, aiUserFetch: { ...verdict.fetch, verificationManifest: null } },
+        details: { ...details, crawler: null, aiUserFetch: sampledUserFetch(verdict.fetch, sample.pathNormalized) },
       }
     }
     case 'unknown':
@@ -987,6 +989,18 @@ function crawlerSampleRelabel(details: Record<string, unknown>, sample: { userAg
         details: { ...details, crawler: null, aiUserFetch: null },
       }
   }
+}
+
+/**
+ * A replayed sample's AI user fetch label, as ingest stores it: a browser
+ * agent's carries its request kind. Samples keep no method or query, so the
+ * kind is read from the path alone (a stored `?_rsc=` prefetch reads as a page).
+ */
+function sampledUserFetch(fetch: ClassifiedAiUserFetch, pathNormalized: string): SampledAiUserFetch {
+  const label = { ...fetch, verificationManifest: null }
+  return fetch.browser
+    ? { ...label, requestKind: browserAgentRequestKind({ method: null, path: pathNormalized, queryString: null }) }
+    : label
 }
 
 /** Relabel crawler samples whose user agent today's rules file elsewhere, as `rekeyCrawlerHours` moves their hours. */
