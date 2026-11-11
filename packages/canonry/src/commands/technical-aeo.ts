@@ -10,7 +10,7 @@ function getClient() {
 /** Stored issues are evidence from a selected scan, not a new crawl or an edit request. */
 export async function technicalAeoIssues(
   project: string,
-  opts: { runId?: string; cursor?: string; limit?: number; format?: string },
+  opts: { runId?: string; cursor?: string; limit?: number; site?: string; format?: string },
 ): Promise<void> {
   const res = await getClient().getSiteAuditIssues(project, opts)
   if (opts.format === 'jsonl') {
@@ -40,7 +40,7 @@ export async function technicalAeoIssues(
 /** Cursor-paged affected URLs for one issue in the same saved scan. */
 export async function technicalAeoIssuePages(
   project: string,
-  opts: { issueId: string; runId?: string; cursor?: string; limit?: number; format?: string },
+  opts: { issueId: string; runId?: string; cursor?: string; limit?: number; site?: string; format?: string },
 ): Promise<void> {
   const res = await getClient().getSiteAuditIssuePages(project, opts.issueId, opts)
   if (opts.format === 'jsonl') {
@@ -71,10 +71,11 @@ export async function technicalAeoIssuePages(
 }
 
 function issueEvidenceProvenance(
-  res: Pick<SiteAuditIssuesResponseDto, 'runId' | 'attemptId' | 'auditedAt' | 'runStatus' | 'complete' | 'termination' | 'state' | 'coverage' | 'total'>,
+  res: Pick<SiteAuditIssuesResponseDto, 'runId' | 'attemptId' | 'auditedAt' | 'runStatus' | 'complete' | 'termination' | 'state' | 'coverage' | 'total' | 'site'>,
 ): string[] {
   return [
     `Scan: ${res.runId ?? 'none'} · attempt ${res.attemptId ?? 'unknown'} · audited ${res.auditedAt ?? 'unknown'} · status ${res.runStatus ?? 'unknown'}`,
+    ...(res.site ? [`Site: ${res.site} only`] : []),
     `Evidence: ${res.state} · crawl ${res.runId === null ? 'unavailable' : res.complete ? 'complete' : 'partial'}${res.termination ? ` (${res.termination})` : ''}`,
     `Page findings: ${res.coverage.pageFindings}; cross-page checks: ${res.coverage.crossPage}. Finding evidence for ${res.coverage.pagesWithFindingEvidence}/${res.coverage.auditedPages} audited page(s).`,
     `${res.coverage.pagesWithoutFindingEvidence} audited page(s) lack finding evidence; ${res.coverage.omittedFindings} malformed or uncoded finding(s) omitted.`,
@@ -106,6 +107,13 @@ export async function technicalAeoScore(project: string, opts: { runId?: string;
     `Audited ${score.pagesAudited} page(s) · ${score.pagesSkipped} skipped · ${score.pagesErrored} errored · sitemap ${score.sitemapUrl}`,
   )
   lines.push(`As of ${score.auditedAt}`)
+  // Only when the scan covered more than one site; the headline covers them all.
+  if ((score.sites?.length ?? 0) > 1) {
+    lines.push('', `${'Site'.padEnd(40)}${'Score'.padStart(6)}${'Pages scored'.padStart(14)}`)
+    for (const site of score.sites ?? []) {
+      lines.push(`${`${site.host}${site.main ? ' (main)' : ''}`.slice(0, 39).padEnd(40)}${String(site.aggregateScore ?? '-').padStart(6)}${String(site.pagesAudited).padStart(14)}`)
+    }
+  }
   if (score.factors.length > 0) {
     lines.push('')
     // Share is the factor's recorded share of the site score (the column adds
@@ -242,6 +250,15 @@ export async function technicalAeoCrawl(
     `Dead links: ${formatDeadLinkState(crawl.deadLinks)}`,
   ]
   lines.push(...inventorySummaryLines(crawl.inventorySummary))
+  if ((crawl.sites?.length ?? 0) > 1) {
+    lines.push('Sites:')
+    for (const site of crawl.sites ?? []) {
+      const detail = site.error
+        ? `not scanned: ${site.error}`
+        : `${site.pages} pages · ${site.pagesEligible} eligible · ${site.pagesAudited} scored${site.aggregateScore === null ? '' : ` · score ${site.aggregateScore}`}`
+      lines.push(`  ${site.host}${site.main ? ' (main)' : ''}: ${detail}`)
+    }
+  }
   if (crawl.termination) lines.push(`Stopped: ${crawl.termination}`)
   console.log(lines.join('\n'))
 }
@@ -411,6 +428,7 @@ export async function technicalAeoCrawlPages(
     indexabilityState?: string
     auditState?: string
     urlVersions?: 'include' | 'exclude' | 'only'
+    site?: string
     sort?: 'url' | 'path' | 'score-asc' | 'score-desc'
     cursor?: string
     limit?: number
@@ -430,6 +448,8 @@ export async function technicalAeoCrawlPages(
       inventorySummary: res.inventorySummary,
       healthReasonCounts: res.healthReasonCounts,
       termination: res.termination,
+      // Echoed as the server sent it; a server that predates the filter sends none.
+      ...(res.site !== undefined ? { site: res.site } : {}),
       total: res.total,
       nextCursor: res.nextCursor,
     }])
@@ -446,7 +466,7 @@ export async function technicalAeoCrawlPages(
     console.log([opts.date && !res.hasCrawlData ? `No persisted crawl pages for "${project}" on ${opts.date}.` : `No persisted crawl pages for "${project}".`, ...availableScanDateLines(res.availableScanDates), ...inventoryLines, ...(note ? [note] : [])].join('\n'))
     return
   }
-  const lines = [`${res.pages.length} of ${res.total} crawl page(s)${res.nextCursor ? ' (more available)' : ''}:`, '']
+  const lines = [`${res.pages.length} of ${res.total} crawl page(s)${res.site ? ` on ${res.site}` : ''}${res.nextCursor ? ' (more available)' : ''}:`, '']
   lines.push(...inventoryLines)
   lines.push(`${'Depth'.padStart(5)}  ${'Score'.padStart(5)}  ${'Page state'.padEnd(21)}  URL`)
   for (const page of res.pages) {
@@ -529,7 +549,7 @@ export async function technicalAeoPageAudit(
 /** `canonry agent-readiness structure <project>` — exactly one site-hierarchy level. */
 export async function technicalAeoStructure(
   project: string,
-  opts: { runId?: string; parentPath?: string; cursor?: string; limit?: number; format?: string },
+  opts: { runId?: string; site?: string; parentPath?: string; cursor?: string; limit?: number; format?: string },
 ): Promise<void> {
   const res = await getClient().getTechnicalAeoStructure(project, opts)
   if (opts.format === 'jsonl') {
@@ -539,6 +559,7 @@ export async function technicalAeoStructure(
       runId: res.runId,
       complete: res.complete,
       termination: res.termination,
+      ...(res.site !== undefined ? { site: res.site } : {}),
       parentPath: res.parentPath,
       returned: res.children.length,
       nextCursor: res.nextCursor,
@@ -552,10 +573,10 @@ export async function technicalAeoStructure(
   }
   const note = partialCrawlNote(res)
   if (res.children.length === 0) {
-    console.log([`No crawl structure below ${res.parentPath} for "${project}".`, ...(note ? [note] : [])].join('\n'))
+    console.log([`No crawl structure below ${res.parentPath}${res.site ? ` on ${res.site}` : ''} for "${project}".`, ...(note ? [note] : [])].join('\n'))
     return
   }
-  const lines = [`${res.children.length} child path(s) below ${res.parentPath}${res.nextCursor ? ' (more available)' : ''}:`, '']
+  const lines = [`${res.children.length} child path(s) below ${res.parentPath}${res.site ? ` on ${res.site}` : ''}${res.nextCursor ? ' (more available)' : ''}:`, '']
   for (const child of res.children) {
     lines.push(`${String(child.pageCount).padStart(5)} pages  ${String(child.inventoryEligibleCount).padStart(5)} eligible  ${child.path}`)
   }
@@ -694,6 +715,8 @@ export async function technicalAeoRun(
     checkDeadLinks: opts.checkDeadLinks === true,
     includeGeo: opts.includeGeo === true,
     includeAgentSkills: opts.includeAgentSkills ?? true,
+    // Omitted unless given, so the project's saved sites apply.
+    ...(opts.sites !== undefined ? { sites: opts.sites } : {}),
   })
 
   if (!opts.wait) {

@@ -6,7 +6,7 @@ import { providerDispatchModesSchema } from './provider-batch.js'
 import { brandLabelFromDomain, normalizeProjectDomain } from './url-normalize.js'
 import { brandKeyFromText } from './brand-matching.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
-import { siteAuditPageBudgetSchema } from './technical-aeo.js'
+import { SITE_AUDIT_MAX_EXTRA_SITES, siteAuditPageBudgetSchema } from './technical-aeo.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
 import { competitorDomainSchema, competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
 import { competitorAutoAliasSchema } from './competitor-auto-aliases.js'
@@ -124,6 +124,9 @@ export const DEFAULT_COMPETITOR_AUTO_ALIAS_MODE: CompetitorAutoAliasMode = 'prev
 export const competitorAutoAliasModeInputSchema = competitorAutoAliasModeSchema.optional()
   .describe('Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period\'s competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.')
 
+/** Owned domains an Agent Readiness scan covers besides the main domain, as written (see `resolveSiteAuditDomains`). */
+export const siteAuditDomainsSchema = z.array(z.string().trim().min(1).max(253)).max(SITE_AUDIT_MAX_EXTRA_SITES)
+
 /** Bounds for `qualifiedAliases` on project writes (see `resolveProjectQualifiedAliases`). */
 export const PROJECT_QUALIFIED_ALIAS_LIMIT = 20
 export const PROJECT_QUALIFIED_ALIAS_MAX_LENGTH = 200
@@ -167,6 +170,13 @@ export const projectUpsertRequestSchema = z.object({
    */
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
   /**
+   * Owned domains every Agent Readiness scan covers besides the main domain,
+   * unless the scan names its own. Each must be one of `ownedDomains`. Omit to
+   * keep the stored list, minus domains that are no longer owned; `[]` scans
+   * the main domain only.
+   */
+  siteAuditDomains: siteAuditDomainsSchema.optional(),
+  /**
    * Answer-derived competitor alias detection: `off`, `preview` (log only) or
    * `apply` (`competitorAutoAliasModeSchema`). Omit to keep the stored mode; a
    * new project starts in `preview`.
@@ -202,6 +212,7 @@ export const projectPatchRequestSchema = z.object({
     .max(PROJECT_QUALIFIED_ALIAS_LIMIT).optional(),
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  siteAuditDomains: siteAuditDomainsSchema.optional(),
   competitorAutoAliases: competitorAutoAliasModeInputSchema,
   expectedConfigRevision: z.number().int().positive().optional(),
 }).strict()
@@ -272,6 +283,11 @@ export const projectDtoSchema = z.object({
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
   /** Agent Readiness page budget for scans that set none; null means the full site (up to 50,000 pages). */
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  /**
+   * Owned domains every Agent Readiness scan covers besides the main domain
+   * (bare hosts), unless the scan names its own. Empty means the main domain only.
+   */
+  siteAuditDomains: z.array(z.string()).default([]),
   /**
    * Answer-derived competitor alias detection mode (`competitorAutoAliasModeSchema`).
    * Absent only from a server that predates the setting.

@@ -441,6 +441,36 @@ export function TechnicalAeoSection({
               {partialScan ? <ToneBadge tone="caution">Part of the site</ToneBadge> : null}
               {deltaLabel ? <ToneBadge tone={deltaTone}>{deltaLabel}</ToneBadge> : null}
             </div>
+            {/* Each site's score, only when the scan covered more than one site.
+                The headline above stays the score over every page. */}
+            {(score.sites?.length ?? 0) > 1 && (
+              <details className="group mt-3">
+                <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-button-14 text-secondary outline-none hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-400">
+                  <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" aria-hidden="true" />
+                  By site
+                </summary>
+                <table className="mt-2 w-full max-w-xl text-left">
+                  <thead>
+                    <tr>
+                      <th scope="col" className="py-1 pr-4 text-left text-label-12-strong text-muted">Site</th>
+                      <th scope="col" className="py-1 pr-4 text-right text-label-12-strong text-muted">Score</th>
+                      <th scope="col" className="py-1 text-right text-label-12-strong text-muted">Pages scored</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-default border-t border-default">
+                    {(score.sites ?? []).map((site) => (
+                      <tr key={site.host}>
+                        <th scope="row" className="py-2 pr-4 text-left text-label-14-mono text-heading">{site.host}</th>
+                        {site.aggregateScore === null
+                          ? <td className="py-2 pr-4 text-right text-label-14 text-secondary">Not scored</td>
+                          : <td className={`py-2 pr-4 text-right text-label-14-mono-strong tabular-nums ${scoreTextClass(site.aggregateScore)}`}>{site.aggregateScore}</td>}
+                        <td className="py-2 text-right text-label-14 tabular-nums text-secondary">{site.pagesAudited.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
+            )}
           </div>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-copy-14 tabular-nums text-secondary">
             {/* "Scored", not "checked": the scan counts strip above already

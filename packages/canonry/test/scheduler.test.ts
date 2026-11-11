@@ -692,7 +692,7 @@ for (const { label, saved, expectedPages } of [
     expect(calls).toHaveLength(1)
     expect(calls[0]!.projectId).toBe('proj_site_audit')
     // A schedule with no saved checks scans with the defaults.
-    expect(calls[0]!.opts).toEqual({ maxPages: expectedPages, checkDeadLinks: false, includeGeo: false, includeAgentSkills: true })
+    expect(calls[0]!.opts).toEqual({ maxPages: expectedPages, checkDeadLinks: false, includeGeo: false, includeAgentSkills: true, sites: [] })
     expect(db.select().from(runs).where(eq(runs.id, calls[0]!.runId)).get()).toMatchObject({
       kind: 'site-audit',
       status: 'queued',
@@ -701,7 +701,7 @@ for (const { label, saved, expectedPages } of [
     expect(db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, calls[0]!.runId)).get()).toMatchObject({
       projectId: 'proj_site_audit',
       effectiveOptions: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         sitemapUrl: null,
         maxPages: expectedPages,
         // Unattended crawls set no edge budget; the engine derives it.
@@ -742,7 +742,7 @@ test('a site-audit schedule with deep checks scans for dead links and location, 
     .triggerRun('sched_deep_scan', 'proj_deep_scan', 'site-audit')
 
   expect(calls).toHaveLength(1)
-  expect(calls[0]!.opts).toEqual({ maxPages: 50_000, checkDeadLinks: true, includeGeo: true, includeAgentSkills: true })
+  expect(calls[0]!.opts).toEqual({ maxPages: 50_000, checkDeadLinks: true, includeGeo: true, includeAgentSkills: true, sites: [] })
   expect(db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, calls[0]!.runId)).get()?.effectiveOptions).toMatchObject({
     checkDeadLinks: true,
     includeGeo: true,

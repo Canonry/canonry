@@ -1382,7 +1382,7 @@ describe('POST /technical-aeo/runs', () => {
     expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, firstId)).get()).toMatchObject({
       projectId: ctx.projectId,
       effectiveOptions: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         sitemapUrl: null,
         maxPages: 50,
         maxEdges: null,
@@ -1390,6 +1390,7 @@ describe('POST /technical-aeo/runs', () => {
         checkDeadLinks: false,
         includeGeo: false,
         includeAgentSkills: true,
+        sites: [],
       },
     })
   })
@@ -1430,7 +1431,7 @@ describe('POST /technical-aeo/runs', () => {
     expect(res.statusCode).toBe(200)
     const runId = (res.json() as { runId: string }).runId
     expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, runId)).get()!.effectiveOptions).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       sitemapUrl: null,
       maxPages: 2_500,
       maxEdges: null,
@@ -1438,6 +1439,7 @@ describe('POST /technical-aeo/runs', () => {
       checkDeadLinks: false,
       includeGeo: false,
       includeAgentSkills: true,
+      sites: [],
     })
     expect(ctx.siteAuditRequested).toHaveLength(1)
     expect(ctx.siteAuditRequested[0]).toMatchObject({ runId, projectId: ctx.projectId })

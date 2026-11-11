@@ -1213,6 +1213,7 @@ const siteHealthIssuesInputSchema = siteAuditIssueListQuerySchema.extend({
   project: projectNameSchema,
   runId: siteAuditIssueListQuerySchema.shape.runId.describe('Select an exact saved scan. Omit for the default scan; use its returned runId for subsequent pages and issue details.'),
   cursor: siteAuditIssueListQuerySchema.shape.cursor.describe('Opaque nextCursor from this same scan and issue feed.'),
+  site: siteAuditIssueListQuerySchema.shape.site.describe('Limit issues and their pages to one site the scan covered: the main domain or an included owned domain (canonry_agent_readiness_overview lists them in sites). Omit for every site. Keep it unchanged while following nextCursor.'),
 })
 
 const siteHealthIssuePagesInputSchema = siteHealthIssuesInputSchema.extend({
@@ -1287,6 +1288,7 @@ const technicalAeoCrawlPagesInputSchema = z.object({
   auditState: z.string().min(1).optional().describe('Filter audit state. url-version marks a URL version: fetched and classified, not scored.'),
   urlVersions: z.enum(['include', 'exclude', 'only']).optional().describe('URL versions are parameter addresses whose canonical names the same path, so the site marks them as copies of that page; the audit does not score them or count them in fixes. include (default) keeps every address, exclude lists pages only (the dashboard view), only lists the URL versions with urlVersionOf. Once a few addresses with one parameter pattern prove to be copies, the crawl stops fetching that pattern; those have no rows and inventorySummary.urlVersionsNotFetched counts them.'),
   sort: z.enum(['url', 'path', 'score-asc', 'score-desc']).optional(),
+  site: z.string().min(1).max(253).optional().describe('List one site the scan covered: the main domain or an included owned domain (canonry_agent_readiness_overview lists them in sites). Omit for every site; each page carries its site. A site the scan did not cover is an error naming the ones it did.'),
   cursor: z.string().min(1).optional().describe('Opaque cursor from the previous crawl-pages result.'),
   limit: z.number().int().positive().max(200).optional(),
 })
@@ -1294,6 +1296,7 @@ const technicalAeoCrawlPagesInputSchema = z.object({
 const technicalAeoStructureInputSchema = z.object({
   project: projectNameSchema,
   runId: runIdSchema.optional(),
+  site: z.string().min(1).max(253).optional().describe('The site whose folders to list: an owned domain the scan included, or the main domain (the default). Paths never carry a host, so each site is read separately.'),
   parentPath: z.string().min(1).optional().describe('Path whose immediate children to list. Defaults to /. This never returns a whole site tree.'),
   cursor: z.string().min(1).optional().describe('Opaque cursor from the previous structure result.'),
   limit: z.number().int().positive().max(100).optional(),
@@ -1343,6 +1346,7 @@ const technicalAeoRunInputSchema = z.object({
   checkDeadLinks: z.boolean().optional().describe('Opt in to internal dead-link checks. Omitted and false both disable checks.'),
   includeGeo: siteAuditRunRequestSchema.shape.includeGeo.removeDefault().optional().describe('Opt in to geographic signals for a location or service-area business.'),
   includeAgentSkills: siteAuditRunRequestSchema.shape.includeAgentSkills.removeDefault().optional().describe('Check discoverable actions, forms, and agent integrations by default. Set false to disable.'),
+  sites: siteAuditRunRequestSchema.shape.sites.describe('Owned domains this scan covers besides the main domain, which every scan covers. Each must be one of the project\'s owned domains. Omitted uses the project\'s saved siteAuditDomains (set with canonry_project_update); [] scans the main domain only. The page budget is shared across every site.'),
 })
 
 const AGENT_WEBHOOK_EVENTS = [
@@ -3414,7 +3418,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_project_upsert',
     title: 'Create or replace project',
-    description: 'Create or replace a Canonry project. PUT semantics: fields not in the request are reset to their defaults. Provide the full intended project shape. Exceptions: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it. An omitted qualifiedAliases (the aliases Simple sentiment treats as this brand\'s own names) keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it. Competitors are not part of this request, but a new identity (display name, aliases, domains) that claims a tracked competitor\'s curated alias drops that alias, and the drop is audited. An omitted siteAuditMaxPages (the Agent Readiness page budget for scans that set none, 1 to 50,000) keeps the stored budget; send null for the full site. An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode: `off` (no unattended detection pass), `preview` (the default: detect and log, store nothing) or `apply` (store the detected names, which restates history).',
+    description: 'Create or replace a Canonry project. PUT semantics: fields not in the request are reset to their defaults. Provide the full intended project shape. Exceptions: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it. An omitted qualifiedAliases (the aliases Simple sentiment treats as this brand\'s own names) keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it. Competitors are not part of this request, but a new identity (display name, aliases, domains) that claims a tracked competitor\'s curated alias drops that alias, and the drop is audited. An omitted siteAuditMaxPages (the Agent Readiness page budget for scans that set none, 1 to 50,000) keeps the stored budget; send null for the full site. An omitted siteAuditDomains (owned domains every Agent Readiness scan covers besides the main domain) keeps the stored list, minus domains no longer owned; send [] for the main domain only. An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode: `off` (no unattended detection pass), `preview` (the default: detect and log, store nothing) or `apply` (store the detected names, which restates history).',
     access: 'write',
     tier: 'setup',
     inputSchema: projectUpsertInputSchema,
@@ -3425,7 +3429,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_project_update',
     title: 'Update project fields',
-    description: 'Update named fields on an existing Canonry project with PATCH semantics. Omitted fields keep their stored values, measurement merges one level, and expectedConfigRevision prevents overwriting a newer edit. Prefer this for targeted changes over canonry_project_upsert.',
+    description: 'Update named fields on an existing Canonry project with PATCH semantics. Omitted fields keep their stored values, measurement merges one level, and expectedConfigRevision prevents overwriting a newer edit. siteAuditDomains lists the owned domains every Agent Readiness scan covers besides the main domain; each must be in ownedDomains, so send both when adding a new site. Prefer this for targeted changes over canonry_project_upsert.',
     access: 'write',
     tier: 'setup',
     inputSchema: projectPatchInputSchema,
@@ -3436,7 +3440,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_apply_config',
     title: 'Apply project config',
-    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it; and a competitor given as a plain domain keeps its stored curated aliases, while `{ domain, aliases }` sets them exactly (`[]` clears). A spec identity that claims a competitor\'s alias drops that alias (audited); a new competitor whose name overlaps another competitor\'s alias (one brand key contains the other) or that is the project\'s own site fails the apply. An omitted siteAuditMaxPages keeps the stored Agent Readiness page budget (null means the full site). An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode (off, preview or apply). For multi-document YAML, call this tool once per project document. Call canonry_apply_config_preview first.',
+    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it; and a competitor given as a plain domain keeps its stored curated aliases, while `{ domain, aliases }` sets them exactly (`[]` clears). A spec identity that claims a competitor\'s alias drops that alias (audited); a new competitor whose name overlaps another competitor\'s alias (one brand key contains the other) or that is the project\'s own site fails the apply. An omitted siteAuditMaxPages keeps the stored Agent Readiness page budget (null means the full site). An omitted siteAuditDomains keeps the stored list of owned domains each Agent Readiness scan covers, minus domains the spec no longer owns. An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode (off, preview or apply). For multi-document YAML, call this tool once per project document. Call canonry_apply_config_preview first.',
     access: 'write',
     tier: 'core',
     inputSchema: applyConfigInputSchema,
@@ -4320,7 +4324,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_agent_readiness_overview',
     title: 'Get Agent Readiness overview',
-    description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary provides complete eligibility counts and disjoint excluded reasons, including terminal redirects; unknown indexability is not canonical-away. Start an Agent Readiness investigation with the latest or selected scan summary: root URL, completeness, crawl and link counts, budgets, versions, termination, and dead-link check state. An older scorecard-only scan has no crawl, and this never fabricates one. Follow with a focused subgraph (canonry_agent_readiness_subgraph), shortest path (canonry_agent_readiness_path), or scan changes (canonry_agent_readiness_changes); never request the interactive graph projection through MCP.',
+    description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary provides complete eligibility counts and disjoint excluded reasons, including terminal redirects; unknown indexability is not canonical-away. Start an Agent Readiness investigation with the latest or selected scan summary: root URL, completeness, crawl and link counts, budgets, versions, termination, and dead-link check state. sites lists every site the scan covered (main domain first) with its page counts, score and, when it could not be reached, the reason; pass one as site to the pages, structure and issues reads. An older scorecard-only scan has no crawl, and this never fabricates one. Follow with a focused subgraph (canonry_agent_readiness_subgraph), shortest path (canonry_agent_readiness_path), or scan changes (canonry_agent_readiness_changes); never request the interactive graph projection through MCP.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoCrawlInputSchema,
@@ -4339,7 +4343,7 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/issues'],
     handler: (client, input) => client.getSiteAuditIssues(input.project, {
-      runId: input.runId, cursor: input.cursor, limit: input.limit,
+      runId: input.runId, cursor: input.cursor, limit: input.limit, site: input.site,
     }),
   }),
   defineTool({
@@ -4353,7 +4357,7 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/issues/{issueId}/pages'],
     handler: (client, input) => client.getSiteAuditIssuePages(input.project, input.issueId, {
-      runId: input.runId, cursor: input.cursor, limit: input.limit,
+      runId: input.runId, cursor: input.cursor, limit: input.limit, site: input.site,
     }),
   }),
   defineTool({
@@ -4429,7 +4433,7 @@ const rawCanonryMcpTools = [
     name: 'canonry_agent_readiness_score',
     title: 'Get Agent Readiness score',
     description:
-      'pagesFailing and pagesPartial are independent counts; their sum is the number of audited pages below pass for that factor. Any failing page makes a factor fail, independently of its average score or affected-page count. These counts use the audited-page population; crawl eligibility is a separate inventory population. affectedPageRanking orders recorded per-factor below-pass counts from largest to smallest; this is affected-page breadth, not a prediction of mention or citation lift. Factor cohorts overlap, so do not add their counts together. runSelection flags same-date ambiguity and prefers a complete run on the latest scan date, otherwise the largest page sample. Get the Agent Readiness scorecard for a project: the aggregate 0–100 score of the latest scan, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. A factor\'s share of the site score is `sharePct` (0–100, the shares add up to 100; null for a scan that did not record it); its `weight` is relative and never a percentage. When `hasData` is false, no scored audit is available for the selected scan; a stored crawl may still exist. Inspect the stored crawl with canonry_agent_readiness_overview before proposing a new scan.',
+      'pagesFailing and pagesPartial are independent counts; their sum is the number of audited pages below pass for that factor. Any failing page makes a factor fail, independently of its average score or affected-page count. These counts use the audited-page population; crawl eligibility is a separate inventory population. affectedPageRanking orders recorded per-factor below-pass counts from largest to smallest; this is affected-page breadth, not a prediction of mention or citation lift. Factor cohorts overlap, so do not add their counts together. runSelection flags same-date ambiguity and prefers a complete run on the latest scan date, otherwise the largest page sample. Get the Agent Readiness scorecard for a project: the aggregate 0–100 score of the latest scan, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. A factor\'s share of the site score is `sharePct` (0–100, the shares add up to 100; null for a scan that did not record it); its `weight` is relative and never a percentage. When `hasData` is false, no scored audit is available for the selected scan; a stored crawl may still exist. When the scan covered more than one site, `sites` gives each site\'s score (the same rounded mean of its pages) and pages scored; `aggregateScore` stays the score over every page. Inspect the stored crawl with canonry_agent_readiness_overview before proposing a new scan.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoScoreInputSchema,
@@ -4511,6 +4515,7 @@ const rawCanonryMcpTools = [
       auditState: input.auditState,
       urlVersions: input.urlVersions,
       sort: input.sort,
+      site: input.site,
       cursor: input.cursor,
       limit: input.limit,
     }),
@@ -4526,6 +4531,7 @@ const rawCanonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/agent-readiness/structure'],
     handler: (client, input) => client.getTechnicalAeoStructure(input.project, {
       runId: input.runId,
+      site: input.site,
       parentPath: input.parentPath,
       cursor: input.cursor,
       limit: input.limit,
@@ -4586,7 +4592,7 @@ const rawCanonryMcpTools = [
     name: 'canonry_agent_readiness_run',
     title: 'Run Agent Readiness audit scan',
     description:
-      'Start an Agent Readiness audit scan (a site-audit run). The scan discovers root, sitemap, and linked pages. Without maxPages it uses the project\'s saved page budget (siteAuditMaxPages), else the full site (up to 50,000 pages), and the engine derives the link-observation budget from that page count with a 100,000 floor, so raising maxPages raises it too. An explicit maxEdges is a ceiling that replaces the derivation and can sit below it. It returns {runId, status} and continues in the background. If an active run has identical effective options, this tool returns it; different options are refused. Poll canonry_run_get, then read canonry_agent_readiness_overview and canonry_agent_readiness_score.',
+      'Start an Agent Readiness audit scan (a site-audit run). The scan discovers root, sitemap, and linked pages, on the main domain and on each owned domain it includes (sites, else the project\'s saved siteAuditDomains), with links between them counted as internal. Without maxPages it uses the project\'s saved page budget (siteAuditMaxPages), else the full site (up to 50,000 pages), and the engine derives the link-observation budget from that page count with a 100,000 floor, so raising maxPages raises it too. An explicit maxEdges is a ceiling that replaces the derivation and can sit below it. It returns {runId, status} and continues in the background. If an active run has identical effective options, this tool returns it; different options are refused. Poll canonry_run_get, then read canonry_agent_readiness_overview and canonry_agent_readiness_score.',
     access: 'write',
     tier: 'monitoring',
     inputSchema: technicalAeoRunInputSchema,
@@ -4601,6 +4607,7 @@ const rawCanonryMcpTools = [
       checkDeadLinks: input.checkDeadLinks,
       includeGeo: input.includeGeo,
       includeAgentSkills: input.includeAgentSkills,
+      ...(input.sites !== undefined ? { sites: input.sites } : {}),
     }),
   }),
   // ----- Google Marketing: Google Ads + Google Tag Manager -----

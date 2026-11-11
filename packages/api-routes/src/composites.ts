@@ -1093,6 +1093,7 @@ function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars
     autoExtractBacklinks: row.autoExtractBacklinks,
     negativeReviewMaxStars,
     siteAuditMaxPages: row.siteAuditMaxPages ?? null,
+    siteAuditDomains: row.siteAuditDomains,
     competitorAutoAliases: row.competitorAutoAliases,
     configSource: row.configSource,
     configRevision: row.configRevision,

@@ -786,3 +786,43 @@ test('explains optional checks without opening their affected-page rows', () => 
     expect(help.getAttribute('aria-expanded')).toBe('false')
   }
 })
+
+test('a scan of more than one site keeps one headline score and gives each site its own behind By site', () => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(scoreKey, {
+    ...score('audit_old', 56),
+    sites: [
+      { host: 'citypoint.example', main: true, aggregateScore: 56, pagesAudited: 6_523 },
+      { host: 'apartments.citypoint.example', main: false, aggregateScore: 64, pagesAudited: 189 },
+      { host: 'careers.citypoint.example', main: false, aggregateScore: null, pagesAudited: 0 },
+    ],
+  })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated />
+    </QueryClientProvider>,
+  )
+
+  expect(screen.getByLabelText('Agent Readiness score 56 out of 100')).not.toBeNull()
+  const bySite = screen.getByText('By site', { selector: 'summary' }).closest('details')!
+  expect(bySite.open).toBe(false)
+  fireEvent.click(screen.getByText('By site', { selector: 'summary' }))
+  const rows = within(bySite).getAllByRole('row').map(row => [...row.children].map(cell => cell.textContent))
+  expect(rows).toEqual([
+    ['Site', 'Score', 'Pages scored'],
+    ['citypoint.example', '56', '6,523'],
+    ['apartments.citypoint.example', '64', '189'],
+    ['careers.citypoint.example', 'Not scored', '0'],
+  ])
+})
+
+test('a scan of one site has no By site breakdown', () => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(scoreKey, { ...score('audit_old', 84), sites: [{ host: 'citypoint.example', main: true, aggregateScore: 84, pagesAudited: 39 }] })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated />
+    </QueryClientProvider>,
+  )
+  expect(screen.queryByText('By site')).toBeNull()
+})

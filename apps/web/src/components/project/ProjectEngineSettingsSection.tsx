@@ -18,6 +18,7 @@ import { OpenRouterModelPicker } from '../shared/OpenRouterModelPicker.js'
 import { Button } from '../ui/button.js'
 import { describeError, isOpenRouterRoute, providerConnectionName, ProviderKinds, ProviderSelectionKinds, resolveProviderRoute, RunKinds, SITE_AUDIT_MAX_PAGE_LIMIT, SITE_AUDIT_ONBOARDING_PAGE_LIMIT, siteAuditPageBudgetSchema } from '@canonry/canonry-contracts'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
+import { sameSites, scanSiteChoices, toggleSite } from '../../lib/site-audit-sites.js'
 import { catalogRouteFamilies, isAnswerServiceRouteFor, isRoutedConnection, SWEEP_WORKFLOW } from '../../lib/provider-routes.js'
 
 type EngineProject = Pick<ApiProject, 'name' | 'providers' | 'providerModels'>
@@ -392,14 +393,18 @@ function routeHelp(provider: { name: string; kind?: string; defaultModel: string
 /** Visible copy for the Agent Readiness audit scans section, exported so tests assert the shipped strings. */
 export const SITE_HEALTH_SCAN_SETTINGS_COPY = {
   heading: 'Agent Readiness audit scans',
-  help: `Used by every scan that sets no budget, scheduled or manual. Onboarding's first look always checks ${pageCountLabel(SITE_AUDIT_ONBOARDING_PAGE_LIMIT)}.`,
+  help: `Used by every scan, scheduled or manual, unless the scan sets its own. Onboarding's first look always checks ${pageCountLabel(SITE_AUDIT_ONBOARDING_PAGE_LIMIT)}.`,
+  sites: 'Sites scanned',
+  mainSite: 'Main domain, always scanned',
+  addSites: 'Add a site you own under Project settings, Owned domains.',
+  sharedBudget: 'One budget covers every site scanned.',
   pageBudget: 'Page budget',
   customOption: 'Custom number...',
   customLabel: 'Custom page budget',
   customError: `Enter a whole number from 1 to ${SITE_AUDIT_MAX_PAGE_LIMIT.toLocaleString('en-US')}.`,
-  save: 'Save page budget',
-  saving: 'Saving page budget…',
-  saved: 'Page budget saved.',
+  save: 'Save scan settings',
+  saving: 'Saving scan settings…',
+  saved: 'Scan settings saved.',
 } as const
 
 const FULL_SITE_CHOICE = 'full'
@@ -441,9 +446,17 @@ export function SiteHealthScanSettingsSection({
   project,
   onSave,
 }: {
-  project: Pick<ApiProject, 'siteAuditMaxPages'>
-  onSave: (siteAuditMaxPages: number | null) => Promise<void>
+  project: Pick<ApiProject, 'siteAuditMaxPages'> & Partial<Pick<ApiProject, 'canonicalDomain' | 'ownedDomains' | 'siteAuditDomains'>>
+  /** Saves the budget, and the sites only when this edit changed them. */
+  onSave: (settings: { siteAuditMaxPages: number | null; siteAuditDomains?: string[] }) => Promise<void>
 }) {
+  // The main domain is always scanned; each owned domain is a tick.
+  const siteChoices = scanSiteChoices(project)
+  const storedSites = project.siteAuditDomains ?? []
+  const storedSitesKey = storedSites.join('\n')
+  const [savedSites, setSavedSites] = useState<string[]>(storedSites)
+  const [scannedSites, setScannedSites] = useState<string[]>(storedSites)
+  const sitesChanged = !sameSites(scannedSites, savedSites)
   const { canWrite, isAdmin } = useAccount()
   const canEdit = canWrite && !isEmbed() && !isPublicDemo()
     && (!isDashboardManagedRunKind(RunKinds['site-audit']) || isAdmin)
@@ -464,6 +477,7 @@ export function SiteHealthScanSettingsSection({
   const selectId = `${id}-page-budget`
   const customId = `${id}-custom-page-budget`
   const customErrorId = `${id}-custom-page-budget-error`
+  const mainSiteNoteId = `${id}-main-site-note`
 
   useEffect(() => {
     // Re-sync only when the stored budget itself changes, and never mid-edit.
@@ -473,10 +487,18 @@ export function SiteHealthScanSettingsSection({
     setForm(pageBudgetForm(storedBudget))
   }, [storedBudget])
 
+  useEffect(() => {
+    // The same rule for the sites, keyed by their text so a refetch that
+    // returns an equal list is not a change.
+    if (saving || editing) return
+    setSavedSites(storedSites)
+    setScannedSites(storedSites)
+  }, [storedSitesKey])
+
   const draft = pageBudgetFromForm(form)
   const customInvalid = form.choice === CUSTOM_CHOICE && draft === undefined
   const showCustomError = customInvalid && (customTouched || form.customText.trim() !== '')
-  const changed = draft !== undefined && draft !== saved
+  const changed = draft !== undefined && (draft !== saved || sitesChanged)
 
   function choose(choice: string) {
     setEditing(true)
@@ -497,8 +519,16 @@ export function SiteHealthScanSettingsSection({
     setForm(current => ({ ...current, customText }))
   }
 
+  function tickSite(site: string, checked: boolean) {
+    setEditing(true)
+    setError(null)
+    setNotice(null)
+    setScannedSites(current => toggleSite(siteChoices.owned, current, site, checked))
+  }
+
   function cancel() {
     setEditing(false)
+    setScannedSites(savedSites)
     setForm(pageBudgetForm(saved))
     setCustomTouched(false)
     setError(null)
@@ -511,8 +541,10 @@ export function SiteHealthScanSettingsSection({
     setError(null)
     setNotice(null)
     try {
-      await onSave(draft)
+      // Sites only when changed: a stale list could name a domain no longer owned.
+      await onSave({ siteAuditMaxPages: draft, ...(sitesChanged ? { siteAuditDomains: scannedSites } : {}) })
       setSaved(draft)
+      setSavedSites(scannedSites)
       // A typed custom number that matches a preset shows as that preset.
       setForm(pageBudgetForm(draft))
       setCustomTouched(false)
@@ -538,6 +570,38 @@ export function SiteHealthScanSettingsSection({
       </div>
       {canEdit ? (
         <>
+          {siteChoices.main && siteChoices.owned.length === 0 && (
+            <div className="mb-5 grid max-w-md gap-1">
+              <p className="text-label-14-strong text-heading">{SITE_HEALTH_SCAN_SETTINGS_COPY.sites}</p>
+              <p className="text-label-14-mono text-primary">{siteChoices.main}</p>
+              <p className="text-copy-13 text-secondary">{SITE_HEALTH_SCAN_SETTINGS_COPY.addSites}</p>
+            </div>
+          )}
+          {siteChoices.main && siteChoices.owned.length > 0 && (
+            <fieldset className="mb-5 grid max-w-md gap-2">
+              <legend className="mb-2 text-label-14-strong text-heading">{SITE_HEALTH_SCAN_SETTINGS_COPY.sites}</legend>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked disabled aria-describedby={mainSiteNoteId} className="size-4 rounded border-base accent-mono-200" />
+                  <span className="text-label-14-mono text-primary">{siteChoices.main}</span>
+                </label>
+                <span id={mainSiteNoteId} className="text-copy-13 text-secondary">{SITE_HEALTH_SCAN_SETTINGS_COPY.mainSite}</span>
+              </div>
+              {siteChoices.owned.map((site) => (
+                <label key={site} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={scannedSites.includes(site)}
+                    disabled={saving}
+                    onChange={event => tickSite(site, event.target.checked)}
+                    className="size-4 rounded border-base accent-mono-200 focus-visible:ring-2 focus-visible:ring-mono-400"
+                  />
+                  <span className="text-label-14-mono text-primary">{site}</span>
+                </label>
+              ))}
+              <p className="text-copy-13 text-secondary">{SITE_HEALTH_SCAN_SETTINGS_COPY.addSites}</p>
+            </fieldset>
+          )}
           <div className="grid max-w-sm gap-1">
             <label htmlFor={selectId} className="text-label-14-strong text-heading">{SITE_HEALTH_SCAN_SETTINGS_COPY.pageBudget}</label>
             <select
@@ -576,6 +640,7 @@ export function SiteHealthScanSettingsSection({
                 )}
               </>
             )}
+            {scannedSites.length > 0 && <p className="text-copy-13 text-secondary">{SITE_HEALTH_SCAN_SETTINGS_COPY.sharedBudget}</p>}
           </div>
           {error && <p role="alert" className="mt-3 text-copy-14 text-negative">{error}</p>}
           {notice && <p role="status" className="mt-3 text-copy-14 text-positive">{notice}</p>}
@@ -587,9 +652,16 @@ export function SiteHealthScanSettingsSection({
           </div>
         </>
       ) : (
-        <p className="text-copy-14 text-secondary">
-          {SITE_HEALTH_SCAN_SETTINGS_COPY.pageBudget}: <span className="text-strong">{savedPageBudgetLabel(saved)}</span>
-        </p>
+        <div className="grid gap-1">
+          {siteChoices.main && (
+            <p className="text-copy-14 text-secondary">
+              {SITE_HEALTH_SCAN_SETTINGS_COPY.sites}: <span className="text-strong">{[siteChoices.main, ...savedSites].join(', ')}</span>
+            </p>
+          )}
+          <p className="text-copy-14 text-secondary">
+            {SITE_HEALTH_SCAN_SETTINGS_COPY.pageBudget}: <span className="text-strong">{savedPageBudgetLabel(saved)}</span>
+          </p>
+        </div>
       )}
     </section>
   )

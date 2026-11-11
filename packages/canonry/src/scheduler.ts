@@ -17,6 +17,7 @@ import {
   RunStatuses,
   RunTriggers,
   normalizeSiteAuditRunRequest,
+  resolveSiteAuditDomains,
   nextScheduleUpdatedAt,
   siteAuditRequestIdentity,
   siteAuditScheduleChecks,
@@ -185,7 +186,7 @@ export interface SchedulerCallbacks {
    * run row) when a site-audit run is already in flight for the project, since
    * a full-site crawl can run for minutes. Fire-and-forget.
    */
-  onSiteAuditRequested?: (runId: string, projectId: string, opts: { maxPages: number; checkDeadLinks: boolean; includeGeo: boolean; includeAgentSkills: boolean }) => void
+  onSiteAuditRequested?: (runId: string, projectId: string, opts: { maxPages: number; checkDeadLinks: boolean; includeGeo: boolean; includeAgentSkills: boolean; sites: string[] }) => void
   /**
    * Fired when a seo-sync schedule triggers. The host starts one paid SEO
    * refresh per saved profile under the host's SEO spending policy; each
@@ -805,7 +806,9 @@ export class Scheduler {
         // when it runs out of pages to fetch. The schedule decides the checks,
         // so a weekly deep scan includes dead links and location checks.
         const checks = siteAuditScheduleChecks(currentSchedule.siteAuditChecks)
-        const effectiveRequest = normalizeSiteAuditRunRequest(checks, project.siteAuditMaxPages)
+        // The saved sites, less any domain the project no longer owns.
+        const savedSites = resolveSiteAuditDomains(project, project.siteAuditDomains).domains
+        const effectiveRequest = normalizeSiteAuditRunRequest(checks, project.siteAuditMaxPages, savedSites)
         this.db.transaction((tx) => {
           tx.insert(runs).values({
             id: runId,
@@ -833,6 +836,7 @@ export class Scheduler {
           checkDeadLinks: effectiveRequest.checkDeadLinks,
           includeGeo: effectiveRequest.includeGeo,
           includeAgentSkills: effectiveRequest.includeAgentSkills,
+          sites: effectiveRequest.sites,
         })
         return SLOT_FIRED
       }

@@ -10388,7 +10388,7 @@ export const getApiV1ProjectsByNameAgentReadinessStructureQueryKey = (options: O
 /**
  * List one level of Agent Readiness crawl structure
  *
- * Returns immediate children under `parentPath` only. It is deliberately bounded and never emits a full site tree.
+ * Returns immediate children under `parentPath` only. It is deliberately bounded and never emits a full site tree. Paths never include a host, so one read covers one site: the main domain unless `site` names another site the scan covered; `site` in the response says which.
  */
 export const getApiV1ProjectsByNameAgentReadinessStructureOptions = (options: Options<GetApiV1ProjectsByNameAgentReadinessStructureData>) => queryOptions<GetApiV1ProjectsByNameAgentReadinessStructureResponse, GetApiV1ProjectsByNameAgentReadinessStructureError, GetApiV1ProjectsByNameAgentReadinessStructureResponse, ReturnType<typeof getApiV1ProjectsByNameAgentReadinessStructureQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -10408,7 +10408,7 @@ export const getApiV1ProjectsByNameAgentReadinessStructureInfiniteQueryKey = (op
 /**
  * List one level of Agent Readiness crawl structure
  *
- * Returns immediate children under `parentPath` only. It is deliberately bounded and never emits a full site tree.
+ * Returns immediate children under `parentPath` only. It is deliberately bounded and never emits a full site tree. Paths never include a host, so one read covers one site: the main domain unless `site` names another site the scan covered; `site` in the response says which.
  */
 export const getApiV1ProjectsByNameAgentReadinessStructureInfiniteOptions = (options: Options<GetApiV1ProjectsByNameAgentReadinessStructureData>) => {
     const opts = infiniteQueryOptions<GetApiV1ProjectsByNameAgentReadinessStructureResponse, GetApiV1ProjectsByNameAgentReadinessStructureError, InfiniteData<GetApiV1ProjectsByNameAgentReadinessStructureResponse>, QueryKey<Options<GetApiV1ProjectsByNameAgentReadinessStructureData>>, string | Pick<QueryKey<Options<GetApiV1ProjectsByNameAgentReadinessStructureData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -10772,7 +10772,7 @@ export const getApiV1ProjectsByNameAgentReadinessRunsOptions = (options: Options
 /**
  * Start an Agent Readiness audit scan (a site-audit run)
  *
- * Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, and optional factor selections match exactly; a semantic mismatch returns 409.
+ * Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links, on the main domain and on each owned domain the scan includes (`sites`, else the project's saved `siteAuditDomains`). An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, sites, and optional factor selections match exactly; a semantic mismatch returns 409.
  */
 export const postApiV1ProjectsByNameAgentReadinessRunsMutation = (options?: Partial<Options<PostApiV1ProjectsByNameAgentReadinessRunsData>>): UseMutationOptions<PostApiV1ProjectsByNameAgentReadinessRunsResponse, PostApiV1ProjectsByNameAgentReadinessRunsError, Options<PostApiV1ProjectsByNameAgentReadinessRunsData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ProjectsByNameAgentReadinessRunsResponse, PostApiV1ProjectsByNameAgentReadinessRunsError, Options<PostApiV1ProjectsByNameAgentReadinessRunsData>> = {

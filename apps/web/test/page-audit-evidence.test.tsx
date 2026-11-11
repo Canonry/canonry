@@ -316,3 +316,41 @@ test('says what share of the page score a check is worth, never its weight as a 
   // Neither weight (10, 4) is printed as a percent anywhere.
   expect(document.body.textContent).not.toMatch(/(?<![\d.])(?:10|4)%/)
 })
+
+test('quotes each place a page names another Property, between the problem and its fix', () => {
+  render(
+    <PageAuditEvidence
+      audit={{
+        state: 'ready', project: 'portfolio', runId: 'run_1', complete: true, termination: null,
+        nodeKey: 'page_ridge', url: 'https://apartments.example.com/ridge/', auditState: 'complete', auditScore: 41,
+        evidenceState: 'complete', factors: [],
+        criticalDefects: [{
+          id: 'names-another-entity',
+          severity: 'critical',
+          detail: 'The FAQ names Westshore, another Property.',
+          recommendation: 'Name only this Property in its FAQ, title and H1.',
+          evidence: [
+            { field: 'faq-answer', question: 'Is there a shuttle?', entityKey: 'westshore', entityName: 'Westshore', snippet: 'Residents of Westshore ride free.' },
+            { field: 'faq-question', entityKey: 'westshore', entityName: 'Westshore', snippet: 'Can Westshore residents use the gym?' },
+            { field: 'title', entityKey: 'westshore', entityName: 'Westshore', snippet: 'Ridge and Westshore apartments' },
+            { field: 'meta-keywords', entityKey: 'westshore', entityName: 'Westshore', snippet: 'westshore' },
+          ],
+        }],
+      }}
+      isLoading={false}
+      error={null}
+      onRetry={vi.fn()}
+    />,
+  )
+
+  const places = screen.getByRole('list', { name: 'Where the page names it' })
+  expect(within(places).getAllByRole('listitem').map(item => item.textContent)).toEqual([
+    'FAQ answer to “Is there a shuttle?” Residents of Westshore ride free.',
+    'FAQ Can Westshore residents use the gym?',
+    'Title Ridge and Westshore apartments',
+    // A place a newer engine reports is still shown, in plain words.
+    'Page text westshore',
+  ])
+  const defect = places.closest('li')!
+  expect(defect.textContent).toContain('Fix: Name only this Property in its FAQ, title and H1.')
+})

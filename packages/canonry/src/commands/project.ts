@@ -1,5 +1,5 @@
 import type { CompetitorAutoAliasMode, MeasurementConfig, ProjectDto, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap } from '@canonry/canonry-contracts'
-import { DEFAULT_MEASUREMENT_CONFIG, countsKeyEvents, formatPercent, RatioUnits, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, normalizeProjectDomain, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@canonry/canonry-contracts'
+import { DEFAULT_MEASUREMENT_CONFIG, countsKeyEvents, formatPercent, RatioUnits, effectiveDomains, hostOf, measurementConfigSchema, normalizeProjectAliases, normalizeProjectDomain, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases, resolveSiteAuditDomains } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isEndpointMissing, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -24,7 +24,7 @@ export interface MeasurementUpdateFlags {
 
 export async function createProject(
   name: string,
-  opts: { domain: string; ownedDomains?: string[]; aliases?: string[]; qualifiedAliases?: string[]; country: string; language: string; displayName: string; providers?: string[]; providerModels?: Record<string, string>; providerDispatchModes?: ProviderDispatchModesMap; siteAuditMaxPages?: number | null; format?: string },
+  opts: { domain: string; ownedDomains?: string[]; aliases?: string[]; qualifiedAliases?: string[]; country: string; language: string; displayName: string; providers?: string[]; providerModels?: Record<string, string>; providerDispatchModes?: ProviderDispatchModesMap; siteAuditMaxPages?: number | null; siteAuditDomains?: string[]; format?: string },
 ): Promise<void> {
   const client = getClient()
   const result: ProjectDto = await client.putProject(name, {
@@ -43,6 +43,8 @@ export async function createProject(
     // Sent only when given: this PUT also re-runs over an existing project,
     // and an omitted budget keeps the stored one.
     ...(opts.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: opts.siteAuditMaxPages } : {}),
+    // Same rule: an omitted list keeps the stored one.
+    ...(opts.siteAuditDomains !== undefined ? { siteAuditDomains: opts.siteAuditDomains } : {}),
   })
 
   warnDroppedDispatchModes(opts.providerDispatchModes ?? {}, result)
@@ -153,6 +155,11 @@ export async function showProject(name: string, format?: string): Promise<void> 
   if (project.siteAuditMaxPages !== undefined) {
     console.log(`  Agent Readiness page budget: ${formatSiteAuditPageBudget(project.siteAuditMaxPages)}`)
   }
+  // Absent only from a server that predates scanning more than one site.
+  if (project.siteAuditDomains !== undefined) {
+    const mainSite = hostOf(project.canonicalDomain) ?? project.canonicalDomain
+    console.log(`  Agent Readiness sites: ${[`${mainSite} (main)`, ...project.siteAuditDomains].join(', ')}`)
+  }
   // Absent only from a server that predates the setting.
   if (project.competitorAutoAliases !== undefined) {
     console.log(`  Competitor auto aliases: ${formatCompetitorAutoAliasMode(project.competitorAutoAliases)}`)
@@ -247,6 +254,10 @@ export async function updateProjectSettings(
     negativeReviewMaxStars?: number | null
     /** 1-50,000 sets the Agent Readiness page budget, null means the full site, undefined leaves it. */
     siteAuditMaxPages?: number | null
+    /** Replaces the owned domains every Agent Readiness scan covers besides the main domain. */
+    siteAuditDomains?: string[]
+    addSiteAuditDomain?: string[]
+    removeSiteAuditDomain?: string[]
     /** Sets the answer-derived competitor alias detection mode; undefined leaves it. */
     competitorAutoAliases?: CompetitorAutoAliasMode
     expectedConfigRevision?: number
@@ -347,6 +358,24 @@ export async function updateProjectSettings(
     const toRemove = new Set(opts.removeQualifiedAlias.map(alias => alias.toLowerCase()))
     qualifiedAliases = qualifiedAliases.filter(alias => !toRemove.has(alias.toLowerCase()))
   }
+  // Sent only when a site flag was given; an omitted list keeps the stored one
+  // server-side. The stored list is filtered by the server's own rule first,
+  // so a domain this edit stops owning is not echoed back into a 400.
+  const touchesSiteAuditDomains = opts.siteAuditDomains !== undefined
+    || (opts.addSiteAuditDomain?.length ?? 0) > 0 || (opts.removeSiteAuditDomain?.length ?? 0) > 0
+  let siteAuditDomains = opts.siteAuditDomains ?? resolveSiteAuditDomains(
+    { canonicalDomain: opts.domain ?? project.canonicalDomain, ownedDomains },
+    project.siteAuditDomains ?? [],
+  ).domains
+  for (const domain of opts.addSiteAuditDomain ?? []) {
+    const host = hostOf(domain)
+    if (!siteAuditDomains.some((existing) => hostOf(existing) === host)) siteAuditDomains = [...siteAuditDomains, domain]
+  }
+  if (opts.removeSiteAuditDomain) {
+    const toRemove = new Set(opts.removeSiteAuditDomain.map((domain) => hostOf(domain) ?? domain))
+    siteAuditDomains = siteAuditDomains.filter((domain) => !toRemove.has(hostOf(domain) ?? domain))
+  }
+
   const providerModels = { ...(project.providerModels ?? {}), ...(opts.providerModels ?? {}) }
   for (const provider of opts.clearProviderModels ?? []) delete providerModels[provider]
   // Two flags in the SAME invocation that contradict each other are a usage
@@ -393,6 +422,7 @@ export async function updateProjectSettings(
     ...(touchesDispatch ? { providerDispatchModes } : {}),
     ...(opts.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: opts.negativeReviewMaxStars } : {}),
     ...(opts.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: opts.siteAuditMaxPages } : {}),
+    ...(touchesSiteAuditDomains ? { siteAuditDomains } : {}),
     ...(opts.competitorAutoAliases !== undefined ? { competitorAutoAliases: opts.competitorAutoAliases } : {}),
     ...(opts.measurement !== undefined ? { measurement: resolveMeasurementUpdate(project, opts.measurement) } : {}),
   }
@@ -435,6 +465,7 @@ export async function updateProjectSettings(
       autoExtractBacklinks: project.autoExtractBacklinks,
       ...(opts.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: opts.negativeReviewMaxStars } : {}),
       ...(opts.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: opts.siteAuditMaxPages } : {}),
+      ...(touchesSiteAuditDomains ? { siteAuditDomains } : {}),
       ...(opts.competitorAutoAliases !== undefined ? { competitorAutoAliases: opts.competitorAutoAliases } : {}),
       ...(opts.measurement !== undefined ? { measurement: resolveMeasurementUpdate(project, opts.measurement) } : {}),
     }
