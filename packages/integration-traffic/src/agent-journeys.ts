@@ -1,5 +1,6 @@
 import { AgentTrustLevels, classifyTrafficPath, hostOf, TrafficPathClasses, type AgentTrustReason, type NormalizedTrafficRequest, type StoredAgentTrust, type TrafficVerificationManifest, type VerificationStatus } from '@canonry/canonry-contracts'
 import { withScannerBurst } from './agent-trust.js'
+import { browserAgentRequestKind, BrowserAgentRequestKinds } from './browser-agents.js'
 import { classifyAiUserFetch, isSelfTraffic } from './classifier.js'
 import { maskJourneyPath } from './journey.js'
 import { findScannerBurstsInBatch } from './scanner-bursts.js'
@@ -32,6 +33,9 @@ export interface ExtractAgentJourneyOptions {
 /**
  * Observed fetches only: a request does not prove navigation, intent or
  * success. Likely fake requests are left out; their hourly totals count them.
+ * A browser agent's journey keeps the requests it made, page loads and form
+ * posts, never what its pages fetched by themselves (`browserAgentRequestKind`):
+ * those would show pages it never opened, such as prefetched links.
  */
 export function extractAgentJourneyRequests(events: readonly NormalizedTrafficRequest[], options: ExtractAgentJourneyOptions = {}): AgentJourneyRequest[] {
   const bursts = options.scannerBurstEventIds ?? findScannerBurstsInBatch(events)
@@ -44,8 +48,12 @@ export function extractAgentJourneyRequests(events: readonly NormalizedTrafficRe
     const timestamp = Date.parse(event.observedAt)
     if (!Number.isFinite(timestamp)) continue
     const path = event.path.split(/[?#]/)[0] || '/'
-    // JSON may be the agent's direct API response, not a page subresource.
-    if (classifyTrafficPath(path) === TrafficPathClasses.asset && !/\.json\/?$/i.test(path)) continue
+    if (agent.browser) {
+      if (browserAgentRequestKind(event) === BrowserAgentRequestKinds.resource) continue
+    } else if (classifyTrafficPath(path) === TrafficPathClasses.asset && !/\.json\/?$/i.test(path)) {
+      // JSON may be a link fetcher's direct API response, not a page subresource.
+      continue
+    }
     const maskedPath = maskJourneyPath(path)
     // Keep a redaction marker when truncating so a partial URL cannot be
     // attributed to a different, shorter Target's exact URL.

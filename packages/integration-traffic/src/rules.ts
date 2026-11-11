@@ -115,7 +115,8 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     // Anthropic-hosted browsers that browse and act for a person. They send
     // a real Chrome user agent with `compatible; Claude-Agent/<version>`
     // added; Anthropic says to match the token, since the rest changes.
-    // Like Google-Agent, a full browser also loads a page's assets.
+    // Like Google-Agent, a full browser also loads a page's assets, so only
+    // its page loads count (`browser`).
     // The token must follow whitespace, `;` or `(` and end at a non-name
     // character, so a version-less `Claude-Agent` still matches but
     // third-party tools that lead with their own name (`claude-agent/0.3`,
@@ -126,6 +127,7 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     product: 'Claude-Agent',
     purpose: 'user-agent',
     userAgentPatterns: [/(?<=[\s;(])Claude-Agent(?![\w-])/i],
+    browser: true,
   },
   {
     id: 'perplexity-bot',
@@ -164,14 +166,17 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
   {
     // Google-Agent navigates the web and acts upon a user's request (for
     // example, Project Mariner), so it belongs in the user-fetch channel. Its
-    // browser-like UA carries a `compatible; Google-Agent;` token. This is
-    // distinct from the Gemini Notebook fetcher below; Google-Extended is only
-    // a robots.txt control token and never makes an HTTP request.
+    // browser-like UA carries a `compatible; Google-Agent;` token. A full
+    // browser, it also loads each page's assets, so only its page loads count
+    // (`browser`). This is distinct from the Gemini Notebook fetcher below;
+    // Google-Extended is only a robots.txt control token and never makes an
+    // HTTP request.
     id: 'google-agent',
     operator: 'Google',
     product: 'Google-Agent',
     purpose: 'user-agent',
     userAgentPatterns: [/Google-Agent/i],
+    browser: true,
   },
   {
     // NotebookLM/Gemini notebook fetches happen on a user's request. Google

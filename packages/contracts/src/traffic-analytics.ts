@@ -38,6 +38,16 @@ export const trafficActivitySummarySchema = z.object({
    * before it. Not window-bound. Optional so a newer client reads an older API.
    */
   aiReferralCountingChangedAt: z.string().nullable().optional(),
+  /**
+   * When the project's sources began counting only the page loads of hosted
+   * browser agents (Google-Agent, Claude-Agent) as AI user fetches, or null
+   * when none holds hours counted before. Earlier hours also counted every
+   * file, data call and beacon those agents' pages made and cannot be
+   * recounted, so the AI user fetch delta is null while the prior window
+   * starts before it. Not window-bound. Optional so a newer client reads an
+   * older API.
+   */
+  aiUserFetchCountingChangedAt: z.string().nullable().optional(),
   hasData: z.boolean().describe('True when the selected or prior window has stored crawler, user-fetch, countable referral or operator evidence, or the selected window has referral redirects. False means no qualifying stored evidence; it can occur with no, paused, errored or never-synced ingestion and out-of-window observations. It does not establish measured zero traffic or source health.'),
 
   /** Verified crawler hits during the selected period and the equal preceding period. */
@@ -50,7 +60,9 @@ export const trafficActivitySummarySchema = z.object({
    * `unverifiedCrawlerHits` — those measure bulk crawl; this measures human
    * users asking an AI to read a URL. Counts verified + unverified together
    * because the operational question for user-fetch is "is this happening?"
-   * not "is this a confirmed bot identity?"
+   * not "is this a confirmed bot identity?" A hosted browser agent
+   * (Google-Agent, Claude-Agent) counts its page loads only, never the files,
+   * data calls and beacons its pages made (see `aiUserFetchCountingChangedAt`).
    */
   aiUserFetchHits: trafficActivityCountSchema,
   /**

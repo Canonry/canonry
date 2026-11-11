@@ -160,6 +160,14 @@ arrivals into the stored list inside the write transaction. Rows cascade with
 the source/project and are dropped 44 days after the newest arrival: the
 30-day lookback plus a Queue's longest retention.
 
+Migration 222 adds nullable `traffic_sources.ai_user_fetch_older_count_until`:
+when the source's AI user fetch hours began counting only the page loads of
+hosted browser agents (Google-Agent, Claude-Agent). Its run hook stamps the
+upgrade time on sources holding such an agent's hourly rows, or Claude-Agent's
+unrecognized-agent rows; NULL elsewhere, and on a fresh install. The stored
+traffic pass stamps a source when it moves Claude-Agent's older hours in, and a
+backfill clears it once no browser-agent hour before its window remains.
+
 Traffic delivery adapters use `traffic_event_receipts` for durable idempotency.
 Claim `(source_id, event_id)` in the same transaction as rollup writes and
 acknowledge an upstream buffer only after commit. Set `expires_at` to cover the

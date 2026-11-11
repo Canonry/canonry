@@ -496,6 +496,13 @@ export const trafficSyncResponseSchema = z.object({
   aiUserFetchHits: z.number().int().nonnegative(),
   /** Requests that claimed a user-triggered agent but were judged likely fake; never in `aiUserFetchHits`. */
   aiUserFetchLikelyFakeHits: z.number().int().nonnegative(),
+  /**
+   * Requests from browser agents (Google-Agent, Claude-Agent) other than page
+   * loads: the files, data calls, prefetches and beacons their pages made, and
+   * form posts. Never in `aiUserFetchHits`. Optional so a newer client reads
+   * an older API.
+   */
+  aiUserFetchBrowserNonPageHits: z.number().int().nonnegative().optional(),
   aiReferralHits: z.number().int().nonnegative(),
   unknownHits: z.number().int().nonnegative(),
   crawlerBucketRows: z.number().int().nonnegative(),
@@ -803,6 +810,17 @@ export const trafficEventsResponseSchema = z.object({
      * or after it. Optional so a newer client reads an older API.
      */
     aiReferralCountingChangedAt: z.string().nullable().optional(),
+    /**
+     * When the selected sources began counting only the page loads of hosted
+     * browser agents (Google-Agent, Claude-Agent) as AI user fetches, or null
+     * when none holds hours counted before. Hours before it also counted every
+     * file, data call and beacon those agents' pages made and read high; stored
+     * hourly rows keep no method or query, so they cannot be recounted. Not
+     * bound to the window. `trends.aiUserFetchHits` is fitted only over
+     * buckets that begin at or after it. Optional so a newer client reads an
+     * older API.
+     */
+    aiUserFetchCountingChangedAt: z.string().nullable().optional(),
     /**
      * Buckets holding only part of their period: the one recording began
      * inside, and the newest while it is still running. Trend fits leave them

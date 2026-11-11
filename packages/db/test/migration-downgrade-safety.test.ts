@@ -232,6 +232,14 @@ const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([
   // Idempotent: the source rows are deleted after the copy, so a rerun
   // selects nothing, and the copy adds into an existing row instead of failing.
   221,
+  // v222 adds a nullable column in statements[] and uses run() only to fill
+  // it, on sources holding a hosted browser agent's hours. Downgrade-safe:
+  // older binaries never read `ai_user_fetch_older_count_until`, and the
+  // column is nullable so an older writer's INSERT that omits it succeeds. It
+  // uses run() because the statement allowlist is schema-shaped, and because a
+  // legacy database that resumes past the migrations creating the hourly
+  // tables must skip the stamp. Idempotent: it only fills a NULL stamp.
+  222,
 ])
 
 test(`migrations after v${DOWNGRADE_BASELINE} define no run() hook unless explicitly allowlisted`, () => {

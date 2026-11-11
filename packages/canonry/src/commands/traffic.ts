@@ -766,6 +766,9 @@ export async function trafficSync(project: string, opts: {
   console.log(`  Crawler hits:     ${result.crawlerHits}  (${result.crawlerBucketRows} hourly bucket${result.crawlerBucketRows === 1 ? '' : 's'})`)
   console.log(`  AI user fetches:  ${result.aiUserFetchHits}  (${result.aiUserFetchBucketRows} hourly bucket${result.aiUserFetchBucketRows === 1 ? '' : 's'})`)
   console.log(`  Likely fake agents: ${result.aiUserFetchLikelyFakeHits}  (claimed an AI agent; not counted as AI user fetches)`)
+  if (result.aiUserFetchBrowserNonPageHits) {
+    console.log(`  Browser agent non-page: ${result.aiUserFetchBrowserNonPageHits}  (files, data calls and form posts; only page loads count as AI user fetches)`)
+  }
   console.log(`  AI referral hits: ${result.aiReferralHits}  (${result.aiReferralBucketRows} hourly bucket${result.aiReferralBucketRows === 1 ? '' : 's'})`)
   console.log(`  Unknown hits:     ${result.unknownHits}`)
   console.log(`  Sample rows:      ${result.sampleRows}`)
@@ -951,6 +954,9 @@ export async function trafficAnalytics(project: string, opts: { period?: string 
   if (!activity.priorWindowComplete) console.log('  Prior recording window is incomplete; percentage changes are unavailable.')
   if (activity.aiReferralCountingChangedAt) {
     console.log(`  AI-referral arrivals counted once per visit since ${activity.aiReferralCountingChangedAt}; earlier hours also counted later requests in a visit and read high.`)
+  }
+  if (activity.aiUserFetchCountingChangedAt) {
+    console.log(`  AI user fetches count only the page loads of browser agents (Google-Agent, Claude-Agent) since ${activity.aiUserFetchCountingChangedAt}; earlier hours also counted the files and data calls their pages made and read high.`)
   }
   for (const [label, counts] of [
     ['Verified crawler hits', activity.verifiedCrawlerHits],

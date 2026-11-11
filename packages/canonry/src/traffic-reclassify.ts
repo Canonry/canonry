@@ -24,15 +24,20 @@ import {
   RawEventSampleEventTypes,
   rawEventSamples,
   trafficReclassificationState,
+  trafficSources,
   unrecognizedAgentEventsHourly,
 } from '@canonry/canonry-db'
 import {
   AGENT_TRUST_RULES_VERSION,
+  BROWSER_AGENT_BOT_IDS,
   BROWSER_SHAPED_AGENT_MARKERS,
+  browserAgentRequestKind,
+  BrowserAgentRequestKinds,
   classifyAiUserFetch,
   classifyCrawler,
   DEFAULT_AI_CRAWLER_RULES,
   GENERIC_HTTP_CLIENTS,
+  isBrowserAgentId,
   isScannerPath,
   isSelfTraffic,
   JOURNEY_RULES_VERSION,
@@ -95,6 +100,12 @@ export interface StoredTrafficReclassification {
     probes: number
     /** Probes and the other requests their client sent within the burst window, removed. */
     removed: number
+    /**
+     * Browser-agent requests its pages made by themselves (files, data calls,
+     * framework paths), removed. Their hourly hits stay: those hours keep the
+     * older count (`traffic_sources.ai_user_fetch_older_count_until`).
+     */
+    pageResources: number
   }
   /** AI visitor journeys that a background call opened or marked as from an AI engine. */
   journeys: BackgroundCallJourneyCorrection
@@ -120,6 +131,7 @@ export function trafficClassificationFingerprint(): string {
       product: rule.product,
       purpose: rule.purpose,
       patterns: rule.userAgentPatterns.map(pattern),
+      browser: rule.browser === true,
     })),
     self: SELF_TRAFFIC_USER_AGENT_PATTERNS.map(pattern),
     naming: UNRECOGNIZED_AGENT_NAMING_VERSION,
@@ -234,6 +246,18 @@ function addHourlyHits(tx: Tx, opts: {
   }).run()
 }
 
+/**
+ * Mark that a source holds AI user fetch hours that counted a browser agent's
+ * every request, not only its page loads. A stamp already set stays: it
+ * records when the older count ended.
+ */
+function markUserFetchOlderCount(tx: Tx, sourceId: string, now: string): void {
+  tx.update(trafficSources)
+    .set({ aiUserFetchOlderCountUntil: sql`COALESCE(${trafficSources.aiUserFetchOlderCountUntil}, ${now})` })
+    .where(eq(trafficSources.id, sourceId))
+    .run()
+}
+
 function botIdOf(verdict: Extract<Verdict, { kind: 'user-fetch' | 'crawler' }>): string {
   return verdict.kind === 'user-fetch' ? verdict.fetch.botId : verdict.crawler.botId
 }
@@ -311,6 +335,9 @@ async function reclassifyUnrecognizedRows(db: DatabaseClient, opts: {
             now: opts.now,
           })
           tx.delete(table).where(match).run()
+          // Its GET and HEAD requests for anything but a static file were
+          // counted, not only page loads: the source holds an older count.
+          if (verdict.kind === 'user-fetch' && verdict.fetch.browser) markUserFetchOlderCount(tx, row.sourceId, opts.now)
           continue
         }
 
@@ -391,9 +418,12 @@ async function reclassifyUnknownSamples(db: DatabaseClient, opts: {
         const tsHour = hourOf(sample.ts)
         // Count the sample only where nothing else counted it: before named
         // agents were counted by name, or a request no name was recorded for.
-        const countSample = countingStart === null
+        // A browser agent's sample counts only as a page load, as at ingest.
+        const countSample = (countingStart === null
           || tsHour < countingStart
-          || unrecognizedAgentName({ method: 'GET', path: sample.pathNormalized, userAgent: sample.userAgent }) === null
+          || unrecognizedAgentName({ method: 'GET', path: sample.pathNormalized, userAgent: sample.userAgent }) === null)
+          && !(verdict.kind === 'user-fetch' && verdict.fetch.browser
+            && browserAgentRequestKind({ method: null, path: sample.pathNormalized, queryString: null }) !== BrowserAgentRequestKinds.page)
         if (countSample) result.counted++
         if (opts.dryRun) continue
 
@@ -490,7 +520,7 @@ async function reassessAgentHits(db: DatabaseClient, opts: {
     if (rows.length === 0) break
     lastRowid = rows[rows.length - 1]!.rowid
     result.examined += rows.length
-    const probes = rows.filter(row => isScannerPath(row.pathNormalized))
+    const probes = rows.filter(row => isScannerPath(row.pathNormalized, { browser: isBrowserAgentId(row.botId) }))
     if (probes.length > 0) {
       db.transaction((tx) => {
         for (const row of probes) {
@@ -569,15 +599,15 @@ async function reassessAgentRequests(db: DatabaseClient, opts: {
   dryRun: boolean
   now: string
   shouldStop: () => boolean
-}): Promise<StoredTrafficReclassification['agentRequests']> {
-  const result: StoredTrafficReclassification['agentRequests'] = { examined: 0, probes: 0, removed: 0 }
+}): Promise<Omit<StoredTrafficReclassification['agentRequests'], 'pageResources'>> {
+  const result: Omit<StoredTrafficReclassification['agentRequests'], 'pageResources'> = { examined: 0, probes: 0, removed: 0 }
   const table = agentJourneyEvents
   const clients = new Map<string, { projectId: string, sourceId: string, correlationKey: string, probes: number[] }>()
   const lastStartingRowid = Number(db.select({ max: sql<number | null>`max(rowid)` }).from(table).get()?.max ?? 0)
   let lastRowid = 0
   for (;;) {
     if (opts.shouldStop()) return result
-    const rows = db.select({ rowid: sql<number>`rowid`, projectId: table.projectId, sourceId: table.sourceId, correlationKey: table.correlationKey, ts: table.ts, path: table.path })
+    const rows = db.select({ rowid: sql<number>`rowid`, projectId: table.projectId, sourceId: table.sourceId, correlationKey: table.correlationKey, agentId: table.agentId, ts: table.ts, path: table.path })
       .from(table)
       .where(and(
         sql`rowid > ${lastRowid}`,
@@ -592,7 +622,7 @@ async function reassessAgentRequests(db: DatabaseClient, opts: {
     lastRowid = rows[rows.length - 1]!.rowid
     result.examined += rows.length
     for (const row of rows) {
-      if (!isScannerPath(row.path)) continue
+      if (!isScannerPath(row.path, { browser: isBrowserAgentId(row.agentId) })) continue
       result.probes++
       const id = JSON.stringify([row.projectId, row.sourceId, row.correlationKey])
       const client = clients.get(id) ?? { projectId: row.projectId, sourceId: row.sourceId, correlationKey: row.correlationKey, probes: [] }
@@ -617,7 +647,7 @@ async function reassessAgentRequests(db: DatabaseClient, opts: {
         ne(table.trust, AgentTrustLevels.verified),
       )).all()
       for (const row of rows) {
-        const probe = isScannerPath(row.path)
+        const probe = isScannerPath(row.path, { browser: isBrowserAgentId(row.agentId) })
         const at = Date.parse(row.ts)
         if (!probe && !probes.some(t => Math.abs(at - t) <= SCANNER_BURST_WINDOW_MS)) continue
         result.removed++
@@ -641,13 +671,70 @@ async function reassessAgentRequests(db: DatabaseClient, opts: {
 }
 
 /**
+ * Stored browser-agent requests (Journeys > Agents) that its pages made by
+ * themselves, as `browserAgentRequestKind` reads them today: files, data and
+ * API calls, framework paths, HEAD and OPTIONS. They are removed, as capture
+ * now leaves them out. Stored rows keep no query string, so a prefetch caught
+ * only by its query (`?_rsc=`) stays. Returns how many were removed, or would be.
+ */
+async function removeBrowserAgentPageResources(db: DatabaseClient, opts: {
+  projectIds?: readonly string[]
+  dryRun: boolean
+  shouldStop: () => boolean
+}): Promise<number> {
+  const table = agentJourneyEvents
+  let removed = 0
+  const lastStartingRowid = Number(db.select({ max: sql<number | null>`max(rowid)` }).from(table).get()?.max ?? 0)
+  let lastRowid = 0
+  for (;;) {
+    if (opts.shouldStop()) break
+    const rows = db.select({ rowid: sql<number>`rowid`, id: table.id, projectId: table.projectId, sourceId: table.sourceId, ts: table.ts, method: table.method, path: table.path })
+      .from(table)
+      .where(and(
+        sql`rowid > ${lastRowid}`,
+        sql`rowid <= ${lastStartingRowid}`,
+        inArray(table.agentId, [...BROWSER_AGENT_BOT_IDS]),
+        opts.projectIds ? inArray(table.projectId, [...opts.projectIds]) : undefined,
+      ))
+      .orderBy(sql`rowid`)
+      .limit(BATCH_SIZE)
+      .all()
+    if (rows.length === 0) break
+    lastRowid = rows[rows.length - 1]!.rowid
+    const resources = rows.filter(row => browserAgentRequestKind({ method: row.method, path: row.path, queryString: null }) === BrowserAgentRequestKinds.resource)
+    removed += resources.length
+    if (resources.length > 0 && !opts.dryRun) {
+      db.transaction((tx) => {
+        for (const row of resources) {
+          const deleted = tx.delete(table).where(eq(table.id, row.id)).run()
+          if (deleted.changes === 0) continue
+          // The row no longer counts toward its day's capture limit.
+          tx.update(agentJourneyCaptureDays)
+            .set({ storedEvents: sql`max(${agentJourneyCaptureDays.storedEvents} - 1, 0)` })
+            .where(and(
+              eq(agentJourneyCaptureDays.projectId, row.projectId),
+              eq(agentJourneyCaptureDays.sourceId, row.sourceId),
+              eq(agentJourneyCaptureDays.day, row.ts.slice(0, 10)),
+            ))
+            .run()
+        }
+      }, { behavior: 'immediate' })
+    }
+    await yieldToEventLoop()
+  }
+  return removed
+}
+
+/**
  * Reclassify stored traffic under today's rules. Unknown raw samples and the
  * hourly rows of unrecognized agents: a row a rule now recognizes moves into
  * that bot's hourly counts (claimed, since stored traffic keeps no IP; the
  * page is unrecorded), rows of Canonry's own tools are deleted, and the rest
  * are renamed or dropped to match today's naming. AI agent traffic: hourly
  * rows and stored requests that today's trust rules call likely fake move to
- * the likely fake counts. Journeys: background calls stop opening visits or
+ * the likely fake counts, and stored requests a browser agent's pages made by
+ * themselves are removed. A browser agent's rows moved from the unrecognized
+ * counts mark their source's older count. Journeys: background calls stop opening visits or
  * counting as AI arrivals (`correctBackgroundCallJourneys`), and a visitor seen
  * from a second IP joins its first one (`mergeSplitJourneyVisitors`). Safe to run any
  * number of times.
@@ -670,7 +757,9 @@ export async function reclassifyStoredTraffic(db: DatabaseClient, opts: {
     : await reclassifyUnrecognizedRows(db, shared)
   // Hourly rows first: a probe's own row moves there, its client's other requests here.
   const agentHits = shared.shouldStop() ? { examined: 0, moved: 0, movedHits: 0 } : await reassessAgentHits(db, shared)
-  const agentRequests = shared.shouldStop() ? { examined: 0, probes: 0, removed: 0 } : await reassessAgentRequests(db, shared)
+  const assessedRequests = shared.shouldStop() ? { examined: 0, probes: 0, removed: 0 } : await reassessAgentRequests(db, shared)
+  const pageResources = shared.shouldStop() ? 0 : await removeBrowserAgentPageResources(db, shared)
+  const agentRequests = { ...assessedRequests, pageResources }
   const journeys = shared.shouldStop()
     ? { visitors: 0, visitorsRemoved: 0, visitsRemoved: 0, visitsRelanded: 0 }
     : correctBackgroundCallJourneys(db, shared)
@@ -749,6 +838,7 @@ function logReclassification(result: StoredTrafficReclassification): void {
     unrecognizedRemoved: unrecognized.removed,
     agentHitsMoved: agentHits.movedHits,
     agentRequestsRemoved: agentRequests.removed,
+    agentPageResourcesRemoved: agentRequests.pageResources,
     journeyVisitorsRemoved: journeys.visitorsRemoved,
     journeyVisitsRemoved: journeys.visitsRemoved,
     journeyVisitsRelanded: journeys.visitsRelanded,

@@ -15648,6 +15648,7 @@ export type TrafficAnalyticsResponse = {
         coverageStart: string | null;
         priorWindowComplete: boolean;
         aiReferralCountingChangedAt?: string | null;
+        aiUserFetchCountingChangedAt?: string | null;
         /**
          * True when the selected or prior window has stored crawler, user-fetch, countable referral or operator evidence, or the selected window has referral redirects. False means no qualifying stored evidence; it can occur with no, paused, errored or never-synced ingestion and out-of-window observations. It does not establish measured zero traffic or source health.
          */
@@ -18841,6 +18842,7 @@ export type TrafficEventsResponse = {
         }>;
         coverageStart: string | null;
         aiReferralCountingChangedAt?: string | null;
+        aiUserFetchCountingChangedAt?: string | null;
         partialBuckets?: Array<string>;
         trends: {
             crawlerContentHits: {
@@ -19476,6 +19478,7 @@ export type TrafficSyncResponse = {
     crawlerHits: number;
     aiUserFetchHits: number;
     aiUserFetchLikelyFakeHits: number;
+    aiUserFetchBrowserNonPageHits?: number;
     aiReferralHits: number;
     unknownHits: number;
     crawlerBucketRows: number;
