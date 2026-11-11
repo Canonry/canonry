@@ -129,12 +129,10 @@ Application Password. It has no browser-side capture path.
 > AI-agent traffic, bypass **every** cache layer for the selected AI user
 > agents, or capture from access/edge logs instead.
 
-**Which user-agents to exclude from the cache** (one per line in
-LiteSpeed's "Do Not Cache User Agents", WP Rocket's
-`rocket_cache_reject_ua`, or W3TC / WP Super Cache "Rejected User
-Agents"):
+**Which user-agents to exclude from the cache** (enter them as described in
+"Entering the list" below):
 
-```
+```text
 GPTBot
 OAI-SearchBot
 OAI-AdsBot
@@ -183,6 +181,80 @@ inherit the bypass. Do NOT add traditional search agents
 `Googlebot`, `bingbot`, `DuckDuckBot`, `YandexBot`, or `Baiduspider`: caching
 helps them crawl efficiently, and the important Google/Bing crawl evidence is
 available through their webmaster tools.
+
+**Entering the list.** Each cache plugin matches entries differently. A wrong
+format fails silently: the agent keeps receiving cached pages and the plugin
+never sees it.
+
+- **LiteSpeed Cache** (Cache → Excludes → "Do Not Cache User Agents") and
+  **W3 Total Cache** (Performance → Page Cache → Advanced → "Rejected user
+  agents"): paste the list as-is, one per line. Both match case-insensitively
+  anywhere in the user agent.
+- **WP Rocket** ("Never Cache User Agent(s)"): paste the WP Rocket list
+  below. WP Rocket's `.htaccess` rule only matches user agents that *start*
+  with an entry, and most AI agents' user agents start with `Mozilla/5.0`, so
+  plain entries keep receiving cached pages on Apache and LiteSpeed servers.
+  The `(.*)` prefix matches anywhere in the user agent. Keep the casing shown,
+  because WP Rocket's PHP check is case-sensitive. Use this form only in WP
+  Rocket: the other plugins read `(.*)` as literal text.
+- **WP Super Cache**: its "Rejected User Agents" setting only stops these
+  agents from creating cache files; it still serves them existing cached
+  pages. In **Simple** delivery mode, add the WP Super Cache snippet below to
+  `wp-config.php`, above the `/* That's all, stop editing! */` line. **Expert**
+  delivery mode serves cached files from `.htaccess` before PHP runs and has
+  no user-agent bypass: switch to Simple, or capture from access/edge logs.
+
+**WP Rocket list:**
+
+```text
+(.*)GPTBot
+(.*)OAI-SearchBot
+(.*)OAI-AdsBot
+(.*)ChatGPT-User
+(.*)openai-mcp
+(.*)ClaudeBot
+(.*)Claude-
+(.*)anthropic-ai
+(.*)PerplexityBot
+(.*)Perplexity-User
+(.*)ShapBot
+(.*)Shap-User
+(.*)Google-Agent
+(.*)Google-GeminiNotebook
+(.*)Google-NotebookLM
+(.*)Google-CloudVertexBot
+(.*)Bytespider
+(.*)Applebot
+(.*)meta-externalagent
+(.*)meta-webindexer
+(.*)meta-externalfetcher
+(.*)CCBot
+(.*)cohere-ai
+(.*)Diffbot
+(.*)MistralAI-User
+(.*)MistralAI-Index
+(.*)MistralAI-Training
+(.*)MistralBot
+(.*)DeepSeekBot
+(.*)xAI-Bot
+(.*)Grok-Bot
+(.*)GrokBot
+(.*)YouBot
+(.*)ExaSearchBot
+(.*)DuckAssistBot
+(.*)Amazonbot
+(.*)Amzn-SearchBot
+(.*)Amzn-User
+```
+
+**WP Super Cache snippet** (`wp-config.php`):
+
+```php
+// Canonry Traffic Logger: don't serve cached pages to AI agents, so the plugin records their visits.
+if ( isset( $_SERVER['HTTP_USER_AGENT'] ) && preg_match( '/GPTBot|OAI-SearchBot|OAI-AdsBot|ChatGPT-User|openai-mcp|ClaudeBot|Claude-|anthropic-ai|PerplexityBot|Perplexity-User|ShapBot|Shap-User|Google-Agent|Google-GeminiNotebook|Google-NotebookLM|Google-CloudVertexBot|Bytespider|Applebot|meta-externalagent|meta-webindexer|meta-externalfetcher|CCBot|cohere-ai|Diffbot|MistralAI-User|MistralAI-Index|MistralAI-Training|MistralBot|DeepSeekBot|xAI-Bot|Grok-Bot|GrokBot|YouBot|ExaSearchBot|DuckAssistBot|Amazonbot|Amzn-SearchBot|Amzn-User/i', $_SERVER['HTTP_USER_AGENT'] ) ) {
+	define( 'WPSC_SERVE_DISABLED', true );
+}
+```
 
 > **1.1.0 -> 1.1.1 measurement boundary.** Plugin 1.1.0 briefly added a
 > JavaScript beacon to recover browser/referral page views served from cache.
