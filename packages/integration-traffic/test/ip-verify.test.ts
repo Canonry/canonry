@@ -24,6 +24,7 @@ import {
   ipInCidr,
   parseCidr,
   parseIp,
+  rulesShareVerificationList,
   validateIpRangeManifestPayload,
   verifyIpAgainstManifest,
   verifyIpForRule,
@@ -456,5 +457,34 @@ describe('hasVerificationDataFor', () => {
   it('is false for unknown rule ids', () => {
     expect(hasVerificationDataFor('not-a-real-bot')).toBe(false)
     expect(hasVerificationDataFor('')).toBe(false)
+  })
+})
+
+describe('rulesShareVerificationList', () => {
+  it('is true for rules that check the same published list', () => {
+    // Anthropic's crawlers share one list; Google lists CloudVertexBot among its common crawlers.
+    expect(rulesShareVerificationList('anthropic-claudebot', 'claude-searchbot')).toBe(true)
+    expect(rulesShareVerificationList('claude-user', 'anthropic-claudebot')).toBe(true)
+    expect(rulesShareVerificationList('googlebot', 'google-cloudvertexbot')).toBe(true)
+    expect(rulesShareVerificationList('googlebot', 'googlebot')).toBe(true)
+  })
+
+  it('is false for rules that check separate lists, one operator\'s included', () => {
+    expect(rulesShareVerificationList('anthropic-claudebot', 'claude-agent')).toBe(false)
+    expect(rulesShareVerificationList('googlebot', 'google-agent')).toBe(false)
+    expect(rulesShareVerificationList('openai-chatgpt-user', 'openai-searchbot')).toBe(false)
+    expect(rulesShareVerificationList('amazonbot', 'amzn-searchbot')).toBe(false)
+    // Separate publications are separate lists, whatever prefixes they hold.
+    expect(rulesShareVerificationList('duckduckbot', 'duckassistbot')).toBe(false)
+  })
+
+  it('is false when either rule has no list or is unknown, even for the same id', () => {
+    expect(rulesShareVerificationList('meta-externalagent', 'meta-webindexer')).toBe(false)
+    expect(rulesShareVerificationList('meta-externalagent', 'meta-externalagent')).toBe(false)
+    expect(rulesShareVerificationList('googlebot', 'meta-externalagent')).toBe(false)
+    expect(rulesShareVerificationList('meta-externalagent', 'googlebot')).toBe(false)
+    expect(rulesShareVerificationList('not-a-real-bot', 'also-not-a-real-bot')).toBe(false)
+    expect(rulesShareVerificationList('not-a-real-bot', 'not-a-real-bot')).toBe(false)
+    expect(rulesShareVerificationList('googlebot', 'not-a-real-bot')).toBe(false)
   })
 })
