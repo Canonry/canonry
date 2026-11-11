@@ -19,7 +19,7 @@ import {
   journeyEvents,
   journeyVisitors,
 } from '@canonry/canonry-db'
-import { TrafficSourceStatuses, TrafficSourceTypes } from '@canonry/canonry-contracts'
+import { cloudflareWorkerIngestResponseSchema, TrafficSourceStatuses, TrafficSourceTypes, trafficSamplesResponseSchema } from '@canonry/canonry-contracts'
 import { canonicalizeCloudflareJson } from '@canonry/canonry-integration-cloudflare-worker'
 import { apiRoutes } from '../src/index.js'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-version.js'
@@ -117,6 +117,9 @@ function signPayload(timestamp: number, payload: unknown, secret: string): strin
 
 // A real GPTBot address from the vendored snapshot, so the weekly range refresh cannot invalidate it.
 const GPTBOT_IP = firstPublishedIp(gptbotRanges, 4)
+// A hosted browser agent and a link fetcher, by their operators' published user agents.
+const GOOGLE_AGENT_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Google-Agent; +https://developers.google.com/crawling/docs/crawlers-fetchers/google-agent) Chrome/W.X.Y.Z Safari/537.36'
+const CLAUDE_USER_UA = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-User/1.0; +claude-user@anthropic.com)'
 
 function buildIngestEvent(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -841,8 +844,46 @@ describe('POST /traffic/cloudflare/ingest', () => {
     expect(forged.statusCode).toBe(401)
 
     expect(h.ingested).toEqual([
-      { sourceType: 'cloudflare', status: 'succeeded', events: 3, crawlerHits: 1, aiUserFetchHits: 1, aiReferralHits: 1, durationMs: expect.any(Number) },
-      { sourceType: 'cloudflare', status: 'failed', events: 0, crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, durationMs: expect.any(Number), reasonCode: 'VALIDATION' },
+      { sourceType: 'cloudflare', status: 'succeeded', events: 3, crawlerHits: 1, aiUserFetchHits: 1, aiUserFetchBrowserNonPageHits: 0, aiReferralHits: 1, durationMs: expect.any(Number) },
+      { sourceType: 'cloudflare', status: 'failed', events: 0, crawlerHits: 0, aiUserFetchHits: 0, aiUserFetchBrowserNonPageHits: 0, aiReferralHits: 0, durationMs: expect.any(Number), reasonCode: 'VALIDATION' },
+    ])
+  })
+
+  it('reports a browser agent\'s requests other than page loads on the push and in its telemetry, and says on each sample what the request was', async () => {
+    const at = (second: number) => new Date(Date.now() - 60_000 + second * 1_000).toISOString()
+    const agent = { userAgent: GOOGLE_AGENT_UA, remoteIp: null, cf: null }
+    const events = [
+      buildIngestEvent({ ...agent, eventId: 'page', observedAt: at(0), path: '/pricing' }),
+      buildIngestEvent({ ...agent, eventId: 'script', observedAt: at(1), path: '/_next/static/chunks/main.js' }),
+      buildIngestEvent({ ...agent, eventId: 'form-post', observedAt: at(2), method: 'POST', path: '/contact' }),
+      buildIngestEvent({ ...agent, eventId: 'preflight', observedAt: at(3), method: 'OPTIONS', path: '/contact' }),
+      buildIngestEvent({ ...agent, eventId: 'next-page', observedAt: at(4), path: '/contact' }),
+      // A link fetcher's every request counts.
+      buildIngestEvent({ eventId: 'link-fetch', observedAt: at(5), userAgent: CLAUDE_USER_UA, remoteIp: null, cf: null, path: '/pricing' }),
+    ]
+    const res = await ingest({ body: { schemaVersion: 1, workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION, events } })
+
+    expect(res.statusCode, res.payload).toBe(200)
+    // Three page loads count. The script, the form post and the preflight go to
+    // no bucket, so the push and its telemetry are where they show.
+    expect(cloudflareWorkerIngestResponseSchema.parse(JSON.parse(res.payload))).toMatchObject({ acceptedEvents: 6, aiUserFetchBucketRows: 3, aiUserFetchBrowserNonPageHits: 3 })
+    expect(h.db.select().from(aiUserFetchEventsHourly).all().reduce((sum, row) => sum + row.hits, 0)).toBe(3)
+    expect(h.ingested).toEqual([
+      { sourceType: 'cloudflare', status: 'succeeded', events: 6, crawlerHits: 0, aiUserFetchHits: 3, aiUserFetchBrowserNonPageHits: 3, aiReferralHits: 0, durationMs: expect.any(Number) },
+    ])
+
+    // Samples keep no method or query, so each browser-agent sample says what its request was.
+    const samples = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/samples?kind=ai-user-fetch' })
+    expect(samples.statusCode, samples.payload).toBe(200)
+    expect(trafficSamplesResponseSchema.parse(JSON.parse(samples.payload)).samples.map(sample => [
+      sample.pathNormalized, sample.classifier.aiUserFetch?.product, sample.classifier.aiUserFetch?.browser, sample.classifier.aiUserFetch?.requestKind,
+    ])).toEqual([
+      ['/pricing', 'Claude-User', false, undefined],
+      ['/contact', 'Google-Agent', true, 'page'],
+      ['/contact', 'Google-Agent', true, 'resource'],
+      ['/contact', 'Google-Agent', true, 'action'],
+      ['/_next/static/chunks/main.js', 'Google-Agent', true, 'resource'],
+      ['/pricing', 'Google-Agent', true, 'page'],
     ])
   })
 

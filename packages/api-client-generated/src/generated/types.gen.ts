@@ -18772,6 +18772,7 @@ export type CloudflareWorkerIngestResponse = {
     aiUserFetchBucketRows: number;
     aiReferralBucketRows: number;
     sampleRows: number;
+    aiUserFetchBrowserNonPageHits: number;
 };
 
 export type TrafficBackfillResponse = {
@@ -19016,6 +19017,8 @@ export type TrafficSamplesResponse = {
                 matchedUserAgent?: string | null;
                 trust?: 'verified' | 'likely_real' | 'unknown' | 'likely_fake' | null;
                 trustReasons?: Array<'ip-in-published-list' | 'ip-outside-published-list' | 'no-ip' | 'no-published-list' | 'documented-user-agent' | 'unusual-user-agent' | 'scanner-path' | 'scanner-burst'> | null;
+                browser?: boolean | null;
+                requestKind?: 'page' | 'action' | 'resource' | null;
             } | null;
             aiReferral: {
                 operator?: string | null;
@@ -37838,7 +37841,7 @@ export type PostApiV1ProjectsByNameTrafficCloudflareIngestError = PostApiV1Proje
 
 export type PostApiV1ProjectsByNameTrafficCloudflareIngestResponses = {
     /**
-     * Ingest acknowledged; droppedEvents includes normalization failures and durable-receipt duplicates.
+     * Ingest acknowledged; droppedEvents includes normalization failures and durable-receipt duplicates. aiUserFetchBrowserNonPageHits counts browser-agent requests other than page loads, which no bucket holds.
      */
     200: CloudflareWorkerIngestResponse;
 };

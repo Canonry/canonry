@@ -52,6 +52,7 @@ import { apiRoutes } from '../src/index.js'
 import type { OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 import { tryClaimTrafficSyncLease } from '../src/traffic-sync-lease.js'
 import { connectionOutcomes } from './outcome-capture.js'
+import { logCapture } from './log-capture.js'
 import chatgptUserRanges from '../../integration-traffic/src/ip-ranges/chatgpt-user.json' with { type: 'json' }
 import gptbotRanges from '../../integration-traffic/src/ip-ranges/gptbot.json' with { type: 'json' }
 import { firstPublishedIp, vendoredManifest } from '../../integration-traffic/test/fixtures/vendored-ranges.js'
@@ -189,6 +190,8 @@ async function buildHarness(
     trafficBackfillLeaseRenewMs?: number
     /** Enables AI visitor journeys. */
     journeyKeySecret?: string
+    /** Fastify logger option, to read what a route logged (`logCapture`). */
+    logger?: ReturnType<typeof logCapture>['logger']
   } = {},
 ) {
   const trafficSyncedEvents: Array<unknown> = []
@@ -252,7 +255,7 @@ async function buildHarness(
   let pullInvocations = 0
   const observedWindows: Array<{ startTime: string; endTime: string }> = []
   const observedFirstSync: Array<boolean | undefined> = []
-  const app = Fastify()
+  const app = Fastify(options.logger ? { logger: options.logger } : {})
   app.register(apiRoutes, {
     db,
     skipAuth: true,
@@ -2416,7 +2419,8 @@ describe('POST /traffic/sources/:id/sync', () => {
       buildEvent({ userAgent: CLAUDE_AGENT_UA, path: '/about', queryString: '_rsc=1ld0r', observedAt: at(1) }),
       buildEvent({ userAgent: CLAUDE_AGENT_UA, method: 'POST', path: '/_vercel/insights/view', observedAt: at(2) }),
     ]
-    const h = await buildHarness(events)
+    const logs = logCapture()
+    const h = await buildHarness(events, { logger: logs.logger })
     try {
       const connectRes = await h.app.inject({
         method: 'POST',
@@ -2432,12 +2436,15 @@ describe('POST /traffic/sources/:id/sync', () => {
         payload: { sinceMinutes: 120 },
       })
       expect(syncRes.statusCode).toBe(200)
-      expect(trafficSyncResponseSchema.parse(JSON.parse(syncRes.payload))).toMatchObject({
+      const synced = trafficSyncResponseSchema.parse(JSON.parse(syncRes.payload))
+      expect(synced).toMatchObject({
         pulledEvents: 4, aiUserFetchHits: 1, aiUserFetchBrowserNonPageHits: 3, aiUserFetchLikelyFakeHits: 0,
         aiUserFetchBucketRows: 1, unknownHits: 0,
       })
       expect(h.db.select({ botId: aiUserFetchEventsHourly.botId, path: aiUserFetchEventsHourly.pathNormalized, hits: aiUserFetchEventsHourly.hits })
         .from(aiUserFetchEventsHourly).all()).toEqual([{ botId: 'claude-agent', path: '/pricing', hits: 1 }])
+      // A scheduled sync throws its response away, so the log reports them too.
+      expect(logs.withField('aiUserFetchBrowserNonPageHits')).toMatchObject([{ sourceId, runId: synced.runId, aiUserFetchBrowserNonPageHits: 3 }])
     } finally {
       await h.close()
     }

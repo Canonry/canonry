@@ -16,6 +16,7 @@ import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import { apiRoutes, type OutcomeTelemetryEvent } from '../src/index.js'
 import type { CloudRunCredentialRecord } from '../src/traffic.js'
 import { featureOutcomes } from './feature-outcome-capture.js'
+import { logCapture } from './log-capture.js'
 
 // What a server-side traffic backfill and reset report through
 // `feature.completed`. Their effects on the rollups are covered in traffic.test.ts.
@@ -39,14 +40,14 @@ function trafficEvent(id: string, overrides: Partial<NormalizedTrafficRequest>):
 const closers: Array<() => Promise<void>> = []
 afterEach(async () => { await Promise.all(closers.splice(0).map(close => close())) })
 
-async function harness() {
+async function harness(options: { logger?: ReturnType<typeof logCapture>['logger'] } = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traffic-backfill-outcomes-'))
   const db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
   const credentials = new Map<string, CloudRunCredentialRecord>()
   const pull: { events: NormalizedTrafficRequest[]; error?: Error; gate?: Promise<void> } = { events: [] }
   const outcomes: OutcomeTelemetryEvent[] = []
-  const app: FastifyInstance = Fastify()
+  const app: FastifyInstance = Fastify(options.logger ? { logger: options.logger } : {})
   app.register(apiRoutes, {
     db,
     skipAuth: true,
@@ -116,6 +117,28 @@ describe('server traffic backfill and reset outcomes', () => {
     expect(outcome).toEqual({ ...backfilled, status: 'succeeded', counts: { events: 4, ...storedHits(h.db) } })
     // Reported after its request, so it carries who asked, read while the request was still active.
     expect(h.outcomes.find(e => e.event === 'feature.completed')?.attribution).toMatchObject({ surfaceLabel: 'cli', agentLabel: 'codex' })
+  })
+
+  it('reports a browser agent\'s requests other than page loads with what it wrote, and in the log', async () => {
+    const logs = logCapture()
+    const h = await harness({ logger: logs.logger })
+    const agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Google-Agent; +https://developers.google.com/crawling/docs/crawlers-fetchers/google-agent) Chrome/W.X.Y.Z Safari/537.36'
+    h.pull.events = [
+      trafficEvent('page', { userAgent: agent, path: '/pricing', requestUrl: 'https://example.com/pricing' }),
+      trafficEvent('script', { userAgent: agent, path: '/_next/static/chunks/main.js', requestUrl: 'https://example.com/_next/static/chunks/main.js' }),
+      trafficEvent('form-post', { userAgent: agent, method: 'POST', path: '/contact', requestUrl: 'https://example.com/contact' }),
+    ]
+    const submitted = await h.backfill()
+    expect(submitted.statusCode).toBe(200)
+
+    const [outcome] = await h.settled(1)
+    // The page load is the one hit written; the script and the form post are counted only here.
+    expect(storedHits(h.db)).toEqual({ crawlerHits: 0, aiUserFetchHits: 1, aiReferralHits: 0 })
+    expect(outcome).toEqual({ ...backfilled, status: 'succeeded', counts: { events: 3, ...storedHits(h.db), aiUserFetchBrowserNonPageHits: 2 } })
+    // The backfill answered before it wrote, so the log is where an operator sees them.
+    expect(logs.withField('aiUserFetchBrowserNonPageHits')).toMatchObject([
+      { sourceId: h.sourceId, runId: (submitted.json() as { runId: string }).runId, aiUserFetchBrowserNonPageHits: 2 },
+    ])
   })
 
   it('reports an empty window as skipped, a refused pull by its status, and a refused request from the route', async () => {
