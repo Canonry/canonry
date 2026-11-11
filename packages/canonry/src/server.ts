@@ -4370,7 +4370,7 @@ export async function createServer(opts: {
       // source type writes them, including direct push, which never syncs.
       stopUnrecognizedAgentAlerts = startUnrecognizedAgentAlertLoop(() => notifier.dispatchUnrecognizedAgentAlerts());
       // When the classification rules changed since the last pass, reclassify
-      // stored unknown traffic once, shortly after startup.
+      // stored traffic under them once, shortly after startup.
       stopTrafficReclassification = startTrafficReclassification({ db: opts.db });
       // Resumes every batch a previous process left outstanding, and finalizes
       // the runs boot recovery handed to it.
