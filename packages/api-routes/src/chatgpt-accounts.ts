@@ -37,6 +37,7 @@ import {
   ChatGptPlanStatuses,
   ChatGptSignInErrors,
   ChatGptSignInIntents,
+  isChatGptTokenKey,
   normalizeInvitationEmail,
   normalizeUserName,
   USER_NAME_PATTERN,
@@ -149,7 +150,7 @@ interface StoredTokens {
 
 /** Parse a 64-hex-character key. Anything else is null, and plan usage stays off. */
 export function parseChatGptTokenKey(value: string | undefined | null): Buffer | null {
-  if (!value || !/^[\da-f]{64}$/i.test(value.trim())) return null
+  if (!isChatGptTokenKey(value)) return null
   return Buffer.from(value.trim(), 'hex')
 }
 
@@ -337,17 +338,22 @@ export class ChatGptAccounts {
     if (!input.state) return fail(ChatGptSignInErrors.expired)
     const stateHash = sha256(input.state)
     const nowMs = this.now()
-    const transaction = this.opts.db.transaction((tx) => {
-      const row = tx.select().from(chatgptLoginTransactions).where(eq(chatgptLoginTransactions.stateHash, stateHash)).get()
-      if (row) tx.delete(chatgptLoginTransactions).where(eq(chatgptLoginTransactions.stateHash, stateHash)).run()
-      return row
-    })
-    if (!transaction || Date.parse(transaction.expiresAt) <= nowMs) return fail(ChatGptSignInErrors.expired)
-    const returnTo = transaction.returnTo
     const [binding, verifier] = (input.cookie ?? '').split('.')
-    if (!binding || !verifier || sha256(binding) !== transaction.browserHash) {
-      return fail(ChatGptSignInErrors.expired, returnTo)
-    }
+    // Only the browser that started the sign-in can spend its state. Anyone
+    // else who learns the state (a shared screenshot, a logged URL) is refused
+    // without touching it, so they cannot void the real sign-in in progress.
+    const claim = this.opts.db.transaction((tx) => {
+      const row = tx.select().from(chatgptLoginTransactions).where(eq(chatgptLoginTransactions.stateHash, stateHash)).get()
+      if (!row) return null
+      const expired = Date.parse(row.expiresAt) <= nowMs
+      const bound = Boolean(binding && verifier && sha256(binding) === row.browserHash)
+      if (expired || bound) tx.delete(chatgptLoginTransactions).where(eq(chatgptLoginTransactions.stateHash, stateHash)).run()
+      return { row, expired, bound }
+    })
+    if (!claim || claim.expired) return fail(ChatGptSignInErrors.expired)
+    const transaction = claim.row
+    const returnTo = transaction.returnTo
+    if (!claim.bound || !verifier) return fail(ChatGptSignInErrors.expired, returnTo)
     if (input.error) {
       return fail(input.error === 'access_denied' ? ChatGptSignInErrors.denied : ChatGptSignInErrors.failed, returnTo)
     }
@@ -379,9 +385,43 @@ export class ChatGptAccounts {
     // Granted scopes are authoritative; an omitted scope list grants nothing extra.
     const granted = tokens.scopes ?? []
     const planGranted = planRequested && this.planUsageEnabled() && grantsInference(granted) && tokens.refreshToken !== null
-    const nowIso = new Date(this.now()).toISOString()
 
-    const settled = this.opts.db.transaction((tx): { outcome: ChatGptCallbackResult; revoke: StoredTokens | null } => {
+    let settled: { outcome: ChatGptCallbackResult; revoke: StoredTokens | null }
+    try {
+      settled = this.settle({ intent, transaction, identity, tokens, granted, planRequested, planGranted, settings, nowMs, returnTo })
+    } catch {
+      // A constraint the checks above could not see coming, such as two
+      // callbacks for the same new identity at once. Nothing was written; the
+      // person is told to try again rather than shown a server error.
+      if (tokens.refreshToken) void this.revoke(settings, tokens.refreshToken, 'refresh_token')
+      return fail(ChatGptSignInErrors.failed, returnTo)
+    }
+
+    if (!planGranted && tokens.refreshToken) {
+      // A refresh token this sign-in will not keep is revoked rather than left live.
+      void this.revoke(settings, tokens.refreshToken, 'refresh_token')
+    }
+    if (settled.revoke) void this.revoke(settings, settled.revoke.refreshToken, 'refresh_token')
+    return settled.outcome
+  }
+
+  /** The database half of a callback, in one transaction. Throws on a constraint violation. */
+  private settle(input: {
+    intent: ChatGptSignInIntent
+    transaction: typeof chatgptLoginTransactions.$inferSelect
+    identity: Awaited<ReturnType<typeof verifyChatGptIdToken>>
+    tokens: Awaited<ReturnType<typeof exchangeChatGptCode>>
+    granted: string[]
+    planRequested: boolean
+    planGranted: boolean
+    settings: ChatGptSignInSettings
+    nowMs: number
+    returnTo: string | null
+  }): { outcome: ChatGptCallbackResult; revoke: StoredTokens | null } {
+    const { intent, transaction, identity, tokens, granted, planRequested, planGranted, settings, nowMs, returnTo } = input
+    const fail = (error: ChatGptSignInError, back: string | null = null): ChatGptCallbackResult => ({ ok: false, error, returnTo: back })
+    const nowIso = new Date(this.now()).toISOString()
+    return this.opts.db.transaction((tx): { outcome: ChatGptCallbackResult; revoke: StoredTokens | null } => {
       let revoke: StoredTokens | null = null
       const existing = tx.select().from(userExternalIdentities).where(and(
         eq(userExternalIdentities.issuer, CHATGPT_ISSUER),
@@ -490,13 +530,6 @@ export class ChatGptAccounts {
       }
       return { outcome: { ok: true, intent, userId, createdAccount, linked, plan, returnTo }, revoke }
     })
-
-    if (!planGranted && tokens.refreshToken) {
-      // A refresh token this sign-in will not keep is revoked rather than left live.
-      void this.revoke(settings, tokens.refreshToken, 'refresh_token')
-    }
-    if (settled.revoke) void this.revoke(settings, settled.revoke.refreshToken, 'refresh_token')
-    return settled.outcome
   }
 
   private storeGrant(

@@ -49,6 +49,9 @@ chatgpt:
   does not sign anyone out.
 - Viewer Aero must be on (`agent.allowViewers: true`) for viewers to use Aero
   at all.
+- Behind a reverse proxy, declare it with `CANONRY_TRUST_PROXY` (as for name
+  and password sign-in): the ChatGPT routes budget each caller by their real
+  address, and an undeclared proxy makes everyone share one budget.
 - Restart the server after changing the block. A block that is switched on but
   missing a client ID or an HTTPS `publicUrl` stays off and logs
   `chatgpt.disabled`.
@@ -78,6 +81,7 @@ identity, not the email, signs them in.
   administrator can be invited before any account exists.
 - Accounts created this way have no password. The password form treats their
   names like unknown names.
+- Deleting an account also revokes its ChatGPT plan grant at OpenAI.
 
 API: `GET|POST /api/v1/users/invitations`, `DELETE /api/v1/users/invitations/{id}`
 (administrators or a full-instance key, `users.read` / `users.write`).
@@ -97,6 +101,9 @@ API: `GET|POST /api/v1/users/invitations`, `DELETE /api/v1/users/invitations/{id
 - A failed answer shows the plan's problem with its one fix: **Check usage**
   for a usage limit, **Continue with ChatGPT** to connect again.
 - Administrators' own Aero is unchanged.
+- **MCP consent page.** Its sign-in step offers Continue with ChatGPT too and
+  comes back to the same request, so people whose account has no password can
+  approve MCP clients.
 
 The button uses OpenAI's black and white formats through the dashboard's
 primary button. OpenAI's guidelines also call for their logo on it: add the

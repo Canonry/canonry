@@ -29,6 +29,16 @@ export const CHATGPT_DISCOVERY_URL = `${CHATGPT_ISSUER}/.well-known/openid-confi
  */
 export const CHATGPT_RESOURCE = 'https://api.openai.com/v1'
 
+/**
+ * `chatgpt.tokenKey`: 32 bytes as 64 hex characters (`openssl rand -hex 32`).
+ * The one definition, shared by config validation and the key parser.
+ */
+export const CHATGPT_TOKEN_KEY_PATTERN = /^[\da-f]{64}$/i
+
+export function isChatGptTokenKey(value: unknown): value is string {
+  return typeof value === 'string' && CHATGPT_TOKEN_KEY_PATTERN.test(value.trim())
+}
+
 /** Where a person checks and manages their ChatGPT plan usage. */
 export const CHATGPT_USAGE_URL = 'https://chatgpt.com/settings/usage'
 

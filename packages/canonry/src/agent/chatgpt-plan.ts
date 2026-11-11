@@ -95,11 +95,8 @@ export function namespaceChatGptPayload(payload: unknown): unknown {
  * The plain message for a failed plan request. Status first, then OpenAI's
  * documented error codes when the body named one.
  */
-export function chatGptPlanFailure(responseStatus: number | undefined, detail: string | undefined): ChatGptAeroError {
+export function chatGptPlanFailure(status: number | undefined, detail: string | undefined): ChatGptAeroError {
   const text = detail ?? ''
-  // pi-ai reports an HTTP failure as "OpenAI API error (<status>): <body>" and
-  // does not call onResponse for it, so the status is read from the text.
-  const status = responseStatus ?? (Number(/API error \((\d{3})\)/.exec(text)?.[1]) || undefined)
   if (status === 401 || text.includes('subscription_sharing_invalid_user')) return CHATGPT_AERO_ERRORS.reconnect
   if (text.includes('subscription_sharing_usage_limit_exceeded') || status === 429) return CHATGPT_AERO_ERRORS.usageLimit
   if (text.includes('subscription_sharing_user_not_eligible')) return CHATGPT_AERO_ERRORS.notEligible
@@ -130,9 +127,13 @@ export function chatGptPlanStreamFn(onReconnect: () => void): StreamFn {
       try {
         const source = await aeroStreamFn(model, context, {
           ...options,
-          onResponse: async (response, responseModel) => {
+          // Observe every HTTP response, failures included: pi-ai calls
+          // onResponse only for a successful one, and its error text is not a
+          // contract to parse a status out of.
+          fetch: async (input, init) => {
+            const response = await (options?.fetch ?? globalThis.fetch)(input, init)
             status = response.status
-            await options?.onResponse?.(response, responseModel)
+            return response
           },
         })
         for await (const event of source) {

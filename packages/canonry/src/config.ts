@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
 import { AGENT_REASONING_LEVELS, agentAllowViewersSchema, agentModelSchema, agentProviderSchema, agentReasoningSchema, classificationConfigSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, mcpGatewayConfigSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@canonry/canonry-config'
 import type { AgentReasoningLevel, SentimentInstallConfigInput } from '@canonry/canonry-config'
-import { AGENT_PROVIDER_IDS, ProviderNames, isRetiredAgentProviderId } from '@canonry/canonry-contracts'
+import { isChatGptTokenKey, AGENT_PROVIDER_IDS, ProviderNames, isRetiredAgentProviderId } from '@canonry/canonry-contracts'
 import { seoInstallConfigSchema, type SeoInstallConfig } from '@canonry/canonry-config'
 import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@canonry/canonry-contracts'
 import { isAgentModelAccepted } from './agent/providers.js'
@@ -696,8 +696,7 @@ function validateChatGptConfig(value: unknown, configPath: string): void {
     throw invalid('chatgpt.requirePlan needs chatgpt.planUsage: true.')
   }
   if (entry.planUsage === true) {
-    const key = process.env.CANONRY_CHATGPT_TOKEN_KEY ?? entry.tokenKey
-    if (typeof key !== 'string' || !/^[\da-f]{64}$/i.test(key.trim())) {
+    if (!isChatGptTokenKey(process.env.CANONRY_CHATGPT_TOKEN_KEY ?? entry.tokenKey)) {
       throw invalid('chatgpt.planUsage needs chatgpt.tokenKey (or CANONRY_CHATGPT_TOKEN_KEY): 64 hex characters, e.g. from `openssl rand -hex 32`.')
     }
   }

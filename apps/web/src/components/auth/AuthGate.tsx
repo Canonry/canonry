@@ -542,17 +542,17 @@ export function AuthGate() {
                   <ChatGptButton href={chatGptStartUrl('login', currentReturnPath())} className="w-full" />
                   <button
                     type="button"
-                    aria-expanded={passwordOpen || Boolean(error)}
+                    aria-expanded={passwordOpen}
                     aria-controls="account-password-form"
                     onClick={() => setPasswordOpen(open => !open)}
                     className="flex items-center gap-1 rounded-md text-label-14 text-secondary transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
                   >
-                    {passwordOpen || error
+                    {passwordOpen
                       ? <ChevronDown className="h-4 w-4" aria-hidden="true" />
                       : <ChevronRight className="h-4 w-4" aria-hidden="true" />}
                     Sign in with a password
                   </button>
-                  {passwordOpen || error ? renderAccountForm({ secondary: true, formId: 'account-password-form' }) : null}
+                  {passwordOpen ? renderAccountForm({ secondary: true, formId: 'account-password-form' }) : null}
                 </CardContent>
               ) : (
                 <CardContent>

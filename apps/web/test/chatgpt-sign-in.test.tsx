@@ -75,6 +75,28 @@ describe('the sign-in screen', () => {
     expect(screen.getByRole('button', { name: 'Sign in' }).className).toContain('border-base')
   })
 
+  test('after a wrong password the disclosure still closes', async () => {
+    const restore = installMockFetch((url) => {
+      const urlStr = String(url)
+      if (urlStr.includes('/api/v1/auth/login')) return jsonResponse({ error: { code: 'AUTH_REQUIRED', message: 'Incorrect name or password.' } }, 401)
+      if (urlStr.includes('/api/v1/auth/session')) return jsonResponse({ authRequired: true, user: null, signInMethods: { chatgpt: true } })
+      if (urlStr.includes('/api/v1/session')) return jsonResponse({ authenticated: false, setupRequired: false })
+      return jsonResponse({})
+    })
+    onTestFinished(restore)
+    render(<AuthGate />)
+    const disclosure = await screen.findByRole('button', { name: 'Sign in with a password' })
+    fireEvent.click(disclosure)
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'arber' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'not-the-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(await screen.findByText('Incorrect name or password.')).toBeTruthy()
+
+    fireEvent.click(disclosure)
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByLabelText('Name')).toBeNull()
+  })
+
   test('without ChatGPT sign-in the name and password form is the screen, as before', async () => {
     serveSession({ authRequired: true, user: null })
     render(<AuthGate />)

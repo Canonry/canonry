@@ -7,7 +7,7 @@
  * before. The server decides who pays for an answer; these components only
  * say which it is and offer the one fix when a plan cannot answer.
  */
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useId, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowUpRight, Check, ChevronDown, Unplug } from 'lucide-react'
@@ -23,6 +23,7 @@ import { chatGptStartUrl, chooseChatGptModel, disconnectChatGpt, heyClient } fro
 import { consumeChatGptReturn, currentReturnPath } from '../../lib/chatgpt-return.js'
 import { cn } from '../../lib/utils.js'
 import { buttonVariants } from '../ui/button.js'
+import { useAnchoredMenu } from './use-anchored-menu.js'
 
 /**
  * OpenAI's "Continue with ChatGPT" action. The primary button is white on the
@@ -142,10 +143,6 @@ export function ChatGptPlanLine({ plan, disabled }: { plan: ChatGptPlanState; di
 
 type MenuPosition = { bottom: number; left: number; maxHeight: number }
 
-function menuItems(menu: HTMLElement | null): HTMLElement[] {
-  return Array.from(menu?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])
-}
-
 /**
  * Model choice and disconnect, as a menu above the plan line. It renders into
  * document.body with fixed positioning because the Aero panel clips its own
@@ -153,63 +150,18 @@ function menuItems(menu: HTMLElement | null): HTMLElement[] {
  */
 function PlanMenu({ plan, disabled }: { plan: ChatGptPlanState; disabled?: boolean }) {
   const queryClient = useQueryClient()
-  const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState<MenuPosition | null>(null)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
-  const menuRef = useRef<HTMLDivElement | null>(null)
   const menuId = useId()
   const modelHeadingId = useId()
   const models = useQuery({ ...getApiV1AuthChatgptModelsOptions({ client: heyClient }), staleTime: 5 * 60_000 })
-
-  const close = useCallback((returnFocus: boolean) => {
-    setOpen(false)
-    setPosition(null)
-    if (returnFocus) triggerRef.current?.focus()
-  }, [])
-
-  const place = useCallback(() => {
-    const rect = triggerRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const margin = 8
-    setPosition({ bottom: window.innerHeight - rect.top + 4, left: Math.max(margin, rect.left), maxHeight: rect.top - margin - 4 })
-  }, [])
-
-  useLayoutEffect(() => {
-    if (open) place()
-  }, [open, place])
-
-  const placed = position !== null
-  useEffect(() => {
-    if (!open || !placed) return
-    const items = menuItems(menuRef.current)
-    ;(items.find(item => item.getAttribute('aria-checked') === 'true') ?? items[0])?.focus()
-  }, [open, placed])
-
-  useEffect(() => {
-    if (!open) return
-    const onPointer = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return
-      close(false)
-    }
-    // Capture phase, so Escape closes the menu without also closing Aero.
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      close(true)
-    }
-    window.addEventListener('mousedown', onPointer)
-    window.addEventListener('keydown', onKey, true)
-    window.addEventListener('resize', place)
-    return () => {
-      window.removeEventListener('mousedown', onPointer)
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('resize', place)
-    }
-  }, [open, close, place])
+  const { open, setOpen, position, triggerRef, menuRef, close, moveFocus } = useAnchoredMenu<MenuPosition>({
+    // Above the plan line, which sits at the bottom of the screen.
+    place: (rect) => {
+      const margin = 8
+      return { bottom: window.innerHeight - rect.top + 4, left: Math.max(margin, rect.left), maxHeight: rect.top - margin - 4 }
+    },
+  })
 
   const list = models.data?.models ?? []
   const selected = models.data?.selected ?? null
@@ -252,23 +204,13 @@ function PlanMenu({ plan, disabled }: { plan: ChatGptPlanState; disabled?: boole
   }
 
   const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    // Tab leaves the menu, as a menu should.
     if (event.key === 'Tab') {
       event.preventDefault()
       close(true)
       return
     }
-    const target = event.target as HTMLElement
-    if (!target.matches('[role^="menuitem"]')) return
-    const items = menuItems(menuRef.current)
-    const index = items.indexOf(target)
-    const next = event.key === 'ArrowDown' ? items[(index + 1) % items.length]
-      : event.key === 'ArrowUp' ? items[(index - 1 + items.length) % items.length]
-        : event.key === 'Home' ? items[0]
-          : event.key === 'End' ? items[items.length - 1]
-            : undefined
-    if (!next) return
-    event.preventDefault()
-    next.focus()
+    moveFocus(event)
   }
 
   const itemClass = 'flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left text-label-14 text-heading transition outline-none hover:bg-bg-elevated focus-visible:bg-bg-elevated focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mono-400 disabled:opacity-60'

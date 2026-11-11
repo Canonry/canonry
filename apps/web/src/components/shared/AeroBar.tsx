@@ -38,6 +38,7 @@ import { useAccount } from '../../contexts/account-context.js'
 import { Button } from '../ui/button.js'
 import { MANAGED_SWEEPS_COPY } from '../project/ManagedSweepStatus.js'
 import { ChatGptConnectPrompt, ChatGptPlanLine, ChatGptTurnErrorAction, parseChatGptTurnError, useChatGptPlan } from './ChatGptPlan.js'
+import { useAnchoredMenu } from './use-anchored-menu.js'
 import { InfoTooltip } from './InfoTooltip.js'
 import { shellQuote, describeError } from '@canonry/canonry-contracts'
 import { playAeroPreview } from '../../lib/aero-preview.js'
@@ -1104,77 +1105,35 @@ function ProviderPicker({
   onModelChange: (modelId: string) => void
   disabled?: boolean
 }) {
-  const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState<MenuPosition | null>(null)
   const [otherOpen, setOtherOpen] = useState(false)
   const [otherDraft, setOtherDraft] = useState('')
   const [otherError, setOtherError] = useState<string | null>(null)
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
-  const menuRef = useRef<HTMLDivElement | null>(null)
   const otherInputRef = useRef<HTMLInputElement | null>(null)
   const menuId = useId()
   const providerHeadingId = useId()
   const modelHeadingId = useId()
-
-  const close = useCallback((returnFocus: boolean) => {
-    setOpen(false)
-    setPosition(null)
-    setOtherOpen(false)
-    setOtherError(null)
-    if (returnFocus) triggerRef.current?.focus()
-  }, [])
-
-  const place = useCallback(() => {
-    const rect = triggerRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const margin = 8
-    const below = window.innerHeight - rect.bottom - margin
-    const above = rect.top - margin
-    const right = Math.max(margin, window.innerWidth - rect.right)
-    setPosition(below >= above
-      ? { top: rect.bottom + 4, right, maxHeight: below - 4 }
-      : { bottom: window.innerHeight - rect.top + 4, right, maxHeight: above - 4 })
-  }, [])
-
-  useLayoutEffect(() => {
-    if (open) place()
-  }, [open, place])
-
-  // Focus the checked item once the menu is placed, so arrow keys start there.
-  const placed = position !== null
-  useEffect(() => {
-    if (!open || !placed) return
-    const items = menuItems(menuRef.current)
-    ;(items.find(item => item.getAttribute('aria-checked') === 'true' && item.closest('[data-menu-group="model"]')) ?? items[0])?.focus()
-  }, [open, placed])
+  const { open, setOpen, position, triggerRef, menuRef, close, moveFocus } = useAnchoredMenu<MenuPosition>({
+    // Open toward the larger space, scrolling inside it.
+    place: (rect) => {
+      const margin = 8
+      const below = window.innerHeight - rect.bottom - margin
+      const above = rect.top - margin
+      const right = Math.max(margin, window.innerWidth - rect.right)
+      return below >= above
+        ? { top: rect.bottom + 4, right, maxHeight: below - 4 }
+        : { bottom: window.innerHeight - rect.top + 4, right, maxHeight: above - 4 }
+    },
+    // Arrow keys start at the chosen model, not the provider list above it.
+    initialFocus: (items) => items.find(item => item.getAttribute('aria-checked') === 'true' && item.closest('[data-menu-group="model"]')),
+    onClose: () => {
+      setOtherOpen(false)
+      setOtherError(null)
+    },
+  })
 
   useEffect(() => {
     if (otherOpen) otherInputRef.current?.focus()
   }, [otherOpen])
-
-  useEffect(() => {
-    if (!open) return
-    const onPointer = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return
-      close(false)
-    }
-    // Capture phase, so Escape closes the menu without also closing Aero.
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      close(true)
-    }
-    window.addEventListener('mousedown', onPointer)
-    window.addEventListener('keydown', onKey, true)
-    window.addEventListener('resize', place)
-    return () => {
-      window.removeEventListener('mousedown', onPointer)
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('resize', place)
-    }
-  }, [open, close, place])
 
   if (providers.length === 0) return null
 
@@ -1198,17 +1157,7 @@ function ProviderPicker({
       close(true)
       return
     }
-    if (!target.matches('[role^="menuitem"]')) return
-    const items = menuItems(menuRef.current)
-    const index = items.indexOf(target)
-    const next = event.key === 'ArrowDown' ? items[(index + 1) % items.length]
-      : event.key === 'ArrowUp' ? items[(index - 1 + items.length) % items.length]
-        : event.key === 'Home' ? items[0]
-          : event.key === 'End' ? items[items.length - 1]
-            : undefined
-    if (!next) return
-    event.preventDefault()
-    next.focus()
+    moveFocus(event)
   }
 
   const submitOther = () => {
@@ -1388,10 +1337,6 @@ function ProviderPicker({
       )}
     </>
   )
-}
-
-function menuItems(menu: HTMLElement | null): HTMLElement[] {
-  return Array.from(menu?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])
 }
 
 /** Tallest the composer grows before it scrolls: about 6 lines compact, 12 expanded. */

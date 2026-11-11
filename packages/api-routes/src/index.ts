@@ -702,7 +702,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
         trustProxyConfigured: opts.trustProxyConfigured ?? false,
       }),
     })
-    await api.register(userRoutes)
+    await api.register(userRoutes, { chatgptAccounts: opts.chatgptAccounts })
     await api.register(userInvitationRoutes)
     await api.register(chatGptRoutes, {
       accounts: opts.chatgptAccounts,
@@ -710,6 +710,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       dashboardPath: opts.dashboardPath,
       routePrefix: opts.routePrefix,
       preferredModel: opts.chatgptPreferredModel,
+      trustProxyConfigured: opts.trustProxyConfigured ?? false,
     })
 
     await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix })

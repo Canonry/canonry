@@ -40,6 +40,7 @@ import {
   type ChatGptSignInSettings,
 } from '../src/chatgpt-accounts.js'
 import { CHATGPT_SIGN_IN_COOKIE_NAME, safeReturnTo } from '../src/chatgpt-routes.js'
+import { renderSignInPage } from '../src/oauth-pages.js'
 import { USER_SESSION_COOKIE_NAME } from '../src/user-session.js'
 
 // The admin account below pays one real scrypt derivation.
@@ -447,13 +448,13 @@ describe('callback: invitations', () => {
 })
 
 describe('callback: refusals', () => {
-  test('a callback in another browser (no binding cookie) is refused, and the state is spent', async () => {
+  test('a callback in another browser is refused without spending the real sign-in', async () => {
     await invite('jon.doe@cortland.example')
     const started = await start()
     expect((await callback(started, { binding: null })).headers.location).toBe('/?chatgpt_error=expired')
-    // The genuine browser cannot use the state afterwards either.
-    expect((await callback(started)).headers.location).toBe('/?chatgpt_error=expired')
     expect(openai.state.tokenRequests).toHaveLength(0)
+    // Whoever learned the state could not void it: the browser that started it still finishes.
+    expect((await callback(started)).headers.location).toBe('/')
   })
 
   test('a binding cookie from a different sign-in is refused', async () => {
@@ -461,6 +462,23 @@ describe('callback: refusals', () => {
     const mine = await start()
     const theirs = await start()
     expect((await callback(mine, { binding: theirs.binding })).headers.location).toBe('/?chatgpt_error=expired')
+  })
+
+  test('a write the checks could not foresee redirects with failed, not a server error, and revokes the token', async () => {
+    await invite('jon.doe@cortland.example')
+    const started = await start()
+    const real = db.transaction.bind(db)
+    let calls = 0
+    // The first transaction claims the sign-in; fail the second, the account write.
+    vi.spyOn(db, 'transaction').mockImplementation(((fn: Parameters<typeof db.transaction>[0]) => {
+      calls += 1
+      if (calls === 2) throw new Error('UNIQUE constraint failed: user_external_identities.issuer')
+      return real(fn)
+    }) as typeof db.transaction)
+    const res = await callback(started)
+    expect(res.statusCode).toBe(302)
+    expect(res.headers.location).toBe('/?chatgpt_error=failed')
+    await vi.waitFor(() => expect(openai.state.revoked).toContain('plan-refresh-1'))
   })
 
   test('a state can be used once', async () => {
@@ -660,6 +678,54 @@ describe('plan grant', () => {
     expect(decryptPlanTokens(key, 'conn-2', 'user-1', sealed)).toBeNull()
     expect(decryptPlanTokens(key, 'conn-1', 'user-2', sealed)).toBeNull()
     expect(decryptPlanTokens(parseChatGptTokenKey('b'.repeat(64))!, 'conn-1', 'user-1', sealed)).toBeNull()
+  })
+})
+
+describe('around the edges', () => {
+  test('deleting an account withdraws its plan grant at OpenAI', async () => {
+    await invite('jon.doe@cortland.example')
+    await callback(await start())
+    const res = await app.inject({ method: 'DELETE', url: '/api/v1/users/jon.doe', headers: { authorization: `Bearer ${ROOT_KEY}` } })
+    expect(res.statusCode).toBe(200)
+    expect(openai.state.revoked).toContain('plan-refresh-1')
+    expect(db.select().from(chatgptPlanConnections).all()).toHaveLength(0)
+  })
+
+  test('behind a declared proxy each caller has its own sign-in budget', async () => {
+    const proxied = Fastify({ trustProxy: true })
+    await proxied.register(apiRoutes, { db, chatgptAccounts: accounts, dashboardPath: '/', trustProxyConfigured: true })
+    await proxied.ready()
+    try {
+      const startFrom = (address: string) => proxied.inject({
+        method: 'GET', url: '/api/v1/auth/chatgpt/start?intent=login', headers: { 'x-forwarded-for': address },
+      })
+      for (let i = 0; i < 20; i++) expect((await startFrom('203.0.113.7')).statusCode).toBe(302)
+      expect((await startFrom('203.0.113.7')).statusCode).toBe(429)
+      // Someone else behind the same proxy is unaffected.
+      expect((await startFrom('198.51.100.4')).statusCode).toBe(302)
+    } finally {
+      await proxied.close()
+    }
+  })
+
+  test('the MCP consent page offers ChatGPT first, returning to the same request', () => {
+    const html = renderSignInPage({
+      action: '/oauth/authorize?client_id=c&state=s',
+      error: null,
+      chatgptUrl: '/api/v1/auth/chatgpt/start?intent=login&returnTo=%2Foauth%2Fauthorize%3Fclient_id%3Dc',
+    })
+    expect(html).toContain('data-oai-siwc-button href="/api/v1/auth/chatgpt/start?intent=login&amp;returnTo=%2Foauth%2Fauthorize%3Fclient_id%3Dc"')
+    expect(html).toContain('<button class="secondary" type="submit">Sign in</button>')
+    expect(html).not.toContain('autofocus')
+    const plain = renderSignInPage({ action: '/oauth/authorize', error: null })
+    expect(plain).not.toContain('Continue with ChatGPT')
+    expect(plain).toContain('<button class="primary" type="submit">Sign in</button>')
+  })
+
+  test('a long consent URL survives as a return path', () => {
+    const consent = `/oauth/authorize?${'x'.repeat(900)}`
+    expect(safeReturnTo(consent, '/')).toBe(consent)
+    expect(safeReturnTo(`/${'x'.repeat(2100)}`, '/')).toBeNull()
   })
 })
 

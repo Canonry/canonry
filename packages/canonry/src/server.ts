@@ -4303,6 +4303,11 @@ export async function createServer(opts: {
         return resolved ? { id: resolved.user.id, name: resolved.user.name } : null;
       },
       credentials: credentialChecker,
+      // A person whose account signs in only with ChatGPT approves MCP
+      // clients too: the consent page offers it and comes back to itself.
+      chatgptSignInUrl: (returnTo) => chatgptAccounts.signInEnabled()
+        ? `${apiPrefix}/auth/chatgpt/start?${new URLSearchParams({ intent: "login", returnTo }).toString()}`
+        : null,
       startSession: (userId) => {
         const token = createUserSession(opts.db, userId);
         return serializeUserSessionCookie({

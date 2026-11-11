@@ -118,10 +118,9 @@ describe('plan request shape', () => {
     expect(chatGptPlanFailure(503, 'subscription_sharing_usage_unavailable')).toBe(CHATGPT_AERO_ERRORS.unavailable)
     expect(chatGptPlanFailure(400, 'subscription_sharing_unsupported_capability')).toBe(CHATGPT_AERO_ERRORS.failed)
     expect(chatGptPlanFailure(undefined, undefined)).toBe(CHATGPT_AERO_ERRORS.failed)
-    // pi-ai's own wording for an HTTP failure, which carries no onResponse.
-    expect(chatGptPlanFailure(undefined, 'OpenAI API error (401): {"code":"x"}')).toBe(CHATGPT_AERO_ERRORS.reconnect)
-    expect(chatGptPlanFailure(undefined, 'OpenAI API error (403): {"code":"x"}')).toBe(CHATGPT_AERO_ERRORS.notEligible)
-    expect(chatGptPlanFailure(undefined, 'OpenAI API error (503): {"code":"x"}')).toBe(CHATGPT_AERO_ERRORS.unavailable)
+    // The status comes from the response itself, never from error wording.
+    expect(chatGptPlanFailure(undefined, 'OpenAI API error (401): {"code":"x"}')).toBe(CHATGPT_AERO_ERRORS.failed)
+    expect(chatGptPlanFailure(503, '')).toBe(CHATGPT_AERO_ERRORS.unavailable)
   })
 
   it('pins plan models to OpenAI, at no cost to the install', () => {
