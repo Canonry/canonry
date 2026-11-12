@@ -148,6 +148,17 @@ export const measurementDraftAuthoringSchema = z.object({
 }).strict()
 export type MeasurementDraftAuthoring = z.output<typeof measurementDraftAuthoringSchema>
 
+/** Every provider selected by draft defaults or an assignment's explicit execution context. */
+export function measurementDraftProviderNames(authoring: MeasurementDraftAuthoring): string[] {
+  return [
+    ...authoring.defaultContext.providers,
+    ...authoring.assignments.flatMap(assignment => [
+      ...(assignment.contextOverride?.providers ?? []),
+      ...(assignment.executionContexts?.flatMap(context => context.providers) ?? []),
+    ]),
+  ]
+}
+
 export const measurementPlanDraftSchema = z.object({
   id: z.string().trim().min(1),
   projectId: z.string().trim().min(1),
@@ -652,6 +663,10 @@ export const measurementSetupResponseSchema = z.object({
   mode: measurementSetupModeSchema,
   /** Whether this project's selected provider roster contains an engine the host can execute now. */
   answerVisibilityProviderReady: z.boolean(),
+  /** True only for a never-published draft that blocks a normal sweep. A
+   * retained draft after deactivation still has mode draft-only, but Simple
+   * sweeps are allowed. Optional only for compatibility with older servers. */
+  requiresPublication: z.boolean().optional(),
   activeRevision: measurementDraftRevisionSchema.nullable(),
   activeSchemaVersion: z.union([z.literal(1), z.literal(2)]).nullable(),
   draft: z.object({

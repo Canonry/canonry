@@ -519,8 +519,8 @@ describe('sentiment presentation', () => {
       branded: summaryWithAssessments([assessment({ assessmentId: 'a', sourceSnapshotId: 'snapshot' })]), evidence: [{ ...item, sourceText: '## North Hall reviews\n\nNorth Hall is **excellent**. A factual follow-up mentions parking.' }],
     })
     try {
-      fireEvent.click(await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' }))
-      const dialog = await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · openai · North Hall' })
+      fireEvent.click(await screen.findByRole('button', { name: 'View OpenAI sentiment evidence for North Hall: Favorable' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · OpenAI · North Hall' })
       await within(dialog).findByText('definition-a')
       expect([...dialog.querySelectorAll('blockquote')].map(node => node.textContent)).toEqual(['North Hall is excellent.'])
       // The engine that answered is named, and its answer renders as formatted text, not raw Markdown.
@@ -546,8 +546,8 @@ describe('per-engine sentiment', () => {
     try {
       await screen.findByRole('columnheader', { name: 'Sentiment' })
       fireEvent.click(screen.getByRole('button', { name: 'Is North Hall good?' }))
-      const favorable = await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' })
-      const unfavorable = screen.getByRole('button', { name: 'View gemini sentiment evidence for North Hall: Unfavorable' })
+      const favorable = await screen.findByRole('button', { name: 'View OpenAI sentiment evidence for North Hall: Favorable' })
+      const unfavorable = screen.getByRole('button', { name: 'View Gemini sentiment evidence for North Hall: Unfavorable' })
       expect(within(favorable.closest('tr')!).getByText('OpenAI')).toBeTruthy()
       expect(within(unfavorable.closest('tr')!).getByText('Gemini')).toBeTruthy()
       expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
@@ -566,8 +566,8 @@ describe('per-engine sentiment', () => {
     const props = { queryId: 'q', sourceSnapshotIds: ['snapshot-openai'], queryClass: 'branded' as const, provider: 'openai', model: 'source-model', location: 'Chicago' }
     const page = renderScope(<><SentimentAnswerOutcome {...props} showSubjects /><SentimentAnswerOutcome {...props} sourceSnapshotIds={['older-snapshot']} /><SentimentAnswerOutcome {...props} model="other-model" /></>, { branded: dto })
     try {
-      expect((await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' })).textContent).toBe('North Hall · Favorable')
-      expect(screen.getByRole('button', { name: 'View openai sentiment evidence for South Hall: Unfavorable' }).textContent).toBe('South Hall · Unfavorable')
+      expect((await screen.findByRole('button', { name: 'View OpenAI sentiment evidence for North Hall: Favorable' })).textContent).toBe('North Hall · Favorable')
+      expect(screen.getByRole('button', { name: 'View OpenAI sentiment evidence for South Hall: Unfavorable' }).textContent).toBe('South Hall · Unfavorable')
       expect(screen.getAllByText('Unavailable')).toHaveLength(2)
       expect(screen.queryByText('Mixed')).toBeNull()
     } finally { page.close() }
@@ -1601,8 +1601,8 @@ describe('sentiment outcome tones', () => {
       branded: summaryWithAssessments([assessment({ assessmentId: 'a', sourceSnapshotId: 'snapshot', outcome })]), evidence: [evidenceItem({ outcome })],
     })
     try {
-      fireEvent.click(await screen.findByRole('button', { name: `View openai sentiment evidence for North Hall: ${label}` }))
-      const dialog = await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · openai · North Hall' })
+      fireEvent.click(await screen.findByRole('button', { name: `View OpenAI sentiment evidence for North Hall: ${label}` }))
+      const dialog = await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · OpenAI · North Hall' })
       const badge = await within(dialog).findByText(label, { selector: 'div' })
       expect(badge.className).toContain(TONE_CLASS[outcome])
       for (const other of Object.values(TONE_CLASS).filter(tone => tone !== TONE_CLASS[outcome])) expect(badge.className).not.toContain(other)
@@ -1618,8 +1618,8 @@ describe('sentiment outcome tones', () => {
     ])
     const page = renderScope(<SentimentAnswerOutcome queryId="q" sourceSnapshotIds={['snapshot-openai']} queryClass="branded" provider="openai" location="Chicago" showSubjects />, { branded: dto })
     try {
-      await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' })
-      const tone = (subject: string, label: string) => screen.getByRole('button', { name: `View openai sentiment evidence for ${subject}: ${label}` }).querySelector('div')!.className
+      await screen.findByRole('button', { name: 'View OpenAI sentiment evidence for North Hall: Favorable' })
+      const tone = (subject: string, label: string) => screen.getByRole('button', { name: `View OpenAI sentiment evidence for ${subject}: ${label}` }).querySelector('div')!.className
       expect(tone('North Hall', 'Favorable')).toContain(TONE_CLASS.favorable)
       expect(tone('South Hall', 'Unfavorable')).toContain(TONE_CLASS.unfavorable)
       expect(tone('West Hall', 'Mixed')).toContain(TONE_CLASS.mixed)
@@ -1867,10 +1867,10 @@ describe('sentiment cache identity', () => {
     try {
       const page = render(tree('chicago', 'definition-a'))
       const steps = [
-        ['chicago', 'definition-a', 'View openai sentiment evidence for North Hall: Favorable', 'one', 'Chicago first assessment quotation.'],
-        ['chicago', 'definition-a', 'View openai sentiment evidence for South Hall: Mixed', 'two', 'Chicago second assessment quotation.'],
-        ['madison', 'definition-a', 'View openai sentiment evidence for North Hall: Favorable', 'one', 'Madison evaluator A quotation.'],
-        ['madison', 'definition-b', 'View openai sentiment evidence for North Hall: Favorable', 'one', 'Madison evaluator B quotation.'],
+        ['chicago', 'definition-a', 'View OpenAI sentiment evidence for North Hall: Favorable', 'one', 'Chicago first assessment quotation.'],
+        ['chicago', 'definition-a', 'View OpenAI sentiment evidence for South Hall: Mixed', 'two', 'Chicago second assessment quotation.'],
+        ['madison', 'definition-a', 'View OpenAI sentiment evidence for North Hall: Favorable', 'one', 'Madison evaluator A quotation.'],
+        ['madison', 'definition-b', 'View OpenAI sentiment evidence for North Hall: Favorable', 'one', 'Madison evaluator B quotation.'],
       ] as const
       for (const [marketKey, evaluationDefinitionId, name, assessmentId, quotation] of steps) {
         page.rerender(tree(marketKey, evaluationDefinitionId))
@@ -2000,8 +2000,8 @@ describe('sentiment generated SDK and administrator flow', () => {
     const tree = (runId: string, revision: number) => <QueryClientProvider client={client}><SentimentScopeProvider waitForResolvedRun projectName="project" selection={{ mode: 'advanced', scope: 'property', scopeKey: 'north', queryClass: 'branded' }}><Resolved runId={runId} revision={revision} /></SentimentScopeProvider></QueryClientProvider>
     try {
       const view = render(tree('run-a', 7))
-      fireEvent.click(await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' }))
-      await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · openai · North Hall' })
+      fireEvent.click(await screen.findByRole('button', { name: 'View OpenAI sentiment evidence for North Hall: Favorable' }))
+      await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · OpenAI · North Hall' })
       await screen.findByText('No stored sentiment evidence for this query and scope.')
       expect(requests.find(url => url.pathname.endsWith('/evidence'))?.searchParams.get('runId')).toBe('run-a')
       // Re-rendering an unchanged source must not dismiss the selected evidence.
@@ -2070,7 +2070,7 @@ describe('sentiment generated SDK and administrator flow', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
       const limit = screen.getByRole('checkbox', { name: /Limit to the current view/ }) as HTMLInputElement
       expect(limit.checked).toBe(false)
-      expect(limit.closest('label')!.textContent).toContain('engine openai · model source-model · location Chicago · property north · market chicago · revision 3')
+      expect(limit.closest('label')!.textContent).toContain('engine OpenAI · model source-model · location Chicago · property north · market chicago · revision 3')
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
       await screen.findByText('Branded queries · whole check')
       expect(Object.fromEntries(previews[0]!.searchParams)).toEqual({ mode: 'auto', scope: 'project', queryClass: 'branded', runId: 'run' })
@@ -2080,7 +2080,7 @@ describe('sentiment generated SDK and administrator flow', () => {
 
       fireEvent.click(limit)
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
-      await screen.findByText('Branded queries · engine openai · model source-model · location Chicago · property north · market chicago · revision 3')
+      await screen.findByText('Branded queries · engine OpenAI · model source-model · location Chicago · property north · market chicago · revision 3')
       expect(Object.fromEntries(previews[1]!.searchParams)).toMatchObject({ mode: 'advanced', queryClass: 'branded', runId: 'run', provider: 'openai', model: 'source-model', location: 'Chicago', scope: 'property', scopeKey: 'north', marketKey: 'chicago', revision: '3' })
       expect(screen.getByText('No saved answers in this selection can be classified.')).toBeTruthy()
       expect((screen.getByRole('button', { name: 'Confirm sentiment backfill' }) as HTMLButtonElement).disabled).toBe(true)

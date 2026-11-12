@@ -55,11 +55,13 @@ const state = {
   memory: new Map<string, Set<string>>(),
   sentAt: null as number[] | null,
   now: () => Date.now(),
+  onDisabled: undefined as (() => void) | undefined,
 }
 
-export function configureUiTelemetry(options: { send: Sender; enabled?: boolean; now?: () => number }): void {
+export function configureUiTelemetry(options: { send: Sender; enabled?: boolean; now?: () => number; onDisabled?: () => void }): void {
   state.sender = options.enabled === false ? null : options.send
   state.disabled = false
+  state.onDisabled = options.onDisabled
   if (options.now) state.now = options.now
 }
 
@@ -76,6 +78,7 @@ export function resetUiTelemetryForTests(options: { keepStorage?: boolean } = {}
   state.memory.clear()
   state.sentAt = null
   state.now = () => Date.now()
+  state.onDisabled = undefined
   for (const timer of filterTimers.values()) clearTimeout(timer)
   filterTimers.clear()
   if (searchTimer) clearTimeout(searchTimer)
@@ -89,6 +92,12 @@ export function resetUiTelemetryForTests(options: { keepStorage?: boolean } = {}
 
 export function currentUiPage(): UiPage {
   return state.page
+}
+
+/** The timer owns attribution: a checkpoint can belong to the screen just left. */
+export function trackUiPageTime(event: Omit<Extract<UiTelemetryEvent, { event: 'ui.page_time' }>, 'eventId' | 'uiSessionId' | 'tab'>): void {
+  const { page, ...pending } = event
+  emit(pending, page)
 }
 
 /** Called on every resolved navigation with the leaf route's `fullPath`. */
@@ -263,7 +272,7 @@ const ACTION_BY_ROUTE: ReadonlyArray<ActionRow> = [
   ['POST', '/api/v1/projects/{name}/seo/runs/{id}/cancel', 'seo.cancel'],
   ['POST', '/api/v1/projects/{name}/runs', 'sweep.launch'],
   ['POST', '/api/v1/runs/{id}/cancel', 'sweep.cancel'],
-  ['POST', '/api/v1/projects/{name}/technical-aeo/runs', 'site_audit.launch'],
+  ['POST', '/api/v1/projects/{name}/agent-readiness/runs', 'site_audit.launch'],
   ['POST', '/api/v1/projects', 'project.create'],
   ['PUT', '/api/v1/projects/{name}', 'project.create', undefined, 201],
   ['PUT', '/api/v1/projects/{name}', 'project.update', undefined, 200],
@@ -347,7 +356,7 @@ function googleConnectionAction(method: string, template: string, path: string |
 const EXPECTED_STATUSES: ReadonlyArray<readonly [method: string | '*', template: RegExp, statuses: readonly number[]]> = [
   ['GET', /^\/api\/v1\/projects\/\{name\}\/schedule$/, [404]],
   ['*', /^\/api\/v1\/projects\/\{name\}\/measurement-plan(?:\/draft(?:\/.*)?)?$/, [404, 409, 412]],
-  ['GET', /^\/api\/v1\/projects\/\{name\}\/technical-aeo\/runs\/\{runId\}\/progress$/, [404]],
+  ['GET', /^\/api\/v1\/projects\/\{name\}\/agent-readiness\/runs\/\{runId\}\/progress$/, [404]],
   ['GET', /^\/api\/v1\/projects\/\{name\}\/backlinks\/domains$/, [404]],
   ['POST', /^\/api\/v1\/projects$/, [409]],
   ['PUT', /^\/api\/v1\/projects\/\{name\}$/, [409]],
@@ -411,7 +420,12 @@ function emit(pending: PendingEvent, pageOverride?: UiPage): boolean {
       ...(tab ? { tab } : {}),
     } as UiTelemetryEvent
     void sender(event).then(
-      result => { if (result && result.accepted === false) state.disabled = true },
+      result => {
+        if (result && result.accepted === false && !state.disabled) {
+          state.disabled = true
+          state.onDisabled?.()
+        }
+      },
       () => { /* best effort: measurement never surfaces an error */ },
     )
     return true

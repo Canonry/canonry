@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
-import { and, asc, eq, gt, sql } from 'drizzle-orm'
+import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm'
 import { siteCrawlPages, type DatabaseClient, type siteCrawlSnapshots } from '@canonry/canonry-db'
 import {
-  notFound, siteAuditIssueListQuerySchema, siteCrawlAuditFindingSchema,
+  hostOf, notFound, siteAuditIssueListQuerySchema, siteCrawlAuditFindingSchema,
   siteCrawlIssueEvidenceSchema, siteCrawlCriticalDefectSchema, validationError, SITE_AUDIT_ISSUES_DEFAULT_LIMIT,
   type RunStatus, type SiteAuditIssueDto, type SiteAuditIssueListQuery,
   type SiteAuditIssuePageDto, type SiteAuditIssuePagesResponseDto,
@@ -15,7 +15,14 @@ const ADVISORY_CODES = new Set([
   'entity-consistency.title.short', 'site.duplicate-title', 'site.duplicate-meta-description',
 ])
 const DISPOSITION_ORDER = { actionable: 0, advisory: 1, unverified: 2, informational: 3 }
-const MAX_EVIDENCE_BYTES = 128 * 1024 * 1024
+/**
+ * Retained audit evidence one issue read may parse. A two-site scan of a large
+ * site holds about 226 MiB (16,400 scored pages) and reads in about 5 s; the
+ * old 128 MiB stopped it. Each read streams pages 200 at a time, so this bounds
+ * the work of one request, not its memory.
+ */
+const MAX_EVIDENCE_BYTES = 512 * 1024 * 1024
+const MAX_EVIDENCE_LABEL = `${MAX_EVIDENCE_BYTES / 1024 / 1024} MiB`
 const MAX_GROUPS = 4096
 const MAX_RESPONSE_BYTES = 16 * 1024
 
@@ -26,6 +33,15 @@ function digest(value: unknown): string {
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown> : null
+}
+
+/**
+ * Issue text for a critical defect whose page detail is specific to that page
+ * (it names the Property found there), so the first page's detail never reads
+ * as the whole issue. Each page keeps its own detail.
+ */
+const CRITICAL_ISSUE_MESSAGES: Readonly<Record<string, string>> = {
+  'names-another-entity': "The page's FAQ, title or H1 names another Property.",
 }
 
 function clip(message: string): { message: string; messageTruncated: boolean } {
@@ -76,9 +92,11 @@ export function readSiteAuditIssues(input: {
   project: { id: string; name: string }
   target?: { snapshot: Snapshot; runStatus: string; runSelection: SiteAuditRunSelectionDto }
   query: SiteAuditIssueListQuery
+  /** One site the scan covered; its pages alone are grouped. Main-domain rows carry no site. */
+  site?: { host: string; main: boolean }
   issueId?: string
 }): SiteAuditIssuesResponseDto | SiteAuditIssuePagesResponseDto {
-  const { db, project, target, query, issueId } = input
+  const { db, project, target, query, site, issueId } = input
   const limit = query.limit ?? SITE_AUDIT_ISSUES_DEFAULT_LIMIT
   const offset = cursorOffset(query.cursor)
   const coverage: Provenance['coverage'] = {
@@ -91,6 +109,7 @@ export function readSiteAuditIssues(input: {
     runStatus: target?.runStatus as RunStatus | undefined ?? null,
     complete: target?.snapshot.complete ?? false, termination: target?.snapshot.termination ?? null,
     ...(target ? { runSelection: target.runSelection } : {}),
+    site: site?.host ?? null,
     state: target ? 'unavailable' : 'no-crawl', coverage, total: null, nextCursor: null,
   }
   if (!target) {
@@ -102,7 +121,7 @@ export function readSiteAuditIssues(input: {
   const snapshot = target.snapshot
   const crossJson = JSON.stringify(snapshot.issueEvidence)
   const crossBytes = Buffer.byteLength(crossJson)
-  if (crossBytes > MAX_EVIDENCE_BYTES) throw validationError('Stored audit exceeds the 128 MiB issue-evidence read budget')
+  if (crossBytes > MAX_EVIDENCE_BYTES) throw validationError(`Stored audit exceeds the ${MAX_EVIDENCE_LABEL} issue-evidence read budget`)
   const groups = new Map<string, SiteAuditIssueDto>()
   const members: SiteAuditIssuePageDto[] = []
   let selectedMembers = 0
@@ -110,6 +129,8 @@ export function readSiteAuditIssues(input: {
     project.id, snapshot.runId, snapshot.attemptId, snapshot.createdAt, snapshot.updatedAt,
     snapshot.complete, snapshot.termination, snapshot.detailsAvailable,
     issueId ?? null,
+    // Only when filtered, so a cursor issued before the filter existed still matches.
+    ...(site ? [site.host] : []),
   ])).update(crossJson)
   const addMember = (group: SiteAuditIssueDto, page: SiteAuditIssuePageDto) => {
     group.affectedPages += 1
@@ -134,22 +155,26 @@ export function readSiteAuditIssues(input: {
     for (const [index, issue] of cross.data.siteIssues.entries()) {
       // One persisted cross-page group is stronger evidence than its mirrored page annotations.
       mirroredCodes.add(issue.code)
+      // A site filter keeps a group's pages on that site, and drops a group with none there.
+      const urls = [...new Set(issue.affectedUrls)].sort().filter((url) => !site || hostOf(url) === site.host)
+      if (site && urls.length === 0) continue
       const id = issue.key ?? `run-issue:${digest([snapshot.runId, snapshot.attemptId, index, issue])}`
       const group = addGroup({
         id, stableIdentity: issue.key !== null, code: issue.code, source: 'cross-page', factorId: null, severity: null,
         findingType: 'info', disposition: ADVISORY_CODES.has(issue.code) ? 'advisory' : 'informational',
         ...clip(issue.message), affectedPages: 0, examples: [], examplesTruncated: false,
       })
-      for (const url of [...new Set(issue.affectedUrls)].sort()) addMember(group, pageEvidence(null, url, issue.message))
+      for (const url of urls) addMember(group, pageEvidence(null, url, issue.message))
     }
   }
   if (snapshot.detailsAvailable && snapshot.attemptId) {
     const scope = and(eq(siteCrawlPages.projectId, project.id), eq(siteCrawlPages.runId, snapshot.runId),
-      eq(siteCrawlPages.attemptId, snapshot.attemptId))
+      eq(siteCrawlPages.attemptId, snapshot.attemptId),
+      site ? site.main ? isNull(siteCrawlPages.site) : eq(siteCrawlPages.site, site.host) : undefined)
     const size = db.select({ bytes: sql<number>`coalesce(sum(length(cast(${siteCrawlPages.auditFields} as blob)) + length(cast(${siteCrawlPages.url} as blob))), 0)` })
       .from(siteCrawlPages).where(scope).get()?.bytes ?? 0
     if (size + crossBytes > MAX_EVIDENCE_BYTES) {
-      throw validationError('Stored audit exceeds the 128 MiB issue-evidence read budget')
+      throw validationError(`Stored audit exceeds the ${MAX_EVIDENCE_LABEL} issue-evidence read budget`)
     }
     let after: string | undefined
     while (true) {
@@ -205,7 +230,7 @@ export function readSiteAuditIssues(input: {
           seen.add(id)
           const group = addGroup({ id, stableIdentity: true, code: defect.id, source: 'critical-defect',
             factorId: null, severity: defect.severity, findingType: 'missing', disposition: 'actionable',
-            ...clip(defect.detail), affectedPages: 0, examples: [], examplesTruncated: false })
+            ...clip(CRITICAL_ISSUE_MESSAGES[defect.id] ?? defect.detail), affectedPages: 0, examples: [], examplesTruncated: false })
           if (defect.severity === 'critical') group.severity = 'critical'
           addMember(group, { ...pageEvidence(page.nodeKey, page.url, defect.detail),
             recommendations: [defect.recommendation.slice(0, 400)], recommendationsScope: 'issue',

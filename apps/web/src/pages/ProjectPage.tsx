@@ -16,15 +16,16 @@ import {
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
 import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RunKinds, RunStatuses, UserRoles } from '@canonry/canonry-contracts'
-import type { MeasurementOverviewSort } from '@canonry/canonry-contracts'
+import type { MeasurementOverviewSort, RunPreviewDto } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { CitationBadge } from '../components/shared/CitationBadge.js'
 import { useDrawer } from '../hooks/use-drawer.js'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet.js'
+import * as Dialog from '@radix-ui/react-dialog'
 import { WriteButton } from '../components/shared/AccessControls.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
+import { WorkspaceTabs } from '../components/shared/WorkspaceTabs.js'
 import { MentionShare } from '../components/project/MentionShare.js'
 import {
   CompetitorLandscape,
@@ -38,6 +39,7 @@ import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence }
 import { EvidenceTable, QueryEvidenceSummary } from '../components/project/EvidenceTable.js'
 import { BingSection } from '../components/project/BingSection.js'
 import { ActivitySection } from '../components/project/ActivitySection.js'
+import { ServerTrafficSection } from '../components/project/ServerTrafficSection.js'
 import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
@@ -67,13 +69,14 @@ import {
 } from '../components/project/advanced-measurement/v2-overview-adapter.js'
 import { formatTimestamp, siteCitationLabel, splitPercentSign } from '../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
+import { CITATION_NOT_MEASURED } from '../lib/citation-not-measured-copy.js'
 import type { QueryClassLookup } from '../lib/answer-movement.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ProjectEngineSettingsSection, SiteHealthScanSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
 import { ManagedSweepStatus, managedSweepDate } from '../components/project/ManagedSweepStatus.js'
-import { RunAdmissionNoticeView, useRunAdmission } from '../components/project/RunAdmissionNotice.js'
+import { RunAdmissionNoticeView, RunPreviewSummary, useRunAdmission, useRunPreview } from '../components/project/RunAdmissionNotice.js'
 import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
@@ -110,7 +113,7 @@ import {
   getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions,
   getApiV1ProjectsByNameMeasurementPlanOptions,
   getApiV1ProjectsByNameSchedulesOptions,
-  getApiV1ProjectsByNameTechnicalAeoRunsOptions,
+  getApiV1ProjectsByNameAgentReadinessRunsOptions,
   getApiV1ProjectsByNameMeasurementReportOptions,
   getApiV1ProjectsByNameMeasurementSetupOptions,
   getApiV1ProjectsByNameQueriesOptions,
@@ -134,9 +137,9 @@ import {
 } from '../lib/ai-visibility-provider-readiness.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'traffic' | 'backlinks' | 'agent-readiness' | 'history' | 'settings'
 
-export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [] }: {
+export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [], preview, previewPending = false, previewFailed = false, onRetryPreview = () => {} }: {
   open: boolean
   projectLabel: string
   onOpenChange: (open: boolean) => void
@@ -145,25 +148,32 @@ export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onC
   disabled: boolean
   /** Providers this sweep will not call because each keeps failing on its account. */
   leftOut?: readonly string[]
+  preview?: RunPreviewDto
+  previewPending?: boolean
+  previewFailed?: boolean
+  onRetryPreview?: () => void
 }) {
   if (isEmbed() || isDashboardManagedSweeps()) return null
-  return <Sheet open={open} onOpenChange={onOpenChange}>
-    <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
-      <SheetHeader>
-        <SheetTitle>Run AI Visibility check for the whole project?</SheetTitle>
-        <SheetDescription>
-          Runs all tracked queries for {projectLabel}. View filters do not limit the check. Provider charges apply.
+  return <Dialog.Root open={open} onOpenChange={onOpenChange}><Dialog.Portal>
+    <Dialog.Overlay className="fixed inset-0 z-50 bg-overlay-scrim/70 backdrop-blur-sm" />
+    <Dialog.Content className="material-modal fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto p-5" onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
+      <div className="space-y-2">
+        <Dialog.Title className="text-heading-20 text-heading">Review AI Visibility check</Dialog.Title>
+        <Dialog.Description className="text-copy-14 text-secondary">
+          Checks {projectLabel} using the scope below. View filters do not limit the check. Provider charges apply.
           {leftOut.length > 0
             ? ` ${leftOut.map(name => providerDisplayName(name)).join(' and ')} ${leftOut.length === 1 ? 'is' : 'are'} left out: ${leftOut.length === 1 ? 'it keeps failing on its account' : 'they keep failing on their accounts'}.`
             : null}
-        </SheetDescription>
-      </SheetHeader>
+        </Dialog.Description>
+      </div>
+      <div className="mt-5"><RunPreviewSummary preview={preview} pending={previewPending} failed={previewFailed} onRetry={onRetryPreview} /></div>
+      <p className="mt-4 text-copy-13 text-secondary">Runs once. Your schedule stays unchanged.</p>
       <div className="mt-6 flex flex-wrap gap-3">
         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <WriteButton disabled={disabled} onClick={onConfirm}>Run project-wide check</WriteButton>
+        <WriteButton disabled={disabled || previewPending || previewFailed || preview?.canStart !== true} onClick={onConfirm}>Run project-wide check</WriteButton>
       </div>
-    </SheetContent>
-  </Sheet>
+    </Dialog.Content>
+  </Dialog.Portal></Dialog.Root>
 }
 
 type SearchConsoleWorkspace = 'google' | 'bing'
@@ -214,6 +224,7 @@ function SearchConsoleSection({
 }: {
   projectName: string
 }) {
+  const tabsId = useId()
   const queryClient = useQueryClient()
   const [workspace, setWorkspace] = useState<SearchConsoleWorkspace>('google')
   const [loading, setLoading] = useState(true)
@@ -465,23 +476,19 @@ function SearchConsoleSection({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Search engine workspaces">
-          {([
+        <WorkspaceTabs
+          id={tabsId}
+          label="Search engine workspaces"
+          value={workspace}
+          onChange={setWorkspace}
+          className="flex flex-wrap gap-2"
+          tabClassName="project-subnav-link"
+          activeTabClassName="project-subnav-link-active"
+          options={[
             ['google', 'Google'],
             ['bing', 'Bing'],
-          ] as const).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={workspace === key}
-              className={`project-subnav-link ${workspace === key ? 'project-subnav-link-active' : ''}`}
-              onClick={() => setWorkspace(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+          ]}
+        />
         {!isEmbed() && (
           <WriteButton
             type="button"
@@ -503,6 +510,7 @@ function SearchConsoleSection({
         </div>
       )}
 
+      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${workspace}`} tabIndex={0}>
       {workspace === 'google' && (
         <GscSection projectName={projectName} refreshNonce={workspaceRefreshNonce} />
       )}
@@ -510,8 +518,17 @@ function SearchConsoleSection({
       {workspace === 'bing' && (
         <BingSection projectName={projectName} refreshNonce={workspaceRefreshNonce} />
       )}
+      </div>
     </div>
   )
+}
+
+/**
+ * The queries Citation gaps counts out of: those with an answer whose sources
+ * were checked. The API's gap score uses the same population.
+ */
+function citationGapBase(queryCounts: ProjectCommandCenterVm['queryCounts']): number {
+  return queryCounts.total - queryCounts.citationNotMeasured
 }
 
 function OverviewMetricRow({
@@ -556,6 +573,13 @@ function OverviewMetricRow({
   )
 }
 
+/** The competitor comparison's empty state, exported so tests assert the shipped strings. */
+export const COMPETITOR_COMPARISON_COPY = {
+  emptyTitle: 'No competitors set',
+  emptyDetail: 'Mention and citation gaps need at least one tracked competitor.',
+  add: 'Add competitors',
+} as const
+
 function OverviewDisclosure({
   id,
   title,
@@ -569,12 +593,16 @@ function OverviewDisclosure({
   defaultOpen?: boolean
   children: React.ReactNode
 }) {
+  const titleId = useId()
+  const metaId = useId()
   return (
     <details id={id} className="overview-disclosure page-section-divider scroll-mt-24" open={defaultOpen || undefined}>
-      <summary className="overview-disclosure-summary">
-        <h2 className="overview-disclosure-title">{title}</h2>
+      {/* The summary is the toggle, so it takes its name from the heading
+          alone; the meta line is its description. */}
+      <summary className="overview-disclosure-summary" aria-labelledby={titleId} aria-describedby={meta ? metaId : undefined}>
+        <h2 id={titleId} className="overview-disclosure-title">{title}</h2>
         <span className="overview-disclosure-meta">
-          {meta && <span>{meta}</span>}
+          {meta && <span id={metaId}>{meta}</span>}
           <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
         </span>
       </summary>
@@ -627,7 +655,7 @@ function OverviewSignals({
                 <span className="min-w-0 flex-1 text-label-14 text-strong">{phrase.query}</span>
                 {phrase.provider ? <ProviderBadge provider={phrase.provider} /> : null}
                 {!isEmbed() && phrase.evidenceId ? (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => { void openEvidence(phrase.evidenceId) }}>
+                  <Button type="button" variant="ghost" size="sm" onClick={event => { event.currentTarget.focus({ preventScroll: true }); void openEvidence(phrase.evidenceId) }}>
                     View evidence
                   </Button>
                 ) : null}
@@ -802,7 +830,38 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
   />
 }
 
-type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
+export type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
+
+/**
+ * The project sections in tab-row order. The row keeps the sections an
+ * operator returns to, AI Visibility first and Queries last; the rest open
+ * from More, and a narrow panel moves the row's later sections into More too.
+ * `key` is a wire value for embed allowlists and saved URLs. Journeys reads
+ * private visitor evidence, so view-only accounts never get it, and it is
+ * absent from the embed allowlist, so embeds drop it too.
+ */
+export function projectSectionTabs(projectTabBase: string, { journeys }: { journeys: boolean }): { primary: ProjectTabItem[]; overflow: ProjectTabItem[] } {
+  return {
+    primary: [
+      { key: 'overview', label: 'AI Visibility', href: projectTabBase },
+      { key: 'search-console', label: 'Search engines', href: `${projectTabBase}/search-console` },
+      { key: 'seo-data', label: 'SEO', href: `${projectTabBase}/seo-data` },
+      { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
+      // `agent-readiness` is the route and embed token; the retired `/technical-aeo`
+      // route redirects here, and embeds that still list `technical-aeo` keep the tab.
+      { key: 'agent-readiness', label: 'Agent Readiness', href: `${projectTabBase}/agent-readiness` },
+      ...(journeys ? [{ key: 'journeys' as const, label: 'Journeys', href: `${projectTabBase}/journeys` }] : []),
+      { key: 'traffic', label: 'Server traffic', href: `${projectTabBase}/traffic` },
+      { key: 'queries', label: 'Queries', href: `${projectTabBase}/queries` },
+    ],
+    overflow: [
+      { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },
+      { key: 'local', label: 'Local presence', href: `${projectTabBase}/local` },
+      { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
+      { key: 'history', label: 'Change history', href: `${projectTabBase}/history` },
+    ],
+  }
+}
 
 export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }: {
   items: ProjectTabItem[]
@@ -813,6 +872,15 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
   const navRef = useRef<HTMLElement>(null)
   const measurementRef = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState<{ visibleKeys: ProjectPageTab[]; settingsInMore: boolean } | null>(null)
+  // An open section that normally lives in More is shown as a tab before More,
+  // so the row always names the current page.
+  const { rowItems, menuOverflowItems } = useMemo(() => {
+    const activeOverflowItem = overflowItems.find(item => item.key === activeTab)
+    return {
+      rowItems: activeOverflowItem ? [...items, activeOverflowItem] : items,
+      menuOverflowItems: overflowItems.filter(item => item !== activeOverflowItem),
+    }
+  }, [items, overflowItems, activeTab])
 
   useLayoutEffect(() => {
     const nav = navRef.current
@@ -826,22 +894,24 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
         .map(element => [element.dataset.projectTab!, element.getBoundingClientRect().width]))
       const widthOf = (key: string) => widths.get(key) ?? 0
       const totalWidth = (keys: string[]) => keys.reduce((total, key) => total + widthOf(key), 0) + Math.max(0, keys.length - 1) * gap
-      const allKeys = [...items.map(item => item.key), ...(overflowItems.length ? ['more'] : []), ...(settingsItem ? [settingsItem.key] : [])]
-      let visibleKeys = items.map(item => item.key)
+      const allKeys = [...rowItems.map(item => item.key), ...(menuOverflowItems.length ? ['more'] : []), ...(settingsItem ? [settingsItem.key] : [])]
+      let visibleKeys = rowItems.map(item => item.key)
       let settingsInMore = false
       if (totalWidth(allKeys) > available) {
-        // Keep the selected primary section in view, even when it is near the
-        // end of the tab list. Settings joins More only on very narrow panels.
-        const active = items.find(item => item.key === activeTab)
+        // Keep the selected section in view, even when it is near the end of
+        // the tab list. Settings joins More only on very narrow panels, and
+        // never while it is the open section.
+        const active = rowItems.find(item => item.key === activeTab)
         const selected = active ? [active.key] : []
-        settingsInMore = Boolean(settingsItem && totalWidth([...selected, 'more', settingsItem.key]) > available)
+        settingsInMore = Boolean(settingsItem && settingsItem.key !== activeTab
+          && totalWidth([...selected, 'more', settingsItem.key]) > available)
         const trailing = ['more', ...(settingsItem && !settingsInMore ? [settingsItem.key] : [])]
-        for (const item of items) {
+        for (const item of rowItems) {
           if (item.key === active?.key) continue
           if (totalWidth([...selected, item.key, ...trailing]) > available) break
           selected.push(item.key)
         }
-        visibleKeys = items.filter(item => selected.includes(item.key)).map(item => item.key)
+        visibleKeys = rowItems.filter(item => selected.includes(item.key)).map(item => item.key)
       }
       setLayout(previous => previous?.settingsInMore === settingsInMore && previous.visibleKeys.join() === visibleKeys.join()
         ? previous
@@ -856,20 +926,24 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
     observer.observe(nav)
     observer.observe(measurements) // Font loading or changed labels can alter item widths.
     return () => observer.disconnect()
-  }, [items, overflowItems, settingsItem, activeTab])
+  }, [rowItems, menuOverflowItems, settingsItem, activeTab])
 
-  const visibleItems = layout ? items.filter(item => layout.visibleKeys.includes(item.key)) : items
+  // The open section stays in the row even before a new active tab is measured.
+  const settingsInMore = Boolean(layout?.settingsInMore) && settingsItem?.key !== activeTab
+  const visibleItems = layout
+    ? rowItems.filter(item => item.key === activeTab || layout.visibleKeys.includes(item.key))
+    : rowItems
   const menuItems = [
-    ...items.filter(item => !visibleItems.includes(item)),
-    ...overflowItems,
-    ...(layout?.settingsInMore && settingsItem ? [settingsItem] : []),
+    ...rowItems.filter(item => !visibleItems.includes(item)),
+    ...menuOverflowItems,
+    ...(settingsInMore && settingsItem ? [settingsItem] : []),
   ]
 
   return (
     <nav className="project-subnav" aria-label="Project sections" ref={navRef}>
       <div className="project-subnav-measure" aria-hidden="true">
         <div className="project-subnav-measure-row" ref={measurementRef}>
-          {[...items, ...(settingsItem ? [settingsItem] : [])].map(item => (
+          {[...rowItems, ...(settingsItem ? [settingsItem] : [])].map(item => (
             <span className="project-subnav-link" key={item.key} data-project-tab={item.key}>{item.label}</span>
           ))}
           <span className="project-subnav-link project-subnav-more-trigger" data-project-tab="more">
@@ -882,6 +956,11 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
           key={item.key}
           to={item.href}
           search={previous => ({ ...previous, onboarding: undefined })}
+          // AI Visibility is the project root, the parent of every other
+          // section. The router's default prefix match would mark it current
+          // on every section too, so only an exact match counts; `activeTab`
+          // decides the current page.
+          activeOptions={{ exact: true }}
           className={`project-subnav-link ${item.key === activeTab ? 'project-subnav-link-active project-subnav-current' : ''}`}
           aria-current={item.key === activeTab ? 'page' : undefined}
         >
@@ -889,8 +968,8 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
         </Link>
       ))}
       <div className="project-subnav-trailing">
-        <ProjectSubnavMore items={menuItems} activeTab={activeTab} />
-        {settingsItem && !layout?.settingsInMore && (
+        <ProjectSubnavMore items={menuItems} />
+        {settingsItem && !settingsInMore && (
           <Link
             to={settingsItem.href}
             search={previous => ({ ...previous, onboarding: undefined })}
@@ -912,7 +991,7 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
  * sit below ProjectPageContent's early returns. Lives here (not in its own
  * file) because it's a one-off for this subnav.
  */
-function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; activeTab: ProjectPageTab }) {
+function ProjectSubnavMore({ items }: { items: ProjectTabItem[] }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -946,14 +1025,13 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
   }, [open])
 
   if (items.length === 0) return null
-  const hasActive = items.some((item) => item.key === activeTab)
 
   return (
     <div className="project-subnav-more" ref={ref}>
       <button
         type="button"
         ref={triggerRef}
-        className={`project-subnav-link project-subnav-more-trigger ${hasActive ? 'project-subnav-link-active' : ''}`}
+        className="project-subnav-link project-subnav-more-trigger"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -993,8 +1071,7 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
               search={previous => ({ ...previous, onboarding: undefined })}
               role="menuitem"
               tabIndex={-1}
-              className={`project-subnav-menu-item ${item.key === activeTab ? 'project-subnav-menu-item-active' : ''}`}
-              aria-current={item.key === activeTab ? 'page' : undefined}
+              className="project-subnav-menu-item"
               onClick={() => setOpen(false)}
             >
               {item.label}
@@ -1007,7 +1084,7 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
 }
 
 /**
- * Same window Site Health's own scan picker reads. Deep enough that a run of
+ * Same window Agent Readiness's own scan picker reads. Deep enough that a run of
  * failures does not hide the completed scan underneath them.
  */
 const MAP_SITE_SCAN_HISTORY_LIMIT = 20
@@ -1068,7 +1145,7 @@ function ProjectPageContent({
   })
   const initialConfiguredApiProviders = initialDashboard
     ? initialDashboard.dashboard.settings.providerStatuses
-      .filter(provider => provider.state === 'ready')
+      .filter(provider => provider.state !== 'needs-config')
       .map(provider => normalizeProviderName(provider.name))
     : undefined
   const serverProviderReady = measurementSetupQuery.data?.answerVisibilityProviderReady
@@ -1128,7 +1205,7 @@ function ProjectPageContent({
     () => Object.fromEntries(model.competitors.map(c => [c.domain, [...(c.aliases ?? []), ...(c.autoAliases ?? [])]])),
     [model.competitors],
   )
-  // "Local Presence" is always shown — GbpSection renders a setup guide when no
+  // "Local presence" is always shown — GbpSection renders a setup guide when no
   // Google Business Profile is connected, so the tab is the entry point to
   // connecting one rather than being hidden until after connection.
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -1195,6 +1272,7 @@ function ProjectPageContent({
 
   const projectLabel = model?.project.displayName || model?.project.name || projectName
   const triggerRunMutation = useTriggerRun()
+  const runPreview = useRunPreview(projectName, sweepConfirmationProject === projectName && !isEmbed() && !isDashboardManagedSweeps())
   const portfolioQueriesQuery = useQuery({
     ...getApiV1ProjectsByNameQueriesOptions({ client: heyClient, path: { name: projectName } }),
     enabled: tab === 'portfolio' && Boolean(projectName),
@@ -1447,6 +1525,18 @@ function ProjectPageContent({
     setCompetitorHistoryOpenForProject(null)
   }, [projectName])
   const competitorHistoryOpen = competitorHistoryOpenForProject === projectName
+  // "Add competitors" in the comparison's empty state opens Competitor history,
+  // where competitors are pinned and added, and moves focus to its toggle once
+  // it is open.
+  const competitorHistoryRef = useRef<HTMLDetailsElement>(null)
+  const [competitorHistoryFocusPending, setCompetitorHistoryFocusPending] = useState(false)
+  useEffect(() => {
+    if (!competitorHistoryFocusPending || !competitorHistoryOpen) return
+    setCompetitorHistoryFocusPending(false)
+    competitorHistoryRef.current?.querySelector<HTMLElement>(':scope > summary')?.focus()
+  }, [competitorHistoryFocusPending, competitorHistoryOpen])
+  const competitiveTitleId = useId()
+  const competitiveMetaId = useId()
   // Historical evidence is read when its disclosure opens.
   const competitorLandscapeReadEnabled = competitorLandscapeAvailable && competitorHistoryOpen
   const competitorLandscapeQuery = useQuery({
@@ -1625,6 +1715,7 @@ function ProjectPageContent({
     [visibilityEvidence],
   )
   const hasTrackedQueries = trackedQueries.length > 0 || model.queryCounts.total > 0 || (headerQueriesQuery.data?.length ?? 0) > 0
+  const draftRequiresPublication = measurementSetupQuery.data?.requiresPublication === true
   const hasMeasurementPlanQueries = activeMeasurementPlan !== null
   const hasVisibilityInputs = hasTrackedQueries || hasMeasurementPlanQueries
   const visibilityInputsPending = canWrite
@@ -1643,11 +1734,12 @@ function ProjectPageContent({
   const sweepPrerequisitesReady = !sweepReadinessPending
     && !providerReadinessFailed
     && hasVisibilityInputs
+    && !draftRequiresPublication
     && providerReady === true
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
-  // "Map site" invites the operator to do something that has not been done yet,
+  // "Check Agent Readiness" invites the operator to do something not done yet,
   // so it needs the one fact the sweep-readiness flags never carry: whether
-  // this project already has a Site Health scan.
+  // this project already has an Agent Readiness audit scan.
   //
   // Scan history, not the crawl summary: a scorecard-only scan published no
   // crawl, so the crawl summary reports no scan for a project that has one and
@@ -1655,7 +1747,7 @@ function ProjectPageContent({
   // already excludes probes.
   const mapSiteCandidate = !isEmbed() && tab === 'overview' && sweepSetupRequired && !hasVisibilityInputs
   const siteAuditScansQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoRunsOptions({
+    ...getApiV1ProjectsByNameAgentReadinessRunsOptions({
       client: heyClient,
       path: { name: projectName },
       query: { limit: MAP_SITE_SCAN_HISTORY_LIMIT },
@@ -1671,7 +1763,7 @@ function ProjectPageContent({
   // read has actually come back without a scan to open.
   const showMapSite = mapSiteCandidate && siteAuditScansQuery.isSuccess && !hasReadableSiteAudit
   // `/projects/:name` opens on AI Visibility, which for a project in this state
-  // is entirely empty, while the Page Health result the operator just waited
+  // is entirely empty, while the Agent Readiness score the operator just waited
   // for sits two tabs away. Point at the evidence they actually have.
   const showViewPageHealth = mapSiteCandidate && hasReadableSiteAudit
   // The collection read returns [] when no schedule exists. This keeps fresh
@@ -1769,7 +1861,7 @@ function ProjectPageContent({
   // resolved but neither matched the URL's identifier).
 
   async function handleTriggerRun() {
-    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady) return
+    if (runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true || sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady) return
     try {
       await triggerRunMutation.mutateAsync({
         projectName,
@@ -1783,18 +1875,22 @@ function ProjectPageContent({
   }
 
   function openAiVisibilitySetup() {
+    if (draftRequiresPublication) {
+      void navigate({ to: '/projects/$projectName/portfolio', params: { projectName } })
+      return
+    }
     void navigate({
       to: '/setup',
       search: {
-        experience: 'legacy',
-        setupProject: projectName,
+        project: projectName,
+        track: 'ai-visibility',
       },
     })
   }
 
   function openSiteHealth() {
     void navigate({
-      to: '/projects/$projectName/technical-aeo',
+      to: '/projects/$projectName/agent-readiness',
       params: { projectName },
     })
   }
@@ -1957,7 +2053,7 @@ function ProjectPageContent({
     }
   }
 
-  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string>; siteAuditMaxPages?: number | null }) {
+  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string>; siteAuditMaxPages?: number | null; siteAuditDomains?: string[] }) {
     const updated = await apiUpdateProject(pName, updates)
     queryClient.setQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: pName } }), updated)
     // Scoped to the edited project's own cache entries — see the helper.
@@ -1965,39 +2061,21 @@ function ProjectPageContent({
     return updated
   }
 
-  // Quiet underline tabs (Vercel/Linear lineage), not a pill rack. Section nav
-  // is chrome: plain text that recedes, the active tab marked by a Snow
-  // underline on the bar's hairline. Low-frequency sections live in a
-  // trailing "More" overflow; Settings is split out at the far right (universal
-  // convention). "Local Presence" only appears once GBP is connected.
+  // Quiet underline tabs in `projectSectionTabs` order. The bar keeps the
+  // sections an operator returns to; everything else is in More, and an open
+  // More section shows as a tab before it, so the bar always names the current
+  // page. Narrow widths can move primary sections into More, never the open
+  // one. Operators reach Settings from the sidebar; only embeds get a Settings
+  // tab, at the far right.
   const projectTabBase = `/projects/${encodeURIComponent(model.project.name)}`
-  const projectTabItemsAll: ProjectTabItem[] = [
-    // `key` is a WIRE value: embed installs list it in CANONRY_EMBED_PROJECT_TABS
-    // and it appears in saved URLs, so it stays `overview` however the label reads.
-    { key: 'overview', label: 'AI Visibility', href: projectTabBase },
-    { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
-    { key: 'seo-data', label: 'SEO', href: `${projectTabBase}/seo-data` },
-    { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
-    // Journeys reads private visitor evidence: never for view-only accounts, and
-    // absent from the embed allowlist, so embeds drop it automatically.
-    ...(account?.role !== UserRoles.viewer ? [{ key: 'journeys' as const, label: 'Journeys', href: `${projectTabBase}/journeys` }] : []),
-    // `technical-aeo` is a stable route and embed token. Site Health is the product label.
-    { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },
-    { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },
-    { key: 'local', label: 'Local Presence', href: `${projectTabBase}/local` },
-    { key: 'queries', label: 'Queries', href: `${projectTabBase}/queries` },
-    { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
-  ]
-  const projectOverflowTabItemsAll: ProjectTabItem[] = [
-    { key: 'history', label: 'Change History', href: `${projectTabBase}/history` },
-  ]
+  const sectionTabs = projectSectionTabs(projectTabBase, { journeys: account?.role !== UserRoles.viewer })
   // In embed mode the effective allowlist narrows the subnav to the curated
   // client-facing tabs. Settings also requires write access outside embed/demo.
   const projectTabItems = [
-    ...projectTabItemsAll.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs)),
+    ...sectionTabs.primary.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs)),
     ...(queryLimit !== undefined ? [{ key: 'client-queries' as const, label: 'Queries', href: `${projectTabBase}/client-queries` }] : []),
   ]
-  const projectOverflowTabItems = projectOverflowTabItemsAll.filter((item) =>
+  const projectOverflowTabItems = sectionTabs.overflow.filter((item) =>
     isEmbedProjectTabAllowed(item.key, embedProjectTabs),
   )
   const canViewProjectSettings = canWrite || isEmbed() || isPublicDemo()
@@ -2154,7 +2232,7 @@ function ProjectPageContent({
   const evidenceQueryEditor = !isEmbed() && managingQueries ? (
     <div className="mb-3 material-base p-3">
       {trackedQueries.length > 0 ? (
-        <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto material-base">
+        <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto">
           {trackedQueries.map((q) => (
             <li key={q} className="flex items-center justify-between gap-3 px-3 py-2">
               <span className="min-w-0 truncate text-label-14 text-strong" title={q}>{q}</span>
@@ -2227,19 +2305,21 @@ function ProjectPageContent({
                 {nextSweepLabel ? <p className="text-copy-14 text-secondary">{nextSweepLabel}</p> : null}
                 {showMapSite ? (
                   <WriteButton type="button" onClick={openSiteHealth}>
-                    Map site
+                    Check Agent Readiness
                   </WriteButton>
                 ) : showViewPageHealth ? (
                   <WriteButton type="button" onClick={openSiteHealth}>
-                    View Page Health
+                    View Agent Readiness score
                   </WriteButton>
                 ) : null}
                 {/* Secondary, not primary. The schedule beside it is what actually
                     runs the sweep; this is the override for when you can't wait
                     for it. Deleting the project used to sit here too — an
                     irreversible action one misclick from the page's most-used
-                    button — and now lives at the bottom of the Settings tab. */}
-                <WriteButton
+                    button — and now lives at the bottom of the Settings tab.
+                    Agent Readiness leads with its own Run scan, so that tab
+                    offers no second check to start. */}
+                {tab !== 'agent-readiness' ? <WriteButton
                   type="button"
                   variant="outline"
                   disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending || (sweepsOnHold && !providerReadinessFailed && !sweepSetupRequired)}
@@ -2254,15 +2334,15 @@ function ProjectPageContent({
                     : hasActiveVisibilitySweep
                       ? 'AI Visibility check running…'
                       : sweepReadinessPending
-                        ? 'Checking AI readiness…'
+                        ? 'Checking AI engines…'
                         : providerReadinessFailed
-                          ? 'Retry AI readiness'
+                          ? 'Retry engine check'
                         : sweepSetupRequired
-                          ? 'Set up AI Visibility'
+                          ? draftRequiresPublication ? 'Review and publish plan' : 'Set up AI Visibility'
                           : sweepsOnHold
                             ? 'AI Visibility checks on hold'
                             : 'Run AI Visibility check'}
-                </WriteButton>
+                </WriteButton> : null}
               </>
             )}
           </div>
@@ -2277,11 +2357,15 @@ function ProjectPageContent({
         onClosed={() => sweepOpener.current?.focus()}
         disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady}
         leftOut={sweepLeavesOut}
+        preview={runPreview.data}
+        previewPending={runPreview.isFetching}
+        previewFailed={runPreview.isError}
+        onRetryPreview={() => { void runPreview.refetch() }}
       />}
       <ProjectSubnav
         items={projectTabItems}
         overflowItems={projectOverflowTabItems}
-        settingsItem={projectSettingsTab}
+        settingsItem={isEmbed() ? projectSettingsTab : null}
         activeTab={tab}
       />
 
@@ -2289,6 +2373,7 @@ function ProjectPageContent({
         <AdvancedMeasurementSection
           key={projectName}
           projectName={projectName}
+          projectDomain={model.project.canonicalDomain}
           canEdit={canWrite}
           queries={portfolioQueriesQuery.data ?? []}
           isQueryLoading={isPortfolioQueriesLoading}
@@ -2364,7 +2449,7 @@ function ProjectPageContent({
             canEdit={canWrite && !isEmbed() && !isActiveMeasurementPlanLoading && !isActiveMeasurementPlanError}
             simpleOverview={(
               <>
-          <section className="page-section-divider">
+          <section className="mb-6">
             <VisibilityTrendSection
               projectName={model.project.name}
               competitorDomains={competitorDomains}
@@ -2377,14 +2462,18 @@ function ProjectPageContent({
             />
           </section>
 
-          <section className="page-section-divider">
-            <div className="av-card-head">
-              <h2 className="av-card-title">Where competitors are winning</h2>
-              {hasVisibilityBaseline ? <p className="av-card-meta">Latest check</p> : null}
-            </div>
+          {hasVisibilityBaseline && <><section className="mb-6"><details className="av-history" open={competitorDomains.length > 0}>
+            {/* The summary is the toggle, so it takes its name from the heading
+                alone; the check it reads is its description. */}
+            <summary className="av-card-head" aria-labelledby={competitiveTitleId} aria-describedby={competitiveMetaId}>
+              <h2 id={competitiveTitleId} className="av-card-title">{competitorDomains.length > 0 ? 'Where competitors are winning' : 'Compare competitors'}</h2>
+              <span className="inline-flex items-center gap-2">
+                <span id={competitiveMetaId} className="av-card-meta">Latest check</span>
+                <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
+              </span>
+            </summary>
 
-            {hasVisibilityBaseline ? (
-              <div className="competitive-summary">
+            <div className="competitive-summary">
                 <MentionShare
                   key={model.project.name}
                   summary={model.mentionShareSummary}
@@ -2392,40 +2481,55 @@ function ProjectPageContent({
                   competitorDomains={competitorDomains}
                 />
 
-                <div className="competitive-gaps">
-                  <p className="competitive-gaps-scope">All queries</p>
-                  <div className="aeo-hero-rows">
-                    <OverviewMetricRow
-                      label="Mention gaps"
-                      summary={model.mentionGaps}
-                      displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
-                      tooltip="Across all queries, branded and non-brand: a competitor was mentioned in an answer and your brand was not mentioned by any engine. The mention-share query type does not filter these counts."
-                    />
-                    <OverviewMetricRow
-                      label="Citation gaps"
-                      summary={model.gapQueries}
-                      displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
-                      tooltip="Across all queries, branded and non-brand: a competitor was cited as a source and your domain was not cited by any engine. The mention-share query type does not filter these counts."
-                    />
+                {competitorDomains.length > 0 ? (
+                  <div className="competitive-gaps">
+                    <p className="competitive-gaps-scope">All queries</p>
+                    <div className="aeo-hero-rows">
+                      <OverviewMetricRow
+                        label="Mention gaps"
+                        summary={model.mentionGaps}
+                        displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
+                        tooltip="Across all queries, branded and non-brand: a competitor was mentioned in an answer and your brand was not mentioned by any engine. The mention-share query type does not filter these counts."
+                      />
+                      <OverviewMetricRow
+                        label="Citation gaps"
+                        summary={model.gapQueries}
+                        displayValue={citationGapBase(model.queryCounts) === 0
+                          // No answer carries sources, so there is no base to count gaps out of.
+                          ? <><span className="whitespace-nowrap text-label-13 text-secondary">{CITATION_NOT_MEASURED.label}</span><span className="sr-only">, all queries</span></>
+                          : <><span className="text-primary">{model.gapQueries.value}</span><span className="text-secondary"> / {citationGapBase(model.queryCounts)}</span><span className="sr-only"> queries, all queries</span></>}
+                        tooltip="Across all queries, branded and non-brand: a competitor was cited as a source and your domain was not cited by any engine. The mention-share query type does not filter these counts."
+                      />
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  // A gap counts only tracked competitors, so with none tracked
+                  // both counts are zero whatever the answers said. Zeros with
+                  // bars would read as winning; say what is missing instead.
+                  <div className="competitive-gaps">
+                    <p className="text-label-14-strong text-strong">{COMPETITOR_COMPARISON_COPY.emptyTitle}</p>
+                    <p className="mt-1 text-copy-14 text-secondary">{COMPETITOR_COMPARISON_COPY.emptyDetail}</p>
+                    {competitorLandscapeAvailable && canWrite && !isEmbed() ? (
+                      <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => {
+                        setCompetitorHistoryOpenForProject(projectName)
+                        setCompetitorHistoryFocusPending(true)
+                      }}>
+                        {COMPETITOR_COMPARISON_COPY.add}
+                      </Button>
+                    ) : null}
+                  </div>
+                )}
               </div>
-            ) : (
-              <p className="text-copy-14 text-secondary">
-                Competitive mention and citation gaps appear after the first AI Visibility check.
-              </p>
-            )}
+          </details></section>
 
-          </section>
-
-          <div className="page-section-divider">
-            <CitationVisibilitySection projectName={model.project.name} classify={classifyQuery} hasCompetitors={competitorDomains.length > 0} providerScores={model.providerScores} />
+          <div className="mb-6">
+            <CitationVisibilitySection projectName={model.project.name} revision={latestVisibilityRevision} />
           </div>
-
+</>}
           <OverviewDisclosure
             id="evidence-section"
             title="Query evidence"
-            meta={`${model.queryCounts.total} ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
+            meta={`${model.queryCounts.total} measured ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
             defaultOpen
           >
             {model.project.locations.length > 0 && (
@@ -2555,7 +2659,7 @@ function ProjectPageContent({
             )}
           </details> : null}
           {competitorLandscapeCard !== null ? (
-            <details className={`visibility-disclosure${isSimpleOverview ? ' page-section-divider' : ''}`} open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
+            <details ref={competitorHistoryRef} className={`visibility-disclosure${isSimpleOverview ? ' page-section-divider' : ''}`} open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
               <summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Competitor history</span></summary>
               <div className="visibility-disclosure-panel">{competitorLandscapeCard}</div>
             </details>
@@ -2575,7 +2679,7 @@ function ProjectPageContent({
         <>
           <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} />
           <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />
-          <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async siteAuditMaxPages => { await handleUpdateProject(model.project.name, { siteAuditMaxPages }) }} />
+          <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async settings => { await handleUpdateProject(model.project.name, settings) }} />
           {canWrite && !isEmbed() ? (
             <section className="page-section-divider">
               <h2 className="text-heading-20 text-heading">Advanced measurement</h2>
@@ -2659,7 +2763,7 @@ function ProjectPageContent({
           onTrackingQueryIdChange={value => updateVisibilitySearch({ trackingQueryId: value })}
           publishGuard={{ sweepActive: hasActiveVisibilitySweep }}
         />
-      ) : tab === 'technical-aeo' ? (
+      ) : tab === 'agent-readiness' ? (
         <SiteHealthSection
           projectName={model.project.name}
           projectId={model.project.id}
@@ -2682,6 +2786,8 @@ function ProjectPageContent({
         <ProjectHistorySection projectName={model.project.name} />
       ) : tab === 'activity' ? (
         <ActivitySection projectName={model.project.name} />
+      ) : tab === 'traffic' ? (
+        <ServerTrafficSection projectName={model.project.name} />
       ) : tab === 'backlinks' ? (
         <BacklinksSection projectName={model.project.name} />
       ) : tab === 'seo-data' ? (

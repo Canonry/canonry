@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import Fastify from 'fastify'
 import { describe, expect, it } from 'vitest'
-import { auditHtmlPage } from '@canonry/aeo-audit'
+import { auditHtmlPage } from '@canonry/agent-readiness'
 import { apiRoutes } from '@canonry/canonry-api-routes'
 import {
   factorStatusFromScore, siteAuditIssuePagesResponseSchema, siteAuditIssuesResponseSchema,

@@ -1,4 +1,4 @@
-import { runAeoAudit } from '@canonry/aeo-audit'
+import { runAgentReadinessAudit } from '@canonry/agent-readiness'
 import {
   determineAnswerMentioned,
   hostMatchesDomain,
@@ -11,6 +11,7 @@ import {
   IncompleteAnswerError,
   SnapshotProviderModes,
   canGenerateText,
+  engineReturnsSources,
   isCitationMeasurable,
   isEligibleFor,
   isSweepProvider,
@@ -60,8 +61,8 @@ type BatchAssessment = {
   recommendedActions: string[]
 }
 
-type AeoAuditReport = Awaited<ReturnType<typeof runAeoAudit>>
-type AeoAuditFactor = AeoAuditReport['factors'][number]
+type AgentReadinessReport = Awaited<ReturnType<typeof runAgentReadinessAudit>>
+type AgentReadinessFactor = AgentReadinessReport['factors'][number]
 
 export class SnapshotService {
   constructor(private readonly registry: ProviderRegistry) {}
@@ -174,7 +175,7 @@ export class SnapshotService {
 
   private async runAudit(homepageUrl: string): Promise<SnapshotAuditDto> {
     try {
-      const report = await runAeoAudit(homepageUrl)
+      const report = await runAgentReadinessAudit(homepageUrl)
       return mapAuditReport(report)
     } catch (err) {
       const message = describeError(err)
@@ -184,7 +185,7 @@ export class SnapshotService {
         finalUrl: homepageUrl,
         auditedAt: new Date().toISOString(),
         overallScore: 0,
-        summary: `Technical audit unavailable: ${message}`,
+        summary: `Agent Readiness audit scan unavailable: ${message}`,
         factors: [],
       }
     }
@@ -301,7 +302,10 @@ export class SnapshotService {
             // the snapshot API grows owned-domain support.
             const answerVisibilityDomains = [ctx.domain]
 
-            const citationMeasured = isCitationMeasurable(normalized)
+            // Measured only when the answer carries sources tied to it: an answer
+            // service may return search results only, and an engine that returns
+            // no sources at all (a local model) never cites.
+            const citationMeasured = isCitationMeasurable(normalized) && engineReturnsSources(provider.adapter.name)
             return {
               provider: provider.adapter.name,
               displayName: provider.adapter.displayName,
@@ -318,7 +322,9 @@ export class SnapshotService {
               searchQueries: uniqueStrings(normalized.searchQueries),
               answerText: normalized.answerText,
               error: null,
-              ...(raw.evidence ? { evidence: raw.evidence, citationMeasured } : {}),
+              ...(raw.evidence ? { evidence: raw.evidence } : {}),
+              // Said whenever it was not measured, so no reader counts the answer as a miss.
+              ...(raw.evidence || !citationMeasured ? { citationMeasured } : {}),
             } satisfies SnapshotProviderResultDto
           } catch (err) {
             return {
@@ -519,7 +525,7 @@ function buildBatchAnalysisPrompt(ctx: {
     `Services: ${ctx.profile.services.join(', ') || 'unknown'}`,
     `Category terms: ${ctx.profile.categoryTerms.join(', ') || 'unknown'}`,
     `Manual competitor hints: ${ctx.manualCompetitors.join(', ') || 'none'}`,
-    `Technical audit: ${ctx.audit.overallScore}/100 — ${ctx.audit.summary}`,
+    `Agent Readiness score: ${ctx.audit.overallScore}/100 — ${ctx.audit.summary}`,
     '',
     'Responses JSON:',
     JSON.stringify(ctx.responses, null, 2),
@@ -531,7 +537,7 @@ function buildFallbackBatchAssessment(companyName: string, audit: SnapshotAuditD
     assessments: [],
     whatThisMeans: [
       `${companyName} needs category-level visibility, not just branded comprehension.`,
-      `The technical baseline is ${audit.overallScore}/100, so weak site signals may be making AI systems prefer better-structured alternatives.`,
+      `The Agent Readiness baseline is ${audit.overallScore}/100, so weak site signals may be making AI systems prefer better-structured alternatives.`,
     ],
     recommendedActions: buildFallbackRecommendedActions(audit),
   }
@@ -668,7 +674,7 @@ function buildVisibilityGap(
   // Responses whose sources are not tied to the answer: citation not measured, never "not cited".
   const unmeasured = totalComparisons - citationComparisons
   const unmeasuredSuffix = unmeasured > 0 && citationComparisons > 0
-    ? ` Citation was not measured in ${unmeasured} of them, because those providers do not tie their sources to the answer.`
+    ? ` Citation was not measured in ${unmeasured} of them, because those providers return no sources tied to the answer.`
     : ''
   if (totalComparisons === 0) {
     return `No providers returned successful answers across ${queryCount} category queries and ${providerCount} providers.${failureSuffix}`.trim()
@@ -678,7 +684,7 @@ function buildVisibilityGap(
   }
   const mentioned = `${companyName} was mentioned in ${mentionCount}/${successfulLabel}`
   if (citationComparisons === 0) {
-    return `${mentioned}. Citation was not measured, because ${totalComparisons === 1 ? 'that provider does' : 'those providers do'} not tie ${totalComparisons === 1 ? 'its' : 'their'} sources to the answer.${failureSuffix}`.trim()
+    return `${mentioned}. Citation was not measured, because ${totalComparisons === 1 ? 'that provider returns' : 'those providers return'} no sources tied to the answer.${failureSuffix}`.trim()
   }
   const citedPart = citationCount === 0
     ? `never linked or cited directly in the ${citationComparisons} where citation was measured`
@@ -746,7 +752,7 @@ function extractCompetitorsFromResponse(ctx: {
   return [...competitors].slice(0, 6)
 }
 
-function mapAuditReport(report: AeoAuditReport): SnapshotAuditDto {
+function mapAuditReport(report: AgentReadinessReport): SnapshotAuditDto {
   return {
     url: report.url,
     finalUrl: report.finalUrl,
@@ -757,7 +763,7 @@ function mapAuditReport(report: AeoAuditReport): SnapshotAuditDto {
   }
 }
 
-function mapAuditFactor(factor: AeoAuditFactor) {
+function mapAuditFactor(factor: AgentReadinessFactor) {
   return {
     id: factor.id,
     name: factor.name,

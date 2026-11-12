@@ -58,6 +58,8 @@ import {
   forbidden,
   notFound,
   validationError,
+  redactKnownSecrets,
+  redactUrlPrivateFields,
   embedProjectTabsError,
   embedClientConfigForRequest,
   EMBED_QUERY_LIMIT_HEADER,
@@ -99,8 +101,11 @@ import {
 } from "@canonry/canonry-contracts";
 import type {
   CanonryConfig,
+  ProviderConfigEntry,
   CloudflareTrafficConnectionConfigEntry,
 } from "./config.js";
+import { createProviderSettingsController } from "./provider-settings.js";
+import { createProviderConnectionTestStore } from "./provider-connection-tests.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentAllowViewers, resolveAgentEnabled, resolveAgentProactiveEnabled } from "./agent-config.js";
 import { saveConfig, saveConfigPatch, loadConfig, loadConfigRaw, loadedConfigPath, getConfigPath } from "./config.js";
@@ -264,7 +269,7 @@ import {
   ccReleaseSyncs as ccReleaseSyncsTable,
 } from "@canonry/canonry-db";
 import { ProviderRegistry, type RegisteredProvider } from "./provider-registry.js";
-import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
+import { batchEligibleProviderNames, providersWithUnsupportedBatch } from "./provider-batch-config.js";
 import { handleRouteOutcome, outcomeAttribution } from "./outcome-telemetry.js";
 import { startInstallStateTelemetry } from "./install-state-telemetry.js";
 import { trackTrafficIngested, trackTrafficSynced } from "./traffic-telemetry.js";
@@ -289,6 +294,9 @@ import { ViewerAeroSessions } from "./agent/viewer-sessions.js";
 import { buildAgentProvidersResponse, resolveApiKeyFor } from "./agent/providers.js";
 import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
+import { ChatGptAccounts } from "@canonry/canonry-api-routes";
+import { resolveChatGptSettings } from "./chatgpt-config.js";
+import { preferredChatGptModel } from "./agent/chatgpt-plan.js";
 import { registerOAuthRoutes, registerOAuthAdminRoutes, cookieIsSecure, createCredentialChecker, hashSessionToken, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@canonry/canonry-api-routes";
 import { registerAgentRoutes } from "./agent/agent-routes.js";
 import {
@@ -524,7 +532,7 @@ function summarizeProviderConfig(provider: RegisteredProvider | undefined) {
     // summary AND produce an audit diff. Omitting it for API providers would let
     // an endpoint redirect (a credential-exfiltration vector on a box where the
     // provider key is the carrier) happen with no audit trail.
-    baseUrl: config?.baseUrl ?? config?.cdpEndpoint ?? null,
+    baseUrl: redactUrlPrivateFields(config?.baseUrl ?? config?.cdpEndpoint)?.url ?? null,
     quota: { ...(config?.quotaPolicy ?? DEFAULT_QUOTA) },
     vertexProject: config?.vertexProject ?? null,
     vertexRegion: config?.vertexRegion ?? null,
@@ -538,7 +546,9 @@ function providerSummaries(registry: ProviderRegistry, config: CanonryConfig, in
     name: adapter.name,
     displayName: adapter.displayName,
     keyUrl: adapter.keyUrl,
-    modelHint: `e.g. ${adapter.modelRegistry.defaultModel}`,
+    // A gateway or answer service has no single default model, and "e.g. "
+    // with nothing after it is not a hint.
+    ...(adapter.modelRegistry.defaultModel ? { modelHint: `e.g. ${adapter.modelRegistry.defaultModel}` } : {}),
     model: registry.get(adapter.name)?.config.model ?? undefined,
     defaultModel: adapter.modelRegistry.defaultModel,
     configured: Boolean(registry.get(adapter.name)),
@@ -1079,7 +1089,7 @@ export async function createServer(opts: {
   const persistedConfigPath = configSourcePath === undefined ? undefined : runtimeConfigPath;
   const persistConfigPatch = (
     patch: Partial<CanonryConfig>,
-    options: { setDashboardPasswordHash?: string } = {},
+    options: { setDashboardPasswordHash?: string; providerReplacement?: { name: string; entry: ProviderConfigEntry | null } } = {},
   ): void => {
     if (persistedConfigPath !== undefined) saveConfigPatch(patch, { ...options, configPath: persistedConfigPath });
   };
@@ -1283,6 +1293,18 @@ export async function createServer(opts: {
         managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
       })
     : undefined;
+  // Sign in with ChatGPT (config `chatgpt`). One instance for the whole
+  // process, shared by the sign-in routes and viewer Aero, so concurrent
+  // turns share a single plan-token refresh. Settings are read per call.
+  const chatgptAccounts = new ChatGptAccounts({
+    db: opts.db,
+    settings: () => resolveChatGptSettings(opts.config),
+  });
+  if (opts.config.chatgpt && (opts.config.chatgpt.signIn || opts.config.chatgpt.planUsage) && !resolveChatGptSettings(opts.config)) {
+    log.warn("chatgpt.disabled", {
+      reason: "Sign in with ChatGPT needs chatgpt.clientId and an HTTPS publicUrl; it stays off until both are set.",
+    });
+  }
   // Viewer Aero is its own lane (see viewer-sessions.ts), built only on an
   // explicit opt-in. Absent, the agent routes stay administrator-only.
   const agentAllowViewers = agentEnabled && resolveAgentAllowViewers(process.env, opts.config);
@@ -1292,6 +1314,7 @@ export async function createServer(opts: {
         config: opts.config,
         selfApiUrl: opts.config.apiUrl,
         managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
+        chatgpt: chatgptAccounts,
       })
     : undefined;
 
@@ -1554,8 +1577,8 @@ export async function createServer(opts: {
       });
   };
 
-  // Shared Technical-AEO site-audit worker. Used by BOTH the manual
-  // `POST /technical-aeo/runs` route and the scheduled `site-audit` kind. The
+  // Shared Agent Readiness site-audit worker. Used by BOTH the manual
+  // `POST /agent-readiness/runs` route and the scheduled `site-audit` kind. The
   // run row is created by the caller. This runs the full crawl and audit, then
   // hands off to the post-run coordinator on completion.
   //
@@ -2101,7 +2124,7 @@ export async function createServer(opts: {
     },
     onSiteAuditRequested: (runId, projectId, auditOpts) => {
       // The scheduler already created the site-audit run row; run the same
-      // worker the manual POST /technical-aeo/runs route uses, with the
+      // worker the manual POST /agent-readiness/runs route uses, with the
       // scheduler's full-site page budget.
       runSiteAudit(runId, projectId, auditOpts);
     },
@@ -3156,13 +3179,16 @@ export async function createServer(opts: {
     before: RegisteredProvider | undefined,
     after: RegisteredProvider | undefined,
     auditContext: Parameters<NonNullable<ApiRoutesOptions['onProviderUpdate']>>[5],
+    savedSettingsChanged = false,
   ): void => {
     const beforeConfig = summarizeProviderConfig(before);
     const afterConfig = summarizeProviderConfig(after);
     const apiKeyRotated = Boolean(before) && Boolean(after?.config.apiKey)
       && before?.config.apiKey !== after?.config.apiKey;
+    const apiKeyRemoved = Boolean(before?.config.apiKey) && !after?.config.apiKey;
     const credentialsChanged = before?.config.vertexCredentials !== after?.config.vertexCredentials;
-    if (!apiKeyRotated && !credentialsChanged && JSON.stringify(beforeConfig) === JSON.stringify(afterConfig)) return;
+    const endpointChanged = before?.config.baseUrl !== after?.config.baseUrl || before?.config.cdpEndpoint !== after?.config.cdpEndpoint;
+    if (!savedSettingsChanged && !apiKeyRotated && !apiKeyRemoved && !credentialsChanged && !endpointChanged && JSON.stringify(beforeConfig) === JSON.stringify(afterConfig)) return;
     const affectedProjects = opts.db.select({ id: projects.id, providers: projects.providers }).from(projects).all()
       .filter(project => project.providers.length === 0 || project.providers.includes(name));
     const projectIds = affectedProjects.length ? affectedProjects.map(project => project.id) : [null];
@@ -3181,11 +3207,32 @@ export async function createServer(opts: {
           before: before ? beforeConfig : null,
           after: afterConfig,
           ...(apiKeyRotated ? { apiKeyRotated: true } : {}),
+          ...(apiKeyRemoved ? { apiKeyRemoved: true } : {}),
           ...(credentialsChanged ? { credentialsChanged: true } : {}),
+          ...(endpointChanged ? { endpointChanged: true } : {}),
+          ...(savedSettingsChanged ? { savedSettingsChanged: true } : {}),
         },
       });
     }
   };
+  // Keyed like the connection revision, with the install's own key.
+  const connectionTests = createProviderConnectionTestStore(opts.db, opts.config.apiKey);
+  const providerSettings = createProviderSettingsController({
+    config: opts.config,
+    configPath: persistedConfigPath,
+    db: opts.db,
+    registry,
+    apiAdapters: API_ADAPTERS,
+    browserAdapter: cdpChatgptAdapter,
+    executingBatches: () => jobRunner.getExecutingBatchRegistrations(),
+    persist: (name, entry) => persistConfigPatch(
+      persistedConfigPath && fs.existsSync(persistedConfigPath) ? {} : opts.config,
+      { providerReplacement: { name, entry } },
+    ),
+    recordChange: recordProviderChange,
+    refreshSummary: () => { providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config)); },
+    connectionTests,
+  });
   await app.register(apiRoutes, {
     // Outcome telemetry reported from route code (`app.emitOutcome`).
     onOutcome: handleRouteOutcome,
@@ -3214,6 +3261,9 @@ export async function createServer(opts: {
       path: sessionCookiePath,
       ...(sessionCookieSecure ? { secure: true } : {}),
     },
+    chatgptAccounts,
+    chatgptPreferredModel: () => preferredChatGptModel(opts.config),
+    dashboardPath: basePath ?? "/",
     // Whether an operator has declared which hops to believe. The per-caller
     // sign-in budget depends on this being the truth rather than something
     // inferred from a header the caller controls.
@@ -3695,6 +3745,21 @@ export async function createServer(opts: {
       registry.getAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
     getBatchEligibleProviderNames: () => batchEligibleProviderNames(registry),
+    // The active registration's own healthcheck: the settings a sweep would
+    // use right now. Its result is kept for exactly those settings.
+    onProviderTest: (name: string, signal: AbortSignal) => {
+      const provider = registry.get(name);
+      if (!provider) return undefined;
+      // Taken now: settings saved while the check runs are not what it checked.
+      const tested = connectionTests.fingerprint(provider.config);
+      return {
+        // Once the route stops waiting, the check stops retrying and spending.
+        // A vendor error can quote the key it was sent; it never leaves in a test result.
+        check: provider.adapter.healthcheck(provider.config, signal)
+          .then(result => ({ ...result, message: redactKnownSecrets(result.message, [provider.config.apiKey]) })),
+        record: result => connectionTests.record(name, tested, result),
+      };
+    },
     onProviderReload: (input, auditContext) => {
       if (input.configPath !== undefined && (
         runtimePathIdentity(input.configPath) !== runtimeConfigIdentity
@@ -3731,72 +3796,12 @@ export async function createServer(opts: {
       providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
       return providerSummaries(registry, opts.config, true);
     },
-    onProviderUpdate: (
-      providerName: string,
-      apiKey: string,
-      model?: string,
-      baseUrl?: string,
-      incomingQuota?: Partial<
-        import("@canonry/canonry-contracts").ProviderQuotaPolicy
-      >,
-      auditContext?,
-    ) => {
-      const name = providerName;
-      if (!adapterMap[name]) return null;
-      const adapterDefaultQuota = adapterMap[name]!.defaultQuota ?? DEFAULT_QUOTA;
-      const answerService = adapterMap[name]!.kind === "answer-service";
-
-      // Update config and persist
-      if (!opts.config.providers) opts.config.providers = {};
-      const existing = opts.config.providers[name];
-      const previousProvider = registry.get(name) ?? (existing ? {
-        adapter: adapterMap[name]!,
-        config: providerConfigFromEntry(name, existing, resolveProviderQuotaPolicy(existing.quota, adapterDefaultQuota)),
-      } : undefined);
-      const mergedQuota = incomingQuota
-        ? { ...(existing?.quota ?? adapterDefaultQuota), ...incomingQuota }
-        : existing?.quota;
-      opts.config.providers[name] = {
-        apiKey: apiKey || existing?.apiKey,
-        // An answer service's endpoint is fixed and its routes pin profiles.
-        baseUrl: answerService ? undefined : baseUrl || existing?.baseUrl,
-        model: answerService ? undefined : model || existing?.model,
-        quota: mergedQuota,
-        // Preserve Vertex AI config (Gemini provider) — these are set via
-        // config file or env vars, not through the dashboard update payload
-        vertexProject: existing?.vertexProject,
-        vertexRegion: existing?.vertexRegion,
-        vertexCredentials: existing?.vertexCredentials,
-        // Batch and price settings are config-file only too; a key rotation
-        // from the dashboard must not switch batch off or drop overrides.
-        ...(existing?.batch ? { batch: existing.batch } : {}),
-        ...(existing?.pricing ? { pricing: existing.pricing } : {}),
-      };
-
-      try {
-        persistConfigPatch(fs.existsSync(runtimeConfigPath)
-          ? { providers: { [name]: opts.config.providers[name]! } }
-          : opts.config);
-      } catch (err) {
-        app.log.error({ err }, "Failed to save config");
-        return null;
-      }
-
-      // Re-register in the live registry (use preserved model if none was passed)
-      const quota = resolveProviderQuotaPolicy(opts.config.providers[name]!.quota, adapterDefaultQuota);
-      registry.register(adapterMap[name]!, providerConfigFromEntry(name, opts.config.providers[name]!, quota));
-
-      providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
-      const entry = providerSummary.find((provider) => provider.name === name);
-      opts.db.transaction(() => recordProviderChange(name, previousProvider, registry.get(name), auditContext));
-
-      return {
-        name,
-        model: entry?.model,
-        configured: true,
-        quota,
-      };
+    getProviderConnections: providerSettings.connections,
+    onProviderSettingsUpdate: (name, input, auditContext) => {
+      providerSettings.update(name, input, auditContext);
+      return providerSummary.find(provider => provider.name === name)!;
     },
+    onProviderDisconnect: providerSettings.disconnect,
     onGoogleSettingsUpdate: (clientId: string, clientSecret: string) => {
       try {
         setGoogleAuthConfig(opts.config, { clientId, clientSecret });
@@ -3877,8 +3882,7 @@ export async function createServer(opts: {
       opts.config.telemetry = enabled;
     } : undefined,
     recordOnboardingEvent: (event) => recordDashboardEvent(event),
-    // Answers false while telemetry is off or the per-process cap is spent, so
-    // the dashboard stops sending for the session.
+    // False stops collection when opted out; 429 allows recovery after a rate limit.
     recordUiEvent: createUiTelemetryGate(),
     submitFeedback: (submission, context) => sendFeedback(submission, context),
     onCdpConfigure: async (host: string, port: number) => {
@@ -4299,6 +4303,11 @@ export async function createServer(opts: {
         return resolved ? { id: resolved.user.id, name: resolved.user.name } : null;
       },
       credentials: credentialChecker,
+      // A person whose account signs in only with ChatGPT approves MCP
+      // clients too: the consent page offers it and comes back to itself.
+      chatgptSignInUrl: (returnTo) => chatgptAccounts.signInEnabled()
+        ? `${apiPrefix}/auth/chatgpt/start?${new URLSearchParams({ intent: "login", returnTo }).toString()}`
+        : null,
       startSession: (userId) => {
         const token = createUserSession(opts.db, userId);
         return serializeUserSessionCookie({
@@ -4361,7 +4370,7 @@ export async function createServer(opts: {
       // source type writes them, including direct push, which never syncs.
       stopUnrecognizedAgentAlerts = startUnrecognizedAgentAlertLoop(() => notifier.dispatchUnrecognizedAgentAlerts());
       // When the classification rules changed since the last pass, reclassify
-      // stored unknown traffic once, shortly after startup.
+      // stored traffic under them once, shortly after startup.
       stopTrafficReclassification = startTrafficReclassification({ db: opts.db });
       // Resumes every batch a previous process left outstanding, and finalizes
       // the runs boot recovery handed to it.

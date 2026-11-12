@@ -52,6 +52,7 @@ const projects: ProjectDto[] = [
     defaultLocation: null,
     autoExtractBacklinks: false,
     siteAuditMaxPages: null,
+    siteAuditDomains: [],
     configSource: 'cli',
     configRevision: 1,
   },
@@ -74,6 +75,7 @@ const projects: ProjectDto[] = [
     defaultLocation: null,
     autoExtractBacklinks: false,
     siteAuditMaxPages: null,
+    siteAuditDomains: [],
     configSource: 'cli',
     configRevision: 1,
   },
@@ -96,6 +98,7 @@ const projects: ProjectDto[] = [
     defaultLocation: null,
     autoExtractBacklinks: false,
     siteAuditMaxPages: null,
+    siteAuditDomains: [],
     configSource: 'cli',
     configRevision: 1,
   },
@@ -222,7 +225,7 @@ const citypointEvidence: CitationInsightVm[] = [
     groundingSources: [],
     relatedTechnicalSignals: [
       'FAQ schema missing on the emergency service page',
-      'llms.txt not found during latest site audit',
+      'llms.txt not found during the latest Agent Readiness audit scan',
       'Location pages link weakly into the emergency care hub',
     ],
     summary: 'AI answers now cite two competitors while your emergency page is no longer grounded.',
@@ -482,11 +485,11 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       trend: [84, 84, 83, 82, 82],
     },
     providerScores: [
-      { provider: 'gemini', model: 'gemini-2.5-flash', score: 55.56, cited: 5, total: 9 },
-      { provider: 'openai', model: 'gpt-5.4', score: 66.666667, cited: 6, total: 9 },
-      { provider: 'claude', model: 'claude-sonnet-4-6', score: 44.44, cited: 4, total: 9 },
+      { provider: 'gemini', model: 'gemini-2.5-flash', score: 55.56, cited: 5, total: 9, citationNotMeasured: 0 },
+      { provider: 'openai', model: 'gpt-5.4', score: 66.666667, cited: 6, total: 9, citationNotMeasured: 0 },
+      { provider: 'claude', model: 'claude-sonnet-4-6', score: 44.44, cited: 4, total: 9, citationNotMeasured: 0 },
     ],
-    queryCounts: { cited: 6, total: 9 },
+    queryCounts: { cited: 6, total: 9, citationNotMeasured: 0 },
     movementComparison: {
       hasPreviousRun: true,
       comparable: false,
@@ -691,10 +694,10 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       trend: [88, 89, 89, 90, 91],
     },
     providerScores: [
-      { provider: 'gemini', model: 'gemini-2.5-flash', score: 75, cited: 3, total: 4 },
-      { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4 },
+      { provider: 'gemini', model: 'gemini-2.5-flash', score: 75, cited: 3, total: 4, citationNotMeasured: 0 },
+      { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4, citationNotMeasured: 0 },
     ],
-    queryCounts: { cited: 3, total: 4 },
+    queryCounts: { cited: 3, total: 4, citationNotMeasured: 0 },
     movementComparison: {
       hasPreviousRun: true,
       comparable: true,
@@ -877,9 +880,9 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       trend: [68, 69, 70, 71, 71],
     },
     providerScores: [
-      { provider: 'openai', model: 'gpt-5.4', score: 57.14, cited: 4, total: 7 },
+      { provider: 'openai', model: 'gpt-5.4', score: 57.14, cited: 4, total: 7, citationNotMeasured: 0 },
     ],
-    queryCounts: { cited: 4, total: 7 },
+    queryCounts: { cited: 4, total: 7, citationNotMeasured: 0 },
     movementComparison: {
       hasPreviousRun: false,
       comparable: false,
@@ -974,32 +977,20 @@ const baseDashboard: DashboardVm = {
     projects: [
       {
         project: projects[0],
-        mentionScore: 61,
-        mentionDelta: '-8 this week',
-        mentionTone: 'caution',
+        mentionPopulations: [{ queryClass: 'non-brand', queryCount: 100, answerCount: 100, mentionCoverage: { numerator: 61, denominator: 100, rate: 0.61 }, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'no-population' } }],
         lastRun: runCitypointVisibility,
-        insight: 'Lost emergency-intent citations after competitors refreshed availability pages.',
-        trend: [73, 71, 69, 66, 61],
         competitorPressureLabel: 'High',
       },
       {
         project: projects[1],
-        mentionScore: 74,
-        mentionDelta: '+2 this week',
-        mentionTone: 'positive',
+        mentionPopulations: [{ queryClass: 'non-brand', queryCount: 100, answerCount: 100, mentionCoverage: { numerator: 74, denominator: 100, rate: 0.74 }, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'no-population' } }],
         lastRun: runHarborVisibility,
-        insight: 'Practice-area consolidation is stabilizing branded and informational prompts.',
-        trend: [68, 70, 71, 73, 74],
         competitorPressureLabel: 'Moderate',
       },
       {
         project: projects[2],
-        mentionScore: 58,
-        mentionDelta: 'Run in progress',
-        mentionTone: 'caution',
+        mentionPopulations: [{ queryClass: 'non-brand', queryCount: 100, answerCount: 100, mentionCoverage: { numerator: 58, denominator: 100, rate: 0.58 }, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'no-population' } }],
         lastRun: runNorthstarVisibility,
-        insight: 'Location pages are improving, but local treatment proof still trails competitors.',
-        trend: [52, 54, 55, 57, 58],
         competitorPressureLabel: 'Moderate',
       },
     ],
@@ -1102,7 +1093,7 @@ const baseDashboard: DashboardVm = {
     launchState: {
       enabled: true,
       ctaLabel: 'Launch first run',
-      summary: 'Queue an AI Visibility check first, then follow with a Technical AEO audit to explain movement.',
+      summary: 'Queue an AI Visibility check first, then follow with an Agent Readiness audit scan to explain movement.',
     },
   },
   settings: {
@@ -1128,22 +1119,16 @@ const baseDashboard: DashboardVm = {
         detail: 'API key is missing.',
       },
     ],
-    google: {
-      state: 'ready',
-      detail: 'Google OAuth app credentials are configured. Project-level GSC connections can be created from the dashboard.',
-    },
-    bing: {
-      state: 'needs-config',
-      detail: 'Bing Webmaster Tools API key is not configured yet.',
-    },
+    google: { state: 'ready' },
+    bing: { state: 'needs-config' },
     selfHostNotes: [
-      'Configuration is stored in ~/.canonry/config.yaml.',
+      'Configuration is stored in config.yaml in the config folder: ~/.canonry, or the folder CANONRY_CONFIG_DIR names when the server starts.',
       'The local config file is the source of truth for authentication credentials.',
       'Google OAuth app credentials and per-domain Google tokens are stored in local config, not the database.',
-      'Database is SQLite at ~/.canonry/data.db.',
-      'API key was auto-generated during canonry init.',
+      'The SQLite database is the path config.yaml names, data.db in the config folder by default.',
+      'The API key in config.yaml was generated when this install was set up.',
     ],
-    bootstrapNote: 'Use the UI, CLI, or ~/.canonry/config.yaml to manage settings. Authentication credentials persist to local config.',
+    bootstrapNote: 'Use the UI, the CLI, or config.yaml to manage settings. Authentication credentials persist to local config.',
   },
 }
 
@@ -1265,9 +1250,8 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     }
 
     if (portfolioProject) {
-      portfolioProject.mentionScore = 49
-      portfolioProject.mentionDelta = '-12 in 48h'
-      portfolioProject.insight = 'Sharp citation drop detected; grounding now prefers competitors on multiple high-intent prompts.'
+      const nonBrand = portfolioProject.mentionPopulations?.find(population => population.queryClass === 'non-brand')
+      if (nonBrand) nonBrand.mentionCoverage = { numerator: 49, denominator: 100, rate: 0.49 }
     }
   }
 

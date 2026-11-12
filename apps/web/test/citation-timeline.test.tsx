@@ -2,7 +2,8 @@ import React from 'react'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, test } from 'vitest'
 
-import { CitationTimeline } from '../src/components/project/CitationTimeline.js'
+import { CitationTimeline, mergeProviderHistories } from '../src/components/project/CitationTimeline.js'
+import type { CitationInsightVm, RunHistoryPoint } from '../src/view-models.js'
 
 afterEach(cleanup)
 
@@ -118,4 +119,43 @@ test('a run that is both newest and a model change shows both markers', () => {
   // Distinct CSS properties, so neither marker suppresses the other.
   expect(newest.className).toContain('ring-caution-300/80')
   expect(newest.className).toContain('outline-mono-400')
+})
+
+test('draws a run whose engine returns no sources apart from a miss', () => {
+  const { container } = render(
+    <CitationTimeline
+      history={[
+        { runId: 'run-1', citationState: 'not-cited', createdAt: '2026-07-01T12:00:00.000Z' },
+        { runId: 'run-2', citationState: 'not-measured', createdAt: '2026-07-08T12:00:00.000Z' },
+      ]}
+    />,
+  )
+
+  expect(screen.getByRole('img').getAttribute('aria-label')).toBe(
+    `Citation history across 2 runs. ${new Date('2026-07-01T12:00:00.000Z').toLocaleDateString()}: not cited; Latest run, ${new Date('2026-07-08T12:00:00.000Z').toLocaleDateString()}: citation not measured`,
+  )
+  const [miss, notMeasured] = [...container.querySelectorAll('[title]')].filter(el => el.getAttribute('title')?.includes(' · '))
+  // A filled square is a checked miss; a hollow circle observed nothing.
+  expect(miss!.className).toContain('rounded-sm')
+  expect(miss!.className).toContain('bg-mono-600')
+  expect(notMeasured!.className).toContain('rounded-full')
+  expect(notMeasured!.className).toContain('bg-transparent')
+  expect(notMeasured!.className).not.toContain('bg-mono-600')
+})
+
+function engineRow(provider: string, states: Array<RunHistoryPoint['citationState']>): CitationInsightVm {
+  return {
+    id: provider, query: 'best crm', provider, model: null, location: null, citationState: 'not-cited', changeLabel: '',
+    answerSnippet: '', citedDomains: [], evidenceUrls: [], competitorDomains: [], relatedTechnicalSignals: [], groundingSources: [], summary: '',
+    runHistory: states.map((citationState, index) => ({ runId: `run-${index}`, createdAt: `2026-07-0${index + 1}T12:00:00.000Z`, citationState })),
+  }
+}
+
+test('a merged run is not measured only when no engine answered with sources', () => {
+  const merged = mergeProviderHistories([
+    engineRow('local', ['not-measured', 'not-measured', 'not-measured']),
+    engineRow('gemini', ['not-cited', 'cited']),
+  ])
+  // Run 1: Gemini checked and missed; run 2: Gemini cited; run 3: only Local answered.
+  expect(merged.map(point => point.citationState)).toEqual(['not-cited', 'cited', 'not-measured'])
 })

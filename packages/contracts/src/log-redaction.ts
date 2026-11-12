@@ -33,6 +33,25 @@ export function redactLogValue(value: unknown): unknown {
   }
 }
 
+/** Shorter values are not real credentials, and replacing them would garble ordinary words. */
+const MIN_KNOWN_SECRET_LENGTH = 6
+
+/**
+ * Replaces every occurrence of each known secret value with `[REDACTED]`, for
+ * text that may quote a credential this process holds verbatim, such as a
+ * vendor error echoing the key it was sent. Pattern redaction cannot find a key
+ * written in plain prose; the value itself can. Longer secrets are replaced
+ * first, so one that contains another is never left half visible.
+ */
+export function redactKnownSecrets(value: string, secrets: readonly (string | null | undefined)[]): string {
+  const known = secrets
+    .filter((secret): secret is string => typeof secret === 'string' && secret.length >= MIN_KNOWN_SECRET_LENGTH)
+    .sort((a, b) => b.length - a.length)
+  let redacted = value
+  for (const secret of known) redacted = redacted.replaceAll(secret, REDACTED)
+  return redacted
+}
+
 /** Redacts credentials embedded in a human-readable diagnostic string. */
 export function redactLogString(value: string): string {
   try {

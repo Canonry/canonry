@@ -3,7 +3,7 @@ import type { AiCrawlerRule, AiReferrerRule } from './types.js'
 
 /**
  * User-agents belonging to Canonry's own tooling. These hit client sites as a
- * side effect of running an AEO audit / sweep (e.g. `aeo-audit --sitemap`
+ * side effect of running an AEO audit / sweep (e.g. `agent-readiness --sitemap`
  * crawls sitemap.xml, robots.txt, llms.txt, and inner pages) and are NOT real
  * visitors or third-party crawlers. Events matching these are dropped from the
  * traffic rollup so our own measurement tooling never inflates a client's
@@ -66,23 +66,32 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     userAgentPatterns: [/openai-mcp\//i],
   },
   {
+    // Anthropic's search crawler, which indexes pages so Claude can find them
+    // when it searches the web. Mirrors OAI-SearchBot vs. GPTBot.
+    // src: https://support.claude.com/en/articles/8896518-does-anthropic-crawl-data-from-the-web-and-how-can-site-owners-block-the-crawler
+    id: 'claude-searchbot',
+    operator: 'Anthropic',
+    product: 'Claude-SearchBot',
+    purpose: 'search',
+    userAgentPatterns: [/Claude-SearchBot\//i],
+  },
+  {
     id: 'anthropic-claudebot',
     operator: 'Anthropic',
     product: 'ClaudeBot',
     purpose: 'training',
-    // Anthropic ships several Claude-* crawlers (ClaudeBot for training,
-    // Claude-Web for chat fetches, Claude-SearchBot for search). The
-    // `Claude-` prefix + `Bot/` suffix is the stable shape — pattern is
-    // permissive enough to catch new Claude-*Bot variants as Anthropic
-    // adds them, without matching unrelated UAs that happen to mention
-    // "claude". The per-user fetcher `Claude-User` has no `Bot/` suffix
-    // and is intentionally NOT matched here — it routes through the
-    // separate `claude-user` rule below (purpose: 'user-agent').
+    // ClaudeBot is Anthropic's training crawler. `Claude-Web/` and
+    // `anthropic-ai` are older Anthropic tokens it no longer documents.
+    // There is deliberately no Claude-*Bot family pattern: a Claude bot
+    // Anthropic adds later is not training traffic by default, so until it
+    // gets its own rule it is stored as an unrecognized agent, which keeps
+    // its GET and HEAD requests for anything but a static file (the rest
+    // count only in `unknownHits`). Only `canonry serve` alerts on such a
+    // name (`traffic.agent.discovered`), and only under the conditions in
+    // this package's AGENTS.md ("Rule order").
     userAgentPatterns: [
       /ClaudeBot\//i,
       /Claude-Web\//i,
-      /Claude-SearchBot\//i,
-      /Claude-[A-Z]+Bot\//i,
       /anthropic-ai/i,
     ],
   },
@@ -91,15 +100,31 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     // a person asks about it mid-conversation (citation click, "read
     // this page" prompt). Distinct from ClaudeBot (training crawl) —
     // same operator, opposite operational signal, mirroring OpenAI's
-    // GPTBot vs. ChatGPT-User split. The `anthropic-claudebot` rule
-    // above does not match `Claude-User/` (its `Claude-[A-Z]+Bot/`
-    // pattern needs a `Bot/` suffix), so this is the only rule that
-    // routes it — into the user-fetch bucket, not bulk crawl.
+    // GPTBot vs. ChatGPT-User split, so it goes to the user-fetch bucket,
+    // not bulk crawl.
     id: 'claude-user',
     operator: 'Anthropic',
     product: 'Claude-User',
     purpose: 'user-agent',
     userAgentPatterns: [/Claude-User\//i],
+  },
+  {
+    // Anthropic-hosted browsers that browse and act for a person. They send
+    // a real Chrome user agent with `compatible; Claude-Agent/<version>`
+    // added; Anthropic says to match the token, since the rest changes.
+    // Like Google-Agent, a full browser also loads a page's assets, so only
+    // its page loads count (`browser`).
+    // The token must follow whitespace, `;` or `(` and end at a non-name
+    // character, so a version-less `Claude-Agent` still matches but
+    // third-party tools that lead with their own name (`claude-agent/0.3`,
+    // `claude-agent-sdk/0.1`) or embed it (`my-claude-agent/1.0`) do not.
+    // src: https://support.claude.com/en/articles/18234133-how-do-anthropic-hosted-browsers-identify-themselves-when-they-browse-the-web-on-a-user-s-behalf
+    id: 'claude-agent',
+    operator: 'Anthropic',
+    product: 'Claude-Agent',
+    purpose: 'user-agent',
+    userAgentPatterns: [/(?<=[\s;(])Claude-Agent(?![\w-])/i],
+    browser: true,
   },
   {
     id: 'perplexity-bot',
@@ -138,14 +163,17 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
   {
     // Google-Agent navigates the web and acts upon a user's request (for
     // example, Project Mariner), so it belongs in the user-fetch channel. Its
-    // browser-like UA carries a `compatible; Google-Agent;` token. This is
-    // distinct from the Gemini Notebook fetcher below; Google-Extended is only
-    // a robots.txt control token and never makes an HTTP request.
+    // browser-like UA carries a `compatible; Google-Agent;` token. A full
+    // browser, it also loads each page's assets, so only its page loads count
+    // (`browser`). This is distinct from the Gemini Notebook fetcher below;
+    // Google-Extended is only a robots.txt control token and never makes an
+    // HTTP request.
     id: 'google-agent',
     operator: 'Google',
     product: 'Google-Agent',
     purpose: 'user-agent',
     userAgentPatterns: [/Google-Agent/i],
+    browser: true,
   },
   {
     // NotebookLM/Gemini notebook fetches happen on a user's request. Google
@@ -280,11 +308,11 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     product: 'xAI-Bot',
     purpose: 'crawl',
     // xAI documents its crawler at https://x.ai/bots/ as `xAI-Bot/<version>`.
-    // Operators have also observed `Grok-Bot/...` in production logs. xAI
-    // has been less consistent than OpenAI/Anthropic about publishing every
-    // UA variant they ship, so the pattern is intentionally permissive
-    // across the xAI/Grok family — better to over-match the operator than
-    // leave real hits in the `unknown` bucket. A separate `purpose:
+    // Operators have also observed `Grok-Bot/...` and `GrokBot/...` in
+    // production logs. xAI has been less consistent than OpenAI/Anthropic
+    // about publishing every UA variant they ship, so the rule lists each
+    // token seen, as a literal: any other xAI or Grok name arrives as an
+    // unrecognized agent until it is added here. A separate `purpose:
     // 'user-agent'` Grok rule can be added later if xAI ships a citation
     // user-fetcher UA (the way OpenAI ships ChatGPT-User alongside GPTBot).
     userAgentPatterns: [/xAI-Bot\//i, /Grok-Bot\//i, /GrokBot\//i],
@@ -398,6 +426,9 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
   'Claude-Web/',
   'Claude-SearchBot/',
   'Claude-User/',
+  // No slash: Anthropic says to match the token, which may come without a
+  // version. The edge list stays broad; the server rule is the strict match.
+  'Claude-Agent',
   'anthropic-ai',
   'PerplexityBot/',
   'Perplexity-User/',

@@ -1,5 +1,6 @@
 import { formatValidationIssues, trafficSamplesQuerySchema, type TrafficSamplesQuery, trafficUnrecognizedAgentsQuerySchema, type TrafficUnrecognizedAgentsQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@canonry/canonry-contracts'
 import type {
+  BrowserAgentRequestKind,
   CloudflareQueueDrainStopReason,
   CloudflareQueueDrainSummary,
   RunDetailDto,
@@ -9,11 +10,12 @@ import type {
   TrafficEventsResponse,
   TrafficSeriesGranularity,
   TrafficSourceDto,
+  TrafficSampleClassifier,
   TrafficSourceListResponse,
   TrafficStatusResponse,
   TrafficSyncResponse,
 } from '@canonry/canonry-contracts'
-import { RunStatuses, TrafficEventKinds, TrafficSeriesGranularities, describeError, formatPercent, parseTrafficAnalyticsPeriod } from '@canonry/canonry-contracts'
+import { AgentTrustLevels, BrowserAgentRequestKinds, RunStatuses, TRAFFIC_EVENT_KIND_FILTER_HINT, TrafficEventKinds, trafficSeriesGranularitySchema, describeError, formatPercent, parseTrafficAnalyticsPeriod, parseTrafficEventKindFilter } from '@canonry/canonry-contracts'
 import fs from 'node:fs'
 import { getCloudflareTrafficConnectionBySourceId } from '../cloudflare-traffic-config.js'
 import {
@@ -766,6 +768,9 @@ export async function trafficSync(project: string, opts: {
   console.log(`  Crawler hits:     ${result.crawlerHits}  (${result.crawlerBucketRows} hourly bucket${result.crawlerBucketRows === 1 ? '' : 's'})`)
   console.log(`  AI user fetches:  ${result.aiUserFetchHits}  (${result.aiUserFetchBucketRows} hourly bucket${result.aiUserFetchBucketRows === 1 ? '' : 's'})`)
   console.log(`  Likely fake agents: ${result.aiUserFetchLikelyFakeHits}  (claimed an AI agent; not counted as AI user fetches)`)
+  if (result.aiUserFetchBrowserNonPageHits) {
+    console.log(`  Browser agent non-page: ${result.aiUserFetchBrowserNonPageHits}  (files, data calls and form posts; only page loads count as AI user fetches)`)
+  }
   console.log(`  AI referral hits: ${result.aiReferralHits}  (${result.aiReferralBucketRows} hourly bucket${result.aiReferralBucketRows === 1 ? '' : 's'})`)
   console.log(`  Unknown hits:     ${result.unknownHits}`)
   console.log(`  Sample rows:      ${result.sampleRows}`)
@@ -949,6 +954,12 @@ export async function trafficAnalytics(project: string, opts: { period?: string 
   console.log(`Traffic analytics for "${project}": ${activity.windowStart} to ${activity.windowEnd}`)
   console.log(`  First stored observation: ${activity.coverageStart ?? 'none'}`)
   if (!activity.priorWindowComplete) console.log('  Prior recording window is incomplete; percentage changes are unavailable.')
+  if (activity.aiReferralCountingChangedAt) {
+    console.log(`  AI-referral arrivals counted once per visit since ${activity.aiReferralCountingChangedAt}; earlier hours also counted later requests in a visit and read high.`)
+  }
+  if (activity.aiUserFetchCountingChangedAt) {
+    console.log(`  AI user fetches count only the page loads of browser agents (Google-Agent, Claude-Agent) from ${activity.aiUserFetchCountingChangedAt}; earlier hours were counted differently and can read high or low.`)
+  }
   for (const [label, counts] of [
     ['Verified crawler hits', activity.verifiedCrawlerHits],
     ['Unverified crawler hits', activity.unverifiedCrawlerHits],
@@ -1092,13 +1103,28 @@ export async function trafficSamples(project: string, opts: Omit<TrafficSamplesQ
   console.log(`Stored traffic samples for "${project}": ${result.samples.length} of ${result.totalRows} matching sample rows. Sampled tail, not visits; use traffic events for totals.`)
   console.log('Retention: 30 days. Caps: 100 per sync, 500 per backfill, 100 per source per push hour.')
   console.log('traffic status shows the last-24h sample count per source, including unknown samples. This selection excludes unknown unless requested.')
+  if (result.samples.some(sample => uncountedBrowserAgentRequestKind(sample.classifier.aiUserFetch) !== null)) {
+    console.log('Browser agents count only page loads. "not counted" marks a resource (a file, data call, prefetch or beacon its page fetched) or an action (a form post).')
+  }
   for (const sample of result.samples) {
     const classifier = sample.classifier.aiReferral ?? sample.classifier.aiUserFetch ?? sample.classifier.crawler
-    // Agent samples carry their trust verdict, so likely fakes stay recognizable here.
-    const trust = sample.classifier.aiUserFetch?.trust
-    const label = classifier?.product ? (trust ? `${classifier.product} (${trust})` : classifier.product) : '-'
+    // Agent samples carry their trust verdict, so likely fakes stay recognizable
+    // here, and a browser agent's uncounted requests say so.
+    const userFetch = sample.classifier.aiUserFetch
+    const uncounted = uncountedBrowserAgentRequestKind(userFetch)
+    const qualifiers = [...(userFetch?.trust ? [userFetch.trust] : []), ...(uncounted ? [`${uncounted}, not counted`] : [])]
+    const label = classifier?.product ? (qualifiers.length > 0 ? `${classifier.product} (${qualifiers.join('; ')})` : classifier.product) : '-'
     console.log([sample.ts, sample.kind, sample.status ?? '-', sample.pathNormalized, sample.refererHost ?? '-', label, sample.userAgent ?? '-'].join('  '))
   }
+}
+
+/**
+ * The kind of a browser agent's request that was not counted as an AI user
+ * fetch, or null: only page loads count, and a likely fake is counted on its own.
+ */
+function uncountedBrowserAgentRequestKind(userFetch: TrafficSampleClassifier['aiUserFetch']): BrowserAgentRequestKind | null {
+  if (!userFetch?.requestKind || userFetch.requestKind === BrowserAgentRequestKinds.page || userFetch.trust === AgentTrustLevels.likely_fake) return null
+  return userFetch.requestKind
 }
 
 export async function trafficUnrecognized(project: string, opts: TrafficUnrecognizedAgentsQuery & { format?: string }): Promise<void> {
@@ -1133,30 +1159,23 @@ export async function trafficEvents(project: string, opts: {
   granularity?: string
   format?: string
 }): Promise<void> {
-  if (
-    opts.kind
-    && opts.kind !== 'all'
-    && opts.kind !== TrafficEventKinds.crawler
-    && opts.kind !== TrafficEventKinds['ai-user-fetch']
-    && opts.kind !== TrafficEventKinds['ai-referral']
-  ) {
+  if (opts.kind && !parseTrafficEventKindFilter(opts.kind)) {
     throw new CliError({
       code: 'TRAFFIC_INVALID_KIND',
-      message: `--kind must be one of: all, ${TrafficEventKinds.crawler}, ${TrafficEventKinds['ai-user-fetch']}, ${TrafficEventKinds['ai-referral']}`,
-      displayMessage: `Error: --kind must be "all", "${TrafficEventKinds.crawler}", "${TrafficEventKinds['ai-user-fetch']}", or "${TrafficEventKinds['ai-referral']}"`,
+      message: `--kind must be ${TRAFFIC_EVENT_KIND_FILTER_HINT}`,
+      displayMessage: `Error: --kind must be ${TRAFFIC_EVENT_KIND_FILTER_HINT}`,
       details: { project, kind: opts.kind },
     })
   }
 
   if (
     opts.granularity
-    && opts.granularity !== TrafficSeriesGranularities.hour
-    && opts.granularity !== TrafficSeriesGranularities.day
+    && !trafficSeriesGranularitySchema.safeParse(opts.granularity).success
   ) {
     throw new CliError({
       code: 'TRAFFIC_INVALID_GRANULARITY',
-      message: `--granularity must be one of: ${TrafficSeriesGranularities.hour}, ${TrafficSeriesGranularities.day}`,
-      displayMessage: `Error: --granularity must be "${TrafficSeriesGranularities.hour}" or "${TrafficSeriesGranularities.day}"`,
+      message: `--granularity must be one of: ${trafficSeriesGranularitySchema.options.join(', ')}`,
+      displayMessage: `Error: --granularity must be "hour", "day" or "month"`,
       details: { project, granularity: opts.granularity },
     })
   }

@@ -17,6 +17,7 @@ import {
   RunStatuses,
   RunTriggers,
   normalizeSiteAuditRunRequest,
+  resolveSiteAuditDomains,
   nextScheduleUpdatedAt,
   siteAuditRequestIdentity,
   siteAuditScheduleChecks,
@@ -176,16 +177,16 @@ export interface SchedulerCallbacks {
    */
   onBacklinksSyncRequested?: (projectName: string) => void
   /**
-   * Fired when a site-audit (Technical AEO) schedule triggers. The scheduler
+   * Fired when a site-audit (Agent Readiness) schedule triggers. The scheduler
    * owns run-row creation (like gbp-sync) so it can hand the host a runId; the
-   * host runs the same worker the manual POST /technical-aeo/runs route uses,
+   * host runs the same worker the manual POST /agent-readiness/runs route uses,
    * with `opts.maxPages` as its page budget: a scheduled audit covers the full
    * site, up to the hard page limit, the same budget a manual run defaults to.
    * A site-audit needs no `sourceId` / providers. Skipped (without orphaning a
    * run row) when a site-audit run is already in flight for the project, since
    * a full-site crawl can run for minutes. Fire-and-forget.
    */
-  onSiteAuditRequested?: (runId: string, projectId: string, opts: { maxPages: number; checkDeadLinks: boolean; includeGeo: boolean; includeAgentSkills: boolean }) => void
+  onSiteAuditRequested?: (runId: string, projectId: string, opts: { maxPages: number; checkDeadLinks: boolean; includeGeo: boolean; includeAgentSkills: boolean; sites: string[] }) => void
   /**
    * Fired when a seo-sync schedule triggers. The host starts one paid SEO
    * refresh per saved profile under the host's SEO spending policy; each
@@ -778,7 +779,7 @@ export class Scheduler {
       }
 
       if (kind === SchedulableRunKinds['site-audit']) {
-        // Technical AEO: crawl root, sitemap, and linked pages. Like
+        // Agent Readiness: crawl root, sitemap, and linked pages. Like
         // gbp-sync, the scheduler creates the run row and hands the host a
         // runId. A full-site crawl can run for minutes, so skip (without
         // orphaning a run row) when one is already queued/running.
@@ -805,7 +806,9 @@ export class Scheduler {
         // when it runs out of pages to fetch. The schedule decides the checks,
         // so a weekly deep scan includes dead links and location checks.
         const checks = siteAuditScheduleChecks(currentSchedule.siteAuditChecks)
-        const effectiveRequest = normalizeSiteAuditRunRequest(checks, project.siteAuditMaxPages)
+        // The saved sites, less any domain the project no longer owns.
+        const savedSites = resolveSiteAuditDomains(project, project.siteAuditDomains).domains
+        const effectiveRequest = normalizeSiteAuditRunRequest(checks, project.siteAuditMaxPages, savedSites)
         this.db.transaction((tx) => {
           tx.insert(runs).values({
             id: runId,
@@ -833,6 +836,7 @@ export class Scheduler {
           checkDeadLinks: effectiveRequest.checkDeadLinks,
           includeGeo: effectiveRequest.includeGeo,
           includeAgentSkills: effectiveRequest.includeAgentSkills,
+          sites: effectiveRequest.sites,
         })
         return SLOT_FIRED
       }

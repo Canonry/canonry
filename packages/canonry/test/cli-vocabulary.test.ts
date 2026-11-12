@@ -75,6 +75,17 @@ describe('CLI canonical vocabulary', () => {
       expect(out.match(/the answer uses your name, but sentiment found it is about something else/g)).toHaveLength(1)
     })
 
+    it('renders an answer without sources as citation not measured, with its mention intact', () => {
+      const run = makeRun([
+        { query: 'q-local-named', provider: 'local', citationState: 'not-measured', answerMentioned: true },
+        { query: 'q-local-unnamed', provider: 'local', citationState: 'not-measured', answerMentioned: false },
+      ])
+      const out = captureStdout(() => printRunDetail(run))
+      expect(out).toContain('[·M]  local  q-local-named')
+      expect(out).toContain('[·m]  local  q-local-unnamed')
+      expect(out).toContain('·=not measured')
+    })
+
     it('renders the dash glyph for mention when answerMentioned is undefined', () => {
       const run = makeRun([
         { query: 'q-no-mention-data', citationState: 'cited', answerMentioned: undefined },

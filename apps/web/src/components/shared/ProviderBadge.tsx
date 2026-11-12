@@ -3,7 +3,7 @@ import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
 const PROVIDER_BADGE_ENGINES = new Set(['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'])
 
-export function ProviderBadge({ provider }: { provider: string }) {
+export function ProviderBadge({ provider, displayName }: { provider: string; displayName?: string }) {
   // Theme-scoped CSS preserves each engine's identity hue across canvas modes.
   const tone = PROVIDER_BADGE_ENGINES.has(provider)
     ? `provider-badge--${provider}`
@@ -12,7 +12,7 @@ export function ProviderBadge({ provider }: { provider: string }) {
     <span
       className={`inline-flex items-center rounded-full border px-2 py-0.5 text-label-12-strong normal-case ${tone}`}
     >
-      {isOpenRouterRoute(provider) ? providerDisplayName(provider) : provider}
+      {displayName ?? (isOpenRouterRoute(provider) ? providerDisplayName(provider) : provider)}
     </span>
   )
 }

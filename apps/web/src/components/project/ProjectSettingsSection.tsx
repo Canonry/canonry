@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
-import type { ResultsExportFormat } from '@canonry/canonry-contracts'
+import { useEffect, useId, useState } from 'react'
+import { formatLocaleLabel, type ResultsExportFormat } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { addLocation, downloadResultsExport, removeLocation, setDefaultLocation, isEmbed, isPublicDemo, type ApiLocation } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -36,6 +37,7 @@ export function ProjectSettingsSection({
   const [newLocTimezone, setNewLocTimezone] = useState('')
   const [exportingFormat, setExportingFormat] = useState<ResultsExportFormat | null>(null)
   const [resultsExportError, setResultsExportError] = useState<string | null>(null)
+  const fieldId = useId()
 
   // Sync local state when project prop changes (e.g. after save)
   useEffect(() => {
@@ -222,10 +224,9 @@ export function ProjectSettingsSection({
 
   return (
     <>
-      <section className="page-section-divider">
+      <section className="page-section">
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Configuration</p>
           <h2>Project settings</h2>
         </div>
         {canChange && !editing && (
@@ -246,25 +247,25 @@ export function ProjectSettingsSection({
         <div className="material-base p-4 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>Display name</label>
-              <input className={inputClass} type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="My Project" />
+              <label htmlFor={`${fieldId}-display-name`} className={labelClass}>Display name</label>
+              <input id={`${fieldId}-display-name`} className={inputClass} type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="My Project" />
             </div>
             <div>
-              <label className={labelClass}>Canonical domain</label>
-              <input className={inputClass} type="text" value={canonicalDomain} onChange={(e) => setCanonicalDomain(e.target.value)} placeholder="example.com" />
+              <label htmlFor={`${fieldId}-main-domain`} className={labelClass}>Main domain</label>
+              <input id={`${fieldId}-main-domain`} className={inputClass} type="text" value={canonicalDomain} onChange={(e) => setCanonicalDomain(e.target.value)} placeholder="example.com" />
             </div>
             <div>
-              <label className={labelClass}>Country</label>
-              <input className={inputClass} type="text" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="US" maxLength={2} />
+              <label htmlFor={`${fieldId}-country`} className={labelClass}>Country</label>
+              <input id={`${fieldId}-country`} className={inputClass} type="text" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="US" maxLength={2} />
             </div>
             <div>
-              <label className={labelClass}>Language</label>
-              <input className={inputClass} type="text" value={language} onChange={(e) => setLanguage(e.target.value)} placeholder="en" />
+              <label htmlFor={`${fieldId}-language`} className={labelClass}>Language</label>
+              <input id={`${fieldId}-language`} className={inputClass} type="text" value={language} onChange={(e) => setLanguage(e.target.value)} placeholder="en" />
             </div>
           </div>
 
           <div>
-            <label className={labelClass}>Owned domains</label>
+            <label htmlFor={`${fieldId}-owned-domain`} className={labelClass}>Owned domains</label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {ownedDomains.map((d) => (
                 <span key={d} className="inline-flex items-center gap-1 rounded-md border border-mono-700/60 bg-mono-800/40 px-2 py-1 text-label-12 text-neutral">
@@ -275,6 +276,7 @@ export function ProjectSettingsSection({
             </div>
             <div className="flex gap-2">
               <input
+                id={`${fieldId}-owned-domain`}
                 className={`${inputClass} flex-1`}
                 type="text"
                 placeholder="docs.example.com"
@@ -289,7 +291,7 @@ export function ProjectSettingsSection({
           </div>
 
           <div>
-            <label className={labelClass}>Aliases</label>
+            <label htmlFor={`${fieldId}-alias`} className={labelClass}>Aliases</label>
             <p className="mb-1.5 text-copy-14 text-secondary">
               Other brand names that may appear in answers.
             </p>
@@ -303,6 +305,7 @@ export function ProjectSettingsSection({
             </div>
             <div className="flex gap-2">
               <input
+                id={`${fieldId}-alias`}
                 className={`${inputClass} flex-1`}
                 type="text"
                 placeholder="Facebook"
@@ -334,7 +337,7 @@ export function ProjectSettingsSection({
                 <td className="px-4 py-2.5 text-strong">{project.displayName || '\u2014'}</td>
               </tr>
               <tr className="border-b border-subtle">
-                <td className="px-4 py-2.5 text-muted text-label-14-strong">Canonical domain</td>
+                <td className="px-4 py-2.5 text-muted text-label-14-strong">Main domain</td>
                 <td className="px-4 py-2.5 text-strong">{project.canonicalDomain}</td>
               </tr>
               <tr className="border-b border-subtle">
@@ -366,12 +369,9 @@ export function ProjectSettingsSection({
                 </td>
               </tr>
               <tr className="border-b border-subtle">
-                <td className="px-4 py-2.5 text-muted text-label-14-strong">Country</td>
-                <td className="px-4 py-2.5 text-strong">{project.country}</td>
-              </tr>
-              <tr className="border-b border-subtle">
-                <td className="px-4 py-2.5 text-muted text-label-14-strong">Language</td>
-                <td className="px-4 py-2.5 text-strong">{project.language}</td>
+                {/* Setup's name for the project's country and language. */}
+                <td className="px-4 py-2.5 text-muted text-label-14-strong">Market</td>
+                <td className="px-4 py-2.5 text-strong">{formatLocaleLabel(project.country, project.language)}</td>
               </tr>
               {project.tags?.length ? (
                 <tr className="border-b border-subtle">
@@ -386,7 +386,7 @@ export function ProjectSettingsSection({
                 </tr>
               ) : null}
               <tr>
-                <td className="px-4 py-2.5 text-muted text-label-14-strong align-top pt-3">Search Locations</td>
+                <td className="px-4 py-2.5 text-muted text-label-14-strong align-top pt-3">Search locations</td>
                 <td className="px-4 py-2.5">
                   {locationError && (
                     <div className="mb-2 rounded border border-negative-800/40 bg-negative-950/20 px-2 py-1 text-label-12 text-negative">
@@ -452,7 +452,7 @@ export function ProjectSettingsSection({
                     <p className="text-muted text-copy-13 mb-2">No search locations configured</p>
                   )}
                   {!canChange ? null : showAddLocation ? (
-                    <div className="mt-2 material-base p-3 space-y-2">
+                    <div className="mt-3 space-y-2">
                       <p className="text-copy-14-strong text-secondary">Add search location</p>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
@@ -498,20 +498,16 @@ export function ProjectSettingsSection({
       )}
       </section>
 
-      <section className="page-section-divider">
+      <section className="page-section">
         <div className="section-head">
-          <p className="eyebrow eyebrow-soft">Data export</p>
-          <h2>Tracking results</h2>
-          <p className="mt-1 max-w-2xl text-copy-14 text-muted">
-            Download historical citation and mention observations for this project. Each row is one query and provider result, including stored answer text and source URLs.
-          </p>
+          <div className="inline-flex items-center">
+            <h2>Tracking results</h2>
+            <InfoTooltip text="Each exported row is one query and engine result, including the saved answer and source URLs. Includes completed, partial, and failed checks with saved results. Test runs, provider credentials, and raw provider payloads are excluded." />
+          </div>
         </div>
 
-        <div className="material-base px-4 py-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="max-w-xl text-copy-13 text-muted">
-              Includes completed, partial, and failed answer-visibility runs with stored results. Test runs are excluded. Provider credentials and raw provider payloads are never included.
-            </p>
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex shrink-0 flex-wrap gap-2">
               <Button
                 type="button"

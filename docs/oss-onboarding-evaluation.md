@@ -1,5 +1,7 @@
 # Canonry OSS onboarding rework: reveal the operating platform
 
+> **Naming note:** this record keeps the names in use when it was written. The feature it calls Site Health, Page Health, Technical AEO, the technical audit, and the site audit is now **Agent Readiness** (CLI `canonry agent-readiness`, API `/agent-readiness`, MCP `canonry_agent_readiness_*`); the old command, route, and tool names still work as deprecated aliases. Its "Page health" view is now **Score**, and the onboarding stage it calls Site audit is now **Scan site**.
+
 ## The rework in one sentence
 
 This is not a shorter setup wizard. It changes Canonry's first mental model from an LLM query runner into an evidence-connected AEO operating platform.
@@ -607,9 +609,9 @@ Derive it only from configuration and stored database state:
 
 Answer-visibility readiness must reuse the same preflight and measurement materialization rules used by run creation. An empty project provider list inherits configured instance providers, while a V2 measurement plan pins its own engines and execution nodes; simple provider/query counts would create false blockers.
 
-The endpoint must not run Doctor, refresh OAuth, call an answer provider, crawl a URL, or perform any external request. Doctor remains the explicit live-verification surface.
+The endpoint must not run Doctor, refresh OAuth, call an answer provider, crawl a URL, or perform any external request. Doctor and the provider connection test (`POST /settings/providers/{name}/test`, `canonry settings provider test`) remain the explicit live-verification surfaces.
 
-Connection and provider facts are therefore “configured” or “stored evidence available,” not live-verified credential claims. When in-flight Aero state is required, the host must supply an explicit `getAgentRuntimeState(projectId)` callback from `SessionRegistry`; otherwise the composite reports only session existence and last activity.
+Connection and provider facts are therefore “configured” or “stored evidence available,” not live-verified credential claims. A provider connection's stored `lastTest` is evidence of an earlier live test of its current settings, not a new check. When in-flight Aero state is required, the host must supply an explicit `getAgentRuntimeState(projectId)` callback from `SessionRegistry`; otherwise the composite reports only session existence and last activity.
 
 Performance target for the local composite:
 
@@ -693,7 +695,7 @@ No DB migration is required for V1 because the draft and discovery provenance ar
 
 Automatic first-run scanning must not ship until the public-fetch boundary is verified end to end.
 
-Current main uses `@canonry/aeo-audit@4.6.2`. The Canonry wrapper visibly resolves and rejects private addresses for the homepage and optional sitemap before delegating to the crawl engine. That does not by itself prove every redirect, nested sitemap, DNS answer, and page fetch is revalidated and pinned.
+Current main uses the published `@canonry/agent-readiness` engine. The Canonry wrapper visibly resolves and rejects private addresses for the homepage and optional sitemap before delegating to the crawl engine. That does not by itself prove every redirect, nested sitemap, DNS answer, and page fetch is revalidated and pinned.
 
 Complete a blocking spike against the pinned audit package and add or upstream the missing fetch seam. The automatic first-run scan path must enforce:
 
@@ -1228,7 +1230,7 @@ Existing gcloud authentication does not automatically become a durable Canonry G
 ## Remaining questions and blocking spikes
 
 - What active-plane and freshness threshold lets the UI label a multi-plane brief “connected”?
-- Does `@canonry/aeo-audit@4.6.2` expose and prove enough fetch control to enforce redirect, DNS-rebinding, size, domain, and abort guarantees for every page and nested sitemap, or is an upstream change required?
+- Does `@canonry/agent-readiness` expose and prove enough fetch control to enforce redirect, DNS-rebinding, size, domain, and abort guarantees for every page and nested sitemap, or is an upstream change required?
 - What terminal-time target and progress stages are realistic on the first-run site corpus without shrinking the map into a misleading sample?
 - Should a configured proactive Aero analyze the first canonical scan automatically with explicit disclosure, or should onboarding offer a scan-only completion mode?
 - Which page/path selection rules create useful proposed Properties without treating arbitrary URL folders as business entities?

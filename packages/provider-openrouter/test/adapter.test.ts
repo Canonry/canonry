@@ -182,3 +182,34 @@ test('a choice-level error without a code still fails, and a client error is not
   await expect(openrouterAdapter.executeTrackedQuery(input, config)).rejects.toThrow('HTTP 400')
   expect(transport).toHaveBeenCalledTimes(1)
 })
+
+test('an account without credits fails at once with OpenRouter\'s reason, never retried as a server error', async () => {
+  const insufficient = { error: { code: 402, message: 'Insufficient credits. Add more using https://openrouter.ai/settings/credits' } }
+  const transport = vi.fn(async () => json(insufficient, 402))
+  vi.stubGlobal('fetch', transport)
+  await expect(openrouterAdapter.executeTrackedQuery(input, config)).rejects.toThrow('OpenRouter request failed (HTTP 402): Insufficient credits. Add more using https://openrouter.ai/settings/credits')
+  expect(transport).toHaveBeenCalledTimes(1)
+
+  // The same refusal inside an HTTP 200 body, with its code written as a string.
+  transport.mockReset().mockImplementation(async () => json({ error: { ...insufficient.error, code: '402' } }))
+  await expect(openrouterAdapter.executeTrackedQuery(input, config)).rejects.toThrow('(HTTP 402): Insufficient credits')
+  expect(transport).toHaveBeenCalledTimes(1)
+})
+
+test('a server error keeps OpenRouter\'s reason and never repeats the key it was sent', async () => {
+  vi.useFakeTimers()
+  const transport = vi.fn(async () => json({ error: { code: 502, message: `Upstream rejected key ${config.apiKey}:\n  provider returned error` } }, 502))
+  vi.stubGlobal('fetch', transport)
+  const pending = openrouterAdapter.executeTrackedQuery(input, config)
+  const outcome = expect(pending).rejects.toThrow(/^OpenRouter request failed \(HTTP 502\): Upstream rejected key \[REDACTED\]: provider returned error$/)
+  await vi.runAllTimersAsync()
+  await outcome
+  // A 5xx is transient, so it was retried before giving up.
+  expect(transport.mock.calls.length).toBeGreaterThan(1)
+})
+
+test('an error body that is not JSON still fails on its status alone', async () => {
+  const transport = vi.fn(async () => new Response('<html>Bad gateway</html>', { status: 400, headers: { 'content-type': 'text/html' } }))
+  vi.stubGlobal('fetch', transport)
+  await expect(openrouterAdapter.executeTrackedQuery(input, config)).rejects.toThrow(/^OpenRouter request failed \(HTTP 400\)$/)
+})

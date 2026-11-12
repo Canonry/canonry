@@ -751,7 +751,7 @@ function loadDeadLinks(db: DatabaseClient, facts: ProjectFacts): DeadLinks | nul
 }
 
 function deadLinkStep(project: DemoSeedProject, deadLinks: DeadLinks, text: string): AeroPreviewStep {
-  return step('canonry_technical_aeo_dead_links', { project: project.name }, {
+  return step('canonry_agent_readiness_dead_links', { project: project.name }, {
     state: deadLinks.state,
     checked: deadLinks.checked,
     found: deadLinks.found,
@@ -1041,7 +1041,7 @@ function harborInsights(db: DatabaseClient, facts: ProjectFacts, deadLinks: Dead
   }
   if (deadLinks) {
     const detail = deadLinkDetail(deadLinks)
-    findings.push(`**${deadLinks.found} dead links from the site audit.** There is ${detail}. Action: remove or redirect that link on all ${deadLinks.sources.length} pages. ${link('Open Site Health', `/projects/${project.name}/technical-aeo`)}`)
+    findings.push(`**${deadLinks.found} dead links from the site audit.** There is ${detail}. Action: remove or redirect that link on all ${deadLinks.sources.length} pages. ${link('Open Agent Readiness', `/projects/${project.name}/agent-readiness`)}`)
   }
   const answer = [
     `Only ${active.length} ${active.length === 1 ? 'insight is' : 'insights are'} stored for ${project.displayName}${fromSweeps.length === 0 ? `, and ${active.length === 2 ? 'neither' : 'none'} comes from a sweep` : ''}, so there is no severity ranking worth walking through. These are the ${findings.length} most important measured findings instead:`,

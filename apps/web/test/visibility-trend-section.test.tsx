@@ -29,12 +29,12 @@ vi.mock('recharts', () => {
   }
 })
 
-import { VisibilityTrendSection } from '../src/components/project/VisibilityTrendSection.js'
+import { CITATION_NOT_MEASURED_TREND_COPY, VisibilityTrendSection } from '../src/components/project/VisibilityTrendSection.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 import { cancelledSweepBetweenMetrics, removedAndReAddedMetrics, roundTripInsidePointMetrics } from './basket-scenarios-fixture.js'
 
 function provider(citationRate: number, mentionRate: number) {
-  return { citationRate, cited: 1, total: 4, mentionRate, mentionedCount: 2 }
+  return { citationRate, cited: 1, total: 4, citationNotMeasured: 0, mentionRate, mentionedCount: 2 }
 }
 
 type RateChange = { first: number; latest: number; delta: number } | null
@@ -83,7 +83,7 @@ const TWO_BUCKETS = [
   {
     startDate: '2026-04-01T00:00:00.000Z', endDate: '2026-04-08T00:00:00.000Z',
     dataStartDate: '2026-04-03T14:20:00.000Z', dataEndDate: '2026-04-03T14:20:00.000Z', sweepCount: 1,
-    citationRate: 0.25, cited: 1, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+    citationRate: 0.25, cited: 1, total: 4, citationNotMeasured: 0, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { scope: 'non-brand', rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 },
     byProvider: { gemini: provider(0.25, 0.5), openai: provider(0.5, 0.25) },
     modelEvidenceByProvider: {
@@ -94,7 +94,7 @@ const TWO_BUCKETS = [
   {
     startDate: '2026-04-08T00:00:00.000Z', endDate: '2026-04-15T00:00:00.000Z',
     dataStartDate: '2026-04-11T08:05:00.000Z', dataEndDate: '2026-04-11T08:05:00.000Z', sweepCount: 1,
-    citationRate: 0.75, cited: 3, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+    citationRate: 0.75, cited: 3, total: 4, citationNotMeasured: 0, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { scope: 'non-brand', rate: 0.75, projectMentionSnapshots: 3, competitorMentionSnapshots: 1 },
     byProvider: { gemini: provider(0.75, 0.5) },
     modelEvidenceByProvider: {
@@ -120,10 +120,18 @@ function changeRows(root: HTMLElement): string[][] {
   return [...root.querySelectorAll('.av-change-table tbody tr')].map(row => [...row.children].map(cell => (cell.textContent ?? '').replace(/\u00a0/g, ' ')))
 }
 
+/** The headline's label and figure as a screen reader reads them, in order, sr-only text included. */
+function headlineText(): string {
+  return [
+    document.querySelector('.visibility-trend-current-label')?.textContent,
+    document.querySelector('.visibility-trend-current-value')?.textContent,
+  ].join(' ')
+}
+
 /** The bullets of the Details list directly under `root`. */
 function detailsText(root: Element): string[] {
   const details = [...root.querySelectorAll(':scope > details.av-details, :scope .av-wc-body > details.av-details')][0]
-  return [...(details?.querySelectorAll('li') ?? [])].map(item => item.textContent ?? '')
+  return [...(details?.querySelectorAll(':scope > .av-details-list > li') ?? [])].map(item => item.textContent ?? '')
 }
 
 function renderSection(competitorDomains: readonly string[] = []) {
@@ -197,7 +205,10 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   // not an engine average. Mentioned sits at 0.5 in both buckets and the query
   // set held still, so its change reads as none, with no caveat beside it.
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('no change')
-  expect(document.querySelector('.visibility-trend-current')?.textContent).not.toMatch(/answers|queries/)
+  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mentioned · all queries')
+  // The label already names the class, so the figure is heard with it once.
+  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('50.0%')
+  expect(headlineText()).toBe('Mentioned · all queries 50.0%')
   expect(document.querySelector('.visibility-trend-current .info-tooltip-trigger')).toBeNull()
   expect(screen.getByText('Mentioned rate across 2 checks. Latest 50.0%, no change over the period.')).toBeTruthy()
   expect(detailsText(document.querySelector('.visibility-trend')!)).toEqual([
@@ -342,6 +353,7 @@ test('renders mention-share as a metric view and hides the engine split', async 
   // The headline names mention share's scope, as it did before the cleanup,
   // and assistive tech hears it with the name.
   expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share in non-brand answers')
+  expect(headlineText()).toBe('Mention share in non-brand answers 75.0%')
   expect(screen.getByRole('img', { name: /^Mention share in non-brand answers trend chart/ })).toBeTruthy()
   expect(screen.getByText(/75\.0% mention share in non-brand answers, 3 of 4 tracked-brand mentions were you/)).toBeTruthy()
 })
@@ -375,6 +387,79 @@ test('reads the head and legend from the API rates, so a rate near either end ne
   expect(within(legend).getByText('>99.9%')).toBeTruthy()
   expect(screen.queryByText('0%')).toBeNull()
   expect(screen.queryByText('100%')).toBeNull()
+})
+
+/** A bucket where Gemini checked sources and Local, with no web access, did not. */
+function mixedEngineBucket(start: string, sweptAt: string, geminiCited: number) {
+  return {
+    startDate: start, endDate: start, dataStartDate: sweptAt, dataEndDate: sweptAt, sweepCount: 1,
+    citationRate: geminiCited / 2, cited: geminiCited, total: 4, citationNotMeasured: 2, citedTotal: 2, queryCount: 2, mentionRate: 0.5, mentionedCount: 2,
+    mentionShare: { scope: 'non-brand', rate: null, projectMentionSnapshots: 2, competitorMentionSnapshots: 0 },
+    byProvider: {
+      gemini: { citationRate: geminiCited / 2, cited: geminiCited, total: 2, citationNotMeasured: 0, citedTotal: 2, mentionRate: 0.5, mentionedCount: 1 },
+      local: { citationRate: null, cited: 0, total: 2, citationNotMeasured: 2, citedTotal: 0, mentionRate: 0.5, mentionedCount: 1 },
+    },
+    modelEvidenceByProvider: {},
+  }
+}
+
+test('reads Cited over the answers with sources and names an engine without sources Not measured', async () => {
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(metricsDto([
+        mixedEngineBucket('2026-04-01T00:00:00.000Z', '2026-04-03T14:20:00.000Z', 1),
+        mixedEngineBucket('2026-04-08T00:00:00.000Z', '2026-04-11T08:05:00.000Z', 2),
+      ]))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+  await screen.findByRole('list', { name: 'Engines' })
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
+
+  const legend = screen.getByRole('list', { name: 'Engines' })
+  expect([...legend.querySelectorAll('li')].map(item => item.textContent)).toEqual([
+    'Gemini100%',
+    `Local${CITATION_NOT_MEASURED_TREND_COPY.value}`,
+  ])
+  // 2 of the 2 answers with sources, not 2 of all 4.
+  expect(detailsText(document.querySelector('.visibility-trend')!)[0]).toBe('Latest point: 2 of 2 answers')
+  expect(screen.getByText(`Gemini 100% cited, 2 of 2 answers; Local cited ${CITATION_NOT_MEASURED_TREND_COPY.point}`)).toBeTruthy()
+  // An engine that cannot cite never reads as a 0% line.
+  expect(within(legend).queryByText('0%')).toBeNull()
+})
+
+test('draws no Cited chart when no engine returns sources, while Mentioned still plots', async () => {
+  const localOnly = (start: string, sweptAt: string) => ({
+    ...mixedEngineBucket(start, sweptAt, 0),
+    citationRate: null, cited: 0, total: 2, citationNotMeasured: 2,
+    byProvider: { local: { citationRate: null, cited: 0, total: 2, citationNotMeasured: 2, mentionRate: 0.5, mentionedCount: 1 } },
+  })
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse({
+        ...metricsDto([localOnly('2026-04-01T00:00:00.000Z', '2026-04-03T14:20:00.000Z'), localOnly('2026-04-08T00:00:00.000Z', '2026-04-11T08:05:00.000Z')]),
+        overall: { citationRate: null, cited: 0, total: 4, citationNotMeasured: 4, mentionRate: 0.5, mentionedCount: 2 },
+        byProvider: { local: { citationRate: null, cited: 0, total: 4, citationNotMeasured: 4, mentionRate: 0.5, mentionedCount: 2 } },
+      })
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+  await screen.findByRole('list', { name: 'Engines' })
+  expect(screen.getByRole('img', { name: /^Mentioned trend chart/ })).toBeTruthy()
+
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
+
+  expect(screen.getByText(CITATION_NOT_MEASURED_TREND_COPY.window)).toBeTruthy()
+  expect(screen.queryByRole('img', { name: /^Cited trend chart/ })).toBeNull()
+  expect(document.querySelector('.visibility-trend-current-value')).toBeNull()
 })
 
 test('prints the server change across the window, never a subtraction of the plotted rates', async () => {
@@ -595,8 +680,8 @@ test('never flags a Perplexity preset, and says in What changed which model it a
 
   await screen.findByRole('list', { name: 'Engines' })
   expect(screen.queryByRole('list', { name: 'Model substitutions' })).toBeNull()
-  expect(changeRows(whatChanged())).toEqual([['Perplexity', expect.stringMatching(/^Apr 11/), 'perplexity/sonar', 'fast']])
-  expect(within(whatChanged()).getByRole('button', { name: 'Preset picks its own model. Answered with openai/gpt-6-luna (was perplexity/sonar).' })).toBeTruthy()
+  expect(changeRows(whatChanged())).toEqual([['Perplexity', expect.stringMatching(/^Apr 11/), 'Perplexity: Sonar', 'fast']])
+  expect(within(whatChanged()).getByRole('button', { name: 'Preset picks its own model. Answered with GPT-6 Luna (was Perplexity: Sonar).' })).toBeTruthy()
 })
 
 test('says nothing about served models when the API omits them', async () => {
@@ -784,7 +869,7 @@ function basketPoint(day: string, rate: 0 | 0.5 | 1, queryCount: number, revisio
   return {
     startDate: `${day}T00:00:00.000Z`, endDate: `${day}T23:59:59.999Z`,
     dataStartDate: `${day}T12:00:00.000Z`, dataEndDate: `${day}T12:00:00.000Z`, sweepCount: 1,
-    citationRate: rate, cited: 4 * rate, total: 4, queryCount, mentionRate: rate, mentionedCount: 4 * rate,
+    citationRate: rate, cited: 4 * rate, total: 4, citationNotMeasured: 0, queryCount, mentionRate: rate, mentionedCount: 4 * rate,
     mentionShare: { scope: 'non-brand', rate: null, projectMentionSnapshots: 4 * rate, competitorMentionSnapshots: 0 },
     byProvider: { gemini: provider(rate, rate) },
     modelEvidenceByProvider: {}, basketRevision: revision,
@@ -929,31 +1014,42 @@ test('opens on non-brand answers with a class toggle, and reads each class from 
     </QueryClientProvider>,
   )
 
-  await screen.findByRole('list', { name: 'Engines' })
+  // One measured point still opens on the chart and its filters; only the fine print waits in a closed Details.
+  const card = await screen.findByRole('region', { name: 'AI answers over time' })
+  const details = await within(card).findByText('Details', { selector: 'summary' })
+  expect(details.closest('details')).toHaveProperty('open', false)
+  expect(within(card).queryByText('Filters and details', { selector: 'summary' })).toBeNull()
   const classes = screen.getByRole('radiogroup', { name: 'Query type' })
   expect(within(classes).getAllByRole('radio').map(radio => [radio.textContent, radio.getAttribute('aria-checked')])).toEqual([
     ['Non-brand', 'true'], ['Branded', 'false'], ['All', 'false'],
   ])
-  // Leads the controls, ahead of the metric.
-  expect(document.querySelector('.visibility-trend-controls')?.firstElementChild).toBe(classes)
+  expect(classes.closest('details')).toBeNull()
+  expect(within(card).getByRole('radiogroup', { name: 'Metric' }).closest('details')).toBeNull()
+  expect(within(card).getByRole('radiogroup', { name: 'Time window' }).closest('details')).toBeNull()
+  const help = 'This view has one measurement point. A trend needs at least two comparable points.'
+  expect(screen.queryByText(help)).toBeNull()
+  expect(screen.getByRole('button', { name: help })).toBeTruthy()
   expect(requested).toEqual(['non-brand'])
-  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('15.9%')
+  // Beside the class control the label is the bare metric, so the figure carries the class for a screen reader.
+  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('15.9% · non-brand queries')
+  expect(document.querySelector('.visibility-trend-current-value .sr-only')?.textContent).toBe(' · non-brand queries')
+  expect(headlineText()).toBe('Mentioned 15.9% · non-brand queries')
   expect(trendDetails()[0]).toBe('Latest point: 21 of 132 answers')
   expect(screen.getByText(/^Mentioned rate in non-brand answers across 1 check\. Latest 15\.9%\.$/)).toBeTruthy()
 
   await act(async () => { fireEvent.click(within(classes).getByRole('radio', { name: 'Branded' })) })
-  await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('91.7%'))
+  await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('91.7% · branded queries'))
   expect(trendDetails()[0]).toBe('Latest point: 22 of 24 answers')
 
   await act(async () => { fireEvent.click(within(classes).getByRole('radio', { name: 'All' })) })
-  await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('27.6%'))
+  await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('27.6% · all queries'))
   expect(trendDetails()[0]).toBe('Latest point: 43 of 156 answers')
   expect(requested).toEqual(['non-brand', 'branded', 'all'])
 
   // Mention share is non-brand already: it reads the unsplit response and the
   // class toggle steps aside, as the series toggle does.
   await act(async () => { fireEvent.click(within(classes).getByRole('radio', { name: 'Non-brand' })) })
-  await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('15.9%'))
+  await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('15.9% · non-brand queries'))
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
   expect(screen.queryByRole('radiogroup', { name: 'Query type' })).toBeNull()
   await waitFor(() => expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share in non-brand answers'))
@@ -974,6 +1070,7 @@ test('keeps the pooled card, with no class toggle, when the project cannot split
 
   await screen.findByRole('list', { name: 'Engines' })
   expect(screen.queryByRole('radiogroup', { name: 'Query type' })).toBeNull()
+  expect(screen.getByText('Mentioned · all queries').closest('.sr-only')).toBeNull()
   expect(urls.some(url => url.includes('queryClass'))).toBe(false)
 })
 

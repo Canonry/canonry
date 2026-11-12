@@ -3,14 +3,16 @@ import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@canonry/canonry-db'
-import type { GbpReviewAlertState, HealthAlertCopy, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload, UnrecognizedAgentWebhookPayload } from '@canonry/canonry-contracts'
-import { HEALTH_NO_LONGER_URGENT, businessProfileReviewsCover, isNegativeReviewRating, resolveNegativeReviewMaxStars } from '@canonry/canonry-contracts'
-import type { RunCompletionOrigin } from '@canonry/canonry-contracts'
+import type { CitationState, GbpReviewAlertState, HealthAlertCopy, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload, UnrecognizedAgentWebhookPayload } from '@canonry/canonry-contracts'
+import { CitationStates, HEALTH_NO_LONGER_URGENT, businessProfileReviewsCover, isCitationStateMeasured, isNegativeReviewRating, readCitationState, resolveNegativeReviewMaxStars } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses } from '@canonry/canonry-contracts'
+import type { RunCompletionOrigin, SiteHealthIssueWebhookPayload } from '@canonry/canonry-contracts'
 import type { AnalysisResult, Insight } from '@canonry/canonry-intelligence'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 import { isWithinAlertWindow } from './gbp-reviews.js'
 import { projectsWithRecentUnrecognizedAgents, recordUnrecognizedAgentDecisions, undecidedUnrecognizedAgents, UnrecognizedAgentNotifyStates } from './unrecognized-agent-alerts.js'
+import { newSiteHealthIssues, readSiteHealthNotifyState, readSiteHealthScan, settledSiteHealthKeys, writeSiteHealthNotifyState } from './site-health-alerts.js'
 import { CHECK_RUNTIME_ERROR_SUFFIX, CheckNotificationPolicies, CheckStatuses, compareText, describeError, notificationEventSchema, statusClassOf, type CheckNotificationPolicy, type OutcomeReasonCode, type StatusClass } from '@canonry/canonry-contracts'
 import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
@@ -229,7 +231,7 @@ export const SITE_LIVENESS_MIN_PASS_GAP_MS = 4 * 60_000
  */
 export const SITE_LIVENESS_MAX_PASS_GAP_MS = 45 * 60_000
 
-type AnyWebhookPayload = WebhookPayload | InsightWebhookPayload | ReviewWebhookPayload | RatingWebhookPayload | UnrecognizedAgentWebhookPayload
+type AnyWebhookPayload = WebhookPayload | InsightWebhookPayload | ReviewWebhookPayload | RatingWebhookPayload | UnrecognizedAgentWebhookPayload | SiteHealthIssueWebhookPayload
 
 export class Notifier {
   private db: DatabaseClient
@@ -300,8 +302,8 @@ export class Notifier {
       events.push('run.failed')
     }
 
-    const lostTransitions = transitions.filter(t => t.to === 'not-cited' && t.from === 'cited')
-    const gainedTransitions = transitions.filter(t => t.to === 'cited' && t.from === 'not-cited')
+    const lostTransitions = transitions.filter(t => t.to === CitationStates['not-cited'] && t.from === CitationStates.cited)
+    const gainedTransitions = transitions.filter(t => t.to === CitationStates.cited && t.from === CitationStates['not-cited'])
 
     if (lostTransitions.length > 0) events.push('citation.lost')
     if (gainedTransitions.length > 0) events.push('citation.gained')
@@ -1409,6 +1411,7 @@ export class Notifier {
         provider: querySnapshots.provider,
         location: querySnapshots.location,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
       })
       .from(querySnapshots)
       .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
@@ -1421,6 +1424,7 @@ export class Notifier {
         provider: querySnapshots.provider,
         location: querySnapshots.location,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
       })
       .from(querySnapshots)
       .where(inArray(querySnapshots.runId, previousRunIds))
@@ -1433,22 +1437,31 @@ export class Notifier {
     // Orphan snapshots (queryId NULL, post-v58: tracked query was deleted)
     // are skipped — they all collide under a null key and a transition on
     // a no-longer-tracked query isn't useful to notify on.
-    const prevMap = new Map<string, string>()
+    //
+    // States are read through `readCitationState`, and an answer whose
+    // citation was not measured (the engine returns no sources) has no state
+    // to move from or to. Comparing raw rows would turn the first sweep after
+    // an upgrade into a burst of `not-cited → not-measured` transitions.
+    const prevMap = new Map<string, CitationState>()
     for (const s of previousSnapshots) {
       if (s.queryId == null) continue
-      prevMap.set(`${s.queryId}:${s.provider}:${s.location ?? ''}`, s.citationState)
+      const state = readCitationState(s)
+      if (!isCitationStateMeasured(state)) continue
+      prevMap.set(`${s.queryId}:${s.provider}:${s.location ?? ''}`, state)
     }
 
     const transitions: Array<{ query: string; from: string; to: string; provider: string; location: string | null }> = []
     for (const s of currentSnapshots) {
       if (s.queryId == null) continue
+      const state = readCitationState(s)
+      if (!isCitationStateMeasured(state)) continue
       const key = `${s.queryId}:${s.provider}:${s.location ?? ''}`
       const prevState = prevMap.get(key)
-      if (prevState && prevState !== s.citationState) {
+      if (prevState && prevState !== state) {
         transitions.push({
           query: s.query ?? s.queryId,
           from: prevState,
-          to: s.citationState,
+          to: state,
           provider: s.provider,
           location: s.location,
         })
@@ -1508,6 +1521,69 @@ export class Notifier {
       this.unrecognizedAgentDispatchInFlight = false
     }
     return sentNames
+  }
+
+  /**
+   * After a site audit, send `site-health.issue.new` to the webhooks that list
+   * it when the scan found a critical page problem on a page where it was not
+   * reported before.
+   *
+   * What was reported lives in `site_health_notify_state`. It changes when a
+   * subscriber accepts an alert, so a refused alert is owed again after the
+   * next audit, and when a complete scan no longer finds a problem, so the
+   * problem is reported again if it comes back. A partial scan may have missed
+   * pages, so it never clears anything. Nothing is recorded while no webhook
+   * subscribes: a new subscriber hears about every current problem once.
+   *
+   * Returns the event sent, or null when nothing was sent, so "stayed quiet" is
+   * observable in tests.
+   */
+  async onSiteAuditCompleted(runId: string, projectId: string): Promise<'site-health.issue.new' | null> {
+    const run = this.db.select().from(runs).where(eq(runs.id, runId)).get()
+    if (!run || run.kind !== RunKinds['site-audit']) return null
+    if (run.status !== RunStatuses.completed && run.status !== RunStatuses.partial) return null
+    const subscribed = this.db.select().from(notifications).where(eq(notifications.projectId, projectId)).all()
+      .filter(n => n.enabled && n.config.url && (n.config.events as string[]).includes('site-health.issue.new'))
+    if (subscribed.length === 0) return null
+    const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
+    if (!project) return null
+    const scan = readSiteHealthScan(this.db, projectId, runId)
+    if (!scan) return null
+
+    const state = readSiteHealthNotifyState(this.db, projectId)
+    const reported = new Set(state?.reportedKeys ?? [])
+    const now = new Date().toISOString()
+    const issues = newSiteHealthIssues(scan, reported)
+    if (issues.length === 0) {
+      if (state && scan.complete) {
+        writeSiteHealthNotifyState(this.db, {
+          projectId, runId, reportedKeys: settledSiteHealthKeys(scan, reported), updatedAt: now, notifiedAt: state.notifiedAt,
+        })
+      }
+      return null
+    }
+
+    const payload: SiteHealthIssueWebhookPayload = {
+      source: 'canonry',
+      event: 'site-health.issue.new',
+      project: { name: project.name, canonicalDomain: project.canonicalDomain },
+      run: { id: run.id, status: run.status, finishedAt: run.finishedAt },
+      scanComplete: scan.complete,
+      issues,
+      dashboardUrl: `${this.serverUrl}/projects/${project.name}/technical-aeo`,
+    }
+    let accepted = false
+    for (const notif of subscribed) {
+      if (await this.sendWebhook(notif.config.url!, payload, notif.id, projectId, notif.webhookSecret ?? null)) accepted = true
+    }
+    if (!accepted) {
+      log.info('site-health.alert-owed', { runId, projectId, issues: issues.length })
+      return null
+    }
+    writeSiteHealthNotifyState(this.db, {
+      projectId, runId, reportedKeys: settledSiteHealthKeys(scan, reported), updatedAt: now, notifiedAt: now,
+    })
+    return 'site-health.issue.new'
   }
 
   private async sendWebhook(url: string, payload: AnyWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<boolean> {

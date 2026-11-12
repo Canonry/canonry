@@ -3,13 +3,75 @@ import { decodeHTML } from 'entities'
 import { hostOf } from '@canonry/canonry-contracts'
 import { createGuardedFetch, type GuardedFetch } from './guarded-fetch.js'
 
+/**
+ * "Offer" and "deal" are also ordinary verbs ("this guide deals with leaks",
+ * "does the contractor offer inspections", "what the manufacturer offers",
+ * "the company offers free inspections", "polyurea offers greater durability").
+ * These constructions read as verbs and never as a promotion, so they are set
+ * aside before the word check. Only quality comparatives follow "offers" here:
+ * "better", "lower" and "more" can precede rates or prices, so they stay out.
+ * Every promotional phrase is still refused, wherever it appears.
+ */
+const WORD = String.raw`[\p{L}\p{N}&.'’-]+`
+const VERB_USES = [
+  /\bdeals?\s+with\b/gu,
+  new RegExp(
+    String.raw`\b(?:does|do|did|will|would|can|could|may|might|should|must|to)\s+(?:not\s+)?(?:${WORD}\s+){0,4}?offer\b`,
+    'gu',
+  ),
+  new RegExp(String.raw`\bwhat\s+(?:${WORD}\s+){0,3}?offers?\b`, 'gu'),
+  /\boffers?(?=\s+(?:a|an|the|free|both|several|written|financing|warrant(?:y|ies)|inspections?|services?|repairs?|coverage|options?|support|greater|superior|stronger|faster|longer)\b)/gu,
+]
+function withoutVerbUses(text: string): string {
+  return VERB_USES.reduce((value, verb) => value.replace(verb, ' '), text)
+}
+
 export function hotelEditorialText(value: string): boolean {
   const text = decodeHTML(value).normalize('NFKC').toLowerCase()
   return (
     text.trim().length > 0 &&
     !/\b(?:offers?|deals?|promotions?|discounts?|coupons?|promo\s*codes?|special\s+rates?|book\s+now|save\s+\d+)\b|\d+\s*%\s*off/iu.test(
-      text,
+      withoutVerbUses(text),
     )
+  )
+}
+
+/**
+ * Promotions refused anywhere, including an article's own sentences: the strong
+ * signals above, and offer or deal used as a promotion ("special offers", "travel
+ * deals", "explore our deals", "offer ends", "deal of the week").
+ */
+const PROMOTION = new RegExp(
+  [
+    String.raw`\b(?:promotions?|discounts?|coupons?|promo\s*codes?|special\s+rates?|book\s+now|save\s+\d+)\b`,
+    String.raw`\d+\s*%\s*off`,
+    String.raw`\b(?:special|exclusive|limited[-\s]+time|seasonal|holiday|weekend|package|hot|last[-\s]+minute|early[-\s]+bird|flash|daily|weekly|monthly|travel|room|hotel|stay|spa|dining|best|great|top|our|these|latest|current|view|see|explore|browse|all)\s+(?:offers?|deals?)\b`,
+    String.raw`\b(?:offers?|deals?)\s+(?:end(?:s|ing)?|expire[sd]?|expiring|code)\b`,
+    String.raw`\b(?:deal|offer)\s+of\s+the\s+(?:day|week|month)\b`,
+  ].join('|'),
+  'u',
+)
+function promotionFree(value: string): boolean {
+  return !PROMOTION.test(decodeHTML(value).normalize('NFKC').toLowerCase())
+}
+
+/**
+ * An article's own sentences (paragraph and list-item text) are left out of the
+ * plain word check, so "offer" and "deal" can be used in them as ordinary words.
+ * Links inside them, every tag and attribute, headings, menus, buttons and
+ * structured data keep that check.
+ */
+const TAG = String.raw`<(?:[^"'<>]|"[^"]*"|'[^']*')*>`
+const SENTENCES =
+  /(<(p|li)\b(?:[^"'<>]|"[^"]*"|'[^']*')*>)([\s\S]*?)(<\/\2\s*>)/giu
+const SENTENCE_PARTS = new RegExp(String.raw`(<a\b(?:[^"'<>]|"[^"]*"|'[^']*')*>[\s\S]*?<\/a\s*>|${TAG})|[^<]+`, 'giu')
+function withoutSentenceText(html: string): string {
+  return html.replace(
+    SENTENCES,
+    (_whole, open: string, _tag: string, inner: string, close: string) =>
+      open +
+      inner.replace(SENTENCE_PARTS, (_part, markup: string | undefined) => markup ?? ' ') +
+      close,
   )
 }
 
@@ -143,10 +205,13 @@ function editorialHtml(html: string): boolean {
       return `<script${attributes}>${normalized}</script>`
     },
   )
+  const markup = withoutSentenceText(text)
   return (
     valid &&
-    hotelEditorialText(text) &&
-    hotelEditorialText(decodePercentRuns(text))
+    hotelEditorialText(markup) &&
+    hotelEditorialText(decodePercentRuns(markup)) &&
+    promotionFree(text) &&
+    promotionFree(decodePercentRuns(text))
   )
 }
 export async function hotelEditorialDestination(

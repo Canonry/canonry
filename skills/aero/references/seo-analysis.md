@@ -121,8 +121,8 @@ Use this order of judgment:
 | Competitor with stronger domain estimates | Investigate the difference within comparable scope | Per-target evidence. Totals do not establish keyword gaps. |
 | Missing, stale, partial, or incompatible evidence | Validate the evidence first | The exact missing dataset, profile, or comparable refresh |
 
-Inspect stored page or Site Health evidence before prescribing title, content, indexability, or internal-link changes.
-Read `site-health` through `read_skill_doc` for its interpretation rules.
+Inspect stored page or Agent Readiness evidence before prescribing title, content, indexability, or internal-link changes.
+Read the Agent Readiness skill doc (slug `site-health`) through `read_skill_doc` for its interpretation rules.
 A rank alone cannot identify a technical or content cause.
 If supporting evidence is absent, recommend a specific inspection instead of asserting a defect.
 

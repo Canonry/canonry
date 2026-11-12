@@ -348,7 +348,7 @@ test('renders tracked work in the global task center across the app shell', asyn
   )
 
   expect(screen.getByText('Active tasks')).not.toBeNull()
-  expect(screen.getAllByText('Technical AEO audit').length).toBeGreaterThanOrEqual(1)
+  expect(screen.getAllByText('Agent Readiness audit scan').length).toBeGreaterThanOrEqual(1)
   expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1)
   expect(screen.getAllByText('Citypoint Dental NYC').length).toBeGreaterThanOrEqual(1)
 })
@@ -503,13 +503,13 @@ function TriggerSiteAuditButton() {
         })
       }}
     >
-      Trigger technical audit
+      Trigger Agent Readiness audit scan
     </button>
   )
 }
 
-test('tracks a queued Technical AEO audit for the global task center', async () => {
-  const fetchMock = vi.fn(async () => jsonResponse({ runId: 'audit_1', status: 'queued' }))
+test('tracks a queued Agent Readiness audit scan for the global task center', async () => {
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ runId: 'audit_1', status: 'queued' }))
   vi.stubGlobal('fetch', fetchMock)
 
   const queryClient = createQueryClient()
@@ -525,7 +525,7 @@ test('tracks a queued Technical AEO audit for the global task center', async () 
     </QueryClientProvider>,
   )
 
-  fireEvent.click(screen.getByRole('button', { name: 'Trigger technical audit' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Trigger Agent Readiness audit scan' }))
 
   await waitFor(() => {
     expect(getRunTrackerState().runs.audit_1).toMatchObject({
@@ -534,7 +534,10 @@ test('tracks a queued Technical AEO audit for the global task center', async () 
       sourceAction: 'site-audit',
     })
   })
-  expect(getToasts().some((toast) => toast.title === 'Site Health scan queued')).toBe(true)
+  expect(getToasts().some((toast) => toast.title === 'Agent Readiness audit scan queued')).toBe(true)
+  // The dashboard queues scans on the canonical route, never the deprecated `/technical-aeo` alias.
+  expect(fetchMock.mock.calls.map(([input]) => new URL(input instanceof Request ? input.url : String(input), 'http://localhost').pathname))
+    .toEqual(['/api/v1/projects/citypoint/agent-readiness/runs'])
   expect(queryClient.getQueryState(projectSiteAuditRunsKey)?.isInvalidated).toBe(true)
 })
 
@@ -566,6 +569,25 @@ test('useTriggerGscSync tracks queued work without making stored GSC evidence st
   })
   expect(queryClient.getQueryState(gscCoverageKey)?.isInvalidated).toBe(false)
   expect(queryClient.getQueryData(gscCoverageKey)).toEqual({ stale: true })
+})
+
+test.each([
+  { status: 'queued', title: 'AI Visibility check queued' },
+  { status: 'running', title: 'AI Visibility check already running' },
+])('announces a triggered AI Visibility check as its response reports it ($status)', async ({ status, title }) => {
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(makeRun(status))))
+
+  render(
+    <QueryClientProvider client={createQueryClient()}>
+      <TriggerRunButton />
+    </QueryClientProvider>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Trigger run' }))
+
+  await waitFor(() => {
+    expect(getRunTrackerState().runs.run_1).toMatchObject({ kind: 'answer-visibility', sourceAction: 'project-run', lastAnnouncedStatus: status })
+  })
+  expect(getToasts().map(toast => [toast.title, toast.detail])).toEqual([[title, 'Citypoint Dental NYC will notify you when the run finishes.']])
 })
 
 test('maps RUN_IN_PROGRESS errors to one caution toast with an extended timer', async () => {

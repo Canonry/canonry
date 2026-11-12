@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectOverviewDto } from '@canonry/canonry-contracts'
+import type { ProjectOverviewDto, ProjectOverviewWhatChangedDto } from '@canonry/canonry-contracts'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
@@ -7,6 +7,7 @@ import { showOverview } from '../src/commands/overview.js'
 import * as clientModule from '../src/client.js'
 import { createCanonryMcpServerWithCatalog } from '../src/mcp/server.js'
 import { invokeCliRead, prepareCliReadFixture } from './cli-read-fixture.js'
+import { invokeCli } from './cli-test-utils.js'
 
 function makeSentiment() {
   const { state, reason, provisional, coverage, score, selection } = sentimentFixtureSummary
@@ -46,9 +47,22 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
       updatedAt: '2026-05-01T00:00:00.000Z',
     },
     latestRun: { run: null, totalRuns: 0 },
+    mentionCoverage: {
+      selection: {
+        mode: 'simple', queryClass: 'all', scope: { id: 'project', label: 'Project', kind: 'project', targetCount: 1 },
+        provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null }, revision: null,
+        run: { id: 'sweep', explicit: false }, provenance: { kind: 'frozen-simple', definitionRevision: null },
+        measurement: { state: 'measured', activeRevision: null, measuredRevision: null, awaitingSweep: false, pendingAssignmentCount: 0, completedAt: '2026-09-01T00:00:00Z' },
+        availability: { state: 'available' },
+      },
+      populations: [
+        { queryClass: 'non-brand', queryCount: 2, answerCount: 2, mentionCoverage: { numerator: 0, denominator: 2, rate: 0 }, citationCoverage: { numerator: 1, denominator: 2, rate: 0.5 } },
+        { queryClass: 'branded', queryCount: 1, answerCount: 1, mentionCoverage: { numerator: 1, denominator: 1, rate: 1 }, citationCoverage: { numerator: 0, denominator: 1, rate: 0 } },
+      ],
+    },
     health: null,
     topInsights: [],
-    queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
+    queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, citationNotMeasuredQueries: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
     providers: [],
     transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
     scores: {
@@ -186,11 +200,17 @@ describe('canonry overview — human output', () => {
     expect(output).not.toContain('favorable / ')
   })
 
-  it.each(['simple', 'advanced'] as const)('preserves %s overall and class headlines through generated HTTP, CLI JSON and MCP transport', async mode => {
+  it.each(['simple', 'advanced'] as const)('preserves %s overall and class headlines and What changed through generated HTTP, CLI JSON and MCP transport', async mode => {
     const sentiment = makeSentiment()
     sentiment.branded.selection = { ...sentiment.branded.selection, mode, revision: mode === 'advanced' ? 4 : null }
     sentiment.nonBrand.selection = { ...sentiment.nonBrand.selection, mode, revision: mode === 'advanced' ? 4 : null }
-    const overview = makeOverview({ sentiment })
+    const overview = makeOverview({ sentiment, whatChanged: makeWhatChanged({ mode }) })
+    overview.mentionCoverage!.selection = {
+      ...overview.mentionCoverage!.selection,
+      mode,
+      revision: mode === 'advanced' ? 4 : null,
+      provenance: mode === 'advanced' ? { kind: 'frozen-advanced', definitionRevision: 4 } : { kind: 'frozen-simple', definitionRevision: null },
+    }
     const requests: Request[] = []
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       requests.push(input instanceof Request ? input : new Request(input, init))
@@ -226,17 +246,18 @@ describe('canonry overview — human output', () => {
     }
   })
 
-  it('renders Mention, Citation, and Mention Share scores in the hero order', async () => {
+  it('renders non-brand mention coverage with its denominator and branded sibling, never the legacy pooled score', async () => {
     output = await captureOutput(makeOverview())
-    // The dashboard hero shows Mention → Cited → Mention share. CLI must match.
-    const mentionIdx = output.indexOf('Mention   ')
-    const visibilityIdx = output.indexOf('Visibility ')
-    const mentionShareIdx = output.indexOf('Mention share')
-    expect(mentionIdx).toBeGreaterThan(-1)
-    expect(visibilityIdx).toBeGreaterThan(mentionIdx)
-    expect(mentionShareIdx).toBeGreaterThan(visibilityIdx)
-    expect(output).toContain('6 of 8 queries mentioned')
-    expect(output).toContain('6 of 10 brand mentions')
+    expect(output).toContain('Mention · non-brand queries: 0% (0/2 answers)')
+    expect(output).toContain('Mention · branded queries: 100% (1/1 answers)')
+    expect(output).not.toContain('6 of 8 queries mentioned')
+    expect(output).not.toContain('75.0%')
+  })
+
+  it('shows unavailable coverage from an older server without borrowing its pooled score', async () => {
+    output = await captureOutput(makeOverview({ mentionCoverage: undefined }))
+    expect(output).toContain('Mention · non-brand queries: Not measured')
+    expect(output).not.toContain('75.0%')
   })
 
   it('breakdown shows project and competitor mention counts with combined-total %', async () => {
@@ -355,23 +376,27 @@ describe('canonry overview — human output', () => {
 
   it('prints each gauge value as the API sent it, with no sign of its own', async () => {
     const overview = makeOverview()
-    // 2 of 3 is 66.666667% on the wire and "66.7%" in the gauge's value.
-    overview.scores.mention = { ...overview.scores.mention, value: '66.7%', delta: '2 of 3 queries mentioned', progress: 66.666667 }
+    // Coverage formats the server's fraction; legacy pooled gauge values
+    // cannot override either class, even when they look more favorable.
+    overview.scores.mention = { ...overview.scores.mention, value: '99.9%', delta: 'pooled legacy value', progress: 99.9 }
+    overview.mentionCoverage!.populations.find(population => population.queryClass === 'non-brand')!.mentionCoverage = { numerator: 2, denominator: 3, rate: 2 / 3 }
     const lines = (await captureOutput(overview)).split('\n')
     const scoreLine = (prefix: string, tone: string, value: string, delta: string) =>
       `  ${prefix} ${`[${tone}]`.padEnd(11)} ${value.padEnd(8)} ${delta}`
-    expect(lines).toContain(scoreLine('Mention          ', 'positive', '66.7%', '2 of 3 queries mentioned'))
-    expect(lines).toContain(scoreLine('Visibility       ', 'caution', '50.0%', '4 of 8 queries cited'))
+    expect(lines).toContain('  Mention · non-brand queries: 66.7% (2/3 answers)')
+    expect(lines.join('\n')).not.toContain('99.9%')
+    expect(lines).toContain(scoreLine('Cited · all queries', 'caution', '50.0%', '4 of 8 queries cited'))
     expect(lines).toContain(scoreLine('Mention share    ', 'positive', '60.0%', '6 of 10 brand mentions'))
     // A count gauge stays a count, and nothing gains a second sign.
     expect(lines).toContain(scoreLine('Gap queries      ', 'caution', '2', '2 of 8 queries'))
     expect(lines.join('\n')).not.toContain('%%')
   })
 
-  it('shows all 8 scores (no SoV — that field is gone)', async () => {
+  it('keeps scoped mention coverage beside the other score signals', async () => {
     output = await captureOutput(makeOverview())
-    expect(output).toContain('Mention   ')
-    expect(output).toContain('Visibility')
+    expect(output).toContain('Mention · non-brand queries')
+    expect(output).toContain('Mention · branded queries')
+    expect(output).toContain('Cited · all queries')
     expect(output).toContain('Mention share')
     expect(output).toContain('Mention gaps')
     expect(output).toContain('Gap queries')
@@ -383,7 +408,7 @@ describe('canonry overview — human output', () => {
 
   it('renders cited and mentioned query-count lines from their own fields', async () => {
     const overview = makeOverview({
-      queryCounts: { totalQueries: 8, citedQueries: 4, notCitedQueries: 4, citedRate: 0.5, mentionedQueries: 6, notMentionedQueries: 2, mentionRate: 0.75 },
+      queryCounts: { totalQueries: 8, citedQueries: 4, notCitedQueries: 4, citedRate: 0.5, citationNotMeasuredQueries: 0, mentionedQueries: 6, notMentionedQueries: 2, mentionRate: 0.75 },
     })
     output = await captureOutput(overview)
     // Two independent lines — the mentioned line (6/8) must not borrow the cited count (4/8).
@@ -401,7 +426,7 @@ describe('canonry overview — human output', () => {
         expect(json.exitCode).toBeUndefined()
         expect(json.stderr).toBe('')
         expect(JSON.parse(json.stdout)).toEqual(wireOverview)
-        expect(JSON.parse(json.stdout).queryCounts).toEqual({ totalQueries: 8, citedQueries: 4, notCitedQueries: 4, citedRate: 0.5, mentionedQueries: 6, notMentionedQueries: 2, mentionRate: 0.75 })
+        expect(JSON.parse(json.stdout).queryCounts).toEqual({ totalQueries: 8, citedQueries: 4, notCitedQueries: 4, citedRate: 0.5, citationNotMeasuredQueries: 0, mentionedQueries: 6, notMentionedQueries: 2, mentionRate: 0.75 })
       }
     }
   })
@@ -412,16 +437,16 @@ describe('canonry overview — human output', () => {
    */
   it('prints each rate through formatPercent in the unit its field carries', async () => {
     const overview = makeOverview({
-      providers: [{ provider: 'gemini', citedRate: 0.0004, cited: 1, total: 2500 }],
-      providerScores: [{ provider: 'openai', model: 'gpt-5', score: 75, cited: 3, total: 4 }],
+      providers: [{ provider: 'gemini', citedRate: 0.0004, cited: 1, total: 2500, citationNotMeasured: 0 }],
+      providerScores: [{ provider: 'openai', model: 'gpt-5', score: 75, cited: 3, total: 4, citationNotMeasured: 0 }],
       health: {
         id: 'h-1', projectId: 'p-1', runId: 'r-2',
-        overallCitedRate: 1, overallMentionRate: 1, totalPairs: 12, citedPairs: 12, mentionedPairs: 12,
+        overallCitedRate: 1, overallMentionRate: 1, totalPairs: 12, citedPairs: 12, citationNotMeasuredPairs: 0, mentionedPairs: 12,
         providerBreakdown: {}, createdAt: '2026-05-02T00:00:00.000Z', status: 'ready',
       },
       runHistory: [
-        { runId: 'r-1', createdAt: '2026-05-01T00:00:00.000Z', citedCount: 1, totalCount: 2, citationRate: 50, mentionedCount: 1, mentionRate: 50, status: 'completed' },
-        { runId: 'r-2', createdAt: '2026-05-02T00:00:00.000Z', citedCount: 2, totalCount: 2, citationRate: 100, mentionedCount: 2, mentionRate: 100, status: 'completed' },
+        { runId: 'r-1', createdAt: '2026-05-01T00:00:00.000Z', citedCount: 1, totalCount: 2, citationNotMeasuredCount: 0, citationRate: 50, mentionedCount: 1, mentionRate: 50, status: 'completed' },
+        { runId: 'r-2', createdAt: '2026-05-02T00:00:00.000Z', citedCount: 2, totalCount: 2, citationNotMeasuredCount: 0, citationRate: 100, mentionedCount: 2, mentionRate: 100, status: 'completed' },
       ],
     })
     const lines = (await captureOutput(overview)).split('\n')
@@ -430,6 +455,71 @@ describe('canonry overview — human output', () => {
     expect(lines).toContain('  Health: 100% cited (12/12 pairs)')
     expect(lines).toContain(`    2026-05-01  50.0% ${'█'.repeat(5)}`)
     expect(lines).toContain(`    2026-05-02   100% ${'█'.repeat(10)}`)
+  })
+
+  // Local (no web access) returns no sources: its answers leave every cited
+  // figure and print "not measured", never 0%, beside a measured engine.
+  it('prints citation figures over checked answers and not measured for an engine without sources', async () => {
+    const overview = makeOverview({
+      queryCounts: { totalQueries: 3, citedQueries: 1, notCitedQueries: 1, citedRate: 0.5, citationNotMeasuredQueries: 1, mentionedQueries: 2, notMentionedQueries: 1, mentionRate: 0.6667 },
+      providers: [
+        { provider: 'gemini', citedRate: 0.5, cited: 1, total: 2, citationNotMeasured: 0 },
+        { provider: 'local', citedRate: null, cited: 0, total: 3, citationNotMeasured: 3 },
+      ],
+      providerScores: [{ provider: 'local', model: 'llama3', score: null, cited: 0, total: 3, citationNotMeasured: 3 }],
+      health: {
+        id: 'h-1', projectId: 'p-1', runId: 'r-2',
+        overallCitedRate: 0.5, overallMentionRate: 0.4, totalPairs: 5, citedPairs: 1, citationNotMeasuredPairs: 3, mentionedPairs: 2,
+        providerBreakdown: {}, createdAt: '2026-05-02T00:00:00.000Z', status: 'ready',
+      },
+      runHistory: [
+        { runId: 'r-1', createdAt: '2026-05-01T00:00:00.000Z', citedCount: 0, totalCount: 2, citationNotMeasuredCount: 2, citationRate: null, mentionedCount: 1, mentionRate: 50, status: 'completed' },
+      ],
+    })
+    const lines = (await captureOutput(overview)).split('\n')
+    expect(lines).toContain('  Queries cited:     1/2 (50.0%), 1 not measured (no sources)')
+    expect(lines).toContain('  Queries mentioned: 2/3 (66.7%)')
+    expect(lines).toContain('    gemini       1/2 (50.0%)')
+    expect(lines).toContain('    local        not measured (3 answers without sources)')
+    expect(lines).toContain(`    ${'local/llama3'.padEnd(28)} not measured (3 answers without sources)`)
+    expect(lines).toContain('  Health: 50.0% cited (1/2 pairs)')
+    expect(lines).toContain('    2026-05-01 citations not measured (no answer carries sources)')
+  })
+
+  it('reads every answer as checked from a server that predates the not-measured counts', async () => {
+    const current = makeOverview({
+      queryCounts: { totalQueries: 3, citedQueries: 1, notCitedQueries: 2, citedRate: 0.3333, citationNotMeasuredQueries: 0, mentionedQueries: 2, notMentionedQueries: 1, mentionRate: 0.6667 },
+      providers: [{ provider: 'gemini', citedRate: 0.5, cited: 1, total: 2, citationNotMeasured: 0 }],
+      providerScores: [{ provider: 'gemini', model: 'gemini-2.5-flash', score: 50, cited: 1, total: 2, citationNotMeasured: 0 }],
+      health: {
+        id: 'h-1', projectId: 'p-1', runId: 'r-2',
+        overallCitedRate: 0.2, overallMentionRate: 0.4, totalPairs: 5, citedPairs: 1, citationNotMeasuredPairs: 0, mentionedPairs: 2,
+        providerBreakdown: {}, createdAt: '2026-05-02T00:00:00.000Z', status: 'ready',
+      },
+    })
+    // An older server sends none of the not-measured counts: it counted every answer as checked.
+    const { citationNotMeasuredQueries: _queries, ...queryCounts } = current.queryCounts
+    const { citationNotMeasuredPairs: _pairs, ...health } = current.health!
+    const older = {
+      ...current, queryCounts, health,
+      providers: current.providers.map(({ citationNotMeasured: _answers, ...provider }) => provider),
+      providerScores: current.providerScores.map(({ citationNotMeasured: _answers, ...score }) => score),
+    } as ProjectOverviewDto
+    const lines = (await captureOutput(older)).split('\n')
+    expect(lines).toContain('  Queries cited:     1/3 (33.3%)')
+    expect(lines).toContain('    gemini       1/2 (50.0%)')
+    expect(lines).toContain(`    ${'gemini/gemini-2.5-flash'.padEnd(28)} 1/2 (50.0%)`)
+    expect(lines).toContain('  Health: 20.0% cited (1/5 pairs)')
+    expect(lines.join('\n')).not.toContain('NaN')
+
+    // `overview --all` prints the same base in its table.
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const { pathname } = new URL((input instanceof Request ? input : new Request(input, init)).url)
+      return Response.json(pathname === '/prefix/api/v1/projects' ? [older.project] : older)
+    }))
+    const all = await invokeCli(['overview', '--all'])
+    // The combined table splits mention by query class (#1497); the base under test is the 1/3 cell.
+    expect(all.stdout.split('\n')).toContain(`  ${'Demo'.padEnd(20)}${'0% (0/2 answers)'.padEnd(30)}${'100% (1/1 answers)'.padEnd(30)}${'50.0%'.padEnd(22)}${'60.0% · non-brand queries'.padEnd(42)}${'1/3'.padEnd(22)}—`)
   })
 
   it('renders citation and mention movement separately with query-basket comparability', async () => {
@@ -485,5 +575,193 @@ describe('canonry overview — human output', () => {
     output = await captureOutput(makeOverview())
     expect(output).toContain('Movement: first sweep; no comparison yet')
     expect(output).not.toContain('Query basket:')
+  })
+
+  it('lists the dashboard\'s What changed rows, then the queries behind each count with where they were lost', async () => {
+    const lines = (await captureOutput(makeOverview({ whatChanged: makeWhatChanged() }))).split('\n')
+    const at = lines.indexOf('  What changed:')
+    expect(at).toBeGreaterThan(-1)
+    expect(lines.slice(at, at + 10)).toEqual([
+      '  What changed:',
+      '    Demo lost mentions: 3 queries lost a mention in the latest check.',
+      '    Demo lost citations: 1 query lost a citation in the latest check.',
+      '    Demo has active runs: 1 run in progress.',
+      '    Lost mentions:',
+      '      - best polyurea roof coating (non-brand) — gemini, openai',
+      '      - homes near harbor (non-brand) — openai · at Harbor · Properties: Harbor Homes · markets: Harbor metro',
+      '      … 1 more not listed',
+      '    Lost citations:',
+      '      - demo reviews (branded) — openai · at florida',
+    ])
+  })
+
+  it('says all clear when the latest check lost nothing, and why nothing was compared when it could not be', async () => {
+    const clear = makeWhatChanged({ lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: { count: 0, runIds: [] }, items: [] })
+    expect((await captureOutput(makeOverview({ whatChanged: clear }))).split('\n'))
+      .toContain('  What changed: No lost mentions or citations, and no runs in progress.')
+
+    const modelChanged = makeWhatChanged({
+      comparison: { state: 'unavailable', reason: 'model-changed' },
+      lostMentions: NOTHING_LOST,
+      lostCitations: NOTHING_LOST,
+      items: [ACTIVE_ROW],
+    })
+    output = await captureOutput(makeOverview({ whatChanged: modelChanged }))
+    const lines = output.split('\n')
+    const at = lines.indexOf('  What changed: not compared: the previous sweep asked other engines or models.')
+    expect(at).toBeGreaterThan(-1)
+    expect(lines[at + 1]).toBe('    Demo has active runs: 1 run in progress.')
+    // Nothing was compared, so it must not read as all clear.
+    expect(output).not.toContain('No lost mentions or citations')
+  })
+
+  it('prints no What changed section from a server that predates it', async () => {
+    output = await captureOutput(makeOverview())
+    expect(output).not.toContain('What changed')
+  })
+})
+
+const NOTHING_LOST = { queryCount: 0, queries: [], truncated: false }
+const ACTIVE_ROW = { id: 'attention_p-1_active', tone: 'neutral' as const, title: 'Demo has active runs', detail: '1 run in progress.', actionLabel: 'View runs', href: '/runs' }
+
+function makeWhatChanged(overrides: Partial<ProjectOverviewWhatChangedDto> = {}): ProjectOverviewWhatChangedDto {
+  return {
+    mode: 'advanced',
+    latestCheck: { runIds: ['run_latest'], createdAt: '2026-09-08T00:00:00.000Z' },
+    comparison: { state: 'available', previousRunIds: ['run_previous'] },
+    lostMentions: {
+      queryCount: 3,
+      queries: [
+        { queryId: 'q_best', query: 'best polyurea roof coating', queryClass: 'non-brand', providers: ['gemini', 'openai'], locations: [null], properties: [], markets: [] },
+        { queryId: 'q-nearby', query: 'homes near harbor', queryClass: 'non-brand', providers: ['openai'], locations: ['Harbor'], properties: [{ key: 'harbor', label: 'Harbor Homes' }], markets: [{ key: 'harbor-metro', label: 'Harbor metro' }] },
+      ],
+      truncated: true,
+    },
+    lostCitations: {
+      queryCount: 1,
+      queries: [{ queryId: 'q_brand', query: 'demo reviews', queryClass: 'branded', providers: ['openai'], locations: ['florida'], properties: [], markets: [] }],
+      truncated: false,
+    },
+    activeRuns: { count: 1, runIds: ['run_live'] },
+    items: [
+      { id: 'attention_p-1_lost_mentions', tone: 'negative', title: 'Demo lost mentions', detail: '3 queries lost a mention in the latest check.', actionLabel: 'Open project', href: '/projects/demo' },
+      { id: 'attention_p-1_lost', tone: 'negative', title: 'Demo lost citations', detail: '1 query lost a citation in the latest check.', actionLabel: 'Open project', href: '/projects/demo' },
+      ACTIVE_ROW,
+    ],
+    ...overrides,
+  }
+}
+
+describe('canonry overview --all — What changed', () => {
+  let cleanup = () => {}
+
+  beforeEach(() => {
+    cleanup = prepareCliReadFixture()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    cleanup()
+  })
+
+  /**
+   * Serves the project list and each project's overview, as the server would.
+   * A project named in `failing` answers its overview read with that status.
+   */
+  async function readAll(overviews: ProjectOverviewDto[], options: { failing?: Record<string, number>; format?: string } = {}) {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(input instanceof Request ? input.url : String(input))
+      if (url.pathname === '/prefix/api/v1/projects') return Response.json(overviews.map(overview => overview.project))
+      const overview = overviews.find(candidate => url.pathname === `/prefix/api/v1/projects/${candidate.project.name}/overview`)
+      const status = overview && options.failing?.[overview.project.name]
+      if (status) return Response.json({ error: { code: status >= 500 ? 'INTERNAL_ERROR' : 'NOT_FOUND', message: 'Overview unavailable' } }, { status })
+      return overview ? Response.json(overview) : Response.json({ error: { code: 'NOT_FOUND', message: url.pathname } }, { status: 404 })
+    }))
+    return invokeCli(['overview', '--all', ...(options.format ? ['--format', options.format] : [])])
+  }
+
+  async function captureAll(overviews: ProjectOverviewDto[]): Promise<string[]> {
+    const result = await readAll(overviews)
+    expect(result.stderr).toBe('')
+    return result.stdout.split('\n')
+  }
+
+  function projectOverview(name: string, whatChanged: ProjectOverviewWhatChangedDto | undefined): ProjectOverviewDto {
+    const base = makeOverview()
+    return { ...base, project: { ...base.project, id: `id-${name}`, name, displayName: name }, ...(whatChanged ? { whatChanged } : {}) }
+  }
+
+  const quiet = () => makeWhatChanged({ lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: { count: 0, runIds: [] }, items: [] })
+  const tableRows = (stdout: string) => stdout.split('\n').filter(line => /^ {2}(?:alpha|beta) /.test(line))
+
+  it('lists every project\'s rows under the table, in project order', async () => {
+    const lines = await captureAll([projectOverview('alpha', makeWhatChanged()), projectOverview('beta', quiet())])
+    const at = lines.indexOf('What changed:')
+    expect(at).toBeGreaterThan(-1)
+    expect(lines.slice(at + 1)).toEqual([
+      '  alpha lost mentions: 3 queries lost a mention in the latest check.',
+      '  alpha lost citations: 1 query lost a citation in the latest check.',
+      '  alpha has active runs: 1 run in progress.',
+      '',
+    ])
+  })
+
+  // As on the dashboard, one project's failed read never hides the others, and
+  // its changes are unknown, so the portfolio is never called clear. The exit
+  // code still reports it: 2, because a server failure may clear on a retry.
+  it('prints every readable project, names the one whose overview failed, then exits 2', async () => {
+    const alpha = projectOverview('alpha', quiet())
+    const [alphaAlone] = tableRows((await readAll([alpha])).stdout)
+
+    const result = await readAll([alpha, projectOverview('beta', quiet())], { failing: { beta: 500 } })
+    expect(tableRows(result.stdout)).toEqual([
+      alphaAlone,
+      `  ${'beta'.padEnd(20)}Couldn't be loaded: Overview unavailable`,
+    ])
+    const lines = result.stdout.split('\n')
+    expect(lines.slice(lines.indexOf('What changed:') + 1)).toEqual([
+      '  1 project couldn\'t be loaded: beta. Its lost mentions and citations are unknown.',
+      '',
+    ])
+    expect(result.stderr).toBe('Error: 1 of 2 project overviews couldn\'t be loaded: beta')
+    expect(result.exitCode).toBe(2)
+  })
+
+  it('keeps the unread project\'s place in JSON with its error, and exits 1 when no retry would help', async () => {
+    const alpha = projectOverview('alpha', quiet())
+    const beta = projectOverview('beta', quiet())
+    const result = await readAll([alpha, beta], { failing: { beta: 404 }, format: 'json' })
+    expect(JSON.parse(result.stdout)).toEqual([
+      alpha,
+      { project: beta.project, error: { code: 'NOT_FOUND', message: 'Overview unavailable' } },
+    ])
+    expect(JSON.parse(result.stderr)).toEqual({
+      error: {
+        code: 'OVERVIEW_INCOMPLETE',
+        message: '1 of 2 project overviews couldn\'t be loaded: beta',
+        details: { projects: ['beta'] },
+      },
+    })
+    expect(result.exitCode).toBe(1)
+  })
+
+  it('names every project when no overview could be read', async () => {
+    const result = await readAll([projectOverview('alpha', quiet()), projectOverview('beta', quiet())], { failing: { alpha: 503, beta: 500 } })
+    const lines = result.stdout.split('\n')
+    expect(lines.slice(lines.indexOf('What changed:') + 1)).toEqual([
+      '  2 projects couldn\'t be loaded: alpha, beta. Their lost mentions and citations are unknown.',
+      '',
+    ])
+    expect(result.exitCode).toBe(2)
+  })
+
+  it('prints the one fallback row the dashboard shows when no project has a row', async () => {
+    const lines = await captureAll([projectOverview('alpha', quiet()), projectOverview('beta', { ...quiet(), latestCheck: null })])
+    expect(lines[lines.indexOf('What changed:') + 1]).toBe('  All projects stable: No lost mentions or citations, and no runs in progress.')
+  })
+
+  it('prints no What changed section when no project\'s server reports it', async () => {
+    const lines = await captureAll([projectOverview('alpha', undefined)])
+    expect(lines).not.toContain('What changed:')
   })
 })

@@ -37,6 +37,8 @@ import { asyncHandler } from '../../lib/async-handler.js'
 import { useAccount } from '../../contexts/account-context.js'
 import { Button } from '../ui/button.js'
 import { MANAGED_SWEEPS_COPY } from '../project/ManagedSweepStatus.js'
+import { ChatGptConnectPrompt, ChatGptPlanLine, ChatGptTurnErrorAction, parseChatGptTurnError, useChatGptPlan } from './ChatGptPlan.js'
+import { useAnchoredMenu } from './use-anchored-menu.js'
 import { InfoTooltip } from './InfoTooltip.js'
 import { shellQuote, describeError } from '@canonry/canonry-contracts'
 import { playAeroPreview } from '../../lib/aero-preview.js'
@@ -75,6 +77,8 @@ interface ToolTrail {
 
 interface AeroBarProps {
   projectName: string
+  /** The project as people know it (its display name); defaults to `projectName`. */
+  projectLabel?: string
   context?: AgentViewContext
   /**
    * Scripted preview for the public demo: the bar plays the demo server's
@@ -89,6 +93,9 @@ const STARTER_PROMPTS: Array<{ id: AeroPreviewStarterId; label: string; prompt: 
   { id: 'gaps', label: 'Biggest gaps', prompt: 'Which tracked queries does no engine mention us on, and who gets named instead? Group them by topic or market.' },
   { id: 'insights', label: 'Top insights', prompt: 'Walk me through the 3 most severe active insights and what to do about each.' },
 ]
+
+/** Opens the help beside a bar that has no provider to answer with yet. */
+const AERO_INTRO = 'Aero is the built-in analyst for answer engine optimization (AEO).'
 
 const PREVIEW_SITE_URL = 'https://canonry.ai'
 const PREVIEW_FREE_TEXT_NOTICE = 'This demo plays sample answers only. Pick a starting point, or type / to choose one.'
@@ -206,7 +213,7 @@ function removePreference(key: string): void {
   }
 }
 
-export function AeroBar({ projectName, context, preview = isAeroPreview() }: AeroBarProps) {
+export function AeroBar({ projectName, projectLabel = projectName, context, preview = isAeroPreview() }: AeroBarProps) {
   const managedSweeps = isDashboardManagedSweeps()
   const { canWrite, account } = useAccount()
   const queryClient = useQueryClient()
@@ -214,6 +221,9 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   // gives them their own read-only conversation; the bar drops everything that
   // belongs to the operator: provider choice, history, sweeps and CLI copy.
   const viewerMode = account?.role === 'viewer'
+  // A viewer's own ChatGPT plan, when the install funds viewer Aero that way.
+  // Null everywhere else, and then nothing below changes.
+  const chatgpt = useChatGptPlan(viewerMode && !preview)
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [messages, setMessages] = useState<AeroMessage[]>([])
@@ -236,6 +246,13 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   const [streamingText, setStreamingText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const chatgptError = parseChatGptTurnError(error)
+  const chatgptRefresh = chatgpt?.refresh
+  useEffect(() => {
+    // A turn refused for the plan changes what this viewer can do next, so
+    // re-read their plan: the bar then offers the connect step.
+    if (chatgptError?.kind === 'connect' || chatgptError?.kind === 'reconnect') chatgptRefresh?.()
+  }, [chatgptError?.kind, chatgptRefresh])
   const [retry, setRetry] = useState<{ prompt: string; context?: AgentViewContext } | null>(null)
   const mounted = useRef(true)
   const [preferredProviderOverride, setProviderOverride] = useState<AgentProviderId | null>(() => {
@@ -730,6 +747,14 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   // answer-engine keys, so name the missing variable instead of linking there.
   const unkeyedDefault = activeProvider && !activeProvider.configured ? activeProvider : null
   if (checksProviders && (!activeProvider || unkeyedDefault)) {
+    // Name the connections Aero itself answers with, from the server's list:
+    // an engine connected only for checks (Local, Perplexity) does not make
+    // Aero ready, so a generic "answer engine" would contradict it.
+    const aeroConnections = new Intl.ListFormat('en', { style: 'long', type: 'disjunction' })
+      .format((providersQuery.data?.providers ?? []).map(provider => provider.label))
+    const setupHelp = aeroConnections
+      ? `${AERO_INTRO} Connect ${aeroConnections} to ask about these results. Other answer engines run AI Visibility checks only.`
+      : `${AERO_INTRO} Connect a provider Aero supports to ask about these results.`
     return (
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
         <div
@@ -739,22 +764,22 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
           <Radio className="h-4 w-4 text-muted" aria-hidden="true" />
           {/* A bare product name told a first-run operator nothing, but this bar
               is persistent, so the explanation belongs behind the affordance. */}
-          <span className="flex items-center gap-1.5 text-label-14-strong text-strong">
+          <span className="pointer-events-auto flex items-center gap-1.5 text-label-14-strong text-strong">
             {unkeyedDefault
               ? `Aero is set to ${unkeyedDefault.label.replace(/\s+\(.+\)$/, '')}, which has no API key.`
-              : 'Aero needs an answer-engine provider.'}
+              : 'Aero'}
             <InfoTooltip
               text={unkeyedDefault
                 ? `Set ${envVarHint(unkeyedDefault.id)} on the server, or providers.${unkeyedDefault.id}.apiKey in its config.yaml.`
-                : 'Aero is the built-in AEO analyst. It reads your Canonry data with you once a provider is connected.'}
+                : setupHelp}
             />
           </span>
           {unkeyedDefault ? null : canWrite ? (
             <Button asChild variant="outline" size="sm" className="pointer-events-auto ml-auto">
-              <Link to="/settings">Open Settings</Link>
+              <Link to="/settings">Set up Aero</Link>
             </Button>
           ) : (
-            <span className="ml-auto text-secondary">Ask an administrator to configure one.</span>
+            <span className="ml-auto text-secondary">Ask an administrator to set up Aero.</span>
           )}
         </div>
       </div>
@@ -839,6 +864,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
               </div>
             </div>
 
+            {chatgpt?.needsConnect ? <ChatGptConnectPrompt plan={chatgpt} /> : <>
             <div className="flex flex-wrap items-center gap-2 border-b border-subtle px-4 py-2">
               <Button variant="outline" size="sm" disabled={streaming || serverBusy || changingConversation} onClick={asyncHandler(handleNewConversation)} title={viewerMode || preview ? 'Clear this conversation and start fresh.' : 'Save this conversation and start fresh. Shared project notes are kept.'}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" /> New conversation
@@ -851,7 +877,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
             </div>
             {historyOpen ? (
               <div id="aero-history" className={transcriptClasses} aria-label="Conversation history">
-                <h3 className="mb-2 text-heading-14 text-heading">Conversations in {projectName}</h3>
+                <h3 className="mb-2 text-heading-14 text-heading">Conversations in {projectLabel}</h3>
                 {!history ? <p className="text-copy-14 text-secondary">{historyLoading ? 'Loading history…' : 'History could not be loaded. Close and reopen History to retry.'}</p> : history.conversations.length === 0 ? <p className="text-copy-14 text-secondary">No saved conversations yet. Your conversations will appear here.</p> : (
                   <ul className="divide-y divide-default">
                     {history.conversations.map(conversation => (
@@ -883,8 +909,8 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                 <div className="flex flex-col gap-3 py-2">
                   <p className="text-copy-14 text-secondary">
                     {preview
-                      ? <>See how Aero answers about <span className="text-strong">{projectName}</span>. Choose a starting point.</>
-                      : <>Ask about <span className="text-strong">{projectName}</span> or choose a starting point.</>}
+                      ? <>See how Aero answers about <span className="text-strong">{projectLabel}</span>. Choose a starting point.</>
+                      : <>Ask about <span className="text-strong">{projectLabel}</span> or choose a starting point.</>}
                   </p>
                   <StarterButtons onPick={(prompt) => { void send(prompt) }} />
                 </div>
@@ -908,8 +934,9 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
 
               {(error || notice) && (
                 <div role={error ? 'alert' : 'status'} className="mx-3 my-2 flex flex-wrap items-center gap-2 material-base px-3 py-2 text-label-14 text-secondary">
-                  <span className="flex-1">{error ?? notice}</span>
-                  {retry && !streaming && <Button variant="outline" size="sm" onClick={() => {
+                  <span className="flex-1">{chatgptError?.text ?? error ?? notice}</span>
+                  {chatgptError ? <ChatGptTurnErrorAction kind={chatgptError.kind} plan={chatgpt} /> : null}
+                  {retry && !streaming && (!chatgptError || chatgptError.kind === 'unavailable' || chatgptError.kind === 'failed') && <Button variant="outline" size="sm" onClick={() => {
                     if (scope === 'all') { setDraft(retry.prompt); textareaRef.current?.focus() }
                     else void send(retry.prompt, retry.context)
                   }}>{scope === 'all' ? 'Review prompt' : 'Retry'}</Button>}
@@ -1017,7 +1044,9 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                   </Button>
                 )}
               </form>
+              {chatgpt ? <ChatGptPlanLine plan={chatgpt} disabled={streaming} /> : null}
             </div>
+            </>}
           </div>
         ) : (
           <button
@@ -1027,7 +1056,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
           >
             <span className="flex items-center gap-2">
               <Radio className="h-4 w-4 text-positive-400" aria-hidden="true" />
-              Ask Aero about {projectName}…
+              {chatgpt?.needsConnect ? 'Connect ChatGPT to use Aero' : <>Ask Aero about {projectLabel}…</>}
             </span>
           </button>
         )}
@@ -1076,77 +1105,35 @@ function ProviderPicker({
   onModelChange: (modelId: string) => void
   disabled?: boolean
 }) {
-  const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState<MenuPosition | null>(null)
   const [otherOpen, setOtherOpen] = useState(false)
   const [otherDraft, setOtherDraft] = useState('')
   const [otherError, setOtherError] = useState<string | null>(null)
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
-  const menuRef = useRef<HTMLDivElement | null>(null)
   const otherInputRef = useRef<HTMLInputElement | null>(null)
   const menuId = useId()
   const providerHeadingId = useId()
   const modelHeadingId = useId()
-
-  const close = useCallback((returnFocus: boolean) => {
-    setOpen(false)
-    setPosition(null)
-    setOtherOpen(false)
-    setOtherError(null)
-    if (returnFocus) triggerRef.current?.focus()
-  }, [])
-
-  const place = useCallback(() => {
-    const rect = triggerRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const margin = 8
-    const below = window.innerHeight - rect.bottom - margin
-    const above = rect.top - margin
-    const right = Math.max(margin, window.innerWidth - rect.right)
-    setPosition(below >= above
-      ? { top: rect.bottom + 4, right, maxHeight: below - 4 }
-      : { bottom: window.innerHeight - rect.top + 4, right, maxHeight: above - 4 })
-  }, [])
-
-  useLayoutEffect(() => {
-    if (open) place()
-  }, [open, place])
-
-  // Focus the checked item once the menu is placed, so arrow keys start there.
-  const placed = position !== null
-  useEffect(() => {
-    if (!open || !placed) return
-    const items = menuItems(menuRef.current)
-    ;(items.find(item => item.getAttribute('aria-checked') === 'true' && item.closest('[data-menu-group="model"]')) ?? items[0])?.focus()
-  }, [open, placed])
+  const { open, setOpen, position, triggerRef, menuRef, close, moveFocus } = useAnchoredMenu<MenuPosition>({
+    // Open toward the larger space, scrolling inside it.
+    place: (rect) => {
+      const margin = 8
+      const below = window.innerHeight - rect.bottom - margin
+      const above = rect.top - margin
+      const right = Math.max(margin, window.innerWidth - rect.right)
+      return below >= above
+        ? { top: rect.bottom + 4, right, maxHeight: below - 4 }
+        : { bottom: window.innerHeight - rect.top + 4, right, maxHeight: above - 4 }
+    },
+    // Arrow keys start at the chosen model, not the provider list above it.
+    initialFocus: (items) => items.find(item => item.getAttribute('aria-checked') === 'true' && item.closest('[data-menu-group="model"]')),
+    onClose: () => {
+      setOtherOpen(false)
+      setOtherError(null)
+    },
+  })
 
   useEffect(() => {
     if (otherOpen) otherInputRef.current?.focus()
   }, [otherOpen])
-
-  useEffect(() => {
-    if (!open) return
-    const onPointer = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return
-      close(false)
-    }
-    // Capture phase, so Escape closes the menu without also closing Aero.
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      close(true)
-    }
-    window.addEventListener('mousedown', onPointer)
-    window.addEventListener('keydown', onKey, true)
-    window.addEventListener('resize', place)
-    return () => {
-      window.removeEventListener('mousedown', onPointer)
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('resize', place)
-    }
-  }, [open, close, place])
 
   if (providers.length === 0) return null
 
@@ -1170,17 +1157,7 @@ function ProviderPicker({
       close(true)
       return
     }
-    if (!target.matches('[role^="menuitem"]')) return
-    const items = menuItems(menuRef.current)
-    const index = items.indexOf(target)
-    const next = event.key === 'ArrowDown' ? items[(index + 1) % items.length]
-      : event.key === 'ArrowUp' ? items[(index - 1 + items.length) % items.length]
-        : event.key === 'Home' ? items[0]
-          : event.key === 'End' ? items[items.length - 1]
-            : undefined
-    if (!next) return
-    event.preventDefault()
-    next.focus()
+    moveFocus(event)
   }
 
   const submitOther = () => {
@@ -1360,10 +1337,6 @@ function ProviderPicker({
       )}
     </>
   )
-}
-
-function menuItems(menu: HTMLElement | null): HTMLElement[] {
-  return Array.from(menu?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])
 }
 
 /** Tallest the composer grows before it scrolls: about 6 lines compact, 12 expanded. */
@@ -2224,5 +2197,5 @@ export function AeroBarHost() {
   const preview = isAeroPreview()
   const allowed = preview || aeroAllowedFor({ isAdmin, account })
   if (!urlSegment || !allowed || !resolved) return null
-  return <AeroBar key={resolved.name} projectName={resolved.name} context={viewContext} preview={preview} />
+  return <AeroBar key={resolved.name} projectName={resolved.name} projectLabel={resolved.displayName || resolved.name} context={viewContext} preview={preview} />
 }

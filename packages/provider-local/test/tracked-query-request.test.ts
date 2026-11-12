@@ -107,6 +107,8 @@ test('the SDK and public parser preserve independent result fields', async () =>
       searchCount: 0,
     },
     stopReason: 'stop',
+    // A local model has no sources, so its citation can never be measured.
+    citationMeasurable: false,
   }
   expect(viaSync).toStrictEqual(expected)
   expect(viaParse).toStrictEqual(expected)

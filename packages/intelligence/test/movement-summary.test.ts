@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { CitationState } from '@canonry/canonry-contracts'
 import {
   buildMentionMovementSummary,
   buildMovementComparison,
@@ -8,7 +9,7 @@ import {
 
 function snap(
   queryId: string,
-  citationState: 'cited' | 'not-cited' | 'pending' = 'cited',
+  citationState: CitationState = 'cited',
   answerMentioned = false,
 ): MovementSummarySnapshot {
   return { queryId, citationState, answerMentioned }
@@ -68,6 +69,23 @@ describe('buildMovementSummary', () => {
       snap('q1', 'cited'),
     ], [])
     expect(result.gained).toBe(1)
+  })
+
+  // An answer without sources (Local) observed nothing about citation.
+  it('never moves a citation on an answer whose citation was not measured', () => {
+    const previous = [snap('q1', 'cited'), snap('q2', 'cited'), snap('q3', 'not-measured')]
+    // q1 is now answered only by an engine without sources; q2 by a measured
+    // engine that no longer cites it, beside one without sources; q3 is cited.
+    const latest = [snap('q1', 'not-measured'), snap('q2', 'not-cited'), snap('q2', 'not-measured'), snap('q3', 'cited')]
+    const result = buildMovementSummary(latest, previous, { queryLookup: new Map([['q1', 'one'], ['q2', 'two'], ['q3', 'three']]) })
+    expect(result).toMatchObject({ gained: 0, lost: 1, gainedQueries: [], lostQueries: ['two'], hasPreviousRun: true })
+  })
+
+  it('keeps mention movement on answers whose citation was not measured', () => {
+    const previous = [snap('q1', 'not-measured', false)]
+    const latest = [snap('q1', 'not-measured', true)]
+    expect(buildMentionMovementSummary(latest, previous)).toMatchObject({ gained: 1, lost: 0 })
+    expect(buildMovementSummary(latest, previous)).toMatchObject({ gained: 0, lost: 0, hasPreviousRun: true })
   })
 
   it('ignores snapshots with empty queryId', () => {

@@ -2505,6 +2505,17 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const project = resolveProject(app.db, request.params.name)
     const store = requireConnectionStore()
 
+    // Cross-project takeover defense, as on DELETE /google/connections/:type:
+    // projects tracking the same domain share one GBP connection, so only the
+    // project that created it (or any project, for a legacy row with no owner)
+    // may remove it. Refuse before clearing anything.
+    const existing = store.getConnection(project.canonicalDomain, 'gbp')
+    if (existing?.createdByProjectId && existing.createdByProjectId !== project.id) {
+      throw validationError(
+        'This Google GBP connection is owned by a different project. Disconnect from the owning project instead.',
+      )
+    }
+
     app.db.transaction((tx) => {
       clearGbpProjectData(tx, project.id)
       writeAuditLog(tx, {

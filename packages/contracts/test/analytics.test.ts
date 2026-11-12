@@ -26,6 +26,7 @@ const providerMetric = {
   citationRate: 0.5,
   cited: 1,
   total: 2,
+  citationNotMeasured: 0,
   mentionRate: 1,
   mentionedCount: 2,
 }
@@ -42,13 +43,14 @@ const bucket = {
   citationRate: 0.5,
   cited: 2,
   total: 4,
+  citationNotMeasured: 0,
   queryCount: 2,
   mentionRate: 0.75,
   mentionedCount: 3,
   mentionShare: { scope: 'non-brand', rate: 0.6, projectMentionSnapshots: 3, competitorMentionSnapshots: 2 },
   byProvider: {
     gemini: providerMetric,
-    openai: { citationRate: 0.5, cited: 1, total: 2, mentionRate: 0.5, mentionedCount: 1 },
+    openai: { citationRate: 0.5, cited: 1, total: 2, citationNotMeasured: 0, mentionRate: 0.5, mentionedCount: 1 },
   },
 }
 

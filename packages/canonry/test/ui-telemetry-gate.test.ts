@@ -25,9 +25,10 @@ describe('UI telemetry gate', () => {
 
   it('allows a burst of 60, then refills one per second', () => {
     const { accept, recorded, advance } = gate()
-    const results = Array.from({ length: UI_EVENT_MINUTE_CAPACITY + 5 }, () => accept(event))
-    expect(results.filter(Boolean)).toHaveLength(UI_EVENT_MINUTE_CAPACITY)
-    expect(accept(event)).toBe(false)
+    for (let i = 0; i < UI_EVENT_MINUTE_CAPACITY; i++) expect(accept(event)).toBe(true)
+    // accepted:false permanently disables the browser. A temporary cap must
+    // use the HTTP error path so cumulative checkpoints can recover.
+    expect(() => accept(event)).toThrow(expect.objectContaining({ code: 'QUOTA_EXCEEDED', statusCode: 429 }))
     advance(1_000)
     expect(accept(event)).toBe(true)
     expect(recorded).toHaveLength(UI_EVENT_MINUTE_CAPACITY + 1)
@@ -39,7 +40,11 @@ describe('UI telemetry gate', () => {
     const runHour = () => {
       let accepted = 0
       for (let i = 0; i < 7_200; i += 1) {
-        if (accept(event)) accepted += 1
+        try {
+          if (accept(event)) accepted += 1
+        } catch (error) {
+          expect(error).toMatchObject({ code: 'QUOTA_EXCEEDED', statusCode: 429 })
+        }
         advance(500)
       }
       return accepted

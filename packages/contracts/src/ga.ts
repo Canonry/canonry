@@ -9,6 +9,7 @@ import { aiReferralTrafficClassSchema } from './traffic-class.js'
 import { aiReferralEngineSchema } from './ai-referral-engine.js'
 import { socialPlatformSchema } from './social-platform.js'
 import { stackedDailySeriesSchema } from './stacked-series.js'
+import { linearTrendSchema } from './statistics.js'
 
 export const ga4ConnectionDtoSchema = z.object({
   id: z.string(),
@@ -55,19 +56,18 @@ export const ga4AiReferralDtoSchema = z.object({
    */
   users: z.number().optional(),
   /**
-   * The winning attribution dimension for this (source, medium) tuple — the
-   * one with the highest session count. GA4 emits one row per dimension
-   * (session, first_user, manual_utm), but they're overlapping lenses on the
-   * same visit; only the dominant dimension is surfaced here so the table is
-   * not inflated.
+   * The attribution dimension this row counts: always `session` (the
+   * session's own source, as GA4's AI Assistant channel counts). GA4 emits one
+   * row per dimension (session, first_user, manual_utm), but they're
+   * overlapping lenses on the same visit, so only the session lens is surfaced
+   * and the table is not inflated.
    */
   sourceDimension: ga4SourceDimensionSchema,
   /**
    * This row's sessions as a 0..1 share of every `aiReferrals` row's sessions,
    * so the rows' shares add up to 1 (all 0 when the rows carry no sessions).
-   * The denominator is the rows' own sum, not `aiSessionsDeduped`: that total
-   * keeps the winning lens per day and source, these rows keep one lens per
-   * source over the whole window, so it can run higher than the rows add up to.
+   * The denominator is the rows' own sum. Both it and `aiSessionsDeduped`
+   * count the session lens, so they agree.
    */
   share: fraction(),
 })
@@ -78,8 +78,8 @@ export const ga4AiReferralLandingPageDtoSchema = z.object({
   medium: z.string(),
   trafficClass: aiReferralTrafficClassSchema,
   /**
-   * The winning attribution dimension for this (source, medium, landingPage)
-   * tuple — the one with the highest session count.
+   * The session attribution dimension for this (source, medium, landingPage)
+   * tuple. Other attribution lenses do not contribute to this count.
    */
   sourceDimension: ga4SourceDimensionSchema,
   landingPage: z.string(),
@@ -199,7 +199,7 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   })),
   aiReferrals: z.array(ga4AiReferralDtoSchema),
   aiReferralLandingPages: z.array(ga4AiReferralLandingPageDtoSchema),
-  /** Deduped AI session total: MAX(sessions) per date+source across attribution dimensions, then summed. Cross-cutting: can overlap with Direct/Organic/Social via firstUserSource. */
+  /** AI session total under the session lens (the session's own source), per date and source, summed: GA4's own AI Assistant count. Other lenses never add to it. */
   aiSessionsDeduped: z.number(),
   /** @deprecated See `GA4AiReferralDto.users`. Never emitted since 4.135.0. */
   aiUsersDeduped: z.number().optional(),
@@ -348,7 +348,7 @@ export type GA4PropertiesDto = z.infer<typeof ga4PropertiesDtoSchema>
  * string" report (Search Console collection) is stored for. Each one is a
  * GA4-computed snapshot ending YESTERDAY in the property's reporting time
  * zone, exactly as GA4's own "Last N days" ranges are, so `28d` is the window
- * GA4's report opens on. Not the rolling `7d | 30d | 90d` of `/ga/traffic`.
+ * GA4's report opens on. Separate from the rolling windows of `/ga/traffic`.
  */
 export const gaSearchLandingWindowSchema = z.enum(WINDOW_SETS.gaSearchLanding)
 export type GaSearchLandingWindow = z.infer<typeof gaSearchLandingWindowSchema>
@@ -357,6 +357,7 @@ export const GA_SEARCH_LANDING_WINDOW_DAYS: Readonly<Record<GaSearchLandingWindo
   '7d': 7,
   '28d': 28,
   '90d': 90,
+  '180d': 180,
 }
 export const GA_SEARCH_LANDING_DEFAULT_WINDOW: GaSearchLandingWindow = '28d'
 export const GA_SEARCH_LANDING_DEFAULT_LIMIT = 50
@@ -523,10 +524,10 @@ export const ga4SyncResponseDtoSchema = z.object({
   aiReferralCount: z.number().int().nonnegative(),
   socialReferralCount: z.number().int().nonnegative(),
   /**
-   * The window that was ACTUALLY fetched and written, in days — the request's
-   * `days` bounded to GA4's supported sync range (1–90). Read this, not
+   * The requested coverage window, in days — reused mature days plus fetched gaps. The request's
+   * `days` is bounded to GA4's supported sync range (1–180). Read this, not
    * `requestedDays`, when reporting or reasoning about coverage: a
-   * `--days 500` sync writes 90 days, and this field says 90.
+   * `--days 500` sync covers 180 days, and this field says 180.
    */
   days: z.number().int().nonnegative(),
   /** The window the caller asked for, before bounding. Equals `days` unless `clamped`. */
@@ -703,7 +704,7 @@ export const gaOverviewChangeSchema = z.object({
 export type GaOverviewChange = z.infer<typeof gaOverviewChangeSchema>
 
 /** The overview windows, in days. */
-export const GA_OVERVIEW_WINDOW_DAYS = { '7d': 7, '30d': 30, '90d': 90 } as const
+export const GA_OVERVIEW_WINDOW_DAYS = { '7d': 7, '30d': 30, '90d': 90, '180d': 180 } as const
 export type GaOverviewWindow = keyof typeof GA_OVERVIEW_WINDOW_DAYS
 export const GA_OVERVIEW_WINDOWS: readonly GaOverviewWindow[] = WINDOW_SETS.gaOverview
 
@@ -715,7 +716,7 @@ export function isGaOverviewWindow(value: unknown): value is GaOverviewWindow {
  * Days of GA4 daily totals a sync keeps: the longest window and the period of
  * the same length before it.
  */
-export const GA_OVERVIEW_HISTORY_DAYS = 2 * GA_OVERVIEW_WINDOW_DAYS['90d']
+export const GA_OVERVIEW_HISTORY_DAYS = 2 * GA_OVERVIEW_WINDOW_DAYS['180d']
 
 /**
  * A window and the period of the same length just before it, as days before
@@ -774,7 +775,7 @@ export const gaOverviewDaySchema = z.object({
 export type GaOverviewDay = z.infer<typeof gaOverviewDaySchema>
 
 export const gaOverviewResponseSchema = z.object({
-  window: metricsWindowSchema,
+  window: z.enum(WINDOW_SETS.gaTraffic),
   current: gaOverviewPeriodSchema,
   /** The period just before `current`, of the same length. */
   previous: gaOverviewPeriodSchema,
@@ -930,6 +931,42 @@ export type GA4AiReferralDailyEntry = z.infer<typeof ga4AiReferralDailyEntrySche
  * is nothing true to report. `ga_daily_totals` cannot stand in either, since
  * it is property-level across ALL traffic rather than AI-scoped or per-source.
  */
+/**
+ * A least-squares line through daily AI sessions, as `linearTrend` returns it
+ * (index = days since the first fitted date), plus the calendar dates its two
+ * ends sit on, so a chart on any date axis can draw it.
+ */
+export const ga4AiReferralDailyTrendSchema = linearTrendSchema.extend({
+  startDate: z.string(),
+  endDate: z.string(),
+})
+export type GA4AiReferralDailyTrend = z.infer<typeof ga4AiReferralDailyTrendSchema>
+
+/** One calendar month of the same AI sessions, for charts that read by month. */
+export const ga4AiReferralMonthSchema = z.object({
+  /** `YYYY-MM`, in the property's reporting days. */
+  month: z.string(),
+  /** Sessions on the month's days inside the requested range; null when GA4 reported none of those days. */
+  sessions: z.number().nullable(),
+  /** Every day of the month is measured, inside the range and no longer filling, so the month can be compared. */
+  complete: z.boolean(),
+  /** The month's sessions by engine, largest first, keyed as `byEngine`. */
+  engines: z.array(z.object({ key: z.string(), label: z.string(), sessions: z.number() })),
+})
+export type GA4AiReferralMonth = z.infer<typeof ga4AiReferralMonthSchema>
+
+/**
+ * A least-squares line through complete months (index = position in
+ * `months`). `changePct` is the fitted end against the fitted start; null when
+ * that start is not above zero.
+ */
+export const ga4AiReferralMonthlyTrendSchema = linearTrendSchema.extend({
+  startMonth: z.string(),
+  endMonth: z.string(),
+  changePct: percent().nullable(),
+})
+export type GA4AiReferralMonthlyTrend = z.infer<typeof ga4AiReferralMonthlyTrendSchema>
+
 export const ga4AiReferralDailyDtoSchema = z.object({
   /** Ascending by date. Dates with no AI referrals are absent, not zero-filled. */
   days: z.array(ga4AiReferralDailyEntrySchema),
@@ -944,6 +981,22 @@ export const ga4AiReferralDailyDtoSchema = z.object({
    * winner set as `days`, so each day's values add up to that day's sessions.
    */
   byEngine: stackedDailySeriesSchema,
+  /**
+   * Fitted over the window's complete GA4 days, server side so every consumer
+   * draws the same line. A day counts once GA4 reported the site's daily total
+   * for it, so a date with no AI row is a measured zero; days before the
+   * project's first stored AI row, and the last two UTC days (still filling),
+   * are left out. Null with fewer than two such days. Optional so a newer
+   * client reads an older API.
+   */
+  trend: ga4AiReferralDailyTrendSchema.nullable().optional(),
+  /**
+   * The same sessions by calendar month across the range, oldest first, with
+   * the line fitted through its complete months. Optional so a newer client
+   * reads an older API.
+   */
+  months: z.array(ga4AiReferralMonthSchema).optional(),
+  monthlyTrend: ga4AiReferralMonthlyTrendSchema.nullable().optional(),
 })
 export type GA4AiReferralDailyDto = z.infer<typeof ga4AiReferralDailyDtoSchema>
 

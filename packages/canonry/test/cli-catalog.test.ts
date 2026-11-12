@@ -40,7 +40,8 @@ describe('generated CLI help', () => {
     for (const root of new Set(REGISTERED_CLI_COMMANDS.map(spec => spec.path[0]!))) {
       expect(result.stdout, root).toMatch(new RegExp(`^  ${root}(?: |$)`, 'm'))
     }
-    for (const section of ['Setup', 'Page Health', 'Projects', 'Monitoring', 'Config-as-Code', 'Integrations', 'Automation', 'Admin']) expect(result.stdout).toContain(`${section}:`)
+    for (const section of ['Setup', 'Agent Readiness', 'Projects', 'Monitoring', 'Config-as-Code', 'Integrations', 'Automation', 'Admin', 'Deprecated aliases']) expect(result.stdout).toContain(`${section}:`)
+    expect(result.stdout).not.toContain('Page Health')
   })
 
   it('returns one complete catalog for help and --help', async () => {
@@ -102,8 +103,8 @@ describe('CLI catalog drift guard', () => {
     const catalog = buildCliCatalog(REGISTERED_CLI_COMMANDS)
     const commands = catalog.groups.flatMap(group => group.commands)
     const search = commands.find(command => command.id === 'ga.search-landing-pages')!
-    expect(search.windows).toEqual(['7d', '28d', '90d'])
-    expect(search.usage).toContain('--window 7d|28d|90d')
+    expect(search.windows).toEqual(['7d', '28d', '90d', '180d'])
+    expect(search.usage).toContain('--window 7d|28d|90d|180d')
     expect(search.options).toContainEqual({ name: 'window', type: 'string', multiple: false })
     const traffic = commands.find(command => command.id === 'traffic.analytics')!
     expect(traffic.options).toEqual(expect.arrayContaining([

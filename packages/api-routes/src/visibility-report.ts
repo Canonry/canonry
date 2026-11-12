@@ -14,14 +14,17 @@ import {
   RunKinds,
   RunStatuses,
   answerProseForMentions,
+  CitationStates,
   compileBrandAliases,
   countsAsMention,
   effectiveBrandNames,
+  isCitationStateMeasured,
   matcherMatchesText,
   measurementV2UsageEdgeKey,
   normalizeMeasurementHost,
   parseStoredMeasurementPlanAnyVersion,
   prepareBrandMatchText,
+  readCitationState,
   validationError,
   visibilityReportQuerySchema,
   visibilityReportResponseSchema,
@@ -29,6 +32,7 @@ import {
   type SimpleMeasurementDefinition,
   type VisibilityReportPopulationClass,
   type VisibilityReportQuery,
+  type VisibilityReportResponse,
   normalizeIdentityText as normalizedText,
 } from '@canonry/canonry-contracts'
 import {
@@ -49,6 +53,7 @@ import { buildMeasurementObservationSignals } from './measurement-report.js'
 import { planScopeOptions, simpleScopeOptions } from './measurement-scope-options.js'
 import {
   buildVisibilityReport,
+  locationMatches,
   VisibilityReportCursorError,
   VisibilityReportScopeError,
   type VisibilityReportDefinitionInput,
@@ -319,6 +324,8 @@ function v2Observations(
       unknownMentionTargetKeys: attribution?.unknownMentionTargetIds ?? [],
       citedTargetKeys: attribution?.citedTargetIds ?? [],
       citationComplete: attribution?.sourceComplete ?? false,
+      // The kernel's flag: an engine that returns no sources is never "partly saved".
+      citationMeasured: attribution?.citationMeasured ?? true,
       retrievalStatus: raw.retrievalStatus ?? null,
       competitorMentionDomains: signals.mentioned,
       competitorCitationDomains: signals.cited,
@@ -465,6 +472,7 @@ function frozenSimpleRun(
     const competitorSignalsForSnapshot = !includeEvidence || competitors === null
       ? { mentioned: [], cited: [] }
       : competitorSignals(snapshot, competitors, preparedAnswerText)
+    const citationState = readCitationState(snapshot)
     observations.push({
       slotId,
       answerId: snapshot.id,
@@ -472,10 +480,11 @@ function frozenSimpleRun(
       answerText: includeEvidence ? snapshot.answerText : null,
       mentionComplete: snapshot.answerText !== null || snapshot.answerMentioned !== null,
       mentionedTargetKeys: mentioned ? ['project'] : [],
-      citedTargetKeys: snapshot.citationState === 'cited' ? ['project'] : [],
+      citedTargetKeys: citationState === CitationStates.cited ? ['project'] : [],
       // Simple citation state comes from the stored cited domains, not from
       // source-URL capture, so a saved Simple answer is never `unchecked`.
       citationComplete: true,
+      citationMeasured: isCitationStateMeasured(citationState),
       retrievalStatus: snapshot.retrievalStatus ?? null,
       competitorMentionDomains: competitorSignalsForSnapshot.mentioned,
       competitorCitationDomains: competitorSignalsForSnapshot.cited,
@@ -565,9 +574,10 @@ function legacySimpleRun(
       // the stored boolean is a frozen mention fact; null stays incomplete.
       mentionComplete: snapshot.answerMentioned !== null,
       mentionedTargetKeys: snapshot.answerMentioned === true ? ['project'] : [],
-      citedTargetKeys: snapshot.citationState === 'cited' ? ['project'] : [],
+      citedTargetKeys: readCitationState(snapshot) === CitationStates.cited ? ['project'] : [],
       // Legacy rows carry only the stored citation state (see the frozen-simple note).
       citationComplete: true,
+      citationMeasured: isCitationStateMeasured(readCitationState(snapshot)),
       retrievalStatus: snapshot.retrievalStatus ?? null,
       competitorMentionDomains: [],
       competitorCitationDomains: [],
@@ -779,6 +789,9 @@ function advancedReaderInput(
   projectId: string,
   active: NonNullable<ReturnType<typeof activeMeasurementPlan>>,
   query: VisibilityReportQuery,
+  includeHistory: boolean,
+  /** Read the predecessor even without history: the overview compares it for What changed. */
+  includePrevious = includeHistory,
 ): VisibilityReportReaderInput {
   if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) throw new Error('Expected a v2 active plan')
   const allVersionRows = db.select().from(measurementPlanVersions)
@@ -836,12 +849,13 @@ function advancedReaderInput(
       includeEvidence,
     )
   }
-  const candidates = sourceCandidates.map(candidate => materialize(candidate, candidate.run.id === selectedSource?.run.id))
+  const materializedSources = includeHistory ? sourceCandidates : selectedSource === undefined ? [] : [selectedSource]
+  const candidates = materializedSources.map(candidate => materialize(candidate, candidate.run.id === selectedSource?.run.id))
   const selectedDefinition = candidates.find(candidate => candidate.id === selectedSource?.run.id)?.definition
   const previousInput = (): VisibilityReportPreviousRunInput | null => {
     // A missing or scoped selection is never compared (the reader checks both
     // first), so it needs no predecessor read.
-    if (selectedSource === undefined || selectedSource.run.measurementScope !== null) return null
+    if (!includePrevious || selectedSource === undefined || selectedSource.run.measurementScope !== null) return null
     return readPreviousSweep(() => {
       const predecessor = previousEligibleVisibilityRun(db, projectId, false, selectedSource.run)
       if (predecessor === undefined) return null
@@ -897,32 +911,137 @@ function simpleRunInput(
     : legacySimpleRun(project, run, snapshots, includeEvidence)
 }
 
+/**
+ * One report run for a Simple sweep. A `--all-locations` sweep writes one run
+ * per location at the same `createdAt`, and the sweep, not one of its rows, is
+ * the unit (#480). Slot and execution ids gain their run's location, so the
+ * same query and engine in two locations stay two slots while the query still
+ * counts once; the ids stay stable from sweep to sweep, so matched cohorts and
+ * the change since the previous sweep still line up.
+ */
+function mergeSimpleSweep(members: ReadonlyArray<{ run: typeof runs.$inferSelect; input: VisibilityReportRunInput }>): VisibilityReportRunInput {
+  const [first, ...rest] = members
+  if (first === undefined) throw new Error('A Simple sweep has at least one run.')
+  if (rest.length === 0) return first.input
+  const scoped = (id: string, run: typeof runs.$inferSelect) => `${id}@${run.location ?? ''}`
+  const definitionIds = members.map(member => member.input.definitionId)
+  const fingerprints = members.map(member => member.input.modelFingerprint)
+  const completedAt = members.map(member => member.input.completedAt)
+  return {
+    ...first.input,
+    completedAt: completedAt.every(value => value !== null) ? [...completedAt].sort().at(-1)! : null,
+    state: members.some(member => member.input.state === 'partial') ? 'partial' : 'measured',
+    definitionId: definitionIds.every(id => id !== null)
+      ? `simple-sweep:${createHash('sha256').update(JSON.stringify([...definitionIds].sort())).digest('hex')}`
+      : null,
+    comparableDefinitionIds: [],
+    modelFingerprint: fingerprints.every(value => value === fingerprints[0]) ? fingerprints[0]! : null,
+    definition: {
+      ...first.input.definition,
+      slots: members.flatMap(({ run, input }) => input.definition.slots.map(slot => ({
+        ...slot, id: scoped(slot.id, run), executionId: scoped(slot.executionId, run),
+      }))),
+      edges: members.flatMap(({ run, input }) => input.definition.edges.map(edge => ({
+        ...edge, id: scoped(edge.id, run), executionId: scoped(edge.executionId, run),
+      }))),
+    },
+    observations: members.flatMap(({ run, input }) => input.observations.map(observation => ({
+      ...observation, slotId: scoped(observation.slotId, run),
+    }))),
+  }
+}
+
+/**
+ * Simple sweeps from runs ordered newest first. A `--all-locations` sweep is
+ * sibling runs that share `createdAt`, each measuring its own location. Two
+ * runs of one location at the same instant are two sweeps, the lower id first.
+ */
+export function simpleSweeps<T extends { createdAt: string; location: string | null }>(ordered: readonly T[]): T[][] {
+  const sweeps: T[][] = []
+  let current: T[] = []
+  let locations = new Set<string | null>()
+  for (const run of ordered) {
+    if (current.length > 0 && (run.createdAt !== current[0]!.createdAt || locations.has(run.location))) {
+      sweeps.push(current)
+      current = []
+      locations = new Set()
+    }
+    current.push(run)
+    locations.add(run.location)
+  }
+  if (current.length > 0) sweeps.push(current)
+  return sweeps
+}
+
+/**
+ * The eligible Simple sweep before `selected` (the selected sweep's oldest
+ * run) that measured `location`, as all of its sibling runs. Like the report's
+ * own run list it is bounded, and unlike it, it ignores the date window: a
+ * change compares against the sweep that actually came before.
+ */
+function previousSimpleSweep(
+  db: DatabaseClient,
+  projectId: string,
+  selected: Pick<typeof runs.$inferSelect, 'id' | 'createdAt'>,
+  location: VisibilityReportQuery['location'],
+) {
+  const earlier = db.select().from(runs).where(and(
+    eq(runs.projectId, projectId),
+    eq(runs.kind, RunKinds['answer-visibility']),
+    inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+    notProbeRun(),
+    isNull(runs.measurementPlanVersionId),
+    isNull(runs.measurementScope),
+    or(
+      lt(runs.createdAt, selected.createdAt),
+      and(eq(runs.createdAt, selected.createdAt), lt(runs.id, selected.id)),
+    ),
+  )).orderBy(desc(runs.createdAt), desc(runs.id)).limit(VISIBILITY_REPORT_MAX_RUNS).all()
+  return simpleSweeps(earlier.filter(run => locationMatches(run.location, location)))[0] ?? []
+}
+
 function simpleReaderInput(
   db: DatabaseClient,
   project: { id: string; displayName: string; canonicalDomain: string },
   query: VisibilityReportQuery,
+  includeHistory: boolean,
 ): VisibilityReportReaderInput {
+  // A pinned run reads exactly that run. Otherwise a location filter keeps the
+  // runs that measured that location, and each sweep is read as one result.
+  const pinned = query.runId !== undefined
   const sourceRuns = completedVisibilityRuns(db, project.id, true, query)
+    .filter(run => pinned || locationMatches(run.location, query.location))
+  const sweeps = pinned ? sourceRuns.map(run => [run]) : simpleSweeps(sourceRuns)
+  const materializedSweeps = includeHistory ? sweeps : sweeps.slice(0, 1)
   // Apply the run/time predicate before touching sidecars. A long-lived
   // project may have many historical captures, but this report's bounded run
   // selection is the only history it is entitled to reconstruct.
-  const frozen = frozenSimpleDefinitions(db, project.id, sourceRuns.map(run => run.id))
-  const selectedRun = sourceRuns.at(0)
-  const candidates = sourceRuns.map(run => simpleRunInput(db, project, run, frozen.get(run.id), run.id === selectedRun?.id))
-  if (query.runId !== undefined && !candidates.some(run => run.id === query.runId)) {
+  const frozen = frozenSimpleDefinitions(db, project.id, materializedSweeps.flat().map(run => run.id))
+  const selectedSweep = sweeps.at(0)
+  const selectedRun = selectedSweep?.[0]
+  const readSweep = (
+    sweep: readonly (typeof runs.$inferSelect)[],
+    definitions: ReturnType<typeof frozenSimpleDefinitions>,
+    includeEvidence: boolean,
+  ) => mergeSimpleSweep(sweep.map(run => ({ run, input: simpleRunInput(db, project, run, definitions.get(run.id), includeEvidence) })))
+  const candidates = materializedSweeps.map(sweep => readSweep(sweep, frozen, sweep === selectedSweep))
+  if (pinned && !candidates.some(run => run.id === query.runId)) {
     throw validationError(`Measurement run "${query.runId}" is not an eligible simple result.`)
   }
   const previousInput = (): VisibilityReportPreviousRunInput | null => {
     // A missing or scoped selection is never compared (the reader checks both
     // first), so it needs no predecessor read.
-    if (selectedRun === undefined || selectedRun.measurementScope !== null) return null
+    if (!includeHistory || selectedRun === undefined || selectedRun.measurementScope !== null) return null
     return readPreviousSweep(() => {
-      const predecessor = previousEligibleVisibilityRun(db, project.id, true, selectedRun)
-      if (predecessor === undefined) return null
-      const loaded = candidates.find(candidate => candidate.id === predecessor.id)
+      // A pinned run compares with its own location in the sweep before it.
+      const location: VisibilityReportQuery['location'] = !pinned ? query.location
+        : selectedRun.location === null ? { kind: 'none' } : { kind: 'exact', value: selectedRun.location }
+      const predecessor = previousSimpleSweep(db, project.id, selectedSweep?.at(-1) ?? selectedRun, location)
+      const representative = predecessor[0]
+      if (representative === undefined) return null
+      const loaded = candidates.find(candidate => candidate.id === representative.id)
       if (loaded !== undefined) return { run: loaded }
-      const definition = frozenSimpleDefinitions(db, project.id, [predecessor.id]).get(predecessor.id)
-      return { run: simpleRunInput(db, project, predecessor, definition, false) }
+      return { run: readSweep(predecessor, frozenSimpleDefinitions(db, project.id, predecessor.map(run => run.id)), false) }
     })
   }
   return {
@@ -941,22 +1060,65 @@ function simpleReaderInput(
  *
  * Adds each population's change since the previous eligible sweep. An unreadable
  * predecessor leaves the change off without failing the current measurement.
+ * Composite headlines omit history: selection still considers the same run
+ * metadata, but only the selected sweep's evidence is reconstructed.
  */
 export function readVisibilityReport(
   db: DatabaseClient,
   project: { id: string; displayName: string; canonicalDomain: string },
   rawQuery: Record<string, unknown>,
+  options: { includeHistory?: boolean } = {},
 ) {
+  const includeHistory = options.includeHistory !== false
+  return readReport(db, project, rawQuery, { includeHistory, includeAdvancedPrevious: includeHistory }).report
+}
+
+/**
+ * What an Advanced report read: a schema v1 plan freezes no Property
+ * definition to compare, so it carries no sweeps. A v2 plan carries the sweep
+ * the report selected (null before the first) and the eligible whole-plan
+ * sweep before it (null when none came before).
+ */
+export type OverviewAdvancedSweeps =
+  | { plan: 'legacy' }
+  | { plan: 'v2'; current: VisibilityReportRunInput | null; previous: VisibilityReportPreviousRunInput | null }
+
+/**
+ * The overview's coverage read, without history. On an Advanced project it
+ * also returns the selected sweep and its predecessor, so What changed
+ * compares the very run the coverage headline reads instead of rebuilding it.
+ * `advanced` is null on a Simple project.
+ */
+export function readOverviewVisibility(
+  db: DatabaseClient,
+  project: { id: string; displayName: string; canonicalDomain: string },
+  rawQuery: Record<string, unknown>,
+): { report: VisibilityReportResponse; advanced: OverviewAdvancedSweeps | null } {
+  return readReport(db, project, rawQuery, { includeHistory: false, includeAdvancedPrevious: true })
+}
+
+function readReport(
+  db: DatabaseClient,
+  project: { id: string; displayName: string; canonicalDomain: string },
+  rawQuery: Record<string, unknown>,
+  options: { includeHistory: boolean; includeAdvancedPrevious: boolean },
+): { report: VisibilityReportResponse; advanced: OverviewAdvancedSweeps | null } {
   const query = parseQuery(rawQuery)
+  const { includeHistory } = options
   const active = activeMeasurementPlan(db, project.id)
   const mode = query.mode === 'auto' ? (active === null ? 'simple' : 'advanced') : query.mode
   try {
     if (mode === 'advanced') {
       if (active === null) throw validationError('This project has no advanced measurement plan.')
-      if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return unsupportedAdvancedResponse(query, active)
-      return buildVisibilityReport(advancedReaderInput(db, project.id, active, query))
+      if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
+        return { report: unsupportedAdvancedResponse(query, active), advanced: { plan: 'legacy' } }
+      }
+      const input = advancedReaderInput(db, project.id, active, query, includeHistory, options.includeAdvancedPrevious)
+      const report = buildVisibilityReport(input)
+      const current = input.runs.find(run => run.id === report.selection.run.id) ?? null
+      return { report, advanced: { plan: 'v2', current, previous: input.previous ?? null } }
     }
-    const simple = simpleReaderInput(db, project, query)
+    const simple = simpleReaderInput(db, project, query, includeHistory)
     // Simple mode reads planless sweeps only. On a v2 project with no planless
     // sweep at all, the default read would answer "not measured", which reads
     // as an empty project rather than as the wrong mode. Refuse only that
@@ -969,7 +1131,7 @@ export function readVisibilityReport(
         'This project measures through an Advanced Measurement plan and has no pre-plan sweeps, so mode "simple" has no results. Use mode "advanced", or omit mode.',
       )
     }
-    return buildVisibilityReport(simple)
+    return { report: buildVisibilityReport(simple), advanced: null }
   } catch (error) {
     // Retired-scope details ride the error envelope so a client recovers by reason, not by message text.
     if (error instanceof VisibilityReportScopeError) throw validationError(error.message, error.details)

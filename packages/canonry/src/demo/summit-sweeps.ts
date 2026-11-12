@@ -13,6 +13,7 @@ import {
   effectiveBrandNames,
   effectiveDomains,
   extractRecommendedCompetitors,
+  type CitationState,
   type NormalizedQueryResult,
 } from '@canonry/canonry-contracts'
 import { determineCitationState } from '../citation-utils.js'
@@ -133,7 +134,7 @@ export function summitAnswerPlan(sweep: number, engine: SummitEngine, queryKey: 
 export interface SummitAnswer {
   answerText: string
   answerMentioned: boolean
-  citationState: 'cited' | 'not-cited'
+  citationState: CitationState
   citedDomains: string[]
   citedUrls: string[]
   competitorOverlap: string[]

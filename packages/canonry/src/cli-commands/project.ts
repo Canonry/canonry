@@ -17,6 +17,7 @@ import {
   providerDispatchModeSchema,
   SITE_AUDIT_MAX_PAGE_LIMIT,
   siteAuditPageBudgetSchema,
+  suggestedBrandName,
   type CompetitorAutoAliasMode,
   type ProviderDispatchModesMap,
 } from '@canonry/canonry-contracts'
@@ -25,8 +26,8 @@ import type { MeasurementUpdateFlags } from '../commands/project.js'
 export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'create'],
-    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--site-audit-max-pages <1-50000|full>] [--format json]',
-    help: 'Create a project. Pass --domain for the public site to scan. Provider credentials are not required for Page Health.',
+    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--site-audit-max-pages <1-50000|full>] [--site-audit-domain <domain>...] [--format json]',
+    help: 'Create a project. Pass --domain for the public site to scan; without --display-name, the brand name comes from the domain ("summit-roofing.com" gives "Summit Roofing"). --site-audit-domain makes every Agent Readiness scan also cover that owned domain, which must also be an --owned-domain. Provider credentials are not required for Agent Readiness.',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -39,26 +40,30 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'provider-model': multiStringOption(),
       'dispatch-mode': multiStringOption(),
       'site-audit-max-pages': stringOption(),
+      'site-audit-domain': multiStringOption(),
     },
     run: async (input) => {
       const { createProject } = await import('../commands/project.js')
       const name = requireProject(
         input,
         'project.create',
-        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--site-audit-max-pages <1-50000|full>] [--format json]',
+        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--site-audit-max-pages <1-50000|full>] [--site-audit-domain <domain>...] [--format json]',
       )
+      const domain = getString(input.values, 'domain')
       await createProject(name, {
-        domain: getString(input.values, 'domain') ?? name,
+        domain: domain ?? name,
         ownedDomains: getStringArray(input.values, 'owned-domain') ?? [],
         aliases: getStringArray(input.values, 'alias') ?? [],
         qualifiedAliases: getStringArray(input.values, 'qualified-alias') ?? [],
         country: getString(input.values, 'country') ?? 'US',
         language: getString(input.values, 'language') ?? 'en',
-        displayName: getString(input.values, 'display-name') ?? name,
+        // As in dashboard setup, a site's brand name comes from its domain ("summit-roofing.com" gives "Summit Roofing").
+        displayName: getString(input.values, 'display-name') ?? (domain ? suggestedBrandName(domain) : name),
         providers: getStringArray(input.values, 'provider') ?? [],
         providerModels: parseProviderModelAssignments(getStringArray(input.values, 'provider-model')),
         providerDispatchModes: parseDispatchModeAssignments(getStringArray(input.values, 'dispatch-mode')),
         siteAuditMaxPages: parseSiteAuditMaxPages(getString(input.values, 'site-audit-max-pages'), 'project.create'),
+        siteAuditDomains: getStringArray(input.values, 'site-audit-domain'),
         format: input.format,
       })
     },
@@ -66,7 +71,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'update'],
     supportsDryRun: true,
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--count-key-events | --no-count-key-events] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json] [--dry-run]',
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--site-audit-domain <domain>...] [--add-site-audit-domain <domain>...] [--remove-site-audit-domain <domain>...] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--count-key-events | --no-count-key-events] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json] [--dry-run]',
     accessFor: ({ values, dryRun }) => dryRun && getString(values, 'competitor-auto-aliases') === 'apply' ? OperationAccesses.stored : OperationAccesses.write,
     options: {
       domain: { type: 'string', short: 'd' },
@@ -89,6 +94,9 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'clear-dispatch-mode': multiStringOption(),
       'negative-review-max-stars': stringOption(),
       'site-audit-max-pages': stringOption(),
+      'site-audit-domain': multiStringOption(),
+      'add-site-audit-domain': multiStringOption(),
+      'remove-site-audit-domain': multiStringOption(),
       'competitor-auto-aliases': stringOption(),
       'expect-revision': stringOption(),
       'lead-event': multiStringOption(),
@@ -108,7 +116,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--count-key-events | --no-count-key-events] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json]',
+        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--site-audit-domain <domain>...] [--add-site-audit-domain <domain>...] [--remove-site-audit-domain <domain>...] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--count-key-events | --no-count-key-events] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json]',
       )
       const providers = getStringArray(input.values, 'provider')
       const expectedRevisionRaw = getString(input.values, 'expect-revision')
@@ -148,6 +156,9 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         clearDispatchModes,
         negativeReviewMaxStars: parseNegativeReviewMaxStars(getString(input.values, 'negative-review-max-stars')),
         siteAuditMaxPages: parseSiteAuditMaxPages(getString(input.values, 'site-audit-max-pages'), 'project.update'),
+        siteAuditDomains: getStringArray(input.values, 'site-audit-domain'),
+        addSiteAuditDomain: getStringArray(input.values, 'add-site-audit-domain'),
+        removeSiteAuditDomain: getStringArray(input.values, 'remove-site-audit-domain'),
         competitorAutoAliases: parseCompetitorAutoAliasMode(getString(input.values, 'competitor-auto-aliases')),
         expectedConfigRevision,
         measurement: parseMeasurementFlags(input.values),
@@ -172,6 +183,17 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const { showProject } = await import('../commands/project.js')
       const name = requireProject(input, 'project.show', 'canonry project show <name>')
       await showProject(name, input.format)
+    },
+  },
+  {
+    path: ['project', 'setup'],
+    usage: 'canonry project setup <project> [--format json]',
+    access: OperationAccesses.stored,
+    help: 'Show first-run setup: the Agent Readiness audit scan and the AI Visibility check, each with its latest run, and the next step the server suggests. Stored reads only: no provider calls or crawls. JSON is the API response.',
+    run: async (input) => {
+      const { showProjectSetup } = await import('../commands/project-setup.js')
+      const name = requireProject(input, 'project.setup', 'canonry project setup <project> [--format json]')
+      await showProjectSetup(name, input.format)
     },
   },
   {
@@ -264,12 +286,12 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project'],
-    usage: 'canonry project <create|update|list|show|delete|add-location|locations|remove-location|set-default-location> [args]',
+    usage: 'canonry project <create|update|list|show|setup|delete|add-location|locations|remove-location|set-default-location> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'project',
-        usage: 'canonry project <create|update|list|show|delete|add-location|locations|remove-location|set-default-location> [args]',
-        available: ['create', 'update', 'list', 'show', 'delete', 'add-location', 'locations', 'remove-location', 'set-default-location'],
+        usage: 'canonry project <create|update|list|show|setup|delete|add-location|locations|remove-location|set-default-location> [args]',
+        available: ['create', 'update', 'list', 'show', 'setup', 'delete', 'add-location', 'locations', 'remove-location', 'set-default-location'],
       })
     },
   },
@@ -322,7 +344,7 @@ function parseNegativeReviewMaxStars(raw: string | undefined): number | null | u
 }
 
 /**
- * A whole number from 1 to the hard limit saves a Site Health page budget,
+ * A whole number from 1 to the hard limit saves an Agent Readiness page budget,
  * `full` saves null (scans cover the full site), absent leaves the stored
  * budget alone. Validated here so a typo never reaches the server.
  */

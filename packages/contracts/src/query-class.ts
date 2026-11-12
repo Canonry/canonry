@@ -22,6 +22,8 @@ export const QUERY_CLASSES = ['branded', 'non-brand'] as const
 export const queryClassSchema = z.enum(QUERY_CLASSES)
 
 export type QueryClass = z.infer<typeof queryClassSchema>
+/** Compare a query class through these, never a raw string (`QueryClasses['non-brand']`). */
+export const QueryClasses = queryClassSchema.enum
 
 /** `all` keeps both classes visible side by side; it never pools them into one figure. */
 export const queryClassFilterSchema = z.enum(['all', 'branded', 'non-brand'])

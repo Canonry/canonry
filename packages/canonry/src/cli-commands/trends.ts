@@ -11,7 +11,7 @@ export const TRENDS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['trends'],
     usage: USAGE,
-    help: 'Read a dashboard trend card from stored data: each figure\'s latest reading, its change since the first reading in the window, and its readings. index-coverage covers Google and Bing indexed pages, site-health the site score per scan, backlinks referring domains per Common Crawl release (crawler and proxy hosts left out). The window ends on the latest reading; it defaults to 90d for index-coverage and all otherwise. --start and --end read your own calendar range instead.',
+    help: 'Read a dashboard trend card from stored data: each figure\'s latest reading, its change since the first reading in the window, and its readings. index-coverage covers Google and Bing indexed pages, site-health the Agent Readiness score per scan, backlinks referring domains per Common Crawl release (crawler and proxy hosts left out). The window ends on the latest reading; it defaults to 90d for index-coverage and all otherwise. --start and --end read your own calendar range instead.',
     options: {
       surface: stringOption(),
       window: stringOption(),

@@ -1,9 +1,9 @@
 import crypto from 'node:crypto'
-import { eq, desc, and, sql } from 'drizzle-orm'
+import { eq, desc, and, inArray, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaWindowMetrics, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@canonry/canonry-db'
-import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames } from '@canonry/canonry-contracts'
+import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaWindowMetrics, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, gaSyncCoverage, runs } from '@canonry/canonry-db'
+import { GA_OVERVIEW_WINDOWS, GA_SEARCH_LANDING_WINDOWS, shiftIsoCalendarDate, calendarDateRange, WINDOW_SETS, breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames, linearTrend, type GA4AiReferralDailyTrend, type GA4AiReferralMonth, type GA4AiReferralMonthlyTrend } from '@canonry/canonry-contracts'
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@canonry/canonry-contracts'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
@@ -14,8 +14,9 @@ import { buildGaOverview, parseGaOverviewWindow } from './ga-overview.js'
 import { findBiggestMover } from './ga-source-mover.js'
 import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttributionDimension, summarizeAiReferralCounts } from './ga-ai-referral-aggregation.js'
 import { groupAiEngines, groupSocialPlatforms, paidSocialSummary, socialPlatformDailySeries } from './ga-referral-groups.js'
-import { clearGaDataOnPropertyChange, clearGaPropertyData, projectsSharingGa4Connection, readGa4Properties } from './ga-property-data.js'
-import { persistSearchLandingFailure, persistSearchLandingSnapshot } from './ga-search-landing-pages.js'
+import { clearGaDataOnPropertyChange, clearGaPropertyData, resolveCurrentGa4PropertyId, projectsSharingGa4Connection, readGa4Properties } from './ga-property-data.js'
+import { planGaSyncCoverage, saveGaSyncCoverage, fetchGaSyncRanges } from './ga-sync-coverage.js'
+import { persistSearchLandingFailure, persistSearchLandingSnapshot, searchLandingWindowsToFetch } from './ga-search-landing-pages.js'
 import {
   getAccessToken,
   fetchTrafficByLandingPage,
@@ -69,10 +70,113 @@ function withSessionShares<T extends { sessions: number }>(rows: readonly T[]): 
   return rows.map((row, index) => ({ ...row, share: shares[index] ?? 0 }))
 }
 
+const DAY_MS = 86_400_000
+/** Most recent UTC days GA4 is still filling: left out of a fitted line. */
+const GA_TREND_FILLING_DAYS = 2
+
+/**
+ * Least-squares fit of daily AI sessions over complete GA4 days. A day counts
+ * when GA4 reported the site's daily total for it, which makes a date with no
+ * AI row a measured zero. Days before the project's first stored AI row are
+ * left out, since that history may never have been synced for AI, and so are
+ * the last two UTC days. Positions keep their calendar gaps, as in
+ * `linearTrend`.
+ */
+const gaFillingFrom = (now: Date) =>
+  new Date(Date.parse(now.toISOString().slice(0, 10)) - (GA_TREND_FILLING_DAYS - 1) * DAY_MS).toISOString().slice(0, 10)
+
+export function aiReferralDailyTrend(
+  days: readonly { date: string, sessions: number }[],
+  measuredDates: readonly string[],
+  firstAiDate: string | null,
+  now: Date,
+): GA4AiReferralDailyTrend | null {
+  if (!firstAiDate) return null
+  const fillingFrom = gaFillingFrom(now)
+  const usable = [...new Set(measuredDates)].filter(date => date >= firstAiDate && date < fillingFrom).sort()
+  if (usable.length < 2) return null
+  const sessionsByDate = new Map(days.map(day => [day.date, day.sessions]))
+  const measured = new Set(usable)
+  const firstMs = Date.parse(`${usable[0]}T00:00:00.000Z`)
+  const length = Math.round((Date.parse(`${usable[usable.length - 1]}T00:00:00.000Z`) - firstMs) / DAY_MS) + 1
+  const axis = Array.from({ length }, (_, i) => new Date(firstMs + i * DAY_MS).toISOString().slice(0, 10))
+  const fit = linearTrend(axis.map(date => (measured.has(date) ? sessionsByDate.get(date) ?? 0 : null)))
+  return fit ? { ...fit, startDate: axis[fit.startIndex]!, endDate: axis[fit.endIndex]! } : null
+}
+
+const addMonths = (month: string, n: number) => {
+  const [y, m] = month.split('-').map(Number) as [number, number]
+  return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7)
+}
+const lastDayOf = (month: string) => new Date(Date.parse(`${addMonths(month, 1)}-01T00:00:00.000Z`) - DAY_MS).toISOString().slice(0, 10)
+
+/**
+ * The daily AI sessions folded into calendar months across the range, and a
+ * line through the complete ones. A month is complete when the range holds
+ * all of it, every day has a reported site total and was reached by the AI
+ * sync, and none is still filling. A month GA4 reported no day of reads null,
+ * not zero.
+ *
+ * `aiCoverageStart` is the first day the AI sync reached. Site totals are kept
+ * for longer than the AI sync reaches back, so a day before it has a site total
+ * but no AI reading: it is unmeasured, not a day with no AI visits.
+ */
+export function aiReferralMonthlySeries(input: {
+  days: readonly { date: string, sessions: number }[]
+  byEngine: { series: readonly { key: string, label: string }[], days: readonly { date: string, values: Record<string, number> }[] }
+  measuredDates: readonly string[]
+  range: { startDate: string | null, endDate: string | null }
+  firstAiDate: string | null
+  aiCoverageStart: string | null
+  now: Date
+}): { months: GA4AiReferralMonth[], monthlyTrend: GA4AiReferralMonthlyTrend | null } {
+  const today = input.now.toISOString().slice(0, 10)
+  const fillingFrom = gaFillingFrom(input.now)
+  const coverageStart = input.aiCoverageStart
+  const measured = new Set(coverageStart === null ? [] : input.measuredDates.filter(date => date >= coverageStart))
+  const firstDay = input.range.startDate ?? [...input.days.map(day => day.date), ...measured].sort()[0]
+  if (!firstDay) return { months: [], monthlyTrend: null }
+  const lastDay = input.range.endDate && input.range.endDate < today ? input.range.endDate : today
+  const labels = new Map(input.byEngine.series.map(s => [s.key, s.label]))
+  const months: GA4AiReferralMonth[] = []
+  for (let month = firstDay.slice(0, 7); month <= lastDay.slice(0, 7); month = addMonths(month, 1)) {
+    const inMonth = (date: string) => date.startsWith(month)
+    const monthStart = `${month}-01`
+    const monthEnd = lastDayOf(month)
+    const monthDates = calendarDateRange(monthStart, monthEnd)
+    const days = input.days.filter(day => inMonth(day.date))
+    const reported = days.length > 0 || monthDates.some(date => measured.has(date))
+    const engines = new Map<string, number>()
+    for (const day of input.byEngine.days) {
+      if (!inMonth(day.date)) continue
+      for (const [key, value] of Object.entries(day.values)) engines.set(key, (engines.get(key) ?? 0) + value)
+    }
+    months.push({
+      month,
+      sessions: reported ? days.reduce((sum, day) => sum + day.sessions, 0) : null,
+      complete: reported && monthStart >= firstDay && monthEnd <= lastDay && monthEnd < fillingFrom
+        && monthDates.every(date => measured.has(date)),
+      engines: [...engines].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+        .map(([key, sessions]) => ({ key, label: labels.get(key) ?? key, sessions })),
+    })
+  }
+  const fromMonth = input.firstAiDate?.slice(0, 7)
+  const fit = fromMonth
+    ? linearTrend(months.map(m => (m.complete && m.month >= fromMonth ? m.sessions : null)))
+    : null
+  const monthlyTrend = fit ? {
+    ...fit,
+    startMonth: months[fit.startIndex]!.month,
+    endMonth: months[fit.endIndex]!.month,
+    changePct: fit.start > 0 ? deltaPercent(fit.end, fit.start) : null,
+  } : null
+  return { months, monthlyTrend }
+}
+
 // Inclusive `date >= start` / `date <= end` predicates for a resolved range.
 // Every GA read stores its date as a `YYYY-MM-DD` TEXT column, so the same two
 // comparisons work verbatim on each of them.
-function dateRangeConditions(column: SQLWrapper, range: ResolvedDateRange): SQL[] {
+function dateRangeConditions(column: SQLWrapper, range: Pick<ResolvedDateRange, 'startDate' | 'endDate'>): SQL[] {
   const conditions: SQL[] = []
   if (range.startDate) conditions.push(sql`${column} >= ${range.startDate}`)
   if (range.endDate) conditions.push(sql`${column} <= ${range.endDate}`)
@@ -179,7 +283,7 @@ function keepWinningDimensionRows<T extends { sessions: number | null, sourceDim
 type GaDatabase = FastifyInstance['db']
 
 function persistAcquisitionMeasurement(
-  db: GaDatabase,
+  db: Pick<GaDatabase, 'transaction'>,
   input: {
     projectId: string
     runId: string
@@ -234,7 +338,7 @@ function persistAcquisitionMeasurement(
 }
 
 function persistLeadMeasurement(
-  db: GaDatabase,
+  db: Pick<GaDatabase, 'transaction'>,
   input: {
     projectId: string
     runId: string
@@ -301,6 +405,7 @@ function persistLeadMeasurement(
 function resetLeadMeasurement(db: GaDatabase, projectId: string, updatedAt: string): void {
   db.transaction((tx) => {
     tx.delete(gaLeadEventsDaily).where(eq(gaLeadEventsDaily.projectId, projectId)).run()
+    tx.delete(gaSyncCoverage).where(and(eq(gaSyncCoverage.projectId, projectId), eq(gaSyncCoverage.component, 'leads'))).run()
     tx.insert(gaMeasurementSyncStates).values({ projectId, leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, leadEventNames: null, updatedAt }).onConflictDoUpdate({
       target: gaMeasurementSyncStates.projectId,
       set: { leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, leadEventNames: null, updatedAt },
@@ -942,63 +1047,83 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       let aiReferrals: Awaited<ReturnType<typeof fetchAiReferrals>> = []
       let socialReferrals: Awaited<ReturnType<typeof fetchSocialReferrals>> = []
 
-      // Always need summary for date range (periodStart/periodEnd), even for partial sync.
-      // Windowed summaries (7d/30d/90d) are fetched alongside so the dashboard can show
-      // deduplicated totalUsers per window without summing per-page snapshots (overcounts).
-      const WINDOW_KEYS = ['7d', '30d', '90d'] as const
-      // Daily totals carry NO landing-page dimension, so GA deduplicates
-      // `users` per day. Fetched unconditionally alongside the summary for the
-      // same reason the summary is: the daily series is a foundation read, not
-      // a channel breakdown the `only` flag scopes. They always cover the
-      // overview history (GA_OVERVIEW_HISTORY_DAYS), whatever `days` is, so
-      // every window's previous period has its days too. The window metrics
-      // are GA4's own totals for each window and the period before it.
-      const fetches: Promise<unknown>[] = [
+      // Non-additive totals stay native GA4 full-window reports. Detail rows
+      // reuse successful coverage independently for each component.
+      const WINDOW_KEYS = GA_OVERVIEW_WINDOWS
+      const [summary, windowSummaries, windowMetrics] = await Promise.all([
         fetchAggregateSummary(accessToken, propertyId, days),
-        ...WINDOW_KEYS.map((w) => fetchWindowSummary(accessToken, propertyId, w)),
-        fetchDailyTotals(accessToken, propertyId),
-        ...WINDOW_KEYS.map((w) => fetchWindowMetrics(accessToken, propertyId, w)),
-      ]
-      if (syncTraffic) fetches.push(fetchTrafficByLandingPage(accessToken, propertyId, days))
-      if (syncAi) fetches.push(fetchAiReferrals(accessToken, propertyId, days))
-      if (syncSocial) fetches.push(fetchSocialReferrals(accessToken, propertyId, days))
-
+        Promise.all(WINDOW_KEYS.map(w => fetchWindowSummary(accessToken, propertyId, w))),
+        Promise.all(WINDOW_KEYS.map(w => fetchWindowMetrics(accessToken, propertyId, w))),
+      ])
+      const requested = { startDate: summary.periodStart, endDate: summary.periodEnd }
+      const definition = JSON.stringify(['v1', windowMetrics[0]!.timeZone ?? 'UTC'])
+      const planInput = { projectId: project.id, propertyId, requested, definition }
+      const trafficPlan = planGaSyncCoverage(app.db, { ...planInput, component: 'traffic' }, startedAt)
+      const aiPlan = planGaSyncCoverage(app.db, { ...planInput, component: 'ai' }, startedAt)
+      const socialPlan = planGaSyncCoverage(app.db, { ...planInput, component: 'social' }, startedAt)
+      const longestWindow = windowMetrics.at(-1)!
+      const dailyPlan = planGaSyncCoverage(app.db, {
+        ...planInput, component: 'daily',
+        requested: { startDate: longestWindow.previous.startDate, endDate: shiftIsoCalendarDate(longestWindow.current.endDate, 1) },
+      }, startedAt)
+      const acquisitionPlan = planGaSyncCoverage(app.db, {
+        ...planInput, component: 'acquisition',
+        requested: { startDate: shiftIsoCalendarDate(requested.endDate, -acquisitionDays), endDate: requested.endDate },
+      }, startedAt)
+      const leadPlan = planGaSyncCoverage(app.db, {
+        ...planInput, component: 'leads', definition: JSON.stringify([definition, ...leadEventNames]),
+        requested: { startDate: shiftIsoCalendarDate(requested.endDate, -leadDays), endDate: requested.endDate },
+      }, startedAt)
+      const searchRequestedAt = new Date()
+      const searchTimeZone = windowMetrics[0]!.timeZone ?? null
+      const searchWindows = syncSearchLanding
+        ? searchLandingWindowsToFetch(app.db, project.id, propertyId, searchTimeZone, searchRequestedAt.toISOString())
+        : []
       const measurementFetch = Promise.allSettled([
-        fetchAcquisitionByChannel(accessToken, propertyId, acquisitionDays),
+        fetchGaSyncRanges(acquisitionPlan, range => fetchAcquisitionByChannel(accessToken, propertyId, acquisitionDays, { dateRange: range })),
         leadEventNames.length > 0
-          ? fetchLeadEvents(accessToken, propertyId, leadEventNames, leadDays)
+          ? fetchGaSyncRanges(leadPlan, range => fetchLeadEvents(accessToken, propertyId, leadEventNames, leadDays, range))
           : Promise.resolve(null),
-        // Fails soft like the components above: its own state, never the run.
         syncSearchLanding
-          ? fetchSearchLandingPages(accessToken, propertyId)
+          ? searchWindows.length > 0
+            ? fetchSearchLandingPages(accessToken, propertyId, {
+              windows: searchWindows, now: searchRequestedAt, timeZone: searchTimeZone ?? undefined,
+            })
+            : Promise.resolve({ status: 'ready' as const, windows: [] })
           : Promise.resolve(null),
       ])
-
-      const results = await Promise.all(fetches)
-      const summary: Awaited<ReturnType<typeof fetchAggregateSummary>> = results[0] as Awaited<ReturnType<typeof fetchAggregateSummary>>
-      const windowSummaries = results.slice(1, 1 + WINDOW_KEYS.length) as Array<Awaited<ReturnType<typeof fetchWindowSummary>>>
-      const dailyTotals = results[1 + WINDOW_KEYS.length] as Awaited<ReturnType<typeof fetchDailyTotals>>
-      const windowMetrics = results.slice(2 + WINDOW_KEYS.length, 2 + 2 * WINDOW_KEYS.length) as Array<Awaited<ReturnType<typeof fetchWindowMetrics>>>
-      let idx = 2 + 2 * WINDOW_KEYS.length
-      if (syncTraffic) { rows = results[idx++] as typeof rows }
-      if (syncAi) { aiReferrals = results[idx++] as typeof aiReferrals }
-      if (syncSocial) { socialReferrals = results[idx++] as typeof socialReferrals }
+      const [dailyReports, trafficReports, aiReports, socialReports] = await Promise.all([
+        fetchGaSyncRanges(dailyPlan, range => fetchDailyTotals(accessToken, propertyId, undefined, { dateRange: range })),
+        fetchGaSyncRanges(trafficPlan, range => fetchTrafficByLandingPage(accessToken, propertyId, days, range)),
+        syncAi ? fetchGaSyncRanges(aiPlan, range => fetchAiReferrals(accessToken, propertyId, days, range)) : Promise.resolve([]),
+        syncSocial ? fetchGaSyncRanges(socialPlan, range => fetchSocialReferrals(accessToken, propertyId, days, range)) : Promise.resolve([]),
+      ])
+      rows = trafficReports.flatMap(result => result.report)
+      aiReferrals = aiReports.flatMap(result => result.report)
+      socialReferrals = socialReports.flatMap(result => result.report)
+      const dailyTotals = { rows: dailyReports.flatMap(result => result.report.rows) }
 
       const now = new Date().toISOString()
+
+      if (resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain) !== propertyId) {
+        throw validationError('GA4 property changed during sync; retry against the current connection')
+      }
 
       // Clear old data for this project in the synced date range, then insert fresh
       // Wrapped in a transaction to ensure atomicity — a crash mid-insert won't lose data
       app.db.transaction((tx) => {
         if (syncTraffic) {
-          tx.delete(gaTrafficSnapshots)
-            .where(
-              and(
-                eq(gaTrafficSnapshots.projectId, project.id),
-                sql`${gaTrafficSnapshots.date} >= ${summary.periodStart}`,
-                sql`${gaTrafficSnapshots.date} <= ${summary.periodEnd}`,
-              ),
-            )
-            .run()
+          for (const { range } of trafficReports) {
+            tx.delete(gaTrafficSnapshots)
+              .where(
+                and(
+                  eq(gaTrafficSnapshots.projectId, project.id),
+                  sql`${gaTrafficSnapshots.date} >= ${range.startDate}`,
+                  sql`${gaTrafficSnapshots.date} <= ${range.endDate}`,
+                ),
+              )
+              .run()
+          }
 
           for (const row of rows) {
             tx.insert(gaTrafficSnapshots).values({
@@ -1022,15 +1147,17 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         // series regardless of which breakdowns were refreshed. Delete-range
         // then insert keeps the unique (project, date) index clean when a
         // re-sync covers days that already have a row.
-        tx.delete(gaDailyTotals)
-          .where(
-            and(
-              eq(gaDailyTotals.projectId, project.id),
-              sql`${gaDailyTotals.date} >= ${dailyTotals.startDate}`,
-              sql`${gaDailyTotals.date} <= ${dailyTotals.endDate}`,
-            ),
-          )
-          .run()
+        for (const { report } of dailyReports) {
+          tx.delete(gaDailyTotals)
+            .where(
+              and(
+                eq(gaDailyTotals.projectId, project.id),
+                sql`${gaDailyTotals.date} >= ${report.startDate}`,
+                sql`${gaDailyTotals.date} <= ${report.endDate}`,
+              ),
+            )
+            .run()
+        }
 
         for (const row of dailyTotals.rows) {
           tx.insert(gaDailyTotals).values({
@@ -1091,15 +1218,17 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         }
 
         if (syncAi) {
-          tx.delete(gaAiReferrals)
-            .where(
-              and(
-                eq(gaAiReferrals.projectId, project.id),
-                sql`${gaAiReferrals.date} >= ${summary.periodStart}`,
-                sql`${gaAiReferrals.date} <= ${summary.periodEnd}`,
-              ),
-            )
-            .run()
+          for (const { range } of aiReports) {
+            tx.delete(gaAiReferrals)
+              .where(
+                and(
+                  eq(gaAiReferrals.projectId, project.id),
+                  sql`${gaAiReferrals.date} >= ${range.startDate}`,
+                  sql`${gaAiReferrals.date} <= ${range.endDate}`,
+                ),
+              )
+              .run()
+          }
 
           for (const row of aiReferrals) {
             tx.insert(gaAiReferrals).values({
@@ -1127,15 +1256,17 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         }
 
         if (syncSocial) {
-          tx.delete(gaSocialReferrals)
-            .where(
-              and(
-                eq(gaSocialReferrals.projectId, project.id),
-                sql`${gaSocialReferrals.date} >= ${summary.periodStart}`,
-                sql`${gaSocialReferrals.date} <= ${summary.periodEnd}`,
-              ),
-            )
-            .run()
+          for (const { range } of socialReports) {
+            tx.delete(gaSocialReferrals)
+              .where(
+                and(
+                  eq(gaSocialReferrals.projectId, project.id),
+                  sql`${gaSocialReferrals.date} >= ${range.startDate}`,
+                  sql`${gaSocialReferrals.date} <= ${range.endDate}`,
+                ),
+              )
+              .run()
+          }
 
           for (const row of socialReferrals) {
             tx.insert(gaSocialReferrals).values({
@@ -1193,10 +1324,17 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             }).run()
           }
         }
+        saveGaSyncCoverage(tx, trafficPlan, trafficReports.map(result => result.range), now, runId)
+        saveGaSyncCoverage(tx, dailyPlan, dailyReports.map(result => result.report), now, runId)
+        if (syncAi) saveGaSyncCoverage(tx, aiPlan, aiReports.map(result => result.range), now, runId)
+        if (syncSocial) saveGaSyncCoverage(tx, socialPlan, socialReports.map(result => result.range), now, runId)
       })
 
       const [acquisitionSettled, leadsSettled, searchLandingSettled] = await measurementFetch
       const measurementNow = new Date().toISOString()
+      if (resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain) !== propertyId) {
+        throw validationError('GA4 property changed during sync; retry against the current connection')
+      }
 
       const recordMeasurementFailure = (
         component: 'acquisition' | 'leads',
@@ -1228,16 +1366,18 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
           return recordMeasurementFailure('acquisition', acquisitionSettled.reason)
         }
         try {
-          persistAcquisitionMeasurement(app.db, {
-            projectId: project.id,
-            runId,
-            syncedAt: measurementNow,
-            report: acquisitionSettled.value,
+          app.db.transaction(tx => {
+            for (const { report } of acquisitionSettled.value) {
+              persistAcquisitionMeasurement(tx, {
+                projectId: project.id, runId, syncedAt: measurementNow, report,
+              })
+            }
+            saveGaSyncCoverage(tx, acquisitionPlan, acquisitionSettled.value.map(result => result.report), measurementNow, runId)
           })
           return {
             status: 'ready' as const,
             days: acquisitionDays,
-            rowCount: acquisitionSettled.value.rows.length,
+            rowCount: acquisitionSettled.value.reduce((sum, result) => sum + result.report.rows.length, 0),
           }
         } catch (error) {
           return recordMeasurementFailure('acquisition', error)
@@ -1253,18 +1393,20 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
           return { status: 'not-configured' as const, days: 0, rowCount: 0 }
         }
         try {
-          persistLeadMeasurement(app.db, {
-            projectId: project.id,
-            runId,
-            syncedAt: measurementNow,
-            report: leadsSettled.value,
-            eventNames: leadEventNames,
+          app.db.transaction(tx => {
+            for (const { report } of leadsSettled.value!) {
+              persistLeadMeasurement(tx, {
+                projectId: project.id, runId, syncedAt: measurementNow, report,
+                eventNames: leadEventNames,
+              })
+            }
+            saveGaSyncCoverage(tx, leadPlan, leadsSettled.value!.map(result => result.report), measurementNow, runId)
           })
           return {
             status: 'ready' as const,
             days: leadDays,
-            rowCount: leadsSettled.value.rows.length,
-            attributionScope: leadsSettled.value.attributionScope,
+            rowCount: leadsSettled.value.reduce((sum, result) => sum + result.report.rows.length, 0),
+            attributionScope: leadsSettled.value.at(-1)!.report.attributionScope,
             eventNames: leadEventNames,
             keyEvents: keyEventRead,
           }
@@ -1317,6 +1459,11 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             runId,
             syncedAt: measurementNow,
             windows: report.windows,
+            reuse: {
+              windows: GA_SEARCH_LANDING_WINDOWS.filter(window => !searchWindows.includes(window)),
+              timeZone: searchTimeZone,
+              requestedAt: searchRequestedAt.toISOString(),
+            },
           })
         } catch (error) {
           return recordSearchLandingFailure('error', error)
@@ -1339,7 +1486,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             ...(syncSummary ? ['summary'] : []),
             ...(syncAi ? ['ai'] : []),
             ...(syncSocial ? ['social'] : []),
-            ...(searchLandingResult?.status === 'ready' ? ['search-landing'] : []),
+            ...(searchLandingResult?.status === 'ready' && searchLandingResult.windows.length > 0 ? ['search-landing'] : []),
           ]
         : undefined
 
@@ -1400,7 +1547,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
     const limit = Math.max(1, Math.min(parseInt(request.query.limit ?? '50', 10) || 50, 500))
-    const range = resolveDateRange(request.query)
+    const range = resolveDateRange(request.query, WINDOW_SETS.gaTraffic)
 
     // When filtering by window, prefer the per-window summary row populated by
     // /ga/sync — it carries deduplicated totalUsers (no landing-page dimension).
@@ -1494,7 +1641,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const denominatorPeriod = denominatorRow?.periodStart && denominatorRow.periodEnd
       ? { startDate: denominatorRow.periodStart, endDate: denominatorRow.periodEnd }
       : null
-    const measuredRange: ResolvedDateRange = denominatorPeriod
+    const measuredRange: ResolvedDateRange<typeof WINDOW_SETS.gaTraffic[number]> = denominatorPeriod
       ? { ...range, ...denominatorPeriod }
       : range
 
@@ -1624,11 +1771,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     // Dedupe across attribution dimensions: 'session', 'first_user', and
     // 'manual_utm' are overlapping lenses on the same visit, not disjoint
     // events. Returning all three would inflate the row count (e.g. 1 source
-    // showing as 6 rows). Keep the winning dimension — the one with the
-    // highest session count — per (source, medium) for `aiReferrals` and per
-    // (source, medium, landingPage) for `aiReferralLandingPages`. The cross-
-    // cutting / session-only totals (`aiSessionsDeduped`, `aiSessionsBySession`)
-    // are computed independently below and are unaffected.
+    // showing as 6 rows). Keep only the session lens for both `aiReferrals`
+    // and `aiReferralLandingPages`, matching the lens counted by the window
+    // totals (`aiSessionsDeduped`, `aiSessionsBySession`).
     const aiReferrals = keepWinningDimensionRows(aiReferralRows, (r) => r.source)
     const aiReferralLandingPages = keepWinningDimensionRows(
       aiReferralLandingPageRows,
@@ -1746,9 +1891,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       // every date in the window) counted one visitor once per row. Withdrawn
       // in 4.135.0; see `ga-ai-referral-aggregation.ts` for why no correct
       // figure can be computed or fetched.
-      // Shares of the rows' own sum, not of `aiSessionsDeduped`: that total
-      // keeps the winning lens per day, these rows one lens per source over the
-      // window, so it can exceed what the rows add up to.
+      // Shares of the rows' own sum, which agrees with `aiSessionsDeduped`:
+      // both count only the session lens across the same window.
       aiReferrals: aiReferralDtos,
       aiEngines: groupAiEngines(aiReferralDtos),
       aiReferralLandingPages: aiReferralLandingPages.map((r) => ({
@@ -1828,7 +1972,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
-    const range = resolveDateRange(request.query)
+    const range = resolveDateRange(request.query, WINDOW_SETS.gaTraffic)
     const conditions = [eq(gaAiReferrals.projectId, project.id), ...dateRangeConditions(gaAiReferrals.date, range)]
 
     const rows = app.db
@@ -1875,7 +2019,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
-    const range = resolveDateRange(request.query)
+    const range = resolveDateRange(request.query, WINDOW_SETS.gaTraffic)
     const conditions = [eq(gaAiReferrals.projectId, project.id), ...dateRangeConditions(gaAiReferrals.date, range)]
 
     // Deliberately unaggregated in SQL. Landing pages must be summed inside a
@@ -1900,7 +2044,38 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .where(and(...conditions))
       .all()
 
-    return buildAiReferralDailySeries(rows)
+    const series = buildAiReferralDailySeries(rows)
+    const measuredDates = app.db.selectDistinct({ date: gaDailyTotals.date }).from(gaDailyTotals)
+      .where(and(eq(gaDailyTotals.projectId, project.id), ...dateRangeConditions(gaDailyTotals.date, range)))
+      .all().map(row => row.date)
+    const firstAiDate = app.db.select({ date: sql<string | null>`MIN(${gaAiReferrals.date})` })
+      .from(gaAiReferrals).where(eq(gaAiReferrals.projectId, project.id)).get()?.date ?? null
+    // Site totals reach back further than the AI sync ever fetched, so they
+    // cannot say which days hold AI readings. The AI sync reached its first
+    // `ai` coverage receipt, and at the least its own first stored row. Before
+    // receipts were kept, one sync pass fetched landing-page traffic and AI for
+    // the same days, so a traffic day older than every `traffic` receipt counts
+    // too. A newer one does not: `ga sync --only` refreshes traffic without AI.
+    const firstReceipts = new Map(app.db
+      .select({ component: gaSyncCoverage.component, date: sql<string>`MIN(${gaSyncCoverage.date})` })
+      .from(gaSyncCoverage)
+      .where(and(eq(gaSyncCoverage.projectId, project.id), inArray(gaSyncCoverage.component, ['ai', 'traffic'])))
+      .groupBy(gaSyncCoverage.component)
+      .all().map(row => [row.component, row.date] as const))
+    const firstTrafficReceipt = firstReceipts.get('traffic') ?? null
+    const firstTrafficDate = app.db.select({ date: sql<string | null>`MIN(${gaTrafficSnapshots.date})` })
+      .from(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, project.id)).get()?.date ?? null
+    const trafficBeforeReceipts = firstTrafficDate !== null && (firstTrafficReceipt === null || firstTrafficDate < firstTrafficReceipt)
+      ? firstTrafficDate
+      : null
+    const aiCoverageStart = [firstReceipts.get('ai') ?? null, trafficBeforeReceipts, firstAiDate]
+      .filter((date): date is string => date !== null).sort()[0] ?? null
+    const now = new Date()
+    return {
+      ...series,
+      trend: aiReferralDailyTrend(series.days, measuredDates, firstAiDate, now),
+      ...aiReferralMonthlySeries({ days: series.days, byEngine: series.byEngine, measuredDates, range, firstAiDate, aiCoverageStart, now }),
+    }
   })
 
   // GET /projects/:name/ga/social-referral-history
@@ -1911,7 +2086,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
-    const range = resolveDateRange(request.query)
+    const range = resolveDateRange(request.query, WINDOW_SETS.gaTraffic)
     const conditions = [eq(gaSocialReferrals.projectId, project.id), ...dateRangeConditions(gaSocialReferrals.date, range)]
 
     const rows = app.db
@@ -2151,7 +2326,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
-    const range = resolveDateRange(request.query)
+    const range = resolveDateRange(request.query, WINDOW_SETS.gaTraffic)
     const conditions = [eq(gaTrafficSnapshots.projectId, project.id), ...dateRangeConditions(gaTrafficSnapshots.date, range)]
 
     const rows = app.db

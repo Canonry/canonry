@@ -36,7 +36,7 @@ interface ProviderAdapter {
 
   listModels?(config: ProviderConfig, signal: AbortSignal): Promise<ModelDefinition[]>
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult
-  healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult>
+  healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult>  // stop retrying and cancel once signal aborts
   executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult>
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult
   generateText?(prompt: string, config: ProviderConfig): Promise<string>  // absent for answer services; check canGenerateText

@@ -12,7 +12,9 @@
  * - Cmd, Ctrl, Shift and middle clicks navigate in place instead of opening a
  *   new tab or window, which is what those gestures mean everywhere else.
  * - A click on a control inside the row navigates as well as acting, so a
- *   button in a cell does two things at once.
+ *   button in a cell does two things at once. A `<details>` disclosure counts
+ *   as a control: its summary opens it, by mouse or by the click a browser
+ *   sends for Enter and Space, and its revealed content stays readable.
  *
  * KEYBOARD AND ASSISTIVE TECH ARE NOT SERVED BY THIS. A row is not focusable
  * and this adds no role, because announcing a whole row as a link would bury
@@ -21,10 +23,12 @@
  * "copy link address" actually use. This handler is a mouse convenience layered
  * on top of that link, never a replacement for it.
  */
-const INTERACTIVE = 'a, button, input, select, textarea, label, [role="button"], [role="link"], [role="checkbox"], [role="menuitem"]'
+const INTERACTIVE = 'a, button, input, select, textarea, label, summary, details, [role="button"], [role="link"], [role="checkbox"], [role="menuitem"]'
 
 export function shouldNavigateFromRowClick(event: {
   target: EventTarget | null
+  /** The row whose handler is running; React events always carry it. */
+  currentTarget?: EventTarget | null
   defaultPrevented: boolean
   button: number
   metaKey: boolean
@@ -41,8 +45,11 @@ export function shouldNavigateFromRowClick(event: {
 
   const target = event.target
   if (target && typeof (target as Element).closest === 'function') {
-    // A control inside the row already handled this click.
-    if ((target as Element).closest(INTERACTIVE)) return false
+    // A control inside the row already handled this click. Only the row's own
+    // controls count: a disclosure or label around the whole table is not one.
+    const control = (target as Element).closest(INTERACTIVE)
+    const row = event.currentTarget as Node | null | undefined
+    if (control && (typeof row?.contains !== 'function' || row.contains(control))) return false
   }
 
   // A drag that selected text is a copy gesture, not a click-through.

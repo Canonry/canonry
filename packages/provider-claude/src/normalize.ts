@@ -173,8 +173,10 @@ export function validateConfig(config: ClaudeConfig): ClaudeHealthcheckResult {
   };
 }
 
+/** Once `signal` aborts, no further attempt starts and the request in flight is cancelled. */
 export async function healthcheck(
   config: ClaudeConfig,
+  signal?: AbortSignal,
 ): Promise<ClaudeHealthcheckResult> {
   const validation = validateConfig(config);
   if (!validation.ok) return validation;
@@ -182,12 +184,17 @@ export async function healthcheck(
   try {
     const model = resolveModel(config);
     const client = new Anthropic({ apiKey: config.apiKey });
-    const response = await withRetry(() =>
-      client.messages.create({
-        model,
-        max_tokens: 32,
-        messages: [{ role: "user", content: 'Say "ok"' }],
-      }),
+    const response = await withRetry(
+      () =>
+        client.messages.create(
+          {
+            model,
+            max_tokens: 32,
+            messages: [{ role: "user", content: 'Say "ok"' }],
+          },
+          { signal },
+        ),
+      { signal },
     );
     const text = extractTextFromResponse(response);
     return {

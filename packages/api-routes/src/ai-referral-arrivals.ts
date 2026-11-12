@@ -1,10 +1,32 @@
-import { and, eq, inArray, lt } from 'drizzle-orm'
+import { and, eq, inArray, lt, sql } from 'drizzle-orm'
 import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
-import { aiReferralVisitors, projects, type DatabaseClient } from '@canonry/canonry-db'
+import { aiReferralVisitors, projects, trafficSources, type DatabaseClient } from '@canonry/canonry-db'
 import { AI_REFERRAL_LOOKBACK_MS, findAiReferralFollowOns, type AiReferralArrival } from '@canonry/canonry-integration-traffic'
 import { chunks, keyedIdentityHash } from './keyed-visitor-state.js'
 
 type ArrivalDb = Pick<DatabaseClient, 'select' | 'insert' | 'delete'>
+
+/**
+ * When the selected sources' AI-referral hours stopped being counted by the
+ * older arrival rule (`traffic_sources.ai_referral_older_count_until`), or null
+ * when none holds such hours. That rule also counted a visitor's later pages,
+ * assets and API calls, and hourly rows keep no visitor or referer, so those
+ * hours can read high and cannot be recounted. Archived sources count: their rows
+ * stay in the series.
+ */
+export function aiReferralOlderCountUntil(
+  db: Pick<DatabaseClient, 'select'>,
+  scope: { projectId: string, sourceId?: string | null },
+): string | null {
+  const row = db.select({ until: sql<string | null>`MAX(${trafficSources.aiReferralOlderCountUntil})` })
+    .from(trafficSources)
+    .where(scope.sourceId
+      ? and(eq(trafficSources.projectId, scope.projectId), eq(trafficSources.id, scope.sourceId))
+      : eq(trafficSources.projectId, scope.projectId))
+    .get()
+  return row?.until ?? null
+}
+
 /**
  * Stored arrivals outlive the lookback by a Cloudflare Queue's longest
  * retention (14 days), so a batch that waited in a Queue is still covered.

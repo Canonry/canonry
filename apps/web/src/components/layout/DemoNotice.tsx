@@ -18,7 +18,7 @@ const FEATURE_GROUPS = [
     ['Activity', '/projects/harbor-resorts/activity'],
   ] },
   { title: 'Website', links: [
-    ['Site health', '/projects/summit-roofing/technical-aeo'],
+    ['Agent Readiness', '/projects/summit-roofing/agent-readiness'],
     ['Local presence', '/projects/summit-roofing/local'],
     ['Backlinks', '/projects/summit-roofing/backlinks'],
   ] },

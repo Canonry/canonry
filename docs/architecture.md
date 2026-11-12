@@ -2,7 +2,7 @@
 
 ## Overview
 
-Canonry is a self-hosted agent-first AEO operating platform. It tracks how AI answer engines (Gemini, OpenAI, Muse, Claude, Perplexity, and local LLMs) cite or omit a domain for tracked queries, and acts on that signal through the content engine and integrations.
+Canonry is a self-hosted agent-first AEO operating platform. It tracks how AI answer engines (Gemini, OpenAI, Muse, Claude, Perplexity, and local LLMs) mention or cite a domain for tracked queries, and acts on that signal through the content engine and integrations. A local LLM returns no sources, so only its mentions are measured.
 
 Locations are modeled as project-scoped run context. A project can define named locations and an optional default location, while queries remain project-wide.
 
@@ -55,8 +55,8 @@ flowchart LR
 1. Analyst runs `canonry run <project>` with the project default location, an explicit `--location`, `--all-locations`, or no location context
 2. API creates a run record and enqueues a job
 3. Job runner resolves the run location, fans out `executeTrackedQuery` for each query across all configured providers via the provider registry, and passes the location hint to providers
-4. Raw observation snapshots (`cited` / `not-cited`) are persisted per query per run, tagged with the run's location label when present
-5. Transitions (`lost`, `emerging`) are computed at query time by comparing consecutive snapshots
+4. Raw observation snapshots (`cited` / `not-cited`, or `not-measured` for an engine that returns no sources) are persisted per query per run, tagged with the run's location label when present
+5. Transitions (`lost`, `emerging`) are computed at query time by comparing each measured snapshot with the last measured one before it. A `not-measured` snapshot is skipped, so it never gains or loses a citation
 6. Dashboard polls API for results and renders visibility data
 
 ## Module Dependency Graph
@@ -152,7 +152,7 @@ ProviderAdapter {
   mode: 'api' | 'browser'
   keyUrl?: string
   validateConfig(config) → ValidationResult
-  healthcheck(config) → HealthcheckResult
+  healthcheck(config, signal?) → HealthcheckResult
   executeTrackedQuery(input) → RawQueryResult
   normalizeResult(raw) → NormalizedQueryResult
   generateText(config, prompt) → string
@@ -177,9 +177,9 @@ Canonry ships as a **self-hosted single-process install** — that is the only s
 
 ## Service Boundaries
 
-- **`@canonry/aeo-audit`** — published audit engine used by the local
-  `packages/canonry` Technical AEO executor. It provides the full-site crawl
-  event and graph contract.
+- **`@canonry/agent-readiness`** (formerly `@canonry/aeo-audit`) — published
+  audit engine used by the local `packages/canonry` Agent Readiness executor. It
+  provides the full-site crawl event and graph contract.
 - **`apps/worker`** — has no audit-engine dependency or audit execution path.
 - **`packages/api-routes/`** — HTTP surface, validation, orchestration, read APIs.
 - **`packages/canonry/`** — CLI, local server, job runner (the publishable artifact).
@@ -194,20 +194,19 @@ Canonry ships as a **self-hosted single-process install** — that is the only s
 
 - This repo remains independent from the audit package repo
 - Consume only published audit-engine releases; keep the local
-  `@canonry/aeo-audit` pin explicit
+  `@canonry/agent-readiness` pin explicit
 - API key-based auth
 - Raw observation snapshots only; transitions computed at query time
-- Agent-first Site Health parity: browser color, size, focus, and scan-change
+- Agent-first Agent Readiness parity: browser color, size, focus, and scan-change
   semantics must exist as typed API fields or bounded CLI/MCP reads. The raw
   Sigma coordinate payload remains dashboard transport, not model context.
 
 ## Score Families
 
-- **Answer visibility**: multi-provider query tracking and citation outcomes across all providers
-- **Technical readiness**: local `@canonry/aeo-audit` full crawls plus the
-  retained worker audit path
+- **Answer visibility**: multi-provider query tracking, with mention outcomes across all providers and citation outcomes across every provider that returns sources (local LLMs return none)
+- **Agent Readiness**: local `@canonry/agent-readiness` full crawls
 
-These remain separate to avoid mixing technical readiness with live-answer visibility.
+These remain separate to avoid mixing Agent Readiness with live-answer visibility.
 
 ## Agent Layer
 

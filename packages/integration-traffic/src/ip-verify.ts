@@ -22,8 +22,10 @@
  *   - ClaudeBot, Claude-SearchBot, Claude-User
  *                            (claude.com/crawling/bots.json — Anthropic's
  *                             shared crawler-origin manifest does not split
- *                             ranges by bot, so every Claude-* rule verifies
+ *                             ranges by bot, so these three rules verify
  *                             against the same published set.)
+ *   - Claude-Agent           (claude.com/.well-known/sail — Anthropic's
+ *                             hosted-browser egress, a SAIL file.)
  *   - Google-Agent           (developers.google.com/static/crawling/ipranges/user-triggered-agents.json
  *                             — Google's agentic user-request list.)
  *   - Google-GeminiNotebook  (developers.google.com/static/crawling/ipranges/user-triggered-fetchers-google.json)
@@ -52,7 +54,8 @@
  * **Refresh.** Run `scripts/refresh-ip-ranges.ts` to re-fetch all
  * bundled lists from the publishers. The script is git-friendly: it
  * writes pretty-printed JSON so diffs show exactly which prefixes the
- * operator added/removed.
+ * operator added/removed. Publishers that serve HTML (Amazon) or a SAIL
+ * file (Anthropic's Claude-Agent) are converted to the same JSON shape.
  */
 import type { TrafficVerificationManifest } from '@canonry/canonry-contracts'
 import amazonbotRaw from './ip-ranges/amazonbot.json' with { type: 'json' }
@@ -64,6 +67,7 @@ import bingbotRaw from './ip-ranges/bingbot.json' with { type: 'json' }
 import ccbotRaw from './ip-ranges/ccbot.json' with { type: 'json' }
 import chatgptConnectorsRaw from './ip-ranges/chatgpt-connectors.json' with { type: 'json' }
 import chatgptUserRaw from './ip-ranges/chatgpt-user.json' with { type: 'json' }
+import claudeAgentRaw from './ip-ranges/claude-agent.json' with { type: 'json' }
 import duckassistbotRaw from './ip-ranges/duckassistbot.json' with { type: 'json' }
 import duckduckbotRaw from './ip-ranges/duckduckbot.json' with { type: 'json' }
 import googleUserTriggeredRaw from './ip-ranges/google-user-triggered-agents.json' with { type: 'json' }
@@ -181,11 +185,16 @@ const RULE_ID_TO_RANGES: Record<string, unknown> = {
 
   // Anthropic publishes one shared crawler-origin manifest. It confirms
   // Anthropic origin but does not attribute a prefix to ClaudeBot,
-  // Claude-SearchBot, or Claude-User individually, so both classifier rules
-  // map to the same file and the UA remains the product discriminator.
+  // Claude-SearchBot, or Claude-User individually, so all three classifier
+  // rules map to the same file and the UA remains the product discriminator.
   // src: https://claude.com/crawling/bots.json
   'anthropic-claudebot': anthropicRaw,
+  'claude-searchbot': anthropicRaw,
   'claude-user': anthropicRaw,
+  // Claude-Agent (Anthropic-hosted browsers) egresses from its own list,
+  // published as a SAIL file the refresh script converts to this shape.
+  // src: https://claude.com/.well-known/sail
+  'claude-agent': claudeAgentRaw,
 }
 
 function manifestMetadata(raw: unknown): TrafficVerificationManifest | null {
@@ -288,4 +297,16 @@ export function verifyIpForRule(ip: string | null | undefined, ruleId: string): 
 export function hasVerificationDataFor(ruleId: string): boolean {
   const data = CACHE.get(ruleId)
   return !!data && data.ranges.length > 0
+}
+
+/**
+ * Whether two rules verify against the same published list, so an address
+ * that verified under one verifies under the other (Anthropic's crawlers
+ * share one list). False when either rule has no usable list.
+ */
+export function rulesShareVerificationList(ruleA: string, ruleB: string): boolean {
+  const a = CACHE.get(ruleA)
+  const b = CACHE.get(ruleB)
+  if (!a?.manifest || !b?.manifest || a.ranges.length === 0 || b.ranges.length === 0) return false
+  return a.manifest.id === b.manifest.id
 }

@@ -21,10 +21,12 @@ export async function withRetry<T>(
     initialDelay?: number
     isRetryable?: (err: unknown) => boolean
     computeDelayMs?: (attempt: number, err: unknown, defaultMs: number) => number
+    signal?: AbortSignal
   } = {},
 ): Promise<T> {
   return sharedWithRetry(fn, {
     maxRetries: options.maxRetries ?? 3,
+    signal: options.signal,
     baseDelayMs: options.initialDelay ?? 1000,
     // Jitter off preserves the historical deterministic backoff that every
     // provider has shipped to date (1000, 2000, 4000ms). Enable per-caller

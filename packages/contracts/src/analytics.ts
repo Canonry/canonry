@@ -13,7 +13,8 @@ export const metricsWindowSchema = z.enum(WINDOW_SETS.metrics)
 export type MetricsWindow = z.infer<typeof metricsWindowSchema>
 export const trendDirectionSchema = z.enum(['improving', 'declining', 'stable'])
 export type TrendDirection = z.infer<typeof trendDirectionSchema>
-export type GapCategory = 'cited' | 'gap' | 'uncited'
+/** `not-measured` is a citation lane only: every latest answer to the query carries no sources. */
+export type GapCategory = 'cited' | 'gap' | 'uncited' | 'not-measured'
 
 // Mode toggle for analytics views — `mentioned` = brand appears in the answer
 // prose; `cited` = domain appears in the source/grounding list. See AGENTS.md
@@ -22,11 +23,30 @@ export const visibilityMetricModeSchema = z.enum(['mentioned', 'cited'])
 export type VisibilityMetricMode = z.infer<typeof visibilityMetricModeSchema>
 export const VisibilityMetricModes = visibilityMetricModeSchema.enum
 
-/** Citation + mention rates for one provider (or the overall roll-up) within a window or bucket. */
+/**
+ * Citation + mention rates for one provider (or the overall roll-up) within a
+ * window or bucket. The two signals have different bases: an answer whose
+ * engine returns no sources (a local model) is a mention observation but never
+ * a citation one, so it is counted in `citationNotMeasured` and left out of
+ * `citationRate`.
+ */
 export const providerMetricSchema = z.object({
-  citationRate: fraction(),
+  /**
+   * `cited / (total - citationNotMeasured)`. Null when there are answers but
+   * none carries sources, so the citation was not measured; 0 with no answers.
+   */
+  citationRate: fraction().nullable(),
   cited: z.number().int(),
+  /** Every answer in scope. The base of `mentionRate`. */
   total: z.number().int(),
+  /** Answers whose engine returns no sources; outside every cited figure. */
+  citationNotMeasured: z.number().int().nonnegative(),
+  /**
+   * The answers whose sources were checked: the base of `citationRate`, sent
+   * so a reader prints it rather than subtracting. Absent from servers before
+   * it existed, whose citation base was `total`.
+   */
+  citedTotal: z.number().int().nonnegative().optional(),
   mentionRate: fraction(),
   mentionedCount: z.number().int(),
 })
@@ -240,9 +260,15 @@ export const timeBucketSchema = z.object({
    * — surface that rather than implying a single reading.
    */
   sweepCount: z.number().int().nonnegative(),
-  citationRate: fraction(),
+  /** `cited / (total - citationNotMeasured)`; null when no answer in the bucket carries sources. */
+  citationRate: fraction().nullable(),
   cited: z.number().int(),
+  /** Every answer in the bucket. The base of `mentionRate`. */
   total: z.number().int(),
+  /** Answers whose engine returns no sources; outside every cited figure. */
+  citationNotMeasured: z.number().int().nonnegative(),
+  /** The answers whose sources were checked: the base of `citationRate`. Absent from servers before it existed. */
+  citedTotal: z.number().int().nonnegative().optional(),
   queryCount: z.number().int(),
   mentionRate: fraction(),
   mentionedCount: z.number().int(),
@@ -280,8 +306,8 @@ export type WindowRateChange = z.infer<typeof windowRateChangeSchema>
  * Change across the window for each overall trend series, keyed by the bucket
  * field it reads. A series is null when fewer than two buckets carry its rate,
  * because one point is not a change. `mentionShare` reads `mentionShare.rate`
- * and skips the buckets where that share is undefined (null), exactly as the
- * chart leaves them unplotted.
+ * and `citationRate` reads `citationRate`, each skipping the buckets where the
+ * rate is undefined (null), exactly as the chart leaves them unplotted.
  */
 export const windowChangeSchema = z.object({
   citationRate: windowRateChangeSchema.nullable(),
@@ -454,13 +480,40 @@ export interface GapQuery {
    * classified by THIS field, the citation lanes by the one above.
    */
   competitorsMentioned: string[]
-  consistency: { citedRuns: number; totalRuns: number; mentionedRuns: number }
+  /**
+   * Distinct sweep time-points in the window. `citedRuns` counts those where an
+   * answer cited the project, out of `citedTotalRuns`; `mentionedRuns` is out
+   * of `totalRuns`.
+   */
+  consistency: {
+    citedRuns: number
+    totalRuns: number
+    mentionedRuns: number
+    /**
+     * Time-points where no answer to the query carried sources, so its
+     * citation was not measured. Absent from servers before it existed.
+     */
+    citationNotMeasuredRuns?: number
+    /**
+     * Time-points where an answer's sources were checked: the base of
+     * `citedRuns`. Absent from servers before it existed, whose base was
+     * `totalRuns`.
+     */
+    citedTotalRuns?: number
+  }
 }
 
 export interface GapAnalysisDto {
   cited: GapQuery[]
   gap: GapQuery[]
   uncited: GapQuery[]
+  /**
+   * Queries whose every latest answer carries no sources (a local model has no
+   * web access): whether they are cited was never measured, so they are in none
+   * of `cited`, `gap` or `uncited`. Their mention lanes are unaffected. Absent
+   * from servers before it existed.
+   */
+  citationNotMeasured?: GapQuery[]
   mentionedQueries: GapQuery[]
   mentionGap: GapQuery[]
   notMentioned: GapQuery[]
@@ -502,9 +555,9 @@ export const sourceRankEntrySchema = z.object({
   /** Share of the list's `totalCitedSlots`, 0..1 (at wire precision). */
   percentage: fraction(),
   /**
-   * Share of the list's `answerTotal` (every answer in scope, including answers
-   * that cited nothing) that cite this domain, 0..1 (at wire precision). Optional only so an
-   * older server's response still parses.
+   * Share of the list's `answerTotal` (every answer in scope whose sources were
+   * checked, including answers that cited nothing) that cite this domain, 0..1
+   * (at wire precision). Optional only so an older server's response still parses.
    */
   answerShare: fraction().optional(),
   category: sourceCategorySchema,
@@ -534,7 +587,11 @@ export type SurfaceClassCount = z.infer<typeof surfaceClassCountSchema>
 export const rankedSourceListSchema = z.object({
   /** Total cited slots in this scope: one per (answer, cited domain) pair. */
   totalCitedSlots: z.number().int(),
-  /** Answers in this scope, including answers that cited nothing. Denominator of `answerShare`. */
+  /**
+   * Answers in this scope whose sources were checked, including answers that
+   * cited nothing. Denominator of `answerShare`. Answers whose engine returns no
+   * sources are outside it (see the envelope's `citationNotMeasuredAnswers`).
+   */
   answerTotal: z.number().int().optional(),
   /** Answers in this scope whose stored source list names at least one domain. */
   answersWithSources: z.number().int().optional(),
@@ -582,7 +639,7 @@ export type SourceBreakdownCountUnits = z.infer<typeof sourceBreakdownCountUnits
  * envelope.
  */
 export const SOURCE_BREAKDOWN_COUNT_UNITS: SourceBreakdownCountUnits = {
-  answers: ['answerTotal', 'unclassifiedAnswers', 'answersWithSources', 'entries[].count', 'overall[].topDomains[].count'],
+  answers: ['answerTotal', 'unclassifiedAnswers', 'citationNotMeasuredAnswers', 'answersWithSources', 'entries[].count', 'overall[].topDomains[].count'],
   distinctDomains: ['domainTotal', 'truncatedDomainCount', 'bySurfaceClass[].domainCount'],
   answerDomainPairs: ['totalCitedSlots', 'truncatedCitedSlots', 'bySurfaceClass[].count', 'overall[].count'],
   runs: ['runCount'],
@@ -632,8 +689,24 @@ export const sourceBreakdownDtoSchema = z.object({
    * never read as missing data.
    */
   providersWithoutSources: z.array(z.string()).optional(),
-  /** Answers in scope after every filter, across all providers. */
+  /**
+   * Engines that answered in scope but return no sources at all (a local model
+   * has no web access), so whether they cite a domain was never measured. Their
+   * answers are outside every count (`citationNotMeasuredAnswers`), and they are
+   * absent from `byProvider` and `providersWithoutSources`.
+   */
+  providersCitationNotMeasured: z.array(z.string()).optional(),
+  /**
+   * Answers in scope after every filter, across all providers, whose sources
+   * were checked. Answers from an engine that returns no sources are counted in
+   * `citationNotMeasuredAnswers` instead.
+   */
   answerTotal: z.number().int().optional(),
+  /**
+   * Answers in scope whose engine returns no sources. They cannot cite any
+   * domain, so they are excluded from every count, as `unclassifiedAnswers` are.
+   */
+  citationNotMeasuredAnswers: z.number().int().optional(),
   /** Runs pooled into this response. More than one means several sweeps are pooled. */
   runCount: z.number().int().optional(),
   /**
@@ -914,7 +987,7 @@ export function parseWindow(value?: string): MetricsWindow {
   return parseWindowIn(value, WINDOW_SETS.metrics, { fallback: 'all' })
 }
 
-export function windowCutoff(window: MetricsWindow): string | null {
+export function windowCutoff(window: string): string | null {
   if (window === 'all') return null
   const days = windowDays(window)
   const d = new Date()
@@ -951,7 +1024,7 @@ export interface DateRangeInput {
   window?: string
 }
 
-export interface ResolvedDateRange {
+export interface ResolvedDateRange<TWindow extends string = MetricsWindow> {
   /**
    * Inclusive lower bound as `YYYY-MM-DD`, or null for an open lower bound.
    * The explicit `startDate` when one was supplied, otherwise the window's
@@ -961,7 +1034,7 @@ export interface ResolvedDateRange {
   /** Inclusive upper bound as `YYYY-MM-DD`, or null for an open upper bound. */
   endDate: string | null
   /** The parsed window. Only reflected in `startDate` when no explicit `startDate` was given. */
-  window: MetricsWindow
+  window: TWindow
   /**
    * True when the caller named at least one boundary itself. Callers that keep
    * per-window precomputed rollups need this: such a rollup answers a rolling
@@ -977,8 +1050,10 @@ export interface ResolvedDateRange {
  * supplied. A rolling window cannot name a calendar month, which is why every
  * monthly total previously had to be hand-filtered out of a wider pull.
  */
-export function resolveDateRange(input: DateRangeInput): ResolvedDateRange {
-  const window = parseWindow(input.window)
+export function resolveDateRange(input: DateRangeInput): ResolvedDateRange
+export function resolveDateRange<const T extends readonly string[]>(input: DateRangeInput, windows: T): ResolvedDateRange<T[number]>
+export function resolveDateRange(input: DateRangeInput, windows: readonly string[] = WINDOW_SETS.metrics): ResolvedDateRange<string> {
+  const window = parseWindowIn(input.window, windows, { fallback: 'all' })
   const startDate = parseBoundaryDate(input.startDate, 'startDate')
   const endDate = parseBoundaryDate(input.endDate, 'endDate')
   if (startDate && endDate && startDate > endDate) {

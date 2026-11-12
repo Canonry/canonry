@@ -1,7 +1,14 @@
 export interface Snapshot {
   query: string
   provider: string
-  cited: boolean
+  /**
+   * Whether the project's domain is in the answer's source links. TRI-STATE:
+   * `true` cited, `false` the sources were checked and none is the project's,
+   * `null` not measured (the engine returns no sources, so nothing was
+   * observed about citation). A null is never a miss: every citation detector
+   * reads `=== true` / `=== false`, and `observedKeys` leaves it out.
+   */
+  cited: boolean | null
   /**
    * Did the project's brand/domain appear in the actual LLM answer TEXT
    * (the prose the model returns)? Independent of `cited` (source-list
@@ -73,8 +80,24 @@ export interface Gain {
   runId: string
 }
 
+/** One provider's health counts. `citedRate` is over its measured pairs, null when it has none. */
+export interface HealthProviderBreakdown {
+  citedRate: number | null
+  mentionRate: number
+  cited: number
+  mentioned: number
+  total: number
+  /** Pairs whose engine returns no sources; out of `citedRate` entirely. */
+  citationNotMeasured: number
+}
+
 export interface HealthScore {
-  overallCitedRate: number
+  /**
+   * `citedPairs` over the pairs whose sources were checked (`totalPairs -
+   * citationNotMeasuredPairs`). Null when no pair was: the engines return no
+   * sources, so citation was not measured. Never 0 for that case.
+   */
+  overallCitedRate: number | null
   /**
    * Share of (query × provider) pairs where the project was MENTIONED in the
    * answer text. Independent of `overallCitedRate` — never derived from it.
@@ -85,14 +108,18 @@ export interface HealthScore {
   overallMentionRate: number
   totalPairs: number
   citedPairs: number
+  /** Pairs whose engine returns no sources (`Snapshot.cited === null`). */
+  citationNotMeasuredPairs: number
   mentionedPairs: number
-  providerBreakdown: Record<string, { citedRate: number; mentionRate: number; cited: number; mentioned: number; total: number }>
+  providerBreakdown: Record<string, HealthProviderBreakdown>
 }
 
+/** Cited-rate movement between the latest two runs; a side with no measured pair is null. */
 export interface HealthTrend {
-  current: number
-  previous: number
-  delta: number
+  current: number | null
+  previous: number | null
+  /** Null unless both sides were measured. */
+  delta: number | null
 }
 
 export type SuspectedCause =

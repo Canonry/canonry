@@ -27,7 +27,7 @@ import { advancedMeasurementService, isDraftConflict, type AdvancedMeasurementSe
  */
 export const PROPERTY_NAMES_COPY = {
   heading: 'Names that count as this Property',
-  help: 'An answer mentions this Property when its text contains one of these names as whole words. Source titles and source links never count, but a link in the answer whose text is one of these names does. Qualified names are longer forms, such as the name with its street or city, for a name that other places share.',
+  help: 'These names identify this Property in answer text. Source titles and URLs do not count as mentions. Qualified names add distinguishing words when several Properties share a name, such as a product line, service, or location.',
   names: 'Names',
   qualifiedNames: 'Qualified names',
   noNames: 'No names are set, so answers can cite this Property but never mention it.',
@@ -36,7 +36,7 @@ export const PROPERTY_NAMES_COPY = {
   saving: 'Saving…',
   cancel: 'Cancel',
   namesHint: 'One name per line.',
-  qualifiedHint: 'One per line. Each must include one of the names above plus more words, such as a street or city.',
+  qualifiedHint: 'One per line. Include a name above plus words that identify this specific Property.',
   qualifiedNote: 'With qualified names set, an answer that uses only a plain name counts as a mention only when it also cites this Property’s own page. Otherwise it is left out as not tied to one property.',
   draftOnly: 'Saving changes the draft only. Nothing is measured differently until the setup is published.',
   saved: 'Saved to the draft. Publish the setup to start using these names.',

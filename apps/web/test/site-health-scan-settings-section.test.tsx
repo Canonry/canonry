@@ -1,6 +1,6 @@
 import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { SiteHealthScanSettingsSection } from '../src/components/project/ProjectEngineSettingsSection.js'
 import { AccountProvider, type ApiKeyAccess, type SignedInAccount } from '../src/contexts/account-context.js'
@@ -11,7 +11,7 @@ afterEach(() => {
 })
 
 // Independent literals, not the exported copy constant: a copy change must show up here.
-const HELP = "Used by every scan that sets no budget, scheduled or manual. Onboarding's first look always checks 100 pages."
+const HELP = "Used by every scan, scheduled or manual, unless the scan sets its own. Onboarding's first look always checks 100 pages."
 const CUSTOM_ERROR = 'Enter a whole number from 1 to 50,000.'
 const OPTIONS = [
   ['full', 'Full site (up to 50,000 pages)'],
@@ -26,7 +26,11 @@ const PROJECT_WRITER: ApiKeyAccess = { id: 'project-writer', scopes: ['*'], proj
 
 function renderSection(
   siteAuditMaxPages: number | null | undefined,
-  options: { onSave?: (budget: number | null) => Promise<void>; account?: SignedInAccount | null; apiKey?: ApiKeyAccess } = {},
+  options: {
+    onSave?: (settings: { siteAuditMaxPages: number | null; siteAuditDomains?: string[] }) => Promise<void>
+    account?: SignedInAccount | null
+    apiKey?: ApiKeyAccess
+  } = {},
 ) {
   const onSave = vi.fn(options.onSave ?? (async () => {}))
   const view = render(
@@ -43,19 +47,19 @@ function renderSection(
 }
 
 function section() {
-  return screen.getByRole('region', { name: 'Site Health scans' })
+  return screen.getByRole('region', { name: 'Agent Readiness audit scans' })
 }
 function budgetSelect() {
   return screen.getByRole('combobox', { name: 'Page budget' }) as HTMLSelectElement
 }
 function saveButton() {
-  return screen.getByRole('button', { name: 'Save page budget' }) as HTMLButtonElement
+  return screen.getByRole('button', { name: 'Save scan settings' }) as HTMLButtonElement
 }
 
 test('the heading carries its explanation in a sibling tooltip and the select offers every budget', () => {
   renderSection(null)
 
-  expect(screen.getByRole('heading', { level: 2, name: 'Site Health scans' })).not.toBeNull()
+  expect(screen.getByRole('heading', { level: 2, name: 'Agent Readiness audit scans' })).not.toBeNull()
   expect(within(section()).getByRole('button', { name: HELP })).not.toBeNull()
   const options = within(budgetSelect()).getAllByRole('option') as HTMLOptionElement[]
   expect(options.map(option => [option.value, option.textContent])).toEqual(OPTIONS)
@@ -88,8 +92,8 @@ test('choosing a preset saves that number and the form settles on it', async () 
   expect(saveButton().disabled).toBe(false)
   fireEvent.click(saveButton())
 
-  await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith(2_500))
-  expect((await screen.findByRole('status')).textContent).toBe('Page budget saved.')
+  await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith({ siteAuditMaxPages: 2_500 }))
+  expect((await screen.findByRole('status')).textContent).toBe('Scan settings saved.')
   expect(budgetSelect().value).toBe('2500')
   expect(saveButton().disabled).toBe(true)
 })
@@ -100,7 +104,7 @@ test('choosing Full site saves null, which clears a saved budget', async () => {
   fireEvent.change(budgetSelect(), { target: { value: 'full' } })
   fireEvent.click(saveButton())
 
-  await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith(null))
+  await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith({ siteAuditMaxPages: null }))
   await screen.findByRole('status')
   expect(budgetSelect().value).toBe('full')
 })
@@ -135,7 +139,7 @@ test('a custom number must be a whole number from 1 to 50,000 before it can be s
     expect(saveButton().disabled, valid).toBe(false)
   }
   fireEvent.click(saveButton())
-  await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith(750))
+  await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith({ siteAuditMaxPages: 750 }))
   expect(budgetSelect().value).toBe('custom')
   expect((screen.getByRole('spinbutton', { name: 'Custom page budget' }) as HTMLInputElement).value).toBe('750')
 })
@@ -150,7 +154,7 @@ test('a custom number equal to the saved budget is not a change, and one matchin
 
   fireEvent.change(input, { target: { value: '10000' } })
   fireEvent.click(saveButton())
-  await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith(10_000))
+  await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith({ siteAuditMaxPages: 10_000 }))
   await screen.findByRole('status')
   expect(budgetSelect().value).toBe('10000')
   expect(screen.queryByRole('spinbutton', { name: 'Custom page budget' })).toBeNull()
@@ -188,11 +192,11 @@ test('the section is busy while saving and a refused save keeps the draft with t
   fireEvent.click(saveButton())
 
   expect(section().getAttribute('aria-busy')).toBe('true')
-  expect(screen.getByRole('button', { name: 'Saving page budget…' })).not.toBeNull()
+  expect(screen.getByRole('button', { name: 'Saving scan settings…' })).not.toBeNull()
   expect(budgetSelect().disabled).toBe(true)
   await act(async () => { reject(new Error('Page budget must be at most 50000')) })
 
-  expect(onSave).toHaveBeenCalledExactlyOnceWith(500)
+  expect(onSave).toHaveBeenCalledExactlyOnceWith({ siteAuditMaxPages: 500 })
   expect(screen.getByRole('alert').textContent).toBe('Page budget must be at most 50000')
   expect(section().getAttribute('aria-busy')).toBe('false')
   expect(budgetSelect().value).toBe('500')
@@ -202,7 +206,7 @@ test('the section is busy while saving and a refused save keeps the draft with t
 test.each([
   { label: 'a viewer', account: { name: 'viewer', role: 'viewer' as const }, apiKey: undefined, managed: false },
   { label: 'a read-only key', account: null, apiKey: { ...PROJECT_WRITER, readOnly: true }, managed: false },
-  { label: 'a project writer when Site Health scans are managed', account: null, apiKey: PROJECT_WRITER, managed: true },
+  { label: 'a project writer when Agent Readiness audit scans are managed', account: null, apiKey: PROJECT_WRITER, managed: true },
 ])('$label reads the saved budget without a control to change it', ({ account, apiKey, managed }) => {
   if (managed) window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
   for (const [saved, text] of [
@@ -213,7 +217,7 @@ test.each([
     [1, 'Page budget: 1 page'],
   ] as const) {
     renderSection(saved, { account, apiKey })
-    expect(section().textContent).toBe(`Site Health scans${text}`)
+    expect(section().textContent).toBe(`Agent Readiness audit scans${text}`)
     expect(screen.queryByRole('combobox')).toBeNull()
     expect(screen.queryByRole('button', { name: /Save|Cancel/ })).toBeNull()
     cleanup()
@@ -227,7 +231,7 @@ test.each([
   window.__CANONRY_CONFIG__ = config
   renderSection(10_000)
 
-  expect(section().textContent).toBe('Site Health scans' + 'Page budget: 10,000 pages')
+  expect(section().textContent).toBe('Agent Readiness audit scans' + 'Page budget: 10,000 pages')
   expect(screen.queryByRole('combobox')).toBeNull()
   expect(screen.queryByRole('spinbutton')).toBeNull()
   expect(screen.queryByRole('button', { name: /Save|Cancel/ })).toBeNull()
@@ -235,15 +239,15 @@ test.each([
 
 test.each([
   { label: 'a project writer', account: null, apiKey: PROJECT_WRITER, managed: false },
-  { label: 'an administrator when Site Health scans are managed', account: { name: 'admin', role: 'admin' as const }, apiKey: undefined, managed: true },
-  { label: 'an install without accounts when Site Health scans are managed', account: null, apiKey: undefined, managed: true },
+  { label: 'an administrator when Agent Readiness audit scans are managed', account: { name: 'admin', role: 'admin' as const }, apiKey: undefined, managed: true },
+  { label: 'an install without accounts when Agent Readiness audit scans are managed', account: null, apiKey: undefined, managed: true },
 ])('$label can change the budget', async ({ account, apiKey, managed }) => {
   if (managed) window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
   const { onSave } = renderSection(null, { account, apiKey })
 
   fireEvent.change(budgetSelect(), { target: { value: '100' } })
   fireEvent.click(saveButton())
-  await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith(100))
+  await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith({ siteAuditMaxPages: 100 }))
 })
 
 test('a managed answer-visibility deployment alone leaves a project writer able to change it', () => {
@@ -252,3 +256,86 @@ test('a managed answer-visibility deployment alone leaves a project writer able 
   expect(budgetSelect().value).toBe('full')
 })
 
+
+describe('sites scanned', () => {
+  function renderSites(
+    project: { canonicalDomain: string; ownedDomains: string[]; siteAuditDomains: string[] },
+    options: { apiKey?: ApiKeyAccess; account?: SignedInAccount | null } = { apiKey: PROJECT_WRITER },
+  ) {
+    const onSave = vi.fn(async (_settings: { siteAuditMaxPages: number | null; siteAuditDomains?: string[] }) => {})
+    render(
+      <AccountProvider account={options.account ?? null} apiKey={options.apiKey}>
+        <SiteHealthScanSettingsSection project={{ siteAuditMaxPages: null, ...project }} onSave={onSave} />
+      </AccountProvider>,
+    )
+    return onSave
+  }
+  const sites = () => screen.getByRole('group', { name: 'Sites scanned' })
+  const tick = (name: string) => within(sites()).getByRole('checkbox', { name }) as HTMLInputElement
+
+  test('the main domain is always scanned and each owned domain is a tick, the saved ones ticked', () => {
+    renderSites({ canonicalDomain: 'example.com', ownedDomains: ['apartments.example.com', 'https://www.example.org/'], siteAuditDomains: ['apartments.example.com'] })
+
+    const main = tick('example.com')
+    expect(main.checked).toBe(true)
+    expect(main.disabled).toBe(true)
+    expect(document.getElementById(main.getAttribute('aria-describedby')!)?.textContent).toBe('Main domain, always scanned')
+    expect(tick('apartments.example.com').checked).toBe(true)
+    // An owned domain written with a scheme or www is offered as its bare host.
+    expect(tick('example.org').checked).toBe(false)
+    expect(within(sites()).getByText('Add a site you own under Project settings, Owned domains.')).not.toBeNull()
+    expect(screen.getByText('One budget covers every site scanned.')).not.toBeNull()
+  })
+
+  test('saving a changed tick sends the sites with the budget; an unchanged one sends the budget alone', async () => {
+    const onSave = renderSites({ canonicalDomain: 'example.com', ownedDomains: ['apartments.example.com', 'example.org'], siteAuditDomains: ['apartments.example.com'] })
+
+    expect(saveButton().disabled).toBe(true)
+    fireEvent.click(tick('example.org'))
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith({
+      siteAuditMaxPages: null,
+      siteAuditDomains: ['apartments.example.com', 'example.org'],
+    }))
+    expect(await screen.findByRole('status')).toHaveProperty('textContent', 'Scan settings saved.')
+
+    // Unticking back to nothing is a change too: the main domain only.
+    fireEvent.click(tick('apartments.example.com'))
+    fireEvent.click(tick('example.org'))
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(onSave).toHaveBeenLastCalledWith({ siteAuditMaxPages: null, siteAuditDomains: [] }))
+
+    onSave.mockClear()
+    fireEvent.change(budgetSelect(), { target: { value: '500' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith({ siteAuditMaxPages: 500 }))
+  })
+
+  test('Cancel restores the saved ticks', () => {
+    renderSites({ canonicalDomain: 'example.com', ownedDomains: ['apartments.example.com'], siteAuditDomains: [] })
+    fireEvent.click(tick('apartments.example.com'))
+    expect(saveButton().disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(tick('apartments.example.com').checked).toBe(false)
+    expect(saveButton().disabled).toBe(true)
+  })
+
+  test('a project with no owned domains shows its one site and where to add another', () => {
+    renderSites({ canonicalDomain: 'www.example.com', ownedDomains: [], siteAuditDomains: [] })
+    expect(screen.queryByRole('group', { name: 'Sites scanned' })).toBeNull()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(section().textContent).toContain('Sites scannedexample.comAdd a site you own under Project settings, Owned domains.')
+    expect(screen.queryByText('One budget covers every site scanned.')).toBeNull()
+  })
+
+  test('a viewer reads the sites scanned beside the budget', () => {
+    renderSites(
+      { canonicalDomain: 'example.com', ownedDomains: ['apartments.example.com', 'example.org'], siteAuditDomains: ['apartments.example.com'] },
+      { account: { name: 'viewer', role: 'viewer' } },
+    )
+    expect(section().textContent).toBe('Agent Readiness audit scans'
+      + 'Sites scanned: example.com, apartments.example.com'
+      + 'Page budget: Full site (up to 50,000 pages)')
+    expect(screen.queryByRole('checkbox')).toBeNull()
+  })
+})

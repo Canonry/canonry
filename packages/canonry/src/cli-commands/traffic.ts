@@ -423,7 +423,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['traffic', 'events'],
-    usage: 'canonry traffic events <project> [--kind crawler|ai-user-fetch|ai-referral|all] [--source <id>] [--since-minutes 1440] [--since <iso>] [--until <iso>] [--limit 500] [--granularity hour|day] [--format json]',
+    usage: 'canonry traffic events <project> [--kind all|crawler|ai-user-fetch|ai-referral[,...]] [--source <id>] [--since-minutes 1440] [--since <iso>] [--until <iso>] [--limit 500] [--granularity hour|day|month] [--format json]',
     options: {
       kind: stringOption(),
       source: stringOption(),

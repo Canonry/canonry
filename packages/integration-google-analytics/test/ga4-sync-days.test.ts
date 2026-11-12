@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { fetchTrafficByLandingPage, fetchDailyTotals, fetchAiReferrals, fetchSocialReferrals } from '../src/ga4-client.js'
+import { fetchTrafficByLandingPage, fetchDailyTotals, fetchAiReferrals, fetchSocialReferrals, fetchAcquisitionByChannel, fetchLeadEvents } from '../src/ga4-client.js'
 import { resolveGa4SyncDays, GA4_DEFAULT_SYNC_DAYS, GA4_MAX_SYNC_DAYS } from '../src/constants.js'
 import { GA_OVERVIEW_HISTORY_DAYS } from '@canonry/canonry-contracts'
 
@@ -10,10 +10,10 @@ describe('resolveGa4SyncDays', () => {
   })
 
   it('reports the boundary itself as unclamped', () => {
-    // 90 is reachable, so asking for exactly the cap is NOT a truncation.
+    // 180 is reachable, so asking for exactly the cap is NOT a truncation.
     expect(resolveGa4SyncDays(GA4_MAX_SYNC_DAYS)).toEqual({
-      requestedDays: 90,
-      effectiveDays: 90,
+      requestedDays: 180,
+      effectiveDays: 180,
       clamped: false,
     })
   })
@@ -22,11 +22,11 @@ describe('resolveGa4SyncDays', () => {
     // The reported case: `--days 500` wrote 90 days and claimed 500.
     expect(resolveGa4SyncDays(500)).toEqual({
       requestedDays: 500,
-      effectiveDays: 90,
+      effectiveDays: 180,
       clamped: true,
     })
     // One day over is still a truncation.
-    expect(resolveGa4SyncDays(91)).toEqual({ requestedDays: 91, effectiveDays: 90, clamped: true })
+    expect(resolveGa4SyncDays(181)).toEqual({ requestedDays: 181, effectiveDays: 180, clamped: true })
   })
 
   it('clamps below the floor and flags it', () => {
@@ -154,4 +154,60 @@ describe('GA4 fetches honour the resolved window', () => {
     const ms = Date.parse(`${byDefault.endDate}T00:00:00Z`) - Date.parse(`${byDefault.startDate}T00:00:00Z`)
     expect(Math.round(ms / 86_400_000)).toBe(GA_OVERVIEW_HISTORY_DAYS)
   })
+
+  it('sends explicit backfill bounds unchanged through every daily-report transport', async () => {
+    fetchSpy.mockImplementation(async (_url, init) => {
+      const body = JSON.parse(init!.body as string)
+      return mockFetchResponse(body.requests ? { reports: [{ rows: [] }, { rows: [] }] } : { rows: [], rowCount: 0 })
+    })
+    const range = { startDate: '2026-05-10', endDate: '2026-08-07' }
+    await fetchTrafficByLandingPage('fake-token', '123456', 180, range)
+    await fetchAiReferrals('fake-token', '123456', 180, range)
+    await fetchSocialReferrals('fake-token', '123456', 180, range)
+    await fetchAcquisitionByChannel('fake-token', '123456', 180, { dateRange: range })
+    await fetchLeadEvents('fake-token', '123456', ['generate_lead'], 180, range)
+    const daily = await fetchDailyTotals('fake-token', '123456', 14, { dateRange: range })
+    expect(daily).toEqual({ ...range, rows: [] })
+    const requests = fetchSpy.mock.calls.flatMap(([, init]) => {
+      const body = JSON.parse(init!.body as string)
+      return body.requests ?? [body]
+    })
+    expect(requests).toHaveLength(11)
+    expect(requests.slice(-2).map(request => request.limit)).toEqual([90, 90])
+    for (const request of requests) expect(request.dateRanges).toEqual([range])
+    // Every offset-paged report sorts by all of its dimensions, so a row keeps
+    // its place while GA4 is still counting the day and pages cannot overlap.
+    for (const request of requests.slice(0, -2)) {
+      expect(request.orderBys).toEqual(request.dimensions.map(({ name }: { name: string }) => ({
+        dimension: { dimensionName: name, orderType: 'ALPHANUMERIC' },
+      })))
+    }
+    await expect(fetchTrafficByLandingPage('fake-token', '123456', 180, { startDate: '2026-01-01', endDate: '2026-11-01' })).rejects.toThrow('Invalid GA4 sync date range')
+  })
+
+
+  it.each([
+    { name: 'traffic', fetch: fetchTrafficByLandingPage, pageSize: 10000 },
+    { name: 'AI referrals', fetch: fetchAiReferrals, pageSize: 1000 },
+    { name: 'social referrals', fetch: fetchSocialReferrals, pageSize: 1000 },
+  ])('refuses incomplete $name data rather than caching it as complete', async ({ fetch: fetchReport, pageSize }) => {
+    // Full pages of distinct rows, as GA4 returns them (one row per dimension tuple).
+    fetchSpy.mockImplementation(async (_url, init) => {
+      const offset = Number(JSON.parse(init!.body as string).offset ?? 0)
+      return mockFetchResponse({
+        rows: Array.from({ length: pageSize }, (_, index) => ({
+          dimensionValues: [
+            { value: '20261001' },
+            { value: `/page-${offset + index}` },
+            { value: 'source' },
+            { value: 'medium' },
+            { value: 'Referral' },
+          ],
+          metricValues: [{ value: '1' }, { value: '1' }],
+        })),
+      })
+    })
+    await expect(fetchReport('fake-token', '123456', 30)).rejects.toThrow(/truncated/)
+  })
+
 })

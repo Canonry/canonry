@@ -5,8 +5,11 @@ import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Client } from '@modelcontextprotocol/client'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { apiRoutes, hashApiKey } from '@canonry/canonry-api-routes'
+import { apiRoutes, hashApiKey, type ApiRoutesOptions } from '@canonry/canonry-api-routes'
 import { apiKeys, createClient, migrate, projects, OperationalLogStore } from '@canonry/canonry-db'
+import { providerConnectionFixture } from './fixtures/provider-connection.js'
+import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
+import { SETTINGS_CLI_COMMANDS } from '../src/cli-commands/settings.js'
 import { ApiClient } from '../src/client.js'
 import { registerMcpHttpRoutes, type McpHttpOptions } from '../src/mcp-http.js'
 
@@ -30,15 +33,15 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close()
 })
 
-async function harness() {
+async function harness(lifecycle = false) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-agent-ops-smoke-'))
   const db = createClient(path.join(dir, 'test.db'))
   migrate(db)
   const now = new Date().toISOString()
   db.insert(projects).values({ id: 'project-demo', name: 'demo', displayName: 'Demo', canonicalDomain: 'demo.example', country: 'US', language: 'en', providers: ['openai'], createdAt: now, updatedAt: now }).run()
-  for (const [name, scopes] of Object.entries({ root: ['*'], unrelated: ['runs.write'], read: ['read'], research: ['read', 'research.run'], settings: ['read', 'settings.write'], logs: ['read', 'logs.read'], scopedLogs: ['read', 'logs.read'] })) {
+  for (const [name, scopes] of Object.entries({ root: ['*'], unrelated: ['runs.write'], read: ['read'], research: ['read', 'research.run'], settings: ['read', 'settings.write'], logs: ['read', 'logs.read'], scopedLogs: ['read', 'logs.read'], projectAdmin: ['*'] })) {
     const token = `cnry_smoke_${name}`
-    db.insert(apiKeys).values({ id: name, name, keyHash: hashApiKey(token), keyPrefix: token.slice(0, 9), scopes, projectId: name === 'read' || name === 'scopedLogs' ? 'project-demo' : null, createdAt: now }).run()
+    db.insert(apiKeys).values({ id: name, name, keyHash: hashApiKey(token), keyPrefix: token.slice(0, 9), scopes, projectId: name === 'read' || name === 'scopedLogs' || name === 'projectAdmin' ? 'project-demo' : null, createdAt: now }).run()
   }
   const app = Fastify()
   cleanup.push(async () => { await app.close(); db.$client.close(); fs.rmSync(dir, { recursive: true, force: true }) })
@@ -50,6 +53,9 @@ async function harness() {
     providers[0]!.model = model ?? providers[0]!.model
     return { ...providers[0]! }
   })
+  const providerTest = vi.fn<NonNullable<ApiRoutesOptions['onProviderTest']>>(() => ({ check: Promise.resolve({ ok: true, provider: 'openai', message: 'openai api key verified', model: 'gpt-old' }) }))
+  const connection = structuredClone(providerConnectionFixture)
+  const providerDisconnect = vi.fn(() => { connection.configured = false; connection.apiKeyConfigured = false; connection.revision = 'connection-v2' })
   const options: McpHttpOptions = { db, selfApiUrl: '' }
   app.register(apiRoutes, {
     db,
@@ -58,6 +64,8 @@ async function harness() {
     providerAdapters: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-old', knownModels: [], modelValidationPattern: /^gpt-/, modelValidationHint: 'gpt model' }],
     googleSettingsSummary: { configured: true },
     onProviderUpdate: providerUpdate,
+    onProviderTest: providerTest,
+    ...(lifecycle ? { getProviderConnections: () => [connection], onProviderDisconnect: providerDisconnect } : {}),
     getTelemetryStatus: () => ({ enabled: telemetry, anonymousId: '01234567-89ab-4cde-8fab-0123456789ab' }),
     setTelemetryEnabled: value => { telemetry = value },
     listOperationalLogs: query => logs.list(query),
@@ -78,10 +86,90 @@ async function harness() {
     cleanup.push(() => mcp.close())
     return mcp
   }
-  return { app, api, connect, providerUpdate, origin }
+  return { app, api, connect, providerUpdate, providerDisconnect, providerTest, origin }
 }
 
 describe('agent operations cross-surface smoke', () => {
+  it('previews and disconnects through actual CLI and MCP transports with the same impact guard', async () => {
+    const { api, connect, providerDisconnect, origin } = await harness(true)
+    const out = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const preview = await api.getProviderSettings('openai')
+    expect(preview.usage).toEqual({ projectCount: 1, projects: [{ name: 'demo', displayName: 'Demo', providers: ['openai'], sources: ['project'] }] })
+    await dispatchRegisteredCommand(['settings', 'provider-info', 'openai', '--format', 'json'], 'human', SETTINGS_CLI_COMMANDS)
+    expect(JSON.parse(out.mock.calls.at(-1)![0])).toEqual(preview)
+    await dispatchRegisteredCommand(['settings', 'disconnect-provider', 'openai', '--format', 'jsonl'], 'human', SETTINGS_CLI_COMMANDS)
+    expect(JSON.parse(out.mock.calls.at(-1)![0])).toEqual(preview)
+    expect(providerDisconnect).not.toHaveBeenCalled()
+
+    const mcp = await connect('root')
+    const detail = await mcp.callTool({ name: 'canonry_provider_settings_get', arguments: { provider: 'openai' } })
+    expect(detail.isError).not.toBe(true)
+    expect(detail.structuredContent).toEqual(preview)
+    const stale = await mcp.callTool({ name: 'canonry_provider_disconnect', arguments: { provider: 'openai', expectedImpactRevision: 'stale' } })
+    expect(stale.isError).toBe(true)
+    expect(providerDisconnect).not.toHaveBeenCalled()
+    const denied = await connect('settings')
+    expect((await denied.callTool({ name: 'canonry_provider_disconnect', arguments: { provider: 'openai', expectedImpactRevision: preview.impactRevision } })).isError).toBe(true)
+    expect(providerDisconnect).not.toHaveBeenCalled()
+    state.client = new ApiClient(origin, 'cnry_smoke_read', { skipProbe: true })
+    await expect(dispatchRegisteredCommand(['settings', 'provider-info', 'openai', '--format', 'json'], 'human', SETTINGS_CLI_COMMANDS)).rejects.toMatchObject({ details: { httpStatus: 403 } })
+    state.client = api
+    await dispatchRegisteredCommand(['settings', 'disconnect-provider', 'openai', '--confirm', '--if-impact-revision', preview.impactRevision, '--format', 'json'], 'human', SETTINGS_CLI_COMMANDS)
+    expect(JSON.parse(out.mock.calls.at(-1)![0])).toMatchObject({ configured: false, apiKeyConfigured: false, usage: preview.usage })
+    expect(providerDisconnect).toHaveBeenCalledTimes(1)
+    expect(providerDisconnect).toHaveBeenCalledWith('openai', preview.revision, expect.objectContaining({ actor: 'api-key:root' }))
+    const disconnected = await api.getProviderSettings('openai')
+    const repeated = await mcp.callTool({ name: 'canonry_provider_disconnect', arguments: { provider: 'openai', expectedImpactRevision: disconnected.impactRevision } })
+    expect(repeated.isError).not.toBe(true)
+    expect(repeated.structuredContent).toEqual(disconnected)
+  })
+
+  it('tests a saved provider with the same result through the API, the CLI and MCP', async () => {
+    const { api, connect, providerTest, origin } = await harness()
+    const out = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const run = (args: string[]) => dispatchRegisteredCommand(['settings', 'provider', 'test', ...args], 'human', SETTINGS_CLI_COMMANDS)
+    const connected = { provider: 'openai', displayName: 'OpenAI', status: 'connected', ok: true, message: 'openai api key verified', model: 'gpt-old', checkedAt: expect.any(String), durationMs: expect.any(Number) }
+    expect(await api.testProvider('openai')).toEqual(connected)
+    await run(['openai', '--format', 'json'])
+    expect(JSON.parse(out.mock.calls.at(-1)![0])).toEqual(connected)
+    const mcp = await connect('root')
+    const viaMcp = await mcp.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })
+    expect(viaMcp.isError).not.toBe(true)
+    expect(viaMcp.structuredContent).toEqual(connected)
+
+    // A provider refusal is a result everywhere; only the CLI turns it into exit 2, after printing it.
+    providerTest.mockImplementation(() => ({ check: Promise.resolve({ ok: false, provider: 'openai', message: '401 Incorrect API key provided', model: 'gpt-old' }) }))
+    const failed = { ...connected, status: 'failed', ok: false, message: '401 Incorrect API key provided' }
+    await expect(run(['openai', '--format', 'json'])).rejects.toMatchObject({ code: 'PROVIDER_TEST_FAILED', exitCode: 2 })
+    expect(JSON.parse(out.mock.calls.at(-1)![0])).toEqual(failed)
+    const failedViaMcp = await mcp.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })
+    expect(failedViaMcp.isError).not.toBe(true)
+    expect(failedViaMcp.structuredContent).toEqual(failed)
+
+    // Nothing saved is the caller's mistake (exit 1), on every surface.
+    providerTest.mockReturnValue(undefined)
+    await expect(run(['openai', '--format', 'json'])).rejects.toMatchObject({ exitCode: 1, details: { httpStatus: 400 } })
+    expect((await mcp.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })).isError).toBe(true)
+    expect(providerTest).toHaveBeenCalledTimes(7)
+
+    // A key that cannot save provider settings is refused on every surface, before any provider call.
+    const unrelated = await connect('unrelated')
+    expect((await unrelated.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })).isError).toBe(true)
+    state.client = new ApiClient(origin, 'cnry_smoke_unrelated', { skipProbe: true })
+    await expect(run(['openai', '--format', 'json'])).rejects.toMatchObject({ exitCode: 1, details: { httpStatus: 403 } })
+    expect(providerTest).toHaveBeenCalledTimes(7)
+
+    // So is a full-access key confined to one project: the connection and its account are the install's.
+    const narrow = 'narrower than the install'
+    const projectAdmin = await connect('projectAdmin')
+    const refused = await projectAdmin.callTool({ name: 'canonry_provider_test', arguments: { provider: 'openai' } })
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain(narrow)
+    state.client = new ApiClient(origin, 'cnry_smoke_projectAdmin', { skipProbe: true })
+    await expect(run(['openai', '--format', 'json'])).rejects.toMatchObject({ exitCode: 1, message: expect.stringContaining(narrow), details: { httpStatus: 403 } })
+    expect(providerTest).toHaveBeenCalledTimes(7)
+  })
+
   it('denies internal diagnostics in the actual CLI while exposing host-derived identity', async () => {
     const { origin } = await harness()
     const out = vi.spyOn(console, 'log').mockImplementation(() => {})

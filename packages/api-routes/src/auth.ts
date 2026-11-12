@@ -13,7 +13,7 @@ import {
   forbidden,
   isReadOnlyKey,
   intersectScopes,
-  normalizeIdTokens,
+  normalizeEmbedProjectTabs,
   parseEmbedQueryLimit,
   READ_ONLY_SCOPE,
   READ_SEMANTIC_OPERATIONS,
@@ -501,6 +501,18 @@ export function shouldSkipAuth(url: string): boolean {
   // Both routes resolve the cookie themselves, and the DELETE runs its own
   // same-origin check below.
   if (url.endsWith('/auth/sessions')) return true
+  // Sign in with ChatGPT. `start` and `callback` run before anyone is signed
+  // in; the rest are a person's own ChatGPT settings, which must work for a
+  // view-only person too. Each resolves the sign-in cookie itself, and the
+  // writes run their own same-origin check (chatgpt-routes.ts).
+  if (
+    url.endsWith('/auth/chatgpt/status')
+    || url.endsWith('/auth/chatgpt/start')
+    || url.endsWith('/auth/chatgpt/callback')
+    || url.endsWith('/auth/chatgpt/disconnect')
+    || url.endsWith('/auth/chatgpt/models')
+    || url.endsWith('/auth/chatgpt/model')
+  ) return true
   // Cloudflare Worker ingest carries its own per-source bearer + HMAC
   // (verified inside the route handler). A canonry `cnry_*` key isn't
   // available to the Worker — that would defeat the per-source isolation.
@@ -609,8 +621,8 @@ function requestEmbedProjectTabs(
   request: FastifyRequest,
   configuredTabs: readonly string[] | undefined,
 ): EmbedTabPolicy | undefined {
-  const headerTabs = normalizeIdTokens(splitList(request.headers['x-canonry-embed-tabs']))
-  const configured = configuredTabs && configuredTabs.length > 0 ? configuredTabs : undefined
+  const headerTabs = normalizeEmbedProjectTabs(splitList(request.headers['x-canonry-embed-tabs']))
+  const configured = configuredTabs && configuredTabs.length > 0 ? normalizeEmbedProjectTabs([...configuredTabs]) : undefined
 
   if (!configured) return headerTabs ? { tabs: headerTabs, fromEmbedSurface: true } : undefined
   if (!headerTabs) return { tabs: [...configured], fromEmbedSurface: false }
@@ -678,34 +690,37 @@ function isOverviewRead(url: string): boolean {
   ]).has(rest)
 }
 
-function isTechnicalAeoRead(request: FastifyRequest, url: string): boolean {
-  const rest = projectRouteRest(url)
+function isAgentReadinessRead(request: FastifyRequest, url: string): boolean {
+  // The deprecated `technical-aeo` segment reaches the same reads, so it is
+  // checked as its canonical `agent-readiness` path.
+  const rest = projectRouteRest(url)?.replace(/^technical-aeo(?=\/|$)/, 'agent-readiness') ?? null
   if (rest === 'runs') {
     return queryValue(request, 'kind') === RunKinds['site-audit']
   }
-  if (rest && /^technical-aeo\/runs\/[^/]+\/(?:progress|page-health-preview)$/.test(rest)) {
+  if (rest && /^agent-readiness\/runs\/[^/]+\/(?:progress|page-health-preview)$/.test(rest)) {
     return true
   }
-  // The Site Health trend card. Other surfaces belong to tabs an embed cannot show.
+  // The Agent Readiness trend card (`surface=site-health` is its stable token).
+  // Other surfaces belong to tabs an embed cannot show.
   if (rest === 'trends') return queryValue(request, 'surface') === 'site-health'
-  return rest === 'technical-aeo'
-    || rest === 'technical-aeo/pages'
-    || rest === 'technical-aeo/trend'
-    || rest === 'technical-aeo/crawl'
-    || rest === 'technical-aeo/graph'
-    || rest === 'technical-aeo/subgraph'
-    || rest === 'technical-aeo/path'
-    || rest === 'technical-aeo/changes'
-    || rest === 'technical-aeo/crawl/pages/audit'
-    || rest === 'technical-aeo/crawl/pages'
+  return rest === 'agent-readiness'
+    || rest === 'agent-readiness/pages'
+    || rest === 'agent-readiness/trend'
+    || rest === 'agent-readiness/crawl'
+    || rest === 'agent-readiness/graph'
+    || rest === 'agent-readiness/subgraph'
+    || rest === 'agent-readiness/path'
+    || rest === 'agent-readiness/changes'
+    || rest === 'agent-readiness/crawl/pages/audit'
+    || rest === 'agent-readiness/crawl/pages'
     // Scan history. Only the GET reaches here; every write method is refused
     // before the tab allowlist is consulted, so the POST on this same path
     // stays out of the embed surface.
-    || rest === 'technical-aeo/runs'
-    || rest === 'technical-aeo/structure'
-    || rest === 'technical-aeo/internal-links'
-    || rest === 'technical-aeo/internal-links/neighbors'
-    || rest === 'technical-aeo/dead-links'
+    || rest === 'agent-readiness/runs'
+    || rest === 'agent-readiness/structure'
+    || rest === 'agent-readiness/internal-links'
+    || rest === 'agent-readiness/internal-links/neighbors'
+    || rest === 'agent-readiness/dead-links'
 }
 
 /**
@@ -763,7 +778,7 @@ function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readon
   if (isProjectShellRead(request, url)) return
   if (isEmbedQueryRead(request, url)) return
   if (tabs.includes('overview') && isOverviewRead(url)) return
-  if (tabs.includes('technical-aeo') && isTechnicalAeoRead(request, url)) return
+  if (tabs.includes('agent-readiness') && isAgentReadinessRead(request, url)) return
 
   throw forbidden('This endpoint is not available for the configured embed tabs.')
 }

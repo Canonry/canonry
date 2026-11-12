@@ -59,10 +59,11 @@ class MuseResponseError extends Error {
   }
 }
 
-function retryRequest<T>(fn: () => Promise<T>): Promise<T> {
+function retryRequest<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   return withRetry(fn, {
     maxRetries: 3,
     baseDelayMs: 1000,
+    signal,
     isRetryable: error => error instanceof MuseResponseError ? error.retryable : isRetryableHttpError(error),
     computeDelayMs: (_attempt, error, delay) => {
       const retryDelay = retryAfterDelayMs(error) ?? delay
@@ -89,10 +90,11 @@ function statusMessage(rawResponse: Record<string, unknown>): string {
 function createResponse(
   config: MuseConfig,
   body: OpenAI.Responses.ResponseCreateParamsNonStreaming,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const client = createClient(config)
   return retryRequest(async () => {
-    const rawResponse = responseToRecord(await client.responses.create(body))
+    const rawResponse = responseToRecord(await client.responses.create(body, { signal }))
     if (rawResponse.status !== 'completed' && rawResponse.status !== 'incomplete') {
       const code = asRecord(rawResponse.error)?.code
       throw new MuseResponseError(
@@ -101,14 +103,15 @@ function createResponse(
       )
     }
     return rawResponse
-  })
+  }, signal)
 }
 
-export async function healthcheck(config: MuseConfig): Promise<{ ok: boolean; provider: 'muse'; message: string; model?: string }> {
+/** Once `signal` aborts, no further attempt starts and the request in flight is cancelled. */
+export async function healthcheck(config: MuseConfig, signal?: AbortSignal): Promise<{ ok: boolean; provider: 'muse'; message: string; model?: string }> {
   const validation = validateConfig(config)
   if (!validation.ok) return validation
   try {
-    const rawResponse = await createResponse(config, { model: modelOf(config), input: 'Say "ok"' })
+    const rawResponse = await createResponse(config, { model: modelOf(config), input: 'Say "ok"' }, signal)
     const answerText = reparseStoredResult(rawResponse).answerText
     return {
       ok: answerText.length > 0,

@@ -81,7 +81,10 @@ REST, CLI flags, and dashboard Copy as CLI. Resolve context through public API
 reads before generation/compaction. Invalid identities must fail without silently
 widening the selection. `view-context.ts` packs report/API evidence without
 calculating metrics, preserves class denominators and missing states, and links
-the selected evidence. Do not persist context into the system-prompt snapshot.
+the selected evidence. The Agent Readiness view keeps its stable token
+`view: 'site-health'`; its links use the canonical `/projects/<name>/agent-readiness`
+page and `/api/v1/projects/<name>/agent-readiness/...` reads. Do not persist
+context into the system-prompt snapshot.
 
 Default execution limits are 30 tool calls / 180 seconds; hard maxima are 100 /
 600 seconds. Count attempted calls, including invalid ones. Tool and research-time limits get
@@ -128,7 +131,7 @@ Tool surface:
   These stay Aero-only because they read on-disk skill files, not API state.
   Ride in every scope. `SKILL.md` stays lightweight; detailed playbooks
   (workflows, regression diagnosis, reporting templates, integrations) load
-  on-demand via slug. `portfolio-analysis` and `site-health` cover Simple and
+  on-demand via slug. `portfolio-analysis` and `site-health` (Agent Readiness) cover Simple and
   Advanced interpretation. `seo-analysis` owns provider-neutral keyword and
   ranking prioritization from stored evidence; its source is
   `skills/aero/references/seo-analysis.md`. `agent-operations` is generated from
@@ -274,6 +277,13 @@ tool within a small edit distance (never toward a hidden or disallowed tool),
 and the tool-result message records the name the model wrote as
 `aeroRequestedToolName`. Without a unique visible match, the refusal names the
 likely tool ("Did you mean ...?"), including which toolkit to load first.
+A deprecated MCP name (`DEPRECATED_MCP_TOOL_ALIASES`, e.g.
+`canonry_technical_aeo_score`) is never in Aero's catalog
+(`AERO_EXCLUDED_MCP_TOOLS`), but a transcript saved before the rename still
+shows it. The same wrapper resolves it to its canonical tool
+(`canonry_agent_readiness_score`) under the same rules: a visible read runs
+renamed, and otherwise the refusal says "X is now Y" and which toolkit to load;
+a deprecated write is never renamed.
 
 System prompt is composed from `skills/aero/soul.md` (identity/voice/values)
 + `skills/aero/SKILL.md` (task rules). Soul is prepended so identity frames
@@ -494,7 +504,7 @@ Aero's rules live in `src/agent/AGENTS.md` (see "Agent layer (Aero)" below). The
 - `src/agent/tools.ts` — thin wrapper around `mcp-to-agent-tool.ts`: `buildReadTools(ctx)` and `buildAllTools(ctx)` delegate to `buildMcpAgentTools(canonryMcpTools, ctx)`. Adding a new tool to `mcp/tool-registry.ts` automatically exposes it to Aero — no separate registration in this file.
 - `src/agent/mcp-to-agent-tool.ts` — adapter that converts every `CanonryMcpTool` into a pi-agent-core `AgentTool`. Strips `project` from the LLM-visible schema and injects `ctx.projectName` at call time. `AERO_EXCLUDED_MCP_TOOLS` lists tools that ride the registry but should not reach Aero (e.g. `canonry_agent_clear` — Aero must not erase the operator's transcript). `AERO_MANAGED_SWEEP_MCP_TOOLS` is withheld as well when `managedSweeps` is set, and on those installs `canonry_run_cancel` looks the run up and refuses answer-visibility sweeps.
 - `src/agent/tool-result-units.ts` — before truncation, renders every number a tool's OpenAPI response schema declares a ratio (`x-unit`) as `formatPercent` text, so Aero never reads a bare 0..1 value as a percent (a 0.0207 share once came out as "0.02%"). Only `content` changes; `details` keeps the raw value.
-- `src/agent/viewer-sessions.ts` — `ViewerAeroSessions`, the viewer lane behind `agent.allowViewers`. One in-memory conversation per (project, viewer), never the operator's `agent_sessions` row, memory or compaction. Each turn mints a read-only key delegated to the viewer (`mintViewerAeroKey`, revoked on release, orphans revoked at boot), so tool calls carry the viewer's authority rather than the root key. `buildViewerAeroTools` drops write tools, live paid reads (`AERO_VIEWER_EXCLUDED_MCP_TOOLS`), the `agent` tier and `requiresOperator` tools, and the managed-sweep set. Viewer turns load toolkits on demand like operator turns, with the tools the project shape names (`project-shape.ts`) pinned visible, and the operator's default turn limits. Loading a toolkit unloads the oldest others rather than exceed `MAX_VISIBLE_TOOLS` (128, a common provider function limit). The routes in `agent-routes.ts` serve a signed-in viewer from this lane only when it is constructed; every other caller still meets `requireInstanceAdministrator`.
+- `src/agent/viewer-sessions.ts` — `ViewerAeroSessions`, the viewer lane behind `agent.allowViewers`. One in-memory conversation per (project, viewer), never the operator's `agent_sessions` row, memory or compaction. Each turn mints a read-only key delegated to the viewer (`mintViewerAeroKey`, revoked on release, orphans revoked at boot), so tool calls carry the viewer's authority rather than the root key. `buildViewerAeroTools` drops write tools, live paid reads (`AERO_VIEWER_EXCLUDED_MCP_TOOLS`), the `agent` tier and `requiresOperator` tools, and the managed-sweep set. Viewer turns load toolkits on demand like operator turns, with the tools the project shape names (`project-shape.ts`) pinned visible, and the operator's default turn limits. Loading a toolkit unloads the oldest others rather than exceed `MAX_VISIBLE_TOOLS` (128, a common provider function limit). The routes in `agent-routes.ts` serve a signed-in viewer from this lane only when it is constructed; every other caller still meets `requireInstanceAdministrator`. With `chatgpt.planUsage`, a viewer who connected their ChatGPT plan is funded by it (`chatgpt-plan.ts`): the plan stream is handed to `createAeroSession` so Aero's runtime wraps it (never assign `streamFunction` afterwards), `applyChatGptPlanTurn` sets the OpenAI-pinned model, per-request token and namespaced payload each turn, a funding change starts a fresh conversation, and a failed plan turn never falls back to the install's key. Only the `CHATGPT_AERO_ERRORS` messages pass the viewer's error redaction.
 - `src/agent/remote-mcp.ts` — `loadExternalMcpTools(servers, opts)`, the injected remote-MCP load path. For each configured `{ url, token, label? }` it connects to a REMOTE MCP server over the FROZEN transport (bearer-gated MCP Streamable HTTP, `connectStreamableHttp`), `listTools()`, and adapts each tool into an `AgentTool` (mirroring `mcp-to-agent-tool.ts`). Read-only filter: a remote tool is adopted ONLY when `annotations.readOnlyHint === true` AND its name is not in the local `AERO_EXCLUDED_MCP_TOOLS` set. Fail-soft: a server that fails to connect/list is logged and skipped, never throwing the whole load; no servers configured returns `[]`. A remote call that comes back as a `CallToolResult` with `isError: true` (the MCP SDK returns a failed call rather than throwing) is returned as a failed `AgentToolResult`, so the model, `agent_tool_events` and the dashboard see an error; the content the model reads is unchanged. The transport is the contract a remote MCP server must speak (see "Injected remote-MCP load path" in `src/agent/AGENTS.md`).
 - `src/agent/skill-tools.ts` — 2 skill-doc tools (`list_skill_docs`, `read_skill_doc`): progressive disclosure of bundled reference playbooks. Ride in every scope.
 
@@ -527,3 +537,10 @@ Aero exposes the seven stored sentiment read tools in administrator and viewer
 turns. `canonry_sentiment_configure` and `canonry_sentiment_backfill` stay excluded
 from native Aero because they can start paid classifier work; API, CLI and
 external MCP retain those operator actions.
+
+Provider settings mutations (including override resets and optional Local-key
+removal), disconnect, reload and the connection test (`canonry_provider_test`,
+which spends on the operator's provider account) stay excluded from native Aero.
+Aero's copy of the operations guide names the ones the guide offers
+(`AERO_PREFACE` in `scripts/sync-agent-operations.mjs`). External MCP, CLI and
+API retain these explicitly authorized operator actions.

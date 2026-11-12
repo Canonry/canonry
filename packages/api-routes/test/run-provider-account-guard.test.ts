@@ -139,6 +139,25 @@ function streakOver(code: ProviderAccountStreak['code'], failures: ReadonlyArray
 type Harness = Awaited<ReturnType<typeof harness>>
 
 describe('run admission after provider account failures', () => {
+  it('previews only runnable requests while preserving held planned slots and the same launch decision', async () => {
+    const h = await harness()
+    h.seed(h.openaiFailures(PROVIDER_ACCOUNT_FAILURE_STREAK))
+    const response = await h.app.inject({ method: 'GET', url: '/api/v1/projects/acme/run-preview' })
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      queryCount: 1, requestCount: 1, expectedRequestCount: 2, canStart: true,
+      engines: [
+        { provider: 'claude', requestCount: 1, expectedRequestCount: 1 },
+        { provider: 'openai', requestCount: 0, expectedRequestCount: 1 },
+      ],
+      admission: { refused: false, providers: { openai: { code: 'PROVIDER_AUTH' } } },
+    })
+    expect(h.created).toEqual([])
+    const started = await h.trigger()
+    expect(started.statusCode).toBe(201)
+    expect(started.json().skippedProviders).toEqual(response.json().admission.providers)
+  })
+
   it('shares an OpenRouter account hold across model routes and releases it after another route answers', async () => {
     const oldRoute = 'openrouter:google/gemini-2.5-flash'
     const nextRoute = 'openrouter:anthropic/claude-sonnet-4.6'
