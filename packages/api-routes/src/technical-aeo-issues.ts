@@ -15,7 +15,14 @@ const ADVISORY_CODES = new Set([
   'entity-consistency.title.short', 'site.duplicate-title', 'site.duplicate-meta-description',
 ])
 const DISPOSITION_ORDER = { actionable: 0, advisory: 1, unverified: 2, informational: 3 }
-const MAX_EVIDENCE_BYTES = 128 * 1024 * 1024
+/**
+ * Retained audit evidence one issue read may parse. A two-site scan of a large
+ * site holds about 226 MiB (16,400 scored pages) and reads in about 5 s; the
+ * old 128 MiB stopped it. Each read streams pages 200 at a time, so this bounds
+ * the work of one request, not its memory.
+ */
+const MAX_EVIDENCE_BYTES = 512 * 1024 * 1024
+const MAX_EVIDENCE_LABEL = `${MAX_EVIDENCE_BYTES / 1024 / 1024} MiB`
 const MAX_GROUPS = 4096
 const MAX_RESPONSE_BYTES = 16 * 1024
 
@@ -114,7 +121,7 @@ export function readSiteAuditIssues(input: {
   const snapshot = target.snapshot
   const crossJson = JSON.stringify(snapshot.issueEvidence)
   const crossBytes = Buffer.byteLength(crossJson)
-  if (crossBytes > MAX_EVIDENCE_BYTES) throw validationError('Stored audit exceeds the 128 MiB issue-evidence read budget')
+  if (crossBytes > MAX_EVIDENCE_BYTES) throw validationError(`Stored audit exceeds the ${MAX_EVIDENCE_LABEL} issue-evidence read budget`)
   const groups = new Map<string, SiteAuditIssueDto>()
   const members: SiteAuditIssuePageDto[] = []
   let selectedMembers = 0
@@ -167,7 +174,7 @@ export function readSiteAuditIssues(input: {
     const size = db.select({ bytes: sql<number>`coalesce(sum(length(cast(${siteCrawlPages.auditFields} as blob)) + length(cast(${siteCrawlPages.url} as blob))), 0)` })
       .from(siteCrawlPages).where(scope).get()?.bytes ?? 0
     if (size + crossBytes > MAX_EVIDENCE_BYTES) {
-      throw validationError('Stored audit exceeds the 128 MiB issue-evidence read budget')
+      throw validationError(`Stored audit exceeds the ${MAX_EVIDENCE_LABEL} issue-evidence read budget`)
     }
     let after: string | undefined
     while (true) {
