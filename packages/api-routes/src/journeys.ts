@@ -46,7 +46,7 @@ import {
   type StoredJourneyVisit,
 } from '@canonry/canonry-integration-traffic'
 import { requireAdminSession } from './auth.js'
-import { cloudflareWorkerVersionFor } from './cloudflare-worker-version.js'
+import { workerReportsPageViews } from './cloudflare-worker-version.js'
 import { resolveProject } from './helpers.js'
 import { enforceAgentJourneyRetention } from './agent-journey-capture.js'
 import { chunks as chunkItems } from './keyed-visitor-state.js'
@@ -586,7 +586,7 @@ function partialSources(db: DatabaseClient, projectId: string): JourneyPartialSo
     if (row.sourceType === TrafficSourceTypes.cloudflare) {
       const config = cloudflareTrafficSourceConfigSchema.safeParse(row.configJson)
       if (config.success && config.data.forwardPageViews) {
-        if (row.lastWorkerVersion === cloudflareWorkerVersionFor({ forwardPageViews: true })) continue
+        if (workerReportsPageViews(row.lastWorkerVersion)) continue
         reason = JOURNEY_PAGE_VIEWS_PENDING_REASON
       }
     }

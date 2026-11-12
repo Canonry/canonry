@@ -4962,7 +4962,7 @@ export const getApiV1ProjectsByNameTrafficReferralAssessment = <ThrowOnError ext
 /**
  * Read a stored sampled tail of server-side traffic evidence
  *
- * Stored rows only, with 30-day retention. Samples are not visits or sessions. Default kind excludes unknown traffic. Project/source attribution only for Simple and Advanced projects. Signed-in viewers and embedded dashboards cannot read samples. API read keys retain normal project scope. No provider calls or writes.
+ * Stored rows only, with 30-day retention. Samples are not visits or sessions. Default kind excludes unknown traffic. A browser agent's AI user fetch sample carries classifier.aiUserFetch.requestKind: unless it is likely fake, only a page sample was counted as an AI user fetch. Project/source attribution only for Simple and Advanced projects. Signed-in viewers and embedded dashboards cannot read samples. API read keys retain normal project scope. No provider calls or writes.
  */
 export const getApiV1ProjectsByNameTrafficSamples = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameTrafficSamplesData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameTrafficSamplesResponses, GetApiV1ProjectsByNameTrafficSamplesErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameTrafficSamplesResponses, GetApiV1ProjectsByNameTrafficSamplesErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

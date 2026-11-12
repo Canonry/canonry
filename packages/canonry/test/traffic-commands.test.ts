@@ -266,6 +266,40 @@ describe('traffic CLI commands', () => {
     const text = (await invokeCli(args)).stdout
     expect(text).toContain('/.env  -  ChatGPT-User (likely_fake)  ChatGPT-User')
     expect(text).toContain('/pricing  -  ChatGPT-User  ChatGPT-User')
+    expect(text).not.toContain('not counted')
+  })
+
+  it('marks a browser agent\'s samples that were not counted in text output, with the request kind in JSON', async () => {
+    const project = db.select().from(projects).all()[0]!
+    const at = (minute: number) => `2026-10-10T12:0${minute}:00.000Z`
+    db.insert(trafficSources).values({ id: 'browser-samples', projectId: project.id, sourceType: 'cloudflare', displayName: 'Edge', status: 'connected', createdAt: at(0), updatedAt: at(0) }).run()
+    const agent = { botId: 'google-agent', operator: 'Google', product: 'Google-Agent', verificationStatus: 'verified', verificationManifest: null, matchedUserAgent: 'Google-Agent', browser: true, trust: 'verified', trustReasons: ['ip-in-published-list'] }
+    const sample = (id: string, minute: number, path: string, aiUserFetch: Record<string, unknown>) => ({
+      id, projectId: project.id, sourceId: 'browser-samples', ts: at(minute), eventType: 'ai_user_fetch' as const, pathNormalized: path, status: 200,
+      userAgent: 'Google-Agent', classifierDetailsJson: { crawler: null, aiReferral: null, aiUserFetch }, createdAt: at(0),
+    })
+    db.insert(rawEventSamples).values([
+      sample('page', 1, '/pricing', { ...agent, requestKind: 'page' }),
+      sample('script', 2, '/_next/static/chunks/main.js', { ...agent, requestKind: 'resource' }),
+      sample('form-post', 3, '/contact', { ...agent, requestKind: 'action' }),
+      // A probing client's file request: counted as likely fake, so not marked.
+      sample('probe', 4, '/assets/app.js', { ...agent, verificationStatus: 'claimed_unverified', trust: 'likely_fake', trustReasons: ['scanner-burst', 'ip-outside-published-list'], requestKind: 'resource' }),
+      // Stored before samples recorded the request kind.
+      sample('older', 5, '/menu', agent),
+    ]).run()
+    const args = ['traffic', 'samples', 'test-proj', '--kind', 'ai-user-fetch', '--source', 'browser-samples', '--since', '2026-10-10T00:00:00Z', '--until', '2026-10-11T00:00:00Z']
+
+    const json = parseJsonOutput((await invokeCli([...args, '--format', 'json'])).stdout) as { samples: Array<{ id: string; classifier: { aiUserFetch: { browser?: boolean | null; requestKind?: string | null } | null } }> }
+    expect(json.samples.map(s => [s.id, s.classifier.aiUserFetch?.browser, s.classifier.aiUserFetch?.requestKind ?? null])).toEqual([
+      ['older', true, null], ['probe', true, 'resource'], ['form-post', true, 'action'], ['script', true, 'resource'], ['page', true, 'page'],
+    ])
+    const text = (await invokeCli(args)).stdout
+    expect(text).toContain('Browser agents count only page loads.')
+    expect(text).toContain('/pricing  -  Google-Agent (verified)  Google-Agent')
+    expect(text).toContain('/_next/static/chunks/main.js  -  Google-Agent (verified; resource, not counted)  Google-Agent')
+    expect(text).toContain('/contact  -  Google-Agent (verified; action, not counted)  Google-Agent')
+    expect(text).toContain('/assets/app.js  -  Google-Agent (likely_fake)  Google-Agent')
+    expect(text).toContain('/menu  -  Google-Agent (verified)  Google-Agent')
   })
 
   it.each([['--kind', 'visitor'], ['--limit', '501'], ['--since-minutes', '0'], ['--since', 'invalid']])('rejects invalid samples option %s %s as a user error', async (flag, value) => {
