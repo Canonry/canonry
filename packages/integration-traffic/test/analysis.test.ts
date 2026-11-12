@@ -16,6 +16,8 @@ import {
   classifyAiReferral,
   classifyAiUserFetch,
   classifyCrawler,
+  DEFAULT_AI_CRAWLER_RULES,
+  DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS,
   findAiReferralFollowOns,
   normalizeTrafficPathPattern,
 } from '../src/index.js'
@@ -111,6 +113,19 @@ describe('traffic analysis', () => {
       expect(classifyCrawler(evt)).toBeNull()
       expect(classifyAiUserFetch(evt)).toBeNull()
     }
+  })
+
+  it('publishes a user-agent token that classifies for every crawler and user-fetch rule', () => {
+    // These tokens drive the Cloudflare edge filter and the documented WordPress
+    // page-cache bypass list, so every rule needs one and none may go stale.
+    const reached = new Set<string>()
+    for (const token of DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS) {
+      const evt = event({ userAgent: `Mozilla/5.0 (compatible; ${token.replace(/\/$/, '')}/1.0)` })
+      const match = classifyCrawler(evt) ?? classifyAiUserFetch(evt)
+      expect(match, token).not.toBeNull()
+      reached.add(match!.botId)
+    }
+    expect([...reached].sort()).toEqual(DEFAULT_AI_CRAWLER_RULES.map((rule) => rule.id).sort())
   })
 
   it('promotes to `verified` when the source IP is in the operator\'s published range', () => {

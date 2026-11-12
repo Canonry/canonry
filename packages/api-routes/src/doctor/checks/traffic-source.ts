@@ -586,7 +586,11 @@ const cacheBlindSpotCheck: CheckDefinition = {
         `${wpSources.length} WordPress traffic source(s) capture via the Canonry Traffic Logger plugin, which only logs requests that execute PHP. ` +
         'A full-page cache (LiteSpeed, WP Rocket, W3 Total Cache, WP Super Cache) or CDN serves cached pages before PHP runs, so cache-served page views, including live AI user-fetches such as Claude-User and ChatGPT-User, are not captured. Bot crawls of uncached endpoints (sitemap, feeds, assets, cache misses) still appear, which can make capture look healthy while real page views go uncounted.',
       remediation:
-        'Exclude AI user-agents from the page cache so their requests reach PHP: LiteSpeed Cache has "Do Not Cache User Agents" under Cache > Excludes; WP Rocket uses the `rocket_cache_reject_ua` filter; W3 Total Cache and WP Super Cache have a "Rejected User Agents" box. Mirror the rule at any CDN in front. For cache-independent capture, ingest from server or edge access logs (a `cloud-run` or `vercel` source, or an edge worker) instead of the WordPress plugin.',
+        'Exclude the AI user agents listed in the Canonry server-side traffic guide (https://github.com/Canonry/canonry/blob/main/skills/canonry/references/server-side-traffic.md#connecting-a-wordpress-source) from every cache layer so their requests reach PHP. ' +
+        'LiteSpeed Cache ("Do Not Cache User Agents" under Cache > Excludes) and W3 Total Cache ("Rejected user agents") take the list as-is. ' +
+        'WP Rocket ("Never Cache User Agent(s)") needs `(.*)` before each entry, because its .htaccess rule only matches user agents that start with an entry. ' +
+        'WP Super Cache\'s "Rejected User Agents" setting still serves cached pages to those agents; use the guide\'s wp-config.php snippet, which defines `WPSC_SERVE_DISABLED` for them (Simple delivery mode only). ' +
+        'Mirror the rule at any CDN in front. For cache-independent capture, ingest from server or edge access logs (a `cloud-run` or `vercel` source, or an edge worker) instead of the WordPress plugin.',
       details: {
         wordpressSourceCount: wpSources.length,
         wordpressSourceIds: wpSources.map((s) => s.id),
