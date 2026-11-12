@@ -1319,7 +1319,9 @@ cnry ga ai-referral-daily <project> [--window 30d] [--start YYYY-MM-DD] [--end Y
                                                   # months[] folds the same days by calendar month
                                                   # ({month, sessions, complete, engines[]}) and
                                                   # monthlyTrend fits the complete months
-                                                  # (changePct = fitted end vs start).
+                                                  # (changePct = fitted end vs start). A month
+                                                  # before the AI sync reached reads sessions
+                                                  # null, even where GA4 kept site totals.
                                                   # Pass --start YYYY-MM-01 for whole months.
 cnry ga ai-referral-history <project> [--window 30d] [--start YYYY-MM-DD] [--end YYYY-MM-DD]
                                                   # RAW DETAIL, one row per (day × source × dimension ×

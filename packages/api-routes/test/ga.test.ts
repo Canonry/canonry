@@ -5,8 +5,8 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq, inArray } from 'drizzle-orm'
-import { percentOf, RunKinds, RunStatuses, RunTriggers, formatPercent, ga4AiReferralHistoryEntrySchema, gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema, gaTrafficResponseSchema, type GA4AiReferralHistoryEntry } from '@canonry/canonry-contracts'
-import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, runs } from '@canonry/canonry-db'
+import { calendarDateRange, percentOf, RunKinds, RunStatuses, RunTriggers, formatPercent, ga4AiReferralHistoryEntrySchema, gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema, gaTrafficResponseSchema, type GA4AiReferralHistoryEntry } from '@canonry/canonry-contracts'
+import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaSyncCoverage, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, runs } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
 import { dailyTotals as dailyTotalsFixture, unknownWindowMetrics } from './ga-sync-fixtures.js'
@@ -2908,6 +2908,104 @@ describe('GA4 routes', () => {
 
     db.delete(gaAiReferrals).where(eq(gaAiReferrals.projectId, projectId)).run()
     credentials.delete('test-project')
+  })
+
+  it('GET /ga/ai-referral-daily months start where the AI sync reached, not where site totals do', async () => {
+    const now = new Date().toISOString()
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+    const clear = () => {
+      db.delete(gaSyncCoverage).where(eq(gaSyncCoverage.projectId, projectId)).run()
+      db.delete(gaAiReferrals).where(eq(gaAiReferrals.projectId, projectId)).run()
+      db.delete(gaDailyTotals).where(eq(gaDailyTotals.projectId, projectId)).run()
+      db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, projectId)).run()
+    }
+    clear()
+    const runId = crypto.randomUUID()
+    // A failed expectation must not leave rows or the connection behind for
+    // the tests after this one.
+    try {
+      // GA4 site totals for January through April, as the daily-totals sync
+      // keeps them; the AI sync reached back only to March 18.
+      for (const date of calendarDateRange('2026-01-01', '2026-04-30')) {
+        db.insert(gaDailyTotals).values({ id: crypto.randomUUID(), projectId, date, sessions: 100, users: 90, syncedAt: now, createdAt: now }).run()
+      }
+      for (const date of ['2026-03-18', '2026-04-02', '2026-04-20']) {
+        db.insert(gaAiReferrals).values({
+          id: crypto.randomUUID(), projectId, date, source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session',
+          channelGroup: 'Referral', trafficClass: 'organic', landingPage: '/', landingPageNormalized: '/', sessions: 5, users: 5, syncedAt: now,
+        }).run()
+      }
+      const months = async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/v1/projects/test-project/ga/ai-referral-daily?startDate=2026-01-01&endDate=2026-04-30',
+        })
+        expect(res.statusCode).toBe(200)
+        const body = JSON.parse(res.payload) as { months: Array<{ month: string; sessions: number | null; complete: boolean }> }
+        return body.months.map(m => [m.month, m.sessions, m.complete])
+      }
+
+      // With nothing else to go on, the first stored AI row is as far back as the
+      // sync is known to have reached: January and February were never fetched,
+      // and March only from the 18th.
+      expect(await months()).toEqual([
+        ['2026-01', null, false],
+        ['2026-02', null, false],
+        ['2026-03', 5, false],
+        ['2026-04', 10, true],
+      ])
+
+      // A receipt proves the AI sync fetched all of March, so March is whole.
+      // The same sync pass keeps a traffic receipt for the same days.
+      db.insert(runs).values({ id: runId, projectId, kind: RunKinds['ga-sync'], status: RunStatuses.completed, trigger: RunTriggers.manual, createdAt: now }).run()
+      const receipt = (component: string, from: string, to: string) => {
+        for (const date of calendarDateRange(from, to)) {
+          db.insert(gaSyncCoverage).values({ projectId, component, syncRunId: runId, date, propertyId: '999888', definition: 'v1', settled: true, syncedAt: now }).run()
+        }
+      }
+      receipt('ai', '2026-03-01', '2026-03-31')
+      receipt('traffic', '2026-03-01', '2026-03-31')
+      expect(await months()).toEqual([
+        ['2026-01', null, false],
+        ['2026-02', null, false],
+        ['2026-03', 5, true],
+        ['2026-04', 10, true],
+      ])
+
+      // Before receipts were kept, one sync fetched landing-page traffic and AI
+      // referrals for the same days: traffic from February 1 means February was
+      // read, and it had no AI visits.
+      db.insert(gaTrafficSnapshots).values({
+        id: crypto.randomUUID(), projectId, date: '2026-02-01', landingPage: '/', sessions: 40, organicSessions: 10, users: 35, syncedAt: now,
+      }).run()
+      expect(await months()).toEqual([
+        ['2026-01', null, false],
+        ['2026-02', 0, true],
+        ['2026-03', 5, true],
+        ['2026-04', 10, true],
+      ])
+
+      // Once receipts are kept, a traffic day proves nothing about AI: a sync
+      // run with `--only social` refreshed February's traffic without AI.
+      receipt('traffic', '2026-02-01', '2026-02-28')
+      expect(await months()).toEqual([
+        ['2026-01', null, false],
+        ['2026-02', null, false],
+        ['2026-03', 5, true],
+        ['2026-04', 10, true],
+      ])
+    } finally {
+      clear()
+      db.delete(runs).where(eq(runs.id, runId)).run()
+      credentials.delete('test-project')
+    }
   })
 
   it('GET /ga/social-referral-history returns error when no connection', async () => {

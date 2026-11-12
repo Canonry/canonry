@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq, desc, and, sql } from 'drizzle-orm'
+import { eq, desc, and, inArray, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaWindowMetrics, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, gaSyncCoverage, runs } from '@canonry/canonry-db'
@@ -113,8 +113,13 @@ const lastDayOf = (month: string) => new Date(Date.parse(`${addMonths(month, 1)}
 /**
  * The daily AI sessions folded into calendar months across the range, and a
  * line through the complete ones. A month is complete when the range holds
- * all of it, every day has a reported site total, and none is still filling.
- * A month GA4 reported no day of reads null, not zero.
+ * all of it, every day has a reported site total and was reached by the AI
+ * sync, and none is still filling. A month GA4 reported no day of reads null,
+ * not zero.
+ *
+ * `aiCoverageStart` is the first day the AI sync reached. Site totals are kept
+ * for longer than the AI sync reaches back, so a day before it has a site total
+ * but no AI reading: it is unmeasured, not a day with no AI visits.
  */
 export function aiReferralMonthlySeries(input: {
   days: readonly { date: string, sessions: number }[]
@@ -122,15 +127,17 @@ export function aiReferralMonthlySeries(input: {
   measuredDates: readonly string[]
   range: { startDate: string | null, endDate: string | null }
   firstAiDate: string | null
+  aiCoverageStart: string | null
   now: Date
 }): { months: GA4AiReferralMonth[], monthlyTrend: GA4AiReferralMonthlyTrend | null } {
   const today = input.now.toISOString().slice(0, 10)
   const fillingFrom = gaFillingFrom(input.now)
-  const firstDay = input.range.startDate ?? [...input.days.map(day => day.date), ...input.measuredDates].sort()[0]
+  const coverageStart = input.aiCoverageStart
+  const measured = new Set(coverageStart === null ? [] : input.measuredDates.filter(date => date >= coverageStart))
+  const firstDay = input.range.startDate ?? [...input.days.map(day => day.date), ...measured].sort()[0]
   if (!firstDay) return { months: [], monthlyTrend: null }
   const lastDay = input.range.endDate && input.range.endDate < today ? input.range.endDate : today
   const labels = new Map(input.byEngine.series.map(s => [s.key, s.label]))
-  const measured = new Set(input.measuredDates)
   const months: GA4AiReferralMonth[] = []
   for (let month = firstDay.slice(0, 7); month <= lastDay.slice(0, 7); month = addMonths(month, 1)) {
     const inMonth = (date: string) => date.startsWith(month)
@@ -2043,11 +2050,31 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .all().map(row => row.date)
     const firstAiDate = app.db.select({ date: sql<string | null>`MIN(${gaAiReferrals.date})` })
       .from(gaAiReferrals).where(eq(gaAiReferrals.projectId, project.id)).get()?.date ?? null
+    // Site totals reach back further than the AI sync ever fetched, so they
+    // cannot say which days hold AI readings. The AI sync reached its first
+    // `ai` coverage receipt, and at the least its own first stored row. Before
+    // receipts were kept, one sync pass fetched landing-page traffic and AI for
+    // the same days, so a traffic day older than every `traffic` receipt counts
+    // too. A newer one does not: `ga sync --only` refreshes traffic without AI.
+    const firstReceipts = new Map(app.db
+      .select({ component: gaSyncCoverage.component, date: sql<string>`MIN(${gaSyncCoverage.date})` })
+      .from(gaSyncCoverage)
+      .where(and(eq(gaSyncCoverage.projectId, project.id), inArray(gaSyncCoverage.component, ['ai', 'traffic'])))
+      .groupBy(gaSyncCoverage.component)
+      .all().map(row => [row.component, row.date] as const))
+    const firstTrafficReceipt = firstReceipts.get('traffic') ?? null
+    const firstTrafficDate = app.db.select({ date: sql<string | null>`MIN(${gaTrafficSnapshots.date})` })
+      .from(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, project.id)).get()?.date ?? null
+    const trafficBeforeReceipts = firstTrafficDate !== null && (firstTrafficReceipt === null || firstTrafficDate < firstTrafficReceipt)
+      ? firstTrafficDate
+      : null
+    const aiCoverageStart = [firstReceipts.get('ai') ?? null, trafficBeforeReceipts, firstAiDate]
+      .filter((date): date is string => date !== null).sort()[0] ?? null
     const now = new Date()
     return {
       ...series,
       trend: aiReferralDailyTrend(series.days, measuredDates, firstAiDate, now),
-      ...aiReferralMonthlySeries({ days: series.days, byEngine: series.byEngine, measuredDates, range, firstAiDate, now }),
+      ...aiReferralMonthlySeries({ days: series.days, byEngine: series.byEngine, measuredDates, range, firstAiDate, aiCoverageStart, now }),
     }
   })
 

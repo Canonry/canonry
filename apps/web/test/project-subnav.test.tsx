@@ -12,7 +12,7 @@ const baseWidths: Record<string, number> = {
   overview: 112, queries: 76, 'search-console': 132, 'seo-data': 56, activity: 84, 'agent-readiness': 108, journeys: 96, traffic: 132,
   conversions: 104, local: 124, backlinks: 92, history: 128, more: 80, settings: 88,
 }
-const primaryLabels = ['AI Visibility', 'Queries', 'Search engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic']
+const primaryLabels = ['AI Visibility', 'Search engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'Queries']
 const moreLabels = ['Conversions', 'Local presence', 'Backlinks', 'Change history']
 let widths = { ...baseWidths }
 let containerWidth = 1600
@@ -69,16 +69,16 @@ async function renderNav(activeTab: ProjectPageTab = 'overview', filtered = fals
   return { ...view, nav, router }
 }
 
-test('the section list leads with AI Visibility and Queries, in sentence case, and leaves Journeys out for view-only accounts', () => {
+test('the section list leads with AI Visibility and ends with Queries, in sentence case, and leaves Journeys out for view-only accounts', () => {
   expect(items.map(item => [item.key, item.label, item.href])).toEqual([
     ['overview', 'AI Visibility', '/projects/demo'],
-    ['queries', 'Queries', '/projects/demo/queries'],
     ['search-console', 'Search engines', '/projects/demo/search-console'],
     ['seo-data', 'SEO', '/projects/demo/seo-data'],
     ['activity', 'Activity', '/projects/demo/activity'],
     ['agent-readiness', 'Agent Readiness', '/projects/demo/agent-readiness'],
     ['journeys', 'Journeys', '/projects/demo/journeys'],
     ['traffic', 'Server traffic', '/projects/demo/traffic'],
+    ['queries', 'Queries', '/projects/demo/queries'],
   ])
   expect(overflowItems.map(item => [item.key, item.label, item.href])).toEqual([
     ['conversions', 'Conversions', '/projects/demo/conversions'],
@@ -98,16 +98,16 @@ test('wide navigation keeps the primary sections and Settings visible', async ()
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(moreLabels)
 })
 
-test('a narrow container moves the later primary sections into More, keeping Queries in the row', async () => {
+test('a narrow container moves the later primary sections into More, Queries first', async () => {
   const { nav } = await renderNav()
   const viewportWidth = window.innerWidth
-  // 600px fits AI Visibility, Queries, Search engines and SEO beside More and Settings.
+  // 600px fits AI Visibility, Search engines, SEO and Activity beside More and Settings.
   act(() => { containerWidth = 600; resize?.() })
   expect(window.innerWidth).toBe(viewportWidth)
-  expect(within(nav).getAllByRole('link').map(item => item.textContent)).toEqual(['AI Visibility', 'Queries', 'Search engines', 'SEO', 'Settings'])
+  expect(within(nav).getAllByRole('link').map(item => item.textContent)).toEqual(['AI Visibility', 'Search engines', 'SEO', 'Activity', 'Settings'])
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-    'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', ...moreLabels,
+    'Agent Readiness', 'Journeys', 'Server traffic', 'Queries', ...moreLabels,
   ])
   act(() => { containerWidth = 1600; resize?.() })
   expect(within(nav).getByRole('link', { name: 'Agent Readiness' })).toBeTruthy()
@@ -145,11 +145,11 @@ test('row tabs, overflow destinations and the embed Settings tab retain measurem
   const { nav, router } = await renderNav()
   const settings = within(nav).getByRole('link', { name: 'Settings' }) as HTMLAnchorElement
   expect(settings.href).toContain('runId=drawer-run')
-  const queries = within(nav).getByRole('link', { name: 'Queries' }) as HTMLAnchorElement
-  expect(queries.href).toContain('measurementScope=market')
-  expect(queries.href).toContain('measurementScopeKey=metro-alpha')
-  expect(queries.href).toContain('runId=drawer-run')
-  expect(queries.href).not.toContain('onboarding')
+  const searchEngines = within(nav).getByRole('link', { name: 'Search engines' }) as HTMLAnchorElement
+  expect(searchEngines.href).toContain('measurementScope=market')
+  expect(searchEngines.href).toContain('measurementScopeKey=metro-alpha')
+  expect(searchEngines.href).toContain('runId=drawer-run')
+  expect(searchEngines.href).not.toContain('onboarding')
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   const backlinks = within(nav).getByRole('menuitem', { name: 'Backlinks' }) as HTMLAnchorElement
   expect(backlinks.href).toContain('measurementScope=market')

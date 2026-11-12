@@ -177,8 +177,9 @@ test('/projects/$id/search-console renders the search engines tab', async () => 
   const tabs = [...(nav?.querySelectorAll('.project-subnav-link') ?? [])]
     .filter(link => !link.closest('.project-subnav-measure'))
     .map(link => link.textContent?.trim())
-  // Queries sits beside AI Visibility; Search engines follows it.
-  expect(tabs.slice(0, 3)).toEqual(['AI Visibility', 'Queries', 'Search engines'])
+  // Search engines follows AI Visibility; Queries closes the row.
+  expect(tabs.slice(0, 2)).toEqual(['AI Visibility', 'Search engines'])
+  expect(tabs.at(-2)).toBe('Queries')
   expect(container.querySelector('.project-subnav-current')?.textContent).toBe('Search engines')
 })
 

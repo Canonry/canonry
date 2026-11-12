@@ -834,8 +834,8 @@ export type ProjectTabItem = { key: ProjectPageTab; label: string; href: string 
 
 /**
  * The project sections in tab-row order. The row keeps the sections an
- * operator returns to, AI Visibility and Queries first; the rest open from
- * More, and a narrow panel moves the row's later sections into More too.
+ * operator returns to, AI Visibility first and Queries last; the rest open
+ * from More, and a narrow panel moves the row's later sections into More too.
  * `key` is a wire value for embed allowlists and saved URLs. Journeys reads
  * private visitor evidence, so view-only accounts never get it, and it is
  * absent from the embed allowlist, so embeds drop it too.
@@ -844,7 +844,6 @@ export function projectSectionTabs(projectTabBase: string, { journeys }: { journ
   return {
     primary: [
       { key: 'overview', label: 'AI Visibility', href: projectTabBase },
-      { key: 'queries', label: 'Queries', href: `${projectTabBase}/queries` },
       { key: 'search-console', label: 'Search engines', href: `${projectTabBase}/search-console` },
       { key: 'seo-data', label: 'SEO', href: `${projectTabBase}/seo-data` },
       { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
@@ -853,6 +852,7 @@ export function projectSectionTabs(projectTabBase: string, { journeys }: { journ
       { key: 'agent-readiness', label: 'Agent Readiness', href: `${projectTabBase}/agent-readiness` },
       ...(journeys ? [{ key: 'journeys' as const, label: 'Journeys', href: `${projectTabBase}/journeys` }] : []),
       { key: 'traffic', label: 'Server traffic', href: `${projectTabBase}/traffic` },
+      { key: 'queries', label: 'Queries', href: `${projectTabBase}/queries` },
     ],
     overflow: [
       { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },

@@ -324,12 +324,12 @@ test('an embed keeps its page header, with no Simple date range and no project c
 
 // ── Section tabs ──
 
-test('the project tabs lead with AI Visibility and Queries, in sentence case', async () => {
+test('the project tabs lead with AI Visibility and end with Queries, in sentence case', async () => {
   const { doc } = await renderAt('/projects/project_citypoint')
   const tabs = [...doc.querySelectorAll('.project-subnav .project-subnav-link')]
     .filter(link => !link.closest('.project-subnav-measure'))
     .map(link => link.textContent)
-  expect(tabs).toEqual(['AI Visibility', 'Queries', 'Search engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'More'])
+  expect(tabs).toEqual(['AI Visibility', 'Search engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'Queries', 'More'])
 })
 
 // ── Header action ──
