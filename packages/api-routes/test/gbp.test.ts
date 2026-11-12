@@ -19,6 +19,7 @@ interface StoredConnection {
   tokenExpiresAt?: string | null
   scopes?: string[]
   gbpAccountName?: string | null
+  createdByProjectId?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -85,7 +86,7 @@ function buildApp() {
     return id
   }
 
-  function seedGbpConnection(domain: string, accessToken: string, expiresInSeconds = 3600) {
+  function seedGbpConnection(domain: string, accessToken: string, expiresInSeconds = 3600, createdByProjectId: string | null = null) {
     const now = new Date().toISOString()
     const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString()
     connections.push({
@@ -95,6 +96,7 @@ function buildApp() {
       refreshToken: 'refresh-token',
       tokenExpiresAt: expiresAt,
       scopes: ['https://www.googleapis.com/auth/business.manage'],
+      createdByProjectId,
       createdAt: now,
       updatedAt: now,
     })
@@ -525,6 +527,37 @@ describe('GBP routes (Phase 1)', () => {
       expect(ctx.db.select().from(gbpReviews).where(eq(gbpReviews.projectId, projectId)).all().length).toBe(0)
       expect(ctx.db.select().from(gbpReviewRatings).where(eq(gbpReviewRatings.projectId, projectId)).all().length).toBe(0)
       // Connection store entry is gone
+      expect(ctx.connections.find(c => c.domain === 'hotels.example.com' && c.connectionType === 'gbp')).toBeUndefined()
+    })
+
+    it('refuses to remove a connection another project on the same domain owns, and clears nothing', async () => {
+      const ownerId = ctx.seedProject('hotels', 'hotels.example.com')
+      const otherId = ctx.seedProject('hotels-rival', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token', 3600, ownerId)
+      for (const projectId of [ownerId, otherId]) {
+        ctx.db.insert(gbpDailyMetrics).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', date: '2026-05-01', metric: 'WEBSITE_CLICKS', value: 7, syncRunId: null }).run()
+      }
+
+      const res = await ctx.app.inject({ method: 'DELETE', url: '/projects/hotels-rival/gbp/connection' })
+
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error.message).toBe('This Google GBP connection is owned by a different project. Disconnect from the owning project instead.')
+      // The shared connection survives, and neither project's synced data was cleared.
+      expect(ctx.connections.find(c => c.domain === 'hotels.example.com' && c.connectionType === 'gbp')).toBeDefined()
+      expect(ctx.db.select().from(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, ownerId)).all().length).toBe(1)
+      expect(ctx.db.select().from(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, otherId)).all().length).toBe(1)
+      const logs = ctx.db.select().from(auditLog).where(eq(auditLog.projectId, otherId)).all() as { action: string }[]
+      expect(logs.map(l => l.action)).not.toContain('gbp.disconnected')
+    })
+
+    it('lets the project that owns the connection remove it', async () => {
+      const ownerId = ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedProject('hotels-rival', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token', 3600, ownerId)
+
+      const res = await ctx.app.inject({ method: 'DELETE', url: '/projects/hotels/gbp/connection' })
+
+      expect(res.statusCode).toBe(204)
       expect(ctx.connections.find(c => c.domain === 'hotels.example.com' && c.connectionType === 'gbp')).toBeUndefined()
     })
   })

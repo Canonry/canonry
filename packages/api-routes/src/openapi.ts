@@ -4651,6 +4651,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter, googleTypeParameter],
     responses: {
       204: { description: 'Google connection deleted.' },
+      400: errorResponse('The connection belongs to another project that tracks the same domain; nothing was removed.'),
       404: errorResponse('Project or connection not found.'),
     },
   },
@@ -5084,6 +5085,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter],
     responses: {
       204: { description: 'Disconnected.' },
+      400: errorResponse('The connection belongs to another project that tracks the same domain; nothing was removed.'),
       404: errorResponse('Project not found.'),
     },
   },
