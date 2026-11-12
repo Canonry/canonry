@@ -8,6 +8,7 @@ import {
   type AnswerServiceProfileCapabilities,
   type DisclosedModelKind,
 } from '@canonry/canonry-contracts'
+import { sourcesRelationship } from './parse.js'
 
 /**
  * cloro sync monitor endpoints (`POST https://api.cloro.dev/v1/monitor/<surface>`),
@@ -21,17 +22,19 @@ import {
 /** cloro requires `country`. It is sent when no usable location is offered and recorded as the service default. */
 export const CLORO_DEFAULT_COUNTRY = 'US'
 
-function capabilities(disclosedModelKind: DisclosedModelKind, maxQueryChars: number): AnswerServiceProfileCapabilities {
+function capabilities(id: string, disclosedModelKind: DisclosedModelKind, maxQueryChars: number): AnswerServiceProfileCapabilities {
   return {
     groundedAnswer: true,
     textGeneration: false,
     structuredOutput: false,
     evidence: {
       // `citationPills` are the citations shown inline in the answer.
-      // `sources` are the pages the surface shows for the answer ("the pages
-      // ChatGPT used for the answer", "the citations behind the answer").
+      // `sources` are answer support on ChatGPT, Gemini and Google AI Mode
+      // ("the pages ChatGPT used for the answer", "the citations behind the
+      // answer") and page reads on Bing AI Mode ("first the pages Bing read,
+      // then any other page that a citation chip links").
       // Neither carries character offsets into `text`.
-      relationships: [SourceRelationships['explicit-citation'], SourceRelationships['answer-support']],
+      relationships: [SourceRelationships['explicit-citation'], sourcesRelationship(id)],
       spans: false,
       // No search events are reported; only the returned sources show retrieval.
       retrievalObservability: 'sources',
@@ -69,7 +72,7 @@ function profile(input: { id: string; displayName: string; description: string; 
     requestedServiceModel: null,
     settings: {},
     requestPolicyVersion: 'cloro-monitor-v1',
-    capabilities: capabilities(input.disclosedModelKind ?? DisclosedModelKinds.unknown, input.maxQueryChars ?? 10_000),
+    capabilities: capabilities(input.id, input.disclosedModelKind ?? DisclosedModelKinds.unknown, input.maxQueryChars ?? 10_000),
     workflows: [ProviderWorkflows.research, ProviderWorkflows.snapshot, ProviderWorkflows['visibility-sweep']],
   }
 }
@@ -77,8 +80,8 @@ function profile(input: { id: string; displayName: string; description: string; 
 export const cloroDescriptor: AnswerServiceDescriptor = {
   id: 'cloro',
   displayName: 'cloro',
-  keyUrl: 'https://dashboard.cloro.dev/api-keys?utm_source=canonry&utm_medium=byok',
-  vendorDocsUrl: 'https://cloro.dev/docs/api-reference/introduction?utm_source=canonry&utm_medium=byok',
+  keyUrl: 'https://dashboard.cloro.dev/api-keys',
+  vendorDocsUrl: 'https://cloro.dev/docs/api-reference/introduction',
   docsPath: 'docs/providers/answer-services/cloro.md',
   auth: { scheme: 'bearer' },
   baseUrl: 'https://api.cloro.dev',
@@ -86,9 +89,8 @@ export const cloroDescriptor: AnswerServiceDescriptor = {
     fields: [{ key: 'apiKey', kind: 'secret', required: true, env: 'CLORO_API_KEY', label: 'API key' }],
     allowBaseUrl: false,
     allowModel: false,
-    // cloro documents a free `GET /v1/credits`, but Canonry does not run key
-    // checks when a key is saved, so a saved key stays "not verified".
-    keyCheck: null,
+    // `GET /v1/credits` is free (0 credits) and answers 401 for a bad key.
+    keyCheck: { method: 'GET', path: '/v1/credits' },
   },
   // The Free plan allows 1 concurrent request; a second one gets a 429.
   defaultQuota: { maxConcurrency: 1, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },

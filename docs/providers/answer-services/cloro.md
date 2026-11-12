@@ -1,16 +1,16 @@
 # cloro
 
-[cloro](https://cloro.dev/?utm_source=canonry&utm_medium=byok) (`POST https://api.cloro.dev/v1/monitor/<surface>`) returns the answer that a logged-out visitor sees on ChatGPT, Gemini, Google AI Mode or Bing AI Mode, with its inline citations and sources. Canonry runs it through the shared [search answer services](../answer-services.md) layer, so everything on that page applies here: it is never selected implicitly, only complete answers are measured, and unknown counts and costs stay unknown.
+[cloro](https://cloro.dev/) (`POST https://api.cloro.dev/v1/monitor/<surface>`) returns the answer that a logged-out visitor sees on ChatGPT, Gemini, Google AI Mode or Bing AI Mode, with its inline citations and sources. On ChatGPT, cloro forces web search on, so `cloro:chatgpt` is always a searched answer (see [What is sent](#what-is-sent)). Canonry runs it through the shared [search answer services](../answer-services.md) layer, so everything on that page applies here: it is never selected implicitly, only complete answers are measured, and unknown counts and costs stay unknown.
 
 ## Setup
 
-Get a key at [dashboard.cloro.dev/api-keys](https://dashboard.cloro.dev/api-keys?utm_source=canonry&utm_medium=byok). The Free plan includes 500 credits a month. Save the key once:
+Get a key at [dashboard.cloro.dev/api-keys](https://dashboard.cloro.dev/api-keys). The Free plan includes 500 credits a month. Save the key once:
 
 ```bash
 cnry settings provider cloro --api-key <key>
 ```
 
-`CLORO_API_KEY` is read by `cnry bootstrap`. Saving a key never sends a request, so a saved key shows as "saved, not verified" until the first real query.
+`CLORO_API_KEY` is read by `cnry bootstrap`. Saving a key sends no request. `cnry settings provider test cloro` checks the key with `GET /v1/credits`, which cloro does not charge for and which answers `401` for a bad key.
 
 Then name a profile wherever you choose engines. The bare `cloro` connection is not an engine.
 
@@ -38,7 +38,7 @@ cloro asks for a client timeout of at least 5 minutes: it starts no new attempt 
 { "prompt": "<the tracked query, unchanged>", "country": "US" }
 ```
 
-The key goes in `Authorization: Bearer`. cloro requires `country` (an uppercase ISO 3166-1 alpha-2 code). With a location, Canonry sends its country in upper case; cloro takes a country and nothing finer here, so a city location is stored as `partial`. Without a location, Canonry sends `US` and records it as the service default. cloro answers `400` for a country that a surface does not serve. No `include`, `state` (+2 credits), `legacy`, `disableWebSearch` or multi-turn prompt is sent. A query longer than 10,000 characters (3,500 for Bing AI Mode) is refused before any request and never shortened. For Bing AI Mode, cloro measures the limit after URL encoding, so a query in a non-Latin script can get a `400` with fewer characters.
+The key goes in `Authorization: Bearer`. cloro requires `country` (an uppercase ISO 3166-1 alpha-2 code). With a location, Canonry sends its country in upper case; cloro takes a country and nothing finer here, so a city location is stored as `partial`. Without a location, Canonry sends `US` and records it as the service default. cloro answers `400` for a country that a surface does not serve. No `include`, `state` (+2 credits), `legacy`, `disableWebSearch` or multi-turn prompt is sent. Leaving out `disableWebSearch` is not neutral: cloro then forces ChatGPT's web search on every request, and retries when ChatGPT shows no sign of a search, keeping the third attempt's answer either way. So `cloro:chatgpt` always measures a searched answer, which a logged-out visitor does not always get. Keep this in mind when you compare `cloro:chatgpt` with `openai` or `cdp:chatgpt`. A query longer than 10,000 characters (3,500 for Bing AI Mode) is refused before any request and never shortened. For Bing AI Mode, cloro measures the limit after URL encoding, so a query in a non-Latin script can get a `400` with fewer characters.
 
 ## Evidence
 
@@ -46,7 +46,8 @@ The key goes in `Authorization: Bearer`. cloro requires `country` (an uppercase 
 |---|---|
 | `result.text` | The answer. A response without it, or with empty text, is a failed query. |
 | `result.citationPills[]` | Sources with the relationship `explicit-citation`, one per URL, with the first non-empty `label` as title. They feed cited domains. Pill ids, positions, domains and descriptions stay in the raw response. |
-| `result.sources[]` | Sources with the relationship `answer-support`: cloro describes them as the pages the surface used or shows for the answer. They feed cited domains. ChatGPT's `footnote` and every `description` stay in the raw response. A ChatGPT answer often has no pills, so its cited domains come from `sources` only. |
+| `result.sources[]` (ChatGPT, Gemini, Google AI Mode) | Sources with the relationship `answer-support`: cloro describes them as the pages the surface used for or cites in the answer. They feed cited domains. ChatGPT's `footnote` and every `description` stay in the raw response. A ChatGPT answer often has no pills, so its cited domains come from `sources` only. |
+| `result.sources[]` (Bing AI Mode) | Sources with the relationship `page-read`: cloro describes them as first the pages Bing read while reasoning, then any other page that a citation chip links. They do not feed cited domains. Every chip-linked page is also in `citationPills`, so no citation is lost. |
 | `datePublished` (ChatGPT only) | The source's published date, as sent. |
 | `result.model` (ChatGPT only) | The disclosed model, recorded as `servedModel`. It is empty or `null` on ChatGPT's mobile-web format, and then no model is recorded. |
 | `X-Request-ID` header | The upstream request id. |

@@ -107,14 +107,18 @@ export function geminiBody(result: Record<string, unknown> = {}): Record<string,
 /**
  * Bing AI Mode (`/v1/monitor/bing/aimode`): `text`, `sources` and
  * `citationPills` only. Its pills have no `description`. Pills from the same
- * chip share `citationPillId`, and `position` indexes `sources`.
+ * chip share `citationPillId`, and `position` indexes `sources`. `sources`
+ * lists the pages Bing read first: Summit was read but no chip links it.
  */
 export function bingAimodeBody(result: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     success: true,
     result: {
       text: CLORO_ANSWER_TEXT,
-      sources: cloroSources(),
+      sources: [
+        ...cloroSources(),
+        { position: 3, url: SUMMIT_URL, label: 'Summit Roof Co. projects', description: 'Recent projects by Summit Roof Co.' },
+      ],
       citationPills: [
         { position: 1, label: 'Roof repair and replacement services', url: ACME_URL, domain: 'acme-roofing.example', citationPillId: 1 },
         { position: 2, label: 'Best roofers in Springfield', url: REVIEWS_URL, domain: 'roofing-reviews.example', citationPillId: 1 },

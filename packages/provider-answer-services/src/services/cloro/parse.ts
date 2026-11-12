@@ -47,11 +47,19 @@ function sourcesOf(items: unknown, relationship: SourceRelationship): AnswerSour
   return [...byUrl.values()]
 }
 
+/** The relationship of `result.sources` on a profile. Only Bing AI Mode lists pages it read but did not cite. */
+export function sourcesRelationship(profileId: string): SourceRelationship {
+  return profileId === 'bing-aimode' ? SourceRelationships['page-read'] : SourceRelationships['answer-support']
+}
+
 /**
  * A 200 response carries the whole answer: cloro charges only for a 200 and
  * reports every failure with an HTTP error status. `result.text` is the
- * answer. Inline `citationPills` are explicit citations; `sources` are the
- * pages the surface shows for the answer, kept as answer support. Only
+ * answer. Inline `citationPills` are explicit citations. On ChatGPT, Gemini
+ * and Google AI Mode, `sources` are the pages used for or cited in the
+ * answer, kept as answer support. On Bing AI Mode, `sources` are first the
+ * pages Bing read while reasoning, then the other pages a chip links, so they
+ * are kept as page reads; every chip-linked page is already in the pills. Only
  * ChatGPT names a model (`result.model`, empty on its mobile-web format).
  * The response reports no tokens, search queries or cost.
  */
@@ -73,7 +81,7 @@ export function parseCloroMonitorResponse(body: Record<string, unknown>, context
     answerText,
     sources: [
       ...sourcesOf(result.citationPills, SourceRelationships['explicit-citation']),
-      ...sourcesOf(result.sources, SourceRelationships['answer-support']),
+      ...sourcesOf(result.sources, sourcesRelationship(context.profile.id)),
     ],
     // Gemini, Google AI Mode and Bing AI Mode return no query fan-out. ChatGPT returns it only
     // with the paid `include.searchQueries`, which is not sent.

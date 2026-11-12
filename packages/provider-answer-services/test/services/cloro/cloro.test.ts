@@ -1,12 +1,12 @@
 /**
  * cloro-specific request and response mapping that the shared conformance
  * matrix cannot express: the endpoint per surface, the required country and
- * its default, how pills and sources become citations and answer support,
+ * its default, how pills and sources become citations, answer support and page reads,
  * the error explanations, and cloro's retry statuses. Every response body follows the documentation-derived fixtures
  * beside this file; no request reaches cloro.
  */
 import { describe, expect, it } from 'vitest'
-import { resolveProviderRoute, routeFamiliesOf, type ProviderAdapter } from '@canonry/canonry-contracts'
+import { deriveCitedDomains, resolveProviderRoute, routeFamiliesOf, type ProviderAdapter } from '@canonry/canonry-contracts'
 import { AnswerServiceHttpError, createAnswerServiceAdapter } from '../../../src/index.js'
 import { cloroMonitorService } from '../../../src/services/cloro/index.js'
 import type { ConformanceResponse } from '../../conformance.js'
@@ -104,15 +104,17 @@ describe('cloro monitor response', () => {
     })
   })
 
-  it('keeps Bing AI Mode pills as explicit citations and its sources as answer support', async () => {
+  it('keeps Bing AI Mode pills as explicit citations and its sources as page reads, so a page read but not cited is not a cited domain', async () => {
     const { run } = setup([{ headers: cloroSuccessHeaders(), json: bingAimodeBody() }])
     const raw = await run('bing-aimode')
     expect(raw.evidence?.sources).toEqual([
       { url: ACME_URL, title: 'Roof repair and replacement services', relationship: 'explicit-citation', rank: null, publishedAt: null, upstreamId: null },
       { url: REVIEWS_URL, title: 'Best roofers in Springfield', relationship: 'explicit-citation', rank: null, publishedAt: null, upstreamId: null },
-      { url: ACME_URL, title: 'Roof repair and replacement services', relationship: 'answer-support', rank: null, publishedAt: null, upstreamId: null },
-      { url: REVIEWS_URL, title: 'Best roofers in Springfield', relationship: 'answer-support', rank: null, publishedAt: null, upstreamId: null },
+      { url: ACME_URL, title: 'Roof repair and replacement services', relationship: 'page-read', rank: null, publishedAt: null, upstreamId: null },
+      { url: REVIEWS_URL, title: 'Best roofers in Springfield', relationship: 'page-read', rank: null, publishedAt: null, upstreamId: null },
+      { url: SUMMIT_URL, title: 'Summit Roof Co. projects', relationship: 'page-read', rank: null, publishedAt: null, upstreamId: null },
     ])
+    expect(deriveCitedDomains(raw.evidence!.sources)).toEqual(['acme-roofing.example', 'roofing-reviews.example'])
     expect(raw.evidence?.identity.disclosedModel).toBeNull()
   })
 
@@ -147,6 +149,25 @@ describe('cloro monitor errors and retries', () => {
     const { stub, run } = setup([cloroError(500, 'INTERNAL_ERROR', 'Maximum retries exceeded'), { json: geminiBody() }])
     const error = await run('gemini').catch((caught: unknown) => caught)
     expect((error as AnswerServiceHttpError).status).toBe(500)
+    expect(stub.calls).toHaveLength(1)
+  })
+})
+
+describe('cloro key check', () => {
+  const config = { provider: 'cloro', apiKey: 'cloro-test-key', quotaPolicy: cloroMonitorService.descriptor.defaultQuota }
+
+  it('checks a key with GET /v1/credits, which cloro does not charge for', async () => {
+    const { stub, adapter } = setup([{ json: { remaining: 493, perCycle: null, cycleResetsAt: null } }])
+    expect(await adapter.healthcheck(config)).toEqual({ ok: true, provider: 'cloro', message: 'cloro connected' })
+    expect(stub.calls).toHaveLength(1)
+    expect(stub.calls[0]!.url).toBe('https://api.cloro.dev/v1/credits')
+    expect(stub.calls[0]!.init.method).toBe('GET')
+    expect((stub.calls[0]!.init.headers as Record<string, string>).Authorization).toBe('Bearer cloro-test-key')
+  })
+
+  it('reports a rejected key as a failed check', async () => {
+    const { stub, adapter } = setup([cloroError(401, 'INVALID_OR_EXPIRED_API_KEY', 'Invalid or expired API key')])
+    expect(await adapter.healthcheck(config)).toEqual({ ok: false, provider: 'cloro', message: 'cloro request failed (HTTP 401)' })
     expect(stub.calls).toHaveLength(1)
   })
 })
