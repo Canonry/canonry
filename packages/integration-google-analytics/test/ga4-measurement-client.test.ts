@@ -278,4 +278,47 @@ describe('GA4 measurement reports', () => {
     )).rejects.toThrow(/truncat|page limit/i)
     expect(fetchSpy).toHaveBeenCalledTimes(50)
   })
+
+  describe('when GA4 rows move between page requests', () => {
+    // GA4 keeps counting a day while a sync pages through it, so the row a
+    // page returned can come back on the next page. Stored grains are unique:
+    // returning it twice failed the whole acquisition sync.
+    const acquisitionRow = (landingPage: string) => ({
+      dimensionValues: [
+        { value: '20260722' },
+        { value: 'Paid Social' },
+        { value: 'social-network' },
+        { value: 'paid' },
+        { value: 'www.example.com' },
+        { value: landingPage },
+      ],
+      metricValues: [{ value: '5' }],
+    })
+
+    it('reads the report again instead of returning a row twice', async () => {
+      const offsets: number[] = []
+      fetchSpy.mockImplementation(async (_input, init) => {
+        const offset = Number((JSON.parse(String(init?.body)) as { offset?: number }).offset ?? 0)
+        offsets.push(offset)
+        // On the first read, page one's row has moved onto page two.
+        const firstRead = offsets.length <= 2
+        const landingPage = offset === 0 || firstRead ? '/first' : '/second'
+        return jsonResponse({ rows: [acquisitionRow(landingPage)], rowCount: 2 })
+      })
+
+      const report = await fetchAcquisitionByChannel('fake-token', '123456', 30, { pageSize: 1 })
+
+      expect(offsets).toEqual([0, 1, 0, 1])
+      expect(report.rows.map(row => row.landingPage)).toEqual(['/first', '/second'])
+    })
+
+    it('fails with a GA4 error rather than a repeated row when the rows keep moving', async () => {
+      fetchSpy.mockImplementation(async () => jsonResponse({ rows: [acquisitionRow('/first')], rowCount: 2 }))
+
+      await expect(fetchAcquisitionByChannel('fake-token', '123456', 30, { pageSize: 1 }))
+        .rejects.toMatchObject({ name: 'GA4ApiError', status: 502, message: expect.stringMatching(/moved between pages/) })
+      // Three reads of two pages each.
+      expect(fetchSpy).toHaveBeenCalledTimes(6)
+    })
+  })
 })
