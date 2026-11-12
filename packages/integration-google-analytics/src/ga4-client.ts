@@ -457,25 +457,75 @@ function measurementDateRange(days?: number, requestedRange?: GA4DateRange, maxD
   return { syncDays, dateRange: { startDate: formatDate(startDate), endDate: formatDate(endDate) } }
 }
 
+/** Reads of one report before rows that keep moving between pages fail the sync. */
+const GA4_PAGED_READ_ATTEMPTS = 3
+
+/**
+ * A total order over a report's rows: every requested dimension, by Unicode
+ * code point. GA4 returns one row per dimension tuple, so no two rows tie, and
+ * a row's place never depends on a count that changes while GA4 is still
+ * collecting the day.
+ */
+function orderByEveryDimension(dimensions: GA4RunReportRequest['dimensions']): NonNullable<GA4RunReportRequest['orderBys']> {
+  return dimensions.map(({ name }) => ({ dimension: { dimensionName: name, orderType: 'ALPHANUMERIC' } }))
+}
+
+/**
+ * Every row of a report, read in `limit` / `offset` pages.
+ *
+ * Offset paging is only safe over a stable order. GA4 promises none between
+ * page requests, and the days it is still collecting change while a sync pages
+ * through them, so a row can come back on two pages (and another be skipped).
+ * Stored daily grains are unique, so one repeated row failed a whole sync (seen
+ * live: 64k acquisition rows over 7 pages on a high-traffic day). The read
+ * therefore orders rows by every dimension unless the caller chose an order,
+ * starts over when a page repeats a row it already read, and throws after
+ * `GA4_PAGED_READ_ATTEMPTS` moving reads rather than return rows it cannot vouch for.
+ */
 async function fetchPagedReport(
   accessToken: string,
   propertyId: string,
   baseRequest: Omit<GA4RunReportRequest, 'limit' | 'offset'>,
   pageSize = 10_000,
-): Promise<NonNullable<GA4RunReportResponse['rows']>> {
-  const rows: NonNullable<GA4RunReportResponse['rows']> = []
+): Promise<GA4ReportRow[]> {
+  const request = baseRequest.orderBys?.length
+    ? baseRequest
+    : { ...baseRequest, orderBys: orderByEveryDimension(baseRequest.dimensions) }
+  for (let attempt = 1; attempt <= GA4_PAGED_READ_ATTEMPTS; attempt++) {
+    const rows = await readReportPages(accessToken, propertyId, request, pageSize)
+    if (rows) return rows
+    ga4Log('info', 'paged-report.rows-moved', { propertyId, attempt, attempts: GA4_PAGED_READ_ATTEMPTS })
+  }
+  throw new GA4ApiError(
+    `GA4 report rows moved between pages on ${GA4_PAGED_READ_ATTEMPTS} reads in a row, so no consistent copy could be read. The next sync will try again.`,
+    502,
+  )
+}
+
+/** One read of every page, or `null` when a page repeats a row this read already has. */
+async function readReportPages(
+  accessToken: string,
+  propertyId: string,
+  request: Omit<GA4RunReportRequest, 'limit' | 'offset'>,
+  pageSize: number,
+): Promise<GA4ReportRow[] | null> {
+  const rows: GA4ReportRow[] = []
+  const seen = new Set<string>()
   let offset = 0
   for (let page = 0; page < GA4_MAX_PAGES; page++) {
-    const response = await runReport(accessToken, propertyId, { ...baseRequest, limit: pageSize, offset })
+    const response: GA4RunReportResponse | null = await runReport(accessToken, propertyId, { ...request, limit: pageSize, offset })
+    if (!response) throw new GA4ApiError('GA4 returned an empty report response', 502)
     const pageRows = response.rows ?? []
+    for (const row of pageRows) {
+      const key = JSON.stringify(row.dimensionValues.map(({ value }) => value))
+      if (seen.has(key)) return null
+      seen.add(key)
+    }
     rows.push(...pageRows)
     offset += pageRows.length
-    if (pageRows.length < pageSize || (response.rowCount !== undefined && offset >= response.rowCount)) break
-    if (page === GA4_MAX_PAGES - 1) {
-      throw new Error(`GA4 report truncated: page limit (${GA4_MAX_PAGES}) reached before all rows were fetched`)
-    }
+    if (pageRows.length < pageSize || (response.rowCount !== undefined && offset >= response.rowCount)) return rows
   }
-  return rows
+  throw new Error(`GA4 report truncated: page limit (${GA4_MAX_PAGES}) reached before all rows were fetched`)
 }
 
 /**
@@ -717,6 +767,30 @@ function isInvalidGa4Request(error: unknown): boolean {
   return error instanceof GA4ApiError && error.status === 400
 }
 
+/** Sessions in one default channel group, keyed `<GA4 date>::<landing page>`. */
+async function fetchSessionsByDateAndPage(
+  accessToken: string,
+  propertyId: string,
+  dateRange: GA4DateRange,
+  channelGroup: string,
+): Promise<Map<string, number>> {
+  const rows = await fetchPagedReport(accessToken, propertyId, {
+    dateRanges: [dateRange],
+    dimensions: [{ name: DIM.date }, { name: DIM.landingPagePlusQueryString }],
+    metrics: [{ name: MET.sessions }],
+    dimensionFilter: {
+      filter: {
+        fieldName: DIM.sessionDefaultChannelGrouping,
+        stringFilter: { matchType: 'EXACT', value: channelGroup },
+      },
+    },
+  })
+  return new Map(rows.map(row => [
+    `${row.dimensionValues[0]!.value}::${row.dimensionValues[1]!.value}`,
+    parseInt(row.metricValues[0]!.value, 10) || 0,
+  ]))
+}
+
 /**
  * Fetch landing page traffic data for the given number of days.
  * Returns per-day, per-page traffic rows.
@@ -733,118 +807,35 @@ export async function fetchTrafficByLandingPage(
 
   ga4Log('info', 'fetch-traffic.start', { propertyId, days: syncDays })
 
-  const PAGE_SIZE = 10000
-  const rows: GA4TrafficRow[] = []
-  let offset = 0
-
-  // Paginate through all results — the GA4 Data API caps each response at `limit` rows.
-  // We loop until we've fetched every row reported by `rowCount`.
-  let pageCount = 0
-  while (pageCount < GA4_MAX_PAGES) {
-    pageCount++
-    const request: GA4RunReportRequest = {
-      dateRanges: [dateRange],
-      dimensions: [
-        { name: DIM.date },
-        { name: DIM.landingPagePlusQueryString },
-      ],
-      metrics: [
-        { name: MET.sessions },
-        { name: MET.totalUsers },
-      ],
-      limit: PAGE_SIZE,
-      offset,
-    }
-
-    const response = await runReport(accessToken, propertyId, request)
-    if (!response) break // Defensive check for empty or unexpected responses
-
-    const pageRows = (response.rows ?? []).map((row) => ({
-      date: row.dimensionValues[0]!.value,
-      landingPage: row.dimensionValues[1]!.value,
-      sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
-      organicSessions: 0, // populated by organic-only pass below
-      directSessions: 0, // populated by direct-only pass below
-      users: parseInt(row.metricValues[1]!.value, 10) || 0,
-    }))
-
-    rows.push(...pageRows)
-
-    const totalRows = response.rowCount
-    offset += pageRows.length
-
-    if (pageRows.length < PAGE_SIZE || (totalRows !== undefined && offset >= totalRows)) break
-    if (pageCount >= GA4_MAX_PAGES) throw new GA4ApiError('GA4 report truncated at the page limit', 502)
-  }
+  const rows: GA4TrafficRow[] = (await fetchPagedReport(accessToken, propertyId, {
+    dateRanges: [dateRange],
+    dimensions: [
+      { name: DIM.date },
+      { name: DIM.landingPagePlusQueryString },
+    ],
+    metrics: [
+      { name: MET.sessions },
+      { name: MET.totalUsers },
+    ],
+  })).map((row) => ({
+    date: row.dimensionValues[0]!.value,
+    landingPage: row.dimensionValues[1]!.value,
+    sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
+    organicSessions: 0, // populated by organic-only pass below
+    directSessions: 0, // populated by direct-only pass below
+    users: parseInt(row.metricValues[1]!.value, 10) || 0,
+  }))
 
   // Second pass: organic-only report filtered to "Organic Search" channel.
   // `organicGoogleSearchSessions` is only available when Search Console is linked;
   // using a dimensionFilter on sessionDefaultChannelGrouping works for all properties.
-  const organicMap = new Map<string, number>()
-  let organicOffset = 0
-  let organicPageCount = 0
-  while (organicPageCount < GA4_MAX_PAGES) {
-    organicPageCount++
-    const organicRequest: GA4RunReportRequest = {
-      dateRanges: [dateRange],
-      dimensions: [{ name: DIM.date }, { name: DIM.landingPagePlusQueryString }],
-      metrics: [{ name: MET.sessions }],
-      dimensionFilter: {
-        filter: {
-          fieldName: DIM.sessionDefaultChannelGrouping,
-          stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
-        },
-      },
-      limit: 10000,
-      offset: organicOffset,
-    }
-    const organicResponse = await runReport(accessToken, propertyId, organicRequest)
-    if (!organicResponse) break
-
-    for (const row of organicResponse.rows ?? []) {
-      const key = `${row.dimensionValues[0]!.value}::${row.dimensionValues[1]!.value}`
-      organicMap.set(key, parseInt(row.metricValues[0]!.value, 10) || 0)
-    }
-    const total = organicResponse.rowCount
-    organicOffset += (organicResponse.rows ?? []).length
-    if ((organicResponse.rows ?? []).length < 10000 || (total !== undefined && organicOffset >= total)) break
-    if (organicPageCount >= GA4_MAX_PAGES) throw new GA4ApiError('GA4 organic report truncated at the page limit', 502)
-  }
+  const organicMap = await fetchSessionsByDateAndPage(accessToken, propertyId, dateRange, 'Organic Search')
 
   // Third pass: direct-only report filtered to "Direct" channel.
   // GA4's Direct channel is everything with no source — bookmarks,
   // typed URLs, untagged email, in-app browsers, and (the reason this
   // pass exists) AI-driven traffic that lost its referrer header.
-  const directMap = new Map<string, number>()
-  let directOffset = 0
-  let directPageCount = 0
-  while (directPageCount < GA4_MAX_PAGES) {
-    directPageCount++
-    const directRequest: GA4RunReportRequest = {
-      dateRanges: [dateRange],
-      dimensions: [{ name: DIM.date }, { name: DIM.landingPagePlusQueryString }],
-      metrics: [{ name: MET.sessions }],
-      dimensionFilter: {
-        filter: {
-          fieldName: DIM.sessionDefaultChannelGrouping,
-          stringFilter: { matchType: 'EXACT', value: 'Direct' },
-        },
-      },
-      limit: 10000,
-      offset: directOffset,
-    }
-    const directResponse = await runReport(accessToken, propertyId, directRequest)
-    if (!directResponse) break
-
-    for (const row of directResponse.rows ?? []) {
-      const key = `${row.dimensionValues[0]!.value}::${row.dimensionValues[1]!.value}`
-      directMap.set(key, parseInt(row.metricValues[0]!.value, 10) || 0)
-    }
-    const total = directResponse.rowCount
-    directOffset += (directResponse.rows ?? []).length
-    if ((directResponse.rows ?? []).length < 10000 || (total !== undefined && directOffset >= total)) break
-    if (directPageCount >= GA4_MAX_PAGES) throw new GA4ApiError('GA4 direct report truncated at the page limit', 502)
-  }
+  const directMap = await fetchSessionsByDateAndPage(accessToken, propertyId, dateRange, 'Direct')
 
   // Merge organic and direct session counts back into the rows
   for (const row of rows) {
@@ -1623,58 +1614,39 @@ async function fetchAiReferralPass(
     })
   }
 
-  const rows: GA4AiReferralRow[] = []
-  let offset = 0
-  let pageCount = 0
-  while (pageCount < GA4_MAX_PAGES) {
-    pageCount++
-    const request: GA4RunReportRequest = {
-      dateRanges: [dateRange],
-      dimensions: [
-        { name: DIM.date },
-        { name: pass.sourceDimension },
-        { name: pass.mediumDimension },
-        { name: DIM.sessionDefaultChannelGrouping },
-        { name: DIM.landingPagePlusQueryString },
-      ],
-      metrics: [
-        { name: MET.sessions },
-        { name: MET.totalUsers },
-      ],
-      dimensionFilter: { orGroup: { expressions } },
-      limit: PAGE_SIZE,
-      offset,
+  const rawRows = await fetchPagedReport(accessToken, propertyId, {
+    dateRanges: [dateRange],
+    dimensions: [
+      { name: DIM.date },
+      { name: pass.sourceDimension },
+      { name: pass.mediumDimension },
+      { name: DIM.sessionDefaultChannelGrouping },
+      { name: DIM.landingPagePlusQueryString },
+    ],
+    metrics: [
+      { name: MET.sessions },
+      { name: MET.totalUsers },
+    ],
+    dimensionFilter: { orGroup: { expressions } },
+  }, PAGE_SIZE)
+
+  return rawRows.map((row) => {
+    const source = row.dimensionValues[1]!.value
+    const medium = row.dimensionValues[2]!.value
+    const channelGroup = row.dimensionValues[3]?.value ?? '(not set)'
+    const landingPage = row.dimensionValues[4]?.value ?? '(not set)'
+    return {
+      date: row.dimensionValues[0]!.value,
+      source,
+      medium,
+      trafficClass: classifyAiReferralTrafficClass({ source, medium, channelGroup, landingPage }),
+      channelGroup,
+      landingPage,
+      sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
+      users: parseInt(row.metricValues[1]!.value, 10) || 0,
+      sourceDimension: pass.label,
     }
-
-    const response = await runReport(accessToken, propertyId, request)
-    if (!response) break
-
-    const pageRows: GA4AiReferralRow[] = (response.rows ?? []).map((row) => {
-      const source = row.dimensionValues[1]!.value
-      const medium = row.dimensionValues[2]!.value
-      const channelGroup = row.dimensionValues[3]?.value ?? '(not set)'
-      const landingPage = row.dimensionValues[4]?.value ?? '(not set)'
-      return {
-        date: row.dimensionValues[0]!.value,
-        source,
-        medium,
-        trafficClass: classifyAiReferralTrafficClass({ source, medium, channelGroup, landingPage }),
-        channelGroup,
-        landingPage,
-        sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
-        users: parseInt(row.metricValues[1]!.value, 10) || 0,
-        sourceDimension: pass.label,
-      }
-    })
-
-    rows.push(...pageRows)
-
-    const totalRows = response.rowCount
-    offset += pageRows.length
-    if (pageRows.length < PAGE_SIZE || (totalRows !== undefined && offset >= totalRows)) break
-    if (pageCount >= GA4_MAX_PAGES) throw new GA4ApiError('GA4 report truncated at the page limit', 502)
-  }
-  return rows
+  })
 }
 
 // Social channel groups from GA4's default channel grouping.
@@ -1704,62 +1676,38 @@ export async function fetchSocialReferrals(
 
   ga4Log('info', 'fetch-social-referrals.start', { propertyId, days: syncDays })
 
-  const PAGE_SIZE = 1000
-  const rows: GA4SocialReferralRow[] = []
-  let offset = 0
-  let pageCount = 0
-
-  while (pageCount < GA4_MAX_PAGES) {
-    const request: GA4RunReportRequest = {
-      dateRanges: [dateRange],
-      dimensions: [
-        { name: DIM.date },
-        { name: DIM.sessionSource },
-        { name: DIM.sessionMedium },
-        { name: DIM.sessionDefaultChannelGroup },
-      ],
-      metrics: [
-        { name: MET.sessions },
-        { name: MET.totalUsers },
-      ],
-      dimensionFilter: {
-        orGroup: {
-          expressions: SOCIAL_CHANNEL_GROUPS.map((value) => ({
-            filter: {
-              fieldName: DIM.sessionDefaultChannelGroup,
-              stringFilter: { matchType: 'EXACT' as const, value },
-            },
-          })),
-        },
+  const rawRows = await fetchPagedReport(accessToken, propertyId, {
+    dateRanges: [dateRange],
+    dimensions: [
+      { name: DIM.date },
+      { name: DIM.sessionSource },
+      { name: DIM.sessionMedium },
+      { name: DIM.sessionDefaultChannelGroup },
+    ],
+    metrics: [
+      { name: MET.sessions },
+      { name: MET.totalUsers },
+    ],
+    dimensionFilter: {
+      orGroup: {
+        expressions: SOCIAL_CHANNEL_GROUPS.map((value) => ({
+          filter: {
+            fieldName: DIM.sessionDefaultChannelGroup,
+            stringFilter: { matchType: 'EXACT' as const, value },
+          },
+        })),
       },
-      limit: PAGE_SIZE,
-      offset,
-    }
+    },
+  }, 1000)
 
-    const response = await runReport(accessToken, propertyId, request)
-    if (!response) break
-
-    const pageRows: GA4SocialReferralRow[] = (response.rows ?? []).map((row) => ({
-      date: row.dimensionValues[0]!.value,
-      source: row.dimensionValues[1]!.value,
-      medium: row.dimensionValues[2]!.value,
-      sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
-      users: parseInt(row.metricValues[1]!.value, 10) || 0,
-      channelGroup: row.dimensionValues[3]!.value,
-    }))
-
-    rows.push(...pageRows)
-
-    const totalRows = response.rowCount
-    offset += pageRows.length
-    pageCount += 1
-    if (pageRows.length < PAGE_SIZE || (totalRows !== undefined && offset >= totalRows)) break
-    if (pageCount >= GA4_MAX_PAGES) throw new GA4ApiError('GA4 report truncated at the page limit', 502)
-  }
-
-  for (const row of rows) {
-    row.date = compactDateToIso(row.date)
-  }
+  const rows: GA4SocialReferralRow[] = rawRows.map((row) => ({
+    date: compactDateToIso(row.dimensionValues[0]!.value),
+    source: row.dimensionValues[1]!.value,
+    medium: row.dimensionValues[2]!.value,
+    sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
+    users: parseInt(row.metricValues[1]!.value, 10) || 0,
+    channelGroup: row.dimensionValues[3]!.value,
+  }))
 
   ga4Log('info', 'fetch-social-referrals.done', { propertyId, rowCount: rows.length })
   return rows
