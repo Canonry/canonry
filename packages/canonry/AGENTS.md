@@ -538,6 +538,35 @@ The command lives in `src/commands/backfill.ts` (historical recomputation for an
 
 The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks and `reconcileRunAnswerFields`, `backfillProjectAnswerMentions` (and its chunked form `backfillProjectAnswerMentionsInChunks`), lives in `@canonry/canonry-api-routes` (`src/snapshot-competitor-refresh.ts`) so Cloud can run it too; `src/commands/backfill.ts` re-exports it. `src/citation-utils.ts` keeps only the citation helpers; the competitor matchers `computeCompetitorOverlap` and `extractRecommendedCompetitors` are in contracts (`competitor-matching.ts`).
 
+### Stored-traffic reclassification
+
+`src/traffic-reclassify.ts` re-files stored traffic under today's
+classification rules. `canonry serve` runs it 30 s after startup whenever
+`trafficClassificationFingerprint()` differs from the stored one, and records
+the fingerprint only after a full pass; `canonry backfill traffic-classification`
+runs it on demand and records nothing. apps/api never runs it.
+
+- Never move rows under a bot id this binary has no rule for: a newer release
+  wrote them.
+- The automatic pass never makes a change that would leave verified hits
+  claimed (stored traffic keeps no IP to check again): it counts the change in
+  `crawlers.heldVerified` and logs `traffic-reclassify.verified-moves-held`.
+  Only the backfill passes `allowVerificationLoss`; its dry run reports those
+  changes as `crawlers.unverifiedHits`.
+- Only the automatic pass marks every source holding browser-agent hours when
+  the browser-agent request rules differ from those recorded in its state.
+- A dry run takes no write lock and reports exactly what a write run does. Every
+  paged read stays on the rowid range with unary `+project_id`, as the path
+  repairs do; `test/traffic-reclassify-query-plan.test.ts` pins the plans.
+- Rollbacks it cannot see. A rollback to a release older than the pass
+  (7.84.0), or one too brief or interrupted for its own pass to complete,
+  leaves the newer fingerprint stored, so the roll-forward skips the pass:
+  run `canonry backfill traffic-classification`. Ingest during the newer
+  version's 30 s start delay can replace a misfiled hour's sampled user agent
+  with today's, which hides that hour from every pass; only a traffic backfill
+  from the source's logs (`canonry traffic backfill`, Cloud Run and Vercel)
+  recounts it.
+
 ### Server and SPA serving
 
 - Shared-password and API-key browser sessions persist token digests in `dashboardSessions`, retain their fixed twelve-hour expiry, and resolve the bound key's current authority on every request. Each session binds the key's current hash; password sign-ins also bind a digest of the configured password hash. Startup removes outdated password sessions and sessions without credential bindings. Key rotation and revocation writers delete bound sessions in their transaction, so bootstrap restoration cannot revive them. Logout deletes the row; restart must not extend expiry. Named-account cookies use `userSessions` and renew whenever their stored session renews.

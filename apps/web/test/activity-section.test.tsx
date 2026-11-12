@@ -12,8 +12,16 @@ vi.mock('recharts', () => {
   // them. React renders a parent before its children, so this is populated by
   // the time any `Line` below is called.
   let chartRows: Record<string, unknown>[] = []
+  // The chart's series as a hover lists them: Recharts leaves out a series
+  // drawn with tooltipType="none" (the fitted trend lines).
+  let chartSeries: { dataKey: string; name: string }[] = []
   const ComposedChart = ({ children, data }: { children?: React.ReactNode; data?: Record<string, unknown>[] }) => {
     chartRows = data ?? []
+    chartSeries = React.Children.toArray(children).flatMap((child) => {
+      if (!React.isValidElement(child)) return []
+      const { dataKey, name, tooltipType } = child.props as { dataKey?: unknown; name?: unknown; tooltipType?: unknown }
+      return typeof dataKey === 'string' && typeof name === 'string' && tooltipType !== 'none' ? [{ dataKey, name }] : []
+    })
     return <div>{children}</div>
   }
   return {
@@ -35,15 +43,31 @@ vi.mock('recharts', () => {
         : <div data-testid={`line-${dataKey}`} />,
     CartesianGrid: () => null,
     Bar: () => null,
-    BarChart: passthrough,
+    BarChart: ({ children }: { children?: React.ReactNode }) => {
+      chartRows = []
+      chartSeries = []
+      return <div>{children}</div>
+    },
     Cell: () => null,
     // Keep unlabeled bands observable, including their calendar boundaries.
     ReferenceArea: ({ label, x1, x2 }: { label?: { value?: string }; x1?: string; x2?: string }) =>
       <div data-testid="reference-area" data-from={x1} data-to={x2}>{label?.value}</div>,
-    ReferenceLine: () => null,
+    ReferenceLine: ({ x }: { x?: string }) => <span data-marker={x} />,
     XAxis: () => null,
     YAxis: () => null,
-    Tooltip: () => null,
+    // What a hover names on every bucket: each series' label as the chart's own
+    // formatter returns it. Labels ride on attributes, so text queries never meet them.
+    Tooltip: ({ formatter }: { formatter?: (value: unknown, name: string, item: { payload: Record<string, unknown> }) => unknown }) => (
+      <div data-testid="chart-tooltip">
+        {chartRows.flatMap((row, i) => chartSeries.map(({ dataKey, name }) => {
+          const shown = formatter?.(row[dataKey], name, { payload: row })
+          return (
+            <span key={`${i}-${dataKey}`} data-bucket={String(row.bucket)} data-series={dataKey}
+                  data-label={Array.isArray(shown) ? String(shown[1]) : name} />
+          )
+        }))}
+      </div>
+    ),
     // Rendered as a marker so a test can prove the legend exists at all. The
     // real Legend draws to canvas-ish SVG that jsdom cannot meaningfully assert.
     Legend: () => <div data-testid="chart-legend" />,
@@ -52,7 +76,7 @@ vi.mock('recharts', () => {
 
 import { ACTIVITY_COPY, ActivitySection, ClickThroughActivity, SEARCH_LANDING_COPY } from '../src/components/project/ActivitySection.js'
 import { StackedSeriesChart } from '../src/components/project/ActivityParts.js'
-import { AiTrafficHistoryPanel } from '../src/components/project/AiTrafficHistoryPanel.js'
+import { AI_TRAFFIC_HISTORY_COPY, AiTrafficHistoryPanel } from '../src/components/project/AiTrafficHistoryPanel.js'
 
 function renderActivitySection() {
   const queryClient = new QueryClient({
@@ -808,12 +832,12 @@ test('AI traffic history bands server visits counted by the older rule', async (
         <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
       </QueryClientProvider>,
     )
-    const visitorsTile = (await screen.findByText('AI visitors')).closest('div') as HTMLElement
+    const visitorsTile = (await screen.findByText(AI_TRAFFIC_HISTORY_COPY.visitors)).closest('div') as HTMLElement
 
     if (changedAt) {
       // Raw totals and their caveat remain; the historical band has no caption.
       expect(within(visitorsTile).getByText('336')).toBeTruthy()
-      expect(within(visitorsTile).getByText('older days may read high')).toBeTruthy()
+      expect(within(visitorsTile).getByText(AI_TRAFFIC_HISTORY_COPY.visitorsOlderDetail)).toBeTruthy()
       const band = screen.getByTestId('reference-area')
       expect(band.getAttribute('data-from')).toBe('2026-10-31')
       expect(band.getAttribute('data-to')).toBe('2026-11-02')
@@ -821,8 +845,81 @@ test('AI traffic history bands server visits counted by the older rule', async (
       fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
       expect(screen.queryAllByTestId('reference-area')).toEqual([])
     } else {
-      expect(within(visitorsTile).getByText('arrived from an AI answer')).toBeTruthy()
+      expect(within(visitorsTile).getByText(AI_TRAFFIC_HISTORY_COPY.visitorsDetail)).toBeTruthy()
       expect(screen.queryAllByTestId('reference-area')).toEqual([])
+    }
+    cleanup()
+    restoreFetch()
+  }
+})
+
+/** The x of every count-change line the charts draw, in document order. */
+const changeMarkers = () => [...document.querySelectorAll('[data-marker]')].map((marker) => marker.getAttribute('data-marker'))
+
+/** What a hover names one series on each bucket, in bucket order. */
+const hoverLabels = (dataKey: string) => [...document.querySelectorAll(`[data-testid="chart-tooltip"] [data-series="${dataKey}"]`)]
+  .map((entry) => [entry.getAttribute('data-bucket'), entry.getAttribute('data-label')])
+
+/**
+ * Page fetches before the API's `aiUserFetchCountingChangedAt`, the end of the
+ * last hour a browser agent's requests were counted under older rules, can read
+ * high or low. The page fetches total says so, a line marks the last such day
+ * wherever page fetches are drawn, and a hover names that day's fetches and the
+ * ones before it the older count. A change at midnight leaves the day it begins
+ * counted the new way. The visitors total, counted by its own rule, says nothing.
+ */
+test('AI traffic history marks page fetches counted before browser agents counted page loads only', async () => {
+  const days = ['2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05']
+  const older = AI_TRAFFIC_HISTORY_COPY.olderPageFetchesSeries
+  const current = AI_TRAFFIC_HISTORY_COPY.pageFetchesSeries
+  for (const { changedAt, through } of [
+    { changedAt: '2026-11-02T10:00:00.000Z', through: '2026-11-02' },
+    { changedAt: '2026-11-03T00:00:00.000Z', through: '2026-11-02' },
+    { changedAt: null, through: null },
+  ]) {
+    const restoreFetch = mockFetch((url) => {
+      const path = url.split('?')[0]!
+      if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+      if (path.endsWith('/projects/test-project/traffic/events')) {
+        return jsonResponse({
+          events: [], eventRows: { total: 0, returned: 0, truncated: false },
+          totals: { crawlerHits: 60, crawlerContentHits: 60, aiUserFetchHits: 69, aiReferralHits: 12, aiReferralLandedHits: 12 },
+          series: {
+            granularity: 'day', coverageStart: '2026-08-16T18:00:00.000Z', aiUserFetchCountingChangedAt: changedAt,
+            trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+            points: days.map((bucket, i) => ({
+              bucket, crawlerHits: 10, crawlerContentHits: 10, aiUserFetchHits: i < 3 ? 20 : 3,
+              aiReferralHits: 2, aiReferralLandedHits: 2, measured: true,
+            })),
+          },
+        })
+      }
+      return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+    })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+      </QueryClientProvider>,
+    )
+    const fetchesTile = (await screen.findByText(AI_TRAFFIC_HISTORY_COPY.pageFetches)).closest('div') as HTMLElement
+    const visitorsTile = screen.getByText(AI_TRAFFIC_HISTORY_COPY.visitors).closest('div') as HTMLElement
+
+    expect(within(fetchesTile).getByText('69')).toBeTruthy()
+    expect(within(fetchesTile).getByText(through ? AI_TRAFFIC_HISTORY_COPY.pageFetchesOlderDetail : AI_TRAFFIC_HISTORY_COPY.pageFetchesDetail)).toBeTruthy()
+    expect(within(fetchesTile).getByRole('button', { name: AI_TRAFFIC_HISTORY_COPY.pageFetchesTooltip(through) })).toBeTruthy()
+    expect(within(visitorsTile).getByText(AI_TRAFFIC_HISTORY_COPY.visitorsDetail)).toBeTruthy()
+    // Marked with a line, not a band: the crawler series beside it never changed.
+    expect(screen.queryAllByTestId('reference-area')).toEqual([])
+    expect(changeMarkers(), String(changedAt)).toEqual(through ? [through] : [])
+    expect(hoverLabels('aiUserFetchHits'), String(changedAt)).toEqual(through
+      ? [['2026-10-31', older], ['2026-11-01', older], ['2026-11-02', older], ['2026-11-03', current], ['2026-11-04', current], ['2026-11-05', current]]
+      : days.map((day) => [day, current]))
+    if (through) {
+      // Hidden page fetches take their marker with them.
+      fireEvent.click(screen.getByRole('checkbox', { name: AI_TRAFFIC_HISTORY_COPY.pageFetchesSeries }))
+      expect(changeMarkers()).toEqual([])
     }
     cleanup()
     restoreFetch()

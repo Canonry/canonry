@@ -14,6 +14,7 @@ import {
 import { countableReferralCondition, nonSubresourceReferralPathCondition } from './ai-referral-status.js'
 import { resolveProject } from './helpers.js'
 import { aiReferralOlderCountUntil } from './ai-referral-arrivals.js'
+import { aiUserFetchOlderCountUntil } from './ai-user-fetch-counting.js'
 
 const SERVER_ACTIVITY_TOP_PATHS_LIMIT = 10
 
@@ -65,6 +66,11 @@ function readTrafficActivity(db: DatabaseClient, projectId: string, windowDays: 
   const referralsComparable = referralCountingChangedAt === null || Date.parse(referralCountingChangedAt) <= priorStartMs
   const referralChange = (current: number, prior: number) =>
     referralsComparable ? recordedChange(current, prior) : null
+  // Likewise user-fetch hours whose browser-agent requests were counted under
+  // older rules, not as page loads only: a prior window holding them can read
+  // high or low.
+  const userFetchCountingChangedAt = aiUserFetchOlderCountUntil(db, { projectId })
+  const userFetchesComparable = userFetchCountingChangedAt === null || Date.parse(userFetchCountingChangedAt) <= priorStartMs
 
   // 2. Headline + prior totals (verified crawlers + referral sessions).
   // The headline upper bound uses `lte` (inclusive) so the current hour bucket
@@ -459,6 +465,7 @@ function readTrafficActivity(db: DatabaseClient, projectId: string, windowDays: 
     coverageStart,
     priorWindowComplete,
     aiReferralCountingChangedAt: referralCountingChangedAt,
+    aiUserFetchCountingChangedAt: userFetchCountingChangedAt,
     hasData: verifiedCurrent + unverifiedCurrent + userFetchCurrent + referralCurrent.total
       + verifiedPrior + unverifiedPrior + userFetchPrior + referralPrior.total
       + referralRedirects > 0
@@ -478,7 +485,7 @@ function readTrafficActivity(db: DatabaseClient, projectId: string, windowDays: 
     aiUserFetchHits: {
       current: userFetchCurrent,
       prior: userFetchPrior,
-      deltaPct: recordedChange(userFetchCurrent, userFetchPrior),
+      deltaPct: userFetchesComparable ? recordedChange(userFetchCurrent, userFetchPrior) : null,
     },
     referralArrivals: {
       current: referralCurrent.total,

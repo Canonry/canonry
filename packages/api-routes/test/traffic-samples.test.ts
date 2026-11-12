@@ -83,6 +83,17 @@ describe('stored traffic samples', () => {
     expect(response.json()).toMatchObject({ totalRows: 1, windowStart: '2026-10-10T12:00:00.000Z', samples: [{ classifier: { crawler: { botId: 'GPTBot', verificationStatus: null }, aiUserFetch: null, aiReferral: null } }] })
   })
 
+  it('reads what a browser agent\'s request was, and a kind this version does not know as null rather than failing', async () => {
+    const agent = { botId: 'google-agent', operator: 'Google', product: 'Google-Agent', verificationStatus: 'claimed_unverified', verificationManifest: null, matchedUserAgent: 'Google-Agent', trust: 'unknown', trustReasons: ['no-ip'], browser: true }
+    sample('resource', { eventType: 'ai_user_fetch', classifierDetailsJson: { crawler: null, aiReferral: null, aiUserFetch: { ...agent, requestKind: 'resource' } } })
+    // Written by a newer version before a rollback.
+    sample('newer', { ts: '2026-10-10T12:00:01.000Z', eventType: 'ai_user_fetch', classifierDetailsJson: { crawler: null, aiReferral: null, aiUserFetch: { ...agent, requestKind: 'prefetch' } } })
+    const response = await app.inject({ method: 'GET', url: `${url}&kind=ai-user-fetch` })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().samples.map((row: { id: string; classifier: { aiUserFetch: { browser: boolean; requestKind: string | null } } }) => [row.id, row.classifier.aiUserFetch.browser, row.classifier.aiUserFetch.requestKind]))
+      .toEqual([['newer', true, null], ['resource', true, 'resource']])
+  })
+
   it('defaults to the last 24 hours and leaves rollup totals unchanged after retention', async () => {
     const now = Date.now()
     sample('recent', { ts: new Date(now - 1_000).toISOString() })

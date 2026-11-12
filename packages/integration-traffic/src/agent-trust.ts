@@ -1,6 +1,7 @@
 import {
   AgentTrustLevels,
   AgentTrustReasons,
+  pathWithoutQuery,
   type AgentTrust,
   type AgentTrustReason,
   type TrafficVerificationManifest,
@@ -11,7 +12,7 @@ import type { AiCrawlerRule } from './types.js'
  * Bump when the scanner checks below change, so stored agent traffic is
  * assessed again under the new rules (`traffic-reclassify.ts`).
  */
-export const AGENT_TRUST_RULES_VERSION = 2
+export const AGENT_TRUST_RULES_VERSION = 3
 
 /**
  * Path segments a user-triggered fetch has no reason to request. `cgi-bin` is
@@ -42,6 +43,18 @@ const SECRET_FILES = new Set([
 ])
 // The Node `config` package layout, such as `config/production.json`.
 const ENVIRONMENT_CONFIG = /^(?:production|prod|development|dev|staging|default|local|test)\.(?:json|ya?ml|js|toml)$/
+// Files a web app's pages load by themselves from the site root: Blazor
+// WebAssembly's settings (`appsettings.json`, `appsettings.Production.json`)
+// and single-page apps' runtime settings (`env.js`, `env.json`). A browser
+// agent's page asks for them, so they are not probes from one.
+const BROWSER_APP_ROOT_FILE = /^(?:appsettings(?:\.[\w-]+)?\.json|env\.js|env\.json)$/
+// Hidden-folder endpoints a web app's pages call or link to, matched on the
+// decoded path's segments: Azure App Service and Static Web Apps sign-in
+// (`/.auth/me`, `/.auth/refresh`, `/.auth/login/<provider>` and its
+// `/callback`, `/.auth/logout` and its default landing page
+// `/.auth/logout/complete`, `/.auth/purge/<provider>`), and anything under
+// Netlify Identity and Git Gateway (the Decap CMS editor).
+const BROWSER_APP_ENDPOINT = /^(?:\.auth\/(?:me|refresh|logout(?:\/complete)?|login\/[^/]+(?:\/callback)?|purge\/[^/]+)|\.netlify\/(?:identity|git)(?:\/.*)?)$/
 
 /** Reasons in display order. The first reason of a likely fake request keys its hourly bucket. */
 const REASON_ORDER: readonly AgentTrustReason[] = [
@@ -69,7 +82,7 @@ export interface AgentTrustAssessment {
 }
 
 export interface AgentTrustInput {
-  rule: Pick<AiCrawlerRule, 'documentedUserAgents'>
+  rule: Pick<AiCrawlerRule, 'documentedUserAgents' | 'browser'>
   userAgent: string
   /** Raw request path; the query string is ignored. */
   path: string
@@ -93,14 +106,26 @@ function isSecretFile(folders: readonly string[], file: string): boolean {
     || CREDENTIAL_FILE.test(file) || /^appsettings\.[\w-]+\.json$/.test(file)
 }
 
+export interface ScannerPathOptions {
+  /**
+   * The request claims a hosted browser agent (`AiCrawlerRule.browser`). Its
+   * pages load app files a link fetcher never asks for, so the files in
+   * `BROWSER_APP_ROOT_FILE` and the endpoints in `BROWSER_APP_ENDPOINT` are
+   * not probes. Every other check applies, `wp-login.php` included, and the
+   * key, credential and secret-file checks apply inside those endpoints too.
+   */
+  browser?: boolean
+}
+
 /**
  * True when the path asks for secrets, keys, server settings, version-control
  * data, hidden files, debug consoles or admin logins, or steps out of the web
  * root. Real user-triggered fetches follow links a person asked about;
  * scanners wearing an agent user agent request these.
  */
-export function isScannerPath(rawPath: string): boolean {
-  const pathOnly = (rawPath.split(/[?#]/)[0] ?? '').toLowerCase()
+export function isScannerPath(rawPath: string, options: ScannerPathOptions = {}): boolean {
+  const browser = options.browser === true
+  const pathOnly = pathWithoutQuery(rawPath).toLowerCase()
   if (ENCODED_TRAVERSAL.test(pathOnly)) return true
   let decoded = pathOnly
   try {
@@ -109,10 +134,11 @@ export function isScannerPath(rawPath: string): boolean {
     // Keep the raw form; the encoded check above already ran on it.
   }
   const segments = decoded.split(/[\\/]+/).filter(Boolean)
+  const appEndpoint = browser && BROWSER_APP_ENDPOINT.test(segments.join('/'))
   for (const [index, segment] of segments.entries()) {
     if (segment === '..' || segment.endsWith('..')) return true
     if (SCANNER_SEGMENTS.has(segment) || segment.startsWith('wp-config') || segment.endsWith('.env')) return true
-    if (isHiddenSegment(segment, segments[index + 1])) return true
+    if (!(appEndpoint && index === 0) && isHiddenSegment(segment, segments[index + 1])) return true
     // Process environment and mounted cluster secrets.
     if (segment === 'proc' && segments[index + 1] === 'self') return true
     if (segment === 'var' && segments[index + 1] === 'run' && segments[index + 2] === 'secrets') return true
@@ -121,7 +147,10 @@ export function isScannerPath(rawPath: string): boolean {
   if (file === undefined) return false
   // The upload folder of old rich-text editors, asked for as a folder.
   if (segments[0] === 'userfiles' && !file.includes('.')) return true
-  return isSecretFile(segments.slice(0, -1), file)
+  if (browser && segments.length === 1 && BROWSER_APP_ROOT_FILE.test(file)) return false
+  // Inside an app endpoint the file is checked as if it sat at the site root,
+  // so a key or credential file there (`/.auth/login/id_rsa`) is still a probe.
+  return isSecretFile(appEndpoint ? [] : segments.slice(0, -1), file)
 }
 
 export function sortAgentTrustReasons(reasons: Iterable<AgentTrustReason>): AgentTrustReason[] {
@@ -167,7 +196,7 @@ export function assessAgentTrust(input: AgentTrustInput): AgentTrustAssessment {
       ? AgentTrustReasons['documented-user-agent']
       : AgentTrustReasons['unusual-user-agent'])
   }
-  if (isScannerPath(input.path)) reasons.add(AgentTrustReasons['scanner-path'])
+  if (isScannerPath(input.path, { browser: input.rule.browser === true })) reasons.add(AgentTrustReasons['scanner-path'])
   return { trust: trustFor(reasons), trustReasons: sortAgentTrustReasons(reasons) }
 }
 

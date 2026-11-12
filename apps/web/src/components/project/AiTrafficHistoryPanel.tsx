@@ -109,6 +109,27 @@ const LEGEND_STYLE = { fontSize: 12, paddingTop: 6 } as const
 const formatTooltipValue = (value: unknown) =>
   typeof value === 'number' ? formatNumber(Math.round(value)) : String(value)
 
+const PAGE_FETCHES_NAME = 'Page fetches'
+
+/** The totals strip and the machines chart's page fetch labels. */
+export const AI_TRAFFIC_HISTORY_COPY = {
+  pageFetches: 'AI page fetches',
+  pageFetchesDetail: 'reading a page to answer',
+  pageFetchesOlderDetail: 'older days counted differently',
+  /** Help for the page fetches total; `olderThrough` is the last day counted under the older rules. */
+  pageFetchesTooltip: (olderThrough: string | null) =>
+    'An AI engine fetching a page live while answering someone, rather than crawling it for an index. A browser agent (Google-Agent, Claude-Agent) counts its page loads only, not the files its pages load.'
+    + (olderThrough === null
+      ? ''
+      : ` Days through ${formatChartDateLabel(olderThrough)} were counted under older rules, which counted some of those files and missed some page loads, so they can read high or low. They were not recounted.`),
+  pageFetchesSeries: PAGE_FETCHES_NAME,
+  /** Hover label for page fetches counted before browser agents counted page loads only. */
+  olderPageFetchesSeries: `${PAGE_FETCHES_NAME} (older count)`,
+  visitors: 'AI visitors',
+  visitorsDetail: 'arrived from an AI answer',
+  visitorsOlderDetail: 'older days may read high',
+} as const
+
 const SERVER_VISITS_NAME = 'Visits, server'
 /** Hover label for a server visit counted under the older arrival rule. */
 const OLDER_SERVER_VISITS_NAME = `${SERVER_VISITS_NAME} (older count)`
@@ -179,6 +200,16 @@ function olderCountSpan(points: readonly Point[], changedKey: string | undefined
   const last = points[points.length - 1]?.bucket
   if (!firstMeasured || !last || changedKey < firstMeasured.bucket) return null
   return { from: firstMeasured.bucket, to: changedKey < last ? changedKey : last }
+}
+
+/**
+ * The UTC day holding the last instant before `end`, an exclusive end, or
+ * undefined without one. A count that changed at midnight leaves the day that
+ * begins there wholly counted the new way, as the server's fit reads it.
+ */
+function lastDayBefore(end: string | null): string | undefined {
+  const endMs = end === null ? Number.NaN : Date.parse(end)
+  return Number.isFinite(endMs) ? new Date(endMs - 1).toISOString().slice(0, 10) : undefined
 }
 
 /**
@@ -297,6 +328,22 @@ export function AiTrafficHistoryPanel({
   const countingChangedAt = (events.data as { series?: { aiReferralCountingChangedAt?: string | null } } | undefined)
     ?.series?.aiReferralCountingChangedAt ?? null
   const olderCount = useMemo(() => olderCountSpan(points, countingChangedAt?.slice(0, 10)), [countingChangedAt, points])
+  // Page fetches before `aiUserFetchCountingChangedAt`, the end of the last hour
+  // a browser agent's requests (Google-Agent, Claude-Agent) were counted under
+  // older rules, were counted differently: every file its pages loaded, or none
+  // of a visit judged likely fake, so they can read high or low. Marked through
+  // the day holding that last hour. The server-fitted fetch trend already
+  // starts after it.
+  const fetchCountingChangedAt = (events.data as { series?: { aiUserFetchCountingChangedAt?: string | null } } | undefined)
+    ?.series?.aiUserFetchCountingChangedAt ?? null
+  const olderFetchCount = useMemo(() => olderCountSpan(points, lastDayBefore(fetchCountingChangedAt)), [fetchCountingChangedAt, points])
+  const machinesTooltipFormatter = (value: unknown, name: unknown, item: { payload?: { bucket?: string } }) => {
+    const bucket = item.payload?.bucket
+    if (olderFetchCount && name === PAGE_FETCHES_NAME && bucket !== undefined && bucket <= olderFetchCount.to) {
+      return [formatTooltipValue(value), AI_TRAFFIC_HISTORY_COPY.olderPageFetchesSeries] as [string, string]
+    }
+    return formatTooltipValue(value)
+  }
 
   const trends = (events.data as { series?: { trends?: Record<string, Trend | null> } } | undefined)?.series?.trends
 
@@ -487,15 +534,15 @@ export function AiTrafficHistoryPanel({
               tooltip: 'Requests from AI crawlers for a real content page. Robots.txt and sitemap re-fetches are excluded, because they are not a page an engine read.',
             },
             {
-              label: 'AI page fetches',
+              label: AI_TRAFFIC_HISTORY_COPY.pageFetches,
               value: formatNumber(totals.fetches),
-              detail: 'reading a page to answer',
-              tooltip: 'An AI engine fetching a page live while answering someone, rather than crawling it for an index.',
+              detail: olderFetchCount ? AI_TRAFFIC_HISTORY_COPY.pageFetchesOlderDetail : AI_TRAFFIC_HISTORY_COPY.pageFetchesDetail,
+              tooltip: AI_TRAFFIC_HISTORY_COPY.pageFetchesTooltip(olderFetchCount?.to ?? null),
             },
             {
-              label: 'AI visitors',
+              label: AI_TRAFFIC_HISTORY_COPY.visitors,
               value: formatNumber(totals.visits),
-              detail: olderCount ? 'older days may read high' : 'arrived from an AI answer',
+              detail: olderCount ? AI_TRAFFIC_HISTORY_COPY.visitorsOlderDetail : AI_TRAFFIC_HISTORY_COPY.visitorsDetail,
               tooltip: 'Visits your server answered that came from an AI engine. Requests answered with a redirect are excluded: a redirect is a hop, not an arrival.'
                 + (olderCount
                   ? ` Days through ${formatChartDateLabel(olderCount.to)} were counted by an older rule that also counted a visitor's later pages, so they can read high and cannot be recounted.`
@@ -539,7 +586,7 @@ export function AiTrafficHistoryPanel({
             onChange={(e) => setShowFetches(e.target.checked)}
             className="accent-current"
           />
-          Page fetches
+          {AI_TRAFFIC_HISTORY_COPY.pageFetchesSeries}
         </label>
         <label className="flex items-center gap-1.5 text-label-12 text-secondary cursor-pointer">
           <input
@@ -562,17 +609,22 @@ export function AiTrafficHistoryPanel({
                            labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
                            itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
                            labelFormatter={formatChartDateLabel}
-                           formatter={formatTooltipValue} />
+                           formatter={machinesTooltipFormatter} />
           {unmeasured && (
             <ReferenceArea x1={unmeasured.from} x2={unmeasured.to} fill="var(--color-overlay-hover)"
                            fillOpacity={0.5} stroke="none"
                            label={{ value: 'not measured', position: 'insideTop', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
           )}
+          {/* The last day a browser agent's requests were counted under the older
+              rules. A line, not a band: the crawler series beside it never changed. */}
+          {showFetches && olderFetchCount && (
+            <ReferenceLine x={olderFetchCount.to} stroke={COUNT_CHANGE_COLOR} strokeDasharray="4 4" strokeWidth={1.5} />
+          )}
           <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14} />
           <Area type="monotone" dataKey="crawlerContentHits" name="Pages crawled"
                 stroke={CRAWLER_COLOR} fill={CRAWLER_COLOR} fillOpacity={0.22} strokeWidth={1.8} />
           {showFetches && (
-            <Area type="monotone" dataKey="aiUserFetchHits" name="Page fetches"
+            <Area type="monotone" dataKey="aiUserFetchHits" name={PAGE_FETCHES_NAME}
                   stroke={FETCH_COLOR} fill={FETCH_COLOR} fillOpacity={0.18} strokeWidth={1.6} />
           )}
           {showTrend && (
