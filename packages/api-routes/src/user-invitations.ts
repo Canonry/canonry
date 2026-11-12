@@ -54,14 +54,7 @@ function authorize(request: FastifyRequest, scope: string): void {
   requireScope(request, scope)
 }
 
-export interface UserInvitationRoutesOptions {
-  /** Injectable clock for tests. */
-  now?: () => number
-}
-
-export async function userInvitationRoutes(app: FastifyInstance, opts: UserInvitationRoutesOptions = {}) {
-  const now = opts.now ?? Date.now
-
+export async function userInvitationRoutes(app: FastifyInstance) {
   const toDto = (row: InvitationRow): UserInvitationDto => {
     const accepted = row.acceptedUserId
       ? app.db.select({ name: users.name }).from(users).where(eq(users.id, row.acceptedUserId)).get()
@@ -70,7 +63,7 @@ export async function userInvitationRoutes(app: FastifyInstance, opts: UserInvit
       id: row.id,
       email: row.email,
       role: row.role,
-      status: invitationStatus(row, now()),
+      status: invitationStatus(row, Date.now()),
       createdAt: row.createdAt,
       expiresAt: row.expiresAt,
       acceptedAt: row.acceptedAt ?? null,
@@ -98,7 +91,7 @@ export async function userInvitationRoutes(app: FastifyInstance, opts: UserInvit
       )
     }
     const emailKey = normalizeInvitationEmail(email)
-    const nowMs = now()
+    const nowMs = Date.now()
     const nowIso = new Date(nowMs).toISOString()
     const id = crypto.randomUUID()
     const createdById = request.principal?.kind === 'user' ? request.principal.id : request.principal?.delegatedUser?.id ?? null
@@ -138,10 +131,10 @@ export async function userInvitationRoutes(app: FastifyInstance, opts: UserInvit
     authorize(request, USERS_WRITE_SCOPE)
     const row = app.db.select().from(userInvitations).where(eq(userInvitations.id, request.params.id)).get()
     if (!row) throw notFound('Invitation', request.params.id)
-    if (invitationStatus(row, now()) !== UserInvitationStatuses.pending) {
-      throw validationError(`That invitation is already ${invitationStatus(row, now())}.`)
+    if (invitationStatus(row, Date.now()) !== UserInvitationStatuses.pending) {
+      throw validationError(`That invitation is already ${invitationStatus(row, Date.now())}.`)
     }
-    const nowIso = new Date(now()).toISOString()
+    const nowIso = new Date().toISOString()
     app.db.transaction((tx) => {
       tx.update(userInvitations).set({ revokedAt: nowIso }).where(eq(userInvitations.id, row.id)).run()
       writeAuditLog(tx, auditFromRequest(request, {

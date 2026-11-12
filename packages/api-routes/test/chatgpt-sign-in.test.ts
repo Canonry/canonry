@@ -124,11 +124,22 @@ let db: DatabaseClient
 let app: ReturnType<typeof Fastify>
 let openai: ReturnType<typeof fakeOpenAi>
 let settings: ChatGptSignInSettings
-let clock: number
 let accounts: ChatGptAccounts
 
+/**
+ * One clock for the whole app, as in production: the routes and
+ * ChatGptAccounts all read the real Date clock, held at START and moved only
+ * by `advance`. An invitation then expires on the clock the callback checks it
+ * against.
+ */
+const START = Date.parse('2026-11-11T12:00:00.000Z')
+
+function advance(ms: number): void {
+  vi.setSystemTime(Date.now() + ms)
+}
+
 function idClaims(nonce: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  const now = Math.floor(clock / 1000)
+  const now = Math.floor(Date.now() / 1000)
   return {
     iss: CHATGPT_ISSUER,
     aud: CLIENT_ID,
@@ -246,12 +257,15 @@ async function callback(started: Awaited<ReturnType<typeof start>>, opts: {
 }
 
 beforeEach(async () => {
+  // Before anything reads the clock: ChatGptAccounts keeps the Date.now it
+  // finds when it is built, and the seeded rows are stamped with the time.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(START)
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chatgpt-sign-in-'))
   db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
   seedRootKey()
   openai = fakeOpenAi()
-  clock = Date.parse('2026-11-11T12:00:00.000Z')
   settings = {
     clientId: CLIENT_ID,
     signIn: true,
@@ -259,7 +273,7 @@ beforeEach(async () => {
     tokenKey: parseChatGptTokenKey(TOKEN_KEY_HEX),
     redirectUri: REDIRECT_URI,
   }
-  accounts = new ChatGptAccounts({ db, settings: () => settings, fetch: openai.fetch, now: () => clock })
+  accounts = new ChatGptAccounts({ db, settings: () => settings, fetch: openai.fetch })
   app = Fastify()
   await app.register(apiRoutes, { db, chatgptAccounts: accounts, dashboardPath: '/' })
   await app.ready()
@@ -267,6 +281,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   await app.close()
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
@@ -414,7 +429,7 @@ describe('callback: invitations', () => {
     expect((await callback(await start())).headers.location).toBe('/?chatgpt_error=not-invited')
 
     await invite('jon.doe@cortland.example')
-    clock += 15 * 24 * 60 * 60 * 1000
+    advance(15 * 24 * 60 * 60 * 1000)
     expect((await callback(await start())).headers.location).toBe('/?chatgpt_error=not-invited')
   })
 
@@ -491,7 +506,7 @@ describe('callback: refusals', () => {
   test('a sign-in left too long expires', async () => {
     await invite('jon.doe@cortland.example')
     const started = await start()
-    clock += 11 * 60 * 1000
+    advance(11 * 60 * 1000)
     expect((await callback(started)).headers.location).toBe('/?chatgpt_error=expired')
   })
 
@@ -504,7 +519,7 @@ describe('callback: refusals', () => {
     ['another nonce', { nonce: 'not-this-sign-in' }],
     ['another audience', { aud: 'oaiapp_someone_else' }],
     ['another issuer', { iss: 'https://evil.example' }],
-    ['expired', { exp: Math.floor(Date.parse('2026-11-11T10:00:00.000Z') / 1000) }],
+    ['expired', { exp: Math.floor(START / 1000) - 2 * 60 * 60 }],
     ['no subject', { sub: '' }],
     ['several audiences without azp', { aud: [CLIENT_ID, 'other'] }],
   ])('an ID token with %s is refused', async (_label, claims) => {
@@ -634,7 +649,7 @@ describe('plan grant', () => {
     await invite('jon.doe@cortland.example')
     await callback(await start())
     const account = db.select().from(users).where(eq(users.name, 'jon.doe')).get()!
-    clock += 58 * 60 * 1000
+    advance(58 * 60 * 1000)
     let refreshes = 0
     openai.state.tokenReply = (body) => {
       expect(body.get('grant_type')).toBe('refresh_token')
@@ -655,7 +670,7 @@ describe('plan grant', () => {
     await invite('jon.doe@cortland.example')
     await callback(await start())
     const account = db.select().from(users).where(eq(users.name, 'jon.doe')).get()!
-    clock += 59 * 60 * 1000
+    advance(59 * 60 * 1000)
     openai.state.tokenReply = () => ({ status: 400, body: { error: 'refresh_token_reused' } })
     await expect(accounts.planAccess(account.id)).rejects.toMatchObject({ kind: 'reconnect', message: CHATGPT_AERO_ERRORS.reconnect })
     expect(db.select().from(chatgptPlanConnections).get()!.status).toBe('reconnect-required')
@@ -665,7 +680,7 @@ describe('plan grant', () => {
     await invite('jon.doe@cortland.example')
     await callback(await start())
     const account = db.select().from(users).where(eq(users.name, 'jon.doe')).get()!
-    clock += 59 * 60 * 1000
+    advance(59 * 60 * 1000)
     openai.state.tokenReply = () => ({ status: 503, body: {} })
     await expect(accounts.planAccess(account.id)).rejects.toBeInstanceOf(ChatGptPlanError)
     expect(db.select().from(chatgptPlanConnections).get()!.status).toBe('connected')
