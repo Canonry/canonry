@@ -49,6 +49,20 @@ export function formatNumber(value: number): string {
 }
 
 /**
+ * A chart axis tick: compact like `formatNumber`, but exact. A chart's nice
+ * ticks below 10,000 step in multiples of 50, so one decimal would label the
+ * 1,050 gridline `1.1K`; this reads `1.05K`. Round values keep `formatNumber`'s
+ * form (`4.0K`), so a tick matches the totals beside its chart.
+ */
+export function formatAxisNumber(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  const size = Math.abs(value)
+  if (size >= 1_000_000) return `${(value / 1_000_000).toFixed(size % 100_000 === 0 ? 1 : 2)}M`
+  if (size >= 1_000) return `${(value / 1_000).toFixed(size % 100 === 0 ? 1 : 2)}K`
+  return value.toLocaleString('en-US')
+}
+
+/**
  * A duration in seconds as GA4 shows engagement time: `45s`, `1m 05s`,
  * `1h 02m`. Rounded to the second; anything non-finite or negative is `—`.
  */

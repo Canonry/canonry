@@ -152,6 +152,20 @@ export type AgentTrustReason = z.infer<typeof agentTrustReasonSchema>
 export const AgentTrustReasons = agentTrustReasonSchema.enum
 
 /**
+ * What a hosted browser agent's request was (Google-Agent, Claude-Agent),
+ * read from its method, path and query:
+ * - `page`: a GET the agent made, opening a page, a document or a download.
+ *   The only kind counted as an AI user fetch hit.
+ * - `action`: any other method the agent sent, wherever it went: a form post,
+ *   a checkout, an API write. Kept in agent journeys, not counted.
+ * - `resource`: what its page fetched or sent by itself: files, data and API
+ *   reads, prefetches, beacons, and HEAD and OPTIONS requests.
+ */
+export const browserAgentRequestKindSchema = z.enum(['page', 'action', 'resource'])
+export type BrowserAgentRequestKind = z.infer<typeof browserAgentRequestKindSchema>
+export const BrowserAgentRequestKinds = browserAgentRequestKindSchema.enum
+
+/**
  * Exact bundled IP-range manifest used when a crawler or AI user-fetch event
  * was classified. Persisting this provenance keeps historical verification
  * results auditable after an operator publishes a newer range list.
@@ -482,6 +496,13 @@ export const cloudflareWorkerIngestResponseSchema = z.object({
   aiUserFetchBucketRows: z.number().int(),
   aiReferralBucketRows: z.number().int(),
   sampleRows: z.number().int(),
+  /**
+   * Requests from browser agents (Google-Agent, Claude-Agent) other than page
+   * loads: the files, data calls, prefetches and beacons their pages made, and
+   * their actions (form posts, checkouts, API writes). No bucket holds them,
+   * so the push reports them as a sync does.
+   */
+  aiUserFetchBrowserNonPageHits: z.number().int().nonnegative(),
 })
 export type CloudflareWorkerIngestResponse = z.infer<typeof cloudflareWorkerIngestResponseSchema>
 
@@ -496,6 +517,13 @@ export const trafficSyncResponseSchema = z.object({
   aiUserFetchHits: z.number().int().nonnegative(),
   /** Requests that claimed a user-triggered agent but were judged likely fake; never in `aiUserFetchHits`. */
   aiUserFetchLikelyFakeHits: z.number().int().nonnegative(),
+  /**
+   * Requests from browser agents (Google-Agent, Claude-Agent) other than page
+   * loads: the files, data calls, prefetches and beacons their pages made, and
+   * their actions (form posts, checkouts, API writes). Never in
+   * `aiUserFetchHits`. Optional so a newer client reads an older API.
+   */
+  aiUserFetchBrowserNonPageHits: z.number().int().nonnegative().optional(),
   aiReferralHits: z.number().int().nonnegative(),
   unknownHits: z.number().int().nonnegative(),
   crawlerBucketRows: z.number().int().nonnegative(),
@@ -804,6 +832,18 @@ export const trafficEventsResponseSchema = z.object({
      */
     aiReferralCountingChangedAt: z.string().nullable().optional(),
     /**
+     * The end of the last hour, on the selected sources, whose hosted browser
+     * agent (Google-Agent, Claude-Agent) AI user fetches were counted under
+     * older rules, or null when none holds such an hour. From it on, those
+     * agents count their page loads only. Earlier hours were counted
+     * differently and can read high (every file, data call and beacon counted)
+     * or low (whole visits judged likely fake); they were not recounted
+     * (stored hourly rows keep no method or query). Not bound to the window.
+     * `trends.aiUserFetchHits` is fitted only over buckets that begin at or
+     * after it. Optional so a newer client reads an older API.
+     */
+    aiUserFetchCountingChangedAt: z.string().nullable().optional(),
+    /**
      * Buckets holding only part of their period: the one recording began
      * inside, and the newest while it is still running. Trend fits leave them
      * out; a chart should not draw them as full readings. Optional so a newer
@@ -931,7 +971,19 @@ const sampleUserFetchSchema = z.object({
 })
 export const trafficSampleClassifierSchema = z.object({
   crawler: sampleUserFetchSchema.extend({ purpose: z.string().nullish() }).nullable().default(null),
-  aiUserFetch: sampleUserFetchSchema.nullable().default(null),
+  aiUserFetch: sampleUserFetchSchema.extend({
+    /** Whether the agent is a hosted browser (Google-Agent, Claude-Agent); absent on samples stored before browsers were told apart. */
+    browser: z.boolean().nullish().catch(null),
+    /**
+     * A browser agent's request kind, read at ingest from its method, path and
+     * query, or from the path alone when the stored-traffic pass relabeled the
+     * sample. Unless the sample is likely fake, only a `page` sample was
+     * counted as an AI user fetch hit; ingest counted `action` and `resource`
+     * requests only in the write's `aiUserFetchBrowserNonPageHits`. Absent for
+     * link fetchers and on samples stored before it was recorded.
+     */
+    requestKind: browserAgentRequestKindSchema.nullish().catch(null),
+  }).nullable().default(null),
   aiReferral: z.object({
     operator: z.string().nullish(), product: z.string().nullish(), sourceDomain: z.string().nullish(),
     evidenceType: z.enum(['referer', 'utm', 'referer-utm']).nullish(), trafficClass: aiReferralTrafficClassSchema.nullish(),

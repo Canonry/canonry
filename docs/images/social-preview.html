@@ -1,0 +1,70 @@
+<!doctype html>
+<!--
+  Canonry's GitHub social preview (1280×640). From the repo root, render it to social-preview.png:
+
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --hide-scrollbars \
+      --force-device-scale-factor=1 --window-size=1280,640 --virtual-time-budget=15000 \
+      --screenshot="$PWD/docs/images/social-preview.png" "file://$PWD/docs/images/social-preview.html"
+
+  Fonts load from Google Fonts, so rendering needs network access. Upload the PNG on GitHub under
+  Settings > General > Social preview. Every command in the terminal is real CLI syntax (see
+  skills/canonry/references/canonry-cli.md), and each colored signal in the title matches its command's label.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Canonry social preview</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..600&display=block">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; }
+  body { background: #0a0a0a; color: #ededed; font-family: 'Geist', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  .card { position: relative; width: 1280px; height: 640px; overflow: hidden; }
+  .glow { position: absolute; inset: 0;
+    background:
+      radial-gradient(560px 380px at 40px 20px, rgba(217, 63, 69, 0.11), transparent 70%),
+      radial-gradient(900px 400px at 640px 640px, rgba(255, 255, 255, 0.05), transparent 70%); }
+  .stack { position: absolute; left: 72px; right: 72px; top: 56px; bottom: 0; display: flex; flex-direction: column; }
+  .lockup { display: flex; align-items: center; gap: 12px; }
+  .lockup img { width: 44px; height: 44px; display: block; }
+  .lockup span { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; }
+  h1 { margin-top: 36px; max-width: 1110px; font-size: 58px; line-height: 1.06; font-weight: 600; letter-spacing: -0.045em; text-wrap: balance; }
+  h1 .kicker { color: #8f8f8f; }
+  /* The window runs off the bottom edge and fades out after the five color-linked commands. */
+  .term { flex: 1; margin: 36px 0 -40px; overflow: hidden; background: #0f0f0f; border: 1px solid #2a2a2a; border-radius: 14px;
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 100px), transparent calc(100% - 20px));
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 100px), transparent calc(100% - 20px)); }
+  .bar { height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1f1f1f; }
+  .bar i { width: 12px; height: 12px; border-radius: 50%; background: #2e2e2e; }
+  pre { padding: 18px 30px; font: 400 21px/35px 'Geist Mono', ui-monospace, monospace; color: #a1a1a1; white-space: pre; }
+  pre .prompt { color: #8f8f8f; }
+  pre .label { color: #ededed; }
+  /* Each signal named in the title shares a color with its command's label. */
+  .s1, pre .label.s1 { color: #60a5fa; }
+  .s2, pre .label.s2 { color: #34d399; }
+  .s3, pre .label.s3 { color: #fb923c; }
+  .s4, pre .label.s4 { color: #22d3ee; }
+  .s5, pre .label.s5 { color: #f472b6; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="glow"></div>
+  <div class="stack">
+    <div class="lockup"><img src="../../apps/web/public/favicon.svg" alt=""><span>Canonry</span></div>
+    <h1><span class="s1">AI answers</span>, <span class="s2">Search Console</span>, <span class="s3">GA4</span>, <span class="s4">AI crawlers</span>, and <span class="s5">ads</span>. <span class="kicker">One platform your agent runs.</span></h1>
+    <div class="term"><div class="bar"><i></i><i></i><i></i></div>
+    <pre><span class="prompt">$</span> cnry citations visibility my-site    <span class="label s1"># AI answers</span>
+<span class="prompt">$</span> cnry google performance my-site      <span class="label s2"># Search Console</span>
+<span class="prompt">$</span> cnry ga acquisition my-site          <span class="label s3"># GA4</span>
+<span class="prompt">$</span> cnry traffic analytics my-site       <span class="label s4"># AI crawlers</span>
+<span class="prompt">$</span> cnry ads summary my-site             <span class="label s5"># ChatGPT Ads</span>
+<span class="prompt">$</span> cnry agent-readiness score my-site   <span class="label"># Site audit</span>
+<span class="prompt">$</span> cnry seo keyword-gaps my-site        <span class="label"># SEO gaps</span>
+<span class="prompt">$</span> cnry gbp reviews my-site             <span class="label"># Local reviews</span></pre>
+    </div>
+  </div>
+</div>
+</body>
+</html>

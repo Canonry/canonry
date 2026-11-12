@@ -28,6 +28,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`testing.md`](testing.md) | current | contributors | Validation and test workflow guidance |
 | [`plugins.md`](plugins.md) | current | agent users | Portable Agent Plugin structure, client adapters, installation, coexistence, and security boundaries |
 | [`mcp.md`](mcp.md) | current | operators, agent users, contributors | MCP stdio adapter rationale, setup, auth model, safety rules, and limitations |
+| [`chatgpt-sign-in.md`](chatgpt-sign-in.md) | current | operators | Sign in with ChatGPT for invited people, invitations, and Aero on a person's own ChatGPT plan |
 | [`mcp-gateway-contract.md`](mcp-gateway-contract.md) | current | gateway engineers | Instance OAuth, identity, stored-read policy, modern/legacy transport, and synthetic integration contract |
 | [`../apps/mcp-gateway/README.md`](../apps/mcp-gateway/README.md) | implementation | operators, reviewers | Independent remote MCP gateway, encrypted routing/auth state, deployment and synthetic review procedure |
 | [`seo-data.md`](seo-data.md) | current | operators, developers | Provider-neutral SEO profiles, explicit refreshes, stored evidence and host-only financial controls |

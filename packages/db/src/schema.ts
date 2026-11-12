@@ -838,6 +838,99 @@ export const userSessions = sqliteTable('user_sessions', {
   index('idx_user_sessions_expires').on(table.expiresAt),
 ])
 
+/**
+ * External identities (Sign in with ChatGPT) linked to named accounts.
+ *
+ * The identity key is issuer + registered client + subject: OpenAI's `sub` is
+ * not promised to be stable across client registrations, so a new client ID
+ * starts new links rather than silently matching old ones. Email is kept for
+ * display only; it never decides which account an identity signs in to after
+ * the invitation that created the link.
+ */
+export const userExternalIdentities = sqliteTable('user_external_identities', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  provider: text('provider').$type<'chatgpt'>().notNull(),
+  issuer: text('issuer').notNull(),
+  clientId: text('client_id').notNull(),
+  subject: text('subject').notNull(),
+  email: text('email'),
+  createdAt: text('created_at').notNull(),
+  lastLoginAt: text('last_login_at'),
+}, (table) => [
+  uniqueIndex('idx_user_external_identities_subject').on(table.issuer, table.clientId, table.subject),
+  uniqueIndex('idx_user_external_identities_user_provider').on(table.userId, table.provider),
+])
+
+/**
+ * Invitations to sign in with an external identity. The first sign-in whose
+ * VERIFIED email matches a pending invitation creates the account with the
+ * invited role. Never attaches to an existing account.
+ */
+export const userInvitations = sqliteTable('user_invitations', {
+  id: text('id').primaryKey(),
+  /** As the administrator typed it, for display. */
+  email: text('email').notNull(),
+  /** Lower-cased, trimmed email: what a sign-in is matched against. */
+  emailKey: text('email_key').notNull(),
+  role: text('role').$type<'admin' | 'viewer'>().notNull(),
+  createdById: text('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+  acceptedAt: text('accepted_at'),
+  acceptedUserId: text('accepted_user_id').references(() => users.id, { onDelete: 'set null' }),
+  revokedAt: text('revoked_at'),
+}, (table) => [
+  index('idx_user_invitations_email').on(table.emailKey),
+])
+
+/**
+ * A person's ChatGPT plan grant, used for their own Aero turns only.
+ *
+ * One per account. `tokens` is AES-256-GCM ciphertext under the install's
+ * `chatgpt.tokenKey`, bound to this row's connection id and account, so a
+ * database copy without the key holds nothing usable. `revision` makes a
+ * refresh a compare-and-swap: OpenAI rotates refresh tokens, and a refresh
+ * written over a newer one would strand the account.
+ */
+export const chatgptPlanConnections = sqliteTable('chatgpt_plan_connections', {
+  userId: text('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  /** New on every connect, so a reconnect is a fresh grant, never a resumed one. */
+  id: text('id').notNull().unique(),
+  identityId: text('identity_id').notNull().references(() => userExternalIdentities.id, { onDelete: 'cascade' }),
+  status: text('status').$type<'connected' | 'reconnect-required'>().notNull(),
+  /** Space-separated scopes OpenAI actually granted. */
+  scopes: text('scopes').notNull(),
+  tokens: text('tokens').notNull(),
+  accessExpiresAt: text('access_expires_at').notNull(),
+  modelId: text('model_id'),
+  revision: integer('revision').notNull().default(0),
+  connectedAt: text('connected_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+/**
+ * In-flight ChatGPT sign-ins, single use and short lived. Only digests of the
+ * `state` and of the browser-binding secret are stored: the PKCE verifier and
+ * the binding secret live in an HttpOnly cookie on the browser that started
+ * the sign-in, so a callback opened in any other browser fails.
+ */
+export const chatgptLoginTransactions = sqliteTable('chatgpt_login_transactions', {
+  stateHash: text('state_hash').primaryKey(),
+  browserHash: text('browser_hash').notNull(),
+  intent: text('intent').$type<'login' | 'connect'>().notNull(),
+  /** The signed-in account a `connect` belongs to. Null for `login`. */
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  nonce: text('nonce').notNull(),
+  /** Space-separated scopes requested, to compare with what was granted. */
+  scopes: text('scopes').notNull(),
+  returnTo: text('return_to'),
+  createdAt: text('created_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+}, (table) => [
+  index('idx_chatgpt_login_transactions_expires').on(table.expiresAt),
+])
+
 /** Shared-password/API-key dashboard sessions survive restarts; only token digests are stored. */
 export const dashboardSessions = sqliteTable('dashboard_sessions', {
   tokenHash: text('token_hash').primaryKey(),
@@ -2838,6 +2931,19 @@ export const trafficSources = sqliteTable('traffic_sources', {
    * back to where journeys began, or clears it when no older hour is left.
    */
   aiReferralOlderCountUntil: text('ai_referral_older_count_until'),
+  /**
+   * The exclusive end of the last hour whose hosted browser agent (Google-Agent,
+   * Claude-Agent) AI user fetches this source counted under older rules; hours
+   * from it on count those agents' page loads only. Older hours were counted
+   * differently and can read high (every file, data call and beacon counted)
+   * or low (whole visits judged likely fake); they were not recounted
+   * (hourly rows keep no method or query). NULL when the source holds no such
+   * hour. Set by migration v222 and by the stored traffic pass; a replace-mode
+   * backfill moves it back to the end of the last browser-agent hour before
+   * its window, or clears it when none remains. Trend fits and comparisons
+   * leave earlier hours out.
+   */
+  aiUserFetchOlderCountUntil: text('ai_user_fetch_older_count_until'),
   archivedAt: text('archived_at'),
   configJson: text('config_json', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
   // sha256 hex of the per-source bearer token issued at connect time. Only

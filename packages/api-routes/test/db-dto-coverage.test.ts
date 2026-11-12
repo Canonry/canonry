@@ -82,7 +82,7 @@ import {
   conversionTrackingContractSchema,
   gtmConnectionMetadataDtoSchema,
   gtmRawSnapshotMetadataDtoSchema,
-  userDtoSchema,
+  userDtoSchema, userInvitationDtoSchema,
   measurementQuerySetSchema,
   measurementQueryTemplateSchema,
 } from '@canonry/canonry-contracts'
@@ -1031,6 +1031,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       syncLeaseOwner: 'Ephemeral owner of a pull-source sync lease; internal concurrency state.',
       syncLeaseExpiresAt: 'Expiry for stale pull-source lease recovery; internal concurrency state.',
       aiReferralOlderCountUntil: 'End of the older AI-referral arrival count; surfaced as `aiReferralCountingChangedAt` on traffic events and analytics, not on the source DTO.',
+      aiUserFetchOlderCountUntil: 'End of the older browser-agent AI user fetch count; surfaced as `aiUserFetchCountingChangedAt` on traffic events and analytics, not on the source DTO.',
     },
   },
 
@@ -1065,6 +1066,28 @@ const COVERAGE: Record<string, CoverageEntry> = {
   dashboardSessions: {
     kind: 'internal-only',
     reason: 'API-key-bound dashboard session token digests and expiry; no public row DTO.',
+  },
+  userExternalIdentities: {
+    kind: 'internal-only',
+    reason: 'Sign in with ChatGPT identity links (issuer, client, subject); /auth/chatgpt/status exposes only linked and the email.',
+  },
+  userInvitations: {
+    kind: 'dto',
+    dto: userInvitationDtoSchema,
+    internal: {
+      emailKey: 'Lower-cased email a verified ChatGPT email is matched against; the DTO shows the address as typed.',
+      createdById: 'Inviting account, kept for audit; the audit log carries the attribution.',
+      acceptedUserId: 'Account the invitation created; the DTO shows its name as acceptedUserName.',
+      revokedAt: 'Revocation time; the DTO folds it into status.',
+    },
+  },
+  chatgptPlanConnections: {
+    kind: 'internal-only',
+    reason: 'Encrypted ChatGPT plan tokens and refresh bookkeeping; /auth/chatgpt/status exposes only plan status, model and connect time.',
+  },
+  chatgptLoginTransactions: {
+    kind: 'internal-only',
+    reason: 'Single-use in-flight ChatGPT sign-in digests; never returned.',
   },
   measurementPlans: {
     kind: 'internal-only',

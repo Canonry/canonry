@@ -1,0 +1,33 @@
+{
+  "_source": "https://claude.com/.well-known/sail",
+  "creationTime": "2026-10-22T18:36:00Z",
+  "prefixes": [
+    {
+      "ipv4Prefix": "136.71.21.147/32"
+    },
+    {
+      "ipv4Prefix": "34.171.207.92/32"
+    },
+    {
+      "ipv4Prefix": "34.31.25.14/32"
+    },
+    {
+      "ipv4Prefix": "34.60.73.195/32"
+    },
+    {
+      "ipv4Prefix": "34.66.255.143/32"
+    },
+    {
+      "ipv4Prefix": "34.67.187.248/32"
+    },
+    {
+      "ipv4Prefix": "34.68.65.207/32"
+    },
+    {
+      "ipv4Prefix": "34.70.177.231/32"
+    },
+    {
+      "ipv4Prefix": "34.71.122.171/32"
+    }
+  ]
+}

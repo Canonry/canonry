@@ -175,6 +175,13 @@ describe('GA4 fetches honour the resolved window', () => {
     expect(requests).toHaveLength(11)
     expect(requests.slice(-2).map(request => request.limit)).toEqual([90, 90])
     for (const request of requests) expect(request.dateRanges).toEqual([range])
+    // Every offset-paged report sorts by all of its dimensions, so a row keeps
+    // its place while GA4 is still counting the day and pages cannot overlap.
+    for (const request of requests.slice(0, -2)) {
+      expect(request.orderBys).toEqual(request.dimensions.map(({ name }: { name: string }) => ({
+        dimension: { dimensionName: name, orderType: 'ALPHANUMERIC' },
+      })))
+    }
     await expect(fetchTrafficByLandingPage('fake-token', '123456', 180, { startDate: '2026-01-01', endDate: '2026-11-01' })).rejects.toThrow('Invalid GA4 sync date range')
   })
 
@@ -184,8 +191,22 @@ describe('GA4 fetches honour the resolved window', () => {
     { name: 'AI referrals', fetch: fetchAiReferrals, pageSize: 1000 },
     { name: 'social referrals', fetch: fetchSocialReferrals, pageSize: 1000 },
   ])('refuses incomplete $name data rather than caching it as complete', async ({ fetch: fetchReport, pageSize }) => {
-    const row = { dimensionValues: Array(5).fill({ value: '20261001' }), metricValues: [{ value: '1' }, { value: '1' }] }
-    fetchSpy.mockImplementation(async () => mockFetchResponse({ rows: Array(pageSize).fill(row) }))
+    // Full pages of distinct rows, as GA4 returns them (one row per dimension tuple).
+    fetchSpy.mockImplementation(async (_url, init) => {
+      const offset = Number(JSON.parse(init!.body as string).offset ?? 0)
+      return mockFetchResponse({
+        rows: Array.from({ length: pageSize }, (_, index) => ({
+          dimensionValues: [
+            { value: '20261001' },
+            { value: `/page-${offset + index}` },
+            { value: 'source' },
+            { value: 'medium' },
+            { value: 'Referral' },
+          ],
+          metricValues: [{ value: '1' }, { value: '1' }],
+        })),
+      })
+    })
     await expect(fetchReport('fake-token', '123456', 30)).rejects.toThrow(/truncated/)
   })
 

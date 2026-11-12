@@ -294,6 +294,9 @@ import { ViewerAeroSessions } from "./agent/viewer-sessions.js";
 import { buildAgentProvidersResponse, resolveApiKeyFor } from "./agent/providers.js";
 import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
+import { ChatGptAccounts } from "@canonry/canonry-api-routes";
+import { resolveChatGptSettings } from "./chatgpt-config.js";
+import { preferredChatGptModel } from "./agent/chatgpt-plan.js";
 import { registerOAuthRoutes, registerOAuthAdminRoutes, cookieIsSecure, createCredentialChecker, hashSessionToken, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@canonry/canonry-api-routes";
 import { registerAgentRoutes } from "./agent/agent-routes.js";
 import {
@@ -1290,6 +1293,18 @@ export async function createServer(opts: {
         managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
       })
     : undefined;
+  // Sign in with ChatGPT (config `chatgpt`). One instance for the whole
+  // process, shared by the sign-in routes and viewer Aero, so concurrent
+  // turns share a single plan-token refresh. Settings are read per call.
+  const chatgptAccounts = new ChatGptAccounts({
+    db: opts.db,
+    settings: () => resolveChatGptSettings(opts.config),
+  });
+  if (opts.config.chatgpt && (opts.config.chatgpt.signIn || opts.config.chatgpt.planUsage) && !resolveChatGptSettings(opts.config)) {
+    log.warn("chatgpt.disabled", {
+      reason: "Sign in with ChatGPT needs chatgpt.clientId and an HTTPS publicUrl; it stays off until both are set.",
+    });
+  }
   // Viewer Aero is its own lane (see viewer-sessions.ts), built only on an
   // explicit opt-in. Absent, the agent routes stay administrator-only.
   const agentAllowViewers = agentEnabled && resolveAgentAllowViewers(process.env, opts.config);
@@ -1299,6 +1314,7 @@ export async function createServer(opts: {
         config: opts.config,
         selfApiUrl: opts.config.apiUrl,
         managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
+        chatgpt: chatgptAccounts,
       })
     : undefined;
 
@@ -3245,6 +3261,9 @@ export async function createServer(opts: {
       path: sessionCookiePath,
       ...(sessionCookieSecure ? { secure: true } : {}),
     },
+    chatgptAccounts,
+    chatgptPreferredModel: () => preferredChatGptModel(opts.config),
+    dashboardPath: basePath ?? "/",
     // Whether an operator has declared which hops to believe. The per-caller
     // sign-in budget depends on this being the truth rather than something
     // inferred from a header the caller controls.
@@ -4284,6 +4303,11 @@ export async function createServer(opts: {
         return resolved ? { id: resolved.user.id, name: resolved.user.name } : null;
       },
       credentials: credentialChecker,
+      // A person whose account signs in only with ChatGPT approves MCP
+      // clients too: the consent page offers it and comes back to itself.
+      chatgptSignInUrl: (returnTo) => chatgptAccounts.signInEnabled()
+        ? `${apiPrefix}/auth/chatgpt/start?${new URLSearchParams({ intent: "login", returnTo }).toString()}`
+        : null,
       startSession: (userId) => {
         const token = createUserSession(opts.db, userId);
         return serializeUserSessionCookie({
@@ -4346,7 +4370,7 @@ export async function createServer(opts: {
       // source type writes them, including direct push, which never syncs.
       stopUnrecognizedAgentAlerts = startUnrecognizedAgentAlertLoop(() => notifier.dispatchUnrecognizedAgentAlerts());
       // When the classification rules changed since the last pass, reclassify
-      // stored unknown traffic once, shortly after startup.
+      // stored traffic under them once, shortly after startup.
       stopTrafficReclassification = startTrafficReclassification({ db: opts.db });
       // Resumes every batch a previous process left outstanding, and finalizes
       // the runs boot recovery handed to it.

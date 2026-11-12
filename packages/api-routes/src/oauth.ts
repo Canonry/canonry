@@ -60,6 +60,12 @@ export interface OAuthRoutesOptions {
    */
   startSession: (userId: string) => string
   /**
+   * Where Sign in with ChatGPT starts, returning to `returnTo` afterwards, or
+   * null when the install does not offer it. Lets a person whose account has
+   * no password sign in on the consent page.
+   */
+  chatgptSignInUrl?: (returnTo: string) => string | null
+  /**
    * The SAME credential check /auth/login uses, budgets and all. Passed in
    * rather than reimplemented so the two sign-in doors cannot drift apart —
    * they already did once, and the second one had no rate limiting at all.
@@ -391,7 +397,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
       // a bounce to the product's sign-in with a `next` parameter, dead-ends:
       // the dashboard has no /signin route, never reads `next`, and 404s under
       // a base path.
-      return sendGatePage(reply, renderSignInPage({ action: request.url, error: null, fontUrl: opts.fontUrl }))
+      return sendGatePage(reply, renderSignInPage({ action: request.url, error: null, fontUrl: opts.fontUrl, chatgptUrl: opts.chatgptSignInUrl?.(request.url) }))
     }
 
     // A SESSION IS NOT CONSENT.
@@ -589,13 +595,13 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     const name = body.name?.trim()
     const password = body.password
     if (!name || !password) {
-      return sendGatePage(reply, renderSignInPage({ action: request.url, error: 'Enter a name and password.', fontUrl: opts.fontUrl }))
+      return sendGatePage(reply, renderSignInPage({ action: request.url, error: 'Enter a name and password.', fontUrl: opts.fontUrl, chatgptUrl: opts.chatgptSignInUrl?.(request.url) }))
     }
     // The SAME check /auth/login runs, with the same four budgets. Reimplementing
     // it here is what made the dashboard's lockout bypassable through this door.
     const result = await opts.credentials.verify(request, name, password)
     if (!result.ok) {
-      return sendGatePage(reply, renderSignInPage({ action: request.url, error: result.message, fontUrl: opts.fontUrl }))
+      return sendGatePage(reply, renderSignInPage({ action: request.url, error: result.message, fontUrl: opts.fontUrl, chatgptUrl: opts.chatgptSignInUrl?.(request.url) }))
     }
     void reply.header('set-cookie', opts.startSession(result.user.id))
     // Re-enter the GET, which now renders the approval page.
