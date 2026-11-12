@@ -226,7 +226,6 @@ export interface ChatGptAccountsOptions {
   db: DatabaseClient
   settings: ChatGptSettingsSource
   fetch?: FetchLike
-  now?: () => number
 }
 
 export class ChatGptAccounts {
@@ -239,7 +238,7 @@ export class ChatGptAccounts {
 
   constructor(private readonly opts: ChatGptAccountsOptions) {
     this.fetchImpl = opts.fetch ?? globalThis.fetch
-    this.now = opts.now ?? Date.now
+    this.now = Date.now
     this.jwks = new ChatGptJwks(this.fetchImpl, this.now)
   }
 
