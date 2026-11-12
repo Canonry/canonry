@@ -99,6 +99,30 @@ describe('isScannerPath', () => {
   ])('keeps %s', path => {
     expect(isScannerPath(path)).toBe(false)
   })
+
+  // Files and calls a web app's pages make by themselves: Blazor settings, SPA
+  // runtime settings, Azure sign-in, Netlify Identity and Git Gateway.
+  it.each([
+    '/appsettings.json', '/appsettings.Production.json', '/env.js', '/env.json',
+    '/.auth/me', '/.auth/refresh', '/.auth/login/github', '/.auth/login/aad/callback', '/.auth/logout',
+    '/.auth/logout/complete', '/.auth/purge/aad', '/.netlify/identity/user', '/.netlify/git/github/contents/content/posts',
+  ])('spares %s for a browser agent only', path => {
+    expect(isScannerPath(path, { browser: true })).toBe(false)
+    expect(isScannerPath(path)).toBe(true)
+  })
+
+  it.each([
+    '/wp-login.php', '/.env', '/.git/config', '/config/appsettings.json', '/config/env.json',
+    '/.auth/.env', '/.auth/me/../../.git/config', '/.netlify/identity/../state.json', '/.netlify/state.json',
+    '/secrets/env.js', '/id_rsa', '/backup.sql',
+    // Azure's sign-in folder holds endpoints, not files, and a key or
+    // credential file is a probe inside a spared endpoint too.
+    '/.auth/id_rsa', '/.auth/credentials.json', '/.auth/backup.sql', '/.auth/web.config', '/.auth/admin',
+    '/.auth/login', '/.auth/login/aad/token.json', '/.auth/login/id_rsa', '/.auth/purge/backup.sql',
+    '/.netlify/git/github/contents/credentials.json',
+  ])('still flags %s for a browser agent', path => {
+    expect(isScannerPath(path, { browser: true })).toBe(true)
+  })
 })
 
 describe('assessAgentTrust', () => {

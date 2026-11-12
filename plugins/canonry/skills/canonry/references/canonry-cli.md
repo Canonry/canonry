@@ -371,7 +371,7 @@ cnry backfill answer-visibility                # recompute citationState (second
 cnry backfill answer-visibility --dry-run      # preview which snapshots would change
 cnry backfill insights <project>               # recompute insights for completed runs
 cnry backfill insights <project> --since 2026-04-01 --dry-run
-cnry backfill traffic-classification --project <name> --dry-run  # stored unknown traffic under today's bot rules
+cnry backfill traffic-classification --project <name> --dry-run  # stored traffic under today's rules; the dry run lists every change
 ```
 
 History filters compose on project reads and `history --all`. `--action` remains
@@ -382,6 +382,16 @@ reject invalid values. `--actor api` includes legacy API, API-key, and user
 actors; other actors match exactly. Empty filters are rejected. Human output shows actor and client origin; instance-wide rows include the project name. Select either a project or `--all`.
 New competitor replacement records include `added`, `removed`, and any discarded
 aliases beside the resulting `competitors` list. Older records remain unchanged.
+
+`backfill traffic-classification` runs on demand the pass a `canonry serve`
+server runs once after a rules change. It re-files stored traffic under today's
+rules: unknown samples and unrecognized agents a rule now names, crawler hours
+whose sampled user agent today's rules file elsewhere, agent traffic the trust
+rules now call likely fake, browser-agent journey requests capture now leaves
+out, and journeys a background call opened. Unlike the server's pass, it also
+makes the crawler changes that leave verified hits claimed (stored traffic keeps
+no IP to check again); `--dry-run` lists every change, those included
+(`crawlers.unverifiedHits`). An unknown `--project` exits 1 with `NOT_FOUND`.
 
 Project exports redact notification webhook URLs by default as `redacted://<host>/<notification-id>`.
 Applying that export preserves the existing notification ID, signing secret, source, enabled state and creation time. The HTTPS `/redacted` placeholder from notification listings also preserves the matched stored destination. A real URL change appears in preview and audit as a URL-change marker without exposing its path or secret.
@@ -2070,7 +2080,12 @@ cnry traffic samples <project> --source <id> --path /blog --limit 100 --offset 1
 
 A stored sampled tail with 30-day retention, not visits or sessions. Use `traffic
 events` for totals. Default `--kind all` includes crawler, AI user-fetch, and AI
-referral samples; unknown requests require `--kind unknown`. Time bounds are
+referral samples; unknown requests require `--kind unknown`. A Claude-Agent or
+Google-Agent sample carries `classifier.aiUserFetch.requestKind` (`page`,
+`action` or `resource`). Browser agents count only page loads, so unless a
+sample is likely fake, only a `page` sample was counted; sync results count
+their other requests in `aiUserFetchBrowserNonPageHits`, and text output labels
+those samples `(<trust>; <kind>, not counted)`. Time bounds are
 inclusive ISO timestamps or `YYYY-MM-DD` dates (midnight UTC), defaulting to the last 24 hours. `--since-minutes`
 selects a positive relative duration and cannot be combined with `--since`. Path
 prefixes are literal. Limit is 1 to 500; offset starts at zero. Project/source
@@ -2101,6 +2116,9 @@ real (unchecked, but the operator's published user agent), or unknown. Likely
 fake requests are counted in `coverage.likelyFakeRequests` and never listed;
 with `--target-key` that count is null, because hourly totals carry no page
 path. `cnry traffic sync` reports them as `aiUserFetchLikelyFakeHits`.
+Claude-Agent and Google-Agent journeys keep page loads, actions such as form
+posts and failed requests only; `coverage.limitations` lists what they leave
+out.
 The API reports retention, inactivity gap, daily caps and source gaps. Advanced
 Properties match the current plan's URL coverage, not the historical user's
 intent. Keep its plan revision and unavailable dimensions with the evidence.

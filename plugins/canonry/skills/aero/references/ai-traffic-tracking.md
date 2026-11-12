@@ -48,6 +48,30 @@ a month listed in `partialBuckets`, or one whose GA4 `complete` is false, as a
 full reading. A GA4 month with `sessions: null` was never fetched by the AI
 sync; it is not a month without AI visits.
 
+Since Canonry 7.104.0, Claude-SearchBot (Anthropic's search indexing) is its
+own crawler, and any other Claude bot no rule names is listed as an
+unrecognized agent; before, both counted as ClaudeBot (training). The upgrade
+moved stored hours by each hourly row's one sampled user agent, so an hour in
+which two of these bots read the same page stayed whole under one of them, and
+some hours of other Claude bots stay under ClaudeBot: compare ClaudeBot and
+Claude-SearchBot only from the upgrade on.
+
+Since Canonry 7.104.0, browser agents acting for a person (Claude-Agent,
+Google-Agent) count only their page loads as `ai-user-fetch` hits, one per page
+as a fetcher such as Claude-User counts. The files, data calls, prefetches and
+beacons their pages load, and their actions such as form posts, are counted
+apart (`aiUserFetchBrowserNonPageHits` on a sync result; the server log records
+it for scheduled syncs and backfills). Their agent journeys keep page loads,
+actions and failed requests. Hours stored before were counted differently.
+Google-Agent counted every request. Claude-Agent, an unrecognized agent before
+7.104.0, counted its GET and HEAD requests for anything but a static file; the
+upgrade moves those hours into the AI user fetch counts. Both read high, while
+visits the older trust rules sent whole to the likely fake counts read low.
+`aiUserFetchCountingChangedAt` on traffic events and analytics names when a
+source's count changed; the server-fitted `aiUserFetchHits` trend and the
+analytics change already leave earlier hours out. Compare browser-agent counts
+only from that point on.
+
 ## Check the instrument before you report a zero
 
 A zero means nothing until you know the instrument could have seen it. Work
@@ -108,10 +132,14 @@ through these in order and say which one applies.
    requests from an IP that asked for one within 10 minutes, or a user agent
    unlike OpenAI's or Mistral's published string) are left out of AI user
    fetch hits and counted as
-   `totals24h.aiUserFetchLikelyFakeHits`. `cnry traffic samples <p> --kind
-   ai-user-fetch` shows each sample's `trust` and `trustReasons`. Quote
-   `verified` and `likely_real` requests and pages that returned 200; treat
-   `unknown` as unconfirmed.
+   `totals24h.aiUserFetchLikelyFakeHits`. Claude-Agent and Google-Agent load
+   pages like a browser, so the settings files and sign-in endpoints a web
+   app's pages load by themselves are not probes for them. `cnry traffic
+   samples <p> --kind ai-user-fetch` shows each sample's `trust` and
+   `trustReasons`, and for those two agents its `requestKind`; text output
+   marks the requests that were not counted `not counted`. Quote `verified`
+   and `likely_real` requests and pages that returned 200, for browser agents
+   only `requestKind: page` samples; treat `unknown` as unconfirmed.
 
 ## What attribution can and cannot say
 

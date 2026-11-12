@@ -758,6 +758,7 @@ Pure live-vs-stored comparison engine (no DB/clock/network; the `gbp-summary.ts`
 - `POST /traffic/sources/:id/backfill` is async — returns `{ runId, status: "running" }` immediately; the background task replaces rollup buckets + sample slice in the window inside one transaction, days clamped to `MAX_BACKFILL_DAYS=30` to match Cloud Logging `_Default` retention, and `lastSyncedAt` only advances forward so backfill never undoes incremental progress; supports `cloud-run`, `wordpress`, and `vercel` source types.
 - `POST /traffic/sources/:id/reset` is operator recovery: requires `{ advanceToNow: true }` — advances `lastSyncedAt` to NOW, sets `status` back to `connected`, clears `last_error`; used when an idle source has aged past the upstream retention boundary and every sync now throws.
 - Reads: `GET /traffic/sources` (list non-archived), `GET /traffic/status` (composite of detail-per-source — single call powering `canonry traffic status`), `GET /traffic/sources/:id` (detail + last-24h totals + latest run, run filtered by `runs.source_id` so multi-source is correct), `GET /traffic/events` (windowed crawler / ai-referral rollups, defaults to last 24h, totals reflect the full window even when `limit` truncates; `kind` is one kind, a comma-separated list read by `parseTrafficEventKindFilter`, or `all`, and rows, totals and series cover only the kinds asked for. The dashboard keeps its chart on `all` and fetches table rows for the ticked series, and for a clicked bar by that bucket's exact span).
+- A browser agent's requests other than page loads (`aiUserFetchBrowserNonPageHits`) go to no bucket, so each write path reports the count: pull and Queue syncs and the Cloudflare direct push return it, and pull syncs, Queue drains and backfills log it (`logBrowserAgentNonPageHits`), the only trace a scheduled sync or a backfill leaves. A new write path must do the same. It is not an outcome-telemetry count: the canonry.ai collector allowlists count keys.
 - Credentials are resolved through injected stores (`cloudRunCredentialStore`, `wordpressTrafficCredentialStore`, `vercelTrafficCredentialStore`); the per-adapter pull functions and access-token resolver are also injectable for tests.
 - Upstream/auth failures throw `providerError()` (502) so CLI exit codes signal system errors.
 
@@ -782,6 +783,7 @@ The backfill route mirrors the same shape — `runBackfillTask` is adapter-agnos
 - Vercel pulls the `[windowStart, windowEnd]` window with the large `BACKFILL_MAX_PAGES` budget — replace mode, so a budget exhaustion (`hasMore` still true) fails the run loudly rather than wiping the window's rollups and leaving a partial set.
 - All reuse the shared replace-mode rollup transaction and the `lastSyncedAt`-never-rewinds invariant.
 - After replacement, clear `aiReferralOlderCountUntil` only when no source referral row was written before v207's applied time (the same predicate as v211). Preserve the latest cutoff while older rows remain, including a cutoff moved earlier by the journey recount; event dates alone cannot distinguish corrected backfills.
+- `aiUserFetchOlderCountAfterBackfill` then moves `aiUserFetchOlderCountUntil` back to the end of the source's last browser-agent (`BROWSER_AGENT_BOT_IDS`) hour before the window, counted or likely fake, when that is earlier, matching on project and source; it clears the mark when no such hour remains, and never sets one that was NULL. The replaced hours count page loads only; hours before the window keep the older count.
 - The route claims the source sync lease before it inserts the run, and `runBackfillTask` renews it on a timer (`trafficBackfillLeaseRenewMs`, default one minute) until the task ends, then releases it. Each tick first re-checks the source: once a reset, reconnect or deactivation changed its generation, the task releases the lease and aborts the pull's `AbortSignal` (the Vercel chunk loop checks it per hour chunk), so fresh syncs are not blocked by a backfill that can no longer commit. Every pull sync (Cloud Run, Vercel, WordPress) claims the same lease before its run row, so a scheduled tick during a backfill gets `OPERATION_IN_PROGRESS` with no run and no provider call (the scheduler logs it as a skip). The commit check (`isSameBackfillSource`) is the source generation plus lease ownership; because syncs cannot move the watermark meanwhile, a moved watermark means an operator reset or reconnect, and the backfill fails without writing.
 
 #### Cross-sync dedupe
@@ -975,6 +977,12 @@ Keep unknown traffic out of the default, require admin session authority, and
 never allow embed access. Select public fields explicitly and parse classifier
 evidence through the tolerant, stripping schema. No IP hashes, provider calls,
 retention writes, or rollup changes belong in this route.
+
+A browser agent's `aiUserFetch` evidence carries `browser` and `requestKind`
+(`page`, `action` or `resource`); unless the sample is likely fake, only a
+`page` sample was counted. Ingest reads the kind from the method, path and
+query; the stored-traffic pass, when it relabels a sample, from its path alone.
+A stored kind this version does not know reads as null.
 
 ### AI visitor journeys
 
