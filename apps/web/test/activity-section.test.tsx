@@ -55,9 +55,11 @@ vi.mock('recharts', () => {
       <div data-testid="reference-area" data-from={x1} data-to={x2}>{label?.value}</div>,
     ReferenceLine: ({ x }: { x?: string }) => <span data-marker={x} />,
     XAxis: () => null,
-    // How a four-digit tick reads: whole in the gutter, or cut down to "000".
+    // How four-digit ticks read: whole in the gutter, or cut down to "000";
+    // exact, or rounded off the gridline they label.
     YAxis: ({ tickFormatter }: { tickFormatter?: (value: number, index: number) => string }) =>
-      <div data-testid="y-axis" data-tick-4000={tickFormatter ? tickFormatter(4000, 0) : '4,000'} />,
+      <div data-testid="y-axis" data-tick-4000={tickFormatter ? tickFormatter(4000, 0) : '4,000'}
+           data-tick-1050={tickFormatter ? tickFormatter(1050, 0) : '1,050'} />,
     // What a hover names on every bucket: each series' label as the chart's own
     // formatter returns it. Labels ride on attributes, so text queries never meet them.
     Tooltip: ({ formatter }: { formatter?: (value: unknown, name: string, item: { payload: Record<string, unknown> }) => unknown }) => (
@@ -800,8 +802,11 @@ test('AI traffic charts name their series and keep every y label whole', async (
   expect(within(screen.getByRole('group', { name: 'Visits, server' })).getByText('Visits, server')).toBeTruthy()
   // GA4 recorded nothing here, so Both draws no empty GA4 panel.
   expect(screen.queryByRole('group', { name: 'Visits, GA4' })).toBeNull()
-  // Four-digit ticks read compactly on every chart, so the gutter holds them.
-  for (const axis of screen.getAllByTestId('y-axis')) expect(axis.getAttribute('data-tick-4000')).toBe('4.0K')
+  // Four-digit ticks read compactly on every chart, so the gutter holds them,
+  // and exactly: a 1,050 gridline is not labelled 1.1K.
+  for (const axis of screen.getAllByTestId('y-axis')) {
+    expect([axis.getAttribute('data-tick-4000'), axis.getAttribute('data-tick-1050')]).toEqual(['4.0K', '1.05K'])
+  }
 })
 
 /**
@@ -852,16 +857,65 @@ test('AI traffic history bands server visits counted by the older rule', async (
       expect(band.textContent).toBe('')
       // The older count is its own faded series, keyed as reading high.
       const serverPanel = screen.getByRole('group', { name: 'Visits, server' })
-      expect(within(serverPanel).getByTestId('line-serverOlder')).toBeTruthy()
+      expect(within(serverPanel).getByTestId('dots-serverOlder')).toBeTruthy()
       expect(within(serverPanel).getByText('Older count, may read high')).toBeTruthy()
       fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
       expect(screen.queryAllByTestId('reference-area')).toEqual([])
     } else {
       expect(within(visitorsTile).getByText(AI_TRAFFIC_HISTORY_COPY.visitorsDetail)).toBeTruthy()
       expect(screen.queryAllByTestId('reference-area')).toEqual([])
-      expect(screen.queryByTestId('line-serverOlder')).toBeNull()
+      expect(screen.queryByTestId('dots-serverOlder')).toBeNull()
       expect(screen.queryByText('Older count, may read high')).toBeNull()
     }
+    cleanup()
+    restoreFetch()
+  }
+})
+
+/**
+ * Review finding: once the older and newer server counts became separate
+ * lines, a count with one day in view had no neighbour to join and drew
+ * nothing in Days, while the key still listed it. A lone day of either count
+ * is a dot; a run of days stays a line.
+ */
+test('Days view draws a lone older or newer server day as a dot', async () => {
+  const days = ['2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05']
+  for (const { changedAt, older, newer } of [
+    // Changed on the first day shown: the older count holds that day alone.
+    { changedAt: '2026-10-31T18:31:33.000Z', older: [['0', '0.4']], newer: [] },
+    // Changed on the day before the last: the newer count holds the last day alone.
+    { changedAt: '2026-11-04T18:31:33.000Z', older: [], newer: [['5', '1']] },
+  ]) {
+    const restoreFetch = mockFetch((url) => {
+      const path = url.split('?')[0]!
+      if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+      if (path.endsWith('/projects/test-project/traffic/events')) {
+        return jsonResponse({
+          events: [], eventRows: { total: 0, returned: 0, truncated: false },
+          totals: { crawlerHits: 60, crawlerContentHits: 60, aiUserFetchHits: 6, aiReferralHits: 60, aiReferralLandedHits: 60 },
+          series: {
+            granularity: 'day', coverageStart: '2026-08-16T18:00:00.000Z', aiReferralCountingChangedAt: changedAt,
+            trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+            points: days.map(bucket => ({
+              bucket, crawlerHits: 10, crawlerContentHits: 10, aiUserFetchHits: 1, aiReferralHits: 10, aiReferralLandedHits: 10, measured: true,
+            })),
+          },
+        })
+      }
+      return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+    })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+      </QueryClientProvider>,
+    )
+    const serverPanel = await screen.findByRole('group', { name: 'Visits, server' })
+    const dots = (dataKey: string) => [...within(serverPanel).getByTestId(`dots-${dataKey}`).querySelectorAll('circle')]
+      .map(circle => [circle.getAttribute('cx'), circle.getAttribute('fill-opacity')])
+    expect(dots('serverOlder'), changedAt).toEqual(older)
+    expect(dots('aiReferralLandedHits'), changedAt).toEqual(newer)
     cleanup()
     restoreFetch()
   }
@@ -1245,10 +1299,10 @@ test('Both stacks one panel per count, each on its own scale, hovering together'
   const gaPanel = await screen.findByRole('group', { name: 'Visits, GA4' })
   const serverPanel = screen.getByRole('group', { name: 'Visits, server' })
   // Each panel draws only its own count, so each axis scales to that count.
-  expect(within(serverPanel).getByTestId('line-aiReferralLandedHits')).toBeTruthy()
+  expect(within(serverPanel).getByTestId('dots-aiReferralLandedHits')).toBeTruthy()
   expect(within(serverPanel).queryByTestId('dots-ga4Visits')).toBeNull()
   expect(within(gaPanel).getByTestId('dots-ga4Visits')).toBeTruthy()
-  expect(within(gaPanel).queryByTestId('line-aiReferralLandedHits')).toBeNull()
+  expect(within(gaPanel).queryByTestId('dots-aiReferralLandedHits')).toBeNull()
   // Server above GA4, hovering together.
   expect(serverPanel.compareDocumentPosition(gaPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   for (const panel of [serverPanel, gaPanel]) {
@@ -1274,9 +1328,11 @@ test('monthly history keeps the older server count apart from the newer one', as
   onTestFinished(() => vi.useRealTimers())
   renderMonthlyHistory({
     server: () => jsonResponse({ series: {
-      partialBuckets: ['2026-11'],
+      // Recording began inside August, and November is still running.
+      partialBuckets: ['2026-08', '2026-11'],
       aiReferralCountingChangedAt: '2026-09-25T01:00:00.000Z',
       points: [
+        { bucket: '2026-08', aiReferralLandedHits: 1900, measured: true },
         { bucket: '2026-09', aiReferralLandedHits: 3800, measured: true },
         { bucket: '2026-10', aiReferralLandedHits: 420, measured: true },
         { bucket: '2026-11', aiReferralLandedHits: 150, measured: true },
@@ -1287,14 +1343,16 @@ test('monthly history keeps the older server count apart from the newer one', as
   await screen.findByText('AI crawlers')
   fireEvent.click(screen.getByRole('button', { name: 'Months' }))
   const serverPanel = await screen.findByRole('group', { name: 'Visits, server' })
+  const circles = (dataKey: string) => [...within(serverPanel).getByTestId(`dots-${dataKey}`).querySelectorAll('circle')]
   // September, counted the older way: a point of its own, faded.
-  const older = within(serverPanel).getByTestId('dots-serverOlder').querySelectorAll('circle')
-  expect([...older].map(c => c.getAttribute('fill-opacity'))).toEqual(['0.4'])
+  expect(circles('serverOlder').map(c => c.getAttribute('fill-opacity'))).toEqual(['0.4'])
   // October, counted the newer way: the solid series.
-  const newer = within(serverPanel).getByTestId('dots-aiReferralLandedHits').querySelectorAll('circle')
-  expect([...newer].map(c => c.getAttribute('fill-opacity'))).toEqual(['1'])
-  // November is still running: hollow, off both lines.
-  expect(within(serverPanel).getByTestId('dots-serverPartial').querySelectorAll('circle[fill="none"]')).toHaveLength(1)
+  expect(circles('aiReferralLandedHits').map(c => c.getAttribute('fill-opacity'))).toEqual(['1'])
+  // Part months stay hollow, off both lines: August, counted the older way,
+  // faded with it; November, still running, at full strength.
+  const hollow = (dataKey: string) => circles(dataKey).map(c => [c.getAttribute('fill'), c.getAttribute('stroke-opacity')])
+  expect(hollow('serverOlderPartial')).toEqual([['none', '0.4']])
+  expect(hollow('serverPartial')).toEqual([['none', '1']])
 })
 
 /**

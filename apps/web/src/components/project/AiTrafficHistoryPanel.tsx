@@ -40,7 +40,7 @@ import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
 // threshold made the same magnitude read "5,000" in one tile and "5.0K" in the
 // next. ActivitySection and TrafficPage still carry their own `formatCompact`
 // with identical behaviour; folding those into this import is a separate change.
-import { formatNumber, formatPercent, RatioUnits } from '@canonry/canonry-contracts'
+import { formatAxisNumber, formatNumber, formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameGaAiReferralDailyOptions, getApiV1ProjectsByNameGaStatusOptions } from '@canonry/canonry-api-client/react-query'
 import { useQuery } from '@tanstack/react-query'
 import { heyClient } from '../../api.js'
@@ -149,6 +149,7 @@ const GA4_VISITS_NAME = 'Visits, GA4'
 const OLDER_SERVER_VISITS_NAME = `${SERVER_VISITS_NAME} (older count)`
 /** Hover labels for a month only partly recorded: drawn hollow, off the line. */
 const PART_MONTH_SERVER_NAME = `${SERVER_VISITS_NAME} (part month)`
+const OLDER_PART_MONTH_SERVER_NAME = `${SERVER_VISITS_NAME} (part month, older count)`
 const PART_MONTH_GA4_NAME = 'Visits, GA4 (part month)'
 
 /** Coerce a wire number that an older API may not send at all. */
@@ -244,7 +245,7 @@ function isolatedPointDot(values: readonly (number | null)[], fill: string, holl
     if (values[i] == null || (!hollow && !alone) || cx === undefined || cy === undefined) return <g key={key} />
     // Hollow: a part-period reading, drawn apart from the full ones it would otherwise dent.
     return hollow
-      ? <circle key={key} cx={cx} cy={cy} r={3.2} fill="none" stroke={fill} strokeWidth={1.6} />
+      ? <circle key={key} cx={cx} cy={cy} r={3.2} fill="none" stroke={fill} strokeOpacity={opacity} strokeWidth={1.6} />
       : <circle key={key} cx={cx} cy={cy} r={2.6} fill={fill} fillOpacity={opacity} stroke="none" />
   }
 }
@@ -281,7 +282,7 @@ function VisitsPanel({ source, rows, monthly, height, showXAxis, showTrend, unme
   const server = source === 'server'
   const color = server ? VISIT_COLOR : GA4_COLOR
   const valuesOf = (key: string) => rows.map((row) => (row[key] as number | null | undefined) ?? null)
-  const olderDrawn = server && older !== null && rows.some((row) => row.serverOlder != null)
+  const olderDrawn = server && older !== null && rows.some((row) => row.serverOlder != null || row.serverOlderPartial != null)
   return (
     <div role="group" aria-label={server ? SERVER_VISITS_NAME : GA4_VISITS_NAME}>
       <div className="mb-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-label-12 text-secondary">
@@ -302,7 +303,7 @@ function VisitsPanel({ source, rows, monthly, height, showXAxis, showTrend, unme
           {/* Three ticks on a short stacked panel: Recharts otherwise drops the
               labels that collide and leaves an uneven 0, 45, 90, 180. */}
           <YAxis tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} width={Y_AXIS_WIDTH} allowDecimals={false}
-                 tickFormatter={formatNumber} tickCount={height < 150 ? 3 : 5} />
+                 tickFormatter={formatAxisNumber} tickCount={height < 150 ? 3 : 5} />
           <RechartsTooltip contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
                            labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
                            itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
@@ -324,22 +325,30 @@ function VisitsPanel({ source, rows, monthly, height, showXAxis, showTrend, unme
           {older && (
             <ReferenceLine x={older.to} stroke={COUNT_CHANGE_COLOR} strokeDasharray="4 4" strokeWidth={1.5} />
           )}
+          {/* Lone readings draw as dots in Days too: either side of a count
+              change can hold a single day, with no neighbour to join. */}
           {server && (
             <Line type="monotone" dataKey="aiReferralLandedHits" name={SERVER_VISITS_NAME}
                   stroke={color} strokeWidth={2} connectNulls={false}
-                  dot={monthly ? isolatedPointDot(valuesOf('aiReferralLandedHits'), color) : false} />
+                  dot={isolatedPointDot(valuesOf('aiReferralLandedHits'), color)} />
           )}
           {/* Its own series, never joined to the newer count: a line across the
               change of rule would draw the change as a change in visits. */}
           {olderDrawn && (
             <Line type="monotone" dataKey="serverOlder" name={OLDER_SERVER_VISITS_NAME}
                   stroke={color} strokeOpacity={OLDER_COUNT_OPACITY} strokeWidth={2} connectNulls={false}
-                  dot={monthly ? isolatedPointDot(valuesOf('serverOlder'), color, false, OLDER_COUNT_OPACITY) : false} />
+                  dot={isolatedPointDot(valuesOf('serverOlder'), color, false, OLDER_COUNT_OPACITY)} />
           )}
           {server && monthly && (
             <Line type="monotone" dataKey="serverPartial" name={PART_MONTH_SERVER_NAME} legendType="none" connectNulls={false}
                   stroke={color} strokeWidth={0} activeDot={false}
                   dot={isolatedPointDot(valuesOf('serverPartial'), color, true)} />
+          )}
+          {/* A part month counted the older way: hollow like any part month, faded like the older count. */}
+          {olderDrawn && monthly && (
+            <Line type="monotone" dataKey="serverOlderPartial" name={OLDER_PART_MONTH_SERVER_NAME} legendType="none" connectNulls={false}
+                  stroke={color} strokeWidth={0} activeDot={false}
+                  dot={isolatedPointDot(valuesOf('serverOlderPartial'), color, true, OLDER_COUNT_OPACITY)} />
           )}
           {server && showTrend && (
             <Line type="linear" dataKey="visitTrend" legendType="none" name="Visits trend" dot={false} tooltipType="none"
@@ -547,17 +556,25 @@ export function AiTrafficHistoryPanel({
     [monthly, monthPoints, monthSeries, olderCount],
   )
   const olderCountShown = visitOlder !== null && visitSource !== 'ga4'
-  // Server visits counted by the older rule move to their own series.
+  // Server visits counted by the older rule move to their own series, part
+  // months included.
   const visitRows: VisitRow[] = useMemo(() => (monthly ? monthRows : chartRows).map((row) => {
     const visits = (row.aiReferralLandedHits as number | null | undefined) ?? null
-    const older = visitOlder !== null && visits !== null && row.bucket <= visitOlder.to
-    return { ...row, aiReferralLandedHits: older ? null : visits, serverOlder: older ? visits : null }
+    const partial = 'serverPartial' in row ? row.serverPartial : null
+    const older = visitOlder !== null && row.bucket <= visitOlder.to
+    return {
+      ...row,
+      aiReferralLandedHits: older ? null : visits,
+      serverOlder: older ? visits : null,
+      serverPartial: older ? null : partial,
+      serverOlderPartial: older ? partial : null,
+    }
   }), [monthly, monthRows, chartRows, visitOlder])
 
   // Both draws one panel per count that has a reading, each on its own scale.
   // A single source keeps its one panel even when empty.
   const panelHasReadings = (source: VisitPanelSource) => visitRows.some((row) => (source === 'server'
-    ? row.aiReferralLandedHits != null || row.serverOlder != null || row.serverPartial != null
+    ? row.aiReferralLandedHits != null || row.serverOlder != null || row.serverPartial != null || row.serverOlderPartial != null
     : row.ga4Visits != null || row.ga4Partial != null))
   const bothPanels = (['server', 'ga4'] as const).filter(panelHasReadings)
   const visitPanels: readonly VisitPanelSource[] = visitSource !== 'both'
@@ -741,7 +758,7 @@ export function AiTrafficHistoryPanel({
           <XAxis dataKey="bucket" tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE}
                  tickFormatter={formatChartDateTick} minTickGap={28} />
           <YAxis tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} width={Y_AXIS_WIDTH} allowDecimals={false}
-                 tickFormatter={formatNumber} />
+                 tickFormatter={formatAxisNumber} />
           <RechartsTooltip contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
                            labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
                            itemStyle={CHART_TOOLTIP_STYLE.itemStyle}

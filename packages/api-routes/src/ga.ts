@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq, desc, and, sql } from 'drizzle-orm'
+import { eq, desc, and, inArray, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaWindowMetrics, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, gaSyncCoverage, runs } from '@canonry/canonry-db'
@@ -2052,16 +2052,23 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .from(gaAiReferrals).where(eq(gaAiReferrals.projectId, project.id)).get()?.date ?? null
     // Site totals reach back further than the AI sync ever fetched, so they
     // cannot say which days hold AI readings. The AI sync reached its first
-    // coverage receipt; before receipts were kept, the first landing-page
-    // traffic day, which the same sync fetched in the same pass; and at the
-    // least its own first stored row.
-    const firstAiReceipt = app.db.select({ date: sql<string | null>`MIN(${gaSyncCoverage.date})` })
+    // `ai` coverage receipt, and at the least its own first stored row. Before
+    // receipts were kept, one sync pass fetched landing-page traffic and AI for
+    // the same days, so a traffic day older than every `traffic` receipt counts
+    // too. A newer one does not: `ga sync --only` refreshes traffic without AI.
+    const firstReceipts = new Map(app.db
+      .select({ component: gaSyncCoverage.component, date: sql<string>`MIN(${gaSyncCoverage.date})` })
       .from(gaSyncCoverage)
-      .where(and(eq(gaSyncCoverage.projectId, project.id), eq(gaSyncCoverage.component, 'ai')))
-      .get()?.date ?? null
+      .where(and(eq(gaSyncCoverage.projectId, project.id), inArray(gaSyncCoverage.component, ['ai', 'traffic'])))
+      .groupBy(gaSyncCoverage.component)
+      .all().map(row => [row.component, row.date] as const))
+    const firstTrafficReceipt = firstReceipts.get('traffic') ?? null
     const firstTrafficDate = app.db.select({ date: sql<string | null>`MIN(${gaTrafficSnapshots.date})` })
       .from(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, project.id)).get()?.date ?? null
-    const aiCoverageStart = [firstAiReceipt, firstTrafficDate, firstAiDate]
+    const trafficBeforeReceipts = firstTrafficDate !== null && (firstTrafficReceipt === null || firstTrafficDate < firstTrafficReceipt)
+      ? firstTrafficDate
+      : null
+    const aiCoverageStart = [firstReceipts.get('ai') ?? null, trafficBeforeReceipts, firstAiDate]
       .filter((date): date is string => date !== null).sort()[0] ?? null
     const now = new Date()
     return {

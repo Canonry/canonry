@@ -2963,10 +2963,15 @@ describe('GA4 routes', () => {
       ])
 
       // A receipt proves the AI sync fetched all of March, so March is whole.
+      // The same sync pass keeps a traffic receipt for the same days.
       db.insert(runs).values({ id: runId, projectId, kind: RunKinds['ga-sync'], status: RunStatuses.completed, trigger: RunTriggers.manual, createdAt: now }).run()
-      for (const date of calendarDateRange('2026-03-01', '2026-03-31')) {
-        db.insert(gaSyncCoverage).values({ projectId, component: 'ai', syncRunId: runId, date, propertyId: '999888', definition: 'v1', settled: true, syncedAt: now }).run()
+      const receipt = (component: string, from: string, to: string) => {
+        for (const date of calendarDateRange(from, to)) {
+          db.insert(gaSyncCoverage).values({ projectId, component, syncRunId: runId, date, propertyId: '999888', definition: 'v1', settled: true, syncedAt: now }).run()
+        }
       }
+      receipt('ai', '2026-03-01', '2026-03-31')
+      receipt('traffic', '2026-03-01', '2026-03-31')
       expect(await months()).toEqual([
         ['2026-01', null, false],
         ['2026-02', null, false],
@@ -2987,6 +2992,15 @@ describe('GA4 routes', () => {
         ['2026-04', 10, true],
       ])
 
+      // Once receipts are kept, a traffic day proves nothing about AI: a sync
+      // run with `--only social` refreshed February's traffic without AI.
+      receipt('traffic', '2026-02-01', '2026-02-28')
+      expect(await months()).toEqual([
+        ['2026-01', null, false],
+        ['2026-02', null, false],
+        ['2026-03', 5, true],
+        ['2026-04', 10, true],
+      ])
     } finally {
       clear()
       db.delete(runs).where(eq(runs.id, runId)).run()
