@@ -8,11 +8,17 @@ import {
   type AgentJourney, type AgentJourneyContext, type AgentJourneyDetailResponse, type AgentJourneyEvent,
   type AgentJourneysQuery, type AgentJourneysResponse, type MeasurementTargetUrlMatcher, type StoredAgentTrust, type TrafficSourceType,
 } from '@canonry/canonry-contracts'
+import { DEFAULT_AI_CRAWLER_RULES } from '@canonry/canonry-integration-traffic'
 import { requireAdminSession } from './auth.js'
 import { resolveProject } from './helpers.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 
 const DAY_MS = 86_400_000
+// A hosted browser loads a page the way a person's browser does, so capture
+// keeps only the requests `keepsBrowserAgentJourneyRequest` keeps.
+const BROWSER_AGENT_NAMES = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' })
+  .format(DEFAULT_AI_CRAWLER_RULES.filter(rule => rule.browser).map(rule => rule.product))
+const BROWSER_AGENT_LIMITATION = `Browser agent journeys (${BROWSER_AGENT_NAMES}) keep page loads, form posts and failed requests (HTTP 400-599). They leave out the files and data or API calls their pages made, ?_rsc= prefetches and client-side navigations, beacons, and HEAD and OPTIONS requests.`
 const SOURCE_LIMITS: Record<TrafficSourceType, string[]> = {
   [TrafficSourceTypes['cloud-run']]: ['Only requests reaching the configured Cloud Run service are recorded. CDN hits and upstream blocks may be absent.'],
   [TrafficSourceTypes.wordpress]: ['Only requests reaching the WordPress logger are recorded. CDN/cache hits and upstream blocks may be absent.'],
@@ -156,6 +162,7 @@ function readSequences(db: DatabaseClient, name: string, query: AgentJourneysQue
         'Operator verification does not identify a user, task, or model. Unknown browser agents are not detected.',
         'Trust levels other than verified are heuristics over the IP check, the user agent and the path. Likely fake requests (paths that look for credential or admin files, or a user agent unlike the operator\'s published string) are counted, not listed. An IP missing from the published list alone leaves a request unknown: lists lag real addresses.',
         'Only retained requests inside this window are shown. Query strings, bodies and sensitive path segments are omitted. Static assets are excluded.',
+        BROWSER_AGENT_LIMITATION,
         'HTTP responses do not establish clicks, intent, or business outcomes. External browsing and browser-only interactions are not observed.',
         'Requests with identical timestamps have a stable display order, not a proven causal order.',
         ...(active ? ['Property attribution uses the current plan and retained URL paths; it is not historical market or query attribution. Property and trust filters retain only matching requests.'] : []),

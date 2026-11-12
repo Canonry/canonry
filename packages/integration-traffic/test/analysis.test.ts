@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import anthropicRaw from '../src/ip-ranges/anthropic.json' with { type: 'json' }
 import chatgptConnectorsRaw from '../src/ip-ranges/chatgpt-connectors.json' with { type: 'json' }
 import chatgptUserRaw from '../src/ip-ranges/chatgpt-user.json' with { type: 'json' }
+import claudeAgentRaw from '../src/ip-ranges/claude-agent.json' with { type: 'json' }
 import googleUserAgentsRaw from '../src/ip-ranges/google-user-triggered-agents.json' with { type: 'json' }
 import googlebotRaw from '../src/ip-ranges/googlebot.json' with { type: 'json' }
 import {
@@ -20,12 +21,16 @@ import {
   findAiReferralFollowOns,
   normalizeTrafficPathPattern,
 } from '../src/index.js'
+import { ruleTokenCases } from './fixtures/rule-tokens.js'
 import { firstPublishedIp, vendoredManifest } from './fixtures/vendored-ranges.js'
 
 // Addresses and manifest identities come from the vendored snapshots, so the
 // weekly range refresh cannot break these tests (see fixtures/vendored-ranges.ts).
 const ANTHROPIC_MANIFEST = vendoredManifest(anthropicRaw)
 const ANTHROPIC_IP = firstPublishedIp(anthropicRaw, 4)
+// Anthropic's published example user agent for its hosted browsers:
+// https://support.claude.com/en/articles/18234133-how-do-anthropic-hosted-browsers-identify-themselves-when-they-browse-the-web-on-a-user-s-behalf
+const CLAUDE_AGENT_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-Agent/1.0) Chrome/154.0.0.0 Safari/537.36'
 // Browsers seen arriving from ChatGPT answers.
 const IPHONE_SAFARI = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1'
 const WINDOWS_EDGE = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0'
@@ -198,20 +203,15 @@ describe('traffic analysis', () => {
     // (toBeTruthy on a `ClassifiedCrawler | null`) plus the expected
     // operator. botId is asserted where the spelling is stable.
 
-    // Anthropic Claude-SearchBot (new variant — older rule only caught
-    // ClaudeBot/ and Claude-Web/).
+    // Anthropic Claude-SearchBot indexes for Claude's web search: a search
+    // crawler, not ClaudeBot training.
     expect(classifyCrawler(event({
       userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; +searchbot@anthropic.com)',
     }))).toMatchObject({
-      botId: 'anthropic-claudebot',
+      botId: 'claude-searchbot',
       operator: 'Anthropic',
-    })
-
-    // Permissive variant — any future Claude-*Bot Anthropic introduces.
-    expect(classifyCrawler(event({
-      userAgent: 'Mozilla/5.0 (compatible; Claude-IndexBot/2.0)',
-    }))).toMatchObject({
-      operator: 'Anthropic',
+      product: 'Claude-SearchBot',
+      purpose: 'search',
     })
 
     // Mistral's general crawler — disjoint from MistralAI-User (per-user
@@ -817,10 +817,21 @@ describe('traffic analysis', () => {
     })
   })
 
+  it('leaves a Claude bot no rule names to the unrecognized agents, not ClaudeBot training', () => {
+    // A bot Anthropic adds later has no rule until one is written. It must
+    // not be counted as ClaudeBot training; stored as an unrecognized agent,
+    // it raises `traffic.agent.discovered` instead.
+    const userAgent = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-IndexBot/1.0; +claude-indexbot@anthropic.com)'
+    const report = buildTrafficProbeReport([event({ userAgent, observedAt: '2026-11-10T09:15:00.000Z', path: '/guide' })])
+
+    expect(report.crawlerEventsHourly).toEqual([])
+    expect(report.unrecognizedAgentEventsHourly).toEqual([
+      { tsHour: '2026-11-10T09:00:00.000Z', agentName: 'claude-indexbot', hits: 1, sampledUserAgent: userAgent, sampledPath: '/guide' },
+    ])
+  })
+
   it('routes Claude-User to ai-user-fetch, not crawler', () => {
-    // Anthropic's on-behalf-of-user fetcher. The `anthropic-claudebot`
-    // crawler rule does not match `Claude-User/` (its `Claude-[A-Z]+Bot/`
-    // pattern needs a `Bot/` suffix), so before the `claude-user` rule
+    // Anthropic's on-behalf-of-user fetcher. Before the `claude-user` rule
     // this UA fell through to the `unknown` bucket entirely.
     const evt = event({ userAgent: 'Mozilla/5.0 (compatible; Claude-User/1.0; +Anthropic)' })
     expect(classifyCrawler(evt)).toBeNull()
@@ -840,6 +851,47 @@ describe('traffic analysis', () => {
       botId: 'claude-user',
       verificationStatus: 'verified',
       verificationManifest: ANTHROPIC_MANIFEST,
+    })
+  })
+
+  it('routes Claude-Agent to ai-user-fetch, not crawler', () => {
+    // Anthropic-hosted browsers acting for a person send a real Chrome UA
+    // with a `compatible; Claude-Agent/1.0` token. Before its rule no rule
+    // matched it: traffic stored it as the unrecognized agent `claude-agent`
+    // and journeys read it as a person's browser.
+    const evt = event({ userAgent: CLAUDE_AGENT_UA })
+    expect(classifyCrawler(evt)).toBeNull()
+    expect(classifyAiUserFetch(evt)).toMatchObject({
+      botId: 'claude-agent',
+      operator: 'Anthropic',
+      product: 'Claude-Agent',
+      verificationStatus: 'claimed_unverified',
+    })
+    // Anthropic says to match the token, which may come without a version.
+    expect(classifyAiUserFetch(event({
+      userAgent: CLAUDE_AGENT_UA.replace('Claude-Agent/1.0', 'Claude-Agent'),
+    }))).toMatchObject({ botId: 'claude-agent' })
+  })
+
+  it('does not count third-party tools named after Claude as Claude-Agent', () => {
+    for (const userAgent of [
+      'claude-agent/0.3.1 (+https://github.com/someone/claude-agent)',
+      'Mozilla/5.0 (compatible; my-claude-agent/1.0)',
+      'claude-agent-sdk/0.1.30 (sdk-ts)',
+      'python-httpx/0.27 claude-agent-sdk-python/0.0.20',
+    ]) {
+      expect(classifyAiUserFetch(event({ userAgent })), userAgent).toBeNull()
+    }
+  })
+
+  it('promotes Claude-Agent using Anthropic\'s Claude-Agent egress list', () => {
+    expect(classifyAiUserFetch(event({
+      userAgent: CLAUDE_AGENT_UA,
+      remoteIp: firstPublishedIp(claudeAgentRaw, 4),
+    }))).toMatchObject({
+      botId: 'claude-agent',
+      verificationStatus: 'verified',
+      verificationManifest: vendoredManifest(claudeAgentRaw),
     })
   })
 
@@ -970,5 +1022,23 @@ describe('traffic analysis', () => {
     }))
     const report = buildTrafficProbeReport(events, { sampleLimit: 2 })
     expect(report.samples.map((s) => s.eventId)).toEqual(['e-3', 'e-4'])
+  })
+})
+
+describe('classifier rule order', () => {
+  // Both classifiers return the first rule that matches, so a rule listed
+  // below a broader pattern that also matches its token is never reached.
+  // Each token must also stay in its own channel: a user agent that matched
+  // a crawler rule and a user-fetch rule would be counted in both. A user
+  // fetch's user agent is one its trust rules accept, never a likely fake.
+  it.each(ruleTokenCases())('classifies $token as $ruleId, in its own channel only', (entry) => {
+    if ('problem' in entry) throw new Error(entry.problem)
+    const evt = event({ userAgent: entry.classifierUserAgent })
+    const userFetch = classifyAiUserFetch(evt)
+    expect({
+      crawler: classifyCrawler(evt)?.botId ?? null,
+      userFetch: userFetch?.botId ?? null,
+    }).toEqual(entry.purpose === 'user-agent' ? { crawler: null, userFetch: entry.ruleId } : { crawler: entry.ruleId, userFetch: null })
+    expect(userFetch?.trust).not.toBe('likely_fake')
   })
 })

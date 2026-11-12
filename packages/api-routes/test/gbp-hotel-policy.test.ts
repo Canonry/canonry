@@ -25,6 +25,7 @@ describe('hotel editorial-only guard', () => {
     'Get a promo code',
     'd&#105;scount',
     '<a href="/offers/">Read more</a>',
+    'Polyurea offers greater discounts this week.',
   ])('refuses promotional copy or links: %s', (text) => {
     expect(hotelEditorialText(text)).toBe(false)
   })
@@ -33,6 +34,9 @@ describe('hotel editorial-only guard', () => {
     'Does the contractor offer roof inspections?',
     'What the manufacturer offers on the product.',
     'The company offers free roof inspections.',
+    // A contractor homepage FAQ answer, refused as a promotion until 2026-11-11.
+    'Yes. A polyurea coating offers greater durability and faster curing.',
+    'Polyurea offers superior tensile strength.',
   ])('reads offer and deal as ordinary verbs: %s', (text) => {
     expect(hotelEditorialText(text)).toBe(true)
   })

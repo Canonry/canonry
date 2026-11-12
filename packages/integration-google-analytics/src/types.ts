@@ -39,7 +39,8 @@ export interface GA4RunReportRequest {
   metricAggregations?: Array<'TOTAL' | 'MAXIMUM' | 'MINIMUM' | 'COUNT'>
   orderBys?: Array<{
     metric?: { metricName: string }
-    dimension?: { dimensionName: string }
+    /** `ALPHANUMERIC` sorts by Unicode code point, so distinct values never tie. */
+    dimension?: { dimensionName: string; orderType?: 'ALPHANUMERIC' | 'CASE_INSENSITIVE_ALPHANUMERIC' | 'NUMERIC' }
     desc?: boolean
   }>
   limit?: number

@@ -79,6 +79,7 @@ How the runner uses it:
 
 - `_migrations` records each successfully applied `version`. On boot the runner reads `MAX(version)` and skips anything already recorded — migrations do not replay.
 - Each version's statements + the `_migrations` row commit in a single SQLite transaction. A non-recoverable failure rolls the whole version back so the next boot retries cleanly. **Make every statement idempotent** (`IF NOT EXISTS`, `IF EXISTS`, `UPDATE … WHERE` guards, or `ALTER TABLE ADD COLUMN` whose duplicate-column error the runner swallows) so a retry is safe.
+- That transaction holds every page it rewrites in the WAL, and `migrate()` runs before the server listens. After applying any version the runner truncates the WAL (`PRAGMA wal_checkpoint(TRUNCATE)`), so a large data migration does not keep the `-wal` file at its peak for the life of the server. A data migration over a large hourly table should still scan it once (v221 collects the rows to move into a temp table) and let foreign-key cascades delete child rows.
 - Never edit a previously-shipped version's `statements[]`. Old DBs already have it recorded as applied and won't run it again — write a new version that fixes things up forward.
 - Mirror the table in `schema.ts` for grep-ability (the runner doesn't query Drizzle, but other code paths might).
 - A new table's entry creates the table plus every index from its schema definition; a new column uses `ALTER TABLE ... ADD COLUMN`.
@@ -158,6 +159,21 @@ arrival when it lands in a later or older batch. Writes merge a batch's
 arrivals into the stored list inside the write transaction. Rows cascade with
 the source/project and are dropped 44 days after the newest arrival: the
 30-day lookback plus a Queue's longest retention.
+
+Migration 222 adds nullable `traffic_sources.ai_user_fetch_older_count_until`:
+the exclusive end of the last hour whose hosted browser agent (Google-Agent,
+Claude-Agent) AI user fetches the source counted under older rules; from it on,
+those agents count their page loads only. Its run hook sets it, in one pass over
+`ai_user_fetch_events_hourly` and `ai_user_fetch_likely_fake_hourly`, to the
+earlier of the upgrade time and the end of the source's last such agent's hour;
+NULL elsewhere and on a fresh install, and a value already set stays. It reads
+no unrecognized-agent rows. The stored traffic pass marks a source when it moves
+a browser agent's older hours into the AI user fetch counts (Claude-Agent's
+unrecognized hours), and marks every source holding browser-agent hours when
+the browser-agent request rules differ from those its last completed run
+recorded, or none were recorded; it only moves a mark later.
+A replace-mode backfill moves the mark back to the end of the last browser-agent
+hour before its window, never later, or clears it when none remains.
 
 Traffic delivery adapters use `traffic_event_receipts` for durable idempotency.
 Claim `(source_id, event_id)` in the same transaction as rollup writes and

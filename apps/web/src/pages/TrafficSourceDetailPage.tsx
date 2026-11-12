@@ -8,7 +8,7 @@ import {
   type TrafficSeriesPoint,
 } from '@canonry/canonry-contracts'
 
-import { isEmbed } from '../api.js'
+import { isEmbed, type ApiTrafficSyncResult } from '../api.js'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
@@ -120,6 +120,25 @@ const SERIES_ORDER: readonly SeriesKind[] = ['crawler', 'ai-user-fetch', 'ai-ref
 export function trafficFetchKind(visibleSeries: ReadonlySet<SeriesKind>): string {
   const kinds = SERIES_ORDER.filter((kind) => visibleSeries.has(kind))
   return kinds.length === 0 || kinds.length === SERIES_ORDER.length ? 'all' : kinds.join(',')
+}
+
+export const BROWSER_AGENT_NON_PAGE_LABEL = 'browser agent non-page'
+
+/**
+ * The Sync now summary, from the sync response's counts. Like the CLI, it
+ * names a browser agent's requests other than page loads when there are any:
+ * no bucket holds them, so the response is the only place they show.
+ */
+export function trafficSyncSummary(result: ApiTrafficSyncResult): string {
+  return [
+    `Pulled ${result.pulledEvents} entries`,
+    `${result.crawlerHits} crawler`,
+    `${result.aiUserFetchHits} AI user fetch`,
+    `${result.aiUserFetchLikelyFakeHits} likely fake agent`,
+    ...(result.aiUserFetchBrowserNonPageHits ? [`${result.aiUserFetchBrowserNonPageHits} ${BROWSER_AGENT_NON_PAGE_LABEL}`] : []),
+    `${result.aiReferralHits} AI referral`,
+    `${result.unknownHits} unknown`,
+  ].join(' · ')
 }
 
 /**
@@ -372,9 +391,7 @@ export function TrafficSourceDetailPage() {
     setSyncResult(null)
     try {
       const result = await sync.mutateAsync({ sinceMinutes: 60 })
-      setSyncResult(
-        `Pulled ${result.pulledEvents} entries · ${result.crawlerHits} crawler · ${result.aiUserFetchHits} AI user fetch · ${result.aiUserFetchLikelyFakeHits} likely fake agent · ${result.aiReferralHits} AI referral · ${result.unknownHits} unknown`,
-      )
+      setSyncResult(trafficSyncSummary(result))
     } catch (e) {
       setSyncError(extractErrorMessage(e))
     }

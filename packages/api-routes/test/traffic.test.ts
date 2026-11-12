@@ -25,7 +25,9 @@ import {
   journeyVisits,
 } from '@canonry/canonry-db'
 import {
+  AgentTrustReasons,
   trafficEventsResponseSchema,
+  trafficSyncResponseSchema,
   TrafficEventKinds,
   TrafficSourceTypes,
   TrafficSourceStatuses,
@@ -51,6 +53,7 @@ import { apiRoutes } from '../src/index.js'
 import type { OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 import { tryClaimTrafficSyncLease } from '../src/traffic-sync-lease.js'
 import { connectionOutcomes } from './outcome-capture.js'
+import { logCapture } from './log-capture.js'
 import chatgptUserRanges from '../../integration-traffic/src/ip-ranges/chatgpt-user.json' with { type: 'json' }
 import gptbotRanges from '../../integration-traffic/src/ip-ranges/gptbot.json' with { type: 'json' }
 import { firstPublishedIp, vendoredManifest } from '../../integration-traffic/test/fixtures/vendored-ranges.js'
@@ -188,6 +191,8 @@ async function buildHarness(
     trafficBackfillLeaseRenewMs?: number
     /** Enables AI visitor journeys. */
     journeyKeySecret?: string
+    /** Fastify logger option, to read what a route logged (`logCapture`). */
+    logger?: ReturnType<typeof logCapture>['logger']
   } = {},
 ) {
   const trafficSyncedEvents: Array<unknown> = []
@@ -251,7 +256,7 @@ async function buildHarness(
   let pullInvocations = 0
   const observedWindows: Array<{ startTime: string; endTime: string }> = []
   const observedFirstSync: Array<boolean | undefined> = []
-  const app = Fastify()
+  const app = Fastify(options.logger ? { logger: options.logger } : {})
   app.register(apiRoutes, {
     db,
     skipAuth: true,
@@ -434,6 +439,9 @@ const GPTBOT_MANIFEST = vendoredManifest(gptbotRanges)
 const USER_FETCH_MANIFEST = vendoredManifest(chatgptUserRanges)
 const GPTBOT_IP = firstPublishedIp(gptbotRanges, 4)
 const CHATGPT_USER_IP = firstPublishedIp(chatgptUserRanges, 4)
+// Hosted browsers acting for a person, by their operators' published user agents.
+const CLAUDE_AGENT_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-Agent/1.0) Chrome/154.0.0.0 Safari/537.36'
+const GOOGLE_AGENT_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Google-Agent; +https://developers.google.com/crawling/docs/crawlers-fetchers/google-agent) Chrome/W.X.Y.Z Safari/537.36'
 
 async function seedForeignSource(h: Awaited<ReturnType<typeof buildHarness>>) {
   const created = await h.app.inject({
@@ -2402,6 +2410,47 @@ describe('POST /traffic/sources/:id/sync', () => {
     }
   })
 
+  it('counts a browser agent\'s page loads as AI user fetches and reports its other requests apart', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const at = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+    const events = [
+      buildEvent({ userAgent: CLAUDE_AGENT_UA, path: '/pricing', observedAt: at(1) }),
+      buildEvent({ userAgent: CLAUDE_AGENT_UA, path: '/_next/static/chunks/main-4f1c.js', observedAt: at(1) }),
+      buildEvent({ userAgent: CLAUDE_AGENT_UA, path: '/about', queryString: '_rsc=1ld0r', observedAt: at(1) }),
+      buildEvent({ userAgent: CLAUDE_AGENT_UA, method: 'POST', path: '/_vercel/insights/view', observedAt: at(2) }),
+    ]
+    const logs = logCapture()
+    const h = await buildHarness(events, { logger: logs.logger })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'browser-agent', keyJson: SA_KEY },
+      })
+      expect(connectRes.statusCode).toBe(200)
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+      expect(syncRes.statusCode).toBe(200)
+      const synced = trafficSyncResponseSchema.parse(JSON.parse(syncRes.payload))
+      expect(synced).toMatchObject({
+        pulledEvents: 4, aiUserFetchHits: 1, aiUserFetchBrowserNonPageHits: 3, aiUserFetchLikelyFakeHits: 0,
+        aiUserFetchBucketRows: 1, unknownHits: 0,
+      })
+      expect(h.db.select({ botId: aiUserFetchEventsHourly.botId, path: aiUserFetchEventsHourly.pathNormalized, hits: aiUserFetchEventsHourly.hits })
+        .from(aiUserFetchEventsHourly).all()).toEqual([{ botId: 'claude-agent', path: '/pricing', hits: 1 }])
+      // A scheduled sync throws its response away, so the log reports them too.
+      expect(logs.withField('aiUserFetchBrowserNonPageHits')).toMatchObject([{ sourceId, runId: synced.runId, aiUserFetchBrowserNonPageHits: 3 }])
+    } finally {
+      await h.close()
+    }
+  })
+
   it('prunes source-local stale samples and does not persist stale pull evidence', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
@@ -4220,6 +4269,110 @@ describe('POST /traffic/sources/:id/backfill', () => {
       const peerBody = trafficEventsResponseSchema.parse(JSON.parse(peer.payload))
       expect(peerBody.totals.aiReferralLandedHits).toBe(17)
       expect(peerBody.series.aiReferralCountingChangedAt).toBe(movedCutoff)
+    } finally {
+      await h.close()
+    }
+  })
+
+  /**
+   * A 14-day backfill on 2026-11-06T12:00Z rewrites the hours from
+   * 2026-10-23T12:00Z on, page loads only. Hours before the window keep the
+   * count they were made under, so the marker moves back to the end of the
+   * source's last browser-agent hour among them (counted or likely fake, in
+   * this project), never forward, and clears when none is left.
+   */
+  type RowBeforeWindow = { kind: 'counted' | 'likely-fake', botId: string, tsHour: string, hits: number, foreignProject?: true }
+  // Vitest cuts a `$name` value at 40 characters, so each stays shorter.
+  it.each<{ name: string, changedAt: string, before: RowBeforeWindow[], expectedUntil: string | null, expectedHits: number }>([
+    {
+      name: 'clears once no older hour remains',
+      changedAt: '2026-11-01T10:00:00.000Z', before: [], expectedUntil: null, expectedHits: 1,
+    },
+    {
+      name: 'moves back to the last older hour',
+      changedAt: '2026-11-01T10:00:00.000Z',
+      before: [
+        { kind: 'counted', botId: 'google-agent', tsHour: '2026-10-20T10:00:00.000Z', hits: 20 },
+        // A link fetcher counted every request all along.
+        { kind: 'counted', botId: 'chatgpt-user', tsHour: '2026-10-22T10:00:00.000Z', hits: 5 },
+      ],
+      expectedUntil: '2026-10-20T11:00:00.000Z', expectedHits: 26,
+    },
+    {
+      name: 'moves back to a likely-fake hour',
+      changedAt: '2026-11-01T10:00:00.000Z',
+      before: [{ kind: 'likely-fake', botId: 'claude-agent', tsHour: '2026-10-21T15:00:00.000Z', hits: 4 }],
+      expectedUntil: '2026-10-21T16:00:00.000Z', expectedHits: 1,
+    },
+    {
+      // A browser-agent hour after the marker was counted page loads only.
+      name: 'stays when it ends earlier',
+      changedAt: '2026-10-18T00:00:00.000Z',
+      before: [{ kind: 'counted', botId: 'google-agent', tsHour: '2026-10-20T10:00:00.000Z', hits: 20 }],
+      expectedUntil: '2026-10-18T00:00:00.000Z', expectedHits: 21,
+    },
+    {
+      name: 'ignores another project\'s hours',
+      changedAt: '2026-11-01T10:00:00.000Z',
+      before: [{ kind: 'counted', botId: 'google-agent', tsHour: '2026-10-20T10:00:00.000Z', hits: 20, foreignProject: true }],
+      expectedUntil: null, expectedHits: 1,
+    },
+  ])('the browser-agent count marker $name after a backfill', async ({ changedAt, before: rowsBeforeWindow, expectedUntil, expectedHits }) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-06T12:00:00.000Z'))
+    // A Google-Agent page load and the script its page loaded, inside the backfill window.
+    const h = await buildHarness([
+      buildEvent({ eventId: 'page', observedAt: '2026-10-24T10:15:00.000Z', userAgent: GOOGLE_AGENT_UA, path: '/pricing' }),
+      buildEvent({ eventId: 'script', observedAt: '2026-10-24T10:15:01.000Z', userAgent: GOOGLE_AGENT_UA, path: '/assets/app.js' }),
+    ])
+    try {
+      const connected = await h.app.inject({
+        method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'browser-agent-backfill', keyJson: SA_KEY },
+      })
+      expect(connected.statusCode, connected.payload).toBe(200)
+      const sourceId = JSON.parse(connected.payload).id as string
+      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      h.db.update(trafficSources).set({ aiUserFetchOlderCountUntil: changedAt }).where(eq(trafficSources.id, sourceId)).run()
+      // Hours stored before page loads alone counted: every request counted.
+      const older = {
+        projectId: source.projectId, sourceId, tsHour: '2026-10-24T10:00:00.000Z', botId: 'google-agent', operator: 'Google',
+        verificationStatus: 'claimed_unverified', pathNormalized: '/assets/app.js', status: 200, hits: 30,
+        sampledUserAgent: GOOGLE_AGENT_UA, createdAt: '2026-10-24T10:20:00.000Z', updatedAt: '2026-10-24T10:20:00.000Z',
+      }
+      h.db.insert(aiUserFetchEventsHourly).values(older).run()
+      const foreignProjectId = 'foreign-browser-agent-project'
+      if (rowsBeforeWindow.some(row => row.foreignProject)) {
+        const project = h.db.select().from(projects).where(eq(projects.id, source.projectId)).get()!
+        h.db.insert(projects).values({ ...project, id: foreignProjectId, name: 'foreign-browser-agent', canonicalDomain: 'foreign-agent.example' }).run()
+      }
+      for (const row of rowsBeforeWindow) {
+        const projectId = row.foreignProject ? foreignProjectId : source.projectId
+        if (row.kind === 'counted') {
+          h.db.insert(aiUserFetchEventsHourly).values({ ...older, projectId, botId: row.botId, tsHour: row.tsHour, pathNormalized: '/pricing', hits: row.hits }).run()
+        } else {
+          h.db.insert(aiUserFetchLikelyFakeHourly).values({
+            projectId, sourceId, tsHour: row.tsHour, botId: row.botId, operator: 'Anthropic',
+            reason: AgentTrustReasons['scanner-burst'], hits: row.hits, createdAt: row.tsHour, updatedAt: row.tsHour,
+          }).run()
+        }
+      }
+      const url = `/api/v1/projects/test-project/traffic/events?sourceId=${sourceId}&since=2026-10-15T00%3A00%3A00.000Z&granularity=day`
+      const before = trafficEventsResponseSchema.parse(JSON.parse((await h.app.inject({ method: 'GET', url })).payload))
+      expect(before.series.aiUserFetchCountingChangedAt).toBe(changedAt)
+
+      const submitted = await h.app.inject({
+        method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`, payload: { days: 14 },
+      })
+      expect(submitted.statusCode, submitted.payload).toBe(200)
+      expect((await waitForRunComplete(h.db, JSON.parse(submitted.payload).runId)).status).toBe(RunStatuses.completed)
+
+      const after = trafficEventsResponseSchema.parse(JSON.parse((await h.app.inject({ method: 'GET', url })).payload))
+      // The rewritten hour counts the page load only; hours before the window keep their count.
+      expect(after.totals.aiUserFetchHits).toBe(expectedHits)
+      expect(after.series.aiUserFetchCountingChangedAt).toBe(expectedUntil)
+      expect(h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!.aiUserFetchOlderCountUntil)
+        .toBe(expectedUntil)
     } finally {
       await h.close()
     }
@@ -6275,6 +6428,63 @@ describe('crawler-hit content/infra segmentation', () => {
         } else {
           expect(body.series.trends.aiReferralLandedHits?.n).toBe(5)
           expect(body.series.trends.aiReferralLandedHits?.slope).toBeLessThan(0)
+        }
+      } finally { await h.close() }
+    }
+  })
+
+  /**
+   * Hours stored before browser agents counted page loads only also counted
+   * every file, data call and beacon their pages made, so a line fitted
+   * across the change slopes down for agents that kept reading as much.
+   *
+   * Fixture: Google-Agent at 120 a day on two older days, the count changing
+   * at 09:30 on the second, then three whole days flat at 6 page loads. The
+   * fit must use only those three days; without the marker it fits a decline.
+   */
+  it('fits the AI user fetch trend only after browser agents counted page loads only', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-07T13:45:00.000Z'))
+    for (const scenario of [
+      { name: 'older count marked', until: '2026-05-03T09:30:00.000Z' },
+      { name: 'no older count', until: null },
+    ]) {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        if (scenario.until) {
+          h.db.update(trafficSources).set({ aiUserFetchOlderCountUntil: scenario.until })
+            .where(eq(trafficSources.id, source.id)).run()
+        }
+        h.db.insert(aiUserFetchEventsHourly).values([
+          { tsHour: '2026-05-02T00:00:00.000Z', hits: 120 },
+          { tsHour: '2026-05-03T00:00:00.000Z', hits: 120 },
+          ...[4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, hits: 6 })),
+        ].map(observation => ({
+          ...observation, projectId: source.projectId, sourceId: source.id, botId: 'google-agent', operator: 'Google',
+          verificationStatus: 'claimed_unverified', pathNormalized: '/pricing', status: 200, sampledUserAgent: GOOGLE_AGENT_UA,
+          createdAt: '2026-05-07T13:45:00.000Z', updatedAt: '2026-05-07T13:45:00.000Z',
+        }))).run()
+        insertSeriesReferralRows(h, source, [2, 3, 4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, hits: 10 })))
+        const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-04-30T13%3A45%3A00.000Z&granularity=day' })
+        expect(res.statusCode, scenario.name).toBe(200)
+        const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+        expect(body.series.aiUserFetchCountingChangedAt, scenario.name).toBe(scenario.until)
+        expect(body.series.points.map(point => point.aiUserFetchHits), 'raw counts are unchanged').toEqual([0, 0, 120, 120, 6, 6, 6, 0])
+        expect(body.totals.aiUserFetchHits, 'totals keep the stored count').toBe(258)
+        // The referral series never changed its count, so it keeps every measured day.
+        expect(body.series.trends.aiReferralLandedHits, scenario.name).toEqual({
+          slope: 0, intercept: 10, r2: 1, start: 10, end: 10, n: 5, startIndex: 2, endIndex: 6,
+        })
+        if (scenario.until) {
+          expect(body.series.trends.aiUserFetchHits, 'three whole days after the change, at their own indices').toEqual({
+            slope: 0, intercept: 6, r2: 1, start: 6, end: 6, n: 3, startIndex: 4, endIndex: 6,
+          })
+        } else {
+          // linearTrend([null, null, 120, 120, 6, 6, 6, null]): mean (4, 51.6),
+          // Sxy -342 over Sxx 10, and 3898.8 of 15595.2 left unexplained.
+          expect(body.series.trends.aiUserFetchHits, 'every measured whole day').toEqual({
+            slope: -34.2, intercept: 188.4, r2: 0.75, start: 120, end: -16.8, n: 5, startIndex: 2, endIndex: 6,
+          })
         }
       } finally { await h.close() }
     }

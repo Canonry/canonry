@@ -182,6 +182,7 @@ export function classifyAiUserFetch(event: NormalizedTrafficRequest): Classified
         verificationStatus: decision.verified ? 'verified' : 'claimed_unverified',
         verificationManifest: decision.manifest,
         matchedUserAgent: userAgent,
+        browser: rule.browser === true,
         ...trust,
       }
     }

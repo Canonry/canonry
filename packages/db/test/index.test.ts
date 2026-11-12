@@ -145,6 +145,17 @@ test('migrate is idempotent', () => {
   migrate(db)
 })
 
+test('migrate truncates the WAL once it has applied a version', () => {
+  // A data migration can leave the -wal file as large as half the database,
+  // and SQLite never shrinks it while the server's connection stays open.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-wal-test-'))
+  onTestFinished(() => cleanup(tmpDir))
+  const dbPath = path.join(tmpDir, 'test.db')
+  const db = createClient(dbPath)
+  migrate(db, [...MIGRATION_VERSIONS])
+  expect(fs.statSync(`${dbPath}-wal`).size).toBe(0)
+})
+
 test('migrate renames legacy keyword schema before bootstrap indexes run', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-legacy-test-'))
   onTestFinished(() => cleanup(tmpDir))

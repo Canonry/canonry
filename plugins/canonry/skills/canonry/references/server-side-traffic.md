@@ -176,8 +176,8 @@ Amzn-User
 This list mirrors Canonry's current classifier: answer-engine user-fetch,
 crawl, search, and training agents for which WordPress has no cache-independent
 measurement surface. `ClaudeBot` covers Anthropic's unhyphenated core crawler;
-`Claude-` is a separate family rule so newly named `Claude-*Bot` variants
-inherit the bypass. Do NOT add traditional search agents
+`Claude-` covers its hyphenated agents (Claude-SearchBot, Claude-User,
+Claude-Agent) and any it names later. Do NOT add traditional search agents
 `Googlebot`, `bingbot`, `DuckDuckBot`, `YandexBot`, or `Baiduspider`: caching
 helps them crawl efficiently, and the important Google/Bing crawl evidence is
 available through their webmaster tools.
@@ -1322,16 +1322,22 @@ Each timeline preserves time, hostname, masked path, method, status, available
 latency, operator verification, trust level with reasons, and current-plan
 Property attribution. IP/UA grouping is inferred and can combine different tasks
 on shared infrastructure; without an IP the requests stay unlinked. Neither
-grouping nor trust identifies a person or establishes their task.
+grouping nor trust identifies a person or establishes their task. Claude-Agent
+and Google-Agent load pages like a browser, so their journeys keep page loads,
+actions such as form posts and failed requests, not the files and data calls
+their pages made; `coverage.limitations` says so.
 
 Every user-triggered agent request gets a trust level when it is classified.
 `verified` means the source IP is in the operator's published list. Otherwise:
 `likely_fake` when the path asks for credential, config, version-control or
-admin files, when the same IP asked for one within 10 minutes (`scanner-burst`:
-a scanner posing as several agents), when an operator that publishes a
-full user-agent string (OpenAI, Mistral) sees a different one; an IP missing
-from the published list alone leaves a request `unknown`, because lists lag
-real addresses and some rotate; `likely_real`
+admin files (for Claude-Agent and Google-Agent, which load pages like a
+browser, the settings files and Azure and Netlify sign-in endpoints a web app's
+pages load by themselves are exempt; key and credential files inside those
+endpoints are not), when the same IP asked for one within 10 minutes
+(`scanner-burst`: a scanner posing as several agents), when an operator that
+publishes a full user-agent string (OpenAI, Mistral) sees a different one; an
+IP missing from the published list alone leaves a request `unknown`, because
+lists lag real addresses and some rotate; `likely_real`
 when nothing could be checked (no IP, or no published list) but the user agent
 matches the published string; `unknown` for the rest. `trustReasons` lists the
 evidence. Likely fake requests are never added to AI user fetch hits or stored
@@ -1343,10 +1349,15 @@ the trust rules change, a server checks stored traffic again once after
 startup (`cnry backfill traffic-classification` runs the same pass on demand):
 hourly agent rows for a scanner path move to the likely fake counts, and stored
 agent requests from a probing client (same IP and user agent) are removed when
-the probe itself was stored. Earlier rules already flagged some probes and
-never stored them, so their clients' other stored requests stay. Hourly rows
-keep no IP, so older hours get the burst rule only through stored agent
-requests.
+the probe itself was stored. Each other removed request that was counted moves
+one hit to the likely fake counts; a browser agent's request was counted only
+if it was a page load, or came before its source's older count ended. Earlier
+rules already flagged some probes and never stored them, so their clients'
+other stored requests stay. Hourly rows keep no IP, so older hours get the
+burst rule only through stored agent requests. The same pass removes the stored
+requests a browser agent's pages made by themselves, unless they failed, since
+capture now leaves them out; stored requests keep no query, so a `?_rsc=`
+prefetch stays until retention drops it.
 
 Preserve the
 response's retention, daily-cap and source limitations; missing requests do
@@ -1439,6 +1450,8 @@ days. People's browsers, generic HTTP tools (curl, python-requests and the
 like), static files and writes are left out, so the list is agents rather than
 scripts. Every source records them; the Cloudflare Worker forwards them from
 version 1.1.0. A name that keeps showing up is a candidate for a classifier rule.
+A Claude bot Anthropic adds later is listed here too until a rule names it,
+rather than counted as ClaudeBot.
 Agents that drive a normal browser (their user agent is plain Chrome) look like
 people and never appear here.
 
@@ -1448,6 +1461,29 @@ rules. Those hits stay claimed, because stored traffic keeps no IP to verify,
 and their path reads `(path not recorded)`, because each hour kept one count
 per name rather than per page. The same pass relabels unknown samples, renames
 rows the naming now reads differently (Apple's link previews become
-`imessage-link-preview`), and deletes Canonry's own monitoring requests.
-`cnry backfill traffic-classification [--project <name>] [--dry-run]` runs it
-on demand. An IP-list refresh does not re-verify stored hits.
+`imessage-link-preview`), and deletes Canonry's own monitoring requests. It
+also files crawler hours whose sampled user agent today's rules file elsewhere
+(such as hours an older version wrote after a rollback) where ingest would:
+under the crawler rule that names it, in the AI user-fetch counts (likely fakes
+in theirs), back in this list, or nowhere for Canonry's own tools. An hour
+moves whole, by its one sampled user agent. Hours with no sampled user agent,
+static-file hours of an agent no rule names, and hours under a bot the running
+version has no rule for stay. Moved hours stay verified only when both rules
+check the same published IP list, and the automatic pass never makes a change
+that would leave verified hits claimed: it logs
+`traffic-reclassify.verified-moves-held` instead. When it moves Claude-Agent's
+older hours into the AI user-fetch counts, or the rules for counting browser
+agents' requests changed, it marks the source's older count
+(`aiUserFetchCountingChangedAt`). `cnry backfill traffic-classification
+[--project <name>] [--dry-run]` runs the pass on demand and also makes the
+changes that leave verified hits claimed; `--dry-run` shows them as
+`crawlers.unverifiedHits`. An IP-list refresh does not re-verify stored hits.
+
+Only `canonry serve` runs the pass, never a Cloud Run deployment of the API.
+After a rollback, run the backfill yourself when the older version predates the
+pass (before 7.84.0) or ran too briefly for its own pass to finish (it starts
+30 s after startup): the newer version then finds its own rules already
+recorded and skips the pass. Traffic the newer version ingested in its first
+30 s can also replace a misfiled hour's sampled user agent, which hides that
+hour from every pass; only `cnry traffic backfill` (Cloud Run and Vercel)
+recounts it from the logs.
