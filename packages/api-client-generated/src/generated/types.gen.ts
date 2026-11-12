@@ -30445,6 +30445,10 @@ export type DeleteApiV1ProjectsByNameGoogleConnectionsByTypeData = {
 
 export type DeleteApiV1ProjectsByNameGoogleConnectionsByTypeErrors = {
     /**
+     * The connection belongs to another project that tracks the same domain; nothing was removed.
+     */
+    400: ErrorEnvelope;
+    /**
      * Project or connection not found.
      */
     404: ErrorEnvelope;
@@ -31538,6 +31542,10 @@ export type DeleteApiV1ProjectsByNameGbpConnectionData = {
 };
 
 export type DeleteApiV1ProjectsByNameGbpConnectionErrors = {
+    /**
+     * The connection belongs to another project that tracks the same domain; nothing was removed.
+     */
+    400: ErrorEnvelope;
     /**
      * Project not found.
      */
