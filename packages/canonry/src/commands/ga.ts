@@ -368,7 +368,13 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
     return
   }
 
-  if (result.topPages.length === 0 && result.aiReferrals.length === 0 && result.aiReferralLandingPages.length === 0 && result.socialReferrals.length === 0) {
+  // The platform block reads the acquisition table, whose first sync reaches
+  // further back than the page and referral tables, so it can hold history
+  // the other figures do not.
+  const platformBlock = result.socialPlatformPerformance?.status === 'ready' && result.socialPlatformPerformance.platforms.length > 0
+    ? result.socialPlatformPerformance
+    : null
+  if (result.topPages.length === 0 && result.aiReferrals.length === 0 && result.aiReferralLandingPages.length === 0 && result.socialReferrals.length === 0 && !platformBlock) {
     if (!result.lastSyncedAt) {
       console.log('No GA4 traffic data. Run "canonry ga sync <project>" first.')
     } else {
@@ -457,8 +463,8 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
     console.log()
   }
 
-  if (result.socialPlatformPerformance?.status === 'ready' && result.socialPlatformPerformance.platforms.length > 0) {
-    printSocialPlatformRanking(result.socialPlatformPerformance)
+  if (platformBlock) {
+    printSocialPlatformRanking(platformBlock)
   }
 
   if (result.topPages.length > 0) {

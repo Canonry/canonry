@@ -12,7 +12,11 @@ import {
   gaLeadEventsDaily,
   gaMeasurementSyncStates,
   gaSocialReferrals,
+  gaSyncCoverage,
+  gaTrafficSnapshots,
+  runs,
 } from '@canonry/canonry-db'
+import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import type { GA4SocialPlatformPerformanceDto } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialRecord, Ga4CredentialStore } from '../src/ga.js'
@@ -184,8 +188,14 @@ describe('GET /ga/traffic socialPlatformPerformance', () => {
 
   const url = '/api/v1/projects/shop/ga/traffic?startDate=2026-09-01&endDate=2026-09-30'
 
-  function acquisition(id: string, date: string, source: string, medium: string, channelGroup: string, value: number, hostName = 'shop.example') {
-    db.insert(gaAcquisitionDaily).values({ id, projectId: 'p', date, channelGroup, source, medium, hostName, landingPage: '/', landingPageNormalized: '/', sessions: value, syncedAt: stamp, createdAt: stamp }).run()
+  function acquisition(id: string, date: string, source: string, medium: string, channelGroup: string, value: number, hostName = 'shop.example', landingPage = '/') {
+    db.insert(gaAcquisitionDaily).values({ id, projectId: 'p', date, channelGroup, source, medium, hostName, landingPage, landingPageNormalized: landingPage, sessions: value, syncedAt: stamp, createdAt: stamp }).run()
+  }
+  function leadReceipts(...dates: string[]) {
+    db.insert(runs).values({ id: 'lead-sync', projectId: 'p', kind: RunKinds['ga-sync'], status: RunStatuses.completed, trigger: RunTriggers.manual, createdAt: stamp }).run()
+    for (const date of dates) {
+      db.insert(gaSyncCoverage).values({ projectId: 'p', component: 'leads', syncRunId: 'lead-sync', date, propertyId: '123', definition: 'v1', settled: true, syncedAt: stamp }).run()
+    }
   }
   function lead(id: string, date: string, source: string, medium: string, channelGroup: string, value: number, eventName = 'generate_lead') {
     db.insert(gaLeadEventsDaily).values({ id, projectId: 'p', date, eventName, channelGroup, source, medium, hostName: 'checkout.shop.example', landingPage: '/', landingPageNormalized: '/', attributionScope: 'landing-page', eventCount: value, syncedAt: stamp, createdAt: stamp }).run()
@@ -253,6 +263,54 @@ describe('GET /ga/traffic socialPlatformPerformance', () => {
     expect(block).toMatchObject({ conversionRateAvailable: false, conversionRateUnavailableReason: 'sessions-before-leads' })
     expect(block.platforms.every(row => row.rank === null && row.conversionsPerThousandSessions === null)).toBe(true)
     expect(block.site.conversionsPerThousandSessions).toBeNull()
+  })
+
+  it('counts a session that reaches a second host once, and a session that landed on that host', async () => {
+    syncState()
+    db.insert(gaTrafficSnapshots).values({ id: 'snap', projectId: 'p', date: '2026-09-10', landingPage: '/', landingPageNormalized: '/', sessions: 4000, organicSessions: 0, directSessions: 0, users: 3000, syncedAt: stamp }).run()
+    // Every Facebook session also reached the checkout host: same landing page, one more host row.
+    acquisition('fb-checkout', '2026-09-10', 'FB_Ads', 'paidsocial', 'Paid Other', 1500, 'checkout.shop.example')
+    // These sessions landed on the checkout host itself.
+    acquisition('fb-checkout-landing', '2026-09-10', 'FB_Ads', 'paidsocial', 'Paid Other', 100, 'checkout.shop.example', '/checkouts/abc')
+    const block = (await app.inject({ method: 'GET', url })).json().socialPlatformPerformance as GA4SocialPlatformPerformanceDto
+    expect(block.platforms.find(row => row.label === 'Facebook')).toMatchObject({
+      sessions: 1600,
+      conversions: 6,
+      conversionsPerThousandSessions: 3.75,
+      conversionsPerThousandSessionsDisplay: '3.8',
+      rank: 2,
+    })
+    expect(block.sessions).toBe(1600 + 1200 + 400)
+    expect(block.sharePct).toBe(80)
+    expect(block.daily.days.find(day => day.date === '2026-09-10')!.sessions).toBe(3200)
+  })
+
+  it('keeps rates when an earlier covered day had no conversions', async () => {
+    syncState()
+    // Sep 9: sessions, a lead sync that covered the day, and no conversions.
+    acquisition('quiet', '2026-09-09', 'ig', 'social', 'Organic Social', 800)
+    db.insert(gaDailyTotals).values({ id: 'd0', projectId: 'p', date: '2026-09-09', sessions: 6_000, users: 5_000, syncedAt: stamp, createdAt: stamp }).run()
+    leadReceipts('2026-09-09', '2026-09-10')
+    const block = (await app.inject({ method: 'GET', url })).json().socialPlatformPerformance as GA4SocialPlatformPerformanceDto
+    expect(block).toMatchObject({ conversionRateAvailable: true, conversionRateUnavailableReason: null })
+    expect(block.platforms.find(row => row.label === 'Instagram')).toMatchObject({ sessions: 2000, conversions: 12, conversionsPerThousandSessions: 6, rank: 1 })
+    expect(block.site).toMatchObject({ sessions: 16_000, conversions: 56, conversionsPerThousandSessions: 3.5 })
+  })
+
+  it('withholds the whole-site rate when the daily totals miss a day the sessions cover', async () => {
+    syncState()
+    acquisition('day9', '2026-09-09', 'google', 'organic', 'Organic Search', 3000)
+    lead('day9-lead', '2026-09-09', 'google', 'organic', 'Organic Search', 44)
+    leadReceipts('2026-09-09', '2026-09-10')
+    // Daily totals hold Sep 10 only, while conversions cover Sep 9 and 10.
+    const partial = (await app.inject({ method: 'GET', url })).json().socialPlatformPerformance as GA4SocialPlatformPerformanceDto
+    expect(partial.site).toMatchObject({ sessions: null, conversions: 100, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: '—' })
+    // Platform rates do not depend on the site totals.
+    expect(partial.platforms.find(row => row.label === 'Instagram')!.rank).toBe(1)
+
+    db.insert(gaDailyTotals).values({ id: 'd9', projectId: 'p', date: '2026-09-09', sessions: 10_000, users: 8_000, syncedAt: stamp, createdAt: stamp }).run()
+    const full = (await app.inject({ method: 'GET', url })).json().socialPlatformPerformance as GA4SocialPlatformPerformanceDto
+    expect(full.site).toMatchObject({ sessions: 20_000, conversions: 100, conversionsPerThousandSessions: 5, conversionsPerThousandSessionsDisplay: '5.0' })
   })
 
   it('withholds rates while the latest lead sync has not succeeded', async () => {

@@ -249,6 +249,57 @@ describe('ga human output — percentages', () => {
     expect(withheld.some(line => line.includes('too few sessions'))).toBe(false)
   })
 
+  it('ga traffic prints platform history the page and referral tables do not hold', async () => {
+    const block = {
+      status: 'ready' as const,
+      unavailableReason: null,
+      sessions: 1200,
+      sharePct: 0,
+      sharePctDisplay: '—',
+      paidSessions: 0,
+      paidShare: 0,
+      conversions: 12,
+      conversionRateAvailable: true,
+      conversionRateUnavailableReason: null,
+      countedEventNames: ['purchase'],
+      minSessions: 1000,
+      site: { sessions: 9000, conversions: 90, conversionsPerThousandSessions: 10, conversionsPerThousandSessionsDisplay: '10.0' },
+      platforms: [{
+        key: 'instagram',
+        platform: 'instagram' as const,
+        label: 'Instagram',
+        sessions: 1200,
+        organicSessions: 1200,
+        paidSessions: 0,
+        share: 1,
+        conversions: 12,
+        conversionsPerThousandSessions: 10,
+        conversionsPerThousandSessionsDisplay: '10.0',
+        enoughSessions: true,
+        rank: 1,
+        paid: { sessions: 0, conversions: 0, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: '—' },
+        organic: { sessions: 1200, conversions: 12, conversionsPerThousandSessions: 10, conversionsPerThousandSessionsDisplay: '10.0' },
+        channelGroups: ['Organic Social'],
+        sources: [],
+      }],
+      daily: { series: [], otherCount: 0, days: [] },
+    }
+    gaTraffic.mockResolvedValue(traffic({
+      totalSessions: 0,
+      topPages: [],
+      aiReferrals: [],
+      aiReferralLandingPages: [],
+      socialReferrals: [],
+      aiSessionsDeduped: 0,
+      socialPlatformPerformance: block,
+      lastSyncedAt: '2026-11-13T06:00:00.000Z',
+    }))
+    const out = await lines(() => showGaTraffic('p', { window: '180d' }))
+    expect(out.some(line => line.startsWith('No GA4 traffic data'))).toBe(false)
+    expect(out).toContain('  SOCIAL PLATFORMS BY CONVERSIONS (every GA4 channel)')
+    expect(out).toContain('  1     Instagram   1200      0        12           10.0')
+  })
+
   it('ga traffic keeps an undefined share visibly absent during a partial sync', async () => {
     // Referral rows are synced but the totals that drive the denominator are
     // not: the share is undefined, which the server says with a dash.
