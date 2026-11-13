@@ -134,6 +134,7 @@ describe('citation visibility CLI + parity', () => {
 
   afterEach(async () => {
     await close()
+    db.$client.close()
     if (origConfigDir === undefined) {
       delete process.env.CANONRY_CONFIG_DIR
     } else {
@@ -223,9 +224,24 @@ describe('citation visibility CLI + parity', () => {
     }
   })
 
-  it('CLI --format json matches the API response byte-for-byte', async () => {
-    const apiResponse = await client.getCitationVisibility('example')
-    const cliOut = await captureStdout(() => showCitationVisibility('example', { format: 'json' }))
-    expect(JSON.parse(cliOut)).toEqual(apiResponse)
+  describe.each(['json', 'jsonl'])('--format %s', format => {
+    it('matches the complete API response', async () => {
+      const apiResponse = await client.getCitationVisibility('example')
+      const cliOut = await captureStdout(() => showCitationVisibility('example', { format }))
+      expect(JSON.parse(cliOut)).toEqual(apiResponse)
+    })
+
+    it.each(['no-queries', 'no-runs-yet'])('preserves the %s response', async reason => {
+      if (reason === 'no-queries') {
+        db.delete(queries).run()
+      } else {
+        db.delete(querySnapshots).run()
+      }
+      const apiResponse = await client.getCitationVisibility('example')
+      expect(apiResponse.status).toBe('no-data')
+      expect(apiResponse.reason).toBe(reason)
+      const cliOut = await captureStdout(() => showCitationVisibility('example', { format }))
+      expect(JSON.parse(cliOut)).toEqual(apiResponse)
+    })
   })
 })
