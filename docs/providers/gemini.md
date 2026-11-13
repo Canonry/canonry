@@ -10,7 +10,7 @@
 
 Validates that the config has a non-empty API key. Returns the model name that will be used.
 
-### `healthcheck(config: GeminiConfig): Promise<GeminiHealthcheckResult>`
+### `healthcheck(config: GeminiConfig, signal?: AbortSignal): Promise<GeminiHealthcheckResult>`
 
 Makes a lightweight Gemini API call to verify the key works. Returns ok/error with a message.
 
@@ -35,6 +35,8 @@ Extracts analyst-relevant fields from the raw response:
 ## Model
 
 Default: `gemini-flash-latest`, Google's alias for the newest Flash model (2 weeks' email notice before a breaking change behind it). The served model is recorded per snapshot as `servedModel`, so trends show when it moved. Pin an exact ID such as `gemini-3.8-flash` for a fixed model. Google limits the 2.5 models to projects that already used them. Configurable via `GeminiConfig.model`.
+
+Model dropdowns recommend general-purpose Flash and Pro models from the shared curated catalog, intersected with the provider's live list when available. Specialist models do not become default suggestions simply because they support `generateContent`. You can still enter a custom model ID. The recommendations follow Google's [model descriptions](https://ai.google.dev/gemini-api/docs/models) and [search-grounding guidance](https://ai.google.dev/gemini-api/docs/google-search); they are not an exhaustive capability list.
 
 ## Custom Endpoint
 

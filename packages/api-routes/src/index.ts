@@ -37,6 +37,8 @@ import { competitorSuggestionRoutes } from './competitor-suggestions.js'
 import { competitorChangePreviewRoutes } from './competitor-change-preview.js'
 import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
+import { projectSetupRoutes } from './project-setup.js'
+import type { ProjectSetupRoutesOptions } from './project-setup.js'
 import { measurementPlanRoutes } from './measurement-plan.js'
 import type { MeasurementPlanRoutesOptions } from './measurement-plan.js'
 import { measurementServiceRoutes } from './measurement-service.js'
@@ -74,6 +76,9 @@ import type { SettingsRoutesOptions, ProviderSummaryEntry, ProviderAdapterInfo }
 import { keysRoutes } from './keys.js'
 import { userRoutes } from './users.js'
 import { userSessionRoutes } from './user-session.js'
+import { userInvitationRoutes } from './user-invitations.js'
+import { chatGptRoutes } from './chatgpt-routes.js'
+import type { ChatGptAccounts } from './chatgpt-accounts.js'
 import type { UserSessionCookieOptions } from './user-session.js'
 import { snapshotRoutes } from './snapshot.js'
 import type { SnapshotRoutesOptions } from './snapshot.js'
@@ -158,6 +163,7 @@ export type { CredentialChecker } from './user-session.js'
 export type { ApiRequestCompletedInfo, RequestContextOptions } from './request-context.js'
 export type { OutcomeAttribution, OutcomeTelemetryEvent, OutcomeTelemetryInput } from './outcome-telemetry.js'
 export type { FeedbackRequestContext, FeedbackRoutesOptions } from './feedback.js'
+export type { ProviderTestRun } from './settings.js'
 export { credentialFailure } from './feature-outcome.js'
 export { SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from './doctor/checks/site-reachability.js'
 export { runChecks } from './doctor/runner.js'
@@ -200,6 +206,15 @@ export interface ApiRoutesOptions {
    * gets a TLS-terminating proxy right.
    */
   userSessionCookie?: UserSessionCookieOptions
+  /**
+   * Sign in with ChatGPT. Absent: the routes answer that it is off, and the
+   * sign-in screen offers only name and password.
+   */
+  chatgptAccounts?: ChatGptAccounts
+  /** Where the dashboard is served (e.g. `/` or `/canonry/`); the ChatGPT callback returns there. */
+  dashboardPath?: string
+  /** The install's own Aero model, preferred on a ChatGPT plan that lists it. */
+  chatgptPreferredModel?: () => string | null
   /**
    * True when this host has declared which proxy hops to believe (its Fastify
    * instance was built with `trustProxy`). Everything that budgets per caller
@@ -247,8 +262,14 @@ export interface ApiRoutesOptions {
   getCachedProviderModels?: ResearchRoutesOptions['getCachedProviderModels']
   /** Callback when a provider config is updated via API */
   onProviderUpdate?: SettingsRoutesOptions['onProviderUpdate']
+  getProviderConnections?: SettingsRoutesOptions['getProviderConnections']
+  onProviderSettingsUpdate?: SettingsRoutesOptions['onProviderSettingsUpdate']
+  onProviderDisconnect?: SettingsRoutesOptions['onProviderDisconnect']
   /** Reload the execution host's provider configuration without restarting it. */
   onProviderReload?: SettingsRoutesOptions['onProviderReload']
+  /** Run a saved provider connection's healthcheck now (a live provider call). Absent: tests answer NOT_IMPLEMENTED. */
+  onProviderTest?: SettingsRoutesOptions['onProviderTest']
+  providerTestTimeoutMs?: SettingsRoutesOptions['providerTestTimeoutMs']
   /** Google OAuth configuration summary + update callback */
   googleSettingsSummary?: SettingsRoutesOptions['google']
   onGoogleSettingsUpdate?: SettingsRoutesOptions['onGoogleUpdate']
@@ -455,7 +476,7 @@ export interface ApiRoutesOptions {
   harvestSearchQueries?: DiscoveryRoutesOptions['harvestSearchQueries']
   /** Discovery harvest embed seam — embeds query strings for the semantic novelty pass. Wire to the Gemini embedder; unset/rejecting degrades novelty to exact-match. */
   embedQueries?: DiscoveryRoutesOptions['embedQueries']
-  /** Technical AEO callback — fires after a `site-audit` run row is created. Wire to `executeSiteAudit`. */
+  /** Agent Readiness callback — fires after a `site-audit` run row is created. Wire to `executeSiteAudit`. */
   onSiteAuditRequested?: TechnicalAeoRoutesOptions['onSiteAuditRequested']
   /** Backlinks feature callbacks — see `backlinksRoutes` for details. */
   getBacklinksStatus?: BacklinksRoutesOptions['getBacklinksStatus']
@@ -671,6 +692,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(userSessionRoutes, {
       cookie: opts.userSessionCookie,
       trustProxyConfigured: opts.trustProxyConfigured ?? false,
+      chatgptSignIn: () => opts.chatgptAccounts?.signInEnabled() ?? false,
       // ONE checker for the whole app. Passed in when the caller supplies it —
       // canonry does, so /auth/login and the OAuth consent page count against
       // the same budgets — and built here otherwise so an embedder that never
@@ -680,7 +702,16 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
         trustProxyConfigured: opts.trustProxyConfigured ?? false,
       }),
     })
-    await api.register(userRoutes)
+    await api.register(userRoutes, { chatgptAccounts: opts.chatgptAccounts })
+    await api.register(userInvitationRoutes)
+    await api.register(chatGptRoutes, {
+      accounts: opts.chatgptAccounts,
+      cookie: opts.userSessionCookie,
+      dashboardPath: opts.dashboardPath,
+      routePrefix: opts.routePrefix,
+      preferredModel: opts.chatgptPreferredModel,
+      trustProxyConfigured: opts.trustProxyConfigured ?? false,
+    })
 
     await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix })
     // Route families of every adapter this host knows (OpenRouter models,
@@ -721,6 +752,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getBatchEligibleProviderNames: opts.getBatchEligibleProviderNames,
       providerAdapters: opts.providerAdapters,
     } satisfies RunRoutesOptions)
+    await api.register(projectSetupRoutes, {
+      getRunnableProviderNames: opts.getRunnableProviderNames,
+      getEffectiveProviderModels: opts.getEffectiveProviderModels,
+      providerAdapters: opts.providerAdapters,
+    } satisfies ProjectSetupRoutesOptions)
     await api.register(measurementPlanRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
       providerRouteFamilies,
@@ -790,7 +826,12 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
       onProviderUpdate: opts.onProviderUpdate,
+      getProviderConnections: opts.getProviderConnections,
+      onProviderSettingsUpdate: opts.onProviderSettingsUpdate,
+      onProviderDisconnect: opts.onProviderDisconnect,
       onProviderReload: opts.onProviderReload,
+      onProviderTest: opts.onProviderTest,
+      providerTestTimeoutMs: opts.providerTestTimeoutMs,
       google: opts.googleSettingsSummary,
       onGoogleUpdate: opts.onGoogleSettingsUpdate,
       bing: opts.bingSettingsSummary,
@@ -1004,6 +1045,21 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 export type { DatabaseClient } from '@canonry/canonry-db'
 // Whether this install has named accounts. The host needs the same answer the
 // auth layer uses, so it is exported rather than reimplemented.
+export {
+  accountNameForEmail,
+  ChatGptAccounts,
+  ChatGptPlanError,
+  decryptPlanTokens,
+  encryptPlanTokens,
+  EXTERNAL_SIGN_IN_PASSWORD_HASH,
+  parseChatGptTokenKey,
+  pickChatGptPlanModel,
+  type ChatGptAccountsOptions,
+  type ChatGptPlanAccess,
+  type ChatGptSettingsSource,
+  type ChatGptSignInSettings,
+} from './chatgpt-accounts.js'
+export { CHATGPT_SIGN_IN_COOKIE_NAME, safeReturnTo } from './chatgpt-routes.js'
 export { anyUsersExist, cookieIsSecure, createCredentialChecker, createUserSession, hashSessionToken, parseCookieHeader, resolveUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from './user-session.js'
 export type { UserSessionCookieOptions } from './user-session.js'
 export { requireAdminSession, requireBroadInstanceKey, requireInstanceAdministrator, isInstanceAdministrator, requirePaidReadScope, requireResearchGrant } from './auth.js'

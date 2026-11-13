@@ -1,11 +1,12 @@
+import { formatModelName } from '@canonry/canonry-contracts'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { AlertTriangle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { useUnsavedChanges } from '../../hooks/use-unsaved-changes.js'
 
 import { fetchSettings, isDashboardManagedRunKind, isEmbed, isPublicDemo, type ApiProject } from '../../api.js'
 import { useAccount } from '../../contexts/account-context.js'
-import { addToast } from '../../lib/toast-store.js'
 import {
   FULL_SITE_PAGE_BUDGET_LABEL,
   PAGE_BUDGET_PRESETS,
@@ -15,8 +16,9 @@ import {
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { OpenRouterModelPicker } from '../shared/OpenRouterModelPicker.js'
 import { Button } from '../ui/button.js'
-import { describeError, isOpenRouterRoute, providerConnectionName, ProviderSelectionKinds, resolveProviderRoute, RunKinds, SITE_AUDIT_MAX_PAGE_LIMIT, SITE_AUDIT_ONBOARDING_PAGE_LIMIT, siteAuditPageBudgetSchema } from '@canonry/canonry-contracts'
+import { describeError, isOpenRouterRoute, providerConnectionName, ProviderKinds, ProviderSelectionKinds, resolveProviderRoute, RunKinds, SITE_AUDIT_MAX_PAGE_LIMIT, SITE_AUDIT_ONBOARDING_PAGE_LIMIT, siteAuditPageBudgetSchema } from '@canonry/canonry-contracts'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
+import { sameSites, scanSiteChoices, toggleSite } from '../../lib/site-audit-sites.js'
 import { catalogRouteFamilies, isAnswerServiceRouteFor, isRoutedConnection, SWEEP_WORKFLOW } from '../../lib/provider-routes.js'
 
 type EngineProject = Pick<ApiProject, 'name' | 'providers' | 'providerModels'>
@@ -34,6 +36,11 @@ function sameModels(left: Record<string, string>, right: Record<string, string>)
     return other?.[0] === provider && other[1] === model
   })
 }
+
+/** Visible copy for the Answer engines section, exported so tests assert the shipped strings. */
+export const ENGINE_SETTINGS_COPY = {
+  saved: 'Engines saved.',
+} as const
 
 /**
  * Project-scoped provider selection and model inheritance. Kept apart from
@@ -56,6 +63,11 @@ export function ProjectEngineSettingsSection({
     staleTime: 60_000,
     enabled: isAdmin && !isEmbed(),
   })
+  useEffect(() => {
+    if (!settings.isLoading && window.location.hash === '#answer-engines') {
+      document.getElementById('answer-engines')?.scrollIntoView({ block: 'start' })
+    }
+  }, [settings.isLoading, project.name])
   const [automatic, setAutomatic] = useState(project.providers.length === 0)
   const [selected, setSelected] = useState<string[]>(project.providers)
   const [addedRoutes, setAddedRoutes] = useState<string[]>(project.providers.filter(isOpenRouterRoute))
@@ -68,6 +80,10 @@ export function ProjectEngineSettingsSection({
   // `editing` guard.
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Said beside Save engines, where the "not saved" note was, until the next edit.
+  const [notice, setNotice] = useState<string | null>(null)
+  const [engineSearch, setEngineSearch] = useState('')
+  const [selectedOnly, setSelectedOnly] = useState(false)
   const customInput = useRef<HTMLInputElement>(null)
 
   const catalog = useMemo(() => settings.data?.providerCatalog ?? [], [settings.data])
@@ -123,6 +139,7 @@ export function ProjectEngineSettingsSection({
   const hasProviderChange = draftProviders.length !== saved.providers.length
     || draftProviders.some(provider => !saved.providers.includes(provider))
   const hasUnsavedChanges = hasProviderChange || hasModelChange
+  const guard = useUnsavedChanges(hasUnsavedChanges, saving)
   // Models added through the picker are only staged: they run once Save engines stores them.
   const unsavedModels = draftProviders.filter(provider => isOpenRouterRoute(provider) && !saved.providers.includes(provider)).length
   const openRouterAvailable = Boolean(openRouterCatalog) && configured.has('openrouter')
@@ -142,8 +159,13 @@ export function ProjectEngineSettingsSection({
     setModels(next.providerModels)
   }, [project])
 
-  function chooseEngines() {
+  function startEditing() {
     setEditing(true)
+    setNotice(null)
+  }
+
+  function chooseEngines() {
+    startEditing()
     setAutomatic(false)
     // Preserve a previous explicit draft during this edit session. First entry
     // materializes from the currently configured catalogue.
@@ -151,7 +173,7 @@ export function ProjectEngineSettingsSection({
   }
 
   function setModel(provider: string, value: string, currentIsKnown = false) {
-    setEditing(true)
+    startEditing()
     setModels(current => {
       const next = { ...current }
       if (value === '__inherit__') delete next[provider]
@@ -166,7 +188,7 @@ export function ProjectEngineSettingsSection({
   }
 
   function toggleProvider(provider: string, checked: boolean) {
-    setEditing(true)
+    startEditing()
     // With no direct engine, rows show before any mode is chosen, so a ticked
     // row is an explicit choice: automatic mode would save no engines.
     setAutomatic(false)
@@ -180,25 +202,31 @@ export function ProjectEngineSettingsSection({
     setAddedRoutes(saved.providers.filter(isOpenRouterRoute))
     setModels(copyModels(saved.providerModels))
     setError(null)
+    setNotice(null)
   }
 
   async function save() {
     if (settings.isError || settings.isLoading || (!automatic && selected.length === 0)) return
+    if (Object.entries(models).some(([provider, model]) => (automatic || selected.includes(provider)) && !model.trim())) {
+      setError('Enter a custom model ID or use the instance setting.')
+      return
+    }
     setSaving(true)
     setError(null)
+    setNotice(null)
     try {
       // Only persist overrides the operator can actually manage: drop blank
       // custom drafts and (in choose mode) overrides for unselected engines, so a
       // deselected engine's model never lingers and silently re-applies later.
       const providerModels = Object.fromEntries(
         Object.entries(models).filter(([provider, model]) =>
-          model.trim() !== '' && (automatic || selected.includes(provider))),
+          model.trim() !== '' && (automatic || selected.includes(provider))).map(([provider, model]) => [provider, model.trim()]),
       )
       const next = { providers: automatic ? [] : selected, providerModels }
       await onSave(next)
       setSaved({ providers: [...next.providers], providerModels: copyModels(next.providerModels) })
       setEditing(false)
-      addToast('Saved for the next check', 'positive')
+      setNotice(ENGINE_SETTINGS_COPY.saved)
     } catch (cause) {
       setError(describeError(cause))
     } finally {
@@ -228,7 +256,7 @@ export function ProjectEngineSettingsSection({
       </section>
     )
   }
-  if (configured.size === 0) {
+  if (configured.size === 0 && selected.length === 0 && !hasUnsavedChanges) {
     return <section className="project-engine-settings"><h2>Answer engines</h2><p className="text-copy-14 text-secondary">Configure an answer engine in <Link to="/settings" className="text-link">global Settings</Link> before choosing project engines.</p></section>
   }
 
@@ -236,23 +264,24 @@ export function ProjectEngineSettingsSection({
   // (OpenRouter models and search answer services run only where chosen), so
   // the panel leads with choosing what runs instead of offering that mode.
   const noDirectEngine = configured.size > 0 && automaticEngines.length === 0
-  const onlyOpenRouter = noDirectEngine && [...configured].every(name => name === 'openrouter')
+  const onlyOpenRouter = noDirectEngine && configured.size > 0 && [...configured].every(name => name === 'openrouter')
   const connectionNames = (settings.data?.providers ?? []).filter(provider => provider.configured).map(provider => provider.displayName)
-  const connectedLabel = `${connectionNames.length > 1 ? `${connectionNames.slice(0, -1).join(', ')} and ${connectionNames.at(-1)}` : connectionNames[0]} connected`
+  const connectedLabel = connectionNames.length === 0 ? 'No connections configured. Saved selections remain below.' : `${connectionNames.length > 1 ? `${connectionNames.slice(0, -1).join(', ')} and ${connectionNames.at(-1)}` : connectionNames[0]} connected`
   const engineHelp = onlyOpenRouter
     ? 'OpenRouter runs only the models you choose here. A direct engine connected later in Settings can run too.'
     : noDirectEngine
       ? 'Search answer services and OpenRouter models run only where you choose them. A direct engine connected later in Settings can run too.'
       : 'All connected engines includes engines connected later in global Settings. Search answer services and OpenRouter models run only where you choose them.'
-  const visibleRows = rows.filter(provider => selected.includes(provider.name) || configured.has(rowConnection(provider)))
+  const visibleRows = rows.filter(provider => (selected.includes(provider.name) || configured.has(rowConnection(provider)))
+    && (!selectedOnly || selected.includes(provider.name))
+    && `${provider.displayName} ${provider.name} ${provider.defaultModel}`.toLowerCase().includes(engineSearch.trim().toLowerCase()))
   const showSave = !noDirectEngine || selected.length > 0 || hasUnsavedChanges
-  const openRouterNames = new Map(openRouterCatalog?.knownModels.map(model => [model.id, model.displayName]))
   const connectLink = rows.some(provider => !configured.has(rowConnection(provider)))
     ? <Link to="/settings" className="block w-fit text-label-14 text-secondary underline decoration-border-strong underline-offset-4 hover:text-heading">Connect another engine</Link>
     : null
 
   function addRoutes(routes: string[]) {
-    setEditing(true)
+    startEditing()
     setAutomatic(false)
     setAddedRoutes(current => [...new Set([...current, ...routes])])
     setSelected(current => [...new Set([...(automatic ? automaticEngines : current), ...routes])])
@@ -268,7 +297,8 @@ export function ProjectEngineSettingsSection({
     const selectValue = model === undefined ? '__inherit__' : known ? model : '__custom__'
     return (
       <div key={provider.name} className="project-engine-row">
-        <label className="project-engine-provider w-full"><input type="checkbox" aria-label={routed ? provider.displayName : undefined} checked={checked} disabled={!configuredNow && !checked} onChange={event => toggleProvider(provider.name, event.target.checked)} /> <span title={routed ? provider.defaultModel : undefined}>{routed ? (openRouterNames.get(provider.defaultModel) ?? provider.displayName.replace(/ via OpenRouter$/, '')) : provider.displayName}</span>{routed && <span className="ml-auto text-label-14 text-secondary">OpenRouter</span>}{!routed && !provider.modelConfigurable && <InfoTooltip text={routeHelp(provider)} />}{stale && <span className="text-label-12 text-caution-400">Not configured, skipped</span>}</label>
+        <label className="project-engine-provider w-full"><input type="checkbox" aria-label={routed ? providerDisplayName(provider.name, catalog) : undefined} checked={checked} disabled={!configuredNow && !checked} onChange={event => toggleProvider(provider.name, event.target.checked)} /> <span title={routed ? provider.defaultModel : undefined}>{routed ? formatModelName(provider.defaultModel, openRouterCatalog?.knownModels) : provider.displayName}</span>{routed && <span className="ml-auto text-label-14 text-secondary">via OpenRouter</span>}{!routed && !provider.modelConfigurable && <InfoTooltip text={routeHelp(provider)} />}{stale && <span className="text-label-12 text-caution-400">Not configured, skipped</span>}</label>
+        {stale && <Link to="/settings" hash={`provider-${rowConnection(provider)}`} className="text-label-12 text-link">Manage connection</Link>}
         {checked && (provider.modelConfigurable ? (
           <div className="project-engine-model">
             <label htmlFor={`project-model-${provider.name}`}>Model</label>
@@ -277,7 +307,7 @@ export function ProjectEngineSettingsSection({
               {provider.knownModels.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}
               <option value="__custom__">Custom model ID…</option>
             </select>
-            {selectValue === '__custom__' && <input ref={customInput} aria-label={`${provider.displayName} custom model ID`} value={model ?? ''} onChange={event => { setEditing(true); setModels(current => ({ ...current, [provider.name]: event.target.value })) }} aria-describedby={`project-model-hint-${provider.name}`} />}
+            {selectValue === '__custom__' && <input ref={customInput} aria-label={`${provider.displayName} custom model ID`} value={model ?? ''} onChange={event => { startEditing(); setModels(current => ({ ...current, [provider.name]: event.target.value })) }} aria-describedby={`project-model-hint-${provider.name}`} />}
             <p id={`project-model-hint-${provider.name}`} className="project-engine-help flex items-center gap-1.5">{model ? 'Project override' : 'Instance setting'} <InfoTooltip text={provider.modelValidationHint} /></p>
           </div>
         ) : null)}
@@ -285,18 +315,39 @@ export function ProjectEngineSettingsSection({
     )
   }
 
+  const groups = new Map<string, typeof visibleRows>()
+  for (const provider of visibleRows) {
+    let label: string
+    if (isOpenRouterRoute(provider.name) || provider.kind === ProviderKinds['answer-service']) {
+      const connection = rowConnection(provider)
+      label = catalog.find(entry => entry.name === connection)?.displayName ?? connection
+    } else label = provider.mode === 'browser' ? 'Browser engines' : 'Direct engines'
+    const group = groups.get(label) ?? []
+    group.push(provider)
+    groups.set(label, group)
+  }
+  const engineList = <>
+    <div className="mt-3 flex flex-wrap items-center gap-3">
+      <input type="search" aria-label="Search answer engines" className="setup-input min-w-0 flex-1" placeholder="Search engines, models or profiles" value={engineSearch} onChange={event => setEngineSearch(event.target.value)} />
+      <label className="flex items-center gap-2 text-label-14 text-secondary"><input type="checkbox" checked={selectedOnly} onChange={event => setSelectedOnly(event.target.checked)} />Selected only</label>
+    </div>
+    {[...groups].map(([label, entries]) => <div key={label} className="mt-4"><h3 className="mb-2 text-label-12 text-secondary">{label}</h3><div className="project-engine-list">{entries.map(engineRow)}</div></div>)}
+    {visibleRows.length === 0 && <p className="py-4 text-copy-14 text-secondary">No engines match this filter.</p>}
+  </>
+
   return (
     <section id="answer-engines" className="project-engine-settings scroll-mt-24" aria-busy={saving}>
       <div className="flex items-center gap-2">
         <h2>Answer engines</h2>
         <InfoTooltip text={engineHelp} />
       </div>
+      {configured.size === 0 && <p className="mt-3 text-copy-14 text-caution-400">No connections configured. Saved selections remain below. Automatic selection resumes when a direct engine is connected.</p>}
       {noDirectEngine ? (
         <fieldset disabled={saving} className="project-engine-fieldset">
           <legend className="sr-only">Engines to run</legend>
           <p className="text-copy-14 text-heading">{connectedLabel}</p>
           {selected.length === 0 && <p className="text-copy-14-strong text-caution-400">{onlyOpenRouter ? 'No models selected.' : 'Nothing selected to run.'}</p>}
-          {visibleRows.length > 0 && <div className="project-engine-list">{visibleRows.map(engineRow)}</div>}
+          {engineList}
           <div className="space-y-2 pb-2">
             {openRouterAvailable && openRouterCatalog ? <OpenRouterModelPicker triggerLabel={selected.some(isOpenRouterRoute) ? 'Add models' : onlyOpenRouter ? 'Choose models' : 'Choose OpenRouter models'} catalog={openRouterCatalog} selected={selected} disabled={saving} onAdd={addRoutes} /> : null}
             {connectLink}
@@ -305,9 +356,10 @@ export function ProjectEngineSettingsSection({
       ) : (
         <fieldset disabled={saving} className="project-engine-fieldset">
           <legend className="sr-only">Engines to run</legend>
-          <label><input type="radio" checked={automatic} onChange={() => { setEditing(true); setAutomatic(true) }} /> All connected engines</label>
+          <label><input type="radio" checked={automatic} onChange={() => { startEditing(); setAutomatic(true) }} /> All connected engines</label>
           <label><input type="radio" checked={!automatic} onChange={chooseEngines} /> Choose engines</label>
-          {!automatic && <div className="project-engine-list">{visibleRows.map(engineRow)}</div>}
+          {automatic && <div className="py-2 text-copy-14 text-secondary"><p>{automaticEngines.map(name => settings.data?.providers.find(provider => provider.name === name)?.displayName ?? name).join(' · ')}</p><p className="mt-1 text-label-12 text-muted">Future direct engine connections are included automatically.</p></div>}
+          {!automatic && engineList}
           <div className="space-y-2 pb-2">
             {openRouterAvailable && openRouterCatalog ? <OpenRouterModelPicker trigger="link" triggerLabel="Add OpenRouter models" catalog={openRouterCatalog} selected={selected} disabled={saving} onAdd={addRoutes} /> : null}
             {connectLink}
@@ -318,6 +370,7 @@ export function ProjectEngineSettingsSection({
         {!noDirectEngine && !automatic && selected.length === 0 && <p role="alert" className="text-copy-14 text-negative-400">Choose at least one configured engine.</p>}
         {error && <p role="alert" className="text-copy-14 text-negative-400">{error}</p>}
         {unsavedModels > 0 && !saving && <p role="status" className="text-copy-14 text-secondary">{unsavedModels === 1 ? '1 model added, not saved' : `${unsavedModels} models added, not saved`}</p>}
+        {notice && <p role="status" className="text-copy-14 text-positive">{notice}</p>}
         {hasModelChange && <p className="flex items-center gap-1.5 text-copy-14 text-caution-400"><AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />Model changed <InfoTooltip text="Existing history remains visible. If the recorded model changes, month-to-month comparison may exclude that engine." /></p>}
         {showSave && (
           <div className="space-y-2">
@@ -326,6 +379,7 @@ export function ProjectEngineSettingsSection({
           </div>
         )}
       </div>
+      {guard.dialog}
     </section>
   )
 }
@@ -336,17 +390,21 @@ function routeHelp(provider: { name: string; kind?: string; defaultModel: string
   return isOpenRouterRoute(provider.name) ? provider.defaultModel : 'Model is detected/fixed for this browser engine.'
 }
 
-/** Visible copy for the Site Health scans section, exported so tests assert the shipped strings. */
+/** Visible copy for the Agent Readiness audit scans section, exported so tests assert the shipped strings. */
 export const SITE_HEALTH_SCAN_SETTINGS_COPY = {
-  heading: 'Site Health scans',
-  help: `Used by every scan that sets no budget, scheduled or manual. Onboarding's first look always checks ${pageCountLabel(SITE_AUDIT_ONBOARDING_PAGE_LIMIT)}.`,
+  heading: 'Agent Readiness audit scans',
+  help: `Used by every scan, scheduled or manual, unless the scan sets its own. Onboarding's first look always checks ${pageCountLabel(SITE_AUDIT_ONBOARDING_PAGE_LIMIT)}.`,
+  sites: 'Sites scanned',
+  mainSite: 'Main domain, always scanned',
+  addSites: 'Add a site you own under Project settings, Owned domains.',
+  sharedBudget: 'One budget covers every site scanned.',
   pageBudget: 'Page budget',
   customOption: 'Custom number...',
   customLabel: 'Custom page budget',
   customError: `Enter a whole number from 1 to ${SITE_AUDIT_MAX_PAGE_LIMIT.toLocaleString('en-US')}.`,
-  save: 'Save page budget',
-  saving: 'Saving page budget…',
-  saved: 'Page budget saved.',
+  save: 'Save scan settings',
+  saving: 'Saving scan settings…',
+  saved: 'Scan settings saved.',
 } as const
 
 const FULL_SITE_CHOICE = 'full'
@@ -377,10 +435,10 @@ function pageBudgetFromForm({ choice, customText }: PageBudgetForm): number | nu
 }
 
 /**
- * The project's saved Site Health page budget: what every scan that sets no
+ * The project's saved Agent Readiness page budget: what every scan that sets no
  * budget of its own uses, scheduled or manual. Null is the full site.
  *
- * Writers can change it, except that a deployment which manages Site Health
+ * Writers can change it, except that a deployment which manages Agent Readiness
  * scans leaves it to administrators, as it does the scan controls themselves.
  * Everyone else, embeds and the public demo included, reads the saved value.
  */
@@ -388,9 +446,17 @@ export function SiteHealthScanSettingsSection({
   project,
   onSave,
 }: {
-  project: Pick<ApiProject, 'siteAuditMaxPages'>
-  onSave: (siteAuditMaxPages: number | null) => Promise<void>
+  project: Pick<ApiProject, 'siteAuditMaxPages'> & Partial<Pick<ApiProject, 'canonicalDomain' | 'ownedDomains' | 'siteAuditDomains'>>
+  /** Saves the budget, and the sites only when this edit changed them. */
+  onSave: (settings: { siteAuditMaxPages: number | null; siteAuditDomains?: string[] }) => Promise<void>
 }) {
+  // The main domain is always scanned; each owned domain is a tick.
+  const siteChoices = scanSiteChoices(project)
+  const storedSites = project.siteAuditDomains ?? []
+  const storedSitesKey = storedSites.join('\n')
+  const [savedSites, setSavedSites] = useState<string[]>(storedSites)
+  const [scannedSites, setScannedSites] = useState<string[]>(storedSites)
+  const sitesChanged = !sameSites(scannedSites, savedSites)
   const { canWrite, isAdmin } = useAccount()
   const canEdit = canWrite && !isEmbed() && !isPublicDemo()
     && (!isDashboardManagedRunKind(RunKinds['site-audit']) || isAdmin)
@@ -411,6 +477,7 @@ export function SiteHealthScanSettingsSection({
   const selectId = `${id}-page-budget`
   const customId = `${id}-custom-page-budget`
   const customErrorId = `${id}-custom-page-budget-error`
+  const mainSiteNoteId = `${id}-main-site-note`
 
   useEffect(() => {
     // Re-sync only when the stored budget itself changes, and never mid-edit.
@@ -420,10 +487,18 @@ export function SiteHealthScanSettingsSection({
     setForm(pageBudgetForm(storedBudget))
   }, [storedBudget])
 
+  useEffect(() => {
+    // The same rule for the sites, keyed by their text so a refetch that
+    // returns an equal list is not a change.
+    if (saving || editing) return
+    setSavedSites(storedSites)
+    setScannedSites(storedSites)
+  }, [storedSitesKey])
+
   const draft = pageBudgetFromForm(form)
   const customInvalid = form.choice === CUSTOM_CHOICE && draft === undefined
   const showCustomError = customInvalid && (customTouched || form.customText.trim() !== '')
-  const changed = draft !== undefined && draft !== saved
+  const changed = draft !== undefined && (draft !== saved || sitesChanged)
 
   function choose(choice: string) {
     setEditing(true)
@@ -444,8 +519,16 @@ export function SiteHealthScanSettingsSection({
     setForm(current => ({ ...current, customText }))
   }
 
+  function tickSite(site: string, checked: boolean) {
+    setEditing(true)
+    setError(null)
+    setNotice(null)
+    setScannedSites(current => toggleSite(siteChoices.owned, current, site, checked))
+  }
+
   function cancel() {
     setEditing(false)
+    setScannedSites(savedSites)
     setForm(pageBudgetForm(saved))
     setCustomTouched(false)
     setError(null)
@@ -458,8 +541,10 @@ export function SiteHealthScanSettingsSection({
     setError(null)
     setNotice(null)
     try {
-      await onSave(draft)
+      // Sites only when changed: a stale list could name a domain no longer owned.
+      await onSave({ siteAuditMaxPages: draft, ...(sitesChanged ? { siteAuditDomains: scannedSites } : {}) })
       setSaved(draft)
+      setSavedSites(scannedSites)
       // A typed custom number that matches a preset shows as that preset.
       setForm(pageBudgetForm(draft))
       setCustomTouched(false)
@@ -485,6 +570,38 @@ export function SiteHealthScanSettingsSection({
       </div>
       {canEdit ? (
         <>
+          {siteChoices.main && siteChoices.owned.length === 0 && (
+            <div className="mb-5 grid max-w-md gap-1">
+              <p className="text-label-14-strong text-heading">{SITE_HEALTH_SCAN_SETTINGS_COPY.sites}</p>
+              <p className="text-label-14-mono text-primary">{siteChoices.main}</p>
+              <p className="text-copy-13 text-secondary">{SITE_HEALTH_SCAN_SETTINGS_COPY.addSites}</p>
+            </div>
+          )}
+          {siteChoices.main && siteChoices.owned.length > 0 && (
+            <fieldset className="mb-5 grid max-w-md gap-2">
+              <legend className="mb-2 text-label-14-strong text-heading">{SITE_HEALTH_SCAN_SETTINGS_COPY.sites}</legend>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked disabled aria-describedby={mainSiteNoteId} className="size-4 rounded border-base accent-mono-200" />
+                  <span className="text-label-14-mono text-primary">{siteChoices.main}</span>
+                </label>
+                <span id={mainSiteNoteId} className="text-copy-13 text-secondary">{SITE_HEALTH_SCAN_SETTINGS_COPY.mainSite}</span>
+              </div>
+              {siteChoices.owned.map((site) => (
+                <label key={site} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={scannedSites.includes(site)}
+                    disabled={saving}
+                    onChange={event => tickSite(site, event.target.checked)}
+                    className="size-4 rounded border-base accent-mono-200 focus-visible:ring-2 focus-visible:ring-mono-400"
+                  />
+                  <span className="text-label-14-mono text-primary">{site}</span>
+                </label>
+              ))}
+              <p className="text-copy-13 text-secondary">{SITE_HEALTH_SCAN_SETTINGS_COPY.addSites}</p>
+            </fieldset>
+          )}
           <div className="grid max-w-sm gap-1">
             <label htmlFor={selectId} className="text-label-14-strong text-heading">{SITE_HEALTH_SCAN_SETTINGS_COPY.pageBudget}</label>
             <select
@@ -523,6 +640,7 @@ export function SiteHealthScanSettingsSection({
                 )}
               </>
             )}
+            {scannedSites.length > 0 && <p className="text-copy-13 text-secondary">{SITE_HEALTH_SCAN_SETTINGS_COPY.sharedBudget}</p>}
           </div>
           {error && <p role="alert" className="mt-3 text-copy-14 text-negative">{error}</p>}
           {notice && <p role="status" className="mt-3 text-copy-14 text-positive">{notice}</p>}
@@ -534,9 +652,16 @@ export function SiteHealthScanSettingsSection({
           </div>
         </>
       ) : (
-        <p className="text-copy-14 text-secondary">
-          {SITE_HEALTH_SCAN_SETTINGS_COPY.pageBudget}: <span className="text-strong">{savedPageBudgetLabel(saved)}</span>
-        </p>
+        <div className="grid gap-1">
+          {siteChoices.main && (
+            <p className="text-copy-14 text-secondary">
+              {SITE_HEALTH_SCAN_SETTINGS_COPY.sites}: <span className="text-strong">{[siteChoices.main, ...savedSites].join(', ')}</span>
+            </p>
+          )}
+          <p className="text-copy-14 text-secondary">
+            {SITE_HEALTH_SCAN_SETTINGS_COPY.pageBudget}: <span className="text-strong">{savedPageBudgetLabel(saved)}</span>
+          </p>
+        </div>
       )}
     </section>
   )

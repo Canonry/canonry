@@ -76,7 +76,7 @@ describe('project settings tab', () => {
     const methods = renderSettingsTab()
     await waitFor(() => expect(screen.getByText(/No schedule configured/)).toBeTruthy())
     await waitFor(() => expect(screen.getByText(/No webhooks configured/)).toBeTruthy())
-    expect(screen.getByText('Search Locations')).toBeTruthy()
+    expect(screen.getByText('Search locations')).toBeTruthy()
     expect(screen.getByText('San Francisco')).toBeTruthy()
     for (const name of changeControls) expect(screen.queryByRole('button', { name }), String(name)).toBeNull()
     expect(methods.every((method) => method === 'GET')).toBe(true)

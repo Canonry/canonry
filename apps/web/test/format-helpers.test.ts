@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { formatPercent } from '@canonry/canonry-contracts'
 import {
+  excludedAnswersFlag,
   formatHour,
   buildPreset,
   parsePreset,
@@ -145,5 +146,21 @@ describe('localTimeZoneLabel', () => {
     const label = localTimeZoneLabel()
     expect(typeof label).toBe('string')
     expect(label.length).toBeGreaterThan(0)
+  })
+})
+
+describe('excludedAnswersFlag', () => {
+  it('names a citation rate\'s source-less answers beside its partly saved ones, each under its own word', () => {
+    // 3 of 6 checked: one partly saved, two from an engine with no sources.
+    expect(excludedAnswersFlag({ denominator: 6, unchecked: 1, citationNotMeasured: 2 }, 'cited')).toEqual({
+      label: '1 unchecked, 2 not measured',
+      text: '1 unchecked, 2 not measured. 1 of 9 answers had sources that could not be checked; 2 of 9 answers came from engines that return no sources, so this rate leaves them out.',
+    })
+    expect(excludedAnswersFlag({ denominator: 4, citationNotMeasured: 1 }, 'cited')).toEqual({
+      label: '1 not measured',
+      text: '1 not measured. 1 of 5 answers came from engines that return no sources, so this rate leaves it out.',
+    })
+    // A mention rate never shows a citation count.
+    expect(excludedAnswersFlag({ denominator: 4, citationNotMeasured: 1 }, 'mentioned')).toBeNull()
   })
 })

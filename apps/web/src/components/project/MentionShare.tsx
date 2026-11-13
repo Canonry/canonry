@@ -67,9 +67,11 @@ export function mentionClassFigures(
     return { headline: 'No answers', numeric: false, detail: 'no answer text in this run', showRows: false }
   }
   // A project-only denominator is never rendered as a 100% share chart.
+  // The comparison beside this card says what is missing and offers the one
+  // way to add a competitor, so this card states its own condition.
   if (!opts.hasCompetitors) {
     return {
-      headline: 'Add competitors',
+      headline: 'No comparison',
       numeric: false,
       detail: `you were named in ${breakdown.projectMentionSnapshots} of ${breakdown.snapshotsWithAnswerText} answers`,
       showRows: false,

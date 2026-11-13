@@ -486,7 +486,7 @@ export function TrendCard({
       >
         {notice && <div className="mb-3 text-copy-14 text-secondary">{notice}</div>}
         {mode === 'compare' ? chart : !lead || !drawable ? (
-          <p className="flex h-32 items-center justify-center px-6 text-center text-copy-14 text-secondary">{emptyChartMessage}</p>
+          <p className="px-4 py-4 text-copy-13 text-secondary">{emptyChartMessage}</p>
         ) : (
           <>
             <div role="img" aria-label={summary} style={{ height: chartHeight }}>

@@ -38,6 +38,17 @@ export const trafficActivitySummarySchema = z.object({
    * before it. Not window-bound. Optional so a newer client reads an older API.
    */
   aiReferralCountingChangedAt: z.string().nullable().optional(),
+  /**
+   * The end of the last hour, on any of the project's sources, whose hosted
+   * browser agent (Google-Agent, Claude-Agent) AI user fetches were counted
+   * under older rules, or null when none holds such an hour. From it on, those
+   * agents count their page loads only. Earlier hours were counted differently
+   * and can read high (every file, data call and beacon counted) or low (whole
+   * visits judged likely fake); they were not recounted, so the AI user fetch
+   * delta is null while the prior window starts before it. Not window-bound.
+   * Optional so a newer client reads an older API.
+   */
+  aiUserFetchCountingChangedAt: z.string().nullable().optional(),
   hasData: z.boolean().describe('True when the selected or prior window has stored crawler, user-fetch, countable referral or operator evidence, or the selected window has referral redirects. False means no qualifying stored evidence; it can occur with no, paused, errored or never-synced ingestion and out-of-window observations. It does not establish measured zero traffic or source health.'),
 
   /** Verified crawler hits during the selected period and the equal preceding period. */
@@ -50,7 +61,9 @@ export const trafficActivitySummarySchema = z.object({
    * `unverifiedCrawlerHits` — those measure bulk crawl; this measures human
    * users asking an AI to read a URL. Counts verified + unverified together
    * because the operational question for user-fetch is "is this happening?"
-   * not "is this a confirmed bot identity?"
+   * not "is this a confirmed bot identity?" A hosted browser agent
+   * (Google-Agent, Claude-Agent) counts its page loads only, never the files,
+   * data calls and beacons its pages made (see `aiUserFetchCountingChangedAt`).
    */
   aiUserFetchHits: trafficActivityCountSchema,
   /**

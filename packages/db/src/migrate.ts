@@ -5445,7 +5445,295 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_run ON ga_search_landing_pages(sync_run_id)`,
     ],
   },
+  {
+    version: 214,
+    name: 'site-health-notify-state',
+    // What the site-health.issue.new webhook already reported, one row per
+    // project. No backfill: a project without a row reports what its next
+    // audit finds, once.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS site_health_notify_state (
+        project_id     TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        reported_keys  TEXT NOT NULL DEFAULT '[]',
+        run_id         TEXT NOT NULL,
+        updated_at     TEXT NOT NULL,
+        notified_at    TEXT
+      )`,
+    ],
+  },
+  {
+    version: 215,
+    name: 'provider-connection-tests',
+    // One row per connection: the latest test result and a keyed hash of the
+    // registration it checked. No status CHECK, so a status a later release
+    // adds needs no table rebuild; readers validate rows against the contract.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS provider_connection_tests (
+        provider     TEXT PRIMARY KEY NOT NULL,
+        fingerprint  TEXT NOT NULL,
+        status       TEXT NOT NULL,
+        message      TEXT NOT NULL,
+        model        TEXT,
+        checked_at   TEXT NOT NULL,
+        duration_ms  INTEGER NOT NULL
+      )`,
+    ],
+  },
+  {
+    version: 216,
+    name: 'run-provider-failures',
+    // A running sweep's failures so far, so a reader sees them before the run
+    // ends. Nullable: existing runs have none to report.
+    statements: [
+      `ALTER TABLE runs ADD COLUMN provider_failures TEXT`,
+    ],
+  },
+  {
+    version: 217,
+    name: 'run-planned-answers',
+    // The answers a sweep set out to collect, written when it starts, so a
+    // reader can show progress without remembering the launch. Nullable:
+    // existing runs never recorded one.
+    statements: [
+      `ALTER TABLE runs ADD COLUMN planned_answers INTEGER`,
+    ],
+  },
+  {
+    version: 218,
+    name: 'site-health-notify-state-repair',
+    // v214 again. Before this release merged the one that shipped v214, its
+    // provider-connection-tests, run-provider-failures and run-planned-answers
+    // migrations were numbered 214-216 (now 215-217). A database that applied
+    // them under those numbers skipped v214, since only versions above the
+    // highest applied one run. Everywhere else the table exists: a no-op.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS site_health_notify_state (
+        project_id     TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        reported_keys  TEXT NOT NULL DEFAULT '[]',
+        run_id         TEXT NOT NULL,
+        updated_at     TEXT NOT NULL,
+        notified_at    TEXT
+      )`,
+    ],
+  },
+  {
+    version: 219,
+    name: 'site-audit-owned-sites',
+    // Agent Readiness scans of more than one owned site. The saved list
+    // defaults to empty, so every project keeps scanning its main domain only.
+    // A page row's `site` is null on the main domain, which is every row
+    // written before, and the bare host on another site. A snapshot's `sites`
+    // is null for every scan made before: it covered the main domain only.
+    statements: [
+      `ALTER TABLE projects ADD COLUMN site_audit_domains TEXT NOT NULL DEFAULT '[]'`,
+      `ALTER TABLE site_crawl_pages ADD COLUMN site TEXT`,
+      `ALTER TABLE site_crawl_snapshots ADD COLUMN sites TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_site_crawl_pages_site ON site_crawl_pages(project_id, run_id, attempt_id, site, path)`,
+    ],
+  },
+  {
+    version: 220,
+    name: 'chatgpt-sign-in',
+    // Sign in with ChatGPT: linked identities, email invitations, each
+    // person's plan grant for their own Aero turns, and in-flight sign-ins.
+    // Additive only. Accounts created through an invitation keep the users
+    // table's NOT NULL password column with a marker no password can match,
+    // so the account table is not rebuilt on large installs.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS user_external_identities (
+        id            TEXT PRIMARY KEY,
+        user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider      TEXT NOT NULL CHECK (provider IN ('chatgpt')),
+        issuer        TEXT NOT NULL,
+        client_id     TEXT NOT NULL,
+        subject       TEXT NOT NULL,
+        email         TEXT,
+        created_at    TEXT NOT NULL,
+        last_login_at TEXT
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_external_identities_subject
+        ON user_external_identities(issuer, client_id, subject)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_external_identities_user_provider
+        ON user_external_identities(user_id, provider)`,
+      `CREATE TABLE IF NOT EXISTS user_invitations (
+        id               TEXT PRIMARY KEY,
+        email            TEXT NOT NULL,
+        email_key        TEXT NOT NULL,
+        role             TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+        created_by_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at       TEXT NOT NULL,
+        expires_at       TEXT NOT NULL,
+        accepted_at      TEXT,
+        accepted_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        revoked_at       TEXT
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_user_invitations_email ON user_invitations(email_key)`,
+      `CREATE TABLE IF NOT EXISTS chatgpt_plan_connections (
+        user_id           TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        id                TEXT NOT NULL UNIQUE,
+        identity_id       TEXT NOT NULL REFERENCES user_external_identities(id) ON DELETE CASCADE,
+        status            TEXT NOT NULL CHECK (status IN ('connected', 'reconnect-required')),
+        scopes            TEXT NOT NULL,
+        tokens            TEXT NOT NULL,
+        access_expires_at TEXT NOT NULL,
+        model_id          TEXT,
+        revision          INTEGER NOT NULL DEFAULT 0,
+        connected_at      TEXT NOT NULL,
+        updated_at        TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS chatgpt_login_transactions (
+        state_hash   TEXT PRIMARY KEY,
+        browser_hash TEXT NOT NULL,
+        intent       TEXT NOT NULL CHECK (intent IN ('login', 'connect')),
+        user_id      TEXT REFERENCES users(id) ON DELETE CASCADE,
+        nonce        TEXT NOT NULL,
+        scopes       TEXT NOT NULL,
+        return_to    TEXT,
+        created_at   TEXT NOT NULL,
+        expires_at   TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chatgpt_login_transactions_expires
+        ON chatgpt_login_transactions(expires_at)`,
+    ],
+  },
+  {
+    version: 221,
+    name: 'claude-searchbot-own-bot',
+    // Claude-SearchBot, Anthropic's search crawler, now has its own classifier
+    // rule (`claude-searchbot`, purpose search). The `anthropic-claudebot` rule
+    // (purpose training) used to match it too, so its hits were stored as
+    // ClaudeBot. This moves the crawler rows whose sampled user agent is
+    // Claude-SearchBot to the new bot, with their manifest provenance, and
+    // relabels the crawler samples the old rule classified.
+    //
+    // Best effort, as v65's Mistral split: an hourly row is one (project,
+    // source, hour, bot, verification, path, status) and keeps one sampled
+    // user agent, the latest batch's, so a row that counted both bots in the
+    // same hour moves or stays whole by that sample. New traffic splits
+    // exactly. Both rules verify against Anthropic's one crawler manifest, so
+    // a moved row keeps its verification status and provenance.
+    //
+    // A run hook because the statement allowlist is schema-shaped, and because
+    // a legacy database that resumes past the migrations creating these tables
+    // must skip the move rather than fail on a missing table.
+    statements: [],
+    run: (tx) => {
+      moveClaudeSearchBotRows(tx)
+    },
+  },
+  {
+    version: 222,
+    name: 'ai-user-fetch-older-count-until',
+    // Hosted browser agents (Google-Agent, Claude-Agent) now count only their
+    // page loads as AI user fetches. Hours a source wrote before were counted
+    // under older rules: every file, data call and beacon their pages made
+    // counted (high), or the older trust rules judged whole visits likely fake
+    // (low). They were not recounted (hourly rows keep no method or query).
+    // Stamp where the older count ended on sources holding such hours: the end
+    // of the last one, or the upgrade time if that is earlier. A fresh install
+    // holds none and stamps nothing.
+    //
+    // A run hook because the statement allowlist is schema-shaped, and because
+    // a legacy database that resumes past the migrations creating the hourly
+    // tables must skip the stamp rather than fail on a missing table.
+    statements: [
+      `ALTER TABLE traffic_sources ADD COLUMN ai_user_fetch_older_count_until TEXT`,
+    ],
+    run: (tx) => {
+      stampBrowserAgentOlderCount(tx, new Date().toISOString())
+    },
+  },
 ]
+
+/** v222: the hourly tables holding a hosted browser agent's hours, counted or judged likely fake. */
+const V222_BROWSER_AGENT_HOURLY_TABLES = ['ai_user_fetch_events_hourly', 'ai_user_fetch_likely_fake_hourly'] as const
+
+/**
+ * v222: set `traffic_sources.ai_user_fetch_older_count_until` to the end of
+ * the source's last hour holding a hosted browser agent's rows, counted or
+ * likely fake, or to the upgrade time if that is earlier: the hours before it
+ * were counted under the older rules. Sources holding no such row stay NULL.
+ * The bot ids are the classifier rules' at this version. Claude-Agent's hours
+ * from before it had a rule are unrecognized-agent rows; the stored traffic
+ * pass stamps their source when it moves them in. One pass: each table is
+ * scanned once for the last hour per source, then one update joins by source
+ * id. A rerun keeps a stamp already set.
+ */
+function stampBrowserAgentOlderCount(tx: MigrationDb, upgradedAt: string): void {
+  const lastHours = V222_BROWSER_AGENT_HOURLY_TABLES
+    .filter(table => tableExists(tx, table))
+    .map(table => `SELECT source_id, MAX(ts_hour) AS ts_hour FROM ${table}
+      WHERE bot_id IN ('google-agent', 'claude-agent') GROUP BY source_id`)
+  if (lastHours.length === 0) return
+  tx.run(sql`UPDATE traffic_sources
+    SET ai_user_fetch_older_count_until = min(${upgradedAt}, last_hour.hour_end)
+    FROM (
+      SELECT source_id, strftime('%Y-%m-%dT%H:%M:%fZ', MAX(ts_hour), '+1 hour') AS hour_end
+      FROM (${sql.raw(lastHours.join(' UNION ALL '))})
+      GROUP BY source_id
+    ) AS last_hour
+    WHERE traffic_sources.id = last_hour.source_id
+      AND traffic_sources.ai_user_fetch_older_count_until IS NULL`)
+}
+
+/**
+ * v221: move stored Claude-SearchBot crawler hits from `anthropic-claudebot`
+ * to `claude-searchbot`. The crawler table is scanned once, into a temporary
+ * list of the rows to move; their provenance rows are then found by key. The
+ * copy adds into a row already under the new id, and deleting the old rows
+ * removes their provenance rows through the foreign key's cascade (v139), as
+ * every other deleter of this table relies on. A rerun finds nothing to move.
+ */
+function moveClaudeSearchBotRows(tx: MigrationDb): void {
+  if (tableExists(tx, 'crawler_events_hourly')) {
+    tx.run(sql.raw('DROP TABLE IF EXISTS temp.v221_moved'))
+    tx.run(sql.raw(
+      `CREATE TEMP TABLE v221_moved AS
+         SELECT rowid AS rid, project_id, source_id, ts_hour, verification_status, path_normalized, status
+           FROM crawler_events_hourly
+          WHERE bot_id = 'anthropic-claudebot' AND sampled_user_agent LIKE '%Claude-SearchBot/%'`,
+    ))
+    // `WHERE true` keeps SQLite from reading the upsert's ON as the join's.
+    tx.run(sql.raw(
+      `INSERT INTO crawler_events_hourly (project_id, source_id, ts_hour, bot_id, operator, verification_status, path_normalized, status, hits, sampled_user_agent, created_at, updated_at)
+       SELECT c.project_id, c.source_id, c.ts_hour, 'claude-searchbot', c.operator, c.verification_status, c.path_normalized, c.status, c.hits, c.sampled_user_agent, c.created_at, c.updated_at
+         FROM v221_moved t JOIN crawler_events_hourly c ON c.rowid = t.rid
+        WHERE true
+       ON CONFLICT (project_id, source_id, ts_hour, bot_id, verification_status, path_normalized, status)
+       DO UPDATE SET hits = crawler_events_hourly.hits + excluded.hits,
+                     updated_at = max(crawler_events_hourly.updated_at, excluded.updated_at)`,
+    ))
+    if (tableExists(tx, 'crawler_verification_manifests_hourly')) {
+      tx.run(sql.raw(
+        `INSERT INTO crawler_verification_manifests_hourly (project_id, source_id, ts_hour, bot_id, verification_status, path_normalized, status, manifest_id, manifest_json, hits, created_at, updated_at)
+         SELECT m.project_id, m.source_id, m.ts_hour, 'claude-searchbot', m.verification_status, m.path_normalized, m.status, m.manifest_id, m.manifest_json, m.hits, m.created_at, m.updated_at
+           FROM v221_moved t JOIN crawler_verification_manifests_hourly m
+             ON m.project_id = t.project_id AND m.source_id = t.source_id AND m.ts_hour = t.ts_hour
+            AND m.bot_id = 'anthropic-claudebot' AND m.verification_status = t.verification_status
+            AND m.path_normalized = t.path_normalized AND m.status = t.status
+          WHERE true
+         ON CONFLICT (project_id, source_id, ts_hour, bot_id, verification_status, path_normalized, status, manifest_id)
+         DO UPDATE SET hits = crawler_verification_manifests_hourly.hits + excluded.hits,
+                       updated_at = max(crawler_verification_manifests_hourly.updated_at, excluded.updated_at)`,
+      ))
+    }
+    tx.run(sql.raw('DELETE FROM crawler_events_hourly WHERE rowid IN (SELECT rid FROM v221_moved)'))
+    tx.run(sql.raw('DROP TABLE v221_moved'))
+  }
+  if (tableExists(tx, 'raw_event_samples')) {
+    tx.run(sql.raw(
+      `UPDATE raw_event_samples
+          SET classifier_details_json = json_set(classifier_details_json,
+                '$.crawler.botId', 'claude-searchbot',
+                '$.crawler.product', 'Claude-SearchBot',
+                '$.crawler.purpose', 'search')
+        WHERE event_type = 'crawler'
+          AND user_agent LIKE '%Claude-SearchBot/%'
+          AND CASE WHEN json_valid(classifier_details_json)
+                   THEN json_extract(classifier_details_json, '$.crawler.botId') END = 'anthropic-claudebot'`,
+    ))
+  }
+}
 
 /**
  * v165: rebuilds `llm_usage_events` and `agent_tool_events` without the
@@ -5993,6 +6281,7 @@ export function migrate(
   // statement is either CREATE/INDEX IF NOT EXISTS, an idempotent UPDATE,
   // or an ALTER TABLE ADD COLUMN whose duplicate-column error we swallow.
   const appliedVersion = getAppliedVersion(db)
+  let appliedAny = false
 
   for (const mv of versions) {
     if (mv.version <= appliedVersion) continue
@@ -6014,8 +6303,16 @@ export function migrate(
         mv.run?.(tx)
         recordMigration(tx, mv.version, mv.name)
       })
+      appliedAny = true
     } finally {
       if (mv.disableForeignKeys) db.run(sql.raw('PRAGMA foreign_keys = ON'))
     }
   }
+
+  // A version that rewrites many rows leaves the -wal file at its peak size,
+  // and SQLite never shrinks it while a connection stays open, so a server
+  // would hold that disk for its whole life. Truncate it once after upgrading.
+  // With another connection still reading, SQLite waits up to the busy
+  // timeout and then leaves the file as it is; it never raises an error.
+  if (appliedAny) db.all(sql.raw('PRAGMA wal_checkpoint(TRUNCATE)'))
 }

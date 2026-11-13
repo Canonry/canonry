@@ -10,7 +10,7 @@
 
 Validates that the config has a non-empty API key. Returns the model name that will be used. Every `claude-*` model is accepted. For a model that rejects forced `tool_choice` (see [Retrieval contract](#retrieval-contract)) the message says that tracked queries run under `native-auto-v1` and that retrieval is not guaranteed.
 
-### `healthcheck(config: ClaudeConfig): Promise<ClaudeHealthcheckResult>`
+### `healthcheck(config: ClaudeConfig, signal?: AbortSignal): Promise<ClaudeHealthcheckResult>`
 
 Makes a lightweight Anthropic API call to verify the key works. Returns ok/error with a message.
 

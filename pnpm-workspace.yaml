@@ -57,7 +57,7 @@ minimumReleaseAgeExclude:
   - lucide-react@1.61.0
   - openai@7.40.0
   - vite@8.3.5
-  - '@canonry/agent-readiness@8.0.0'
+  - '@canonry/agent-readiness@8.2.0'
   - oidc-provider@9.13.2
 
 # The audit engine ships an `/agent-readiness` skill for people who run it

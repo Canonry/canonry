@@ -1,27 +1,28 @@
 ---
 name: site-health
-description: Diagnose Site Health scores, page findings, crawl coverage, internal links, and scan changes while preserving run provenance and incomplete-data limits.
+description: Diagnose Agent Readiness scores, page findings, crawl coverage, internal links, and scan changes while preserving run provenance and incomplete-data limits.
 ---
 
-# Site Health diagnosis
+# Agent Readiness diagnosis
 
-Site Health is the product label for the `technical-aeo` audit and crawl
-surface. It measures technical readiness. Mention coverage and citation
-coverage come from answer-engine measurements; neither is derived from an
-audit score, link score, or graph position.
+Agent Readiness is the product name for the site scan, page scores, and link
+map (CLI `agent-readiness`, MCP `canonry_agent_readiness_*`). It measures how
+ready a site's pages are for AI agents and answer engines. Mention coverage and
+citation coverage come from answer-engine measurements; neither is derived from
+an audit score, link score, or graph position.
 
 ## Start with stored evidence
 
-Read `canonry_site_health_overview` for the selected or latest crawl's root,
+Read `canonry_agent_readiness_overview` for the selected or latest crawl's root,
 run identity, completeness, counts, budgets, versions, termination, and
-dead-link check state. Pair it with `canonry_technical_aeo_score` for the
+dead-link check state. Pair it with `canonry_agent_readiness_score` for the
 aggregate score, factor distributions, issues, and prioritized fixes. Pin
 the score and subsequent reads to the returned run when available. Overview
 is crawl metadata, not the scorecard. Older scorecard-only audits can lack
 a graph; report the available scores and missing crawl evidence separately.
 
-Use `canonry_technical_aeo_pages` for low-scoring or failed pages and
-`canonry_site_health_page_audit` for one page's exact factor scores, finding
+Use `canonry_agent_readiness_page_scores` for low-scoring or failed pages and
+`canonry_agent_readiness_page_audit` for one page's exact factor scores, finding
 codes/messages, recommendations, and critical defects. Prefer a returned
 `nodeKey`; use the exact URL when no node key is available. The chat does not
 receive the selected graph node, so resolve the requested page or ask for it.
@@ -30,17 +31,18 @@ receive the selected graph node, so resolve the requested page or ask for it.
 
 | Question | Read |
 |---|---|
-| Which technical issues need investigation, including on passing pages? | `canonry_site_health_issues` for grouped findings, counts, example URLs and coverage |
-| Which pages have a selected issue? | `canonry_site_health_issue_pages`; pin the list's run and follow the affected-page cursor |
-| Which URLs were discovered and audited? | `canonry_technical_aeo_crawl_pages`; filter audit/fetch/indexability state and follow its cursor |
-| How is the site organized? | `canonry_technical_aeo_structure` for one path level |
-| What links to/from this page? | `canonry_technical_aeo_link_neighbors`; inbound and outbound truncation are independent |
-| What is around this page? | `canonry_site_health_subgraph`; refocus or expand only as needed |
-| Can the root reach this page? | `canonry_site_health_path` for a directed followable path |
-| Which editorial or template links exist? | `canonry_technical_aeo_internal_links` with supported filters |
-| What changed between scans? | `canonry_site_health_changes` for compatible complete snapshots |
-| Were broken links checked? | `canonry_technical_aeo_dead_links` |
-| How have scores moved? | `canonry_technical_aeo_trend`, then inspect the relevant runs and coverage |
+| Which issues need investigation, including on passing pages? | `canonry_agent_readiness_issues` for grouped findings, counts, example URLs and coverage |
+| Which pages have a selected issue? | `canonry_agent_readiness_issue_pages`; pin the list's run and follow the affected-page cursor |
+| Which URLs were discovered and audited? | `canonry_agent_readiness_pages`; filter audit/fetch/indexability state and follow its cursor |
+| How is the site organized? | `canonry_agent_readiness_structure` for one path level of one site |
+| Which sites did the scan cover, and how does each score? | `sites` on `canonry_agent_readiness_overview` and `canonry_agent_readiness_score` |
+| What links to/from this page? | `canonry_agent_readiness_link_neighbors`; inbound and outbound truncation are independent |
+| What is around this page? | `canonry_agent_readiness_subgraph`; refocus or expand only as needed |
+| Can the root reach this page? | `canonry_agent_readiness_path` for a directed followable path |
+| Which editorial or template links exist? | `canonry_agent_readiness_links` with supported filters |
+| What changed between scans? | `canonry_agent_readiness_changes` for compatible complete snapshots |
+| Were broken links checked? | `canonry_agent_readiness_dead_links` |
+| How have scores moved? | `canonry_agent_readiness_trend`, then inspect the relevant runs and coverage |
 
 Use semantic reads rather than requesting the full interactive graph or
 inferring importance from visualization coordinates. Defaults for subgraphs
@@ -63,6 +65,15 @@ are 25 nodes and 50 edges; a bounded neighborhood is not the whole site.
 - Subgraph `countAccuracy: lower-bound` means counts are minimums. An
   unreachable or truncated path in an incomplete crawl does not prove a
   site-wide orphan. Absence from a bounded result is not absence from the site.
+- A scan can cover owned domains besides the main one. `sites` lists each,
+  main domain first; a site with an `error` was not reached, which is not a
+  site with no problems. Each page carries its `site`, and `path` never
+  includes the host, so two sites can share a path. Pass `site` to the pages,
+  structure and issues reads to stay on one site. The headline score covers
+  every site; quote a site's own score from `sites` when the question is
+  about that site. A scan without `sites` covered the main domain only.
+  `deltaUnavailableReason: sites-changed` means the previous scan scored
+  other sites: report no change between the two scores, not a rise or fall.
 - Crawler-derived indexability is technical eligibility, not Google index
   coverage. Verify Google indexing with its own stored integration evidence.
 - Link score indicates structural importance, not an audit failure. Pair
@@ -102,14 +113,24 @@ multiple Properties; avoid counting the same finding as independent proof
 for each one.
 
 Rank persisted critical defects and fixes using severity and affected-page
-evidence, with business or link importance where available. State the run,
+evidence, with business or link importance where available.
+
+On an Advanced project, the critical defect `names-another-entity` marks a
+page that belongs to one Property whose FAQ, title or H1 names another of the
+plan's Properties, usually text copied between Property pages. The page audit
+read carries up to 25 `evidence` entries: the place (`faq-question`,
+`faq-answer`, `title`, `h1`), the FAQ question, the named Property's key and
+name, and a short snippet. Quote those rather than the issue title, and name
+the Property the page belongs to. The check uses the plan revision in the
+scan's `effectiveOptions.entityPlanRevision`; a null revision means the scan
+did not check names, not that no page names another Property. State the run,
 scope, finding, affected page(s), and supported next step. A technical issue
 can be a hypothesis for an AI-visibility gap, but the crawl alone cannot prove
 why an answer engine omitted a Property. Join the corresponding answer
 evidence before making that connection.
 
 Read existing data first. If absent or stale, propose an explicitly bounded
-`canonry_technical_aeo_run` when a new audit is needed. Existing authorization
+`canonry_agent_readiness_run` when a new scan is needed. Existing authorization
 for that run remains valid; a diagnostic question alone does not authorize
 a crawl. Dead-link checks remain off unless requested. After an approved
 run, follow its returned ID with `canonry_run_get`, then inspect that run's

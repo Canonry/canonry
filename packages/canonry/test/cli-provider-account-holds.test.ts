@@ -143,6 +143,19 @@ describe('a run that skipped a provider', () => {
     expect(lines.some(line => line.startsWith('  Error (openai)'))).toBe(false)
   })
 
+  it('canonry run show lists the engines a running run has failing so far', async () => {
+    const lines = await captured(() => printRunDetail({
+      ...RUN,
+      status: 'running',
+      providerFailures: {
+        'openrouter:google/gemini-3.8-flash': { message: 'OpenRouter request failed (HTTP 402): Insufficient credits.', failedQueries: 2, stopped: true },
+        gemini: { message: 'Request timed out.', failedQueries: 1, stopped: false },
+      },
+    }))
+    expect(lines).toContain('  Failing:  openrouter:google/gemini-3.8-flash: 2 queries failed, no longer called this run. OpenRouter request failed (HTTP 402): Insufficient credits.')
+    expect(lines).toContain('  Failing:  gemini: 1 query failed. Request timed out.')
+  })
+
   it('canonry run says which providers the queued run will not call', async () => {
     mockTriggerRun.mockResolvedValue({ ...RUN, status: 'queued', skippedProviders: { openai: OPENAI } })
     const lines = await captured(() => triggerRun('acme co'))

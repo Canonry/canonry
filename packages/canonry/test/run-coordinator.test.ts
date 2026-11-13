@@ -653,3 +653,33 @@ describe('answer evidence hook', () => {
     expect(notifier.onRunCompleted).toHaveBeenCalledWith(runId, projectId)
   })
 })
+
+describe('site audits', () => {
+  function seedAudit(db: ReturnType<typeof createClient>) {
+    const { projectId, runId } = seedFixture(db)
+    const now = new Date().toISOString()
+    const auditRunId = crypto.randomUUID()
+    db.insert(runs).values({ id: auditRunId, projectId, kind: 'site-audit', status: 'completed', createdAt: now, finishedAt: now }).run()
+    return { projectId, answerRunId: runId, auditRunId }
+  }
+
+  it('asks the notifier for Site Health alerts after a site audit, and only then', async () => {
+    const { db } = createTempDb('coord-site-health-')
+    const { projectId, answerRunId, auditRunId } = seedAudit(db)
+    const notifier = { ...createMockNotifier(), onSiteAuditCompleted: vi.fn().mockResolvedValue(null) }
+    const coordinator = new RunCoordinator(db, notifier as unknown as Notifier, new IntelligenceService(db))
+    await coordinator.onRunCompleted(auditRunId, projectId)
+    expect(notifier.onRunCompleted).toHaveBeenCalledWith(auditRunId, projectId)
+    expect(notifier.onSiteAuditCompleted).toHaveBeenCalledWith(auditRunId, projectId)
+    await coordinator.onRunCompleted(answerRunId, projectId)
+    expect(notifier.onSiteAuditCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it('finishes the run even when the Site Health alert fails', async () => {
+    const { db } = createTempDb('coord-site-health-fail-')
+    const { projectId, auditRunId } = seedAudit(db)
+    const notifier = { ...createMockNotifier(), onSiteAuditCompleted: vi.fn().mockRejectedValue(new Error('webhook down')) }
+    const coordinator = new RunCoordinator(db, notifier as unknown as Notifier, new IntelligenceService(db))
+    await expect(coordinator.onRunCompleted(auditRunId, projectId)).resolves.toBeUndefined()
+  })
+})

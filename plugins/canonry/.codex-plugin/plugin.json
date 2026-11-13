@@ -1,7 +1,7 @@
 {
   "name": "canonry",
-  "version": "7.97.5",
-  "description": "Agent-first Answer Engine Optimization (AEO): measure AI search and competitors, research SEO, audit sites, analyze AI traffic, create and publish content, manage ChatGPT Ads, and improve indexing with Canonry and Aero skills plus MCP tools.",
+  "version": "7.105.0",
+  "description": "Agent-first Answer Engine Optimization (AEO): measure AI search and competitors, research SEO, check Agent Readiness, analyze AI traffic, create and publish content, manage ChatGPT Ads, and improve indexing with Canonry and Aero skills plus MCP tools.",
   "author": {
     "name": "Canonry",
     "url": "https://canonry.ai"
@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "Canonry",
     "shortDescription": "AEO, SEO, content and AI search operations",
-    "longDescription": "Use Canonry and Aero to measure AI mentions and citations, investigate competitors and SEO opportunities, audit sites, analyze crawler and referral traffic, create and publish content, manage ChatGPT Ads, and submit pages for indexing across brands, locations, and markets through authorized MCP tools.",
+    "longDescription": "Use Canonry and Aero to measure AI mentions and citations, investigate competitors and SEO opportunities, check Agent Readiness, analyze crawler and referral traffic, create and publish content, manage ChatGPT Ads, and submit pages for indexing across brands, locations, and markets through authorized MCP tools.",
     "developerName": "Canonry",
     "category": "Productivity",
     "capabilities": [
@@ -31,7 +31,7 @@
     "websiteURL": "https://canonry.ai",
     "defaultPrompt": [
       "Check my Canonry project and explain what changed.",
-      "Run a Technical AEO audit and help fix the highest-impact issues.",
+      "Run an Agent Readiness audit scan and help fix the highest-impact issues.",
       "Review citation and mention coverage and recommend the next action."
     ],
     "brandColor": "#940000",

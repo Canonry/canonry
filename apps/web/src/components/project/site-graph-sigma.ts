@@ -54,7 +54,7 @@ export function siteGraphRootNodeSize(nodeCount: number): number {
 }
 
 /**
- * Structural subset of a published Site Health graph node. Positions are
+ * Structural subset of a published Agent Readiness graph node. Positions are
  * computed with the snapshot and are never recomputed in the browser.
  */
 export interface SiteGraphHealthSource {
@@ -73,7 +73,7 @@ export interface SiteGraphSigmaNode extends SiteGraphHealthSource {
   url: string
   path: string
   depth: number | null
-  /** Page-level Technical AEO score. It does not affect graph color or size. */
+  /** Page-level Agent Readiness score. It does not affect graph color or size. */
   auditScore?: number | null
   /** Internal-link importance, 0 to 100 against the crawl's top page. It sets the node size. */
   linkScoreNormalized: number | null
@@ -110,7 +110,7 @@ export interface SigmaSiteGraphTheme {
 /**
  * Sigma only accepts hex and comma-delimited rgb(a) colors. Keep every
  * renderer-bound color in the existing neutral graph ladder or the dedicated
- * Site Health state palette, never in CSS's space-delimited color syntax.
+ * Agent Readiness state palette, never in CSS's space-delimited color syntax.
  */
 export const SITE_GRAPH_SIGMA_COLOR_TOKENS = {
   eligible: SITE_GRAPH_COLOR_TOKENS.eligible,

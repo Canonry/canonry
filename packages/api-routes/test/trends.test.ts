@@ -104,7 +104,7 @@ describe('GET /projects/:name/trends', () => {
     expect(body).toMatchObject({ window: 'all', startDate: '2026-08-01', endDate: '2026-10-01' })
     expect(body.groups).toEqual([{
       key: 'site-health',
-      label: 'Site Health',
+      label: 'Agent Readiness',
       figures: [
         expect.objectContaining({
           key: 'score',

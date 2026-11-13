@@ -56,6 +56,7 @@ import {
   notificationDtoSchema,
   projectDtoSchema,
   providerBatchSummaryDtoSchema,
+  providerConnectionLastTestDtoSchema,
   queryDtoSchema,
   querySnapshotDtoSchema,
   recommendationExplanationDtoSchema,
@@ -81,7 +82,7 @@ import {
   conversionTrackingContractSchema,
   gtmConnectionMetadataDtoSchema,
   gtmRawSnapshotMetadataDtoSchema,
-  userDtoSchema,
+  userDtoSchema, userInvitationDtoSchema,
   measurementQuerySetSchema,
   measurementQueryTemplateSchema,
 } from '@canonry/canonry-contracts'
@@ -271,6 +272,8 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       providerDispatchModes: 'Exposed as `dispatchModes` on the run DTO ({} when null).',
       pendingProviderErrors: 'Sync-provider errors held while finalization waits on a provider batch; folded into `error` at finalize.',
+      providerFailures: 'Exposed as `providerFailures` on the run detail while the run is queued or running; a finished run reports them in `error`.',
+      plannedAnswers: 'Exposed as `plannedAnswers` on the run detail once a sweep records it, and as `progress.answersPlanned` on the setup read.',
     },
   },
   runFills: {
@@ -300,6 +303,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
   providerBatchRequests: {
     kind: 'internal-only',
     reason: 'Maps each batch line\'s custom_id to its slot for ingest; answers surface as query snapshots.',
+  },
+  providerConnectionTests: {
+    kind: 'dto',
+    dto: providerConnectionLastTestDtoSchema,
+    internal: {
+      provider: 'The row key; the result is returned as lastTest on that provider connection, not as a row of its own.',
+      fingerprint: 'Keyed hash of the registration the test checked; it only decides whether the row still describes the active settings and never leaves the server.',
+    },
   },
   querySnapshots: {
     kind: 'dto',
@@ -618,6 +629,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Last graded website probe per project, plus the consecutive-failure count and whether the current outage was paged. It exists only so site-down alerting can wait for two failed passes and send one recovery for a paged outage. Alerting bookkeeping, not a measurement: the probe result is served live by GET /projects/:name/doctor?check=site.reachability, and exposing a cached copy would invite readers to trust a stale up or down verdict.',
   },
+  siteHealthNotifyState: {
+    kind: 'internal-only',
+    reason: 'Which critical page problems the site-health.issue.new webhook already reported, per project, so an unfixed problem is reported once. Alerting bookkeeping in the sense doctorHealthState is, not a measurement: the problems themselves are served live by GET /projects/:name/technical-aeo/issues from the stored crawl.',
+  },
   doctorHealthState: {
     kind: 'internal-only',
     reason: 'Last observed doctor outcome per project, kept only so health alerting can fire on transitions rather than on every scheduled pass. It is alerting bookkeeping, not a measurement: the report itself is served live by GET /projects/:name/doctor, and exposing a cached copy would invite readers to trust a stale health verdict.',
@@ -846,7 +861,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
   },
   gaLeadEventsDaily: {
     kind: 'internal-only',
-    reason: 'Typed GA4 attributed lead-event foundation; its public read model lands in the follow-up measurement API PR.',
+    reason: 'Read only as aggregates (measurement analysis lead periods and the /ga/traffic social platform conversions); no row-level DTO.',
   },
   gaSyncCoverage: {
     kind: 'internal-only',
@@ -1016,6 +1031,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       syncLeaseOwner: 'Ephemeral owner of a pull-source sync lease; internal concurrency state.',
       syncLeaseExpiresAt: 'Expiry for stale pull-source lease recovery; internal concurrency state.',
       aiReferralOlderCountUntil: 'End of the older AI-referral arrival count; surfaced as `aiReferralCountingChangedAt` on traffic events and analytics, not on the source DTO.',
+      aiUserFetchOlderCountUntil: 'End of the older browser-agent AI user fetch count; surfaced as `aiUserFetchCountingChangedAt` on traffic events and analytics, not on the source DTO.',
     },
   },
 
@@ -1050,6 +1066,28 @@ const COVERAGE: Record<string, CoverageEntry> = {
   dashboardSessions: {
     kind: 'internal-only',
     reason: 'API-key-bound dashboard session token digests and expiry; no public row DTO.',
+  },
+  userExternalIdentities: {
+    kind: 'internal-only',
+    reason: 'Sign in with ChatGPT identity links (issuer, client, subject); /auth/chatgpt/status exposes only linked and the email.',
+  },
+  userInvitations: {
+    kind: 'dto',
+    dto: userInvitationDtoSchema,
+    internal: {
+      emailKey: 'Lower-cased email a verified ChatGPT email is matched against; the DTO shows the address as typed.',
+      createdById: 'Inviting account, kept for audit; the audit log carries the attribution.',
+      acceptedUserId: 'Account the invitation created; the DTO shows its name as acceptedUserName.',
+      revokedAt: 'Revocation time; the DTO folds it into status.',
+    },
+  },
+  chatgptPlanConnections: {
+    kind: 'internal-only',
+    reason: 'Encrypted ChatGPT plan tokens and refresh bookkeeping; /auth/chatgpt/status exposes only plan status, model and connect time.',
+  },
+  chatgptLoginTransactions: {
+    kind: 'internal-only',
+    reason: 'Single-use in-flight ChatGPT sign-in digests; never returned.',
   },
   measurementPlans: {
     kind: 'internal-only',

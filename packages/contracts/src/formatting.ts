@@ -41,10 +41,39 @@ export function formatPercent(value: number | null | undefined, unit: RatioUnit 
   return `${sign}${tenths.toFixed(1)}%`
 }
 
+/**
+ * A count per 1,000 (conversions per 1,000 sessions) with one decimal: `3.7`,
+ * `25.6`, `1,204.0`. A missing or non-finite value reads `—`, a true 0 reads
+ * `0`, and a positive value that rounds to 0.0 reads `<0.1`, so a real
+ * conversion never shows as none.
+ */
+export function formatPerThousand(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—'
+  if (value === 0) return '0'
+  const tenths = roundedTenths(Math.abs(value))
+  const sign = value < 0 ? '-' : ''
+  if (tenths === 0) return `${sign}<0.1`
+  return `${sign}${tenths.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`
+}
+
 export function formatNumber(value: number): string {
   if (!Number.isFinite(value)) return '—'
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
   if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return value.toLocaleString('en-US')
+}
+
+/**
+ * A chart axis tick: compact like `formatNumber`, but exact. A chart's nice
+ * ticks below 10,000 step in multiples of 50, so one decimal would label the
+ * 1,050 gridline `1.1K`; this reads `1.05K`. Round values keep `formatNumber`'s
+ * form (`4.0K`), so a tick matches the totals beside its chart.
+ */
+export function formatAxisNumber(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  const size = Math.abs(value)
+  if (size >= 1_000_000) return `${(value / 1_000_000).toFixed(size % 100_000 === 0 ? 1 : 2)}M`
+  if (size >= 1_000) return `${(value / 1_000).toFixed(size % 100 === 0 ? 1 : 2)}K`
   return value.toLocaleString('en-US')
 }
 
@@ -569,6 +598,27 @@ export function parseBoundedRate(value: number | null): number | null {
   return value >= 0 && value <= 1 ? value : null
 }
 
+
+/**
+ * A project's market as people read it: "United States · English". A code the
+ * runtime cannot name stays as written, and an empty value reads "Country" or
+ * "Language", so the label never collapses to " · ".
+ */
+export function formatLocaleLabel(country: string, language: string): string {
+  const region = country.trim()
+  const lang = language.trim()
+  const regionName = region.length === 2 ? localeDisplayName('region', region.toUpperCase()) : undefined
+  const languageName = lang ? localeDisplayName('language', lang.toLowerCase()) : undefined
+  return `${regionName ?? (region || 'Country')} · ${languageName ?? (lang || 'Language')}`
+}
+
+function localeDisplayName(type: 'region' | 'language', code: string): string | undefined {
+  try {
+    return new Intl.DisplayNames(['en'], { type }).of(code)
+  } catch {
+    return undefined
+  }
+}
 
 /** A scheduled instant in its configured timezone, with an explicit zone label. */
 export function formatZonedTimestamp(iso: string, timeZone = 'UTC'): string | null {

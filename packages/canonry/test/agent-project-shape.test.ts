@@ -155,7 +155,8 @@ describe('aeroProjectShapePrompt', () => {
     const core = canonryMcpTools.filter(tool => tool.tier === 'core').length
     const pinnedOutsideCore = pinned.filter(name => byName.get(name)?.tier !== 'core').length
     const tiers = new Map<string, number>()
-    for (const tool of canonryMcpTools) tiers.set(tool.tier, (tiers.get(tool.tier) ?? 0) + 1)
+    // Aero never loads the deprecated MCP names, so they take no room in a toolkit.
+    for (const tool of canonryMcpTools.filter(entry => entry.deprecatedAliasOf === undefined)) tiers.set(tool.tier, (tiers.get(tool.tier) ?? 0) + 1)
     const largestToolkit = Math.max(...[...tiers].filter(([tier]) => tier !== 'core').map(([, size]) => size))
     expect(core + pinnedOutsideCore + largestToolkit + aeroOnlyTools).toBeLessThanOrEqual(MAX_VISIBLE_TOOLS)
   })

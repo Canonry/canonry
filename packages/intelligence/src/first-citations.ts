@@ -15,13 +15,13 @@ export function detectFirstCitations(currentRun: RunData, previousRun: RunData):
   const previousObservedQueries = observedKeys(previousRun, snap => snap.query)
   const previousCitedQueries = new Set<string>()
   for (const snap of previousRun.snapshots) {
-    if (snap.cited) previousCitedQueries.add(snap.query)
+    if (snap.cited === true) previousCitedQueries.add(snap.query)
   }
 
   const result: FirstCitation[] = []
   const seen = new Set<string>()
   for (const snap of currentRun.snapshots) {
-    if (!snap.cited) continue
+    if (snap.cited !== true) continue
     if (!previousObservedQueries.has(snap.query)) continue
     if (previousCitedQueries.has(snap.query)) continue
     const key = `${snap.query}:${snap.provider}`

@@ -2123,25 +2123,28 @@ export type VisibilityReportResponse = {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             propertyReach: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             outcomes: {
                 bothSignals: number;
@@ -2152,6 +2155,7 @@ export type VisibilityReportResponse = {
                 total: number;
             };
             notMeasuredUnchecked?: number;
+            notMeasuredNoSources?: number;
         };
         trend: Array<{
             runId: string;
@@ -2176,17 +2180,19 @@ export type VisibilityReportResponse = {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             continuity: {
                 state: 'first' | 'comparable' | 'definition-changed' | 'model-changed' | 'legacy-unknown';
@@ -2206,9 +2212,10 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 delta: number;
             } | {
@@ -2221,9 +2228,10 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 delta: number;
             } | {
@@ -2236,9 +2244,10 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 delta: number;
             } | {
@@ -2270,17 +2279,19 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 uncheckedSources?: {
                     answers: number;
@@ -2304,6 +2315,7 @@ export type VisibilityReportResponse = {
                 mentioned: boolean | null;
                 mentionUnavailableReason?: 'identity-ambiguous';
                 cited: boolean | null;
+                citationUnavailableReason?: 'citation-not-measured';
                 answerText: string | null;
                 createdAt: string;
                 sources: Array<string>;
@@ -2325,17 +2337,19 @@ export type VisibilityReportResponse = {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
         }>;
         observedCompetitors: Array<{
@@ -2351,17 +2365,19 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
             }>;
             groups: Array<{
@@ -2372,17 +2388,42 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
+                };
+            }>;
+            providers?: Array<{
+                provider: string;
+                queryCount: number;
+                answerCount: number;
+                mentionCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
+                    unattributed?: number;
+                    unchecked?: number;
+                    citationNotMeasured?: number;
+                };
+                citationCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
+                    unattributed?: number;
+                    unchecked?: number;
+                    citationNotMeasured?: number;
                 };
             }>;
         };
@@ -2944,6 +2985,10 @@ export type ApplyPreviewDto = {
         siteAuditMaxPages?: {
             before: number | null;
             after: number | null;
+        };
+        siteAuditDomains?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
         };
         competitorAutoAliases?: {
             before: 'off' | 'preview' | 'apply' | null;
@@ -4079,6 +4124,9 @@ export type AuthSessionDto = {
         name: string;
         role: 'admin' | 'viewer';
     } | null;
+    signInMethods?: {
+        chatgpt: boolean;
+    };
 };
 
 export type BacklinkHistoryEntry = {
@@ -4733,9 +4781,11 @@ export type BrandMetricsDto = {
         dataStartDate: string;
         dataEndDate: string;
         sweepCount: number;
-        citationRate: number;
+        citationRate: number | null;
         cited: number;
         total: number;
+        citationNotMeasured: number;
+        citedTotal?: number;
         queryCount: number;
         mentionRate: number;
         mentionedCount: number;
@@ -4747,9 +4797,11 @@ export type BrandMetricsDto = {
         };
         byProvider: {
             [key: string]: {
-                citationRate: number;
+                citationRate: number | null;
                 cited: number;
                 total: number;
+                citationNotMeasured: number;
+                citedTotal?: number;
                 mentionRate: number;
                 mentionedCount: number;
             };
@@ -4769,17 +4821,21 @@ export type BrandMetricsDto = {
         basketRevision: number | null;
     }>;
     overall: {
-        citationRate: number;
+        citationRate: number | null;
         cited: number;
         total: number;
+        citationNotMeasured: number;
+        citedTotal?: number;
         mentionRate: number;
         mentionedCount: number;
     };
     byProvider: {
         [key: string]: {
-            citationRate: number;
+            citationRate: number | null;
             cited: number;
             total: number;
+            citationNotMeasured: number;
+            citedTotal?: number;
             mentionRate: number;
             mentionedCount: number;
         };
@@ -5026,11 +5082,13 @@ export type CitationVisibilityResponse = {
         providersConfigured: number;
         providersCiting: number;
         providersMentioning: number;
+        providersCitationNotMeasured: number;
         totalQueries: number;
         queriesCitedAndMentioned: number;
         queriesCitedOnly: number;
         queriesMentionedOnly: number;
         queriesInvisible: number;
+        queriesCitationNotMeasured: number;
         latestRunId: string | null;
         latestRunAt: string | null;
     };
@@ -5039,8 +5097,8 @@ export type CitationVisibilityResponse = {
         query: string;
         providers: Array<{
             provider: string;
-            citationState: 'cited' | 'not-cited';
-            cited: boolean;
+            citationState: 'cited' | 'not-cited' | 'not-measured';
+            cited: boolean | null;
             mentioned: boolean;
             runId: string;
             runCreatedAt: string;
@@ -5048,6 +5106,7 @@ export type CitationVisibilityResponse = {
         citedCount: number;
         mentionedCount: number;
         totalProviders: number;
+        citationNotMeasured: number;
     }>;
     competitorGaps: Array<{
         queryId: string;
@@ -6069,7 +6128,7 @@ export type DiscoverySessionDetailDto = {
         projectId: string;
         query: string;
         bucket: 'cited' | 'aspirational' | 'wasted-surface' | null;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         citedDomains: Array<string>;
         answerMentioned: boolean | null;
         createdAt: string;
@@ -6228,7 +6287,7 @@ export type ResearchBatchDto = {
             namedCompetitors: Array<string>;
             citedCompetitorDomains: Array<string>;
             answerMentioned: boolean | null;
-            citationState: 'cited' | 'not-cited' | null;
+            citationState: 'cited' | 'not-cited' | 'not-measured' | null;
             error: string | null;
             startedAt: string | null;
             finishedAt: string | null;
@@ -6433,7 +6492,7 @@ export type ResearchRunDetailDto = {
         namedCompetitors: Array<string>;
         citedCompetitorDomains: Array<string>;
         answerMentioned: boolean | null;
-        citationState: 'cited' | 'not-cited' | null;
+        citationState: 'cited' | 'not-cited' | 'not-measured' | null;
         error: string | null;
         startedAt: string | null;
         finishedAt: string | null;
@@ -6925,7 +6984,7 @@ export type Ga4MeasurementAnalysisDto = {
         }>;
         aiEngines: {
             leadRateAvailable: boolean;
-            leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | null;
+            leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | 'sessions-before-leads' | null;
             organic: {
                 periods: Array<{
                     label: 'earliest' | 'middle' | 'previous' | 'latest';
@@ -7464,7 +7523,7 @@ export type GaTrafficResponse = {
         share: number;
     }>;
     socialPlatforms: Array<{
-        platform: 'instagram' | 'facebook' | 'pinterest' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'threads' | 'snapchat' | 'nextdoor' | 'quora' | null;
+        platform: 'instagram' | 'facebook' | 'pinterest' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'threads' | 'snapchat' | 'nextdoor' | 'quora' | 'shopmy' | 'ltk' | null;
         label: string;
         sessions: number;
         organicSessions: number;
@@ -7493,6 +7552,79 @@ export type GaTrafficResponse = {
                 [key: string]: number;
             };
         }>;
+    };
+    socialPlatformPerformance?: {
+        status: 'ready' | 'unavailable';
+        unavailableReason: 'sessions-not-synced' | null;
+        sessions: number;
+        sharePct: number;
+        sharePctDisplay: string;
+        paidSessions: number;
+        paidShare: number;
+        conversions: number | null;
+        conversionRateAvailable: boolean;
+        conversionRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | 'sessions-before-leads' | null;
+        countedEventNames: Array<string>;
+        minSessions: number;
+        site: {
+            conversions: number | null;
+            conversionsPerThousandSessions: number | null;
+            conversionsPerThousandSessionsDisplay: string;
+            sessions: number | null;
+        };
+        platforms: Array<{
+            conversions: number | null;
+            conversionsPerThousandSessions: number | null;
+            conversionsPerThousandSessionsDisplay: string;
+            key: string;
+            platform: 'instagram' | 'facebook' | 'pinterest' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'threads' | 'snapchat' | 'nextdoor' | 'quora' | 'shopmy' | 'ltk' | null;
+            label: string;
+            sessions: number;
+            organicSessions: number;
+            paidSessions: number;
+            share: number;
+            enoughSessions: boolean;
+            rank: number | null;
+            paid: {
+                conversions: number | null;
+                conversionsPerThousandSessions: number | null;
+                conversionsPerThousandSessionsDisplay: string;
+                sessions: number;
+            };
+            organic: {
+                conversions: number | null;
+                conversionsPerThousandSessions: number | null;
+                conversionsPerThousandSessionsDisplay: string;
+                sessions: number;
+            };
+            channelGroups: Array<string>;
+            sources: Array<{
+                conversions: number | null;
+                conversionsPerThousandSessions: number | null;
+                conversionsPerThousandSessionsDisplay: string;
+                source: string;
+                medium: string;
+                channelGroup: string;
+                trafficClass: 'organic' | 'paid';
+                sessions: number;
+                share: number;
+            }>;
+        }>;
+        daily: {
+            series: Array<{
+                key: string;
+                label: string;
+                sessions: number;
+            }>;
+            otherCount: number;
+            days: Array<{
+                date: string;
+                sessions: number;
+                values: {
+                    [key: string]: number;
+                };
+            }>;
+        };
     };
     socialSessions: number;
     paidSocialSessions: number;
@@ -9465,18 +9597,20 @@ export type HealthSnapshotDto = {
     id: string;
     projectId: string;
     runId: string | null;
-    overallCitedRate: number;
+    overallCitedRate: number | null;
     overallMentionRate: number;
     totalPairs: number;
     citedPairs: number;
+    citationNotMeasuredPairs: number;
     mentionedPairs: number;
     providerBreakdown: {
         [key: string]: {
-            citedRate: number;
+            citedRate: number | null;
             mentionRate: number;
             cited: number;
             mentioned: number;
             total: number;
+            citationNotMeasured: number;
         };
     };
     createdAt: string;
@@ -9592,11 +9726,11 @@ export type LatestProjectRunDto = {
             queryId: string;
             query?: string;
             provider: string;
-            citationState: 'cited' | 'not-cited';
+            citationState: 'cited' | 'not-cited' | 'not-measured';
             answerMentioned?: boolean;
             visibilityState?: 'visible' | 'not-visible';
             mentionState?: 'mentioned' | 'not-mentioned';
-            transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited';
+            transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited' | 'not-measured';
             answerText?: string | null;
             citedDomains: Array<string>;
             citedUrls: Array<string> | null;
@@ -9758,7 +9892,31 @@ export type LatestProjectRunDto = {
             totalQueries: number;
             citedQueries: number;
             mentionedQueries: number;
+            citationNotMeasuredQueries?: number;
         } | null;
+        queryCountsByClass?: {
+            nonBrand: {
+                totalQueries: number;
+                citedQueries: number;
+                mentionedQueries: number;
+                citationNotMeasuredQueries?: number;
+            };
+            branded: {
+                totalQueries: number;
+                citedQueries: number;
+                mentionedQueries: number;
+                citationNotMeasuredQueries?: number;
+            };
+            unclassifiedQueries: number;
+        } | null;
+        providerFailures?: {
+            [key: string]: {
+                message: string;
+                failedQueries: number;
+                stopped: boolean;
+            };
+        } | null;
+        plannedAnswers?: number;
         providerBatches?: Array<{
             id: string;
             provider: string;
@@ -9825,6 +9983,47 @@ export type RunAdmissionDto = {
             retryAfter: string;
         };
     };
+};
+
+export type RunPreviewDto = {
+    mode: 'simple' | 'advanced';
+    revision: number | null;
+    queryCount: number;
+    assignmentCount: number | null;
+    queryClasses: Array<{
+        queryClass: 'branded' | 'non-brand' | 'unknown';
+        queryCount: number;
+        assignmentCount: number | null;
+    }>;
+    requestCount: number;
+    expectedRequestCount: number;
+    engines: Array<{
+        provider: string;
+        models: Array<string>;
+        requestCount: number;
+        expectedRequestCount: number;
+        available: boolean;
+    }>;
+    locations: Array<{
+        location: string | null;
+        requestCount: number;
+    }>;
+    admission: {
+        refused: boolean;
+        retryAfter: string | null;
+        providers: {
+            [key: string]: {
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                consecutiveRuns: number;
+                since: string;
+                latestRunId: string;
+                retryAfter: string;
+            };
+        };
+    };
+    activeRunId: string | null;
+    canStart: boolean;
+    blockedReason: 'unpublished-plan' | 'no-queries' | 'no-provider' | 'providers-failing' | 'run-in-progress' | null;
 };
 
 export type LocationContext = {
@@ -10689,7 +10888,7 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 current: {
                     state: 'available';
@@ -10698,12 +10897,12 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
             mentionCoverage: {
                 state: 'available';
@@ -10714,9 +10913,10 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 current: {
                     state: 'available';
@@ -10725,14 +10925,15 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
             citationCoverage: {
                 state: 'available';
@@ -10743,9 +10944,10 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 current: {
                     state: 'available';
@@ -10754,14 +10956,15 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
         };
         metricsByClass?: {
@@ -10775,7 +10978,7 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     current: {
                         state: 'available';
@@ -10784,12 +10987,12 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     delta: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 mentionCoverage: {
                     state: 'available';
@@ -10800,9 +11003,10 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     current: {
                         state: 'available';
@@ -10811,14 +11015,15 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     delta: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 citationCoverage: {
                     state: 'available';
@@ -10829,9 +11034,10 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     current: {
                         state: 'available';
@@ -10840,14 +11046,15 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     delta: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
             };
             nonBrand: {
@@ -10860,7 +11067,7 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     current: {
                         state: 'available';
@@ -10869,12 +11076,12 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     delta: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 mentionCoverage: {
                     state: 'available';
@@ -10885,9 +11092,10 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     current: {
                         state: 'available';
@@ -10896,14 +11104,15 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     delta: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 citationCoverage: {
                     state: 'available';
@@ -10914,9 +11123,10 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     current: {
                         state: 'available';
@@ -10925,14 +11135,15 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     delta: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
             };
         };
@@ -10959,9 +11170,10 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 current: {
                     state: 'available';
@@ -10970,14 +11182,15 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
             citationCoverage: {
                 state: 'available';
@@ -10988,9 +11201,10 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 current: {
                     state: 'available';
@@ -10999,14 +11213,15 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
             flags: number;
             mentionAnswersDelta?: number | null;
@@ -11335,7 +11550,7 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         mentionCoverage: {
             state: 'available';
@@ -11344,9 +11559,10 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         citationCoverage: {
             state: 'available';
@@ -11355,9 +11571,10 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         brandPresence: {
             state: 'available';
@@ -11366,9 +11583,10 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         /**
          * Deprecated alias of brandPresence carrying the identical value. Remove once the browser migrates.
@@ -11380,9 +11598,10 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
     };
     properties: {
@@ -11404,9 +11623,10 @@ export type MeasurementOverviewResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
             citationCoverage: {
                 state: 'available';
@@ -11415,9 +11635,10 @@ export type MeasurementOverviewResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
             providers: Array<{
                 provider: string;
@@ -11428,9 +11649,10 @@ export type MeasurementOverviewResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 citationCoverage: {
                     state: 'available';
@@ -11439,9 +11661,10 @@ export type MeasurementOverviewResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
             }>;
             flags: number;
@@ -11498,7 +11721,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         propertiesNeverMentioned?: {
             state: 'available';
@@ -11507,7 +11730,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         mentionCoverage: {
             state: 'available';
@@ -11516,9 +11739,10 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         citationCoverage: {
             state: 'available';
@@ -11527,9 +11751,10 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
     };
     /**
@@ -11552,6 +11777,7 @@ export type MeasurementPortfolioSummaryResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 state: 'available';
@@ -11560,6 +11786,7 @@ export type MeasurementPortfolioSummaryResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
         }>;
     };
@@ -11583,9 +11810,10 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         citationCoverage: {
             state: 'available';
@@ -11594,9 +11822,10 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         flags: number;
         namedInsteadInAnswerText?: Array<{
@@ -11679,6 +11908,7 @@ export type MeasurementPortfolioSummaryResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 state: 'available';
@@ -11687,9 +11917,10 @@ export type MeasurementPortfolioSummaryResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
         }>;
         weakest: Array<{
@@ -11712,6 +11943,7 @@ export type MeasurementPortfolioSummaryResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 state: 'available';
@@ -11720,15 +11952,16 @@ export type MeasurementPortfolioSummaryResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
         }>;
         excluded: Array<{
             targetKey: string;
             label: string;
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         }>;
         truncated: boolean;
         excludedTotal?: number;
@@ -11746,7 +11979,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         propertiesNeverMentioned?: {
             state: 'available';
@@ -11755,7 +11988,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         mentionCoverage: {
             state: 'available';
@@ -11764,9 +11997,10 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         citationCoverage: {
             state: 'available';
@@ -11775,9 +12009,10 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
     }>;
     totalMarkets: number;
@@ -12985,7 +13220,7 @@ export type MeasurementPropertyCompetitorsResponse = {
         recommendationOccurrences: number;
     } | {
         state: 'unavailable';
-        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
     };
     competitors: Array<{
         name: string;
@@ -13054,6 +13289,7 @@ export type MeasurementPropertyEvidenceResponse = {
             mentioned: boolean | null;
             mentionIdentity: 'wrong-subject' | null;
             cited: boolean | null;
+            citationMeasured: boolean;
             sources: Array<{
                 sourceUrl: string;
                 normalizedUrl: string | null;
@@ -13118,6 +13354,7 @@ export type MeasurementPropertyQuestionsResponse = {
         status: 'answered';
         mentioned: boolean | null;
         cited: boolean | null;
+        citationMeasured: boolean;
         recommendedInstead: Array<string>;
         answerExcerpt: string | null;
     } | {
@@ -13163,6 +13400,7 @@ export type MeasurementQuestionResultResponse = {
     };
     mentioned: boolean | null;
     cited: boolean | null;
+    citationMeasured: boolean;
     recommendedInstead: Array<string>;
     answer: string | null;
     sources: Array<{
@@ -13280,6 +13518,7 @@ export type MeasurementReportResponse = {
             complete: boolean;
             sourceComplete: boolean;
             sourceCompleteObservations: number;
+            citationNotMeasuredObservations: number;
             answerComplete: boolean;
         };
         answerCoverage: {
@@ -13288,11 +13527,12 @@ export type MeasurementReportResponse = {
             rate: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             numerator: null;
             denominator: null;
             rate: null;
-            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
         };
         targetCoverage: {
             numerator: number;
@@ -13300,11 +13540,12 @@ export type MeasurementReportResponse = {
             rate: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             numerator: null;
             denominator: null;
             rate: null;
-            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
         };
         sov: {
             domains: Array<{
@@ -13317,7 +13558,7 @@ export type MeasurementReportResponse = {
                 own: boolean;
                 presentIn: null;
                 of: null;
-                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
             }>;
             providers: Array<{
                 provider: string;
@@ -13331,7 +13572,7 @@ export type MeasurementReportResponse = {
                     own: boolean;
                     presentIn: null;
                     of: null;
-                    reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                    reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
                 }>;
             }>;
         };
@@ -13343,6 +13584,7 @@ export type MeasurementReportResponse = {
                 complete: boolean;
                 sourceComplete: boolean;
                 sourceCompleteObservations: number;
+                citationNotMeasuredObservations: number;
                 answerComplete: boolean;
             };
             answerCoverage: {
@@ -13351,11 +13593,12 @@ export type MeasurementReportResponse = {
                 rate: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 numerator: null;
                 denominator: null;
                 rate: null;
-                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
             };
         }>;
     }>;
@@ -13368,6 +13611,7 @@ export type MeasurementReportResponse = {
             complete: boolean;
             sourceComplete: boolean;
             sourceCompleteObservations: number;
+            citationNotMeasuredObservations: number;
             answerComplete: boolean;
         };
         citationCoverage: {
@@ -13376,11 +13620,12 @@ export type MeasurementReportResponse = {
             rate: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             numerator: null;
             denominator: null;
             rate: null;
-            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
         };
         mentionCoverage: {
             numerator: number;
@@ -13388,11 +13633,12 @@ export type MeasurementReportResponse = {
             rate: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             numerator: null;
             denominator: null;
             rate: null;
-            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
         };
         providers: Array<{
             provider: string;
@@ -13402,6 +13648,7 @@ export type MeasurementReportResponse = {
                 complete: boolean;
                 sourceComplete: boolean;
                 sourceCompleteObservations: number;
+                citationNotMeasuredObservations: number;
                 answerComplete: boolean;
             };
             citationCoverage: {
@@ -13410,11 +13657,12 @@ export type MeasurementReportResponse = {
                 rate: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 numerator: null;
                 denominator: null;
                 rate: null;
-                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
             };
             mentionCoverage: {
                 numerator: number;
@@ -13422,11 +13670,12 @@ export type MeasurementReportResponse = {
                 rate: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 numerator: null;
                 denominator: null;
                 rate: null;
-                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
             };
         }>;
     }>;
@@ -13452,6 +13701,7 @@ export type MeasurementReportResponse = {
         bridgedObservationIds: Array<string>;
         historicalObservationIds: Array<string>;
         evidenceIncompleteObservationIds: Array<string>;
+        citationNotMeasuredObservationIds: Array<string>;
         ambiguousObservationIds: Array<string>;
         unmatchedObservationIds: Array<string>;
     };
@@ -13467,6 +13717,7 @@ export type MeasurementSetupResponse = {
     nextAction: 'republish_setup' | 'continue_setup' | 'run_measurement' | 'view_measurement' | 'start_setup';
     mode: 'simple' | 'draft-only' | 'active-v1' | 'active-v2';
     answerVisibilityProviderReady: boolean;
+    requiresPublication?: boolean;
     activeRevision: number | null;
     activeSchemaVersion: 1 | 2 | null;
     draft: {
@@ -13482,7 +13733,7 @@ export type NotificationDto = {
     url: string;
     urlDisplay: string;
     urlHost: string;
-    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered'>;
+    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new'>;
     enabled: boolean;
     source?: string;
     webhookSecret?: string;
@@ -13534,9 +13785,9 @@ export type OnboardingTelemetryEvent = {
 export type UiTelemetryEvent = {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.page_time';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
     visitId: string;
     foregroundMs: number;
     activeMs: number;
@@ -13544,26 +13795,26 @@ export type UiTelemetryEvent = {
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.page_viewed';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.action';
     action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'feedback.submit' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'bing.sync' | 'sitemap.submit' | 'journeys.visitor_open' | 'journeys.visit_open' | 'journeys.agent_open' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
     integration?: 'google' | 'gsc' | 'ga' | 'bing' | 'gbp' | 'wordpress' | 'openai_ads' | 'google_ads' | 'gtm' | 'traffic_cloudflare' | 'traffic_vercel' | 'traffic_cloud_run' | 'traffic_wordpress';
     format?: 'csv' | 'json' | 'html';
     filter?: 'provider' | 'model' | 'location' | 'window' | 'query_class' | 'seoProfile' | 'other';
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.error';
     kind: 'render' | 'unhandled' | 'api';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
     component?: string;
     errorName?: string;
     route?: string;
@@ -13573,11 +13824,11 @@ export type UiTelemetryEvent = {
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.vitals';
     metric: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB';
     rating: 'good' | 'needs-improvement' | 'poor';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
 };
 
 export type OrganicEvidenceDto = {
@@ -13676,6 +13927,7 @@ export type OrganicEvidenceDto = {
         answerPairs: number;
         mentionedPairs: number;
         citedPairs: number;
+        citationNotMeasuredPairs: number;
     } | null;
     measurement: {
         window: '30d' | '60d' | '90d';
@@ -13740,7 +13992,7 @@ export type OrganicEvidenceDto = {
             }>;
             aiEngines: {
                 leadRateAvailable: boolean;
-                leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | null;
+                leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | 'sessions-before-leads' | null;
                 organic: {
                     periods: Array<{
                         label: 'earliest' | 'middle' | 'previous' | 'latest';
@@ -13962,6 +14214,7 @@ export type ProjectCreateRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    siteAuditDomains?: Array<string>;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
      */
@@ -14008,6 +14261,7 @@ export type ProjectDto = {
     autoExtractBacklinks: boolean;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    siteAuditDomains: Array<string>;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
      */
@@ -14059,6 +14313,7 @@ export type ProjectPatchRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    siteAuditDomains?: Array<string>;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
      */
@@ -14102,6 +14357,7 @@ export type ProjectUpsertRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    siteAuditDomains?: Array<string>;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
      */
@@ -14172,7 +14428,7 @@ export type ProjectConfig = {
             id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new'>;
         }>;
         google?: {
             gsc?: {
@@ -14186,6 +14442,7 @@ export type ProjectConfig = {
         autoExtractBacklinks?: boolean;
         negativeReviewMaxStars?: number;
         siteAuditMaxPages?: number | null;
+        siteAuditDomains?: Array<string>;
         /**
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
          */
@@ -14256,7 +14513,7 @@ export type ProjectConfigExport = {
             id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new'>;
         }>;
         google?: {
             gsc?: {
@@ -14270,6 +14527,7 @@ export type ProjectConfigExport = {
         autoExtractBacklinks?: boolean;
         negativeReviewMaxStars?: number;
         siteAuditMaxPages?: number | null;
+        siteAuditDomains?: Array<string>;
         /**
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
          */
@@ -14545,6 +14803,97 @@ export type ProjectOverviewDto = {
             runIds: Array<string>;
         };
     };
+    mentionCoverage?: {
+        selection: {
+            mode: 'simple' | 'advanced';
+            queryClass: 'branded' | 'non-brand' | 'unknown' | 'all';
+            scope: {
+                id: string;
+                label: string;
+                kind: 'project' | 'group' | 'market' | 'property';
+                targetCount: number;
+                parentGroupIds?: Array<string>;
+                marketKeys?: Array<string>;
+            };
+            market?: {
+                id: string;
+                label: string;
+                kind: 'project' | 'group' | 'market' | 'property';
+                targetCount: number;
+                parentGroupIds?: Array<string>;
+                marketKeys?: Array<string>;
+            };
+            provider: string | null;
+            model: string | null;
+            location: {
+                kind: 'all';
+            } | {
+                kind: 'none';
+            } | {
+                kind: 'exact';
+                value: string;
+            };
+            time: {
+                from: string | null;
+                to: string | null;
+            };
+            revision: number | null;
+            run: {
+                id: string | null;
+                explicit: boolean;
+            };
+            provenance: {
+                kind: 'frozen-simple';
+                definitionRevision: null;
+            } | {
+                kind: 'legacy-simple';
+                definitionRevision: null;
+            } | {
+                kind: 'frozen-advanced';
+                definitionRevision: number;
+            } | {
+                kind: 'unsupported-advanced-v1';
+                definitionRevision: number;
+            };
+            measurement: {
+                state: 'measured' | 'not-measured' | 'partial';
+                activeRevision: number | null;
+                measuredRevision: number | null;
+                awaitingSweep: boolean;
+                pendingAssignmentCount: number;
+                completedAt: string | null;
+            };
+            availability: {
+                state: 'available';
+            } | {
+                state: 'unsupported';
+                reason: 'advanced-v1';
+            };
+        };
+        populations: Array<{
+            queryClass: 'branded' | 'non-brand' | 'unknown';
+            queryCount: number;
+            answerCount: number;
+            mentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
+                unattributed?: number;
+                unchecked?: number;
+                citationNotMeasured?: number;
+            };
+            citationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
+                unattributed?: number;
+                unchecked?: number;
+                citationNotMeasured?: number;
+            };
+        }>;
+    };
     project: {
         id: string;
         name: string;
@@ -14583,6 +14932,7 @@ export type ProjectOverviewDto = {
         autoExtractBacklinks: boolean;
         negativeReviewMaxStars?: number | null;
         siteAuditMaxPages?: number | null;
+        siteAuditDomains: Array<string>;
         /**
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
          */
@@ -14671,11 +15021,11 @@ export type ProjectOverviewDto = {
                 queryId: string;
                 query?: string;
                 provider: string;
-                citationState: 'cited' | 'not-cited';
+                citationState: 'cited' | 'not-cited' | 'not-measured';
                 answerMentioned?: boolean;
                 visibilityState?: 'visible' | 'not-visible';
                 mentionState?: 'mentioned' | 'not-mentioned';
-                transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited';
+                transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited' | 'not-measured';
                 answerText?: string | null;
                 citedDomains: Array<string>;
                 citedUrls: Array<string> | null;
@@ -14837,7 +15187,31 @@ export type ProjectOverviewDto = {
                 totalQueries: number;
                 citedQueries: number;
                 mentionedQueries: number;
+                citationNotMeasuredQueries?: number;
             } | null;
+            queryCountsByClass?: {
+                nonBrand: {
+                    totalQueries: number;
+                    citedQueries: number;
+                    mentionedQueries: number;
+                    citationNotMeasuredQueries?: number;
+                };
+                branded: {
+                    totalQueries: number;
+                    citedQueries: number;
+                    mentionedQueries: number;
+                    citationNotMeasuredQueries?: number;
+                };
+                unclassifiedQueries: number;
+            } | null;
+            providerFailures?: {
+                [key: string]: {
+                    message: string;
+                    failedQueries: number;
+                    stopped: boolean;
+                };
+            } | null;
+            plannedAnswers?: number;
             providerBatches?: Array<{
                 id: string;
                 provider: string;
@@ -14895,18 +15269,20 @@ export type ProjectOverviewDto = {
         id: string;
         projectId: string;
         runId: string | null;
-        overallCitedRate: number;
+        overallCitedRate: number | null;
         overallMentionRate: number;
         totalPairs: number;
         citedPairs: number;
+        citationNotMeasuredPairs: number;
         mentionedPairs: number;
         providerBreakdown: {
             [key: string]: {
-                citedRate: number;
+                citedRate: number | null;
                 mentionRate: number;
                 cited: number;
                 mentioned: number;
                 total: number;
+                citationNotMeasured: number;
             };
         };
         createdAt: string;
@@ -14944,16 +15320,18 @@ export type ProjectOverviewDto = {
         totalQueries: number;
         citedQueries: number;
         notCitedQueries: number;
-        citedRate: number;
+        citedRate: number | null;
+        citationNotMeasuredQueries: number;
         mentionedQueries: number;
         notMentionedQueries: number;
         mentionRate: number;
     };
     providers: Array<{
         provider: string;
-        citedRate: number;
+        citedRate: number | null;
         cited: number;
         total: number;
+        citationNotMeasured: number;
     }>;
     transitions: {
         since: string | null;
@@ -15140,9 +15518,10 @@ export type ProjectOverviewDto = {
     providerScores: Array<{
         provider: string;
         model: string | null;
-        score: number;
+        score: number | null;
         cited: number;
         total: number;
+        citationNotMeasured: number;
         trend?: Array<number>;
     }>;
     attentionItems: Array<{
@@ -15153,12 +15532,77 @@ export type ProjectOverviewDto = {
         actionLabel: string;
         href: string;
     }>;
+    whatChanged?: {
+        mode: 'simple' | 'advanced';
+        latestCheck: {
+            runIds: Array<string>;
+            createdAt: string;
+        } | null;
+        comparison: {
+            state: 'available';
+            previousRunIds: Array<string>;
+        } | {
+            state: 'unavailable';
+            reason: 'not-measured' | 'no-previous-check' | 'definition-changed' | 'model-changed' | 'partial-run' | 'legacy-plan' | 'unreadable';
+        };
+        lostMentions: {
+            queryCount: number;
+            queries: Array<{
+                queryId: string | null;
+                query: string;
+                queryClass: 'branded' | 'non-brand' | null;
+                providers: Array<string>;
+                locations: Array<string | null>;
+                properties: Array<{
+                    key: string;
+                    label: string;
+                }>;
+                markets: Array<{
+                    key: string;
+                    label: string;
+                }>;
+            }>;
+            truncated: boolean;
+        };
+        lostCitations: {
+            queryCount: number;
+            queries: Array<{
+                queryId: string | null;
+                query: string;
+                queryClass: 'branded' | 'non-brand' | null;
+                providers: Array<string>;
+                locations: Array<string | null>;
+                properties: Array<{
+                    key: string;
+                    label: string;
+                }>;
+                markets: Array<{
+                    key: string;
+                    label: string;
+                }>;
+            }>;
+            truncated: boolean;
+        };
+        activeRuns: {
+            count: number;
+            runIds: Array<string>;
+        };
+        items: Array<{
+            id: string;
+            tone: 'positive' | 'caution' | 'negative' | 'neutral';
+            title: string;
+            detail: string;
+            actionLabel: string;
+            href: string;
+        }>;
+    };
     runHistory: Array<{
         runId: string;
         createdAt: string;
         citedCount: number;
         totalCount: number;
-        citationRate: number;
+        citationNotMeasuredCount: number;
+        citationRate: number | null;
         mentionedCount: number;
         mentionRate: number;
         status: string;
@@ -15178,6 +15622,98 @@ export type ProjectOverviewDto = {
     contextLabel: string;
 };
 
+export type ProjectSetupDto = {
+    project: {
+        name: string;
+        displayName: string | null;
+        canonicalDomain: string;
+    };
+    complete: boolean;
+    firstResultAt: string | null;
+    nextAction: 'run_agent_readiness' | 'retry_agent_readiness' | 'connect_engine' | 'add_queries' | 'publish_plan' | 'run_ai_visibility' | 'repair_ai_visibility' | 'wait' | 'open_project';
+    tracks: {
+        agentReadiness: {
+            state: 'not_started' | 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+            runId: string | null;
+            startedAt: string | null;
+            finishedAt: string | null;
+            progress: {
+                phase: 'queued' | 'discovering' | 'checking' | 'arranging-map' | 'completed' | 'partial' | 'failed' | 'cancelled';
+                pagesFound: number | null;
+                pagesChecked: number;
+                pageLimit: number | null;
+                linksFound: number | null;
+                pagesFailed: number | null;
+            } | null;
+            result: {
+                score: number | null;
+                pagesScored: number;
+            } | null;
+            error: string | null;
+        };
+        aiVisibility: {
+            state: 'not_started' | 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+            runId: string | null;
+            runIds: Array<string>;
+            startedAt: string | null;
+            finishedAt: string | null;
+            baselineRunId: string | null;
+            mode?: 'simple' | 'advanced';
+            blockedBy: 'no_engine' | 'no_queries' | 'plan_unpublished' | 'engines_failing' | null;
+            engines: Array<string>;
+            queries: {
+                total: number;
+                nonBrand: number;
+                branded: number;
+                unclassified: number;
+            };
+            progress: {
+                answersSaved: number;
+                answersPlanned: number | null;
+            } | null;
+            providerFailures: {
+                [key: string]: {
+                    message: string;
+                    failedQueries: number;
+                    stopped: boolean;
+                };
+            } | null;
+            result: {
+                answers: number;
+                engines: number;
+                queryCounts: {
+                    totalQueries: number;
+                    citedQueries: number;
+                    mentionedQueries: number;
+                    citationNotMeasuredQueries?: number;
+                } | null;
+                queryCountsByClass: {
+                    nonBrand: {
+                        totalQueries: number;
+                        citedQueries: number;
+                        mentionedQueries: number;
+                        citationNotMeasuredQueries?: number;
+                    };
+                    branded: {
+                        totalQueries: number;
+                        citedQueries: number;
+                        mentionedQueries: number;
+                        citationNotMeasuredQueries?: number;
+                    };
+                    unclassifiedQueries: number;
+                } | null;
+            } | null;
+            error: string | null;
+            failedEngines: Array<{
+                provider: string;
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN' | null;
+                message: string;
+                skipped: boolean;
+            }> | null;
+        };
+    };
+};
+
 export type TrafficAnalyticsResponse = {
     activity: {
         windowStart: string;
@@ -15185,6 +15721,7 @@ export type TrafficAnalyticsResponse = {
         coverageStart: string | null;
         priorWindowComplete: boolean;
         aiReferralCountingChangedAt?: string | null;
+        aiUserFetchCountingChangedAt?: string | null;
         /**
          * True when the selected or prior window has stored crawler, user-fetch, countable referral or operator evidence, or the selected window has referral redirects. False means no qualifying stored evidence; it can occur with no, paused, errored or never-synced ingestion and out-of-window observations. It does not establish measured zero traffic or source health.
          */
@@ -15273,7 +15810,7 @@ export type ProjectSearchResponseDto = {
         query: string;
         provider: string;
         model: string | null;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         matchedField: 'answerText' | 'citedDomains' | 'citedUrls' | 'searchQueries' | 'query';
         snippet: string;
         createdAt: string;
@@ -15291,6 +15828,171 @@ export type ProjectSearchResponseDto = {
         dismissed: boolean;
         createdAt: string;
     }>;
+};
+
+export type ProviderConnectionSettingsDto = {
+    name: string;
+    displayName: string;
+    kind: 'answer-engine' | 'model-gateway' | 'answer-service';
+    mode: 'api' | 'browser';
+    configured: boolean;
+    revision: string;
+    apiKeyConfigured: boolean;
+    /**
+     * Saved endpoint override, or null when the adapter default is selected or a private endpoint is withheld. Consult capabilities and blockers before editing.
+     */
+    baseUrl: string | null;
+    model: string | null;
+    defaultModel: string | null;
+    effectiveModel: string | null;
+    quota: {
+        defaults: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+        overrides: {
+            maxConcurrency?: number;
+            maxRequestsPerMinute?: number;
+            maxRequestsPerDay?: number;
+        };
+        effective: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+    };
+    capabilities: {
+        apiKey: boolean;
+        clearApiKey: boolean;
+        baseUrl: boolean;
+        resetBaseUrl: boolean;
+        model: boolean;
+        quota: boolean;
+        disconnect: boolean;
+        reload: boolean;
+    };
+    hostManaged: {
+        vertex: {
+            project: string;
+            region: string | null;
+            credentialsConfigured: boolean;
+        } | null;
+        batch: {
+            enabled: boolean;
+            maxRequestsPerBatch?: number;
+            deadlineHours?: number;
+        } | null;
+        pricing: {
+            models: {
+                [key: string]: {
+                    inputPerMTok: number;
+                    cachedInputPerMTok?: number;
+                    cacheWritePerMTok?: number;
+                    outputPerMTok: number;
+                    searchPer1k?: number;
+                    searchUnit?: 'query' | 'prompt';
+                    batchTokenDiscount?: number;
+                };
+            };
+        } | null;
+    };
+    hostUses: Array<string>;
+    blockers: Array<{
+        code: string;
+        message: string;
+        runIds: Array<string>;
+        batchIds: Array<string>;
+    }>;
+    /**
+     * The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model, Vertex setting or CDP endpoint, or a disconnect, hides an earlier test). Absent from hosts that keep no test history.
+     */
+    lastTest?: {
+        status: 'connected' | 'failed' | 'not-verified';
+        /**
+         * False only when status is failed. A not-verified connection is ok but unproven, so read status.
+         */
+        ok: boolean;
+        /**
+         * The provider's own result or refusal, with credentials redacted.
+         */
+        message: string;
+        /**
+         * The model this connection runs, as its check reported it, or null when the check names none.
+         */
+        model: string | null;
+        /**
+         * When the check finished (ISO 8601).
+         */
+        checkedAt: string;
+        durationMs: number;
+    } | null;
+    usage: {
+        projectCount: number;
+        projects: Array<{
+            name: string;
+            displayName: string;
+            providers: Array<string>;
+            sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+        }>;
+        /**
+         * Present only when a project's saved measurement plan or draft could not be read. The listed sources of those projects (a schedule follows its unreadable plan) may also reference this connection; they are never counted in projectCount or listed in projects.
+         */
+        unknown?: {
+            projectCount: number;
+            projects: Array<{
+                name: string;
+                displayName: string;
+                sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+            }>;
+        };
+    };
+    impactRevision: string;
+};
+
+export type ProviderConnectionTestResultDto = {
+    provider: string;
+    displayName: string;
+    status: 'connected' | 'failed' | 'not-verified';
+    /**
+     * False only when status is failed. A not-verified connection is ok but unproven, so read status.
+     */
+    ok: boolean;
+    /**
+     * The provider's own result or refusal, with credentials redacted.
+     */
+    message: string;
+    /**
+     * The model this connection runs, as its check reported it, or null when the check names none.
+     */
+    model: string | null;
+    /**
+     * When the check finished (ISO 8601).
+     */
+    checkedAt: string;
+    durationMs: number;
+};
+
+export type ProviderDisconnectRequest = {
+    expectedImpactRevision?: string;
+};
+
+export type ProviderSettingsUpdateRequest = {
+    apiKey?: string;
+    baseUrl?: string;
+    model?: string;
+    quota?: {
+        maxConcurrency?: number;
+        maxRequestsPerMinute?: number;
+        maxRequestsPerDay?: number;
+    };
+    reset?: {
+        model?: true;
+        baseUrl?: true;
+        apiKey?: true;
+        quota?: Array<'maxConcurrency' | 'maxRequestsPerMinute' | 'maxRequestsPerDay'>;
+    };
+    expectedRevision?: string;
 };
 
 export type ProviderReloadRequest = {
@@ -15469,8 +16171,8 @@ export type ResultsExportDto = {
         provider: string;
         model: string | null;
         location: string | null;
-        citationState: 'cited' | 'not-cited';
-        cited: boolean;
+        citationState: 'cited' | 'not-cited' | 'not-measured';
+        cited: boolean | null;
         answerMentioned: boolean | null;
         mentionState: 'mentioned' | 'not-mentioned' | null;
         citedDomains: Array<string>;
@@ -15693,11 +16395,11 @@ export type RunDetailDto = {
         queryId: string;
         query?: string;
         provider: string;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         answerMentioned?: boolean;
         visibilityState?: 'visible' | 'not-visible';
         mentionState?: 'mentioned' | 'not-mentioned';
-        transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited';
+        transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited' | 'not-measured';
         answerText?: string | null;
         citedDomains: Array<string>;
         citedUrls: Array<string> | null;
@@ -15859,7 +16561,31 @@ export type RunDetailDto = {
         totalQueries: number;
         citedQueries: number;
         mentionedQueries: number;
+        citationNotMeasuredQueries?: number;
     } | null;
+    queryCountsByClass?: {
+        nonBrand: {
+            totalQueries: number;
+            citedQueries: number;
+            mentionedQueries: number;
+            citationNotMeasuredQueries?: number;
+        };
+        branded: {
+            totalQueries: number;
+            citedQueries: number;
+            mentionedQueries: number;
+            citationNotMeasuredQueries?: number;
+        };
+        unclassifiedQueries: number;
+    } | null;
+    providerFailures?: {
+        [key: string]: {
+            message: string;
+            failedQueries: number;
+            stopped: boolean;
+        };
+    } | null;
+    plannedAnswers?: number;
     providerBatches?: Array<{
         id: string;
         provider: string;
@@ -16040,6 +16766,28 @@ export type ScheduleDto = {
     updatedAt: string;
 };
 
+export type SchedulePreviewRequest = {
+    preset?: string;
+    cron?: string;
+    recurrence?: {
+        everyDays: number;
+        startDate: string;
+        time: string;
+    };
+    timezone: string;
+};
+
+export type SchedulePreviewDto = {
+    cronExpr: string;
+    recurrence: {
+        everyDays: number;
+        startDate: string;
+        time: string;
+    } | null;
+    timezone: string;
+    nextRunAt: string | null;
+};
+
 export type SettingsDto = {
     providers: Array<{
         name: string;
@@ -16109,6 +16857,132 @@ export type SettingsDto = {
         keyUrl?: string;
         vendorDocsUrl?: string;
     }>;
+    providerConnections?: Array<{
+        name: string;
+        displayName: string;
+        kind: 'answer-engine' | 'model-gateway' | 'answer-service';
+        mode: 'api' | 'browser';
+        configured: boolean;
+        revision: string;
+        apiKeyConfigured: boolean;
+        /**
+         * Saved endpoint override, or null when the adapter default is selected or a private endpoint is withheld. Consult capabilities and blockers before editing.
+         */
+        baseUrl: string | null;
+        model: string | null;
+        defaultModel: string | null;
+        effectiveModel: string | null;
+        quota: {
+            defaults: {
+                maxConcurrency: number;
+                maxRequestsPerMinute: number;
+                maxRequestsPerDay: number;
+            };
+            overrides: {
+                maxConcurrency?: number;
+                maxRequestsPerMinute?: number;
+                maxRequestsPerDay?: number;
+            };
+            effective: {
+                maxConcurrency: number;
+                maxRequestsPerMinute: number;
+                maxRequestsPerDay: number;
+            };
+        };
+        capabilities: {
+            apiKey: boolean;
+            clearApiKey: boolean;
+            baseUrl: boolean;
+            resetBaseUrl: boolean;
+            model: boolean;
+            quota: boolean;
+            disconnect: boolean;
+            reload: boolean;
+        };
+        hostManaged: {
+            vertex: {
+                project: string;
+                region: string | null;
+                credentialsConfigured: boolean;
+            } | null;
+            batch: {
+                enabled: boolean;
+                maxRequestsPerBatch?: number;
+                deadlineHours?: number;
+            } | null;
+            pricing: {
+                models: {
+                    [key: string]: {
+                        inputPerMTok: number;
+                        cachedInputPerMTok?: number;
+                        cacheWritePerMTok?: number;
+                        outputPerMTok: number;
+                        searchPer1k?: number;
+                        searchUnit?: 'query' | 'prompt';
+                        batchTokenDiscount?: number;
+                    };
+                };
+            } | null;
+        };
+        hostUses: Array<string>;
+        blockers: Array<{
+            code: string;
+            message: string;
+            runIds: Array<string>;
+            batchIds: Array<string>;
+        }>;
+        /**
+         * The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model, Vertex setting or CDP endpoint, or a disconnect, hides an earlier test). Absent from hosts that keep no test history.
+         */
+        lastTest?: {
+            status: 'connected' | 'failed' | 'not-verified';
+            /**
+             * False only when status is failed. A not-verified connection is ok but unproven, so read status.
+             */
+            ok: boolean;
+            /**
+             * The provider's own result or refusal, with credentials redacted.
+             */
+            message: string;
+            /**
+             * The model this connection runs, as its check reported it, or null when the check names none.
+             */
+            model: string | null;
+            /**
+             * When the check finished (ISO 8601).
+             */
+            checkedAt: string;
+            durationMs: number;
+        } | null;
+        usage: {
+            projectCount: number;
+            projects: Array<{
+                name: string;
+                displayName: string;
+                providers: Array<string>;
+                sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+            }>;
+            /**
+             * Present only when a project's saved measurement plan or draft could not be read. The listed sources of those projects (a schedule follows its unreadable plan) may also reference this connection; they are never counted in projectCount or listed in projects.
+             */
+            unknown?: {
+                projectCount: number;
+                projects: Array<{
+                    name: string;
+                    displayName: string;
+                    sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+                }>;
+            };
+        };
+        impactRevision: string;
+    }>;
+    /**
+     * Present instead of providerConnections, for the same install administrator, when the host could not build that list. Every other settings field is still returned.
+     */
+    providerConnectionsUnavailable?: {
+        reason: 'config-unreadable' | 'internal-error';
+        message: string;
+    };
     google: {
         configured: boolean;
     };
@@ -16138,6 +17012,7 @@ export type SiteAuditIssuePagesResponseDto = {
         }>;
         candidatesTruncated: boolean;
     };
+    site?: string | null;
     state: 'no-crawl' | 'unavailable' | 'partial' | 'available';
     coverage: {
         pageFindings: 'available' | 'partial' | 'unavailable';
@@ -16182,6 +17057,7 @@ export type SiteAuditIssuesResponseDto = {
         }>;
         candidatesTruncated: boolean;
     };
+    site?: string | null;
     state: 'no-crawl' | 'unavailable' | 'partial' | 'available';
     coverage: {
         pageFindings: 'available' | 'partial' | 'unavailable';
@@ -16315,6 +17191,7 @@ export type SiteAuditScoreDto = {
     trend: 'up' | 'down' | 'flat' | null;
     previousScore: number | null;
     previousAuditedAt: string | null;
+    deltaUnavailableReason?: 'sites-changed';
     runSelection?: {
         reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
@@ -16361,6 +17238,12 @@ export type SiteAuditScoreDto = {
         topRecommendations: Array<string>;
     }>;
     prioritizedFixes: Array<string>;
+    sites?: Array<{
+        host: string;
+        main: boolean;
+        aggregateScore: number | null;
+        pagesAudited: number;
+    }>;
 };
 
 export type SiteAuditTrendResponseDto = {
@@ -16788,6 +17671,13 @@ export type SiteCrawlPageAuditDto = {
         severity: 'critical' | 'warning';
         detail: string;
         recommendation: string;
+        evidence?: Array<{
+            field: string;
+            question?: string;
+            entityKey: string;
+            entityName: string;
+            snippet: string;
+        }>;
     }>;
 } | {
     project: string;
@@ -16834,6 +17724,13 @@ export type SiteCrawlPageAuditDto = {
         severity: 'critical' | 'warning';
         detail: string;
         recommendation: string;
+        evidence?: Array<{
+            field: string;
+            question?: string;
+            entityKey: string;
+            entityName: string;
+            snippet: string;
+        }>;
     }>;
 };
 
@@ -16884,10 +17781,12 @@ export type SiteCrawlPagesResponseDto = {
     total: number;
     nextCursor: string | null;
     healthStateFilter: 'applied' | 'unavailable-legacy-scan' | null;
+    site?: string | null;
     pages: Array<{
         nodeKey: string;
         url: string;
         finalUrl: string | null;
+        site?: string;
         path: string;
         parentPath: string;
         discoverySource: string;
@@ -16931,6 +17830,7 @@ export type SiteCrawlStructureResponseDto = {
         }>;
         candidatesTruncated: boolean;
     };
+    site?: string | null;
     parentPath: string;
     nextCursor: string | null;
     children: Array<{
@@ -17000,6 +17900,7 @@ export type SiteCrawlSummaryDto = {
         pagesFetched: number;
         pagesEligible: number;
         edges: number;
+        internalLinks?: number | null;
         findings: number;
     };
     deadLinks: {
@@ -17017,6 +17918,16 @@ export type SiteCrawlSummaryDto = {
         found: number;
         unverified: number;
     };
+    sites?: Array<{
+        host: string;
+        main: boolean;
+        rootUrl: string | null;
+        pages: number;
+        pagesEligible: number;
+        pagesAudited: number;
+        aggregateScore: number | null;
+        error: string | null;
+    }>;
 };
 
 export type SiteHealthChangesResponseDto = {
@@ -17071,6 +17982,7 @@ export type SiteHealthChangesResponseDto = {
             nodeKey: string;
             url: string;
             finalUrl: string | null;
+            site?: string;
             path: string;
             parentPath: string;
             discoverySource: string;
@@ -17097,6 +18009,7 @@ export type SiteHealthChangesResponseDto = {
             nodeKey: string;
             url: string;
             finalUrl: string | null;
+            site?: string;
             path: string;
             parentPath: string;
             discoverySource: string;
@@ -17206,6 +18119,7 @@ export type SiteHealthPathResponseDto = {
         nodeKey: string;
         url: string;
         finalUrl: string | null;
+        site?: string;
         path: string;
         parentPath: string;
         discoverySource: string;
@@ -17294,6 +18208,7 @@ export type SiteHealthSubgraphResponseDto = {
         nodeKey: string;
         url: string;
         finalUrl: string | null;
+        site?: string;
         path: string;
         parentPath: string;
         discoverySource: string;
@@ -17352,8 +18267,8 @@ export type SnapshotDiffResponse = {
     diff: Array<{
         queryId: string | null;
         query: string | null;
-        run1State: 'cited' | 'not-cited' | null;
-        run2State: 'cited' | 'not-cited' | null;
+        run1State: 'cited' | 'not-cited' | 'not-measured' | null;
+        run2State: 'cited' | 'not-cited' | 'not-measured' | null;
         run1AnswerMentioned: boolean | null;
         run2AnswerMentioned: boolean | null;
         run1VisibilityState: 'visible' | 'not-visible' | null;
@@ -17372,11 +18287,11 @@ export type SnapshotListResponse = {
         queryId: string;
         query?: string;
         provider: string;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         answerMentioned?: boolean;
         visibilityState?: 'visible' | 'not-visible';
         mentionState?: 'mentioned' | 'not-mentioned';
-        transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited';
+        transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited' | 'not-measured';
         answerText?: string | null;
         citedDomains: Array<string>;
         citedUrls: Array<string> | null;
@@ -17773,7 +18688,9 @@ export type SourceBreakdownDto = {
         };
     };
     providersWithoutSources?: Array<string>;
+    providersCitationNotMeasured?: Array<string>;
     answerTotal?: number;
+    citationNotMeasuredAnswers?: number;
     runCount?: number;
     pooledAcrossRuns?: boolean;
     unclassifiedAnswers?: number;
@@ -17928,6 +18845,7 @@ export type CloudflareWorkerIngestResponse = {
     aiUserFetchBucketRows: number;
     aiReferralBucketRows: number;
     sampleRows: number;
+    aiUserFetchBrowserNonPageHits: number;
 };
 
 export type TrafficBackfillResponse = {
@@ -17998,6 +18916,7 @@ export type TrafficEventsResponse = {
         }>;
         coverageStart: string | null;
         aiReferralCountingChangedAt?: string | null;
+        aiUserFetchCountingChangedAt?: string | null;
         partialBuckets?: Array<string>;
         trends: {
             crawlerContentHits: {
@@ -18171,6 +19090,8 @@ export type TrafficSamplesResponse = {
                 matchedUserAgent?: string | null;
                 trust?: 'verified' | 'likely_real' | 'unknown' | 'likely_fake' | null;
                 trustReasons?: Array<'ip-in-published-list' | 'ip-outside-published-list' | 'no-ip' | 'no-published-list' | 'documented-user-agent' | 'unusual-user-agent' | 'scanner-path' | 'scanner-burst'> | null;
+                browser?: boolean | null;
+                requestKind?: 'page' | 'action' | 'resource' | null;
             } | null;
             aiReferral: {
                 operator?: string | null;
@@ -18633,6 +19554,7 @@ export type TrafficSyncResponse = {
     crawlerHits: number;
     aiUserFetchHits: number;
     aiUserFetchLikelyFakeHits: number;
+    aiUserFetchBrowserNonPageHits?: number;
     aiReferralHits: number;
     unknownHits: number;
     crawlerBucketRows: number;
@@ -18681,6 +19603,63 @@ export type CreateUserRequest = {
     name: string;
     password: string;
     role: 'admin' | 'viewer';
+};
+
+export type UserInvitationDto = {
+    id: string;
+    email: string;
+    role: 'admin' | 'viewer';
+    status: 'pending' | 'accepted' | 'revoked' | 'expired';
+    createdAt: string;
+    expiresAt: string;
+    acceptedAt: string | null;
+    acceptedUserName: string | null;
+};
+
+export type UserInvitationListDto = {
+    invitations: Array<{
+        id: string;
+        email: string;
+        role: 'admin' | 'viewer';
+        status: 'pending' | 'accepted' | 'revoked' | 'expired';
+        createdAt: string;
+        expiresAt: string;
+        acceptedAt: string | null;
+        acceptedUserName: string | null;
+    }>;
+};
+
+export type CreateUserInvitationRequest = {
+    email: string;
+    role: 'admin' | 'viewer';
+};
+
+export type ChatGptStatusDto = {
+    signInEnabled: boolean;
+    planUsageEnabled: boolean;
+    planRequired: boolean;
+    usageUrl: string;
+    account: {
+        linked: boolean;
+        email: string | null;
+        plan: {
+            status: 'not-connected' | 'connected' | 'reconnect-required';
+            modelId: string | null;
+            connectedAt: string | null;
+        };
+    } | null;
+};
+
+export type ChatGptModelListDto = {
+    models: Array<{
+        id: string;
+        name: string;
+    }>;
+    selected: string | null;
+};
+
+export type ChatGptModelSelectionRequest = {
+    modelId: string;
 };
 
 export type LoginRequest = {
@@ -18770,6 +19749,7 @@ export type VisibilityCompareDto = {
             denominator: number;
             excludedUnknown?: number;
             excludedNoRetrieval?: number;
+            excludedNotMeasured?: number;
         };
         to: {
             availability: 'available' | 'no-observations' | 'no-competitive-frame' | 'classification-unavailable';
@@ -18780,6 +19760,7 @@ export type VisibilityCompareDto = {
             denominator: number;
             excludedUnknown?: number;
             excludedNoRetrieval?: number;
+            excludedNotMeasured?: number;
         };
         rateRatio: number | null;
         direction: 'up' | 'down' | 'flat' | null;
@@ -18854,6 +19835,7 @@ export type VisibilityStatsDto = {
     };
     totals: {
         total: number;
+        citationNotMeasured: number;
         checked: number;
         mentioned: number;
         cited: number;
@@ -18863,6 +19845,7 @@ export type VisibilityStatsDto = {
     byQueryClass?: {
         branded: {
             total: number;
+            citationNotMeasured: number;
             checked: number;
             mentioned: number;
             cited: number;
@@ -18871,6 +19854,7 @@ export type VisibilityStatsDto = {
         };
         nonBrand: {
             total: number;
+            citationNotMeasured: number;
             checked: number;
             mentioned: number;
             cited: number;
@@ -18879,6 +19863,7 @@ export type VisibilityStatsDto = {
         };
         unclassified: {
             total: number;
+            citationNotMeasured: number;
             checked: number;
             mentioned: number;
             cited: number;
@@ -18888,6 +19873,7 @@ export type VisibilityStatsDto = {
     };
     byProvider?: Array<{
         total: number;
+        citationNotMeasured: number;
         checked: number;
         mentioned: number;
         cited: number;
@@ -18899,6 +19885,7 @@ export type VisibilityStatsDto = {
     }>;
     queries: Array<{
         total: number;
+        citationNotMeasured: number;
         checked: number;
         mentioned: number;
         cited: number;
@@ -18911,6 +19898,7 @@ export type VisibilityStatsDto = {
         queryClass?: 'branded' | 'non-brand' | null;
         providers?: Array<{
             total: number;
+            citationNotMeasured: number;
             checked: number;
             mentioned: number;
             cited: number;
@@ -25738,6 +26726,74 @@ export type GetApiV1ProjectsByNameRunsLatestResponses = {
 
 export type GetApiV1ProjectsByNameRunsLatestResponse = GetApiV1ProjectsByNameRunsLatestResponses[keyof GetApiV1ProjectsByNameRunsLatestResponses];
 
+export type GetApiV1ProjectsByNameRunPreviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/run-preview';
+};
+
+export type GetApiV1ProjectsByNameRunPreviewErrors = {
+    /**
+     * Published plan or saved location is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameRunPreviewError = GetApiV1ProjectsByNameRunPreviewErrors[keyof GetApiV1ProjectsByNameRunPreviewErrors];
+
+export type GetApiV1ProjectsByNameRunPreviewResponses = {
+    /**
+     * Full manual sweep workload and admission returned.
+     */
+    200: RunPreviewDto;
+};
+
+export type GetApiV1ProjectsByNameRunPreviewResponse = GetApiV1ProjectsByNameRunPreviewResponses[keyof GetApiV1ProjectsByNameRunPreviewResponses];
+
+export type GetApiV1ProjectsByNameSetupData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/setup';
+};
+
+export type GetApiV1ProjectsByNameSetupErrors = {
+    /**
+     * Published plan or saved location is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSetupError = GetApiV1ProjectsByNameSetupErrors[keyof GetApiV1ProjectsByNameSetupErrors];
+
+export type GetApiV1ProjectsByNameSetupResponses = {
+    /**
+     * Setup status returned.
+     */
+    200: ProjectSetupDto;
+};
+
+export type GetApiV1ProjectsByNameSetupResponse = GetApiV1ProjectsByNameSetupResponses[keyof GetApiV1ProjectsByNameSetupResponses];
+
 export type GetApiV1ProjectsByNameRunAdmissionData = {
     body?: never;
     path: {
@@ -26558,15 +27614,96 @@ export type GetApiV1SettingsResponses = {
 
 export type GetApiV1SettingsResponse = GetApiV1SettingsResponses[keyof GetApiV1SettingsResponses];
 
-export type PutApiV1SettingsProvidersByNameData = {
-    body: {
-        apiKey?: string;
-        baseUrl?: string;
-        model?: string;
-        quota?: {
-            [key: string]: unknown;
-        };
+export type DeleteApiV1SettingsProvidersByNameData = {
+    body?: ProviderDisconnectRequest;
+    path: {
+        /**
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
+         */
+        name: string;
     };
+    query?: never;
+    url: '/api/v1/settings/providers/{name}';
+};
+
+export type DeleteApiV1SettingsProvidersByNameErrors = {
+    /**
+     * Invalid disconnect request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator authority and settings.write are required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Unknown provider connection.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Provider configuration, usage, or outstanding work prevents disconnection.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Provider disconnection is not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type DeleteApiV1SettingsProvidersByNameError = DeleteApiV1SettingsProvidersByNameErrors[keyof DeleteApiV1SettingsProvidersByNameErrors];
+
+export type DeleteApiV1SettingsProvidersByNameResponses = {
+    /**
+     * Provider disconnected; saved references and history retained.
+     */
+    200: ProviderConnectionSettingsDto;
+};
+
+export type DeleteApiV1SettingsProvidersByNameResponse = DeleteApiV1SettingsProvidersByNameResponses[keyof DeleteApiV1SettingsProvidersByNameResponses];
+
+export type GetApiV1SettingsProvidersByNameData = {
+    body?: never;
+    path: {
+        /**
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/providers/{name}';
+};
+
+export type GetApiV1SettingsProvidersByNameErrors = {
+    /**
+     * The host could not read its saved provider configuration (error.details.reason config-unreadable).
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator authority is required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Unknown provider connection.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Provider connection details are not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type GetApiV1SettingsProvidersByNameError = GetApiV1SettingsProvidersByNameErrors[keyof GetApiV1SettingsProvidersByNameErrors];
+
+export type GetApiV1SettingsProvidersByNameResponses = {
+    /**
+     * Provider connection settings and usage returned.
+     */
+    200: ProviderConnectionSettingsDto;
+};
+
+export type GetApiV1SettingsProvidersByNameResponse = GetApiV1SettingsProvidersByNameResponses[keyof GetApiV1SettingsProvidersByNameResponses];
+
+export type PutApiV1SettingsProvidersByNameData = {
+    body: ProviderSettingsUpdateRequest;
     path: {
         /**
          * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
@@ -26586,6 +27723,10 @@ export type PutApiV1SettingsProvidersByNameErrors = {
      * The credential lacks settings.write.
      */
     403: ErrorEnvelope;
+    /**
+     * Provider configuration changed or outstanding work prevents this update.
+     */
+    409: ErrorEnvelope;
     /**
      * Provider updates are not supported.
      */
@@ -26639,6 +27780,48 @@ export type PostApiV1SettingsProvidersReloadResponses = {
 };
 
 export type PostApiV1SettingsProvidersReloadResponse = PostApiV1SettingsProvidersReloadResponses[keyof PostApiV1SettingsProvidersReloadResponses];
+
+export type PostApiV1SettingsProvidersByNameTestData = {
+    body?: never;
+    path: {
+        /**
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/providers/{name}/test';
+};
+
+export type PostApiV1SettingsProvidersByNameTestErrors = {
+    /**
+     * Unknown provider connection (error.details.validProviders), or one that is not configured (error.details.reason provider-not-configured).
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator authority and settings.write are required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * A test of this connection is already running (error.details.reason provider-test-in-progress).
+     */
+    409: ErrorEnvelope;
+    /**
+     * Provider connection tests are not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type PostApiV1SettingsProvidersByNameTestError = PostApiV1SettingsProvidersByNameTestErrors[keyof PostApiV1SettingsProvidersByNameTestErrors];
+
+export type PostApiV1SettingsProvidersByNameTestResponses = {
+    /**
+     * Connection test result, including a failed test.
+     */
+    200: ProviderConnectionTestResultDto;
+};
+
+export type PostApiV1SettingsProvidersByNameTestResponse = PostApiV1SettingsProvidersByNameTestResponses[keyof PostApiV1SettingsProvidersByNameTestResponses];
 
 export type PutApiV1SettingsGoogleData = {
     body: {
@@ -26999,6 +28182,267 @@ export type DeleteApiV1UsersByNameResponses = {
 
 export type DeleteApiV1UsersByNameResponse = DeleteApiV1UsersByNameResponses[keyof DeleteApiV1UsersByNameResponses];
 
+export type GetApiV1UsersInvitationsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/users/invitations';
+};
+
+export type GetApiV1UsersInvitationsErrors = {
+    /**
+     * Not permitted to list invitations.
+     */
+    403: ErrorEnvelope;
+};
+
+export type GetApiV1UsersInvitationsError = GetApiV1UsersInvitationsErrors[keyof GetApiV1UsersInvitationsErrors];
+
+export type GetApiV1UsersInvitationsResponses = {
+    /**
+     * Invitations returned.
+     */
+    200: UserInvitationListDto;
+};
+
+export type GetApiV1UsersInvitationsResponse = GetApiV1UsersInvitationsResponses[keyof GetApiV1UsersInvitationsResponses];
+
+export type PostApiV1UsersInvitationsData = {
+    body: CreateUserInvitationRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/users/invitations';
+};
+
+export type PostApiV1UsersInvitationsErrors = {
+    /**
+     * Invalid email or role, or a view-only first account.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Not permitted to invite.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1UsersInvitationsError = PostApiV1UsersInvitationsErrors[keyof PostApiV1UsersInvitationsErrors];
+
+export type PostApiV1UsersInvitationsResponses = {
+    /**
+     * Invitation created.
+     */
+    201: UserInvitationDto;
+};
+
+export type PostApiV1UsersInvitationsResponse = PostApiV1UsersInvitationsResponses[keyof PostApiV1UsersInvitationsResponses];
+
+export type DeleteApiV1UsersInvitationsByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Invitation ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/users/invitations/{id}';
+};
+
+export type DeleteApiV1UsersInvitationsByIdErrors = {
+    /**
+     * The invitation is no longer pending.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Not permitted to revoke invitations.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Invitation not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type DeleteApiV1UsersInvitationsByIdError = DeleteApiV1UsersInvitationsByIdErrors[keyof DeleteApiV1UsersInvitationsByIdErrors];
+
+export type DeleteApiV1UsersInvitationsByIdResponses = {
+    /**
+     * Invitation revoked.
+     */
+    200: UserInvitationDto;
+};
+
+export type DeleteApiV1UsersInvitationsByIdResponse = DeleteApiV1UsersInvitationsByIdResponses[keyof DeleteApiV1UsersInvitationsByIdResponses];
+
+export type GetApiV1AuthChatgptStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/chatgpt/status';
+};
+
+export type GetApiV1AuthChatgptStatusResponses = {
+    /**
+     * Status returned.
+     */
+    200: ChatGptStatusDto;
+};
+
+export type GetApiV1AuthChatgptStatusResponse = GetApiV1AuthChatgptStatusResponses[keyof GetApiV1AuthChatgptStatusResponses];
+
+export type GetApiV1AuthChatgptStartData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * `login` (default) or `connect`.
+         */
+        intent?: string;
+        /**
+         * Dashboard path to return to afterwards. Anything outside the dashboard is ignored.
+         */
+        returnTo?: string;
+    };
+    url: '/api/v1/auth/chatgpt/start';
+};
+
+export type GetApiV1AuthChatgptStartErrors = {
+    /**
+     * Too many sign-ins started from this address.
+     */
+    429: ErrorEnvelope;
+};
+
+export type GetApiV1AuthChatgptStartError = GetApiV1AuthChatgptStartErrors[keyof GetApiV1AuthChatgptStartErrors];
+
+export type GetApiV1AuthChatgptCallbackData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * OAuth authorization code.
+         */
+        code?: string;
+        /**
+         * OAuth state.
+         */
+        state?: string;
+        /**
+         * OAuth error code.
+         */
+        error?: string;
+    };
+    url: '/api/v1/auth/chatgpt/callback';
+};
+
+export type GetApiV1AuthChatgptCallbackErrors = {
+    /**
+     * Too many sign-in callbacks from this address.
+     */
+    429: ErrorEnvelope;
+};
+
+export type GetApiV1AuthChatgptCallbackError = GetApiV1AuthChatgptCallbackErrors[keyof GetApiV1AuthChatgptCallbackErrors];
+
+export type PostApiV1AuthChatgptDisconnectData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/chatgpt/disconnect';
+};
+
+export type PostApiV1AuthChatgptDisconnectErrors = {
+    /**
+     * Not signed in.
+     */
+    401: ErrorEnvelope;
+    /**
+     * The request did not come from the dashboard.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1AuthChatgptDisconnectError = PostApiV1AuthChatgptDisconnectErrors[keyof PostApiV1AuthChatgptDisconnectErrors];
+
+export type PostApiV1AuthChatgptDisconnectResponses = {
+    /**
+     * Disconnected.
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type PostApiV1AuthChatgptDisconnectResponse = PostApiV1AuthChatgptDisconnectResponses[keyof PostApiV1AuthChatgptDisconnectResponses];
+
+export type GetApiV1AuthChatgptModelsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/chatgpt/models';
+};
+
+export type GetApiV1AuthChatgptModelsErrors = {
+    /**
+     * Not signed in.
+     */
+    401: ErrorEnvelope;
+    /**
+     * No plan connected, or it needs connecting again.
+     */
+    409: ErrorEnvelope;
+    /**
+     * OpenAI did not answer.
+     */
+    503: ErrorEnvelope;
+};
+
+export type GetApiV1AuthChatgptModelsError = GetApiV1AuthChatgptModelsErrors[keyof GetApiV1AuthChatgptModelsErrors];
+
+export type GetApiV1AuthChatgptModelsResponses = {
+    /**
+     * Models returned.
+     */
+    200: ChatGptModelListDto;
+};
+
+export type GetApiV1AuthChatgptModelsResponse = GetApiV1AuthChatgptModelsResponses[keyof GetApiV1AuthChatgptModelsResponses];
+
+export type PutApiV1AuthChatgptModelData = {
+    body: ChatGptModelSelectionRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/chatgpt/model';
+};
+
+export type PutApiV1AuthChatgptModelErrors = {
+    /**
+     * Not signed in.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Your plan does not offer that model, or the request did not come from the dashboard.
+     */
+    403: ErrorEnvelope;
+    /**
+     * No plan connected, or it needs connecting again.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PutApiV1AuthChatgptModelError = PutApiV1AuthChatgptModelErrors[keyof PutApiV1AuthChatgptModelErrors];
+
+export type PutApiV1AuthChatgptModelResponses = {
+    /**
+     * Model chosen.
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type PutApiV1AuthChatgptModelResponse = PutApiV1AuthChatgptModelResponses[keyof PutApiV1AuthChatgptModelResponses];
+
 export type PostApiV1SnapshotData = {
     body: SnapshotRequest;
     path?: never;
@@ -27094,6 +28538,40 @@ export type PutApiV1SettingsCdpResponses = {
 };
 
 export type PutApiV1SettingsCdpResponse = PutApiV1SettingsCdpResponses[keyof PutApiV1SettingsCdpResponses];
+
+export type PostApiV1ProjectsByNameSchedulePreviewData = {
+    body: SchedulePreviewRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/schedule/preview';
+};
+
+export type PostApiV1ProjectsByNameSchedulePreviewErrors = {
+    /**
+     * Invalid schedule timing.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameSchedulePreviewError = PostApiV1ProjectsByNameSchedulePreviewErrors[keyof PostApiV1ProjectsByNameSchedulePreviewErrors];
+
+export type PostApiV1ProjectsByNameSchedulePreviewResponses = {
+    /**
+     * Next occurrence returned.
+     */
+    200: SchedulePreviewDto;
+};
+
+export type PostApiV1ProjectsByNameSchedulePreviewResponse = PostApiV1ProjectsByNameSchedulePreviewResponses[keyof PostApiV1ProjectsByNameSchedulePreviewResponses];
 
 export type DeleteApiV1ProjectsByNameScheduleData = {
     body?: never;
@@ -29040,6 +30518,10 @@ export type DeleteApiV1ProjectsByNameGoogleConnectionsByTypeData = {
 
 export type DeleteApiV1ProjectsByNameGoogleConnectionsByTypeErrors = {
     /**
+     * The connection belongs to another project that tracks the same domain; nothing was removed.
+     */
+    400: ErrorEnvelope;
+    /**
      * Project or connection not found.
      */
     404: ErrorEnvelope;
@@ -30133,6 +31615,10 @@ export type DeleteApiV1ProjectsByNameGbpConnectionData = {
 };
 
 export type DeleteApiV1ProjectsByNameGbpConnectionErrors = {
+    /**
+     * The connection belongs to another project that tracks the same domain; nothing was removed.
+     */
+    400: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -36436,7 +37922,7 @@ export type PostApiV1ProjectsByNameTrafficCloudflareIngestError = PostApiV1Proje
 
 export type PostApiV1ProjectsByNameTrafficCloudflareIngestResponses = {
     /**
-     * Ingest acknowledged; droppedEvents includes normalization failures and durable-receipt duplicates.
+     * Ingest acknowledged; droppedEvents includes normalization failures and durable-receipt duplicates. aiUserFetchBrowserNonPageHits counts browser-agent requests other than page loads, which no bucket holds.
      */
     200: CloudflareWorkerIngestResponse;
 };
@@ -37574,6 +39060,41 @@ export type PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses = {
 
 export type PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponse = PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses[keyof PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest audit.
+         */
+        runId?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessErrors = {
+    /**
+     * Project or site-audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessError = GetApiV1ProjectsByNameAgentReadinessErrors[keyof GetApiV1ProjectsByNameAgentReadinessErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessResponses = {
+    /**
+     * Agent Readiness scorecard returned.
+     */
+    200: SiteAuditScoreDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessResponse = GetApiV1ProjectsByNameAgentReadinessResponses[keyof GetApiV1ProjectsByNameAgentReadinessResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoData = {
     body?: never;
     path: {
@@ -37602,12 +39123,63 @@ export type GetApiV1ProjectsByNameTechnicalAeoError = GetApiV1ProjectsByNameTech
 
 export type GetApiV1ProjectsByNameTechnicalAeoResponses = {
     /**
-     * Technical AEO scorecard returned.
+     * Agent Readiness scorecard returned.
      */
     200: SiteAuditScoreDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoResponse = GetApiV1ProjectsByNameTechnicalAeoResponses[keyof GetApiV1ProjectsByNameTechnicalAeoResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest audit.
+         */
+        runId?: string;
+        /**
+         * Filter by page audit status: `success` or `error`.
+         */
+        status?: 'success' | 'error';
+        /**
+         * Sort order: `score-asc` (default), `score-desc`, or `url`.
+         */
+        sort?: 'score-asc' | 'score-desc' | 'url';
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/pages';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesErrors = {
+    /**
+     * Project or site-audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesError = GetApiV1ProjectsByNameAgentReadinessPagesErrors[keyof GetApiV1ProjectsByNameAgentReadinessPagesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesResponses = {
+    /**
+     * Audited pages returned.
+     */
+    200: SiteAuditPagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesResponse = GetApiV1ProjectsByNameAgentReadinessPagesResponses[keyof GetApiV1ProjectsByNameAgentReadinessPagesResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoPagesData = {
     body?: never;
@@ -37660,6 +39232,41 @@ export type GetApiV1ProjectsByNameTechnicalAeoPagesResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoPagesResponse = GetApiV1ProjectsByNameTechnicalAeoPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoPagesResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessTrendData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Max data points returned (most recent runs). Default 30.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/trend';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessTrendErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessTrendError = GetApiV1ProjectsByNameAgentReadinessTrendErrors[keyof GetApiV1ProjectsByNameAgentReadinessTrendErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessTrendResponses = {
+    /**
+     * Agent Readiness trend returned.
+     */
+    200: SiteAuditTrendResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessTrendResponse = GetApiV1ProjectsByNameAgentReadinessTrendResponses[keyof GetApiV1ProjectsByNameAgentReadinessTrendResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoTrendData = {
     body?: never;
     path: {
@@ -37688,7 +39295,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoTrendError = GetApiV1ProjectsByNam
 
 export type GetApiV1ProjectsByNameTechnicalAeoTrendResponses = {
     /**
-     * Technical AEO trend returned.
+     * Agent Readiness trend returned.
      */
     200: SiteAuditTrendResponseDto;
 };
@@ -37746,6 +39353,49 @@ export type GetApiV1ProjectsByNameTrendsResponses = {
 
 export type GetApiV1ProjectsByNameTrendsResponse = GetApiV1ProjectsByNameTrendsResponses[keyof GetApiV1ProjectsByNameTrendsResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessCrawlData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.
+         */
+        date?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/crawl';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlErrors = {
+    /**
+     * Invalid date, conflicting runId/date, or invalid cursor identity.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlError = GetApiV1ProjectsByNameAgentReadinessCrawlErrors[keyof GetApiV1ProjectsByNameAgentReadinessCrawlErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlResponses = {
+    /**
+     * Persisted crawl summary returned.
+     */
+    200: SiteCrawlSummaryDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlResponse = GetApiV1ProjectsByNameAgentReadinessCrawlResponses[keyof GetApiV1ProjectsByNameAgentReadinessCrawlResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlData = {
     body?: never;
     path: {
@@ -37789,6 +39439,53 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlResponse = GetApiV1ProjectsByNameTechnicalAeoCrawlResponses[keyof GetApiV1ProjectsByNameTechnicalAeoCrawlResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessGraphData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Maximum graph nodes. Defaults to and is capped at 20,000.
+         */
+        maxNodes?: number;
+        /**
+         * Maximum graph edges. Defaults to and is capped at 50,000.
+         */
+        maxEdges?: number;
+        /**
+         * Restrict links to `content` (excludes nav, header, and footer links) or `template` (only those). Defaults to `all`. A link neither rule could classify matches neither filter, which is why every link response also carries `templateDetection` and every edge carries `templateSource`: an empty `content` list means "could not tell" under an `unavailable-*` detection, and `templateSource` says whether a link that IS classified was decided by where it sits in the page (`placement`) or by how many pages repeat it (`ubiquity`).
+         */
+        linkKind?: 'all' | 'content' | 'template';
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/graph';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessGraphErrors = {
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessGraphError = GetApiV1ProjectsByNameAgentReadinessGraphErrors[keyof GetApiV1ProjectsByNameAgentReadinessGraphErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessGraphResponses = {
+    /**
+     * Bounded Agent Readiness graph projection returned.
+     */
+    200: SiteCrawlGraphResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessGraphResponse = GetApiV1ProjectsByNameAgentReadinessGraphResponses[keyof GetApiV1ProjectsByNameAgentReadinessGraphResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoGraphData = {
     body?: never;
     path: {
@@ -37829,12 +39526,67 @@ export type GetApiV1ProjectsByNameTechnicalAeoGraphError = GetApiV1ProjectsByNam
 
 export type GetApiV1ProjectsByNameTechnicalAeoGraphResponses = {
     /**
-     * Bounded Site Health graph projection returned.
+     * Bounded Agent Readiness graph projection returned.
      */
     200: SiteCrawlGraphResponseDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoGraphResponse = GetApiV1ProjectsByNameTechnicalAeoGraphResponses[keyof GetApiV1ProjectsByNameTechnicalAeoGraphResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Focus page canonical node key. Omit nodeKey and url to use the crawl root.
+         */
+        nodeKey?: string;
+        /**
+         * Focus page canonical URL. Omit nodeKey and url to use the crawl root.
+         */
+        url?: string;
+        /**
+         * Undirected neighborhood radius. Defaults to 1; maximum 3.
+         */
+        hops?: number;
+        /**
+         * Maximum canonical nodes. Defaults to 25; maximum 200.
+         */
+        maxNodes?: number;
+        /**
+         * Maximum canonical edges. Defaults to 50; maximum 500.
+         */
+        maxEdges?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/subgraph';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphErrors = {
+    /**
+     * Project, crawl-bearing run, or focus page not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphError = GetApiV1ProjectsByNameAgentReadinessSubgraphErrors[keyof GetApiV1ProjectsByNameAgentReadinessSubgraphErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphResponses = {
+    /**
+     * Bounded canonical Agent Readiness neighborhood returned.
+     */
+    200: SiteHealthSubgraphResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphResponse = GetApiV1ProjectsByNameAgentReadinessSubgraphResponses[keyof GetApiV1ProjectsByNameAgentReadinessSubgraphResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoSubgraphData = {
     body?: never;
@@ -37884,12 +39636,71 @@ export type GetApiV1ProjectsByNameTechnicalAeoSubgraphError = GetApiV1ProjectsBy
 
 export type GetApiV1ProjectsByNameTechnicalAeoSubgraphResponses = {
     /**
-     * Bounded canonical Site Health neighborhood returned.
+     * Bounded canonical Agent Readiness neighborhood returned.
      */
     200: SiteHealthSubgraphResponseDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoSubgraphResponse = GetApiV1ProjectsByNameTechnicalAeoSubgraphResponses[keyof GetApiV1ProjectsByNameTechnicalAeoSubgraphResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessPathData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Source canonical node key. Omit both source selectors to start at the crawl root.
+         */
+        fromNodeKey?: string;
+        /**
+         * Source canonical URL. Omit both source selectors to start at the crawl root.
+         */
+        fromUrl?: string;
+        /**
+         * Target canonical node key. Required when toUrl is omitted.
+         */
+        toNodeKey?: string;
+        /**
+         * Target canonical URL. Required when toNodeKey is omitted.
+         */
+        toUrl?: string;
+        /**
+         * Maximum directed link depth. Defaults to 12; maximum 24.
+         */
+        maxDepth?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/path';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPathErrors = {
+    /**
+     * A target selector is required.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project, crawl-bearing run, source page, or target page not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPathError = GetApiV1ProjectsByNameAgentReadinessPathErrors[keyof GetApiV1ProjectsByNameAgentReadinessPathErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessPathResponses = {
+    /**
+     * Directed internal-link path result returned.
+     */
+    200: SiteHealthPathResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPathResponse = GetApiV1ProjectsByNameAgentReadinessPathResponses[keyof GetApiV1ProjectsByNameAgentReadinessPathResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoPathData = {
     body?: never;
@@ -37950,6 +39761,65 @@ export type GetApiV1ProjectsByNameTechnicalAeoPathResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoPathResponse = GetApiV1ProjectsByNameTechnicalAeoPathResponses[keyof GetApiV1ProjectsByNameTechnicalAeoPathResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessChangesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Baseline complete crawl. Omit for the complete crawl immediately before the target.
+         */
+        fromRunId?: string;
+        /**
+         * Target complete crawl. Omit for the latest complete crawl.
+         */
+        toRunId?: string;
+        /**
+         * Restrict records and first-page summary counts to pages, links, or both.
+         */
+        scope?: 'all' | 'pages' | 'links';
+        /**
+         * Restrict records and first-page summary counts to one change kind.
+         */
+        change?: 'all' | 'added' | 'removed' | 'changed';
+        /**
+         * Opaque keyset cursor bound to both run IDs and the selected filters.
+         */
+        cursor?: string;
+        /**
+         * Maximum change records. Defaults to 25; maximum 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/changes';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessChangesErrors = {
+    /**
+     * Invalid filters, run direction, or cursor context.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or selected crawl-bearing run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessChangesError = GetApiV1ProjectsByNameAgentReadinessChangesErrors[keyof GetApiV1ProjectsByNameAgentReadinessChangesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessChangesResponses = {
+    /**
+     * Canonical Agent Readiness snapshot comparison returned.
+     */
+    200: SiteHealthChangesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessChangesResponse = GetApiV1ProjectsByNameAgentReadinessChangesResponses[keyof GetApiV1ProjectsByNameAgentReadinessChangesResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoChangesData = {
     body?: never;
     path: {
@@ -38002,12 +39872,63 @@ export type GetApiV1ProjectsByNameTechnicalAeoChangesError = GetApiV1ProjectsByN
 
 export type GetApiV1ProjectsByNameTechnicalAeoChangesResponses = {
     /**
-     * Canonical Site Health snapshot comparison returned.
+     * Canonical Agent Readiness snapshot comparison returned.
      */
     200: SiteHealthChangesResponseDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoChangesResponse = GetApiV1ProjectsByNameTechnicalAeoChangesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoChangesResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Stored non-probe audit run. Omit for the standard latest crawl selection.
+         */
+        runId?: string;
+        /**
+         * Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.
+         */
+        cursor?: string;
+        /**
+         * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
+         */
+        limit?: number;
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/issues';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesErrors = {
+    /**
+     * Invalid query/cursor or evidence/response read budget exceeded.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or explicitly selected non-probe audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesError = GetApiV1ProjectsByNameAgentReadinessIssuesErrors[keyof GetApiV1ProjectsByNameAgentReadinessIssuesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesResponses = {
+    /**
+     * Stored issue groups and coverage returned.
+     */
+    200: SiteAuditIssuesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesResponse = GetApiV1ProjectsByNameAgentReadinessIssuesResponses[keyof GetApiV1ProjectsByNameAgentReadinessIssuesResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoIssuesData = {
     body?: never;
@@ -38030,6 +39951,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoIssuesData = {
          * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
          */
         limit?: number;
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
     };
     url: '/api/v1/projects/{name}/technical-aeo/issues';
 };
@@ -38056,6 +39981,61 @@ export type GetApiV1ProjectsByNameTechnicalAeoIssuesResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoIssuesResponse = GetApiV1ProjectsByNameTechnicalAeoIssuesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact issue ID from the stored issue list.
+         */
+        issueId: string;
+    };
+    query?: {
+        /**
+         * Stored non-probe audit run. Omit for the standard latest crawl selection.
+         */
+        runId?: string;
+        /**
+         * Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.
+         */
+        cursor?: string;
+        /**
+         * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
+         */
+        limit?: number;
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/issues/{issueId}/pages';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesErrors = {
+    /**
+     * Invalid query/cursor or evidence/response read budget exceeded.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project, selected non-probe audit run, or issue not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesError = GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesErrors[keyof GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesResponses = {
+    /**
+     * Stored affected page evidence and coverage returned.
+     */
+    200: SiteAuditIssuePagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesResponse = GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesResponses[keyof GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesData = {
     body?: never;
     path: {
@@ -38081,6 +40061,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesData = {
          * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
          */
         limit?: number;
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
     };
     url: '/api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages';
 };
@@ -38106,6 +40090,53 @@ export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses = {
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponse = GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Exact canonical crawl node key. Required when url is omitted.
+         */
+        nodeKey?: string;
+        /**
+         * Exact persisted crawl URL. Required when nodeKey is omitted.
+         */
+        url?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/crawl/pages/audit';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditErrors = {
+    /**
+     * Exactly one page selector is required.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or explicitly selected crawl-bearing run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditError = GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditErrors[keyof GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditResponses = {
+    /**
+     * Page audit evidence state returned.
+     */
+    200: SiteCrawlPageAuditDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditResponse = GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditResponses[keyof GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditData = {
     body?: never;
@@ -38154,6 +40185,93 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditResponse = GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditResponses[keyof GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.
+         */
+        date?: string;
+        /**
+         * Filter Canonry technical inventory eligibility (`true` or `false`).
+         */
+        inventoryEligible?: boolean;
+        /**
+         * Filter by persisted fetch state.
+         */
+        fetchState?: string;
+        /**
+         * Filter by crawler-derived indexability state; this is not Google index coverage.
+         */
+        indexabilityState?: string;
+        /**
+         * Return only the page with this node key. Combined with a filter it answers whether that exact page is in the filtered set, without paging through the list.
+         */
+        nodeKey?: string;
+        /**
+         * Filter by the derived page state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.
+         */
+        healthState?: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+        /**
+         * Filter by audit state. A URL version has `url-version`: it was fetched and classified but not scored.
+         */
+        auditState?: string;
+        /**
+         * URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Once a few addresses with the same parameter pattern prove to be copies, the crawl stops fetching that pattern: those have no rows and `inventorySummary.urlVersionsNotFetched` counts them. Scans made before URL versions were set aside have none.
+         */
+        urlVersions?: 'include' | 'exclude' | 'only';
+        /**
+         * Sort order. Defaults to `url`.
+         */
+        sort?: 'url' | 'path' | 'score-asc' | 'score-desc';
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
+        /**
+         * Opaque cursor from the previous bounded crawl response.
+         */
+        cursor?: string;
+        /**
+         * Page size. Defaults to 100 (50 for structure/neighbors); maximum 200 (100 for structure/neighbors).
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/crawl/pages';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesErrors = {
+    /**
+     * Invalid date, conflicting runId/date, invalid urlVersions, a site the scan did not cover, or invalid cursor identity.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesError = GetApiV1ProjectsByNameAgentReadinessCrawlPagesErrors[keyof GetApiV1ProjectsByNameAgentReadinessCrawlPagesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesResponses = {
+    /**
+     * Crawl pages returned.
+     */
+    200: SiteCrawlPagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesResponse = GetApiV1ProjectsByNameAgentReadinessCrawlPagesResponses[keyof GetApiV1ProjectsByNameAgentReadinessCrawlPagesResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
     body?: never;
     path: {
@@ -38188,7 +40306,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
          */
         nodeKey?: string;
         /**
-         * Filter by the derived Site Health state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.
+         * Filter by the derived page state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.
          */
         healthState?: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
         /**
@@ -38204,6 +40322,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
          */
         sort?: 'url' | 'path' | 'score-asc' | 'score-desc';
         /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
+        /**
          * Opaque cursor from the previous bounded crawl response.
          */
         cursor?: string;
@@ -38217,7 +40339,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesErrors = {
     /**
-     * Invalid date, conflicting runId/date, invalid urlVersions, or invalid cursor identity.
+     * Invalid date, conflicting runId/date, invalid urlVersions, a site the scan did not cover, or invalid cursor identity.
      */
     400: ErrorEnvelope;
     /**
@@ -38237,6 +40359,61 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesResponse = GetApiV1ProjectsByNameTechnicalAeoCrawlPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoCrawlPagesResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessStructureData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * The site whose folders to list: an owned domain the scan included, or the main domain (the default). A site the scan did not cover is a 400 that names the sites it did.
+         */
+        site?: string;
+        /**
+         * Parent URL path. Defaults to `/`.
+         */
+        parentPath?: string;
+        /**
+         * Opaque cursor from the previous bounded crawl response.
+         */
+        cursor?: string;
+        /**
+         * Maximum immediate children. Defaults to 50; maximum 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/structure';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessStructureErrors = {
+    /**
+     * A site the scan did not cover.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessStructureError = GetApiV1ProjectsByNameAgentReadinessStructureErrors[keyof GetApiV1ProjectsByNameAgentReadinessStructureErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessStructureResponses = {
+    /**
+     * Immediate crawl children returned.
+     */
+    200: SiteCrawlStructureResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessStructureResponse = GetApiV1ProjectsByNameAgentReadinessStructureResponses[keyof GetApiV1ProjectsByNameAgentReadinessStructureResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoStructureData = {
     body?: never;
     path: {
@@ -38250,6 +40427,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoStructureData = {
          * Historical site-audit run ID. Omit for the latest crawl.
          */
         runId?: string;
+        /**
+         * The site whose folders to list: an owned domain the scan included, or the main domain (the default). A site the scan did not cover is a 400 that names the sites it did.
+         */
+        site?: string;
         /**
          * Parent URL path. Defaults to `/`.
          */
@@ -38268,6 +40449,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoStructureData = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoStructureErrors = {
     /**
+     * A site the scan did not cover.
+     */
+    400: ErrorEnvelope;
+    /**
      * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
      */
     404: ErrorEnvelope;
@@ -38283,6 +40468,65 @@ export type GetApiV1ProjectsByNameTechnicalAeoStructureResponses = {
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoStructureResponse = GetApiV1ProjectsByNameTechnicalAeoStructureResponses[keyof GetApiV1ProjectsByNameTechnicalAeoStructureResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Restrict to a source URL.
+         */
+        sourceUrl?: string;
+        /**
+         * Restrict to a target URL.
+         */
+        targetUrl?: string;
+        /**
+         * Restrict to followable or nofollow link observations.
+         */
+        followable?: boolean;
+        /**
+         * Restrict links to `content` (excludes nav, header, and footer links) or `template` (only those). Defaults to `all`. A link neither rule could classify matches neither filter, which is why every link response also carries `templateDetection` and every edge carries `templateSource`: an empty `content` list means "could not tell" under an `unavailable-*` detection, and `templateSource` says whether a link that IS classified was decided by where it sits in the page (`placement`) or by how many pages repeat it (`ubiquity`).
+         */
+        linkKind?: 'all' | 'content' | 'template';
+        /**
+         * Opaque cursor from the previous bounded crawl response.
+         */
+        cursor?: string;
+        /**
+         * Page size. Defaults to 100 (50 for structure/neighbors); maximum 200 (100 for structure/neighbors).
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/internal-links';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksErrors = {
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksError = GetApiV1ProjectsByNameAgentReadinessInternalLinksErrors[keyof GetApiV1ProjectsByNameAgentReadinessInternalLinksErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksResponses = {
+    /**
+     * Internal crawl links returned.
+     */
+    200: SiteCrawlInternalLinksResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksResponse = GetApiV1ProjectsByNameAgentReadinessInternalLinksResponses[keyof GetApiV1ProjectsByNameAgentReadinessInternalLinksResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksData = {
     body?: never;
@@ -38343,6 +40587,61 @@ export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksResponse = GetApiV1ProjectsByNameTechnicalAeoInternalLinksResponses[keyof GetApiV1ProjectsByNameTechnicalAeoInternalLinksResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Canonical crawl node key.
+         */
+        nodeKey?: string;
+        /**
+         * Canonical crawl URL.
+         */
+        url?: string;
+        /**
+         * Restrict links to `content` (excludes nav, header, and footer links) or `template` (only those). Defaults to `all`. A link neither rule could classify matches neither filter, which is why every link response also carries `templateDetection` and every edge carries `templateSource`: an empty `content` list means "could not tell" under an `unavailable-*` detection, and `templateSource` says whether a link that IS classified was decided by where it sits in the page (`placement`) or by how many pages repeat it (`ubiquity`).
+         */
+        linkKind?: 'all' | 'content' | 'template';
+        /**
+         * Maximum inbound and outbound edges independently. Defaults to 50; maximum 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/internal-links/neighbors';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsErrors = {
+    /**
+     * A nodeKey or URL is required.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsError = GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsErrors[keyof GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsResponses = {
+    /**
+     * Bounded internal-link neighborhood returned.
+     */
+    200: SiteCrawlNeighborsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsResponse = GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsResponses[keyof GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsData = {
     body?: never;
     path: {
@@ -38398,6 +40697,49 @@ export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsResponses = 
 
 export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsResponse = GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsResponses[keyof GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Opaque cursor from the previous bounded crawl response.
+         */
+        cursor?: string;
+        /**
+         * Page size. Defaults to 100 (50 for structure/neighbors); maximum 200 (100 for structure/neighbors).
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/dead-links';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksErrors = {
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksError = GetApiV1ProjectsByNameAgentReadinessDeadLinksErrors[keyof GetApiV1ProjectsByNameAgentReadinessDeadLinksErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksResponses = {
+    /**
+     * Dead-link status and findings returned.
+     */
+    200: SiteCrawlDeadLinksResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksResponse = GetApiV1ProjectsByNameAgentReadinessDeadLinksResponses[keyof GetApiV1ProjectsByNameAgentReadinessDeadLinksResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoDeadLinksData = {
     body?: never;
     path: {
@@ -38441,6 +40783,120 @@ export type GetApiV1ProjectsByNameTechnicalAeoDeadLinksResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoDeadLinksResponse = GetApiV1ProjectsByNameTechnicalAeoDeadLinksResponses[keyof GetApiV1ProjectsByNameTechnicalAeoDeadLinksResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessRunsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Max scans returned (most recent first). Defaults to 20; max 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/runs';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsError = GetApiV1ProjectsByNameAgentReadinessRunsErrors[keyof GetApiV1ProjectsByNameAgentReadinessRunsErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsResponses = {
+    /**
+     * Agent Readiness audit scan history returned.
+     */
+    200: SiteHealthScansResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsResponse = GetApiV1ProjectsByNameAgentReadinessRunsResponses[keyof GetApiV1ProjectsByNameAgentReadinessRunsResponses];
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsData = {
+    body?: {
+        /**
+         * Deprecated compatibility alias for the sitemap override.
+         */
+        sitemapUrl?: string;
+        /**
+         * Deprecated compatibility alias for maxPages. Max 2000.
+         */
+        limit?: number;
+        /**
+         * Crawl page budget. When omitted, the project's saved budget (siteAuditMaxPages) applies, else the full site; max 50000.
+         */
+        maxPages?: number;
+        /**
+         * Internal-link observation budget. When omitted the crawl engine derives it from the page count; max 1000000.
+         */
+        maxEdges?: number;
+        /**
+         * Maximum crawl depth from the root. Max 100.
+         */
+        maxDepth?: number;
+        /**
+         * Enable dead-link checking. Defaults to false.
+         */
+        checkDeadLinks?: boolean;
+        /**
+         * Opt in to geographic signals for location and service-area businesses. Part of scan identity.
+         */
+        includeGeo?: boolean;
+        /**
+         * Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.
+         */
+        includeAgentSkills?: boolean;
+        /**
+         * Owned domains this scan covers besides the main domain, which every scan covers. Each must be one of the project's owned domains; naming the main domain changes nothing. When omitted, the project's saved siteAuditDomains apply; [] scans the main domain only. The page budget is shared across every site. Part of scan identity.
+         */
+        sites?: Array<string>;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent-readiness/runs';
+};
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsErrors = {
+    /**
+     * Invalid site-audit request, or a site that is not one of the project's owned domains.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * A crawl with different effective options is already queued or running.
+     */
+    409: ErrorEnvelope;
+    /**
+     * The site-audit executor is unavailable on this deployment.
+     */
+    422: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsError = PostApiV1ProjectsByNameAgentReadinessRunsErrors[keyof PostApiV1ProjectsByNameAgentReadinessRunsErrors];
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsResponses = {
+    /**
+     * Site-audit run queued (or the in-flight run returned).
+     */
+    200: SiteAuditRunResponseDto;
+};
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsResponse = PostApiV1ProjectsByNameAgentReadinessRunsResponses[keyof PostApiV1ProjectsByNameAgentReadinessRunsResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoRunsData = {
     body?: never;
     path: {
@@ -38469,7 +40925,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsError = GetApiV1ProjectsByName
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsResponses = {
     /**
-     * Site Health scan history returned.
+     * Agent Readiness audit scan history returned.
      */
     200: SiteHealthScansResponseDto;
 };
@@ -38510,6 +40966,10 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
          * Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.
          */
         includeAgentSkills?: boolean;
+        /**
+         * Owned domains this scan covers besides the main domain, which every scan covers. Each must be one of the project's owned domains; naming the main domain changes nothing. When omitted, the project's saved siteAuditDomains apply; [] scans the main domain only. The page budget is shared across every site. Part of scan identity.
+         */
+        sites?: Array<string>;
     };
     path: {
         /**
@@ -38523,7 +40983,7 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
 
 export type PostApiV1ProjectsByNameTechnicalAeoRunsErrors = {
     /**
-     * Invalid site-audit request.
+     * Invalid site-audit request, or a site that is not one of the project's owned domains.
      */
     400: ErrorEnvelope;
     /**
@@ -38550,6 +41010,40 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsResponses = {
 };
 
 export type PostApiV1ProjectsByNameTechnicalAeoRunsResponse = PostApiV1ProjectsByNameTechnicalAeoRunsResponses[keyof PostApiV1ProjectsByNameTechnicalAeoRunsResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact site-audit run ID.
+         */
+        runId: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/progress';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressErrors = {
+    /**
+     * Project or non-probe site-audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressError = GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressErrors[keyof GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponses = {
+    /**
+     * Exact stored Agent Readiness audit scan progress returned.
+     */
+    200: SiteAuditRunProgressDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponse = GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponses[keyof GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressData = {
     body?: never;
@@ -38578,12 +41072,46 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressError = GetApiV
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponses = {
     /**
-     * Exact stored Site Health progress returned.
+     * Exact stored Agent Readiness audit scan progress returned.
      */
     200: SiteAuditRunProgressDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponse = GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponses[keyof GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact site-audit run ID.
+         */
+        runId: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/page-health-preview';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewErrors = {
+    /**
+     * Project or non-probe site-audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewError = GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewErrors[keyof GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewResponses = {
+    /**
+     * Bounded provisional Agent Readiness score preview returned.
+     */
+    200: SiteAuditLivePageHealthDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewResponse = GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewResponses[keyof GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewData = {
     body?: never;
@@ -38612,7 +41140,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewError 
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewResponses = {
     /**
-     * Bounded provisional Page Health preview returned.
+     * Bounded provisional Agent Readiness score preview returned.
      */
     200: SiteAuditLivePageHealthDto;
 };

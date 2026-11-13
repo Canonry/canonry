@@ -29,6 +29,9 @@ export const UI_PAGES = [
   '/projects/:projectName/report',
   '/projects/:projectName/activity',
   '/projects/:projectName/backlinks',
+  '/projects/:projectName/agent-readiness',
+  // Agent Readiness's earlier route. It now redirects, but dashboards built
+  // before the rename still report it, so their events must keep validating.
   '/projects/:projectName/technical-aeo',
   '/projects/:projectName/history',
   '/projects/:projectName/settings',
@@ -61,6 +64,8 @@ export const UI_PROJECT_TABS = [
   'report',
   'activity',
   'backlinks',
+  'agent-readiness',
+  // Kept for events from dashboards built before Agent Readiness was renamed.
   'technical-aeo',
   'history',
   'settings',
@@ -188,7 +193,7 @@ export const UI_ROUTE_ID_COLLECTIONS: ReadonlySet<string> = new Set([
 export const UI_ROUTE_FIXED_CHILDREN: ReadonlySet<string> = new Set([
   'ads/account', 'ads/activation-grants', 'ads/ad-groups', 'ads/ads', 'ads/campaigns', 'ads/connect',
   'ads/connection', 'ads/conversions', 'ads/delivery-diagnostics', 'ads/files', 'ads/geo', 'ads/insights',
-  'ads/live-delivery', 'ads/operations', 'ads/status', 'ads/summary', 'ads/sync', 'keys/self',
+  'ads/live-delivery', 'ads/operations', 'ads/status', 'ads/summary', 'ads/sync', 'keys/self', 'users/invitations',
   'locations/default', 'locations/discover', 'notifications/events', 'operations/logs', 'providers/reload', 'queries/generate',
   'queries/replace-preview', 'runs/latest', 'snapshots/diff',
 ])

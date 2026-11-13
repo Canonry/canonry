@@ -69,6 +69,7 @@ function seedSnapshot(
     answerMentioned?: boolean | null
     answerText?: string | null
     groundingSources?: Array<{ uri: string; title?: string }>
+    retrievalStatus?: 'used' | 'not-applicable'
   },
 ) {
   db.insert(querySnapshots).values({
@@ -77,7 +78,8 @@ function seedSnapshot(
     queryId,
     provider,
     model: 'test-model',
-    citationState,
+    citationState: citationState as 'cited' | 'not-cited' | 'not-measured',
+    retrievalStatus: opts?.retrievalStatus ?? null,
     // Tri-state mention signal. Default null ("not checked") when the caller
     // doesn't specify, mirroring legacy snapshots written before the signal.
     answerMentioned: opts?.answerMentioned ?? null,
@@ -114,10 +116,10 @@ describe('IntelligenceService', () => {
       expect(result).not.toBeNull()
       expect(result!.health).toEqual({
         overallCitedRate: 0.5, overallMentionRate: 2 / 3,
-        totalPairs: 6, citedPairs: 3, mentionedPairs: 4,
+        totalPairs: 6, citedPairs: 3, citationNotMeasuredPairs: 0, mentionedPairs: 4,
         providerBreakdown: {
-          gemini: { citedRate: 0.75, mentionRate: 0.5, cited: 3, mentioned: 2, total: 4 },
-          openai: { citedRate: 0, mentionRate: 1, cited: 0, mentioned: 2, total: 2 },
+          gemini: { citedRate: 0.75, mentionRate: 0.5, cited: 3, mentioned: 2, total: 4, citationNotMeasured: 0 },
+          openai: { citedRate: 0, mentionRate: 1, cited: 0, mentioned: 2, total: 2, citationNotMeasured: 0 },
         },
       })
       expect(db.select({
@@ -130,8 +132,59 @@ describe('IntelligenceService', () => {
         projectId, runId, totalPairs: 6, citedPairs: 3, mentionedPairs: 4,
         citedRate: '0.5', mentionRate: '0.6666666666666666',
         providerBreakdown: {
-          gemini: { citedRate: 0.75, mentionRate: 0.5, cited: 3, mentioned: 2, total: 4 },
-          openai: { citedRate: 0, mentionRate: 1, cited: 0, mentioned: 2, total: 2 },
+          gemini: { citedRate: 0.75, mentionRate: 0.5, cited: 3, mentioned: 2, total: 4, citationNotMeasured: 0 },
+          openai: { citedRate: 0, mentionRate: 1, cited: 0, mentioned: 2, total: 2, citationNotMeasured: 0 },
+        },
+      }])
+    })
+
+    // Local (no web access) returns no sources: its answers observed nothing
+    // about citation, so they raise no citation insight and leave health's
+    // cited rate, while a measured engine beside them still counts.
+    it('raises no citation insight from answers without sources and persists their health as not measured', () => {
+      const { db } = createTempDb('intel-not-measured-')
+      const projectId = seedProject(db)
+      const k1 = seedQuery(db, projectId, 'k1') // Local only, then Gemini cites it
+      const k2 = seedQuery(db, projectId, 'k2') // Local only, every run
+      const k3 = seedQuery(db, projectId, 'k3') // Gemini misses it every run, Local beside it
+      // Older rows: Local stored a miss before `not-measured` existed.
+      const olderLocal = { retrievalStatus: 'not-applicable' as const }
+      for (const [index, finishedAt] of ['2024-01-01T00:00:00Z', '2024-02-01T00:00:00Z'].entries()) {
+        const runId = seedRun(db, projectId, 'completed', finishedAt)
+        seedSnapshot(db, runId, k1, 'local', 'not-cited', olderLocal)
+        seedSnapshot(db, runId, k2, 'local', index === 0 ? 'not-cited' : 'not-measured', olderLocal)
+        seedSnapshot(db, runId, k3, 'local', 'not-measured', olderLocal)
+        seedSnapshot(db, runId, k3, 'gemini', 'not-cited')
+      }
+      const run3 = seedRun(db, projectId, 'completed', '2024-03-01T00:00:00Z')
+      seedSnapshot(db, run3, k1, 'local', 'not-measured', { ...olderLocal, answerMentioned: true })
+      seedSnapshot(db, run3, k1, 'gemini', 'cited', { citedDomains: ['example.com'], answerMentioned: false })
+      seedSnapshot(db, run3, k2, 'local', 'not-measured', { ...olderLocal, answerMentioned: false })
+      seedSnapshot(db, run3, k3, 'local', 'not-measured', { ...olderLocal, answerMentioned: true })
+      seedSnapshot(db, run3, k3, 'gemini', 'not-cited', { answerMentioned: false })
+
+      const result = new IntelligenceService(db).analyzeAndPersist(run3, projectId)
+
+      // k1 was never measured uncited (only Local answered), so Gemini citing it
+      // is not a first citation; k2 never had a measured answer, so no gap.
+      expect(result!.firstCitations).toEqual([])
+      expect(result!.gains).toEqual([])
+      expect(result!.regressions).toEqual([])
+      expect(result!.persistentGaps).toEqual([{ query: 'k3', streak: 3, threshold: 3 }])
+      expect(db.select({ type: insights.type, query: insights.query }).from(insights).all()).toEqual([
+        { type: 'persistent-gap', query: 'k3' },
+      ])
+      // Cited: 1 of the 2 Gemini pairs; the 3 Local pairs are not measured.
+      // Mention: 2 of all 5 pairs, Local included.
+      expect(db.select({
+        citedRate: healthSnapshots.overallCitedRate, mentionRate: healthSnapshots.overallMentionRate,
+        totalPairs: healthSnapshots.totalPairs, citedPairs: healthSnapshots.citedPairs, mentionedPairs: healthSnapshots.mentionedPairs,
+        providerBreakdown: healthSnapshots.providerBreakdown,
+      }).from(healthSnapshots).where(eq(healthSnapshots.runId, run3)).all()).toEqual([{
+        citedRate: '0.5', mentionRate: '0.4', totalPairs: 5, citedPairs: 1, mentionedPairs: 2,
+        providerBreakdown: {
+          gemini: { citedRate: 0.5, mentionRate: 0, cited: 1, mentioned: 0, total: 2, citationNotMeasured: 0 },
+          local: { citedRate: null, mentionRate: 2 / 3, cited: 0, mentioned: 2, total: 3, citationNotMeasured: 3 },
         },
       }])
     })
@@ -265,13 +318,13 @@ describe('IntelligenceService', () => {
       const savedHealth = db.select().from(healthSnapshots).all()
       expect(savedHealth).toHaveLength(1)
       expect(result!.health).toEqual({
-        overallCitedRate: 1, overallMentionRate: 0, totalPairs: 1, citedPairs: 1, mentionedPairs: 0,
-        providerBreakdown: { gemini: { citedRate: 1, mentionRate: 0, cited: 1, mentioned: 0, total: 1 } },
+        overallCitedRate: 1, overallMentionRate: 0, totalPairs: 1, citedPairs: 1, citationNotMeasuredPairs: 0, mentionedPairs: 0,
+        providerBreakdown: { gemini: { citedRate: 1, mentionRate: 0, cited: 1, mentioned: 0, total: 1, citationNotMeasured: 0 } },
       })
       expect(savedHealth[0]).toMatchObject({
         projectId, runId, totalPairs: 1, citedPairs: 1, mentionedPairs: 0,
         overallCitedRate: '1', overallMentionRate: '0',
-        providerBreakdown: { gemini: { citedRate: 1, mentionRate: 0, cited: 1, mentioned: 0, total: 1 } },
+        providerBreakdown: { gemini: { citedRate: 1, mentionRate: 0, cited: 1, mentioned: 0, total: 1, citationNotMeasured: 0 } },
       })
       // No transition insights on first run — there is no baseline to compare against
       const savedInsights = db.select().from(insights).all()

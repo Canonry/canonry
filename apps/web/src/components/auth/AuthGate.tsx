@@ -1,6 +1,8 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { CHATGPT_SIGN_IN_ERROR_MESSAGES } from '@canonry/canonry-contracts'
 
 import {
   ApiError,
@@ -15,14 +17,17 @@ import {
   setupDashboardPassword,
   setOnAuthExpired,
   signInWithAccount,
+  chatGptStartUrl,
   type ApiAccountSession,
 } from '../../api.js'
 import { AccountProvider, type ApiKeyAccess, type SignedInAccount } from '../../contexts/account-context.js'
 import { asyncHandler } from '../../lib/async-handler.js'
+import { consumeChatGptReturn, currentReturnPath } from '../../lib/chatgpt-return.js'
 import { createQueryClient } from '../../queries/query-client.js'
 import { createAppRouter } from '../../router/router.js'
 import { attachUiTelemetryRouter } from '../../lib/ui-telemetry-install.js'
 import { BrandMarkImage } from '../shared/BrandLockup.js'
+import { ChatGptButton } from '../shared/ChatGptPlan.js'
 import { Button } from '../ui/button.js'
 import { Card, CardContent, CardDescription, CardHeader } from '../ui/card.js'
 
@@ -76,6 +81,12 @@ export function AuthGate() {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [sessionExpired, setSessionExpired] = useState(false)
+  // Sign in with ChatGPT, when the install offers it: the main action, with the
+  // name-and-password form behind a disclosure for administrators.
+  const [chatgptSignIn, setChatgptSignIn] = useState(false)
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  // Why a ChatGPT sign-in came back without signing anyone in, read once.
+  const [chatgptError] = useState(() => consumeChatGptReturn().error)
 
   // Lazy-initialize router + query client only when needed for rendering.
   //
@@ -118,6 +129,7 @@ export function AuthGate() {
   const applyAccountSession = (session: ApiAccountSession): boolean => {
     if (!session.authRequired) return false
     setAccountsInUse(true)
+    setChatgptSignIn(session.signInMethods?.chatgpt === true)
     setAccount(session.user)
     setApiKey(null)
     setApiKeyPending(false)
@@ -436,6 +448,48 @@ export function AuthGate() {
   const setupFormIsValid = trimmedPassword.length >= 8 && password === confirmPassword
     && (!setupNeedsRootKey || setupRootKey.trim().length > 0)
 
+  /** The name-and-password form; secondary when ChatGPT is the main way in. */
+  const renderAccountForm = (options: { secondary: boolean; formId?: string }) => (
+    <form id={options.formId} className="space-y-4" onSubmit={asyncHandler(handleAccountSignIn)}>
+      <label className="block space-y-1.5" htmlFor="account-name">
+        <span className="text-label-12-strong text-secondary">Name</span>
+        <input
+          autoFocus
+          id="account-name"
+          className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
+          type="text"
+          name="username"
+          autoComplete="username"
+          value={name}
+          onChange={(event) => {
+            setName(event.target.value)
+            setError(null)
+          }}
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? 'account-login-error' : undefined}
+        />
+      </label>
+      <label className="block space-y-1.5" htmlFor="account-password">
+        <span className="text-label-12-strong text-secondary">Password</span>
+        <input
+          id="account-password"
+          className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
+          type="password"
+          name="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(event) => updatePassword(event.target.value)}
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? 'account-login-error' : undefined}
+        />
+      </label>
+      {error ? <p id="account-login-error" role="alert" className="text-copy-14 text-negative-400">{error}</p> : null}
+      <Button type="submit" variant={options.secondary ? 'secondary' : 'default'} disabled={submitting || !name.trim() || !password}>
+        {submitting ? 'Signing in…' : 'Sign in'}
+      </Button>
+    </form>
+  )
+
   return (
     <div className="min-h-screen bg-bg px-4 py-8">
       <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-md flex-col items-center justify-center gap-5">
@@ -454,7 +508,6 @@ export function AuthGate() {
           ) : authState === 'api-key-error' ? (
             <>
               <CardHeader>
-                <p className="eyebrow eyebrow-soft">Dashboard access</p>
                 <h1 className="text-heading-24 text-primary">Could not verify API key access</h1>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -473,59 +526,48 @@ export function AuthGate() {
           ) : authState === 'account-login' ? (
             <>
               <CardHeader>
-                <p className="eyebrow eyebrow-soft">Dashboard access</p>
                 <h1 className="text-heading-24 text-primary">Sign in to Canonry</h1>
               </CardHeader>
-              <CardContent>
-                {sessionExpired ? (
-                  <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
-                    You were signed out — please sign in again.
-                  </p>
-                ) : null}
-                <form className="space-y-4" onSubmit={asyncHandler(handleAccountSignIn)}>
-                  <label className="block space-y-1.5" htmlFor="account-name">
-                    <span className="text-label-12-strong text-secondary">Name</span>
-                    <input
-                      autoFocus
-                      id="account-name"
-                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
-                      type="text"
-                      name="username"
-                      autoComplete="username"
-                      value={name}
-                      onChange={(event) => {
-                        setName(event.target.value)
-                        setError(null)
-                      }}
-                      aria-invalid={Boolean(error)}
-                      aria-describedby={error ? 'account-login-error' : undefined}
-                    />
-                  </label>
-                  <label className="block space-y-1.5" htmlFor="account-password">
-                    <span className="text-label-12-strong text-secondary">Password</span>
-                    <input
-                      id="account-password"
-                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
-                      type="password"
-                      name="password"
-                      autoComplete="current-password"
-                      value={password}
-                      onChange={(event) => updatePassword(event.target.value)}
-                      aria-invalid={Boolean(error)}
-                      aria-describedby={error ? 'account-login-error' : undefined}
-                    />
-                  </label>
-                  {error ? <p id="account-login-error" role="alert" className="text-copy-14 text-negative-400">{error}</p> : null}
-                  <Button type="submit" disabled={submitting || !name.trim() || !password}>
-                    {submitting ? 'Signing in…' : 'Sign in'}
-                  </Button>
-                </form>
-              </CardContent>
+              {chatgptSignIn ? (
+                <CardContent className="space-y-4">
+                  {sessionExpired ? (
+                    <p className="rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
+                      You were signed out. Sign in again.
+                    </p>
+                  ) : chatgptError ? (
+                    <p role="alert" className="rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
+                      {CHATGPT_SIGN_IN_ERROR_MESSAGES[chatgptError]}
+                    </p>
+                  ) : null}
+                  <ChatGptButton href={chatGptStartUrl('login', currentReturnPath())} className="w-full" />
+                  <button
+                    type="button"
+                    aria-expanded={passwordOpen}
+                    aria-controls="account-password-form"
+                    onClick={() => setPasswordOpen(open => !open)}
+                    className="flex items-center gap-1 rounded-md text-label-14 text-secondary transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
+                  >
+                    {passwordOpen
+                      ? <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                      : <ChevronRight className="h-4 w-4" aria-hidden="true" />}
+                    Sign in with a password
+                  </button>
+                  {passwordOpen ? renderAccountForm({ secondary: true, formId: 'account-password-form' }) : null}
+                </CardContent>
+              ) : (
+                <CardContent>
+                  {sessionExpired ? (
+                    <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
+                      You were signed out. Sign in again.
+                    </p>
+                  ) : null}
+                  {renderAccountForm({ secondary: false })}
+                </CardContent>
+              )}
             </>
           ) : authState === 'setup' ? (
             <>
               <CardHeader>
-                <p className="eyebrow eyebrow-soft">First-time setup</p>
                 <h1 className="text-heading-24 text-primary">Create a dashboard password</h1>
                 <CardDescription>{SETUP_DESCRIPTION}</CardDescription>
               </CardHeader>
@@ -625,7 +667,6 @@ export function AuthGate() {
           ) : (
             <>
               <CardHeader>
-                <p className="eyebrow eyebrow-soft">Dashboard access</p>
                 <h1 className="text-heading-24 text-primary">Sign in to Canonry</h1>
                 <CardDescription>
                   {sharedLoginMethod === 'api-key'
@@ -636,7 +677,7 @@ export function AuthGate() {
               <CardContent>
                 {sessionExpired ? (
                   <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
-                    Your session expired — please sign in again.
+                    Your session expired. Sign in again.
                   </p>
                 ) : null}
                 <form className="space-y-4" onSubmit={asyncHandler(handleLogin)}>

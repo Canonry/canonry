@@ -368,7 +368,13 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
     return
   }
 
-  if (result.topPages.length === 0 && result.aiReferrals.length === 0 && result.aiReferralLandingPages.length === 0 && result.socialReferrals.length === 0) {
+  // The platform block reads the acquisition table, whose first sync reaches
+  // further back than the page and referral tables, so it can hold history
+  // the other figures do not.
+  const platformBlock = result.socialPlatformPerformance?.status === 'ready' && result.socialPlatformPerformance.platforms.length > 0
+    ? result.socialPlatformPerformance
+    : null
+  if (result.topPages.length === 0 && result.aiReferrals.length === 0 && result.aiReferralLandingPages.length === 0 && result.socialReferrals.length === 0 && !platformBlock) {
     if (!result.lastSyncedAt) {
       console.log('No GA4 traffic data. Run "canonry ga sync <project>" first.')
     } else {
@@ -457,6 +463,10 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
     console.log()
   }
 
+  if (platformBlock) {
+    printSocialPlatformRanking(platformBlock)
+  }
+
   if (result.topPages.length > 0) {
     const pageWidth = Math.min(60, Math.max(15, ...result.topPages.map((r) => r.landingPage.length)))
     console.log(`  TOP LANDING PAGES`)
@@ -487,6 +497,7 @@ const AI_ENGINE_LEAD_RATE_NOTES: Record<AiEngineLeadRateUnavailableReason, strin
   'paid-split-needs-landing-page': 'lead events are channel-level here, so the paid/organic split cannot read landing-page utm tags, and some AI sessions were paid only by those tags (counted as organic above); tag paid AI links with a paid utm_medium such as cpc for lead rates.',
   'sessions-behind-leads': 'stored lead events run past the last stored session date, so recent leads have no sessions to divide by; rerun the GA sync for lead rates.',
   'sessions-missing-on-lead-days': 'some days in this window have stored lead events but no stored sessions, so those leads have no sessions to divide by; rerun the GA sync with --days covering the window for lead rates.',
+  'sessions-before-leads': 'this window starts before the first stored lead event, so sessions on the earlier days have no conversions to count; pick a window inside the lead history for rates.',
 }
 
 function hasAiEngineLeadRows(block: AiEngineLeadClass): boolean {
@@ -650,6 +661,52 @@ export async function gaAiReferralHistory(project: string, opts?: GaRangeOptions
 }
 
 /** One row per engine or platform group, with how many source rows it folds. */
+type SocialPlatformPerformance = NonNullable<GaTrafficResponse['socialPlatformPerformance']>
+
+/** Why the social platform rates are blank. */
+const SOCIAL_PLATFORM_RATE_NOTES: Record<NonNullable<SocialPlatformPerformance['conversionRateUnavailableReason']>, string> = {
+  'no-data': 'no conversion events are measured for this project, so platforms are not ranked.',
+  'sync-not-ready': 'the latest GA4 sessions or conversions sync did not succeed, so rates are hidden until both are current; rerun the GA sync.',
+  'channel-leads-unfiltered': 'conversions cannot follow a host or path filter here, so rates are hidden.',
+  'paid-split-needs-landing-page': 'the paid and organic split needs landing pages GA4 did not report, so rates are hidden.',
+  'sessions-behind-leads': 'stored conversions run past the last stored sessions, so rates are hidden until the GA4 sync catches up.',
+  'sessions-missing-on-lead-days': 'some days have conversions but no stored sessions, so rates are hidden; rerun the GA sync with --days covering the window.',
+  'sessions-before-leads': 'this window starts before conversions were first stored, so rates are hidden; pick a shorter window.',
+}
+
+/**
+ * Social and creator platforms across every GA4 channel, in the server's rank
+ * order (platforms the server did not rank follow in its sessions order).
+ * Every figure is the server's; nothing here divides.
+ */
+function printSocialPlatformRanking(block: SocialPlatformPerformance): void {
+  const rows = [
+    ...block.platforms.filter(row => row.rank !== null).sort((a, b) => a.rank! - b.rank!),
+    ...block.platforms.filter(row => row.rank === null),
+  ]
+  const labelWidth = Math.min(30, Math.max('PLATFORM'.length, 'Whole site'.length, ...rows.map(row => row.label.length)))
+  const count = (value: number | null) => (value === null ? '—' : String(value))
+  console.log('  SOCIAL PLATFORMS BY CONVERSIONS (every GA4 channel)')
+  console.log(`  Counted events: ${block.countedEventNames.length > 0 ? block.countedEventNames.join(', ') : 'none'}. Ranked from ${block.minSessions.toLocaleString('en-US')} sessions.`)
+  console.log(`  ${'RANK'.padEnd(6)}${'PLATFORM'.padEnd(labelWidth)}  ${'SESSIONS'.padEnd(10)}${'PAID'.padEnd(9)}${'CONVERSIONS'.padEnd(13)}PER 1K`)
+  console.log(`  ${'─'.repeat(4)}  ${'─'.repeat(labelWidth)}  ${'─'.repeat(10)}${'─'.repeat(9)}${'─'.repeat(13)}${'─'.repeat(6)}`)
+  for (const row of rows) {
+    const label = row.label.length > labelWidth ? row.label.slice(0, labelWidth - 3) + '...' : row.label
+    const rank = row.rank === null ? '-' : String(row.rank)
+    const note = !row.enoughSessions && block.conversionRateAvailable ? '  too few sessions' : ''
+    console.log(
+      `  ${rank.padEnd(6)}${label.padEnd(labelWidth)}  ${String(row.sessions).padEnd(10)}${String(row.paidSessions).padEnd(9)}${count(row.conversions).padEnd(13)}${row.conversionsPerThousandSessionsDisplay}${note}`,
+    )
+  }
+  console.log(
+    `  ${''.padEnd(6)}${'Whole site'.padEnd(labelWidth)}  ${count(block.site.sessions).padEnd(10)}${''.padEnd(9)}${count(block.site.conversions).padEnd(13)}${block.site.conversionsPerThousandSessionsDisplay}`,
+  )
+  if (block.conversionRateUnavailableReason) {
+    console.log(`  Note: ${SOCIAL_PLATFORM_RATE_NOTES[block.conversionRateUnavailableReason]}`)
+  }
+  console.log()
+}
+
 function printReferralGroups(
   heading: string,
   column: string,

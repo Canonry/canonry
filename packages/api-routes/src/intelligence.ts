@@ -42,6 +42,7 @@ function emptyHealthSnapshot(projectId: string): HealthSnapshotDto {
     overallMentionRate: 0,
     totalPairs: 0,
     citedPairs: 0,
+    citationNotMeasuredPairs: 0,
     mentionedPairs: 0,
     providerBreakdown: {},
     createdAt: '',
@@ -71,10 +72,12 @@ function mapInsightRow(r: typeof insights.$inferSelect): InsightDto {
  * Coalesce a persisted providerBreakdown into the current DTO shape. Rows
  * written before the mention columns existed have entries with no
  * `mentionRate` / `mentioned` keys — fill them with 0 so the contract field
- * is always present. Cited fields pass through untouched.
+ * is always present. Rows written before `citationNotMeasured` existed read 0
+ * and keep the cited rate they stored (computed over every pair): history is
+ * read as stored, never recomputed.
  */
 function coalesceProviderBreakdown(
-  breakdown: Record<string, { citedRate: number; mentionRate?: number; cited: number; mentioned?: number; total: number }>,
+  breakdown: Record<string, { citedRate: number | null; mentionRate?: number; cited: number; mentioned?: number; total: number; citationNotMeasured?: number }>,
 ): HealthSnapshotDto['providerBreakdown'] {
   const out: HealthSnapshotDto['providerBreakdown'] = {}
   for (const [provider, entry] of Object.entries(breakdown)) {
@@ -84,23 +87,37 @@ function coalesceProviderBreakdown(
       cited: entry.cited,
       mentioned: entry.mentioned ?? 0,
       total: entry.total,
+      citationNotMeasured: entry.citationNotMeasured ?? 0,
     }
   }
   return out
 }
 
-function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto {
+/** Pairs whose engine returned no sources, summed from the stored breakdown. */
+function citationNotMeasuredPairsOf(breakdown: HealthSnapshotDto['providerBreakdown']): number {
+  return Object.values(breakdown).reduce((sum, entry) => sum + entry.citationNotMeasured, 0)
+}
+
+/**
+ * One stored health snapshot as its DTO. `overall_cited_rate` is NOT NULL, so
+ * a snapshot none of whose pairs carried sources stored 0; it reads as null
+ * (not measured), because its breakdown counts every pair as not measured.
+ */
+export function mapHealthSnapshotRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto {
+  const providerBreakdown = coalesceProviderBreakdown(r.providerBreakdown)
+  const citationNotMeasuredPairs = citationNotMeasuredPairsOf(providerBreakdown)
   return {
     id: r.id,
     projectId: r.projectId,
     runId: r.runId ?? null,
-    overallCitedRate: Number(r.overallCitedRate),
+    overallCitedRate: r.totalPairs > 0 && citationNotMeasuredPairs >= r.totalPairs ? null : Number(r.overallCitedRate),
     // Legacy rows (persisted before v80) have NULL mention columns → 0.
     overallMentionRate: r.overallMentionRate == null ? 0 : Number(r.overallMentionRate),
     totalPairs: r.totalPairs,
     citedPairs: r.citedPairs,
+    citationNotMeasuredPairs,
     mentionedPairs: r.mentionedPairs ?? 0,
-    providerBreakdown: coalesceProviderBreakdown(r.providerBreakdown),
+    providerBreakdown,
     createdAt: r.createdAt,
     status: 'ready',
   }
@@ -115,18 +132,18 @@ function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto
  * runIds so consumers can trace back to the underlying runs if needed.
  *
  * For single-location projects (one row in the group), this returns a result
- * identical to `mapHealthRow(row)` — no behavior change for the common case.
+ * identical to `mapHealthSnapshotRow(row)` — no behavior change for the common case.
  */
 function aggregateHealthSnapshots(
   projectId: string,
   rows: readonly (typeof healthSnapshots.$inferSelect)[],
 ): HealthSnapshotDto {
-  if (rows.length === 1) return mapHealthRow(rows[0]!)
+  if (rows.length === 1) return mapHealthSnapshotRow(rows[0]!)
 
   let totalPairs = 0
   let citedPairs = 0
   let mentionedPairs = 0
-  const mergedProviders: Record<string, { total: number; cited: number; mentioned: number; citedRate: number; mentionRate: number }> = {}
+  const mergedProviders: HealthSnapshotDto['providerBreakdown'] = {}
   let newestCreatedAt = ''
   const runIds: string[] = []
 
@@ -138,22 +155,26 @@ function aggregateHealthSnapshots(
     mentionedPairs += row.mentionedPairs ?? 0
     if (row.createdAt > newestCreatedAt) newestCreatedAt = row.createdAt
     if (row.runId) runIds.push(row.runId)
-    const providerBreakdown = row.providerBreakdown
-    for (const [provider, entry] of Object.entries(providerBreakdown)) {
-      const existing = mergedProviders[provider] ?? { total: 0, cited: 0, mentioned: 0, citedRate: 0, mentionRate: 0 }
+    for (const [provider, entry] of Object.entries(coalesceProviderBreakdown(row.providerBreakdown))) {
+      const existing = mergedProviders[provider] ?? { total: 0, cited: 0, mentioned: 0, citedRate: 0, mentionRate: 0, citationNotMeasured: 0 }
       existing.total += entry.total
       existing.cited += entry.cited
-      existing.mentioned += entry.mentioned ?? 0
+      existing.mentioned += entry.mentioned
+      existing.citationNotMeasured += entry.citationNotMeasured
       mergedProviders[provider] = existing
     }
   }
   // Compute per-provider rates after summing. Cited and mention are computed
-  // separately — neither is derived from the other.
+  // separately — neither is derived from the other — and the cited rate is
+  // over the pairs whose sources were checked only.
   for (const entry of Object.values(mergedProviders)) {
-    entry.citedRate = entry.total > 0 ? entry.cited / entry.total : 0
+    const measured = entry.total - entry.citationNotMeasured
+    entry.citedRate = measured > 0 ? entry.cited / measured : null
     entry.mentionRate = entry.total > 0 ? entry.mentioned / entry.total : 0
   }
-  const overallCitedRate = totalPairs > 0 ? citedPairs / totalPairs : 0
+  const citationNotMeasuredPairs = citationNotMeasuredPairsOf(mergedProviders)
+  const measuredPairs = totalPairs - citationNotMeasuredPairs
+  const overallCitedRate = totalPairs === 0 ? 0 : measuredPairs > 0 ? citedPairs / measuredPairs : null
   const overallMentionRate = totalPairs > 0 ? mentionedPairs / totalPairs : 0
 
   return {
@@ -166,6 +187,7 @@ function aggregateHealthSnapshots(
     overallMentionRate,
     totalPairs,
     citedPairs,
+    citationNotMeasuredPairs,
     mentionedPairs,
     providerBreakdown: mergedProviders,
     createdAt: newestCreatedAt,
@@ -333,7 +355,7 @@ export async function intelligenceRoutes(app: FastifyInstance) {
     if (!fallback) {
       return reply.send(emptyHealthSnapshot(project.id))
     }
-    return reply.send(mapHealthRow(fallback))
+    return reply.send(mapHealthSnapshotRow(fallback))
   })
 
   // GET /projects/:name/health/history — health snapshot history
@@ -353,6 +375,6 @@ export async function intelligenceRoutes(app: FastifyInstance) {
       .limit(limit)
       .all()
 
-    return reply.send(rows.map(mapHealthRow))
+    return reply.send(rows.map(mapHealthSnapshotRow))
   })
 }

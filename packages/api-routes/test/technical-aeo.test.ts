@@ -529,6 +529,9 @@ describe('GET /technical-aeo crawl reads', () => {
       deadLinks: { state: 'complete', checked: 2, found: 1, unverified: 3 },
     })
     expect(body.counts.pagesEligible).toBe(2)
+    // The same total the graph read reports, so the dashboard and CLI show one number.
+    expect(body.counts.internalLinks).toBe(2)
+    expect((await get<SiteCrawlGraphResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/graph')).body.totalEdges).toBe(2)
     expect(body.runId).not.toBe(ctx.probeRun)
   })
 
@@ -552,6 +555,8 @@ describe('GET /technical-aeo crawl reads', () => {
 
     const { body } = await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')
     expect(body.runId).toBe(highRunId)
+    // No map was built for this scan, so there is no internal link total yet.
+    expect(body.counts.internalLinks).toBeNull()
   })
 
   it('makes a newer-day page-capped crawl current while the older complete one stays selectable', async () => {
@@ -1210,7 +1215,7 @@ describe('GET /technical-aeo crawl reads', () => {
     expect(mismatch.json()).toEqual({
       error: {
         code: 'VALIDATION_ERROR',
-        message: 'Site Health changes cursor does not match this snapshot comparison and filter',
+        message: 'Agent Readiness changes cursor does not match this snapshot comparison and filter',
       },
     })
   })
@@ -1377,7 +1382,7 @@ describe('POST /technical-aeo/runs', () => {
     expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, firstId)).get()).toMatchObject({
       projectId: ctx.projectId,
       effectiveOptions: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         sitemapUrl: null,
         maxPages: 50,
         maxEdges: null,
@@ -1385,6 +1390,7 @@ describe('POST /technical-aeo/runs', () => {
         checkDeadLinks: false,
         includeGeo: false,
         includeAgentSkills: true,
+        sites: [],
       },
     })
   })
@@ -1425,7 +1431,7 @@ describe('POST /technical-aeo/runs', () => {
     expect(res.statusCode).toBe(200)
     const runId = (res.json() as { runId: string }).runId
     expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, runId)).get()!.effectiveOptions).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       sitemapUrl: null,
       maxPages: 2_500,
       maxEdges: null,
@@ -1433,6 +1439,7 @@ describe('POST /technical-aeo/runs', () => {
       checkDeadLinks: false,
       includeGeo: false,
       includeAgentSkills: true,
+      sites: [],
     })
     expect(ctx.siteAuditRequested).toHaveLength(1)
     expect(ctx.siteAuditRequested[0]).toMatchObject({ runId, projectId: ctx.projectId })
@@ -2753,7 +2760,7 @@ describe('graph root identity', () => {
 
 describe('crawl page health-state filter', () => {
   /**
-   * The dashboard's "Hidden pages" chip and every agent read must mean the
+   * The dashboard's "Hidden pages" filter and every agent read must mean the
    * same thing by "hidden". That only holds if the route filters with the
    * contract's own derivation rather than a SQL lookalike, so this asserts the
    * two agree across the whole crawler vocabulary, not just the happy path.
@@ -3208,5 +3215,45 @@ describe('GET /technical-aeo template link reads', () => {
       expect(invalid.statusCode).toBe(400)
       expect(invalid.json().error.code).toBe('VALIDATION_ERROR')
     }
+  })
+})
+
+describe('Agent Readiness paths and the deprecated technical-aeo alias', () => {
+  // Stored reads the seeded audits and comparable crawl can answer.
+  const STORED_READS = ['', '/pages', '/trend', '/crawl', '/crawl/pages', '/structure', '/internal-links', '/dead-links', '/runs', '/issues']
+
+  it('answers every stored read identically at both path segments', async () => {
+    seedMinimalComparableCrawlForRunA()
+    for (const suffix of STORED_READS) {
+      const canonical = await ctx.app.inject({ method: 'GET', url: `/api/v1/projects/tech-aeo/agent-readiness${suffix}` })
+      const legacy = await ctx.app.inject({ method: 'GET', url: `/api/v1/projects/tech-aeo/technical-aeo${suffix}` })
+      expect(canonical.statusCode, `agent-readiness${suffix}`).toBe(200)
+      expect(legacy.statusCode, `technical-aeo${suffix}`).toBe(200)
+      expect(legacy.json(), suffix).toEqual(canonical.json())
+    }
+    const selected = await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/agent-readiness?runId=${ctx.runA}`)
+    expect(selected.status).toBe(200)
+    expect(selected.body.aggregateScore).toBe((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${ctx.runA}`)).body.aggregateScore)
+  })
+
+  it('refuses an unknown project the same way at both segments', async () => {
+    const canonical = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/missing/agent-readiness' })
+    const legacy = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/missing/technical-aeo' })
+    expect(canonical.statusCode).toBe(404)
+    expect(legacy.statusCode).toBe(404)
+    expect(legacy.json()).toEqual(canonical.json())
+  })
+
+  it('queues one scan whichever segment starts it', async () => {
+    const first = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/agent-readiness/runs', payload: { limit: 50 } })
+    expect(first.statusCode).toBe(200)
+    const firstBody = first.json() as { runId: string; status: string }
+    expect(firstBody.status).toBe('queued')
+    expect(ctx.db.select().from(runs).where(eq(runs.id, firstBody.runId)).get()?.kind).toBe('site-audit')
+
+    const second = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: { limit: 50 } })
+    expect(second.statusCode).toBe(200)
+    expect((second.json() as { runId: string }).runId).toBe(firstBody.runId)
+    expect(ctx.siteAuditRequested).toHaveLength(1)
   })
 })

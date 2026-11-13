@@ -10,7 +10,9 @@ import {
   formatIsoDate,
   formatIsoDateInTimeZone,
   inclusiveDayCount,
+  formatAxisNumber,
   formatNumber,
+  formatPerThousand,
   formatPointDelta,
   formatTenthsMagnitude,
   formatPercent,
@@ -114,6 +116,47 @@ describe('formatNumber', () => {
   test('values >= 1M abbreviate with M suffix', () => {
     expect(formatNumber(1_000_000)).toBe('1.0M')
     expect(formatNumber(2_400_000)).toBe('2.4M')
+  })
+})
+
+describe('formatPerThousand', () => {
+  test('shows one decimal, a true zero as 0, and never rounds a real count to none', () => {
+    expect(formatPerThousand(3.7)).toBe('3.7')
+    expect(formatPerThousand(40.04)).toBe('40.0')
+    expect(formatPerThousand(25.55)).toBe('25.6')
+    expect(formatPerThousand(1204)).toBe('1,204.0')
+    expect(formatPerThousand(0)).toBe('0')
+    expect(formatPerThousand(0.04)).toBe('<0.1')
+    expect(formatPerThousand(null)).toBe('—')
+    expect(formatPerThousand(undefined)).toBe('—')
+    expect(formatPerThousand(Number.NaN)).toBe('—')
+  })
+})
+
+describe('formatAxisNumber', () => {
+  test('every tick a chart can pick reads back as its own value', () => {
+    // A chart's nice ticks are multiples of 50 below 10,000, of 500 below 1M,
+    // and of 50,000 from there.
+    const steps = (from: number, to: number, step: number) =>
+      Array.from({ length: (to - from) / step + 1 }, (_, i) => from + i * step)
+    const ticks = [...steps(1_000, 10_000, 50), ...steps(10_000, 1_000_000, 500), ...steps(1_000_000, 10_000_000, 50_000)]
+    for (const tick of ticks) {
+      const label = formatAxisNumber(tick)
+      const scale = label.endsWith('M') ? 1_000_000 : 1_000
+      expect(Math.round(Number(label.slice(0, -1)) * scale), label).toBe(tick)
+    }
+    expect(formatAxisNumber(1_050)).toBe('1.05K')
+    expect(formatAxisNumber(-2_250)).toBe('-2.25K')
+    expect(formatAxisNumber(1_050_000)).toBe('1.05M')
+  })
+
+  test('round values read as formatNumber does, and small ones in full', () => {
+    expect(formatAxisNumber(950)).toBe('950')
+    expect(formatAxisNumber(4_000)).toBe('4.0K')
+    expect(formatAxisNumber(1_500)).toBe('1.5K')
+    expect(formatAxisNumber(10_500)).toBe('10.5K')
+    expect(formatAxisNumber(2_000_000)).toBe('2.0M')
+    expect(formatAxisNumber(Number.NaN)).toBe('—')
   })
 })
 

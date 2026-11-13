@@ -40,11 +40,12 @@ export type AdvancedMeasurementEvidenceKind =
 /**
  * A measured rate may carry the answers the server left out of both sides of
  * `numerator of denominator`: `unattributed` on a mention rate (not tied to one
- * property), `unchecked` on a citation rate (source capture incomplete).
+ * property), `unchecked` (source capture incomplete) and `citationNotMeasured`
+ * (the engine returns no sources) on a citation rate.
  */
 export type AdvancedMeasurementMetric =
-  | { numerator: number; denominator: number; reason?: never; unattributed?: number; unchecked?: number }
-  | { numerator: null; denominator: null; reason: string; unattributed?: never; unchecked?: never }
+  | { numerator: number; denominator: number; reason?: never; unattributed?: number; unchecked?: number; citationNotMeasured?: number }
+  | { numerator: null; denominator: null; reason: string; unattributed?: never; unchecked?: never; citationNotMeasured?: never }
 
 export interface AdvancedMeasurementPropertyProvider {
   provider: string
@@ -253,6 +254,8 @@ const metricReasons: Record<string, string> = {
   not_applicable: 'Not applicable.',
   incomplete: 'The latest measurement is incomplete.',
   'evidence-incomplete': 'Some source evidence is incomplete.',
+  citation_not_measured: 'The engines return no sources.',
+  'citation-not-measured': 'The engines return no sources.',
   'no-population': 'No measurements are available for this selection.',
   unavailable: 'This measurement is unavailable.',
 }
@@ -431,7 +434,7 @@ function CappedEvidenceList({
                     <span className="block">{item.query}</span>
                     {item.provider || item.location ? (
                       <span className="mt-1 block text-label-12 text-muted">
-                        {[item.provider, item.location].filter(Boolean).join(' · ')}
+                        {[item.provider ? providerDisplayName(item.provider) : null, item.location].filter(Boolean).join(' · ')}
                       </span>
                     ) : null}
                   </td>
@@ -493,7 +496,7 @@ interface SegmentedControlOption<T extends string> {
  *
  * Wears the house `.segmented` skin so it is visually identical to the five
  * segmented controls already in the dashboard (GSC, Activity, Visibility trend,
- * Technical AEO). The SEMANTICS deliberately differ from `VisibilityTrendSection`'s
+ * Agent Readiness). The SEMANTICS deliberately differ from `VisibilityTrendSection`'s
  * `Segmented`, which is a `role="group"` of `aria-pressed` toggles: these options
  * are mutually exclusive filters, and radiogroup is the WAI-ARIA pattern for
  * "choose exactly one", giving arrow-key navigation a toggle group does not.
@@ -846,10 +849,10 @@ export function AdvancedMeasurementOverview({
 
       {!isViewLoading ? <section aria-labelledby="advanced-measurement-properties-title">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 id="advanced-measurement-properties-title" className="text-heading-16 text-heading">
-            Properties
+          <div className="flex items-center">
+            <h2 id="advanced-measurement-properties-title" className="text-heading-16 text-heading">Properties</h2>
             <InfoTooltip text={ADVANCED_PROPERTIES_SIGNAL_HELP} />
-          </h2>
+          </div>
           <span className="text-label-14 text-secondary">{report.currentView?.propertyTotal ?? filteredProperties.length} {(report.currentView?.propertyTotal ?? filteredProperties.length) === 1 ? 'property' : 'properties'}</span>
         </div>
         {/* Directly under the count it partitions, so the unit is stated once

@@ -7,14 +7,23 @@ import { projectDtoSchema } from './project.js'
 import type { ProjectDto } from './project.js'
 import { insightSeveritySchema } from './intelligence.js'
 import type { HealthSnapshotDto, InsightDto } from './intelligence.js'
+import { queryClassSchema } from './query-class.js'
+import { visibilityReportPopulationClassSchema, visibilityReportRateSchema, visibilityReportSelectionSchema } from './visibility-report.js'
 
 // One-call summary for "how is project X doing?". The shape stays stable so
 // agents can build prompts on it without falling back to four list endpoints.
 export interface ProjectOverviewQueryCountsDto {
   totalQueries: number
   citedQueries: number
+  /** Queries whose sources were checked and none cited the project. */
   notCitedQueries: number
-  citedRate: number
+  /**
+   * `citedQueries` over the queries whose sources were checked (`totalQueries
+   * - citationNotMeasuredQueries`). Null when no answer carried sources.
+   */
+  citedRate: number | null
+  /** Queries none of whose answers carries sources; neither cited nor not cited. */
+  citationNotMeasuredQueries: number
   // Mention is a distinct signal from cited (see AGENTS.md "Vocabulary"): a
   // query is `mentioned` when its brand/domain appears in the AI answer text
   // (`answerMentioned`) on at least one snapshot — computed independently of
@@ -26,9 +35,12 @@ export interface ProjectOverviewQueryCountsDto {
 
 export interface ProjectOverviewProviderEntryDto {
   provider: string
-  citedRate: number
+  /** `cited / (total - citationNotMeasured)`; null when none of the engine's answers carries sources. */
+  citedRate: number | null
   cited: number
   total: number
+  /** Answers whose engine returns no sources, left out of `citedRate`. */
+  citationNotMeasured: number
 }
 
 // `since` is the createdAt of the run before `latestRun`, so callers can render
@@ -74,7 +86,7 @@ export interface ScoreSummaryDto {
 // citation-source metric, kept as a secondary tile for analysts who track
 // source-list presence.
 export interface ProjectOverviewScoresDto {
-  /** Primary headline gauge — % of tracked queries whose AI answer text mentioned the brand. */
+  /** Legacy pooled gauge. New headlines use ProjectOverviewDto.mentionCoverage. */
   mention: ScoreSummaryDto
   /** Secondary tile — % of tracked queries whose answer cited the domain in its source list. */
   visibility: ScoreSummaryDto
@@ -204,10 +216,17 @@ export interface ProjectOverviewCompetitorDto {
 export interface ProjectOverviewProviderScoreDto {
   provider: string
   model: string | null
-  /** `cited / total` snapshots in the latest run as 0..100 at wire precision. */
-  score: number
+  /**
+   * `cited` over the latest run's answers whose sources were checked
+   * (`total - citationNotMeasured`), as 0..100 at wire precision. Null when
+   * none was: the engine returns no sources, so its citations were not measured.
+   */
+  score: number | null
   cited: number
+  /** Every answer in the latest run, measured for citation or not. */
   total: number
+  /** Answers whose engine returns no sources; out of `score` entirely. */
+  citationNotMeasured: number
   /** Per-recent-run citation rate (0-100, at wire precision) for this (provider, model), oldest first. Up to 12 points. Omitted when only a single run exists. */
   trend?: number[]
 }
@@ -234,8 +253,16 @@ export interface RunHistoryPointDto {
   runId: string
   createdAt: string
   citedCount: number
+  /** Queries the run answered: the base for `mentionRate`. */
   totalCount: number
-  citationRate: number
+  /** Queries none of whose answers carries sources; out of `citationRate`. */
+  citationNotMeasuredCount: number
+  /**
+   * `citedCount` over `totalCount - citationNotMeasuredCount` (0..100). Null
+   * when the run answered queries but none carried sources; 0 for a run with
+   * no answers.
+   */
+  citationRate: number | null
   mentionedCount: number
   mentionRate: number
   status: string
@@ -286,12 +313,28 @@ export const PROJECT_OVERVIEW_QUERY_CLASS_SCOPE: ProjectOverviewQueryClassScopeD
     'movementSummary', 'citationMovement', 'mentionMovement', 'movementComparison',
     'competitors', 'providerScores', 'runHistory',
   ],
-  note: 'These figures pool branded and non-brand queries in one denominator. Only scores.mentionShare splits the classes. For one class, use a read filtered by queryClass.',
+  note: 'These legacy figures pool branded and non-brand queries in one denominator. mentionCoverage and scores.mentionShare preserve separate class populations.',
 }
+
+/** Class-separated answer coverage, shared with the detailed visibility report. */
+export const projectOverviewMentionCoverageSchema = z.object({
+  selection: visibilityReportSelectionSchema,
+  populations: z.array(z.object({
+    queryClass: visibilityReportPopulationClassSchema,
+    queryCount: z.number().int().nonnegative(),
+    answerCount: z.number().int().nonnegative(),
+    mentionCoverage: visibilityReportRateSchema,
+    citationCoverage: visibilityReportRateSchema,
+  }).strict()),
+}).strict()
+export type ProjectOverviewMentionCoverageDto = z.output<typeof projectOverviewMentionCoverageSchema>
 
 export interface ProjectOverviewDto {
   /** Frozen favorable scores retain separate branded and non-brand populations. */
   sentiment?: SentimentOverview
+  /** Non-brand is the headline; branded and unknown retain separate denominators.
+   * Optional only for older servers. Never substitute the pooled scores.mention. */
+  mentionCoverage?: ProjectOverviewMentionCoverageDto
   project: ProjectDto
   latestRun: LatestProjectRunDto
   health: HealthSnapshotDto | null
@@ -316,7 +359,11 @@ export interface ProjectOverviewDto {
   movementComparison: MovementComparisonDto
   competitors: ProjectOverviewCompetitorDto[]
   providerScores: ProjectOverviewProviderScoreDto[]
+  /** Insight echoes and server hints for the project page. Overview's "What changed" reads `whatChanged`. */
   attentionItems: AttentionItemDto[]
+  /** Lost mentions and lost citations in the latest check, one per query, and runs in progress.
+   * Optional only for older servers. */
+  whatChanged?: ProjectOverviewWhatChangedDto
   runHistory: RunHistoryPointDto[]
   /** GSC queries that have impressions but aren't yet in the tracked basket.
    *  Rides on the overview DTO so the Opportunities tab and `canonry overview`
@@ -443,26 +490,128 @@ const projectOverviewHealthSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   runId: z.string().nullable(),
-  overallCitedRate: fraction(),
+  overallCitedRate: fraction().nullable(),
   overallMentionRate: fraction(),
   totalPairs: z.number().int().nonnegative(),
   citedPairs: z.number().int().nonnegative(),
+  citationNotMeasuredPairs: z.number().int().nonnegative(),
   mentionedPairs: z.number().int().nonnegative(),
   providerBreakdown: z.record(z.string(), z.object({
-    citedRate: fraction(),
+    citedRate: fraction().nullable(),
     mentionRate: fraction(),
     cited: z.number().int().nonnegative(),
     mentioned: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+    citationNotMeasured: z.number().int().nonnegative(),
   })),
   createdAt: z.string(),
   status: z.enum(['ready', 'no-data']),
   reason: z.literal('no-runs-yet').optional(),
 })
 
+const attentionItemSchema = z.object({
+  id: z.string(),
+  tone: metricToneSchema,
+  title: z.string(),
+  detail: z.string(),
+  actionLabel: z.string(),
+  href: z.string(),
+})
+
+/** The most queries each What changed list names. `queryCount` is always the full count. */
+export const OVERVIEW_WHAT_CHANGED_QUERY_LIMIT = 25
+
+/** Why the latest check has no comparison, so nothing in it can count as lost. */
+export const OVERVIEW_WHAT_CHANGED_UNAVAILABLE_REASONS = [
+  /** No completed check yet. */
+  'not-measured',
+  /** Nothing earlier to compare with: the first check, or an earlier one outside `since`. */
+  'no-previous-check',
+  /** Advanced: the previous sweep measured another plan definition. */
+  'definition-changed',
+  /** Advanced: the previous sweep asked other engines or models. */
+  'model-changed',
+  /** Advanced: either sweep is partial. */
+  'partial-run',
+  /** Advanced: the active plan is schema v1, which freezes no Property definition to compare. */
+  'legacy-plan',
+  /** Advanced: the previous sweep could not be read. */
+  'unreadable',
+] as const
+
+/** One query that lost a signal in the latest check, and where it lost it. */
+export const overviewWhatChangedQuerySchema = z.object({
+  /** The tracked query's id (Simple) or the plan's query id (Advanced). */
+  queryId: z.string().nullable(),
+  query: z.string(),
+  /** The server's class for the query; null when it has no single class. */
+  queryClass: queryClassSchema.nullable(),
+  /** Answer engines whose answer lost the signal. */
+  providers: z.array(z.string()),
+  /** Locations of those answers; null is an answer measured without a location. */
+  locations: z.array(z.string().nullable()),
+  /** Advanced: the Properties that lost the signal on this query. Always empty for Simple. */
+  properties: z.array(z.object({ key: z.string(), label: z.string() })),
+  /** Advanced: the frozen markets of the answers that lost it. Always empty for Simple. */
+  markets: z.array(z.object({ key: z.string(), label: z.string() })),
+})
+export type OverviewWhatChangedQueryDto = z.output<typeof overviewWhatChangedQuerySchema>
+
+/** One signal's losses. Mentions and citations are counted apart; neither is read from the other. */
+export const overviewWhatChangedSignalSchema = z.object({
+  /** Distinct queries that lost the signal in at least one answer of the latest check. */
+  queryCount: z.number().int().nonnegative(),
+  /** At most `OVERVIEW_WHAT_CHANGED_QUERY_LIMIT` of those queries, in query text order. */
+  queries: z.array(overviewWhatChangedQuerySchema),
+  /** True when `queries` names fewer queries than `queryCount`. */
+  truncated: z.boolean(),
+})
+export type OverviewWhatChangedSignalDto = z.output<typeof overviewWhatChangedSignalSchema>
+
+export const overviewWhatChangedComparisonSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('available'),
+    /** The earlier runs the latest check was compared with, newest first. */
+    previousRunIds: z.array(z.string()).min(1),
+  }),
+  z.object({
+    state: z.literal('unavailable'),
+    reason: z.enum(OVERVIEW_WHAT_CHANGED_UNAVAILABLE_REASONS),
+  }),
+])
+export type OverviewWhatChangedComparisonDto = z.output<typeof overviewWhatChangedComparisonSchema>
+
+/**
+ * Overview's "What changed": the latest check's lost mentions and lost
+ * citations, one per query, and the AI Visibility runs in progress. Simple
+ * compares each engine's answer with that engine's previous check of the same
+ * query and location. Advanced compares each Property's answer with the
+ * comparable previous sweep, as the visibility report's change does.
+ */
+export const projectOverviewWhatChangedSchema = z.object({
+  mode: z.enum(['simple', 'advanced']),
+  /** The completed check the lost signals read; null before the first one. */
+  latestCheck: z.object({
+    runIds: z.array(z.string()).min(1),
+    createdAt: z.string(),
+  }).nullable(),
+  comparison: overviewWhatChangedComparisonSchema,
+  lostMentions: overviewWhatChangedSignalSchema,
+  lostCitations: overviewWhatChangedSignalSchema,
+  /** Queued and running AI Visibility runs, probes left out. */
+  activeRuns: z.object({
+    count: z.number().int().nonnegative(),
+    runIds: z.array(z.string()),
+  }),
+  /** The rows Overview lists for this project, in order. Empty when nothing changed. */
+  items: z.array(attentionItemSchema),
+})
+export type ProjectOverviewWhatChangedDto = z.output<typeof projectOverviewWhatChangedSchema>
+
 /** Runtime and OpenAPI schema for the agent-first composite overview. */
 export const projectOverviewDtoSchema = z.object({
   sentiment: sentimentOverviewSchema.optional(),
+  mentionCoverage: projectOverviewMentionCoverageSchema.optional(),
   project: projectDtoSchema,
   latestRun: latestProjectRunDtoSchema,
   health: projectOverviewHealthSchema.nullable(),
@@ -476,16 +625,18 @@ export const projectOverviewDtoSchema = z.object({
     totalQueries: z.number().int().nonnegative(),
     citedQueries: z.number().int().nonnegative(),
     notCitedQueries: z.number().int().nonnegative(),
-    citedRate: fraction(),
+    citedRate: fraction().nullable(),
+    citationNotMeasuredQueries: z.number().int().nonnegative(),
     mentionedQueries: z.number().int().nonnegative(),
     notMentionedQueries: z.number().int().nonnegative(),
     mentionRate: fraction(),
   }),
   providers: z.array(z.object({
     provider: z.string(),
-    citedRate: fraction(),
+    citedRate: fraction().nullable(),
     cited: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+    citationNotMeasured: z.number().int().nonnegative(),
   })),
   transitions: z.object({
     since: z.string().nullable(),
@@ -520,25 +671,21 @@ export const projectOverviewDtoSchema = z.object({
   providerScores: z.array(z.object({
     provider: z.string(),
     model: z.string().nullable(),
-    score: percent(),
+    score: percent().nullable(),
     cited: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+    citationNotMeasured: z.number().int().nonnegative(),
     trend: z.array(percent()).optional(),
   })),
-  attentionItems: z.array(z.object({
-    id: z.string(),
-    tone: metricToneSchema,
-    title: z.string(),
-    detail: z.string(),
-    actionLabel: z.string(),
-    href: z.string(),
-  })),
+  attentionItems: z.array(attentionItemSchema),
+  whatChanged: projectOverviewWhatChangedSchema.optional(),
   runHistory: z.array(z.object({
     runId: z.string(),
     createdAt: z.string(),
     citedCount: z.number().int().nonnegative(),
     totalCount: z.number().int().nonnegative(),
-    citationRate: percent(),
+    citationNotMeasuredCount: z.number().int().nonnegative(),
+    citationRate: percent().nullable(),
     mentionedCount: z.number().int().nonnegative(),
     mentionRate: percent(),
     status: z.string(),

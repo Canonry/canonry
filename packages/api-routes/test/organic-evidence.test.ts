@@ -11,6 +11,8 @@ import {
   gscSearchData,
   migrate,
   projects,
+  queries,
+  querySnapshots,
   runs,
 } from '@canonry/canonry-db'
 import { organicEvidenceDtoSchema, type OrganicEvidenceDto } from '@canonry/canonry-contracts'
@@ -98,6 +100,36 @@ async function getEvidence(period = 90): Promise<OrganicEvidenceDto> {
 }
 
 describe('organic evidence composite', () => {
+  it('counts cited pairs over answers with sources and mentioned pairs over every answer', async () => {
+    seedEvidence()
+    const project = ctx.db.select({ id: projects.id }).from(projects).get()!
+    const queryId = crypto.randomUUID()
+    ctx.db.insert(queries).values({ id: queryId, projectId: project.id, query: 'solar estimate software', createdAt: '2026-07-01T00:00:00.000Z' }).run()
+    const sweep = (createdAt: string, trigger: 'manual' | 'probe') => {
+      const id = crypto.randomUUID()
+      ctx.db.insert(runs).values({ id, projectId: project.id, kind: 'answer-visibility', status: 'completed', trigger, createdAt, finishedAt: createdAt }).run()
+      return id
+    }
+    const answer = (runId: string, provider: string, citationState: 'cited' | 'not-cited' | 'not-measured', retrievalStatus: 'used' | 'not-applicable', answerMentioned: boolean) => ({
+      id: crypto.randomUUID(), runId, queryId, provider, citationState, retrievalStatus, answerMentioned, createdAt: '2026-07-22T00:00:00.000Z',
+    })
+    const latest = sweep('2026-07-22T00:00:00.000Z', 'manual')
+    ctx.db.insert(querySnapshots).values([
+      answer(latest, 'gemini', 'cited', 'used', true),
+      answer(latest, 'openai', 'not-cited', 'used', false),
+      answer(latest, 'local', 'not-measured', 'not-applicable', true),
+      // Stored before `not-measured` existed; its retrieval status says it had no sources.
+      answer(latest, 'local', 'not-cited', 'not-applicable', false),
+    ]).run()
+    // Newer, but a spot check: never the latest visibility.
+    ctx.db.insert(querySnapshots).values(answer(sweep('2026-07-23T00:00:00.000Z', 'probe'), 'gemini', 'cited', 'used', true)).run()
+
+    const body = await getEvidence(90)
+
+    // Cited is 1 of the 2 answers whose sources were checked; mentioned is 2 of all 4.
+    expect(body.visibility).toMatchObject({ runId: latest, answerPairs: 4, mentionedPairs: 2, citedPairs: 1, citationNotMeasuredPairs: 2 })
+  })
+
   it('uses independent source-specific GSC and GA4 cohort dates', async () => {
     seedEvidence()
     const body = await getEvidence(90)

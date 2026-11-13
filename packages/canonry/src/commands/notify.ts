@@ -103,6 +103,7 @@ const EVENT_DESCRIPTIONS: Record<string, string> = {
   'review.negative': "A new or edited Google review at or below the project's negative-review threshold, 3 stars by default (Business Profile reviews, or the public listing when Google has not enabled review access)",
   'review.rating-dropped': "A location's public Google rating fell (sent for locations without Business Profile review access)",
   'traffic.agent.discovered': 'A bot or agent no Canonry rule recognizes showed up in server-side traffic (first seen in the last 7 days, at least 3 hits, after the first week of recorded traffic), once per name',
+  'site-health.issue.new': 'A site audit found a critical Site Health problem (no H1, several H1s, no title, a page naming another property) on pages where it was not reported before; a problem that stays unfixed is reported once',
 }
 
 export function listEvents(format?: string, target = 'local'): void | Promise<void> {

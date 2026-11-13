@@ -11,6 +11,25 @@ export function normalizeQueryText(value: string): string {
 }
 
 /**
+ * Each query once, in order: the first spelling of every text that
+ * `normalizeQueryText` reads as the same query, trimmed, with blanks dropped.
+ * This is how a tracked-query list collapses on save, so a count taken from it
+ * is the number of queries that will be stored.
+ */
+export function uniqueQueryTexts(texts: Iterable<string>): string[] {
+  const seen = new Set<string>()
+  const queries: string[] = []
+  for (const text of texts) {
+    const query = text.trim()
+    const key = normalizeQueryText(query)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    queries.push(query)
+  }
+  return queries
+}
+
+/**
  * Selection and query-control text identity used by the api-routes
  * measurement readers and query tracking: compatibility-normalized (NFKC),
  * trimmed, internal whitespace collapsed, and lowercased with the `en`

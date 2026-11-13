@@ -140,14 +140,17 @@ describe('buildAllTools', () => {
     expect(tools).toHaveLength(expectedCount)
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_agent_clear)
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_results_clear)
+    // A provider connection test spends on the operator's provider account.
+    expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_provider_test)
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_mcp_profile)
     // Spot-check that every other tool from the registry is exposed.
     expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_project_overview)
-    expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_site_health_overview)
-    expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_site_health_page_audit)
-    expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_site_health_subgraph)
-    expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_site_health_path)
-    expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_site_health_changes)
+    expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_agent_readiness_overview)
+    expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_agent_readiness_page_audit)
+    expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_agent_readiness_subgraph)
+    expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_agent_readiness_path)
+    expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_agent_readiness_changes)
+    expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_agent_readiness_run)
     expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_run_trigger)
     expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_memory_list)
     expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_memory_set)
@@ -169,11 +172,11 @@ describe('buildReadTools', () => {
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_run_trigger)
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_memory_set)
     expect(tools.map((t) => t.name)).toEqual(expect.arrayContaining([
-      CanonryMcpToolNames.canonry_site_health_overview,
-      CanonryMcpToolNames.canonry_site_health_page_audit,
-      CanonryMcpToolNames.canonry_site_health_subgraph,
-      CanonryMcpToolNames.canonry_site_health_path,
-      CanonryMcpToolNames.canonry_site_health_changes,
+      CanonryMcpToolNames.canonry_agent_readiness_overview,
+      CanonryMcpToolNames.canonry_agent_readiness_page_audit,
+      CanonryMcpToolNames.canonry_agent_readiness_subgraph,
+      CanonryMcpToolNames.canonry_agent_readiness_path,
+      CanonryMcpToolNames.canonry_agent_readiness_changes,
     ]))
   })
 })

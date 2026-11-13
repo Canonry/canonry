@@ -338,7 +338,7 @@ describe('snapshots with an answer service', () => {
     expect(stub.calls).toHaveLength(2)
     // The unmeasured answer is in the mention denominator only, never counted as "not cited".
     expect(report.summary).toMatchObject({ totalComparisons: 2, mentionCount: 2, citationCount: 1, citationComparisons: 1 })
-    expect(report.summary.visibilityGap).toBe('Acme Roofing was mentioned in 2/2 successful provider responses and cited in 1/1 where citation was measured. Citation was not measured in 1 of them, because those providers do not tie their sources to the answer.')
+    expect(report.summary.visibilityGap).toBe('Acme Roofing was mentioned in 2/2 successful provider responses and cited in 1/1 where citation was measured. Citation was not measured in 1 of them, because those providers return no sources tied to the answer.')
     const markdown = formatSnapshotMarkdown(report)
     expect(markdown).toContain('| Results only · Fake Answers | Yes | Not measured |')
     expect(markdown).toContain('| Cited · Fake Answers | Yes | Yes |')
@@ -349,7 +349,7 @@ describe('snapshots with an answer service', () => {
     const report = await new SnapshotService(registryWith(stub.impl, [])).createReport({ companyName: 'Acme Roofing', domain: 'acme-roofing.example', queries: ['best roofer'], providers: [RESULTS] })
     expect(report.queryResults[0]!.providerResults[0]).toMatchObject({ cited: false, mentioned: true, citationMeasured: false, error: null })
     expect(report.summary).toMatchObject({ totalComparisons: 1, mentionCount: 1, citationCount: 0, citationComparisons: 0 })
-    expect(report.summary.visibilityGap).toBe('Acme Roofing was mentioned in 1/1 successful provider response. Citation was not measured, because that provider does not tie its sources to the answer.')
+    expect(report.summary.visibilityGap).toBe('Acme Roofing was mentioned in 1/1 successful provider response. Citation was not measured, because that provider returns no sources tied to the answer.')
     expect(report.summary.visibilityGap).not.toContain('never linked or cited')
     expect(formatSnapshotText(report)).toContain('citation not measured')
     expect(formatSnapshotMarkdown(report)).toContain('| Yes | Not measured |')

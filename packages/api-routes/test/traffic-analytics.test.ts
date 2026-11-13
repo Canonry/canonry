@@ -24,6 +24,7 @@ import {
   measurementPlans,
   measurementPlanVersions,
   migrate,
+  MIGRATION_VERSIONS,
   projects,
   trafficSources,
   type DatabaseClient,
@@ -147,7 +148,7 @@ describe('GET /projects/:name/traffic/analytics', () => {
     const { activity } = await readAnalytics('connected')
     const zero = { current: 0, prior: 0, deltaPct: null }
     expect(activity).toEqual({
-      windowStart: daysAgo(30), windowEnd: NOW, coverageStart: null, priorWindowComplete: false, aiReferralCountingChangedAt: null, hasData: false,
+      windowStart: daysAgo(30), windowEnd: NOW, coverageStart: null, priorWindowComplete: false, aiReferralCountingChangedAt: null, aiUserFetchCountingChangedAt: null, hasData: false,
       verifiedCrawlerHits: zero, unverifiedCrawlerHits: zero, aiUserFetchHits: zero,
       referralArrivals: zero, referralRedirects: 0,
       referralArrivalsByClass: { paid: zero, organic: zero, unclassified: zero },
@@ -216,6 +217,74 @@ describe('GET /projects/:name/traffic/analytics', () => {
 
     markOlderCountUntil(null)
     expect((await readAnalytics('older-count', 30)).activity!.aiReferralCountingChangedAt).toBeNull()
+  })
+
+  test('AI user fetch changes are unavailable while the prior window holds the browser-agent older count', async () => {
+    const projectId = seedProject('agent-older-count')
+    const sourceId = seedSource(projectId)
+    seedCrawler(projectId, sourceId, { tsHour: daysAgo(70), hits: 5 })
+    // Google-Agent's every request counted 40 days ago; its page loads only now.
+    seedUserFetch(projectId, sourceId, { tsHour: daysAgo(40), botId: 'google-agent', operator: 'Google', pathNormalized: '/assets/app.js', hits: 80 })
+    seedUserFetch(projectId, sourceId, { tsHour: daysAgo(2), botId: 'google-agent', operator: 'Google', pathNormalized: '/pricing', hits: 4 })
+    seedReferral(projectId, sourceId, { tsHour: daysAgo(40), sessionsOrHits: 10, organicSessionsOrHits: 10 })
+    seedReferral(projectId, sourceId, { tsHour: daysAgo(2), sessionsOrHits: 5, organicSessionsOrHits: 5 })
+    const markOlderCountUntil = (until: string | null) => db.update(trafficSources)
+      .set({ aiUserFetchOlderCountUntil: until }).where(eq(trafficSources.id, sourceId)).run()
+
+    // Page loads alone counted from 20 days ago: inside the 30-day prior window.
+    markOlderCountUntil(daysAgo(20))
+    const crossing = (await readAnalytics('agent-older-count', 30)).activity!
+    expect(crossing.aiUserFetchCountingChangedAt).toBe(daysAgo(20))
+    expect(crossing.priorWindowComplete).toBe(true)
+    expect(crossing.aiUserFetchHits).toEqual({ current: 4, prior: 80, deltaPct: null })
+    expect(crossing.referralArrivals, 'referral changes are unaffected').toEqual({ current: 5, prior: 10, deltaPct: -50 })
+    expect(crossing.aiReferralCountingChangedAt).toBeNull()
+
+    // It changed before the prior window began: both windows count page loads only.
+    markOlderCountUntil(daysAgo(65))
+    const after = (await readAnalytics('agent-older-count', 30)).activity!
+    expect(after.aiUserFetchCountingChangedAt).toBe(daysAgo(65))
+    expect(after.aiUserFetchHits).toEqual({ current: 4, prior: 80, deltaPct: -95 })
+
+    markOlderCountUntil(null)
+    expect((await readAnalytics('agent-older-count', 30)).activity!.aiUserFetchCountingChangedAt).toBeNull()
+  })
+
+  /**
+   * v222 marks where a source's older browser-agent count ended: the end of
+   * its last such hour. A project whose only Google-Agent hour is 100 days old,
+   * on a source archived since, keeps the 30-day change and the fitted trend
+   * of the AI user fetches every agent shares, here ChatGPT-User at a flat 50
+   * a day. Marking the upgrade time instead withheld both for weeks.
+   */
+  test('a months-old browser-agent hour leaves the 30-day AI user fetch change and trend intact', async () => {
+    const projectId = seedProject('months-old-agent')
+    const live = seedSource(projectId)
+    db.transaction(() => {
+      for (let day = 1; day <= 60; day++) seedUserFetch(projectId, live, { tsHour: daysAgo(day), hits: 50 })
+    })
+    const archived = seedSource(projectId, true)
+    seedUserFetch(projectId, archived, { tsHour: daysAgo(100), botId: 'google-agent', operator: 'Google', pathNormalized: '/assets/app.js', hits: 20 })
+    MIGRATION_VERSIONS.find(version => version.version === 222)!.run!(db)
+    // The end of the Google-Agent hour, 2026-06-27T12:00Z.
+    const changedAt = '2026-06-27T13:00:00.000Z'
+
+    const { activity } = await readAnalytics('months-old-agent', 30)
+    expect(activity!.aiUserFetchCountingChangedAt).toBe(changedAt)
+    expect(activity!.priorWindowComplete).toBe(true)
+    // Days 1 to 30 back, then days 31 to 60 back.
+    expect(activity!.aiUserFetchHits).toEqual({ current: 1500, prior: 1500, deltaPct: 0 })
+
+    const response = await app.inject({
+      method: 'GET', url: `/api/v1/projects/months-old-agent/traffic/events?since=${daysAgo(30)}&granularity=day&limit=1`,
+      headers: { authorization: `Bearer ${READ_KEY}` },
+    })
+    expect(response.statusCode).toBe(200)
+    const { series } = response.json<TrafficEventsResponse>()
+    expect(series.aiUserFetchCountingChangedAt).toBe(changedAt)
+    // 31 day buckets: the first holds only the window's last 12 hours and the
+    // newest is still running, so the fit takes the 29 whole days between.
+    expect(series.trends.aiUserFetchHits).toEqual({ slope: 0, intercept: 50, r2: 1, start: 50, end: 50, n: 29, startIndex: 1, endIndex: 29 })
   })
 
   test.each([7, 14, 30, 90])('period=%s selects that exact window and its equal-length prior', async period => {

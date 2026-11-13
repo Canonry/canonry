@@ -2,10 +2,11 @@ import { useId, useState } from 'react'
 import { Check, Copy, ExternalLink } from 'lucide-react'
 import { HostedMcpStatuses, HostedMcpUnavailableReasons, McpTransportStatuses, type HostedMcpUnavailableReason, type McpPluginConnection, type UiAction } from '@canonry/canonry-contracts'
 
-import { getPublicBase, isEmbed, isPublicDemo, shouldShowDashboardLocalAgentSetup, shouldShowDashboardResourceLinks } from '../api.js'
+import { getPublicBase, isEmbed, isLoopbackHostname, isPublicDemo, shouldShowDashboardLocalAgentSetup, shouldShowDashboardResourceLinks } from '../api.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useAccount } from '../contexts/account-context.js'
 import { useHealth } from '../queries/use-health.js'
+import { agentSetupRequest } from '../lib/agent-setup-request.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { trackUiAction } from '../lib/ui-telemetry.js'
 import { Button } from '../components/ui/button.js'
@@ -28,20 +29,12 @@ const HOSTED_REQUIREMENTS: Record<HostedMcpUnavailableReason, string> = {
   [HostedMcpUnavailableReasons['transport-unavailable']]: 'Restore the instance’s HTTP MCP service before connecting a hosted client.',
 }
 
-const LOCAL_CLIENTS = {
-  codex: {
-    label: 'Codex',
-    command: 'codex plugin marketplace add Canonry/canonry\ncodex plugin add canonry@canonry',
-  },
-  claude: {
-    label: 'Claude Code',
-    command: 'claude plugin marketplace add Canonry/canonry\nclaude plugin install canonry@canonry',
-  },
-  other: {
-    label: 'Other MCP clients',
-    command: 'canonry-mcp',
-  },
-} as const
+/** The plugin commands as the README's Quick start lists them; a test keeps the two equal. */
+const LOCAL_PLUGIN_COMMANDS = [
+  { client: 'Claude Code', command: 'claude plugin marketplace add Canonry/canonry\nclaude plugin install canonry@canonry' },
+  { client: 'Codex', command: 'codex plugin marketplace add Canonry/canonry\ncodex plugin add canonry@canonry' },
+] as const
+const LOCAL_MCP_COMMAND = 'canonry-mcp'
 
 function CopyText({ label, value, showText = false, secondary = false, action = 'agent_setup.copy' }: { label: string; value: string; showText?: boolean; secondary?: boolean; action?: UiAction }) {
   const id = useId()
@@ -79,7 +72,11 @@ function CopyText({ label, value, showText = false, secondary = false, action = 
   )
 }
 
-/** Connect an existing instance; the first-site setup prompt remains on /setup. */
+/**
+ * Connect an agent to this instance. Hosted deployments lead with hosted setup.
+ * A dashboard on the computer running Canonry, without ready hosted setup,
+ * leads with the README's setup request and plugin commands instead.
+ */
 export function AgentSetupPage() {
   if (isEmbed() || isPublicDemo()) {
     return (
@@ -123,12 +120,22 @@ Claude guide: ${CLAUDE_GUIDE}
 
 After authorization, enable the connection in this conversation. Call canonry_help with intent "status", follow its available tool guidance, and list accessible projects using stored reads only. Confirm the target instance and report whether the read succeeded; an empty list can still mean success. Do not run scans, sweeps, research, live provider checks, or other writes.` : undefined
 
+  // A dashboard open on the computer running Canonry, without ready hosted
+  // setup, leads with the agent there: the quickest path. A hosted deployment
+  // always leads with hosted setup, ready or needing attention.
+  const localFirst = showLocalAgentSetup && !hosted && isLoopbackHostname(window.location.hostname)
+  const hostedBadge = (
+    <ToneBadge tone={hosted ? 'positive' : requirement || apiStatus?.state === 'error' ? 'caution' : 'neutral'}>
+      {hosted ? 'Hosted setup configured' : health.isPending ? 'Checking hosted setup' : requirement ? 'Hosted setup needs attention' : 'Hosted setup not confirmed'}
+    </ToneBadge>
+  )
+
   return (
     <div className="page-container">
       <div className="page-header">
         <div className="page-header-left">
           <h1 className="page-title">Agent setup</h1>
-          <p className="page-subtitle">{showLocalAgentSetup ? 'Connect ChatGPT, Claude Desktop, or another agent to this instance.' : 'Connect ChatGPT or Claude Desktop to this instance.'}</p>
+          <p className="page-subtitle">{showLocalAgentSetup ? 'Connect Claude Code, Codex, ChatGPT, Claude Desktop, or another agent to this instance.' : 'Connect ChatGPT or Claude Desktop to this instance.'}</p>
         </div>
       </div>
 
@@ -138,10 +145,10 @@ After authorization, enable the connection in this conversation. Call canonry_he
             <p className="text-copy-14-strong text-heading">Your Canonry instance</p>
             <p className="mt-1 break-all text-copy-14 text-secondary">{instanceUrl}</p>
           </div>
-          <ToneBadge tone={hosted ? 'positive' : requirement || apiStatus?.state === 'error' ? 'caution' : 'neutral'}>
-            {hosted ? 'Hosted setup configured' : health.isPending ? 'Checking hosted setup' : requirement ? 'Hosted setup needs attention' : 'Hosted setup not confirmed'}
-          </ToneBadge>
+          {localFirst ? null : hostedBadge}
         </div>
+
+        {localFirst ? <LocalAgentSetup instanceUrl={instanceUrl} showResourceLinks={showResourceLinks} open /> : null}
 
         {hosted && setupPrompt ? (
           hosted.plugin ? (
@@ -154,8 +161,11 @@ After authorization, enable the connection in this conversation. Call canonry_he
             </>
           ) : <DirectConnectionSteps url={hosted.url} setupPrompt={setupPrompt} />
         ) : (
-          <section className="py-6" aria-labelledby="agent-requirements-title">
-            <h2 id="agent-requirements-title" className="text-heading-20 text-heading">Before you connect a hosted client</h2>
+          <section className={localFirst ? 'border-t border-default py-6' : 'py-6'} aria-labelledby="agent-requirements-title">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 id="agent-requirements-title" className="text-heading-20 text-heading">{localFirst ? 'Connect ChatGPT or Claude Desktop' : 'Before you connect a hosted client'}</h2>
+              {localFirst ? hostedBadge : null}
+            </div>
             <p className="mt-2 max-w-prose text-copy-14 text-secondary">
               {requirementMessage}
             </p>
@@ -163,7 +173,7 @@ After authorization, enable the connection in this conversation. Call canonry_he
           </section>
         )}
 
-        {showLocalAgentSetup ? <LocalConnectionSetup instanceUrl={instanceUrl} showResourceLinks={showResourceLinks} /> : null}
+        {showLocalAgentSetup && !localFirst ? <LocalAgentSetup instanceUrl={instanceUrl} showResourceLinks={showResourceLinks} open={false} /> : null}
       </div>
     </div>
   )
@@ -230,35 +240,72 @@ function VerificationPrompt({ target, local = false }: { target: string; local?:
   return <CopyText key={target} label={local ? 'Copy local verification prompt' : 'Copy verification prompt'} value={prompt} secondary action="agent_setup.verify_copy" />
 }
 
-function LocalConnectionSetup({ instanceUrl, showResourceLinks }: { instanceUrl: string; showResourceLinks: boolean }) {
-  const [client, setClient] = useState<keyof typeof LOCAL_CLIENTS>('codex')
+/**
+ * An agent on the operator's computer. Open, it leads a dashboard on that
+ * computer: the README's setup request, then the README's plugin commands.
+ * Collapsed, it follows hosted setup with a connect prompt for this instance
+ * and the same commands.
+ */
+function LocalAgentSetup({ instanceUrl, showResourceLinks, open }: { instanceUrl: string; showResourceLinks: boolean; open: boolean }) {
   const resources = showResourceLinks ? `Official connection guide: ${MCP_GUIDE}
 Optional plugin guide for Codex or Claude Code: ${PLUGIN_GUIDE}
 
 ` : ''
-  const prompt = `Connect my local agent to this existing Canonry instance: ${instanceUrl}
+  const connectPrompt = `Connect my local agent to this existing Canonry instance: ${instanceUrl}
 
 Use an installed Canonry runtime whose private configuration already points to this exact instance. A local plugin or canonry-mcp process does not inherit the browser connection, and shell environment changes do not retarget an already-connected tool. Check the saved API URL before using it.
 
 ${resources}Preserve existing client connections, credentials, and access. Do not create another Canonry instance, bootstrap a config, or create projects. Keep secrets and configuration contents out of chat. Ask before changing client configuration or installing software. Reload the client if needed, then verify with stored reads only. Do not run scans, sweeps, research, live provider checks, or other writes.`
-  return (
-    <details className="border-t border-default py-3 text-label-14">
-      <summary className="min-h-11 w-fit cursor-pointer py-3 text-label-14-strong text-heading">Local plugins and other MCP clients</summary>
-      <div className="space-y-4 py-4">
-        <p className="max-w-prose text-copy-14 text-secondary">For an agent running on your computer, use a Canonry runtime whose private configuration already points to this instance. The plugin does not inherit your browser connection.</p>
-        <CopyText label="Copy local setup prompt" value={prompt} secondary />
-        <label className="block text-label-14-strong text-heading" htmlFor="agent-client">Your client</label>
-        <select id="agent-client" className="h-11 max-w-full rounded-md border border-default bg-bg px-3 text-label-14 text-heading" value={client} onChange={event => {
-          const value = event.target.value
-          if (value === 'codex' || value === 'claude' || value === 'other') setClient(value)
-        }}>
-          {Object.entries(LOCAL_CLIENTS).map(([value, entry]) => <option key={value} value={value}>{entry.label}</option>)}
-        </select>
-        <CopyText key={client} label={client === 'other' ? 'Copy MCP command' : 'Copy install commands'} value={LOCAL_CLIENTS[client].command} showText secondary />
-        <p className="text-copy-14 text-secondary">{client === 'other' ? 'Add this executable as a stdio MCP server in your client.' : 'Reload your client after installing the plugin.'} Keep one Canonry connection per instance.</p>
-        {showResourceLinks ? <a href={PLUGIN_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 underline">Runtime and plugin instructions <ExternalLink className="size-3.5" aria-hidden="true" /></a> : null}
-        <VerificationPrompt target={instanceUrl} local />
+  // The README's request targets the operator's default install; the dashboard
+  // knows which install is serving it, so the agent is told to stay on that one.
+  const setupRequest = `${agentSetupRequest(showResourceLinks)}
+
+This Canonry dashboard is already running at ${instanceUrl}. Work only with the install that serves it. If \`cnry doctor\` reports no config, or you cannot confirm your config belongs to this dashboard, stop and ask me which config folder it uses, then pass that folder as \`CANONRY_CONFIG_DIR\` on every \`cnry\` command. Do not bootstrap, start, or create another install.`
+  const pluginSteps = (
+    <div className="space-y-5">
+      {LOCAL_PLUGIN_COMMANDS.map(({ client, command }) => (
+        <div key={client} className="space-y-2">
+          <h3 className="text-label-14-strong text-heading">{client}</h3>
+          <CopyText label={`Copy ${client} commands`} value={command} showText secondary />
+        </div>
+      ))}
+      <div className="space-y-2">
+        <h3 className="text-label-14-strong text-heading">Other MCP clients</h3>
+        <p className="max-w-prose text-copy-14 text-secondary">Add this executable as a stdio MCP server in your client.</p>
+        <CopyText label="Copy MCP command" value={LOCAL_MCP_COMMAND} showText secondary />
       </div>
-    </details>
+      <p className="max-w-prose text-copy-14 text-secondary">Reload your client after installing the plugin. Keep one Canonry connection per instance.</p>
+      {showResourceLinks ? <a href={PLUGIN_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 text-label-14 underline">Runtime and plugin instructions <ExternalLink className="size-3.5" aria-hidden="true" /></a> : null}
+      <VerificationPrompt target={instanceUrl} local />
+    </div>
+  )
+
+  if (!open) {
+    return (
+      <details className="border-t border-default py-3 text-label-14">
+        <summary className="min-h-11 w-fit cursor-pointer py-3 text-label-14-strong text-heading">Local plugins and other MCP clients</summary>
+        <div className="space-y-6 py-4">
+          <div className="space-y-4">
+            <p className="max-w-prose text-copy-14 text-secondary">For an agent running on your computer, use a Canonry runtime whose private configuration already points to this instance. The plugin does not inherit your browser connection.</p>
+            <CopyText label="Copy local setup prompt" value={connectPrompt} secondary />
+          </div>
+          {pluginSteps}
+        </div>
+      </details>
+    )
+  }
+  return (
+    <>
+      <section className="py-6" aria-labelledby="agent-local-title">
+        <h2 id="agent-local-title" className="text-heading-20 text-heading">Set up with your agent</h2>
+        <p className="mt-2 mb-4 max-w-prose text-copy-14 text-secondary">Paste this into Claude Code, Codex, or any shell-capable coding agent.</p>
+        <CopyText label="Copy setup request" value={setupRequest} />
+      </section>
+      <section className="border-t border-default py-6" aria-labelledby="agent-local-plugin-title">
+        <h2 id="agent-local-plugin-title" className="text-heading-20 text-heading">Or use the plugin</h2>
+        <p className="mt-2 mb-5 max-w-prose text-copy-14 text-secondary">The plugin runs the Canonry install on your computer, not your browser session, so that install’s configuration must point to this instance.</p>
+        {pluginSteps}
+      </section>
+    </>
   )
 }

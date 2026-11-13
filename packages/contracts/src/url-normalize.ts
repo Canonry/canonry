@@ -83,6 +83,24 @@ function dropTrailingSlash(path: string): string {
   return path
 }
 
+/** Strip URL credentials, query and fragment before displaying or auditing an endpoint. */
+export function redactUrlPrivateFields(value: string | null | undefined): { url: string; redacted: boolean } | null {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) return null
+    const redacted = Boolean(url.username || url.password || url.search || url.hash)
+    if (!redacted) return { url: value, redacted: false }
+    url.username = ''
+    url.password = ''
+    url.search = ''
+    url.hash = ''
+    return { url: url.toString(), redacted: true }
+  } catch {
+    return null
+  }
+}
+
 /**
  * Extract the normalized host from a URL or bare hostname: lowercased, with a
  * leading `www.` stripped and the scheme/path/query discarded. Accepts both

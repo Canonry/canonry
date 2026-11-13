@@ -172,7 +172,7 @@ async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, 
     db.insert(gaLeadEventsDaily).values({ id: `${prefix}-ga-lead-${date}`, projectId: project.id, date, eventName: 'generate_lead', channelGroup: 'Organic Search', source: 'google', medium: 'organic', hostName: project.domain, landingPage: '/', landingPageNormalized: '/', attributionScope: 'landing-page', eventCount: 3 + (i % 4), syncedAt: nowIso, syncRunId: gaRunId, createdAt: at(date) }).run()
     db.insert(bingCoverageSnapshots).values({ id: `${prefix}-bing-coverage-${date}`, projectId: project.id, syncRunId: bingRunId, date, indexed: 48 + i, notIndexed: 3, unknown: 2, createdAt: at(date) }).run()
   }
-  seedGaReferrals(db, { projectId: project.id, prefix, syncRunId: gaRunId, nowIso, dates })
+  seedGaReferrals(db, { projectId: project.id, prefix, syncRunId: gaRunId, nowIso, dates, hostName: project.domain })
   // Every daily total the sync keeps, and each window's GA4 totals for the overview.
   seedGaOverview(db, { projectId: project.id, prefix, syncRunId: gaRunId, now, variant })
   db.insert(gscDataWatermarks).values({ projectId: project.id, dataThroughDate: dates.at(-1)!, syncedThroughDate: dates.at(-1)!, updatedAt: nowIso }).run()

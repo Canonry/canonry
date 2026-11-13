@@ -9,9 +9,9 @@ import {
   createClient,
   MIGRATION_VERSIONS,
   migrate,
-  projects,
   trafficSources,
 } from '../src/index.js'
+import { insertLegacyProject } from './legacy-rows.js'
 
 /**
  * v207 began counting each AI-referral arrival once per visit. Hours a source
@@ -31,12 +31,11 @@ function tempDb(): Db {
   return createClient(path.join(tmpDir, 'test.db'))
 }
 
+// Physical columns only: the database is still at v210, and Drizzle's insert
+// names every column the current schema declares.
 function seedProject(db: Db): string {
   const id = crypto.randomUUID()
-  db.insert(projects).values({
-    id, name: 'older-count', displayName: 'Older count', canonicalDomain: 'example.com',
-    country: 'US', language: 'en', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z',
-  }).run()
+  insertLegacyProject(db, { id, name: 'older-count', displayName: 'Older count', canonicalDomain: 'example.com', createdAt: '2026-08-01T00:00:00.000Z' })
   return id
 }
 

@@ -1,5 +1,5 @@
 import { metricsWindowSchema } from './analytics.js'
-import { gaMeasurementComponentStatusSchema } from './measurement.js'
+import { aiEngineLeadRateUnavailableReasonSchema, gaMeasurementComponentStatusSchema } from './measurement.js'
 
 import { WINDOW_SETS } from './time-window.js'
 import { z } from 'zod'
@@ -134,6 +134,134 @@ export const ga4SocialPlatformDtoSchema = z.object({
 export type GA4SocialPlatformDto = z.infer<typeof ga4SocialPlatformDtoSchema>
 
 /**
+ * A platform is ranked by conversions per 1,000 sessions only from this many
+ * sessions in the window. Below it the rate is still reported, but it rests on
+ * too few sessions to order platforms by.
+ */
+export const SOCIAL_PLATFORM_RANKING_MIN_SESSIONS = 1000
+
+/** Conversions and their rate for one slice of sessions (a platform, a traffic class or the site). */
+const ga4ConversionRateFieldsSchema = z.object({
+  /** Counted conversion events credited to these sessions; null when no conversion events are measured. */
+  conversions: z.number().nullable(),
+  /**
+   * `conversions` per 1,000 sessions, rounded to two decimals. Null without
+   * sessions, without measured conversions, or when the block withholds rates
+   * (`conversionRateUnavailableReason`).
+   */
+  conversionsPerThousandSessions: z.number().nonnegative().nullable(),
+  /** `conversionsPerThousandSessions` as shown: one decimal (`3.7`), `—` when null. */
+  conversionsPerThousandSessionsDisplay: z.string(),
+})
+
+export const ga4SocialPlatformTrafficClassDtoSchema = ga4ConversionRateFieldsSchema.extend({
+  sessions: z.number(),
+})
+export type GA4SocialPlatformTrafficClassDto = z.infer<typeof ga4SocialPlatformTrafficClassDtoSchema>
+
+/** One GA4 source, medium and channel group row of a platform, from the acquisition and lead tables. */
+export const ga4SocialPlatformPerformanceSourceDtoSchema = ga4ConversionRateFieldsSchema.extend({
+  source: z.string(),
+  medium: z.string(),
+  /** GA4 default channel group as GA4 reported it (`Paid Other`, `Unassigned`, `Organic Social`). */
+  channelGroup: z.string(),
+  /**
+   * `paid` when GA4 filed the row in a paid channel group or its source or
+   * medium carries a paid value (`fb_ads`, `cpc`, `paid`); `organic` means no
+   * paid signal was found.
+   */
+  trafficClass: aiReferralTrafficClassSchema,
+  sessions: z.number(),
+  /** 0..1 share of the block's `sessions`; every source row's share adds up to 1. */
+  share: fraction(),
+})
+export type GA4SocialPlatformPerformanceSourceDto = z.infer<typeof ga4SocialPlatformPerformanceSourceDtoSchema>
+
+/** One platform's sessions and conversions, with its rank among platforms with enough sessions. */
+export const ga4SocialPlatformPerformanceRowDtoSchema = ga4ConversionRateFieldsSchema.extend({
+  /** Stable key: the platform id, or `source:<source>` for a social source no platform matches. */
+  key: z.string(),
+  platform: socialPlatformSchema.nullable(),
+  /** The platform's name, or the raw source when `platform` is null. */
+  label: z.string(),
+  sessions: z.number(),
+  organicSessions: z.number(),
+  paidSessions: z.number(),
+  /** 0..1 share of the block's `sessions`; the platforms' shares add up to 1. */
+  share: fraction(),
+  /** True from `minSessions` sessions: only then is the platform ranked. */
+  enoughSessions: z.boolean(),
+  /**
+   * 1 for the most conversions per 1,000 sessions among platforms with enough
+   * sessions; ties go to more conversions, then more sessions. Null when the
+   * platform has too few sessions or the block withholds rates.
+   */
+  rank: z.number().int().positive().nullable(),
+  paid: ga4SocialPlatformTrafficClassDtoSchema,
+  organic: ga4SocialPlatformTrafficClassDtoSchema,
+  /** The GA4 channel groups this platform's sessions came from, most sessions first. */
+  channelGroups: z.array(z.string()),
+  /** The platform's source rows, sessions descending. */
+  sources: z.array(ga4SocialPlatformPerformanceSourceDtoSchema),
+})
+export type GA4SocialPlatformPerformanceRowDto = z.infer<typeof ga4SocialPlatformPerformanceRowDtoSchema>
+
+/** Why the platform block has no rows: no stored acquisition rows for the window. */
+export const socialPlatformPerformanceUnavailableReasonSchema = z.enum(['sessions-not-synced'])
+export type SocialPlatformPerformanceUnavailableReason = z.infer<typeof socialPlatformPerformanceUnavailableReasonSchema>
+
+/**
+ * Sessions and conversions by social and creator platform, across every GA4
+ * channel group, over the same window as the rest of `/ga/traffic`.
+ *
+ * GA4's Social channel only holds sources it recognises as social, so an ad
+ * tagged `utm_source=fb_ads&utm_medium=paidsocial` (GA4 files it under Paid
+ * Other) or a creator link from ShopMy (Unassigned) never reaches
+ * `socialSessions`. This block reads GA4's per-source acquisition and lead
+ * event tables instead: a row counts when its source names a platform, or when
+ * GA4 filed it as Organic or Paid Social. Sessions and conversions each come
+ * from one table, keyed the same way, so nothing is counted twice. A session
+ * that reaches a second host (a separate checkout domain) is one row per host
+ * with the same landing page, so each landing page counts its largest host row.
+ */
+export const ga4SocialPlatformPerformanceDtoSchema = z.object({
+  /** `unavailable` when no acquisition rows are stored for the window; the GA4 social channel figures still are. */
+  status: z.enum(['ready', 'unavailable']),
+  unavailableReason: socialPlatformPerformanceUnavailableReasonSchema.nullable(),
+  /** Every platform's sessions in the window. */
+  sessions: z.number(),
+  /** `sessions` as a 0..100 percentage of `totalSessions` (wire precision). */
+  sharePct: percent(),
+  sharePctDisplay: z.string(),
+  paidSessions: z.number(),
+  /** `paidSessions` as a 0..1 share of `sessions`. */
+  paidShare: fraction(),
+  /** Counted conversion events across every platform; null when none are measured. */
+  conversions: z.number().nullable(),
+  /** False when a rate would divide unlike data; every rate and rank is then null. */
+  conversionRateAvailable: z.boolean(),
+  conversionRateUnavailableReason: aiEngineLeadRateUnavailableReasonSchema.nullable(),
+  /** The GA4 events counted as conversions: the configured lead events plus counted key events. */
+  countedEventNames: z.array(z.string()),
+  /** Fewest sessions a platform needs to be ranked (`SOCIAL_PLATFORM_RANKING_MIN_SESSIONS`). */
+  minSessions: z.number().int().positive(),
+  /**
+   * Every channel, for reference: counted conversions per 1,000 GA4 sessions
+   * across the whole site. Sessions are GA4's daily totals, which count a
+   * session once even when it crosses hosts; null when the totals miss a day
+   * the acquisition table covers.
+   */
+  site: ga4ConversionRateFieldsSchema.extend({
+    sessions: z.number().nullable(),
+  }),
+  /** Platforms, sessions descending (the top platform is the first row). Order by `rank` to rank them. */
+  platforms: z.array(ga4SocialPlatformPerformanceRowDtoSchema),
+  /** Daily platform sessions: the five largest platforms, then the rest as `other`. */
+  daily: stackedDailySeriesSchema,
+})
+export type GA4SocialPlatformPerformanceDto = z.infer<typeof ga4SocialPlatformPerformanceDtoSchema>
+
+/**
  * One AI engine's referral sessions, with the `aiReferrals` rows it groups.
  * Rows whose source names no engine form one group with `engine: null`: AI
  * traffic that is counted but never assigned to an engine.
@@ -236,6 +364,11 @@ export const ga4TrafficSummaryDtoSchema = z.object({
    * figure here: the five largest platforms, then the rest as `other`.
    */
   socialPlatformDaily: stackedDailySeriesSchema,
+  /**
+   * Social and creator platforms across every GA4 channel group, with
+   * conversions and a ranking. Absent only from a server older than the block.
+   */
+  socialPlatformPerformance: ga4SocialPlatformPerformanceDtoSchema.optional(),
   /** Total social sessions (session-scoped, no cross-dimension dedup needed). */
   socialSessions: z.number(),
   /** Social sessions in GA4's Paid Social channel group. */

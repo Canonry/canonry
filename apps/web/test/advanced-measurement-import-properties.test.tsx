@@ -152,7 +152,7 @@ describe('SetupImportProperties import step', () => {
     const onReviewSitemap = vi.fn()
     const { container } = render(<ImportHarness onReviewSitemap={onReviewSitemap} />)
 
-    expect(screen.getByRole('heading', { name: 'Import Properties' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Add Properties' })).toBeTruthy()
     expect(screen.getByLabelText('Sitemap URL')).toBeTruthy()
     const examplePropertyPage = screen.getByLabelText('Example Property page')
     expect(examplePropertyPage.closest('details')).toBeNull()
@@ -211,7 +211,7 @@ describe('SetupImportProperties Properties step', () => {
     expect(screen.getByLabelText('Select South Office')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Select all shown' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
 
     expect(onContinue).toHaveBeenCalledWith(['north-office', 'central-office', 'south-office'])
     expectNoImplementationLanguage(container)
@@ -222,11 +222,11 @@ describe('SetupImportProperties Properties step', () => {
     const onReturnToImport = vi.fn()
     render(<PropertiesHarness onContinue={onContinue} onReturnToImport={onReturnToImport} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add Properties' }))
     expect(onReturnToImport).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }))
-    expect(screen.getByRole('button', { name: 'Continue' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ })).toHaveProperty('disabled', true)
     expect(onContinue).not.toHaveBeenCalled()
   })
 
@@ -238,9 +238,9 @@ describe('SetupImportProperties Properties step', () => {
     expect(screen.getByRole('button', { name: 'Select all shown' })).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: 'Clear selection' })).toHaveProperty('disabled', true)
     expect(screen.getByLabelText('Select North Office')).toHaveProperty('disabled', true)
-    expect(screen.getByRole('button', { name: 'Back' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: 'Add Properties' })).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: 'Saving Properties…' })).toHaveProperty('disabled', true)
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add Properties' }))
     expect(onReturnToImport).not.toHaveBeenCalled()
   })
 
@@ -280,14 +280,14 @@ describe('SetupImportProperties Properties step', () => {
     expect(screen.getByText('Viewing only. Property changes are unavailable.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Select all shown' })).toBeNull()
     expect(screen.queryByRole('checkbox')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ })).toBeNull()
   })
 
   test('allows an existing confirmed setup to continue without new proposals', () => {
     const onContinue = vi.fn()
     render(<PropertiesHarness rows={[properties[1]!]} onContinue={onContinue} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue(?: with \d+ Propert(?:y|ies))?$/ }))
     expect(onContinue).toHaveBeenCalledWith(['central-office'])
   })
 

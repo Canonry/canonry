@@ -12,6 +12,7 @@ import { apiRoutes } from '../src/index.js'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-version.js'
 import type { CloudflareTrafficCredentialRecord, CloudflareTrafficCredentialStore, TrafficSyncedEvent } from '../src/traffic.js'
 import { tryClaimTrafficSyncLease } from '../src/traffic-sync-lease.js'
+import { logCapture } from './log-capture.js'
 
 const directories: string[] = []
 
@@ -29,6 +30,8 @@ async function harness(options: {
   queueSyncDeadlineMs?: number
   /** Waits after consecutive empty pulls; by default one zero wait, so two empty pulls in a row end the drain. */
   queueEmptyPullBackoffMs?: readonly number[]
+  /** Fastify logger option, to read what the drain logged (`logCapture`). */
+  logger?: ReturnType<typeof logCapture>['logger']
 } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-cloudflare-queue-'))
   directories.push(directory)
@@ -46,7 +49,7 @@ async function harness(options: {
     deleteConnectionBySourceId: sourceId => credentials.delete(sourceId),
   }
   const synced: TrafficSyncedEvent[] = []
-  const app = Fastify()
+  const app = Fastify(options.logger ? { logger: options.logger } : {})
   app.register(apiRoutes, {
     db, skipAuth: true, cloudflareTrafficCredentialStore: store, onTrafficSynced: event => { synced.push(event) },
     ...(options.includeDirectIngestUrl === false ? {} : {
@@ -547,6 +550,35 @@ describe('Cloudflare Queue pull lifecycle', () => {
       skippedUnleasedMessageCount: 100,
     }))
     await h.app.close()
+  })
+
+  it('reports a browser agent\'s requests other than page loads on the sync and in the log', async () => {
+    const agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Google-Agent; +https://developers.google.com/crawling/docs/crawlers-fetchers/google-agent) Chrome/W.X.Y.Z Safari/537.36'
+    const request = (eventId: string, method: string, path: string) => ({
+      eventId, observedAt: '2026-08-11T12:00:00.000Z', method, host: 'example.com', path, queryString: null, status: 200,
+      userAgent: agent, remoteIp: null, referer: null, cf: null,
+    })
+    const message = {
+      id: 'browser-agent', timestampMs: 1_700_000_000_000, attempts: 1, leaseId: 'browser-agent-lease', metadata: {},
+      contentType: 'json' as const,
+      body: {
+        schemaVersion: 1, workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION,
+        events: [request('page', 'GET', '/pricing'), request('script', 'GET', '/_next/static/chunks/main.js'), request('beacon', 'POST', '/_vercel/insights/view')],
+      },
+    }
+    const logs = logCapture()
+    const h = await harness({
+      logger: logs.logger,
+      queuePull: async () => ({ messageBacklogCount: 0, messages: [message], skippedUnleasedMessageCount: 0 }),
+      queueAck: async (_client, options) => ({ acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }),
+    })
+    const { sourceId, synced } = await connectAndSync(h)
+
+    expect(synced.statusCode, synced.payload).toBe(200)
+    const body = JSON.parse(synced.payload) as { runId: string }
+    expect(body).toMatchObject({ pulledEvents: 3, aiUserFetchHits: 1, aiUserFetchBrowserNonPageHits: 2 })
+    // A scheduled drain throws its response away, so the log reports them too.
+    expect(logs.withField('aiUserFetchBrowserNonPageHits')).toMatchObject([{ sourceId, runId: body.runId, aiUserFetchBrowserNonPageHits: 2 }])
   })
 
   it('logs successful Queue ACK warning counts without failing the sync', async () => {

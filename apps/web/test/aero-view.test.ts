@@ -13,9 +13,11 @@ it('carries Advanced report scope, market, provider, class, dates, revision and 
   } })
 })
 
-it('does not apply carried measurement filters to Property details or Site Health', () => {
+it('does not apply carried measurement filters to Property details or Agent Readiness', () => {
   const carried = { measurementMarketKey: 'london', measurementRunId: 'old-run', measurementProvider: 'openai', queryClass: 'branded' }
   expect(aeroViewFromLocation('/projects/demo/properties/hotel', carried)).toEqual({ view: 'property', selection: { mode: 'auto', scope: 'property', scopeKey: 'hotel', queryClass: 'branded', limit: 10 } })
+  expect(aeroViewFromLocation('/projects/demo/agent-readiness', carried)).toEqual({ view: 'site-health' })
+  // The retired route redirects; a context read in that instant still names the same view.
   expect(aeroViewFromLocation('/projects/demo/technical-aeo', carried)).toEqual({ view: 'site-health' })
   expect(aeroViewFromLocation('/projects/demo/backlinks', carried)).toEqual({ view: 'project' })
 })
@@ -42,5 +44,5 @@ it('carries the SEO profile, historical refresh and market-rankings drill-in ind
   expect(aeroViewFromLocation('/projects/demo/seo-data', { seoProfileId: 'france', seoRunId: 'saved-refresh', measurementScope: 'property', measurementScopeKey: 'other' })).toEqual({ view: 'seo', seoProfileId: 'france', seoRunId: 'saved-refresh' })
   expect(aeroViewFromLocation('/projects/demo/seo-data', { seoProfileId: 'markets', seoRegion: 'atlanta', seoMarket: 'decatur', measurementMarketKey: 'london' })).toEqual({ view: 'seo', seoProfileId: 'markets', seoRegionKey: 'atlanta', seoMarketKey: 'decatur' })
   // The drill-in belongs to the SEO view only.
-  expect(aeroViewFromLocation('/projects/demo/technical-aeo', { seoRegion: 'atlanta' })).toEqual({ view: 'site-health' })
+  expect(aeroViewFromLocation('/projects/demo/agent-readiness', { seoRegion: 'atlanta' })).toEqual({ view: 'site-health' })
 })

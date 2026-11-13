@@ -13,7 +13,7 @@ import { openrouterAdapter } from '@canonry/canonry-provider-openrouter'
 import { loadConfig } from '../config.js'
 import { resolveStoredApiResponse } from '../stored-answer-anchors.js'
 import type { CliFormat } from '../cli-error.js'
-import { isMachineFormat } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 import { determineCitationState } from '../citation-utils.js'
 import { reclassifyStoredTraffic, type StoredTrafficReclassification } from '../traffic-reclassify.js'
 
@@ -1087,13 +1087,16 @@ function stringifyStoredSnapshotEnvelope(
 // When the classifier's rules learn a new bot, traffic stored before the
 // change stays unknown unless it is reclassified. `reclassifyStoredTraffic`
 // (traffic-reclassify.ts) does that for unknown raw samples, the hourly rows
-// of unrecognized agents, AI agent traffic today's trust rules call likely
+// of unrecognized agents, crawler hours whose sampled user agent today's
+// rules file elsewhere, AI agent traffic today's trust rules call likely
 // fake, and journeys a background call opened; a server also runs it once on
 // its own after startup whenever the rules change. This command runs it on
-// demand, with an optional project filter and a dry run.
+// demand, with an optional project filter and a dry run. Unlike the server's
+// pass, it also makes the crawler changes that leave verified hits claimed,
+// and its dry run reports them.
 // ============================================================================
 
-interface TrafficClassificationBackfillResult {
+interface TrafficClassificationBackfillResult extends Omit<StoredTrafficReclassification, 'samples'> {
   project: string | null
   /** Unknown raw samples examined, reclassified, and still unknown. */
   examined: number
@@ -1104,13 +1107,8 @@ interface TrafficClassificationBackfillResult {
   samplesCounted: number
   /** Samples of Canonry's own tools, deleted. */
   samplesRemoved: number
-  dryRun: boolean
+  /** Reclassified samples, and the hits of moved unrecognized and crawler hours, by the bot that received them. */
   byBot: Record<string, number>
-  unrecognized: StoredTrafficReclassification['unrecognized']
-  agentHits: StoredTrafficReclassification['agentHits']
-  agentRequests: StoredTrafficReclassification['agentRequests']
-  journeys: StoredTrafficReclassification['journeys']
-  journeyMerges: StoredTrafficReclassification['journeyMerges']
 }
 
 export async function backfillTrafficClassificationCommand(opts?: {
@@ -1126,56 +1124,63 @@ export async function backfillTrafficClassificationCommand(opts?: {
   const isDryRun = opts?.dryRun === true
   const isJson = isMachineFormat(opts?.format)
 
-  const scopedProjects = projectFilter
-    ? db.select().from(projects).where(eq(projects.name, projectFilter)).all()
-    : db.select().from(projects).all()
-
-  if (scopedProjects.length === 0) {
-    if (projectFilter && !isJson) {
-      process.stderr.write(`No project named "${projectFilter}".\n`)
+  let projectIds: string[] | undefined
+  if (projectFilter) {
+    const project = db.select({ id: projects.id }).from(projects).where(eq(projects.name, projectFilter)).get()
+    if (!project) {
+      throw new CliError({
+        code: 'NOT_FOUND',
+        message: `Project "${projectFilter}" not found`,
+        displayMessage: `Error: no project named "${projectFilter}".`,
+        details: { project: projectFilter },
+      })
     }
-    if (isJson) console.log(JSON.stringify({ project: projectFilter ?? null, examined: 0, reclassified: 0 }))
-    return
+    projectIds = [project.id]
   }
 
   if (!isJson) {
     const mode = isDryRun ? ' [DRY RUN — no writes]' : ''
     const scope = projectFilter ? `"${projectFilter}"` : 'all projects'
-    process.stderr.write(`Re-classifying stored unknown traffic for ${scope}${mode}...\n`)
+    process.stderr.write(`Re-classifying stored traffic under today's rules for ${scope}${mode}...\n`)
   }
 
-  const projectIds = scopedProjects.map(p => p.id)
   const countUnknown = () => Number(db
     .select({ n: sql<number>`count(*)` })
     .from(rawEventSamples)
     .where(and(
       eq(rawEventSamples.eventType, RawEventSampleEventTypes.unknown),
-      inArray(rawEventSamples.projectId, projectIds),
+      projectIds ? inArray(rawEventSamples.projectId, projectIds) : undefined,
     ))
     .get()?.n ?? 0)
   const unknownBefore = countUnknown()
-  const stored = await reclassifyStoredTraffic(db, { projectIds, dryRun: isDryRun })
-  const byBot = { ...stored.samples.byBot }
-  for (const [bot, hits] of Object.entries(stored.unrecognized.byBot)) byBot[bot] = (byBot[bot] ?? 0) + hits
+  // The server's own pass leaves the changes that make verified hits claimed to this command.
+  const stored = await reclassifyStoredTraffic(db, { projectIds, dryRun: isDryRun, allowVerificationLoss: true })
+  const { samples, dryRun, ...sections } = stored
+  const byBot = { ...samples.byBot }
+  for (const moved of [sections.unrecognized.byBot, sections.crawlers.byBot]) {
+    for (const [bot, hits] of Object.entries(moved)) byBot[bot] = (byBot[bot] ?? 0) + hits
+  }
 
   emitTrafficClassificationReport({
     project: projectFilter ?? null,
-    examined: stored.samples.examined,
-    reclassified: stored.samples.reclassified,
+    examined: samples.examined,
+    reclassified: samples.reclassified,
     unknownBefore,
-    unknownAfter: isDryRun
-      ? unknownBefore - stored.samples.reclassified - stored.samples.removed
+    // A dry run writes nothing, so its count after is what the pass found.
+    unknownAfter: dryRun
+      ? unknownBefore - samples.reclassified - samples.removed + sections.crawlers.samplesNowUnknown
       : countUnknown(),
-    samplesCounted: stored.samples.counted,
-    samplesRemoved: stored.samples.removed,
-    dryRun: isDryRun,
+    samplesCounted: samples.counted,
+    samplesRemoved: samples.removed,
+    dryRun,
     byBot,
-    unrecognized: stored.unrecognized,
-    agentHits: stored.agentHits,
-    agentRequests: stored.agentRequests,
-    journeys: stored.journeys,
-    journeyMerges: stored.journeyMerges,
+    ...sections,
   }, isJson)
+}
+
+/** "claude-searchbot 4, amzn-searchbot 6", busiest first. */
+function formatHitsByBot(byBot: Record<string, number>): string {
+  return Object.entries(byBot).sort(([, a], [, b]) => b - a).map(([bot, hits]) => `${bot} ${hits}`).join(', ')
 }
 
 function emitTrafficClassificationReport(
@@ -1187,16 +1192,24 @@ function emitTrafficClassificationReport(
     return
   }
   const verb = result.dryRun ? 'Would re-classify' : 'Re-classified'
+  const indent = '                       '
   console.log(`\nTraffic classification ${result.dryRun ? 'preview' : 'recovery'} complete.`)
   console.log(`  Examined unknowns:   ${result.examined}`)
   console.log(`  ${verb}:        ${result.reclassified}`)
   console.log(`  Unknown before:      ${result.unknownBefore}`)
   console.log(`  Unknown after:       ${result.unknownAfter}`)
   console.log(`  Unrecognized rows:   ${result.unrecognized.examined} examined, ${result.unrecognized.moved} moved to a bot (${result.unrecognized.movedHits} hits), ${result.unrecognized.renamed} renamed, ${result.unrecognized.removed} removed`)
+  const { crawlers } = result
+  console.log(`  Crawler rows:        ${crawlers.examined} examined; ${crawlers.moved} moved to the crawler their user agent names today (${crawlers.movedHits} hits), ${crawlers.toUserFetch} to AI user fetch (${crawlers.toUserFetchHits} hits), ${crawlers.toUnrecognized} back to unrecognized agents (${crawlers.toUnrecognizedHits} hits), ${crawlers.removed} of Canonry's own tools removed (${crawlers.removedHits} hits)`)
+  if (Object.keys(crawlers.byBot).length > 0) console.log(`${indent}Hits moved to: ${formatHitsByBot(crawlers.byBot)}`)
+  console.log(`${indent}${crawlers.unverifiedHits} verified hits no longer verified; ${crawlers.samplesRelabeled} samples relabeled (${crawlers.samplesNowUnknown} now unknown), ${crawlers.samplesRemoved} removed`)
+  if (crawlers.unknownBot > 0) console.log(`${indent}${crawlers.unknownBot} rows under a bot this version has no rule for (a newer release wrote them) left as they are`)
   console.log(`  Fake agent hits:     ${result.agentHits.moved} hourly rows moved to likely fake (${result.agentHits.movedHits} hits)`)
   console.log(`  Agent requests:      ${result.agentRequests.removed} removed (${result.agentRequests.probes} asked for a scanner path)`)
+  console.log(`  Browser agent files: ${result.agentRequests.pageResources} stored requests its pages made by themselves removed`)
   console.log(`  Journeys:            ${result.journeys.visitorsRemoved} visitors and ${result.journeys.visitsRemoved} visits removed, ${result.journeys.visitsRelanded} visits now start at a different page`)
   console.log(`  Split visitors:      ${result.journeyMerges.visitorsMerged} joined to the same person's first visitor, seen from another IP (${result.journeyMerges.visitsJoined} visits merged)`)
+  if (result.orphans > 0) console.log(`  Orphaned rows:       ${result.orphans} left as they are: their project or traffic source no longer exists`)
   if (Object.keys(result.byBot).length > 0) {
     console.log(`  By bot:`)
     const sorted = Object.entries(result.byBot).sort(([, a], [, b]) => b - a)

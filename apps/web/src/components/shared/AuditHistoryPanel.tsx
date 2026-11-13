@@ -102,11 +102,7 @@ export function AuditHistoryPanel({ projectName }: { projectName?: string }) {
     <section className="mt-6" aria-labelledby="change-history-heading">
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Audit trail</p>
-          <h2 id="change-history-heading">Change history</h2>
-          <p className="supporting-copy mt-1 max-w-2xl">
-            Configuration and operator actions. Execution outcomes remain in Runs.
-          </p>
+          <h2 id="change-history-heading" className={projectName ? undefined : 'sr-only'}>Change history</h2>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={() => void historyQuery.refetch()} disabled={historyQuery.isFetching}>
           {historyQuery.isFetching ? 'Refreshing…' : 'Refresh'}

@@ -1,10 +1,11 @@
-import { CitationStates, formatPercent, percentOf, type ScoreSummaryDto } from '@canonry/canonry-contracts'
+import { CitationStates, formatPercent, isCitationStateMeasured, percentOf, type CitationState, type ScoreSummaryDto } from '@canonry/canonry-contracts'
 import { scoreTone } from './score-tones.js'
 
 export interface VisibilityScoreSnapshot {
   queryId: string
   provider: string
-  citationState: string
+  /** As read through `readCitationState`. */
+  citationState: CitationState
 }
 
 export interface VisibilityScoreOptions {
@@ -32,6 +33,10 @@ export interface VisibilityScoreOptions {
  * When the run only covers a subset of configured providers, tone shifts to
  * caution and a providerCoverage label is set, even if the score is high. The
  * dashboard renders that label inside the gauge.
+ *
+ * Only answers whose sources were checked count. A query none of whose
+ * answers carries sources (an engine without web access) is left out of the
+ * denominator, and with no such query the gauge reads "Not measured".
  */
 export function buildVisibilityScore(
   snapshots: readonly VisibilityScoreSnapshot[],
@@ -52,11 +57,28 @@ export function buildVisibilityScore(
   }
 
   const queryCited = new Map<string, boolean>()
+  const answeredQueries = new Set<string>()
   for (const snap of snapshots) {
+    answeredQueries.add(snap.queryId)
+    if (!isCitationStateMeasured(snap.citationState)) continue
     if (!queryCited.has(snap.queryId)) queryCited.set(snap.queryId, false)
     if (snap.citationState === CitationStates.cited) queryCited.set(snap.queryId, true)
   }
   const totalCount = queryCited.size
+  const notMeasuredCount = answeredQueries.size - totalCount
+
+  if (totalCount === 0) {
+    return {
+      label: 'Citation Coverage',
+      value: 'Not measured',
+      delta: `${notMeasuredCount} ${notMeasuredCount === 1 ? 'query' : 'queries'} without sources`,
+      tone: 'neutral',
+      description: 'Your engines return no sources, so whether they cite your domain is not measured.',
+      tooltip,
+      trend: [],
+    }
+  }
+
   const citedCount = [...queryCited.values()].filter(Boolean).length
   const score = percentOf(citedCount, totalCount) ?? 0
 
@@ -65,13 +87,16 @@ export function buildVisibilityScore(
   const isPartialProviderRun =
     options.configuredApiProviders.length > 1
     && runApiProviderCount < options.configuredApiProviders.length
+  const notMeasuredNote = notMeasuredCount > 0
+    ? ` ${notMeasuredCount} more ${notMeasuredCount === 1 ? 'query has' : 'queries have'} only answers without sources, so ${notMeasuredCount === 1 ? 'its' : 'their'} citation is not measured.`
+    : ''
 
   return {
     label: 'Citation Coverage',
     value: formatPercent(citedCount / totalCount),
     delta: `${citedCount} of ${totalCount} queries cited`,
     tone: isPartialProviderRun ? 'caution' : scoreTone(score),
-    description: `${citedCount} of ${totalCount} tracked queries found your domain in at least one AI answer engine.`,
+    description: `${citedCount} of ${totalCount} tracked queries found your domain in at least one AI answer engine.${notMeasuredNote}`,
     tooltip,
     trend: [],
     progress: score,

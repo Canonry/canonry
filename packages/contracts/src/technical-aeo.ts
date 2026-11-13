@@ -1,8 +1,9 @@
 import { z } from 'zod'
+import { validationError } from './errors.js'
 import { calendarDateSchema } from './google-ads.js'
 import { fraction, percent } from './ratio-unit.js'
 import { runStatusSchema } from './run.js'
-import { hostOf } from './url-normalize.js'
+import { hostOf, normalizeHostname } from './url-normalize.js'
 
 // Keep this as an explicit union instead of `.nullable()`: OpenAPI 3.0 emits
 // the latter as `nullable: true` beside an enum, which some client generators
@@ -11,16 +12,50 @@ import { hostOf } from './url-normalize.js'
 const nullableRunStatusSchema = z.union([runStatusSchema, z.null()])
 
 /**
- * Technical AEO — site-wide technical audit surfaced from
+ * Agent Readiness — the site-wide crawl and audit surfaced from
  * `@canonry/agent-readiness`'s `runSiteCrawl`. A `site-audit` run discovers pages
  * from the root, robots/sitemaps, and internal links; audits each reachable
- * HTML page; and rolls the reports into a site score plus crawl graph.
+ * HTML page; and rolls the reports into the Agent Readiness score plus a
+ * crawl graph. Earlier releases called this Site Health, Technical AEO and
+ * the technical audit.
  *
- * These DTOs are the public contract for the dashboard's visible "Site Health"
- * tab, the `canonry technical-aeo …` CLI, and the matching MCP tools. The
- * stable route/API/embed key stays `technical-aeo`; the underlying run and
- * schedule kind stays `site-audit` (the existing `RunKinds` value).
+ * These DTOs are the public contract for the dashboard's Agent Readiness tab,
+ * the `canonry agent-readiness …` CLI, and the `canonry_agent_readiness_*`
+ * MCP tools. `agent-readiness` is the canonical route, embed-tab and command
+ * name; `technical-aeo` (and the `site-health` CLI and MCP names) keep working
+ * as deprecated aliases. The run and schedule kind stays `site-audit` (the
+ * existing `RunKinds` value), and the DTO names are unchanged.
  */
+
+/** Canonical API path segment, web route segment and embed-tab key. */
+export const AGENT_READINESS_PATH_SEGMENT = 'agent-readiness'
+/** Deprecated segment that still answers every Agent Readiness route. */
+export const LEGACY_AGENT_READINESS_PATH_SEGMENT = 'technical-aeo'
+/** Every segment an Agent Readiness route answers at, canonical first. */
+export const AGENT_READINESS_PATH_SEGMENTS = [AGENT_READINESS_PATH_SEGMENT, LEGACY_AGENT_READINESS_PATH_SEGMENT] as const
+
+const CANONICAL_AGENT_READINESS_PATH = /(\/projects\/[^/]+)\/agent-readiness(?=\/|$)/
+
+/**
+ * The deprecated `technical-aeo` twin of a canonical Agent Readiness path or
+ * operation key (`GET /api/v1/projects/{name}/agent-readiness/pages`), or
+ * `undefined` when the input is not an Agent Readiness path.
+ */
+export function legacyAgentReadinessPath(path: string): string | undefined {
+  if (!CANONICAL_AGENT_READINESS_PATH.test(path)) return undefined
+  return path.replace(CANONICAL_AGENT_READINESS_PATH, `$1/${LEGACY_AGENT_READINESS_PATH_SEGMENT}`)
+}
+
+/** Each path in order, followed by its deprecated `technical-aeo` twin when it has one. */
+export function withLegacyAgentReadinessPaths(paths: Iterable<string>): string[] {
+  const out: string[] = []
+  for (const path of paths) {
+    out.push(path)
+    const legacy = legacyAgentReadinessPath(path)
+    if (legacy) out.push(legacy)
+  }
+  return out
+}
 
 /** Per-factor / per-page health bucket — mirrors the audit engine's `scoreToStatus`. */
 export const siteAuditFactorStatusSchema = z.enum(['pass', 'partial', 'fail'])
@@ -137,7 +172,22 @@ export const siteAuditRunSelectionSchema = z.object({
 export type SiteAuditRunSelectionDto = z.infer<typeof siteAuditRunSelectionSchema>
 
 /**
- * The Technical AEO scorecard for the selected scan. Default reads use the
+ * One site's score in a scan that covered more than the main domain: the
+ * rounded mean score of its scored pages, the formula of the headline score.
+ */
+export const siteAuditSiteScoreSchema = z.object({
+  /** Bare host (lower case, no `www.`), the value the `site` filters take. */
+  host: z.string(),
+  /** True for the project's main domain. */
+  main: z.boolean(),
+  /** Null when no page of this site was scored. */
+  aggregateScore: z.number().nullable(),
+  pagesAudited: z.number().int().nonnegative(),
+})
+export type SiteAuditSiteScoreDto = z.infer<typeof siteAuditSiteScoreSchema>
+
+/**
+ * The Agent Readiness scorecard for the selected scan. Default reads use the
  * preferred persisted crawl, or the preferred legacy score-only audit when
  * no crawl exists. When the preferred crawl audited no page (a partial crawl
  * stores no scorecard then), default reads use the preferred scored crawl
@@ -160,7 +210,10 @@ export const siteAuditScoreSchema = z.object({
   pagesAudited: z.number().int().nonnegative(),
   pagesSkipped: z.number().int().nonnegative(),
   pagesErrored: z.number().int().nonnegative(),
-  /** `aggregateScore - previousScore`, or `null` when there is no prior run. */
+  /**
+   * `aggregateScore - previousScore`, or `null` when there is no prior run or
+   * the prior run scored a different set of sites (`deltaUnavailableReason`).
+   */
   deltaScore: z.number().nullable(),
   trend: z.union([siteAuditTrendDirectionSchema, z.null()]),
   /**
@@ -173,6 +226,13 @@ export const siteAuditScoreSchema = z.object({
    */
   previousScore: z.number().nullable(),
   previousAuditedAt: z.string().nullable(),
+  /**
+   * Why `deltaScore` and `trend` are null although a previous scan exists.
+   * `sites-changed`: that scan scored a different set of sites (one was added,
+   * removed or not reached), so the two scores do not cover the same pages.
+   * `previousScore` still names that scan's score.
+   */
+  deltaUnavailableReason: z.enum(['sites-changed']).optional(),
   runSelection: siteAuditRunSelectionSchema.optional(),
   factors: z.array(siteAuditFactorSummarySchema).default([]),
   /**
@@ -195,6 +255,12 @@ export const siteAuditScoreSchema = z.object({
   }).optional(),
   crossCuttingIssues: z.array(siteAuditCrossCuttingIssueSchema).default([]),
   prioritizedFixes: z.array(z.string()).default([]),
+  /**
+   * Each site's score, main domain first, when the scan recorded its sites.
+   * `aggregateScore` stays the score over every page. Absent for a scan made
+   * before scans recorded their sites, which covered the main domain only.
+   */
+  sites: z.array(siteAuditSiteScoreSchema).optional(),
 })
 export type SiteAuditScoreDto = z.infer<typeof siteAuditScoreSchema>
 
@@ -326,7 +392,14 @@ export const siteCrawlCountsSchema = z.object({
   pagesDiscovered: z.number().int().nonnegative(),
   pagesFetched: z.number().int().nonnegative(),
   pagesEligible: z.number().int().nonnegative(),
+  /** Every link the crawl observed, internal and external. */
   edges: z.number().int().nonnegative(),
+  /**
+   * Links between the pages on the site map (menu, footer and in-text): the
+   * dashboard's Internal links figure. Null until the map is built; omitted by
+   * older servers and when no crawl exists.
+   */
+  internalLinks: z.number().int().nonnegative().nullable().optional(),
   findings: z.number().int().nonnegative(),
 })
 export type SiteCrawlCountsDto = z.infer<typeof siteCrawlCountsSchema>
@@ -345,6 +418,29 @@ const siteCrawlDeadLinksSummarySchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('complete'), checked: z.number().int().nonnegative(), found: z.number().int().nonnegative(), unverified: z.number().int().nonnegative() }),
   z.object({ state: z.literal('partial'), checked: z.number().int().nonnegative(), found: z.number().int().nonnegative(), unverified: z.number().int().nonnegative() }),
 ])
+
+/**
+ * One site a scan covered: the main domain or an owned domain the scan was
+ * asked to include. Counts are page rows stored for the site (media files are
+ * never stored); `pagesAudited` and `aggregateScore` follow the headline
+ * score's rules.
+ */
+export const siteCrawlSiteSchema = z.object({
+  /** Bare host (lower case, no `www.`), the value the `site` filters take. */
+  host: z.string(),
+  /** True for the project's main domain. */
+  main: z.boolean(),
+  /** The root page the crawl started this site from; null when the site could not be reached. */
+  rootUrl: z.string().nullable(),
+  pages: z.number().int().nonnegative(),
+  pagesEligible: z.number().int().nonnegative(),
+  pagesAudited: z.number().int().nonnegative(),
+  /** Null when no page of this site was scored. */
+  aggregateScore: z.number().nullable(),
+  /** Why the site was not crawled, for example its root could not be reached; null when it was. */
+  error: z.string().nullable(),
+})
+export type SiteCrawlSiteDto = z.infer<typeof siteCrawlSiteSchema>
 
 /**
  * Latest (or selected) persisted crawl. `hasCrawlData=false` is intentionally
@@ -379,6 +475,11 @@ export const siteCrawlSummarySchema = z.object({
   detailsAvailable: z.boolean(),
   counts: siteCrawlCountsSchema,
   deadLinks: siteCrawlDeadLinksSummarySchema,
+  /**
+   * Every site the scan covered, main domain first. Absent for a scan made
+   * before scans recorded their sites, which covered the main domain only.
+   */
+  sites: z.array(siteCrawlSiteSchema).optional(),
 })
 export type SiteCrawlSummaryDto = z.infer<typeof siteCrawlSummarySchema>
 
@@ -422,7 +523,7 @@ export function isSelfLink(sourceUrl: string, targetUrl: string): boolean {
   return sourceUrl === targetUrl
 }
 
-/** Shared meaning behind Site Health node color across API, agents, and UI. */
+/** Shared meaning behind Agent Readiness node color across API, agents, and UI. */
 /**
  * What a crawled page is, for a reader.
  *
@@ -1263,6 +1364,12 @@ export const siteCrawlPageSchema = z.object({
   nodeKey: z.string(),
   url: z.string(),
   finalUrl: z.string().nullable(),
+  /**
+   * Bare host of the site the page belongs to (lower case, no `www.`), the
+   * value the `site` filters take. `path` never includes it, so two sites'
+   * home pages both have the path `/`.
+   */
+  site: z.string().optional(),
   path: z.string(),
   parentPath: z.string(),
   discoverySource: z.string(),
@@ -1319,12 +1426,31 @@ export const siteCrawlAuditFactorSchema = siteAuditPageFactorSchema.extend({
 })
 export type SiteCrawlAuditFactorDto = z.infer<typeof siteCrawlAuditFactorSchema>
 
+/**
+ * One place a page names a Property it does not belong to. `field` is where the
+ * name appears: `faq-question`, `faq-answer`, `title` or `h1` today, kept a plain
+ * string so a place a newer engine adds never hides the defect.
+ */
+export const siteCrawlEntityMentionSchema = z.object({
+  field: z.string().min(1),
+  /** The FAQ question, for FAQ places. */
+  question: z.string().optional(),
+  /** The named Property's plan key. */
+  entityKey: z.string().min(1),
+  entityName: z.string().min(1),
+  /** Up to 160 characters of the text around the name. */
+  snippet: z.string(),
+})
+export type SiteCrawlEntityMentionDto = z.infer<typeof siteCrawlEntityMentionSchema>
+
 /** High-impact page defect detected independently of the weighted score. */
 export const siteCrawlCriticalDefectSchema = z.object({
   id: z.string().min(1),
   severity: z.enum(['critical', 'warning']),
   detail: z.string().min(1),
   recommendation: z.string().min(1),
+  /** Each place the page names another Property, at most 25; only on `names-another-entity`. */
+  evidence: z.array(siteCrawlEntityMentionSchema).optional(),
 })
 export type SiteCrawlCriticalDefectDto = z.infer<typeof siteCrawlCriticalDefectSchema>
 
@@ -1374,7 +1500,7 @@ export type SiteCrawlPageAuditDto = z.infer<typeof siteCrawlPageAuditSchema>
 /**
  * Whether a requested `healthState` filter actually ran.
  *
- * Site Health state is persisted at publish time and backfilled for existing
+ * Agent Readiness state is persisted at publish time and backfilled for existing
  * scans, so `applied` is the normal answer. `unavailable-legacy-scan` remains
  * for the one case a backfill cannot reach: a page written AFTER the migration
  * by an older engine image that does not know the column. Tenants keep their
@@ -1404,7 +1530,7 @@ export const siteCrawlPagesResponseSchema = z.object({
   requestedDate: calendarDateSchema.optional(),
   /** On dated no-data reads only; both candidate lists are bounded, with full distinct-date totals. */
   availableScanDates: siteCrawlAvailableScanDatesSchema.optional(),
-  /** Whole selected inventory, independent of page filters and pagination; null without detail rows. */
+  /** Whole selected inventory, independent of page filters, the site filter and pagination; null without detail rows. Per-site counts are in the crawl summary's `sites`. */
   inventorySummary: siteCrawlInventorySummarySchema.nullable().optional(),
   /** Filtered counts before paging; sum to total. Null when details or the requested filter are unavailable. */
   healthReasonCounts: z.array(siteCrawlHealthReasonCountSchema).max(siteHealthReasonSchema.options.length).nullable().optional(),
@@ -1412,6 +1538,8 @@ export const siteCrawlPagesResponseSchema = z.object({
   nextCursor: z.string().nullable(),
   /** Null when no `healthState` filter was requested. */
   healthStateFilter: z.union([siteCrawlPagesFilterStateSchema, z.null()]).default(null),
+  /** The site the pages are limited to (a bare host), or null for every site the scan covered. */
+  site: z.string().nullable().optional(),
   pages: z.array(siteCrawlPageSchema).default([]),
 })
 export type SiteCrawlPagesResponseDto = z.infer<typeof siteCrawlPagesResponseSchema>
@@ -1432,6 +1560,12 @@ export const siteCrawlStructureResponseSchema = z.object({
   hasCrawlData: z.boolean(),
   runId: z.string().nullable(),
   ...siteCrawlCompletenessShape,
+  /**
+   * The site whose folders these are (a bare host). A scan that covered more
+   * than one site answers for the main domain unless `site` names another.
+   * Null for a scan made before scans recorded their sites.
+   */
+  site: z.string().nullable().optional(),
   parentPath: z.string(),
   nextCursor: z.string().nullable(),
   children: z.array(siteCrawlStructureChildSchema).default([]),
@@ -1552,7 +1686,7 @@ export const siteCrawlGraphLayoutSchema = z.discriminatedUnion('state', [
 export type SiteCrawlGraphLayoutDto = z.infer<typeof siteCrawlGraphLayoutSchema>
 
 /**
- * A persisted, deterministic graph projection for an interactive Site Health
+ * A persisted, deterministic graph projection for an interactive Agent Readiness
  * map. `total*` reflects graph-compatible persisted crawl rows; `omitted*`
  * explains what the publish/read caps intentionally leave out. Layout state is
  * explicit because snapshots written before layout support remain valid.
@@ -1595,7 +1729,7 @@ export const siteCrawlGraphResponseSchema = z.object({
 })
 export type SiteCrawlGraphResponseDto = z.infer<typeof siteCrawlGraphResponseSchema>
 
-/** Site Health publish/read caps. They deliberately do not change crawl budgets. */
+/** Agent Readiness publish/read caps. They deliberately do not change crawl budgets. */
 export const SITE_CRAWL_GRAPH_DEFAULT_MAX_NODES = 20_000
 export const SITE_CRAWL_GRAPH_MAX_NODES = 20_000
 export const SITE_CRAWL_GRAPH_DEFAULT_MAX_EDGES = 50_000
@@ -1848,9 +1982,92 @@ export const siteAuditPageBudgetSchema = z.number().int().min(1).max(SITE_AUDIT_
 export function formatPageCount(pages: number): string {
   return `${pages.toLocaleString('en-US')} ${pages === 1 ? 'page' : 'pages'}`
 }
-/** A saved Site Health page budget in words, lower case: "2,500 pages", or "full site (up to 50,000 pages)" for null. */
+/** A saved Agent Readiness page budget in words, lower case: "2,500 pages", or "full site (up to 50,000 pages)" for null. */
 export function formatSiteAuditPageBudget(maxPages: number | null): string {
   return maxPages === null ? `full site (up to ${formatPageCount(SITE_AUDIT_MAX_PAGE_LIMIT)})` : formatPageCount(maxPages)
+}
+
+/**
+ * Owned domains one Agent Readiness scan can cover besides the main domain.
+ * The page budget is shared, so each extra site spreads it thinner.
+ */
+export const SITE_AUDIT_MAX_EXTRA_SITES = 20
+
+/** A domain refused for an Agent Readiness scan, and why. */
+export interface SiteAuditDomainRejection {
+  domain: string
+  reason: 'not-a-domain' | 'not-owned'
+}
+
+/**
+ * The owned domains a scan covers besides the main domain, in stored form: the
+ * bare host (`hostOf`: lower case, no `www.`), deduplicated, in the order
+ * given. The main domain is dropped, since every scan covers it. An entry that
+ * is not a host, or not one of the project's owned domains, is rejected rather
+ * than dropped, so a typo is reported instead of quietly scanning less. A
+ * subdomain counts only when it is listed as an owned domain itself.
+ */
+export function resolveSiteAuditDomains(
+  project: { canonicalDomain: string; ownedDomains: readonly string[] },
+  requested: readonly string[],
+): { domains: string[]; rejected: SiteAuditDomainRejection[] } {
+  const main = hostOf(project.canonicalDomain)
+  const owned = new Set(project.ownedDomains.map((domain) => hostOf(domain)).filter((host): host is string => host !== null))
+  const domains: string[] = []
+  const rejected: SiteAuditDomainRejection[] = []
+  for (const raw of requested) {
+    const host = hostOf(raw)
+    if (!host || !normalizeHostname(host)) {
+      rejected.push({ domain: raw, reason: 'not-a-domain' })
+      continue
+    }
+    if (host === main || domains.includes(host)) continue
+    if (!owned.has(host)) {
+      rejected.push({ domain: raw, reason: 'not-owned' })
+      continue
+    }
+    domains.push(host)
+  }
+  return { domains, rejected }
+}
+
+/**
+ * The owned domains a project write (`siteAuditDomains`) or a scan request
+ * (`sites`) names, resolved, or a 400: any refused domain fails the whole
+ * list, so a typo never quietly scans less, and at most
+ * SITE_AUDIT_MAX_EXTRA_SITES may remain besides the main domain.
+ */
+export function requireSiteAuditDomains(
+  project: { canonicalDomain: string; ownedDomains: readonly string[] },
+  requested: readonly string[],
+  field: 'siteAuditDomains' | 'sites',
+): string[] {
+  const resolved = resolveSiteAuditDomains(project, requested)
+  if (resolved.rejected.length > 0) {
+    throw validationError(`Rejected ${field}: ${describeSiteAuditDomainRejections(resolved.rejected)}`, {
+      field,
+      rejected: resolved.rejected,
+    })
+  }
+  if (resolved.domains.length > SITE_AUDIT_MAX_EXTRA_SITES) {
+    throw validationError(
+      `A scan covers at most ${SITE_AUDIT_MAX_EXTRA_SITES} sites besides the main domain; ${field} names ${resolved.domains.length}.`,
+      { field, limit: SITE_AUDIT_MAX_EXTRA_SITES, named: resolved.domains.length },
+    )
+  }
+  return resolved.domains
+}
+
+/** One sentence naming every refused domain, for a validation error. */
+export function describeSiteAuditDomainRejections(rejected: readonly SiteAuditDomainRejection[]): string {
+  const notDomains = rejected.filter((item) => item.reason === 'not-a-domain').map((item) => `"${item.domain}"`)
+  const notOwned = rejected.filter((item) => item.reason === 'not-owned').map((item) => item.domain)
+  const parts: string[] = []
+  if (notDomains.length > 0) parts.push(`${notDomains.join(', ')} ${notDomains.length === 1 ? 'is not a domain' : 'are not domains'}`)
+  if (notOwned.length > 0) {
+    parts.push(`${notOwned.join(', ')} ${notOwned.length === 1 ? 'is not one of' : 'are not among'} this project's owned domains; add ${notOwned.length === 1 ? 'it' : 'them'} under owned domains first`)
+  }
+  return `${parts.join('. ')}.`
 }
 /**
  * The crawler's own depth limit when a request sets none
@@ -1859,7 +2076,7 @@ export function formatSiteAuditPageBudget(maxPages: number | null): string {
  */
 export const SITE_AUDIT_DEFAULT_MAX_DEPTH = 10
 /**
- * First-run Site Health budget. Onboarding is a bounded first look at the top
+ * First-run Agent Readiness budget. Onboarding is a bounded first look at the top
  * of the site, not the full audit: the scheduled scan keeps the page default.
  */
 export const SITE_AUDIT_ONBOARDING_PAGE_LIMIT = 100
@@ -1889,6 +2106,14 @@ export const siteAuditRunRequestSchema = z.object({
   includeGeo: z.boolean().default(false),
   /** Check machine-discoverable actions, forms, and agent integrations unless explicitly disabled. */
   includeAgentSkills: z.boolean().default(true),
+  /**
+   * Owned domains this scan covers besides the main domain, which every scan
+   * covers. Each must be one of the project's owned domains; naming the main
+   * domain is allowed and changes nothing. When omitted, the project's saved
+   * `siteAuditDomains` apply; `[]` scans the main domain only. The page budget
+   * is shared across every site scanned.
+   */
+  sites: z.array(z.string().min(1).max(253)).max(SITE_AUDIT_MAX_EXTRA_SITES + 1).optional(),
 })
 export type SiteAuditRunRequest = z.infer<typeof siteAuditRunRequestSchema>
 
@@ -1902,11 +2127,12 @@ export type SiteAuditRunRequest = z.infer<typeof siteAuditRunRequestSchema>
  * budget and the engine derives one, which is a DIFFERENT crawl from any
  * explicit number — including the number that used to be substituted here.
  *
- * schemaVersion 3 adds optional factor selection to identity. Earlier rows
- * cannot be reused: version 1 also conflated derived and explicit edge budgets.
+ * schemaVersion 4 adds the extra sites. Earlier rows cannot be reused: version
+ * 3 added optional factor selection, and version 1 also conflated derived and
+ * explicit edge budgets.
  */
 export interface SiteAuditEffectiveRequest {
-  schemaVersion: 3
+  schemaVersion: 4
   sitemapUrl: string | null
   maxPages: number
   /** `null` = unset; the crawl engine derives the budget from the page count. */
@@ -1915,17 +2141,26 @@ export interface SiteAuditEffectiveRequest {
   checkDeadLinks: boolean
   includeGeo: boolean
   includeAgentSkills: boolean
+  /** Owned domains covered besides the main domain, as bare hosts, sorted. Empty = the main domain only. */
+  sites: string[]
 }
 
 /**
  * The request a scan runs with. Its page budget is the request's own (`maxPages`,
  * then the deprecated `limit`), else the project's saved budget, else the full
- * site. Every run creator (the manual route and the scheduler) resolves through
- * here before computing identity, so a run records the budget it actually used.
+ * site. Its extra sites are the request's own, else the project's saved list.
+ * Every run creator (the manual route and the scheduler) resolves through here
+ * before computing identity, so a run records the budget and sites it actually
+ * used. Callers check `sites` against the project's owned domains first
+ * (`resolveSiteAuditDomains`); this only puts them in one order.
  */
-export function normalizeSiteAuditRunRequest(request: Partial<SiteAuditRunRequest>, savedMaxPages?: number | null): SiteAuditEffectiveRequest {
+export function normalizeSiteAuditRunRequest(
+  request: Partial<SiteAuditRunRequest>,
+  savedMaxPages?: number | null,
+  savedSites?: readonly string[],
+): SiteAuditEffectiveRequest {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     sitemapUrl: request.sitemapUrl ? new URL(request.sitemapUrl).toString() : null,
     maxPages: request.maxPages ?? request.limit ?? savedMaxPages ?? SITE_AUDIT_DEFAULT_PAGE_LIMIT,
     maxEdges: request.maxEdges ?? null,
@@ -1933,6 +2168,7 @@ export function normalizeSiteAuditRunRequest(request: Partial<SiteAuditRunReques
     checkDeadLinks: request.checkDeadLinks === true,
     includeGeo: request.includeGeo === true,
     includeAgentSkills: request.includeAgentSkills ?? true,
+    sites: [...new Set(request.sites ?? savedSites ?? [])].sort(),
   }
 }
 
@@ -1951,6 +2187,7 @@ export function siteAuditRequestIdentity(request: SiteAuditEffectiveRequest): st
     request.checkDeadLinks,
     request.includeGeo,
     request.includeAgentSkills,
+    request.sites,
   ])
 }
 
@@ -1961,7 +2198,7 @@ export const siteAuditRunResponseSchema = z.object({
 export type SiteAuditRunResponseDto = z.infer<typeof siteAuditRunResponseSchema>
 
 /**
- * One entry in the Site Health scan history. `hasCrawlData` separates a scan
+ * One entry in the Agent Readiness audit scan history. `hasCrawlData` separates a scan
  * that published a page and internal-link graph from a legacy score-only scan
  * that predates crawl persistence: both are real, selectable history, but only
  * the first can open the map, inventory, or structure views.
@@ -1988,7 +2225,7 @@ export type SiteHealthScansResponseDto = z.infer<typeof siteHealthScansResponseS
 export const SITE_HEALTH_SCANS_DEFAULT_LIMIT = 20
 export const SITE_HEALTH_SCANS_MAX_LIMIT = 100
 
-/** Stable lifecycle stage for one exact stored Site Health crawl. */
+/** Stable lifecycle stage for one exact stored Agent Readiness crawl. */
 export const siteAuditRunPhaseSchema = z.enum([
   'queued',
   'discovering',
@@ -2042,7 +2279,7 @@ export const siteAuditRunProgressSchema = z.object({
 })
 export type SiteAuditRunProgressDto = z.infer<typeof siteAuditRunProgressSchema>
 
-/** Exact lifecycle state for a bounded, in-progress Page Health preview. */
+/** Exact lifecycle state for a bounded, in-progress Agent Readiness preview. */
 export const siteAuditLivePageHealthStateSchema = z.enum(['waiting', 'collecting', 'terminal'])
 export type SiteAuditLivePageHealthState = z.infer<typeof siteAuditLivePageHealthStateSchema>
 
@@ -2058,7 +2295,7 @@ export type SiteAuditLivePageHealthExampleDto = z.infer<typeof siteAuditLivePage
 /**
  * A small, durable preview for an exact active site-audit run. It is never a
  * final scorecard: terminal runs deliberately omit examples so callers switch
- * to the immutable Page Health results once the crawl has published.
+ * to the immutable Agent Readiness results once the crawl has published.
  */
 export const siteAuditLivePageHealthSchema = z.object({
   project: z.string(),
@@ -2093,6 +2330,8 @@ export const siteAuditIssueListQuerySchema = z.object({
   runId: z.string().min(1).max(128).optional(),
   cursor: z.string().min(1).max(2048).optional(),
   limit: z.number().int().min(1).max(SITE_AUDIT_ISSUES_MAX_LIMIT).optional(),
+  /** Limit issues and their pages to one site the scan covered (a domain such as `shop.example.com`). */
+  site: z.string().min(1).max(253).optional(),
 }).strict()
 
 export type SiteAuditIssueListQuery = z.infer<typeof siteAuditIssueListQuerySchema>
@@ -2153,6 +2392,8 @@ const siteAuditIssueProvenanceSchema = z.object({
   complete: z.boolean(),
   termination: z.string().nullable(),
   runSelection: siteAuditRunSelectionSchema.optional(),
+  /** The site the issues are limited to (a bare host), or null for every site the scan covered. */
+  site: z.string().nullable().optional(),
   state: z.enum(['no-crawl', 'unavailable', 'partial', 'available']),
   coverage: siteAuditIssueCoverageSchema,
   /** Exact groups/members among retained evidence. Null means no usable evidence was retained. */

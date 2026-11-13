@@ -1310,6 +1310,40 @@ describe('measurement portfolio reads', () => {
     expect(body.truncated).toBe(false)
   })
 
+  it('never reads an answer from an engine without sources as a miss or a source list', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    const slot = (provider: string) => and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, provider),
+    )
+    db.update(querySnapshots).set({
+      answerText: 'Harbor Homes is a strong option.',
+      citationState: 'cited',
+      citedDomains: ['northstar.example'],
+      citedUrls: ['https://northstar.example/locations/harbor/details'],
+    }).where(slot('openai')).run()
+    // Stored the way a sweep stored a local model's answer: no retrieval step,
+    // no URL capture. It names a rival and not Harbor, but whether it cites
+    // Harbor was never measured, so it is not a miss and names nobody "instead".
+    db.update(querySnapshots).set({
+      answerText: 'Rival One is recommended.',
+      recommendedCompetitors: ['Rival One'],
+      retrievalStatus: 'not-applicable',
+      citedUrls: null,
+      captureStatus: 'unsupported',
+    }).where(slot('gemini')).run()
+
+    const { status, body } = await competitors('targetKey=harbor&queryClass=non-brand')
+    expect(status).toBe(200)
+    expect(body.basis).toEqual(expect.objectContaining({
+      state: 'available', answeredResults: 2, targetMissResults: 0, recommendationOccurrences: 0,
+    }))
+    expect(body.competitors).toEqual([])
+    // Its empty source list is not one of the answers whose sources are read.
+    expect(body).toMatchObject({ citedDomains: [{ domain: 'northstar.example', answers: 1 }], citedDomainsAnswers: 1 })
+  })
+
   it('returns the domains a Property\'s own answers cited, over every measured answer in the requested class', async () => {
     const versionId = seedVersion(1)
     activate(versionId)

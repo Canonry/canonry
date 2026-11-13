@@ -42,6 +42,8 @@ import {
   CitationStates,
   hostMatchesDomain,
   hostOf,
+  isCitationStateMeasured,
+  readCitationState,
   RunKinds,
   RunStatuses,
   type CompetitorIdentityInput,
@@ -677,9 +679,15 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
     }
   }
 
-  const citedCount = opts.snapshots.filter((s) => s.citationState === CitationStates.cited).length
-  const ourCitedRate = citedCount / totalSnaps
-  const recentMissRate = 1 - ourCitedRate
+  // Citation rates read only the answers whose sources were checked. An answer
+  // from an engine that returns no sources (a local model) is neither a
+  // citation nor a miss; with none checked, both rates stay 0 as for a query
+  // with no answers. Mention tallies below still read every answer.
+  const citationStates = opts.snapshots.map((s) => readCitationState(s))
+  const citationBase = citationStates.filter(isCitationStateMeasured).length
+  const citedCount = citationStates.filter((state) => state === CitationStates.cited).length
+  const ourCitedRate = citationBase === 0 ? 0 : citedCount / citationBase
+  const recentMissRate = citationBase === 0 ? 0 : 1 - ourCitedRate
 
   // TWO tallies, because a competitor can be cited, named in the prose, or
   // both, and the two observations must remain independent.

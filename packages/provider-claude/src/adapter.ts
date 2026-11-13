@@ -85,8 +85,8 @@ export const claudeAdapter: ProviderAdapter = {
     }
   },
 
-  async healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult> {
-    const result = await claudeHealthcheck(toClaudeConfig(config))
+  async healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult> {
+    const result = await claudeHealthcheck(toClaudeConfig(config), signal)
     return {
       ok: result.ok,
       provider: 'claude',

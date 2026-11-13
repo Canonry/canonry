@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { answerProseForMentions, escapeRegExp, measurementNameKey, measurementNameWords, MentionIdentities, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique, type MentionIdentity } from '@canonry/canonry-contracts'
+import { answerProseForMentions, escapeRegExp, measurementNameKey, measurementNameWords, MentionIdentities, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, rateOverCheckedAnswers, compareText, sortedUnique, type MentionIdentity } from '@canonry/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'
@@ -28,6 +28,7 @@ export type MeasurementMetricReason =
   | 'aliasless'
   | 'no-competitors'
   | 'no-project-aliases'
+  | 'citation-not-measured'
 
 export interface MeasurementTargetUrlInput {
   id: string
@@ -101,6 +102,13 @@ export interface MeasurementObservationInput {
   historicalCitedUrls?: readonly string[]
   historicalCitedUrlsComplete?: boolean
   /**
+   * False when the answer's engine returns no sources (a local model with no
+   * web access): whether it cites a Property was never measured. Such an
+   * answer is in no citation basis and is neither evidence-incomplete nor
+   * historical. Absent means measured.
+   */
+  citationMeasured?: boolean
+  /**
    * Properties whose stored sentiment verdict on this answer is
    * `wrong-subject` (the snapshot's `wrong_subject_target_keys`): a name match
    * for one of them is not a mention of it.
@@ -173,6 +181,8 @@ export interface MeasurementAnswerEvidence {
   mentioned: boolean | null
   mentionIdentity: MentionIdentity | null
   cited: boolean | null
+  /** False when the engine returns no sources, so `cited` is null for that reason, not partial capture. */
+  citationMeasured: boolean
   sources: MeasurementAnswerSource[]
   /** The FULL count. A reader may cap `sources`; this never shrinks with it. */
   sourceCount: number
@@ -186,12 +196,14 @@ export interface MeasurementAnswerEvidence {
  * `unattributed` appears only on a mention rate that left answers out because
  * their identity could not be tied to one Property. `unchecked` appears only on
  * a citation rate that left saved answers out because their source capture was
- * incomplete. Those answers are in neither the numerator nor the denominator;
- * absent means none were left out. The two never share one rate.
+ * incomplete, and `citationNotMeasured` only on a citation rate that left out
+ * answers whose engine returns no sources. Those answers are in neither the
+ * numerator nor the denominator; absent means none were left out. A mention
+ * count never shares a rate with a citation count.
  */
 export type MeasurementRate =
-  | { numerator: number; denominator: number; rate: number; reason?: never; unattributed?: number; unchecked?: number }
-  | { numerator: null; denominator: null; rate: null; reason: MeasurementMetricReason; unattributed?: never; unchecked?: never }
+  | { numerator: number; denominator: number; rate: number; reason?: never; unattributed?: number; unchecked?: number; citationNotMeasured?: number }
+  | { numerator: null; denominator: null; rate: null; reason: MeasurementMetricReason; unattributed?: never; unchecked?: never; citationNotMeasured?: never }
 
 export interface MeasurementCompleteness {
   executed: number
@@ -203,6 +215,12 @@ export interface MeasurementCompleteness {
    * Equal to `executed` when `sourceComplete` is true.
    */
   sourceCompleteObservations: number
+  /**
+   * Executed observations whose engine returns no sources, so their citation
+   * was never measured. Outside `sourceCompleteObservations`, and never a
+   * reason for `sourceComplete` to be false: nothing was left uncaptured.
+   */
+  citationNotMeasuredObservations: number
   complete: boolean
   sourceComplete: boolean
   answerComplete: boolean
@@ -261,6 +279,7 @@ export interface MeasurementReport {
     bridgedObservationIds: string[]
     historicalObservationIds: string[]
     evidenceIncompleteObservationIds: string[]
+    citationNotMeasuredObservationIds: string[]
     ambiguousObservationIds: string[]
     unmatchedObservationIds: string[]
   }
@@ -388,6 +407,8 @@ interface PreparedObservation {
   slot: MeasurementExpectedSlotInput
   bridged: boolean
   historical: boolean
+  /** False when the engine returns no sources; such an observation is never `sourceComplete`. */
+  citationMeasured: boolean
   sourceComplete: boolean
   sourceUrls: string[]
   mentionedTargetIds: ReadonlySet<string>
@@ -805,6 +826,9 @@ function observationSource(observation: MeasurementObservationInput): {
   historical: boolean
   complete: boolean
 } {
+  // No sources were returned, so none was missed: not historical, not a
+  // partial capture, and outside every citation basis.
+  if (observation.citationMeasured === false) return { urls: [], historical: false, complete: false }
   if (observation.citedUrls !== null) {
     return {
       urls: sortedUnique(observation.citedUrls),
@@ -867,6 +891,7 @@ function prepareReport(
   const observationsBySlot = new Map<string, PreparedObservation>()
   const historical = new Set<string>()
   const evidenceIncomplete = new Set<string>()
+  const citationNotMeasured = new Set<string>()
   for (const slot of [...input.expectedSlots].sort((left, right) => compareText(left.id, right.id))) {
     const rows = candidates.get(slot.id) ?? []
     if (rows.length > 1) {
@@ -876,16 +901,19 @@ function prepareReport(
     const observation = rows.at(0)
     if (!observation || ambiguous.has(observation.id)) continue
     const source = observationSource(observation)
+    const citationMeasured = observation.citationMeasured !== false
     const isBridged = observation.executionId === null
     if (isBridged) bridged.add(observation.id)
     if (source.historical) historical.add(observation.id)
-    if (!source.complete) evidenceIncomplete.add(observation.id)
+    if (!citationMeasured) citationNotMeasured.add(observation.id)
+    else if (!source.complete) evidenceIncomplete.add(observation.id)
     observationsBySlot.set(slot.id, {
       input: observation,
       mentionText: answerProseForMentions(observation.answerText),
       slot,
       bridged: isBridged,
       historical: source.historical,
+      citationMeasured,
       sourceComplete: source.complete,
       sourceUrls: source.urls,
       mentionedTargetIds: new Set(),
@@ -987,10 +1015,12 @@ function prepareReport(
         // A positive survives incomplete capture: a source we DID see and
         // matched is still a citation. A negative does not — with capture
         // incomplete we cannot tell "not cited" from "we never saw the
-        // sources", and reporting the first would be a measured zero.
+        // sources", and reporting the first would be a measured zero. An
+        // engine with no sources has no source to match and is null too.
         cited: sources.some(source => source.classification === 'assigned')
           ? true
           : observation.sourceComplete ? false : null,
+        citationMeasured: observation.citationMeasured,
         sources,
         sourceCount: sources.length,
         sourcesTruncated: false,
@@ -1043,6 +1073,7 @@ function prepareReport(
       bridgedObservationIds: sortedUnique([...bridged].filter(id => !ambiguous.has(id))),
       historicalObservationIds: sortedUnique([...historical]),
       evidenceIncompleteObservationIds: sortedUnique([...evidenceIncomplete]),
+      citationNotMeasuredObservationIds: sortedUnique([...citationNotMeasured]),
       ambiguousObservationIds: sortedUnique([...ambiguous]),
       unmatchedObservationIds: sortedUnique([...unmatched]),
     },
@@ -1057,6 +1088,7 @@ export function buildMeasurementObservationSignals(input: MeasurementReportInput
     mentionedTargetIds: [...observation.mentionedTargetIds],
     unknownMentionTargetIds: [...observation.unknownMentionTargetIds],
     citedTargetIds: [...observation.citedTargetIds],
+    citationMeasured: observation.citationMeasured,
     sourceComplete: observation.sourceComplete,
     sourceUrls: observation.sourceUrls,
   }))
@@ -1084,12 +1116,15 @@ function completeness(
   })
   const complete = observations.length === slots.length
   const sourceCompleteObservations = observations.filter(observation => observation.sourceComplete).length
+  const citationNotMeasuredObservations = observations.filter(observation => !observation.citationMeasured).length
   return {
     executed: observations.length,
     expected: slots.length,
     sourceCompleteObservations,
+    citationNotMeasuredObservations,
     complete,
-    sourceComplete: complete && sourceCompleteObservations === observations.length,
+    // An answer whose engine returns no sources left nothing uncaptured.
+    sourceComplete: complete && sourceCompleteObservations + citationNotMeasuredObservations === observations.length,
     answerComplete: complete && observations.every(observation => observation.input.answerText !== null),
   }
 }
@@ -1100,13 +1135,34 @@ function completeness(
  * and they are not grounds to refuse the whole population: they simply leave the
  * denominator. Every source-dependent rate is computed over exactly this basis,
  * and `MeasurementCompleteness.sourceCompleteObservations` reports its size. An
- * answer-level rate also counts the rows it left out as `unchecked`.
+ * answer-level rate also counts the rows it left out as `unchecked`, or as
+ * `citationNotMeasured` when the engine returns no sources at all.
  */
 function sourceCompleteSlots(
   slots: readonly MeasurementExpectedSlotInput[],
   prepared: PreparedReport,
 ): MeasurementExpectedSlotInput[] {
   return slots.filter(slot => prepared.observationsBySlot.get(slot.id)?.sourceComplete === true)
+}
+
+/**
+ * A citation rate over every slot executed, with the answers left out of its
+ * basis counted under their reason: `citationNotMeasured` (no sources
+ * returned) or `unchecked` (sources partly saved). With no answer left to
+ * check, the rate is unavailable as `citation-not-measured` only when every
+ * answer came from an engine without sources; any partial capture makes it
+ * `evidence-incomplete`, since that answer could have been checked.
+ */
+function citationRateOverBasis(
+  numerator: number,
+  slots: readonly MeasurementExpectedSlotInput[],
+  basisSize: number,
+  isNotMeasured: (slot: MeasurementExpectedSlotInput) => boolean,
+): MeasurementRate {
+  const notMeasured = slots.filter(isNotMeasured).length
+  const unchecked = slots.length - basisSize - notMeasured
+  return rateOverCheckedAnswers(numerator, slots.length, { unchecked, citationNotMeasured: notMeasured })
+    ?? unavailable(notMeasured === slots.length ? 'citation-not-measured' : 'evidence-incomplete')
 }
 
 function coverageRate(
@@ -1125,9 +1181,10 @@ function coverageRate(
     .map(row => row.expectedSlotId))
   const numerator = basis.filter(slot => assignedSlots.has(slot.id)).length
   // Every slot executed (checked above), so the slots outside the basis are
-  // exactly the saved answers whose capture was incomplete.
-  return rateOverChecked(numerator, slots.length, slots.length - basis.length, 'unchecked')
-    ?? unavailable('evidence-incomplete')
+  // exactly the saved answers whose capture was incomplete or whose engine
+  // returns no sources.
+  return citationRateOverBasis(numerator, slots, basis.length,
+    slot => prepared.observationsBySlot.get(slot.id)?.citationMeasured === false)
 }
 
 function targetCoverageRate(
@@ -1142,7 +1199,10 @@ function targetCoverageRate(
   if (!status.complete) return { numerator: null, denominator: null, rate: null, reason: 'incomplete' }
 
   const basis = new Set(sourceCompleteSlots(slots, prepared).map(slot => slot.id))
-  if (basis.size === 0) return { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' }
+  if (basis.size === 0) {
+    const noSources = slots.every(slot => prepared.observationsBySlot.get(slot.id)?.citationMeasured === false)
+    return unavailable(noSources ? 'citation-not-measured' : 'evidence-incomplete')
+  }
 
   const edgeIds = new Set(edges.map(edge => edge.id))
   // A target cited only by a partially captured observation cannot count here: its
@@ -1313,6 +1373,8 @@ interface MeasurementOverviewIndexes {
   observedSlotIds: ReadonlySet<string>
   answeredSlotIds: ReadonlySet<string>
   sourceCompleteSlotIds: ReadonlySet<string>
+  /** Slots whose saved answer came from an engine that returns no sources. */
+  citationNotMeasuredSlotIds: ReadonlySet<string>
   mentionedSlotIdsByTargetId: ReadonlyMap<string, ReadonlySet<string>>
   unknownMentionSlotIdsByTargetId: ReadonlyMap<string, ReadonlySet<string>>
   assignedSlotIdsByEdgeId: ReadonlyMap<string, ReadonlySet<string>>
@@ -1356,11 +1418,13 @@ function buildMeasurementOverviewIndexes(
   const observedSlotIds = new Set<string>()
   const answeredSlotIds = new Set<string>()
   const sourceCompleteSlotIds = new Set<string>()
+  const citationNotMeasuredSlotIds = new Set<string>()
   const mentionedSlotIdsByTargetId = new Map<string, Set<string>>()
   const unknownMentionSlotIdsByTargetId = new Map<string, Set<string>>()
   for (const [slotId, observation] of prepared.observationsBySlot) {
     observedSlotIds.add(slotId)
     if (observation.sourceComplete) sourceCompleteSlotIds.add(slotId)
+    if (!observation.citationMeasured) citationNotMeasuredSlotIds.add(slotId)
     if (observation.input.answerText === null) continue
     answeredSlotIds.add(slotId)
     for (const targetId of observation.mentionedTargetIds) {
@@ -1398,6 +1462,7 @@ function buildMeasurementOverviewIndexes(
     observedSlotIds,
     answeredSlotIds,
     sourceCompleteSlotIds,
+    citationNotMeasuredSlotIds,
     mentionedSlotIdsByTargetId,
     unknownMentionSlotIdsByTargetId,
     assignedSlotIdsByEdgeId,
@@ -1501,8 +1566,11 @@ function scopeMentionRate(
  * A slot with no saved observation withholds the rate: a missing answer is not
  * measured. A saved answer whose capture is incomplete leaves BOTH sides and is
  * counted in `unchecked`, even when the links it did capture name the Property,
- * so a few such answers in thousands cannot blank the number. With no checked
- * answer left the rate is unavailable as `evidence-incomplete`.
+ * so a few such answers in thousands cannot blank the number. A saved answer
+ * whose engine returns no sources leaves both sides too, counted in
+ * `citationNotMeasured`. With no checked answer left the rate is unavailable as
+ * `citation-not-measured` when every answer had no sources, otherwise
+ * `evidence-incomplete`.
  */
 function indexedScopeCitationRate(
   slots: readonly MeasurementExpectedSlotInput[],
@@ -1518,8 +1586,7 @@ function indexedScopeCitationRate(
     for (const slotId of indexes.assignedSlotIdsByEdgeId.get(edge.id) ?? []) assignedSlots.add(slotId)
   }
   const numerator = basis.filter(slot => assignedSlots.has(slot.id)).length
-  return rateOverChecked(numerator, slots.length, slots.length - basis.length, 'unchecked')
-    ?? unavailable('evidence-incomplete')
+  return citationRateOverBasis(numerator, slots, basis.length, slot => indexes.citationNotMeasuredSlotIds.has(slot.id))
 }
 
 function targetMentionRate(

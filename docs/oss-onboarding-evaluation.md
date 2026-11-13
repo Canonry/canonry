@@ -1,5 +1,7 @@
 # Canonry OSS onboarding rework: reveal the operating platform
 
+> **Naming note:** this record keeps the names in use when it was written. The feature it calls Site Health, Page Health, Technical AEO, the technical audit, and the site audit is now **Agent Readiness** (CLI `canonry agent-readiness`, API `/agent-readiness`, MCP `canonry_agent_readiness_*`); the old command, route, and tool names still work as deprecated aliases. Its "Page health" view is now **Score**, and the onboarding stage it calls Site audit is now **Scan site**.
+
 ## The rework in one sentence
 
 This is not a shorter setup wizard. It changes Canonry's first mental model from an LLM query runner into an evidence-connected AEO operating platform.
@@ -607,9 +609,9 @@ Derive it only from configuration and stored database state:
 
 Answer-visibility readiness must reuse the same preflight and measurement materialization rules used by run creation. An empty project provider list inherits configured instance providers, while a V2 measurement plan pins its own engines and execution nodes; simple provider/query counts would create false blockers.
 
-The endpoint must not run Doctor, refresh OAuth, call an answer provider, crawl a URL, or perform any external request. Doctor remains the explicit live-verification surface.
+The endpoint must not run Doctor, refresh OAuth, call an answer provider, crawl a URL, or perform any external request. Doctor and the provider connection test (`POST /settings/providers/{name}/test`, `canonry settings provider test`) remain the explicit live-verification surfaces.
 
-Connection and provider facts are therefore “configured” or “stored evidence available,” not live-verified credential claims. When in-flight Aero state is required, the host must supply an explicit `getAgentRuntimeState(projectId)` callback from `SessionRegistry`; otherwise the composite reports only session existence and last activity.
+Connection and provider facts are therefore “configured” or “stored evidence available,” not live-verified credential claims. A provider connection's stored `lastTest` is evidence of an earlier live test of its current settings, not a new check. When in-flight Aero state is required, the host must supply an explicit `getAgentRuntimeState(projectId)` callback from `SessionRegistry`; otherwise the composite reports only session existence and last activity.
 
 Performance target for the local composite:
 

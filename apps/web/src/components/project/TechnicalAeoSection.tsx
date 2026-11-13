@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ChevronDown, ChevronRight, LoaderCircle, Play, RefreshCw, ScanSearch } from 'lucide-react'
 import type { MetricTone } from '../../view-models.js'
@@ -6,10 +6,9 @@ import { formatPercent, RatioUnits, RunKinds, SiteAuditFactorStatuses, TrendUnit
 
 import { heyClient, isDashboardManagedRunKind, isEmbed } from '../../api.js'
 import {
-  getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditOptions,
-  getApiV1ProjectsByNameTechnicalAeoOptions,
-  getApiV1ProjectsByNameTechnicalAeoPagesOptions,
-  getApiV1ProjectsByNameTechnicalAeoTrendOptions,
+  getApiV1ProjectsByNameAgentReadinessOptions,
+  getApiV1ProjectsByNameAgentReadinessPagesOptions,
+  getApiV1ProjectsByNameAgentReadinessTrendOptions,
   getApiV1ProjectsByNameRunsOptions,
   getApiV1ProjectsByNameTrendsOptions,
 } from '@canonry/canonry-api-client/react-query'
@@ -48,11 +47,13 @@ import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { TrendCard, isTrendFigureInteractive, levelTrendChange, sharedLevelBasis, trendCardPoints, trendSpanLabel, type TrendCardFigure } from '../shared/TrendCard.js'
 import { useTriggerSiteAudit } from '../../queries/mutations.js'
 import { getRunTrackerState, subscribeRunTracker } from '../../lib/run-tracker-store.js'
-import { PageAuditEvidence, factorShareOfScoreLabel } from './PageAuditEvidence.js'
+import { factorShareOfScoreLabel } from './PageAuditEvidence.js'
 import { SITE_HEALTH_CHECK_HELP } from './site-health-check-help.js'
 
 /** Read beside the dash in a scorecard row whose scan recorded no share of the score. */
 export const FACTOR_SHARE_NOT_RECORDED = 'Not recorded by this scan'
+/** Why a score shows no change from the previous scan when that scan scored other sites. */
+export const SITES_CHANGED_HELP = 'Not compared with the previous scan, because it scored different sites.'
 
 const PAGES_FETCH_LIMIT = 100
 const FACTOR_DRILLDOWN_PAGE_CAP = 12
@@ -81,7 +82,37 @@ const FACTOR_STATUS_LABELS: Record<SiteAuditFactorSummaryDto['status'], string> 
   [SiteAuditFactorStatuses.partial]: 'Partial',
   [SiteAuditFactorStatuses.fail]: 'Fail',
 }
-const FACTOR_STATUS_HELP = 'Score is the average across audited pages. Status reflects the worst page: fail if any page scores below 40, partial if any page scores 40–69, otherwise pass. Share is how much of the site score the factor controls; the shares add up to 100%, and a dash means the scan did not record them.'
+/**
+ * Help beside the Score view's findings table: what each column counts, then
+ * the row order. "Worst page" is the API's `status`, the band of the check's
+ * lowest-scoring page, which is why it can read Fail beside a passing average.
+ */
+const FACTOR_STATUS_HELP = 'Score is the check\'s average across scored pages. Worst page is the band of its lowest-scoring page: Fail below 40, Partial 40 to 69, Pass 70 or more. Pages affected counts pages below 70. Checks are listed worst first.'
+/** The standalone scorecard's columns (Avg, Status, Share), which the dashboard no longer renders. */
+const SCORECARD_STATUS_HELP = 'Score is the average across audited pages. Status reflects the worst page: fail if any page scores below 40, partial if any page scores 40–69, otherwise pass. Share is how much of the site score the factor controls; the shares add up to 100%, and a dash means the scan did not record them.'
+
+const FACTOR_STATUS_RANK: Record<SiteAuditFactorSummaryDto['status'], number> = {
+  [SiteAuditFactorStatuses.fail]: 0,
+  [SiteAuditFactorStatuses.partial]: 1,
+  [SiteAuditFactorStatuses.pass]: 2,
+}
+
+/** A check's "Pages affected": the pages scoring below pass (under 70) on it. */
+function factorPagesBelowPass(factor: SiteAuditFactorSummaryDto): number {
+  return factor.pagesPartial + factor.pagesFailing
+}
+
+/**
+ * The findings table reads worst first: Fail, then Partial, then Pass; within
+ * a band, more pages affected first, then the lower score. Presentation order
+ * only, over the API's own rows and counts; ties keep the API's order.
+ */
+function worstFirst(factors: readonly SiteAuditFactorSummaryDto[]): SiteAuditFactorSummaryDto[] {
+  return [...factors].sort((left, right) =>
+    FACTOR_STATUS_RANK[left.status] - FACTOR_STATUS_RANK[right.status]
+    || factorPagesBelowPass(right) - factorPagesBelowPass(left)
+    || left.avgScore - right.avgScore)
+}
 
 // The audit engine is gradeless (since v3); canonry bands the 0–100 score into pass/partial/fail.
 function statusLabel(score: number): string {
@@ -111,22 +142,13 @@ export function TechnicalAeoSection({
   projectId,
   runId,
   integrated = false,
-  compactCopy = false,
-  afterSummary,
-  unavailableFooter,
 }: {
   projectName: string
   projectId: string
-  /** When supplied, keep every scorecard read pinned to the parent Site Health scan. */
+  /** When supplied, keep every scorecard read pinned to the parent Agent Readiness audit scan. */
   runId?: string | null
-  /** Hide duplicate history and run controls when rendered inside Site Health. */
+  /** Hide duplicate history and run controls when rendered inside Agent Readiness. */
   integrated?: boolean
-  /** Use concise findings copy in the explicit onboarding flow. */
-  compactCopy?: boolean
-  /** Next action below the loaded score summary, before the detailed checks. */
-  afterSummary?: ReactNode
-  /** Rendered after an unavailable/error state so a parent flow can recover. */
-  unavailableFooter?: ReactNode
 }) {
   const { isAdmin } = useAccount()
   const managedScanForViewer = isDashboardManagedRunKind(RunKinds['site-audit']) && !isAdmin
@@ -137,27 +159,27 @@ export function TechnicalAeoSection({
   const [isManualRefreshing, setIsManualRefreshing] = useState(false)
   const lastAutoRefreshedRun = useRef<string | null>(null)
 
-  const scoreQuery = useQuery(getApiV1ProjectsByNameTechnicalAeoOptions({
+  const scoreQuery = useQuery(getApiV1ProjectsByNameAgentReadinessOptions({
     client: heyClient,
     path: { name: projectName },
     ...(effectiveRunId ? { query: { runId: effectiveRunId } } : {}),
   }))
   const trendQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoTrendOptions({
+    ...getApiV1ProjectsByNameAgentReadinessTrendOptions({
       client: heyClient,
       path: { name: projectName },
       query: { limit: 30 },
     }),
     enabled: !integrated,
   })
-  // Site Health leads with the score over every scan, from the shared trends read.
+  // Agent Readiness leads with the score over every scan, from the shared trends read.
   const siteTrendQuery = useQuery({
     ...getApiV1ProjectsByNameTrendsOptions({ client: heyClient, path: { name: projectName }, query: { surface: 'site-health' } }),
     enabled: integrated,
   })
   // One unfiltered fetch powers both the per-page table (filtered client-side)
   // and the per-factor drill-down (which pages fall below pass on a factor).
-  const pagesQuery = useQuery(getApiV1ProjectsByNameTechnicalAeoPagesOptions({
+  const pagesQuery = useQuery(getApiV1ProjectsByNameAgentReadinessPagesOptions({
     client: heyClient,
     path: { name: projectName },
     query: {
@@ -195,7 +217,7 @@ export function TechnicalAeoSection({
     : activeAudit?.status ?? trackedAudit?.lastAnnouncedStatus
 
   const refreshAll = useCallback(async () => {
-    // The trend card is optional on Site Health: refresh it, but a failed read
+    // The trend card is optional on Agent Readiness: refresh it, but a failed read
     // leaves the page working rather than failing the whole retry.
     if (integrated) void siteTrendQuery.refetch()
     const results = await Promise.all([
@@ -216,8 +238,8 @@ export function TechnicalAeoSection({
     lastAutoRefreshedRun.current = latestAudit.id
     void refreshAll().catch((error: unknown) => {
       addToast({
-        title: 'Technical AEO auto-refresh failed',
-        detail: error instanceof Error ? error.message : 'Could not load the completed audit.',
+        title: 'Agent Readiness auto-refresh failed',
+        detail: error instanceof Error ? error.message : 'Could not load the completed scan.',
         tone: 'negative',
         dedupeKey: `technical-aeo:auto-refresh:${projectName}`,
         dedupeMode: 'replace',
@@ -230,20 +252,20 @@ export function TechnicalAeoSection({
     try {
       const scoreResult = await refreshAll()
       addToast({
-        title: 'Technical AEO refreshed',
+        title: 'Agent Readiness refreshed',
         detail: auditBusy
-          ? 'The audit is still running. This view will refresh again when it finishes.'
+          ? 'The scan is still running. This view will refresh again when it finishes.'
           : scoreResult.data?.hasData
             ? `Latest score is ${scoreResult.data.aggregateScore}/100 from ${scoreResult.data.pagesAudited} audited page${scoreResult.data.pagesAudited === 1 ? '' : 's'}.`
-            : 'No audit data yet. Run an audit to crawl the sitemap.',
+            : 'No scan data yet. Run a scan to crawl the sitemap.',
         tone: scoreResult.data?.hasData ? 'positive' : 'caution',
         dedupeKey: `technical-aeo:refresh:${projectName}`,
         dedupeMode: 'replace',
       })
     } catch (error) {
       addToast({
-        title: 'Technical AEO refresh failed',
-        detail: error instanceof Error ? error.message : 'Could not reload technical audit data.',
+        title: 'Agent Readiness refresh failed',
+        detail: error instanceof Error ? error.message : 'Could not reload Agent Readiness data.',
         tone: 'negative',
         dedupeKey: `technical-aeo:refresh:${projectName}`,
         dedupeMode: 'replace',
@@ -258,34 +280,13 @@ export function TechnicalAeoSection({
     runMutation.mutate({ projectName, projectId })
   }
   const auditStatusLabel = auditStatus === 'running'
-    ? 'Audit running'
+    ? 'Scan running'
     : auditStatus === 'queued'
-      ? 'Audit queued'
-      : 'Starting audit'
+      ? 'Scan queued'
+      : 'Starting scan'
 
   const score = scoreQuery.data
   const allPages = pagesQuery.data?.pages ?? EMPTY_SITE_AUDIT_PAGES
-  const onboardingEvidencePage = compactCopy
-    ? allPages.find((page) => page.status === 'success' && page.overallScore < 70)
-      ?? allPages.find((page) => page.status === 'success')
-    : undefined
-  const onboardingEvidenceNeedsFix = Boolean(
-    onboardingEvidencePage && onboardingEvidencePage.overallScore < 70,
-  )
-  const onboardingPageAuditQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditOptions({
-      client: heyClient,
-      path: { name: projectName },
-      query: {
-        ...(effectiveRunId ? { runId: effectiveRunId } : {}),
-        url: onboardingEvidencePage?.url ?? '',
-      },
-    }),
-    // Onboarding needs one concrete proof, not the full graph and inventory.
-    // The pages read is already worst-first, so this bounded request opens the
-    // first actionable page without enabling the heavy Site Health explorer.
-    enabled: compactCopy && Boolean(onboardingEvidencePage),
-  })
   const hasErrors = (score?.pagesErrored ?? 0) > 0
   const showErrorsOnly = errorsOnly && hasErrors
   const tableSourcePages = useMemo(
@@ -299,52 +300,49 @@ export function TechnicalAeoSection({
   const pagesCapped = score ? score.pagesAudited > allPages.length : false
   useEffect(() => {
     setErrorsOnly(false)
-    // Every Page Health check begins closed. Its table row already gives the
+    // Every check begins closed. Its table row already gives the
     // score, status, and affected-page count needed to choose what to inspect.
     setExpandedFactor(null)
-  }, [compactCopy, effectiveRunId, integrated])
+  }, [effectiveRunId, integrated])
 
   if (scoreQuery.isLoading) {
     return (
       <div className={`flex min-h-40 items-center justify-center gap-2 text-label-14 text-secondary ${integrated ? '' : 'mt-6'}`} role="status">
         <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
-        Loading page health...
+        Loading score…
       </div>
     )
   }
 
   if (scoreQuery.error) {
     return (
-      <>
-        <section
-          className={`flex flex-col gap-4 rounded-md border border-negative bg-negative-soft px-5 py-5 sm:flex-row sm:items-center sm:justify-between ${integrated ? '' : 'mt-6'}`}
-          role="alert"
-        >
-          <div className="flex min-w-0 gap-3">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-negative" aria-hidden="true" />
-            <div>
-              {integrated ? (
-                <h3 className="text-heading-14 text-negative">Page health could not load</h3>
-              ) : (
-                <h2 className="text-heading-14 text-negative">Page health could not load</h2>
-              )}
-              <p className="mt-1 text-copy-14 text-secondary">The saved audit could not be read. Try loading it again.</p>
-            </div>
+      <section
+        className={`flex flex-col gap-4 rounded-md border border-negative bg-negative-soft px-5 py-5 sm:flex-row sm:items-center sm:justify-between ${integrated ? '' : 'mt-6'}`}
+        role="alert"
+      >
+        <div className="flex min-w-0 gap-3">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-negative" aria-hidden="true" />
+          <div>
+            {integrated ? (
+              <h3 className="text-heading-14 text-negative">Score could not load</h3>
+            ) : (
+              <h2 className="text-heading-14 text-negative">Score could not load</h2>
+            )}
+            <p className="mt-1 text-copy-14 text-secondary">The saved scan could not be read. Try loading it again.</p>
           </div>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="shrink-0"
-            onClick={() => void handleManualRefresh()}
-            disabled={isManualRefreshing}
-          >
-            <RefreshCw className={`size-4 ${isManualRefreshing ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true" />
-            {isManualRefreshing ? 'Trying again...' : 'Try again'}
-          </Button>
-        </section>
-        {unavailableFooter}
-      </>
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="shrink-0"
+          onClick={() => void handleManualRefresh()}
+          disabled={isManualRefreshing}
+        >
+          <RefreshCw className={`size-4 ${isManualRefreshing ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true" />
+          {isManualRefreshing ? 'Trying again…' : 'Try again'}
+        </Button>
+      </section>
     )
   }
 
@@ -352,25 +350,22 @@ export function TechnicalAeoSection({
   if (!score || !score.hasData) {
     if (integrated) {
       return (
-        <>
-          <section className="material-base px-5 py-7 text-center">
-            <ScanSearch className="mx-auto size-7 text-muted" aria-hidden="true" />
-            <h2 className="mt-3 text-heading-16 text-heading">Page health unavailable</h2>
-            <p className="mx-auto mt-2 max-w-md text-copy-14 text-secondary">
-              {managedScanForViewer ? MANAGED_SCANS_COPY : 'Run a new Site Health scan to calculate page-level technical findings.'}
-            </p>
-          </section>
-          {unavailableFooter}
-        </>
+        <section className="material-base px-5 py-7 text-center">
+          <ScanSearch className="mx-auto size-7 text-muted" aria-hidden="true" />
+          <h2 className="mt-3 text-heading-16 text-heading">Score unavailable</h2>
+          <p className="mx-auto mt-2 max-w-md text-copy-14 text-secondary">
+            {managedScanForViewer ? MANAGED_SCANS_COPY : 'Run a new Agent Readiness audit scan to calculate page-level findings.'}
+          </p>
+        </section>
       )
     }
     return (
       <Card className="surface-card mt-6 p-8 text-center">
         <ScanSearch className="mx-auto mb-3 h-8 w-8 text-muted" aria-hidden="true" />
-        <h2 className="text-heading-16 text-heading">No Technical AEO audit yet</h2>
+        <h2 className="text-heading-16 text-heading">No Agent Readiness audit scan yet</h2>
         <p className="supporting-copy mx-auto mt-2 max-w-md">
-          A technical AEO audit crawls your sitemap and scores every page for structured data, AI-readable content,
-          crawler access, freshness, and more, then rolls it up into one site score.
+          An Agent Readiness audit scan crawls your sitemap and scores every page for structured data, AI-readable content,
+          crawler access, freshness, and more, then rolls it up into one Agent Readiness score.
         </p>
         {!isEmbed() && !managedScanForViewer && (
           <div className="mt-5 flex items-center justify-center gap-3">
@@ -380,13 +375,13 @@ export function TechnicalAeoSection({
               ) : (
                 <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
               )}
-              {auditBusy ? auditStatusLabel : 'Run first audit'}
+              {auditBusy ? auditStatusLabel : 'Run first scan'}
             </WriteButton>
           </div>
         )}
         {auditBusy ? (
           <p className="mt-3 text-copy-13 text-muted" role="status" aria-live="polite">
-            The dashboard will refresh automatically when the audit finishes.
+            The dashboard will refresh automatically when the scan finishes.
           </p>
         ) : null}
       </Card>
@@ -397,13 +392,24 @@ export function TechnicalAeoSection({
     ? null
     : `${score.deltaScore >= 0 ? '+' : ''}${score.deltaScore} vs previous`
   const deltaTone: MetricTone = score.trend === 'up' ? 'positive' : score.trend === 'down' ? 'negative' : 'neutral'
+  // A previous scan that scored other sites is not compared: say so instead of a change.
+  const deltaBadge = deltaLabel
+    ? <ToneBadge tone={deltaTone}>{deltaLabel}</ToneBadge>
+    : score.deltaUnavailableReason === 'sites-changed'
+      ? (
+          <span className="inline-flex items-center gap-1">
+            <ToneBadge tone="neutral">Sites changed</ToneBadge>
+            <InfoTooltip text={SITES_CHANGED_HELP} />
+          </span>
+        )
+      : null
 
   const trendPoints = trendQuery.data?.points ?? []
   const trendRows = trendPoints.map((p) => ({ runId: p.runId, date: p.auditedAt, score: p.aggregateScore }))
   const viewingHistorical = runId === undefined && selectedRunId !== null
   const successPages = allPages.filter((p) => p.status === 'success')
   const attentionFactorCount = score.factors.filter(
-    (factor) => factor.pagesPartial + factor.pagesFailing > 0,
+    (factor) => factorPagesBelowPass(factor) > 0,
   ).length
   // `partial` is what a run that hit any crawl budget lands as, which is the
   // normal outcome of a bounded first scan rather than an exceptional one.
@@ -429,16 +435,16 @@ export function TechnicalAeoSection({
         <section className="flex flex-col gap-3 border-b border-default pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
             {/* A crawl that stopped at a budget scored the pages it reached, not
-                the site. Labelling that "Site score / Pass" is the same claim
+                the site. Labelling that "Agent Readiness score / Pass" is the same claim
                 the agent instructions forbid ("never present a bounded first
                 scan as a full-site result"), so the label carries the caveat
                 rather than leaving it to a separate banner. */}
-            <p className="text-copy-14-strong text-secondary">{partialScan ? 'Score so far' : 'Site score'}</p>
+            <p className="text-copy-14-strong text-secondary">{partialScan ? 'Score so far' : 'Agent Readiness score'}</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span
                 aria-label={partialScan
                   ? `Score so far ${score.aggregateScore} out of 100, from a scan that did not cover the whole site`
-                  : `Site score ${score.aggregateScore} out of 100`}
+                  : `Agent Readiness score ${score.aggregateScore} out of 100`}
                 className={`inline-flex items-baseline gap-1 font-mono tabular-nums ${scoreTextClass(score.aggregateScore)}`}
               >
                 <span className="text-heading-32">{score.aggregateScore}</span>
@@ -446,16 +452,49 @@ export function TechnicalAeoSection({
               </span>
               <ToneBadge tone={scoreTone(score.aggregateScore)}>{statusLabel(score.aggregateScore)}</ToneBadge>
               {partialScan ? <ToneBadge tone="caution">Part of the site</ToneBadge> : null}
-              {deltaLabel ? <ToneBadge tone={deltaTone}>{deltaLabel}</ToneBadge> : null}
+              {deltaBadge}
             </div>
+            {/* Each site's score, only when the scan covered more than one site.
+                The headline above stays the score over every page. */}
+            {(score.sites?.length ?? 0) > 1 && (
+              <details className="group mt-3">
+                <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-button-14 text-secondary outline-none hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-400">
+                  <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" aria-hidden="true" />
+                  By site
+                </summary>
+                <table className="mt-2 w-full max-w-xl text-left">
+                  <thead>
+                    <tr>
+                      <th scope="col" className="py-1 pr-4 text-left text-label-12-strong text-muted">Site</th>
+                      <th scope="col" className="py-1 pr-4 text-right text-label-12-strong text-muted">Score</th>
+                      <th scope="col" className="py-1 text-right text-label-12-strong text-muted">Pages scored</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-default border-t border-default">
+                    {(score.sites ?? []).map((site) => (
+                      <tr key={site.host}>
+                        <th scope="row" className="py-2 pr-4 text-left text-label-14-mono text-heading">{site.host}</th>
+                        {site.aggregateScore === null
+                          ? <td className="py-2 pr-4 text-right text-label-14 text-secondary">Not scored</td>
+                          : <td className={`py-2 pr-4 text-right text-label-14-mono-strong tabular-nums ${scoreTextClass(site.aggregateScore)}`}>{site.aggregateScore}</td>}
+                        <td className="py-2 text-right text-label-14 tabular-nums text-secondary">{site.pagesAudited.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
+            )}
           </div>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-copy-14 tabular-nums text-secondary">
-            <span>{score.pagesAudited} page{score.pagesAudited === 1 ? '' : 's'} checked</span>
+            {/* "Scored", not "checked": the scan counts strip above already
+                says "Pages checked" for every page the scan loaded, which is a
+                different number. */}
+            <span>{score.pagesAudited} page{score.pagesAudited === 1 ? '' : 's'} scored</span>
             <span aria-hidden="true" className="text-faint">·</span>
-            {/* This counts checks with at least one page below pass, while the
-                Status column beside each check reports its AVERAGE. Both are
-                true, and "7 checks need attention" next to a table of Pass
-                badges reads as a contradiction unless the unit is named. */}
+            {/* This counts checks with at least one page below pass, while each
+                check's Score column is its AVERAGE. Both are true, and "7 checks
+                need attention" beside a passing average reads as a
+                contradiction unless the unit is named. */}
             <span>{attentionFactorCount} check{attentionFactorCount === 1 ? '' : 's'} with pages below pass</span>
             {score.pagesErrored > 0 ? (
               <>
@@ -468,14 +507,14 @@ export function TechnicalAeoSection({
       ) : (
         <section className="surface-card flex flex-wrap items-start justify-between gap-6 material-base p-6">
         <div className="min-w-0">
-          <p className="eyebrow eyebrow-soft">{viewingHistorical ? 'Technical AEO history' : 'Technical AEO'}</p>
+          <p className="eyebrow eyebrow-soft">{viewingHistorical ? 'Agent Readiness history' : 'Agent Readiness'}</p>
           <div className="mt-1 flex flex-wrap items-baseline gap-3">
             <span className={`text-heading-40 tabular-nums ${scoreTextClass(score.aggregateScore)}`}>
               {score.aggregateScore}
             </span>
             <span className="text-label-18 text-muted">/ 100</span>
             <ToneBadge tone={scoreTone(score.aggregateScore)}>{statusLabel(score.aggregateScore)}</ToneBadge>
-            {deltaLabel ? <ToneBadge tone={deltaTone}>{deltaLabel}</ToneBadge> : null}
+            {deltaBadge}
             {auditBusy ? <ToneBadge tone="neutral">{auditStatusLabel}</ToneBadge> : null}
           </div>
           <p className="supporting-copy mt-2 tabular-nums">
@@ -491,26 +530,26 @@ export function TechnicalAeoSection({
             >
               {score.sitemapUrl}
             </a>
-            <InfoTooltip text="Every audit re-reads this sitemap, so pages you add or remove are picked up on the next run. Discovered/audited counts and the score reflect the sitemap at the time of the latest run. Override it with `canonry technical-aeo run <project> --sitemap-url <url>`." />
+            <InfoTooltip text="Every scan re-reads this sitemap, so pages you add or remove are picked up on the next run. Discovered/audited counts and the score reflect the sitemap at the time of the latest run. Override it with `canonry agent-readiness run <project> --sitemap-url <url>`." />
           </p>
           {score.auditedAt ? (
-            <p className="mt-0.5 text-copy-13 text-faint">Audited {new Date(score.auditedAt).toLocaleString()}</p>
+            <p className="mt-0.5 text-copy-13 text-faint">Scanned {new Date(score.auditedAt).toLocaleString()}</p>
           ) : null}
           {auditBusy ? (
             <p className="mt-1 text-copy-13 text-muted" role="status" aria-live="polite">
-              Results refresh automatically when this audit finishes.
+              Results refresh automatically when this scan finishes.
             </p>
           ) : null}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {runId === undefined && trendPoints.length > 1 ? (
             <select
-              aria-label="View a Technical AEO audit"
+              aria-label="View an Agent Readiness audit scan"
               value={selectedRunId ?? ''}
               onChange={(event) => setSelectedRunId(event.target.value || null)}
               className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
             >
-              <option value="">Latest Technical AEO audit</option>
+              <option value="">Latest Agent Readiness audit scan</option>
               {[...trendPoints].reverse().slice(1).map((point) => (
                 <option key={point.runId} value={point.runId}>
                   {new Date(point.auditedAt).toLocaleDateString()} · {point.aggregateScore}/100
@@ -529,14 +568,12 @@ export function TechnicalAeoSection({
               ) : (
                 <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
               )}
-              {auditBusy ? auditStatusLabel : 'Re-run audit'}
+              {auditBusy ? auditStatusLabel : 'Re-run scan'}
             </WriteButton>
           )}
         </div>
       </section>
       )}
-
-      {afterSummary}
 
       {integrated ? <SiteHealthTrend trend={siteTrendQuery.data} /> : null}
 
@@ -545,11 +582,11 @@ export function TechnicalAeoSection({
         <section className="page-section-divider">
           <div className="section-head">
             <p className="eyebrow eyebrow-soft">Trend</p>
-            <h2>Site score over time</h2>
+            <h2>Agent Readiness score over time</h2>
           </div>
           <div className="mt-3 h-56">
             <p className="sr-only">
-              Technical AEO scores range from {Math.min(...trendRows.map((row) => row.score))} to {Math.max(...trendRows.map((row) => row.score))} across {trendRows.length} audits. Use the audit selector to inspect a previous scorecard.
+              Agent Readiness scores range from {Math.min(...trendRows.map((row) => row.score))} to {Math.max(...trendRows.map((row) => row.score))} across {trendRows.length} scans. Use the scan selector to inspect a previous scorecard.
             </p>
             <div className="h-full" aria-hidden="true">
             <ResponsiveContainer width="100%" height="100%">
@@ -575,7 +612,7 @@ export function TechnicalAeoSection({
                   {...CHART_TOOLTIP_STYLE}
                   cursor={{ stroke: CHART_AXIS_STROKE, strokeWidth: 1 }}
                   labelFormatter={formatAuditedAtLabel}
-                  formatter={(value) => [`${value}/100`, 'Site score']}
+                  formatter={(value) => [`${value}/100`, 'Agent Readiness score']}
                 />
                 <Line
                   type="monotone"
@@ -598,51 +635,43 @@ export function TechnicalAeoSection({
         {integrated ? (
           <div>
             <div className="flex items-center gap-1.5">
-              <h3 className="text-heading-16 text-heading">
-                {compactCopy ? 'Checks' : 'Technical findings'}
-              </h3>
+              <h3 className="text-heading-16 text-heading">Findings</h3>
               <InfoTooltip text={FACTOR_STATUS_HELP} />
             </div>
             <p className="mt-1 max-w-2xl text-copy-14 text-secondary">
-              {compactCopy
-                ? hasAnyRecommendations
-                  ? 'Open a check to see affected pages and recommended fixes.'
-                  : onboardingEvidencePage
-                    ? onboardingEvidenceNeedsFix
-                      ? 'Open a check to see affected pages. Page-level evidence for the first page to fix appears below.'
-                      : 'Open a check to see affected pages. Page-level evidence for one audited page appears below.'
-                    : 'Open a check to see affected pages and score details.'
-                : hasAnyRecommendations
-                  ? 'Select a check to see affected pages and recommended fixes.'
-                  : 'Select a check to see affected pages and score details.'}
+              {hasAnyRecommendations
+                ? 'Select a check to see affected pages and recommended fixes.'
+                : 'Select a check to see affected pages and score details.'}
             </p>
           </div>
         ) : (
           <div className="section-head">
             <p className="eyebrow eyebrow-soft">Scorecard</p>
-            <h2 className="inline-flex items-center gap-1.5">
-              Ranking factors
-              <InfoTooltip text={FACTOR_STATUS_HELP} />
-            </h2>
+            <div className="flex items-center gap-1.5">
+              <h2>Ranking factors</h2>
+              <InfoTooltip text={SCORECARD_STATUS_HELP} />
+            </div>
           </div>
         )}
         <div className="evidence-table-wrap mt-3">
           <table className={`evidence-table ${integrated ? 'min-w-[42rem]' : ''}`}>
             <thead>
               <tr>
-                <th>{integrated ? 'Technical check' : 'Factor'}</th>
+                <th>{integrated ? 'Check' : 'Factor'}</th>
                 {!integrated ? <th className="text-right">Share</th> : null}
                 <th className="text-right">{integrated ? 'Score' : 'Avg'}</th>
-                <th>Status</th>
+                {/* The API's status is the band of the check's WORST page, not
+                    of the average beside it, so the column says whose it is. */}
+                <th>{integrated ? 'Worst page' : 'Status'}</th>
                 <th>{integrated ? 'Pages affected' : 'Pass / Partial / Fail'}</th>
               </tr>
             </thead>
             <tbody>
-              {score.factors.map((f) => {
+              {(integrated ? worstFirst(score.factors) : score.factors).map((f) => {
                 const expanded = expandedFactor === f.id
                 const issue = score.crossCuttingIssues.find((c) => c.factorId === f.id)
                 const belowPass = expanded ? pagesBelowPass(f.id) : []
-                const belowPassTotal = f.pagesPartial + f.pagesFailing
+                const belowPassTotal = factorPagesBelowPass(f)
                 const auditedFactorPages = f.pagesPassing + belowPassTotal
                 const hasRecommendations = Boolean(issue?.topRecommendations.length)
                 const hasTwoDetailColumns = hasRecommendations && belowPassTotal > 0
@@ -724,12 +753,12 @@ export function TechnicalAeoSection({
                                 {integrated && pagesQuery.isLoading ? (
                                   <div className="mt-3 flex items-center gap-2 text-label-14 text-secondary" role="status">
                                     <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
-                                    Loading affected pages...
+                                    Loading affected pages…
                                   </div>
                                 ) : integrated && pagesQuery.error ? (
                                   <div className="mt-3" role="alert">
                                     <p className="text-copy-14-strong text-negative">Affected pages could not load</p>
-                                    <p className="mt-1 text-copy-14 text-secondary">Try the page-level audit read again.</p>
+                                    <p className="mt-1 text-copy-14 text-secondary">Try loading the affected pages again.</p>
                                     <Button
                                       type="button"
                                       variant="secondary"
@@ -743,7 +772,7 @@ export function TechnicalAeoSection({
                                       ) : (
                                         <RefreshCw className="size-4" aria-hidden="true" />
                                       )}
-                                      {pagesQuery.isFetching ? 'Retrying affected pages...' : 'Retry affected pages'}
+                                      {pagesQuery.isFetching ? 'Retrying affected pages…' : 'Retry affected pages'}
                                     </Button>
                                   </div>
                                 ) : belowPass.length > 0 ? (
@@ -764,7 +793,7 @@ export function TechnicalAeoSection({
                                     ))}
                                   </ul>
                                 ) : (
-                                  <p className="mt-2 text-copy-14 text-secondary">Page details are not available in the loaded audit sample.</p>
+                                  <p className="mt-2 text-copy-14 text-secondary">Page details are not available in the loaded page sample.</p>
                                 )}
                                 {belowPass.length > FACTOR_DRILLDOWN_PAGE_CAP ? (
                                   <p className="mt-2 text-copy-13 text-muted">
@@ -788,45 +817,16 @@ export function TechnicalAeoSection({
         </div>
       </section>
 
-      {compactCopy && onboardingEvidencePage ? (
-        <section className="border-t border-default pt-5" aria-labelledby="onboarding-page-evidence-heading">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-            <div className="min-w-0">
-              <h3 id="onboarding-page-evidence-heading" className="text-heading-16 text-heading">
-                {onboardingEvidenceNeedsFix ? 'First page to fix' : 'Example audited page'}
-              </h3>
-              <a
-                href={onboardingEvidencePage.url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-1 block max-w-2xl truncate text-label-14-mono text-link outline-none hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-400"
-                title={onboardingEvidencePage.url}
-              >
-                {onboardingEvidencePage.url}
-              </a>
-            </div>
-            <ToneBadge tone={scoreTone(onboardingEvidencePage.overallScore)}>
-              {Math.round(onboardingEvidencePage.overallScore)}/100
-            </ToneBadge>
-          </div>
-          <PageAuditEvidence
-            audit={onboardingPageAuditQuery.data}
-            isLoading={onboardingPageAuditQuery.isLoading}
-            error={onboardingPageAuditQuery.error}
-            onRetry={() => { void onboardingPageAuditQuery.refetch() }}
-          />
-        </section>
-      ) : null}
 
       {/* Opportunities — one structured block per cross-cutting factor */}
       {!integrated && score.crossCuttingIssues.length > 0 ? (
         <section className="page-section-divider">
           <div className="section-head">
             <p className="eyebrow eyebrow-soft">Opportunities</p>
-            <h2 className="inline-flex items-center gap-1.5">
-              Prioritized fixes
+            <div className="flex items-center gap-1.5">
+              <h2>Prioritized fixes</h2>
               <InfoTooltip text="Factors scoring below pass across the most pages, ranked by site-wide impact. Fixing one of these typically lifts many pages at once." />
-            </h2>
+            </div>
           </div>
           <div className="mt-3 divide-y divide-mono-800/60 overflow-hidden material-base">
             {score.crossCuttingIssues.map((issue) => {
@@ -959,7 +959,7 @@ export function TechnicalAeoSection({
 }
 
 /**
- * The Site Health trend card: the site score and pages checked over every
+ * The Agent Readiness trend card: the score and pages checked over every
  * scan, each with its change since the first scan in the window. Shown once
  * there are two scans; with one there is no trend, and the score above
  * already says everything.
@@ -981,9 +981,9 @@ function SiteHealthTrend({ trend }: { trend: TrendsResponse | undefined }) {
   const last = score?.series.at(-1)
   if (!first || !last || !figures.some((figure) => figure.key === 'score' && isTrendFigureInteractive(figure))) return null
   return (
-    <section aria-label="Site Health over time" className="border-b border-default py-5">
+    <section aria-label="Agent Readiness over time" className="border-b border-default py-5">
       <TrendCard
-        name="Site Health figures"
+        name="Agent Readiness figures"
         groups={[{ key: 'site-health', label: 'Every scan', basis: sharedLevelBasis(group.figures), figures }]}
         selected={[selected]}
         onSelect={setSelected}

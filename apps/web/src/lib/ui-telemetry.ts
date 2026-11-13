@@ -272,7 +272,7 @@ const ACTION_BY_ROUTE: ReadonlyArray<ActionRow> = [
   ['POST', '/api/v1/projects/{name}/seo/runs/{id}/cancel', 'seo.cancel'],
   ['POST', '/api/v1/projects/{name}/runs', 'sweep.launch'],
   ['POST', '/api/v1/runs/{id}/cancel', 'sweep.cancel'],
-  ['POST', '/api/v1/projects/{name}/technical-aeo/runs', 'site_audit.launch'],
+  ['POST', '/api/v1/projects/{name}/agent-readiness/runs', 'site_audit.launch'],
   ['POST', '/api/v1/projects', 'project.create'],
   ['PUT', '/api/v1/projects/{name}', 'project.create', undefined, 201],
   ['PUT', '/api/v1/projects/{name}', 'project.update', undefined, 200],
@@ -356,7 +356,7 @@ function googleConnectionAction(method: string, template: string, path: string |
 const EXPECTED_STATUSES: ReadonlyArray<readonly [method: string | '*', template: RegExp, statuses: readonly number[]]> = [
   ['GET', /^\/api\/v1\/projects\/\{name\}\/schedule$/, [404]],
   ['*', /^\/api\/v1\/projects\/\{name\}\/measurement-plan(?:\/draft(?:\/.*)?)?$/, [404, 409, 412]],
-  ['GET', /^\/api\/v1\/projects\/\{name\}\/technical-aeo\/runs\/\{runId\}\/progress$/, [404]],
+  ['GET', /^\/api\/v1\/projects\/\{name\}\/agent-readiness\/runs\/\{runId\}\/progress$/, [404]],
   ['GET', /^\/api\/v1\/projects\/\{name\}\/backlinks\/domains$/, [404]],
   ['POST', /^\/api\/v1\/projects$/, [409]],
   ['PUT', /^\/api\/v1\/projects\/\{name\}$/, [409]],

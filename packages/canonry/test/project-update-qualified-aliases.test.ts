@@ -136,6 +136,19 @@ describe('canonry project update qualified aliases', () => {
   })
 })
 
+describe('canonry project create display name', () => {
+  it.each([
+    { scenario: 'a domain gives its brand name', args: ['--domain', 'summit-roofing.com'], displayName: 'Summit Roofing' },
+    { scenario: 'a URL is read as its domain', args: ['--domain', 'https://www.Canonry.ai/pricing'], displayName: 'Canonry' },
+    { scenario: 'a label too short to be a brand keeps the domain', args: ['--domain', 'ai.com'], displayName: 'ai.com' },
+    { scenario: 'an explicit display name wins', args: ['--domain', 'summit-roofing.com', '--display-name', 'Summit Co'], displayName: 'Summit Co' },
+    { scenario: 'without a domain the project name stays', args: [], displayName: 'harbor-site' },
+  ])('$scenario', async ({ args, displayName }) => {
+    await run('project', 'create', 'harbor-site', ...args)
+    expect(putBody()).toMatchObject({ displayName })
+  })
+})
+
 describe('canonry project create and show qualified aliases', () => {
   it('create --qualified-alias sends the list; create without it omits the field', async () => {
     await run('project', 'create', 'harborline', '--domain', 'harborline.example', '--display-name', 'Harborline Labs', '--alias', 'HBLNYC', '--qualified-alias', 'HBLNYC')

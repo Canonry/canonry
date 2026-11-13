@@ -11,13 +11,16 @@ import {
   brandLabelFromDomain,
   brandKeyFromText,
   buildMeasurementRunManifestV1,
+  CitedUrlCaptureStatuses,
   deriveCitedUrlCandidates,
   filterCapturedCitedUrls,
+  isCitationStateMeasured,
   isVertexGroundingRedirect,
   MEASUREMENT_DEFAULT_QUERY_CLASS,
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   parseMeasurementRunManifestV1,
   parseStoredMeasurementPlanAnyVersion,
+  readCitationState,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -230,7 +233,14 @@ function historicalEvidence(rawResponse: string | null): { urls: string[]; compl
 
 /** The canonical stored source population, including pre-capture raw grounding recovery. */
 export function measurementSnapshotSources(snapshot: Pick<typeof querySnapshots.$inferSelect, 'citedUrls' | 'captureStatus' | 'rawResponse'>): { urls: string[]; complete: boolean; historical: boolean } {
-  if (snapshot.citedUrls !== null) return { urls: snapshot.citedUrls, complete: snapshot.captureStatus === 'complete', historical: false }
+  // A modern capture result is authoritative even when it saved no URL list.
+  // Unsupported/failed capture cannot become a measured zero through an empty
+  // grounding array in the raw provider envelope. Only pre-capture rows recover.
+  if (snapshot.citedUrls !== null || snapshot.captureStatus !== null) return {
+    urls: snapshot.citedUrls ?? [],
+    complete: snapshot.citedUrls !== null && snapshot.captureStatus === CitedUrlCaptureStatuses.complete,
+    historical: false,
+  }
   return { ...historicalEvidence(snapshot.rawResponse), historical: true }
 }
 
@@ -292,7 +302,7 @@ function observationInputs(
   legacy: boolean,
 ): MeasurementReportInput['observations'] {
   const slotsByExecution = new Map(manifest.expectedSlots.map(slot => [`${slot.executionId}\u0000${slot.provider}`, slot]))
-  return snapshots.flatMap(snapshot => {
+  return snapshots.flatMap((snapshot): Array<MeasurementReportInput['observations'][number]> => {
     if (legacy ? snapshot.measurementExecutionId !== null : snapshot.measurementExecutionId === null) return []
     if (snapshot.measurementExecutionId !== null) {
       const slot = slotsByExecution.get(`${snapshot.measurementExecutionId}\u0000${snapshot.provider.trim().toLocaleLowerCase('en')}`)
@@ -301,18 +311,27 @@ function observationInputs(
       if (!supportsRequestedContext(snapshot, slot)) return []
       validateSupportedLocation(snapshot, slot)
     }
-    const sources = measurementSnapshotSources(snapshot)
-    return [{
+    const base = {
       id: snapshot.id,
       executionId: snapshot.measurementExecutionId,
       queryText: snapshot.queryText ?? '',
       provider: snapshot.provider.trim().toLocaleLowerCase('en'),
       location: snapshot.location,
       answerText: snapshot.answerText,
+      ...(snapshot.wrongSubjectTargetKeys?.length ? { wrongSubjectTargetIds: snapshot.wrongSubjectTargetKeys } : {}),
+    }
+    // An engine that returns no sources (a local model) never had a source
+    // list to capture or recover, so its answer reads as not measured rather
+    // than as a complete empty list (a miss) or a partial one (unchecked).
+    if (!isCitationStateMeasured(readCitationState(snapshot))) {
+      return [{ ...base, citedUrls: [], citedUrlsComplete: false, citationMeasured: false }]
+    }
+    const sources = measurementSnapshotSources(snapshot)
+    return [{
+      ...base,
       citedUrls: sources.historical ? null : sources.urls,
       citedUrlsComplete: !sources.historical && sources.complete,
       ...(sources.historical ? { historicalCitedUrls: sources.urls, historicalCitedUrlsComplete: sources.complete } : {}),
-      ...(snapshot.wrongSubjectTargetKeys?.length ? { wrongSubjectTargetIds: snapshot.wrongSubjectTargetKeys } : {}),
     }]
   })
 }

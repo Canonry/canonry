@@ -99,7 +99,7 @@ When proposing work, requesting feedback, or showcasing changes:
 - All internal packages use `@canonry/canonry-*` naming convention.
 - Keep environment parsing in `packages/config`, provider logic in `packages/provider-*/`, and route plugins in `packages/api-routes` (no app-level concerns; thin handlers).
 - Keep the canonry app independent from the audit package repo except for the published npm dependency.
-- Store raw observation snapshots only (`cited` / `not-cited`); compute transitions at query time.
+- Store raw observation snapshots only (`cited` / `not-cited`, or `not-measured` when the engine returns no sources); compute transitions at query time.
 
 ## Vocabulary (Critical)
 
@@ -108,14 +108,14 @@ Every (query × provider) snapshot carries two independent signals — a model c
 | Term | Meaning | Source field |
 |------|---------|--------------|
 | **mention / mentioned** | The project's brand or domain appears in the LLM's answer prose. Citation links written into the text (chips such as `([domain](url))`, links labelled with a URL or a lowercase host, `[1]` markers, bare `http(s)://` URLs) are citations and never count; match through `answerProseForMentions`. | `query_snapshots.answer_mentioned` (boolean) |
-| **cited** | The project's domain appears in the answer's source links / grounding. | `query_snapshots.citation_state` = `'cited'` |
+| **cited** | The project's domain appears in the answer's source links / grounding. An engine that returns no sources (Local) records `'not-measured'`, which is never a miss. | `query_snapshots.citation_state` = `'cited'`, read through `readCitationState` |
 
 1. Say `mention` / `mentioned` for answer-text presence. `answer`, `visible`, and `visibility` are legacy terms (`visibility_state`, run kind `answer-visibility`, `visibilityStateFromAnswerMentioned`); new APIs, fields, flags, and UI labels say `mentioned` (`mentionRate`, never `answerRate`).
 2. Say `cited` for source-list presence; never use `citation` as an umbrella for both.
 3. Never compute one signal from the other. A "cited" label reads `citationState`; a "mentioned" label reads `answerMentioned`. A metric named for one and computed from the other is a bug — fix it.
 4. When you mean both, say "citation + mention coverage" or "visibility (cited or mentioned)" and disambiguate immediately.
 5. Public API field names use this vocabulary from the start; a rename needs a version bump.
-6. Render both signals in CLI/UI snapshot output: a two-glyph cell (`C/c` cited or not, `M/m` mentioned or not, `–` missing) with the legend above the table, as `canonry citations` and `canonry run` do.
+6. Render both signals in CLI/UI snapshot output: a two-glyph cell (`C/c` cited or not, `·` citation not measured, `M/m` mentioned or not, `–` missing) with the legend above the table, as `canonry citations` and `canonry run` do (`packages/canonry/src/snapshot-cell.ts`).
 7. `canonry-vocabulary/no-banned-metric-literal` bans conflating literals (`'answerRate'`, `'visibility run'`, `'paid mentions'`, …) in the CLI, api-routes, and web trees; the list is in `eslint-rules/canonry-vocabulary.js`. Bare `'visible'` stays legal (DOM, legacy enum) — review owns it.
 
 ### Branded vs non-brand (Critical)
@@ -287,60 +287,3 @@ Per-package `AGENTS.md` must stay in sync — see `docs/DOC_UPDATE.md` for the f
 Put a new rule in the `AGENTS.md` closest to the code it governs; add it here only if every change must follow it. Point to the source (`path` or `file:line`) instead of copying it, and leave out what an agent can learn from the code, `--help`, or `docs/CODEMAP.md`.
 
 `AGENTS.md` is the only agent-instruction file. Claude Code v2.1.277+ reads it directly, but only where no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` is on the path, so never add one: it hides the `AGENTS.md` beside and below it. Claude Code sessions that cannot read `AGENTS.md` directly (before v2.1.277, on Bedrock / Vertex / Foundry, or with telemetry disabled) get no project instructions from this repo.
-
-## Carrick
-
-**If the answer is defined by another service — its endpoints, its real
-request/response types, who consumes it, or any local type, constant, or
-SDK helper that mirrors it — ask Carrick before you rely on anything
-local.** Local copies of another service's contract drift and lie; the
-producing service defines the contract, and if two definitions disagree,
-the producer's definition wins. Load the Carrick tools now so they are ready at that
-moment.
-
-**Read the file you are editing. For anything that lives elsewhere in
-the workspace (a helper, an endpoint, a consumer, a type), ask Carrick
-first, then grep to confirm a location.**
-Run `search_by_intent` before writing any helper, parser, validator, or
-domain function, even when you are sure it is new. Grep can prove a name
-is absent; it can never prove the behaviour is.
-
-Then, before you write new code, state one line naming what you asked and
-what came back:
-
-`Carrick checked: <query> -> <result count>`
-
-Start a session with `get_project_map`, passing your own service so the
-map splits this repo from its siblings: one cheap call that names the
-sibling services this project indexes, the contracts crossing into and
-out of this repo, the calls that reach no route, and the drill-down tool
-for each section.
-
-`get_endpoint_types` returns another service's real request and response
-types. Before adding or bumping an npm package, `get_service_dependencies`
-shows version conflicts across services. For audit-shaped work, such as
-listing what a service calls outside itself, `list_external_calls` names
-each recorded outbound call with its file and line.
-
-Carrick indexes every service in the project **canonry**
-(workspace **arberx**): every function with an intent
-description, its dependencies, and API endpoints with their real
-request/response types, on each repo's main branch, exported or not. Pass
-`project: "canonry"` (or `repo: "<owner/repo>"` from the git
-remote) on every call. Carrick is read-only; data reflects the most recent
-scan of each repo. The index at main is what production integrates
-against, so build against a sibling's contract from the index and merge —
-your unmerged local state does not need to be visible to Carrick.
-
-Write correct, idiomatic, explicitly typed code; never contort code so the
-scanner can read it. If Carrick fails to extract something written
-normally, that is a Carrick bug to report, not a constraint to code
-around.
-
-### Connect the agent
-
-```
-claude mcp add --scope user --transport http carrick https://api.carrick.tools/mcp
-```
-
-One install serves every project in the workspace.

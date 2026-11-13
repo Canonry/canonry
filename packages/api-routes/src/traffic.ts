@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { countableReferralCondition, referralLandedCondition } from './ai-referral-status.js'
 import { and, desc, eq, gt, gte, inArray, lt, lte, sql, type SQL } from 'drizzle-orm'
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify'
 import { cloudflareWorkerVersionFor } from './cloudflare-worker-version.js'
 import {
   CLOUDFLARE_QUEUE_BATCH_SIZE,
@@ -69,6 +69,7 @@ import {
   OutcomeStatuses,
 } from '@canonry/canonry-contracts'
 import type {
+  CloudflareWorkerIngestResponse,
   NormalizedTrafficRequest,
   OutcomeReasonCode,
   RunStatus,
@@ -147,6 +148,7 @@ import { enforceJourneyRetention, recordJourneyBatch } from './journeys.js'
 import { recordAgentJourneyBatch } from './agent-journey-capture.js'
 import { planScannerBursts, saveScannerBursts } from './agent-scanner-bursts.js'
 import { aiReferralOlderCountUntil, planAiReferralArrivals, saveAiReferralArrivals } from './ai-referral-arrivals.js'
+import { aiUserFetchOlderCountAfterBackfill, aiUserFetchOlderCountUntil } from './ai-user-fetch-counting.js'
 import { addLikelyFakeAgentHits, clearLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
@@ -534,6 +536,19 @@ const TRAFFIC_BACKFILL_LEASE_TTL_MS = 5 * 60_000
 const TRAFFIC_BACKFILL_LEASE_RENEW_MS = 60_000
 const DEFAULT_CLOUDFLARE_INGEST_RATE_LIMIT_MAX = 6_000
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i
+
+/**
+ * A browser agent's requests other than page loads go to no bucket, so every
+ * write path reports how many it left out: in its response where it has one,
+ * and in the log, the only trace a scheduled sync or a backfill leaves.
+ */
+function logBrowserAgentNonPageHits(log: FastifyBaseLogger, fields: { sourceId: string, runId: string, hits: number }): void {
+  if (fields.hits === 0) return
+  log.info(
+    { sourceId: fields.sourceId, runId: fields.runId, aiUserFetchBrowserNonPageHits: fields.hits },
+    'Browser agent requests other than page loads were not counted as AI user fetches',
+  )
+}
 
 function sha256Hex(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex')
@@ -1809,6 +1824,15 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           if (!olderReferral) olderCountUntil = null
         }
       }
+      // Replacement rows count a browser agent's page loads only. Hours before
+      // the window keep the count they were made under: the marker moves back
+      // to the end of the last browser-agent hour among them, or clears.
+      const userFetchOlderCountUntil = aiUserFetchOlderCountAfterBackfill(
+        tx,
+        { projectId: project.id, sourceId: sourceRow.id },
+        latestSource.aiUserFetchOlderCountUntil,
+        windowStartIso,
+      )
 
       tx
         .update(trafficSources)
@@ -1818,6 +1842,7 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           lastError: null,
           lastEventIds: newRingBuffer,
           aiReferralOlderCountUntil: olderCountUntil,
+          aiUserFetchOlderCountUntil: userFetchOlderCountUntil,
           ...(skipRecovered ? { skippedThroughAt: null } : {}),
           updatedAt: finishedAt,
         })
@@ -1846,6 +1871,8 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           reasonCode: commitOutcome === 'source-inactive' ? OutcomeReasonCodes.NOT_CONNECTED : OutcomeReasonCodes.UNSUPPORTED,
         })
     if (commitOutcome === 'source-inactive' || commitOutcome === 'wordpress-backfill-unsupported') return
+    // The backfill response already returned, so the log reports what the replaced window left out.
+    logBrowserAgentNonPageHits(app.log, { sourceId: sourceRow.id, runId, hits: report.totals.aiUserFetchBrowserNonPageHits })
   } catch (e) {
     markFailed(`Backfill rollup write failed: ${describeError(e)}`)
     reportBackfill(failedOutcome(e))
@@ -2929,7 +2956,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         opts.onTrafficIngested?.('failure' in outcome
           ? {
               sourceType: TrafficSourceTypes.cloudflare, status: 'failed', events: 0, crawlerHits: 0, aiReferralHits: 0,
-              aiUserFetchHits: 0, durationMs: Date.now() - ingestStartedMs, ...routeOutcomeFailure(outcome.failure, outcome.reasonCode),
+              aiUserFetchHits: 0, durationMs: Date.now() - ingestStartedMs,
+              ...routeOutcomeFailure(outcome.failure, outcome.reasonCode),
             }
           : { sourceType: TrafficSourceTypes.cloudflare, status: 'succeeded', ...outcome, durationMs: Date.now() - ingestStartedMs })
       } catch {
@@ -3041,7 +3069,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       aiUserFetchHits: writeResult.aiUserFetchHits,
     })
 
-    return reply.status(200).send({
+    const response: CloudflareWorkerIngestResponse = {
       acceptedEvents: writeResult.acceptedEvents,
       droppedEvents: normalizationDrops + writeResult.duplicateEvents,
       workerVersionAck: workerVersion,
@@ -3049,7 +3077,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       aiUserFetchBucketRows: writeResult.aiUserFetchBucketRows,
       aiReferralBucketRows: writeResult.aiReferralBucketRows,
       sampleRows: writeResult.sampleRows,
-    })
+      aiUserFetchBrowserNonPageHits: writeResult.aiUserFetchBrowserNonPageHits,
+    }
+    return reply.status(200).send(response)
   })
 
   // POST /projects/:name/traffic/sources/:id/sync
@@ -3109,6 +3139,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       let crawlerHits = 0
       let aiUserFetchHits = 0
       let aiUserFetchLikelyFakeHits = 0
+      let aiUserFetchBrowserNonPageHits = 0
       let aiReferralHits = 0
       let unknownHits = 0
       let crawlerBucketRows = 0
@@ -3146,6 +3177,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           projectId: project.id, actor: 'api', action: 'traffic.cloudflare.queue-synced',
           entityType: 'traffic_source', entityId: sourceRow.id,
         })
+        logBrowserAgentNonPageHits(request.log, { sourceId: sourceRow.id, runId, hits: aiUserFetchBrowserNonPageHits })
         try {
           opts.onTrafficSynced?.({
             status: 'completed', sourceType: sourceRow.sourceType, sourceId: sourceRow.id,
@@ -3156,7 +3188,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         } catch { /* telemetry never blocks Queue acknowledgement */ }
         return {
           sourceId: sourceRow.id, runId, syncedAt: committedAt, pulledEvents: acceptedEvents,
-          selfTrafficExcluded, crawlerHits, aiUserFetchHits, aiUserFetchLikelyFakeHits, aiReferralHits, unknownHits,
+          selfTrafficExcluded, crawlerHits, aiUserFetchHits, aiUserFetchLikelyFakeHits, aiUserFetchBrowserNonPageHits, aiReferralHits, unknownHits,
           crawlerBucketRows, aiUserFetchBucketRows, aiReferralBucketRows, sampleRows,
           remainingBacklogCount,
           queueDrain,
@@ -3306,6 +3338,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           crawlerHits += writeResult.crawlerHits
           aiUserFetchHits += writeResult.aiUserFetchHits
           aiUserFetchLikelyFakeHits += writeResult.aiUserFetchLikelyFakeHits
+          aiUserFetchBrowserNonPageHits += writeResult.aiUserFetchBrowserNonPageHits
           aiReferralHits += writeResult.aiReferralHits
           unknownHits += writeResult.unknownHits
           crawlerBucketRows += writeResult.crawlerBucketRows
@@ -3951,6 +3984,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let crawlerHitsCount = 0
     let aiUserFetchHitsCount = 0
     let aiUserFetchLikelyFakeHitsCount = 0
+    let aiUserFetchBrowserNonPageHitsCount = 0
     let aiReferralHitsCount = 0
     let unknownHitsCount = 0
 
@@ -4044,6 +4078,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       crawlerHitsCount = report.totals.crawlerHits
       aiUserFetchHitsCount = report.totals.aiUserFetchHits
       aiUserFetchLikelyFakeHitsCount = report.totals.aiUserFetchLikelyFakeHits
+      aiUserFetchBrowserNonPageHitsCount = report.totals.aiUserFetchBrowserNonPageHits
       aiReferralHitsCount = report.totals.aiReferralHits
       unknownHitsCount = report.totals.unknownHits
 
@@ -4372,6 +4407,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         'Dropped Canonry self-traffic before rollup; excluded from pulledEvents',
       )
     }
+    logBrowserAgentNonPageHits(request.log, { sourceId: sourceRow.id, runId, hits: aiUserFetchBrowserNonPageHitsCount })
 
     // Fire-and-forget telemetry. Never let a hook block the response.
     try {
@@ -4399,6 +4435,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       crawlerHits: crawlerHitsCount,
       aiUserFetchHits: aiUserFetchHitsCount,
       aiUserFetchLikelyFakeHits: aiUserFetchLikelyFakeHitsCount,
+      aiUserFetchBrowserNonPageHits: aiUserFetchBrowserNonPageHitsCount,
       aiReferralHits: aiReferralHitsCount,
       unknownHits: unknownHitsCount,
       crawlerBucketRows,
@@ -5398,6 +5435,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         // window-bound.
         const referralCountingChangedAt = aiReferralOlderCountUntil(app.db, { projectId: project.id, sourceId: sourceIdParam })
         const referralCountingChangedMs = referralCountingChangedAt === null ? null : Date.parse(referralCountingChangedAt)
+        // User-fetch hours whose browser-agent requests were counted under
+        // older rules can read high or low, and were not recounted.
+        const userFetchCountingChangedAt = aiUserFetchOlderCountUntil(app.db, { projectId: project.id, sourceId: sourceIdParam })
+        const userFetchCountingChangedMs = userFetchCountingChangedAt === null ? null : Date.parse(userFetchCountingChangedAt)
         const coverageStart = firsts.length ? firsts.slice().sort()[0]! : null
         // A DAY bucket is `YYYY-MM-DD` (`substr(ts_hour, 1, 10)`) and needs a time
         // appended; an HOUR bucket IS `ts_hour`, ALREADY a full ISO instant
@@ -5443,6 +5484,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           points,
           coverageStart,
           aiReferralCountingChangedAt: referralCountingChangedAt,
+          aiUserFetchCountingChangedAt: userFetchCountingChangedAt,
           // The same two edges the fits leave out, named for a chart to draw as partial.
           partialBuckets: [
             ...(firstMeasuredIdx >= 0 && leadingBucketIsPartial ? [points[firstMeasuredIdx]!.bucket] : []),
@@ -5466,7 +5508,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           // The referral fit also drops every bucket that begins before the
           // arrival rule changed, the bucket it changed inside included: those
           // hours were counted by an older rule that can read high, and a line
-          // across the change slopes down for traffic that held steady.
+          // across the change slopes down for traffic that held steady. The
+          // user-fetch fit does the same at the browser-agent counting change.
           //
           // linearTrend skips nulls while surviving points keep their true
           // index, so dropping an edge does not compress the x-axis.
@@ -5477,11 +5520,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
               && !(i === points.length - 1 && trailingBucketIsPartial)
             const countedByCurrentRule = (pt: TrafficSeriesPoint) =>
               referralCountingChangedMs === null || bucketStartMs(pt.bucket) >= referralCountingChangedMs
+            const countedByPageLoads = (pt: TrafficSeriesPoint) =>
+              userFetchCountingChangedMs === null || bucketStartMs(pt.bucket) >= userFetchCountingChangedMs
             const series = (pick: (pt: TrafficSeriesPoint) => number, include: (pt: TrafficSeriesPoint) => boolean = () => true) =>
               linearTrend(points.map((pt, i) => (usable(pt, i) && include(pt) ? pick(pt) : null)))
             return {
               crawlerContentHits: series((pt) => pt.crawlerContentHits),
-              aiUserFetchHits: series((pt) => pt.aiUserFetchHits),
+              aiUserFetchHits: series((pt) => pt.aiUserFetchHits, countedByPageLoads),
               aiReferralLandedHits: series((pt) => pt.aiReferralLandedHits, countedByCurrentRule),
             }
           })(),

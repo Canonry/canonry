@@ -27,24 +27,24 @@ afterEach(() => {
 
 describe('screen time', () => {
   it('attributes each visit to its screen, including same-template project changes and revisits', () => {
-    timer.navigate('/projects/$projectName/technical-aeo', '/projects/private-one/technical-aeo')
+    timer.navigate('/projects/$projectName/agent-readiness', '/projects/private-one/agent-readiness')
     vi.advanceTimersByTime(20_000)
     // Filter changes on the same route do not start another visit.
-    timer.navigate('/projects/$projectName/technical-aeo', '/projects/private-one/technical-aeo')
+    timer.navigate('/projects/$projectName/agent-readiness', '/projects/private-one/agent-readiness')
     vi.advanceTimersByTime(10_000)
-    timer.navigate('/projects/$projectName/technical-aeo', '/projects/private-two/technical-aeo')
+    timer.navigate('/projects/$projectName/agent-readiness', '/projects/private-two/agent-readiness')
     vi.advanceTimersByTime(60_000)
     timer.navigate('/settings', '/settings')
     vi.advanceTimersByTime(5_000)
-    timer.navigate('/projects/$projectName/technical-aeo', '/projects/private-one/technical-aeo')
+    timer.navigate('/projects/$projectName/agent-readiness', '/projects/private-one/agent-readiness')
     vi.advanceTimersByTime(5_000)
     window.dispatchEvent(new Event('pagehide'))
     const ends = checkpoints().filter(e => e.completed)
     expect(ends.map(e => [e.page, e.foregroundMs])).toEqual([
-      ['/projects/:projectName/technical-aeo', 30_000],
-      ['/projects/:projectName/technical-aeo', 60_000],
+      ['/projects/:projectName/agent-readiness', 30_000],
+      ['/projects/:projectName/agent-readiness', 60_000],
       ['/settings', 5_000],
-      ['/projects/:projectName/technical-aeo', 5_000],
+      ['/projects/:projectName/agent-readiness', 5_000],
     ])
     expect(new Set(ends.map(e => e.visitId)).size).toBe(4)
     expect(JSON.stringify(events)).not.toContain('private-')

@@ -54,8 +54,8 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'monitoring',
     title: 'Measurement, runs, insights, health',
-    description: 'Inspect portfolio and Property measurement, question results, experimental branded and non-brand sentiment and evidence, content opportunities and addressed-target records, run history, intelligence insights, health timelines, and bounded Site Health reads (overview, page audit evidence, focused subgraphs, paths, and scan changes).',
-    whenToLoad: 'Load when finding weak Properties, reviewing answers, sentiment and competitors, marking or restoring addressed content targets, checking data quality, tying a Site Health page score to concrete findings, investigating site architecture, comparing scans, or diagnosing regressions.',
+    description: 'Inspect portfolio and Property measurement, question results, experimental branded and non-brand sentiment and evidence, content opportunities and addressed-target records, run history, intelligence insights, health timelines, and bounded Agent Readiness reads (score, overview, issues, page audit evidence, focused subgraphs, paths, and scan changes).',
+    whenToLoad: 'Load when finding weak Properties, reviewing answers, sentiment and competitors, marking or restoring addressed content targets, checking data quality, tying an Agent Readiness page score to concrete findings, investigating site architecture, comparing scans, or diagnosing regressions.',
   },
   {
     name: 'setup',
@@ -78,7 +78,7 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'ga',
     title: 'Google Analytics 4',
-    description: 'Read GA traffic, AI/social referral history, attribution trend, session history, and GA4\'s Search Console landing-page report (Google organic clicks, impressions, CTR, position and active users per landing page).',
+    description: 'Read GA traffic (with social and creator platforms ranked by conversions per 1,000 sessions), AI/social referral history, attribution trend, session history, and GA4\'s Search Console landing-page report (Google organic clicks, impressions, CTR, position and active users per landing page).',
     whenToLoad: 'Load when you need traffic, referral, or attribution data from Google Analytics 4.',
   },
   {

@@ -178,6 +178,9 @@ test('getBootstrapEnv leaves model and quota unset unless set; a new entry takes
   // A saved model and quota are values, not gaps: the defaults never replace them.
   const saved = { apiKey: 'o', model: 'gpt-4.1', quota: { maxConcurrency: 4, maxRequestsPerMinute: 30, maxRequestsPerDay: 900 } }
   expect(withBootstrapProviderDefaults('openai', saved)).toEqual(saved)
+  // A reset removes one override; bootstrap must not persist a default in its place.
+  expect(withBootstrapProviderDefaults('openai', { apiKey: 'o', model: 'gpt-4.1', quota: { maxRequestsPerDay: 25 } }))
+    .toEqual({ apiKey: 'o', model: 'gpt-4.1', quota: { maxRequestsPerDay: 25 } })
 })
 
 test('getBootstrapEnv parses hosted Canonry env vars', () => {
