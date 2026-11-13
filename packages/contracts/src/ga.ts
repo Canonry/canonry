@@ -220,7 +220,9 @@ export type SocialPlatformPerformanceUnavailableReason = z.infer<typeof socialPl
  * `socialSessions`. This block reads GA4's per-source acquisition and lead
  * event tables instead: a row counts when its source names a platform, or when
  * GA4 filed it as Organic or Paid Social. Sessions and conversions each come
- * from one table, keyed the same way, so nothing is counted twice.
+ * from one table, keyed the same way, so nothing is counted twice. A session
+ * that reaches a second host (a separate checkout domain) is one row per host
+ * with the same landing page, so each landing page counts its largest host row.
  */
 export const ga4SocialPlatformPerformanceDtoSchema = z.object({
   /** `unavailable` when no acquisition rows are stored for the window; the GA4 social channel figures still are. */
@@ -246,7 +248,8 @@ export const ga4SocialPlatformPerformanceDtoSchema = z.object({
   /**
    * Every channel, for reference: counted conversions per 1,000 GA4 sessions
    * across the whole site. Sessions are GA4's daily totals, which count a
-   * session once even when it crosses hosts.
+   * session once even when it crosses hosts; null when the totals miss a day
+   * the acquisition table covers.
    */
   site: ga4ConversionRateFieldsSchema.extend({
     sessions: z.number().nullable(),

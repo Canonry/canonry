@@ -1307,8 +1307,9 @@ cnry ga traffic <project> [--window 30d] [--start YYYY-MM-DD] [--end YYYY-MM-DD]
                                                   # EVERY GA4 channel, so fb_ads ads GA4 files as Paid Other and
                                                   # ShopMy links in Unassigned count: platforms[] with sessions,
                                                   # paid/organic, conversions, conversionsPerThousandSessions,
-                                                  # rank (null below minSessions=1,000) and sources[]; site{}
-                                                  # whole-site reference; rates null with
+                                                  # rank (null below minSessions=1,000) and sources[]; a session
+                                                  # crossing hosts counts once; site{} whole-site reference
+                                                  # (null when GA4 daily totals miss a day); rates null with
                                                   # conversionRateUnavailableReason when sessions and conversions
                                                   # cover different days). Human output prints the ranking.
 cnry ga attribution <project> [--trend]       # unified channel breakdown (organic / ai / social / direct

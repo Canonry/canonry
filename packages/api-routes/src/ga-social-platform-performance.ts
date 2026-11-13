@@ -6,6 +6,7 @@ import {
   gaDailyTotals,
   gaLeadEventsDaily,
   gaMeasurementSyncStates,
+  gaSyncCoverage,
 } from '@canonry/canonry-db'
 import {
   AiReferralTrafficClasses,
@@ -353,40 +354,69 @@ export function loadSocialPlatformPerformance(db: Database, input: {
     .where(eq(gaMeasurementSyncStates.projectId, input.projectId)).get()
   const { countedEventNames, reportedEventNames } = resolveLeadEvents(input.measurement, state)
 
-  // One scan of the window: per day and source key. Totals, the covered days
-  // and the chart rows all come from it.
-  const dailyKeyRows = db.select({
-    date: gaAcquisitionDaily.date,
-    source: gaAcquisitionDaily.source,
-    medium: gaAcquisitionDaily.medium,
-    channelGroup: gaAcquisitionDaily.channelGroup,
-    sessions: sql<number>`SUM(${gaAcquisitionDaily.sessions})`,
-  })
+  // The days the acquisition table covers, over every source.
+  const acquisitionDates = db.select({ date: gaAcquisitionDaily.date })
+    .from(gaAcquisitionDaily).where(acquisitionWhere).groupBy(gaAcquisitionDaily.date).all()
+
+  // Which sources can land in a platform: only they need the session read below.
+  const platformSources = [...new Set(db.select({ source: gaAcquisitionDaily.source, channelGroup: gaAcquisitionDaily.channelGroup })
     .from(gaAcquisitionDaily)
     .where(acquisitionWhere)
-    .groupBy(gaAcquisitionDaily.date, gaAcquisitionDaily.source, gaAcquisitionDaily.medium, gaAcquisitionDaily.channelGroup)
+    .groupBy(gaAcquisitionDaily.source, gaAcquisitionDaily.channelGroup)
     .all()
+    .filter(row => socialPlatformGroupFor(row.source, row.channelGroup) !== null)
+    .map(row => row.source))]
+
+  // Sessions per day and source key, each session once. GA4's hostName is
+  // event-scoped, so a session that reaches a second host (a separate checkout
+  // domain) is a row on each host, while its landing page, which is
+  // session-scoped, is the same on every row. The largest host row for a
+  // landing page is therefore every session that landed there; summing the
+  // host rows would count the crossing sessions again.
+  const readPlatformSessions = () => {
+    const perLandingPage = db.select({
+      date: gaAcquisitionDaily.date,
+      channelGroup: gaAcquisitionDaily.channelGroup,
+      source: gaAcquisitionDaily.source,
+      medium: gaAcquisitionDaily.medium,
+      sessions: sql<number>`MAX(${gaAcquisitionDaily.sessions})`.as('sessions'),
+    })
+      .from(gaAcquisitionDaily)
+      .where(and(acquisitionWhere, inArray(gaAcquisitionDaily.source, platformSources)))
+      .groupBy(
+        gaAcquisitionDaily.date,
+        gaAcquisitionDaily.channelGroup,
+        gaAcquisitionDaily.source,
+        gaAcquisitionDaily.medium,
+        gaAcquisitionDaily.landingPage,
+      )
+      .as('per_landing_page')
+    return db.select({
+      date: perLandingPage.date,
+      channelGroup: perLandingPage.channelGroup,
+      source: perLandingPage.source,
+      medium: perLandingPage.medium,
+      sessions: sql<number>`SUM(${perLandingPage.sessions})`,
+    })
+      .from(perLandingPage)
+      .groupBy(perLandingPage.date, perLandingPage.channelGroup, perLandingPage.source, perLandingPage.medium)
+      .all()
+  }
+  const dailyKeyRows = platformSources.length > 0 ? readPlatformSessions() : []
   const sessionTotals = new Map<string, SourceKeyRow>()
-  const acquisitionDateSet = new Set<string>()
   const dailyRows: DailySourceRow[] = []
-  const isPlatformRow = new Map<string, boolean>()
   for (const row of dailyKeyRows) {
+    // A source can be a platform in one channel group and not in another
+    // (an unmatched source counts only in GA4 Social).
+    if (socialPlatformGroupFor(row.source, row.channelGroup) === null) continue
     const value = row.sessions ?? 0
-    acquisitionDateSet.add(row.date)
     const key = `${row.source}\u0000${row.medium}\u0000${row.channelGroup}`
     const total = sessionTotals.get(key)
     if (total) total.value += value
     else sessionTotals.set(key, { source: row.source, medium: row.medium, channelGroup: row.channelGroup, value })
-    const groupKey = `${row.source}\u0000${row.channelGroup}`
-    let platformRow = isPlatformRow.get(groupKey)
-    if (platformRow === undefined) {
-      platformRow = socialPlatformGroupFor(row.source, row.channelGroup) !== null
-      isPlatformRow.set(groupKey, platformRow)
-    }
-    if (platformRow) dailyRows.push({ date: row.date, source: row.source, channelGroup: row.channelGroup, sessions: value })
+    dailyRows.push({ date: row.date, source: row.source, channelGroup: row.channelGroup, sessions: value })
   }
   const sessionRows = [...sessionTotals.values()]
-  const acquisitionDates = [...acquisitionDateSet].map(date => ({ date }))
 
   const leadWhere = reportedEventNames.length > 0
     ? and(
@@ -414,40 +444,53 @@ export function loadSocialPlatformPerformance(db: Database, input: {
     ? db.selectDistinct({ date: gaLeadEventsDaily.date }).from(gaLeadEventsDaily).where(leadWhere).all()
     : []
 
-  // GA4's daily totals count a session once; the acquisition rows carry the
-  // event-scoped host, so a session that reaches a second host (a separate
-  // checkout domain) is a row on each. The site figure divides by the totals.
-  // Only days with stored acquisition rows, so the site figure covers the
-  // same days as the platform rows.
-  const siteSessionsRow = acquisitionDates.length > 0
+  // The whole-site reference divides every counted conversion by GA4's
+  // daily session totals, which count a session once. Only when the totals
+  // cover every day the acquisition table does: a partial total would pair a
+  // full window of conversions with part of its sessions.
+  const acquisitionDays = acquisitionDates.map(row => row.date)
+  const siteTotals = acquisitionDays.length > 0
     ? db.select({
+        days: sql<number>`COUNT(DISTINCT ${gaDailyTotals.date})`,
         sessions: sql<number | null>`SUM(${gaDailyTotals.sessions})`,
       }).from(gaDailyTotals).where(and(
         eq(gaDailyTotals.projectId, input.projectId),
         ...input.dateConditions(gaDailyTotals.date),
-        inArray(gaDailyTotals.date, acquisitionDates.map(row => row.date)),
+        inArray(gaDailyTotals.date, acquisitionDays),
       )).get()
-    : null
+    : undefined
+  const siteSessions = siteTotals && siteTotals.days === acquisitionDays.length ? siteTotals.sessions : null
   const siteConversionsRow = leadWhere && hasLeadTimeline
     ? db.select({ conversions: sql<number | null>`SUM(${gaLeadEventsDaily.eventCount})` }).from(gaLeadEventsDaily).where(leadWhere).get()
     : null
 
-  // The first day any counted lead event was stored, over all time. A window
-  // reaching back before it holds sessions whose conversions were never
-  // fetched (lead events were set up, or first synced, later).
-  const firstLeadDate = reportedEventNames.length > 0
+  // Where the lead history starts: the earliest of the first day a lead sync
+  // recorded as covered (its receipts include days with no conversions) and
+  // the first stored lead event (history synced before receipts were kept).
+  // A window reaching back before it holds sessions whose conversions were
+  // never fetched.
+  const firstLeadReceipt = reportedEventNames.length > 0
+    ? db.select({ date: sql<string | null>`MIN(${gaSyncCoverage.date})` })
+        .from(gaSyncCoverage)
+        .where(and(eq(gaSyncCoverage.projectId, input.projectId), eq(gaSyncCoverage.component, 'leads')))
+        .get()?.date ?? null
+    : null
+  const firstLeadRow = reportedEventNames.length > 0
     ? db.select({ date: sql<string | null>`MIN(${gaLeadEventsDaily.date})` })
         .from(gaLeadEventsDaily)
         .where(and(eq(gaLeadEventsDaily.projectId, input.projectId), inArray(gaLeadEventsDaily.eventName, reportedEventNames)))
         .get()?.date ?? null
     : null
-  const firstAcquisitionDate = acquisitionDates.reduce<string | null>(
-    (first, row) => (first === null || row.date < first ? row.date : first),
+  const leadHistoryStart = [firstLeadReceipt, firstLeadRow]
+    .filter((date): date is string => date !== null)
+    .sort()[0] ?? null
+  const firstAcquisitionDate = acquisitionDays.reduce<string | null>(
+    (first, date) => (first === null || date < first ? date : first),
     null,
   )
 
   const conversionRateUnavailableReason = leadRateUnavailableReason({
-    hasData: conversionRows !== null && sessionRows.length > 0,
+    hasData: conversionRows !== null && acquisitionDates.length > 0,
     acquisitionStatus: state?.acquisitionStatus ?? undefined,
     leadStatus: state?.leadStatus ?? undefined,
     // Every host and the whole site on both sides, so a channel-scoped lead
@@ -458,7 +501,7 @@ export function loadSocialPlatformPerformance(db: Database, input: {
     latestAcquisitionDate: latestDate(acquisitionDates),
     latestLeadDate: latestDate(leadDates),
     leadDayWithoutSessions: hasLeadDayWithoutSessions(acquisitionDates, leadDates),
-    sessionsBeforeLeads: firstLeadDate !== null && firstAcquisitionDate !== null && firstAcquisitionDate < firstLeadDate,
+    sessionsBeforeLeads: leadHistoryStart !== null && firstAcquisitionDate !== null && firstAcquisitionDate < leadHistoryStart,
   })
 
   return buildSocialPlatformPerformance({
@@ -466,7 +509,7 @@ export function loadSocialPlatformPerformance(db: Database, input: {
     conversionRows,
     dailyRows,
     hasAcquisitionRows: acquisitionDates.length > 0,
-    siteSessions: siteSessionsRow?.sessions ?? null,
+    siteSessions,
     siteConversions: conversionRows === null ? null : (siteConversionsRow?.conversions ?? 0),
     totalSessions: input.totalSessions,
     countedEventNames: reportedEventNames.length > 0 ? reportedEventNames : countedEventNames,
