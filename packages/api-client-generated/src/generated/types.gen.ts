@@ -14374,14 +14374,6 @@ export type ProjectConfig = {
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
          */
         competitorAutoAliases?: 'off' | 'preview' | 'apply';
-        socialPlatforms?: Array<'x' | 'reddit' | 'linkedin'>;
-        socialConfig?: {
-            [key: string]: {
-                searchTerms?: Array<string>;
-                communities?: Array<string>;
-                limit?: number;
-            };
-        };
     };
 };
 
@@ -14467,14 +14459,6 @@ export type ProjectConfigExport = {
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
          */
         competitorAutoAliases?: 'off' | 'preview' | 'apply';
-        socialPlatforms?: Array<'x' | 'reddit' | 'linkedin'>;
-        socialConfig?: {
-            [key: string]: {
-                searchTerms?: Array<string>;
-                communities?: Array<string>;
-                limit?: number;
-            };
-        };
     };
 };
 

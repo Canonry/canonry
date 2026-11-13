@@ -51,8 +51,11 @@ export const socialMentionResultSchema = z.object({
   /** Post title where the platform has one (a Reddit submission); null otherwise. */
   contentTitle: z.string().nullable(),
   contentText: z.string(),
-  /** Whether the post links to one of `SocialMentionSearchInput.domains`. */
-  linksDomain: z.boolean(),
+  /**
+   * The project URLs the post links to: each a full URL (host and path) on one
+   * of `SocialMentionSearchInput.domains`. Empty when the post links to none.
+   */
+  linkedUrls: z.array(z.string().url()).default([]),
   likes: engagementCountSchema,
   shares: engagementCountSchema,
   comments: engagementCountSchema,
@@ -94,12 +97,18 @@ export interface SocialMonitorAdapter {
   /** Checks the config locally; must not call the platform. */
   validateConfig(config: SocialMonitorConfig): SocialMonitorHealthcheckResult
   healthcheck(config: SocialMonitorConfig): Promise<SocialMonitorHealthcheckResult>
+  /**
+   * Runs one search. Each result's `linkedUrls` lists the links in the post
+   * that point at `input.domains`, as full URLs; an empty array, never absent,
+   * when it links to none.
+   */
   searchMentions(input: SocialMentionSearchInput, config: SocialMonitorConfig): Promise<SocialMentionResult[]>
 }
 
 /**
- * Per-platform search settings in a project config (`spec.socialConfig`).
- * Strict, so a credential pasted here is rejected instead of being kept in a
+ * Per-platform search settings for a project. Not yet part of `configSpecShape`:
+ * the change that stores them adds them there together with apply, apply
+ * preview and export. Strict, so a credential pasted here is rejected instead of being kept in a
  * file that may be committed; credentials belong in `config.yaml`.
  */
 export const socialMonitorPlatformSettingsSchema = z.object({
@@ -114,7 +123,7 @@ export type SocialMonitorPlatformSettings = z.infer<typeof socialMonitorPlatform
 export const socialMonitorProjectConfigSchema = z.partialRecord(socialMonitorPlatformSchema, socialMonitorPlatformSettingsSchema)
 export type SocialMonitorProjectConfig = z.infer<typeof socialMonitorProjectConfigSchema>
 
-/** The platforms a project monitors (`spec.socialPlatforms`); each at most once. */
+/** The platforms a project monitors; each at most once. Not yet part of `configSpecShape`. */
 export const socialMonitorPlatformListSchema = z.array(socialMonitorPlatformSchema).refine(
   platforms => new Set(platforms).size === platforms.length,
   { message: 'Each social platform may be listed once' },
