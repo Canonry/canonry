@@ -417,8 +417,8 @@ Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside 
 
 | Table | Purpose |
 |-------|---------|
-| **social_mentions** | One social post a social monitoring run found (migration 223): platform, the platform's post id and URL, author, text and title, whether it links to a project domain (`mentions_domain`), nullable sentiment, engagement counts and the platform's score, subreddit, `hashtags` and `metadata`. Author, follower and engagement fields are null when the platform does not expose them, never zero. Unique: `(platform, externalId)` across the install. FK: projectId → projects and runId → runs (cascade), queryId → queries (set null) |
-| **social_connections** | Per-project credentials for one social platform (migration 223). `access_token`, `refresh_token` and `api_key` hold secrets that no read API returns; the API and CLI mask them. Unique: `(platform, projectId)`. FK: projectId → projects (cascade) |
+| **social_mentions** | One social post a social monitoring run found (migration 223), with columns named after contracts `SocialMentionResult`: platform, the platform's post id and URL, `matched_query` (the search term that found it), author, title and text, `linked_urls` (the project URLs the post links to; link data, not a mention), nullable sentiment, `likes`/`shares`/`comments`, `community` (a subreddit on Reddit), `hashtags` and `metadata` (platform-specific fields such as a platform score). Author, follower and engagement fields are null when the platform does not expose them, never zero. Unique: `(projectId, platform, externalId)`, so each project keeps its own copy of a post. FK: projectId → projects (cascade); `(projectId, runId)` → `runs(project_id, id)` (cascade; the pair must match); queryId → queries (set null) |
+| **social_connections** | Which social platforms a project has connected (migration 223): `token_expires_at`, `scopes` and `metadata` only. No secret is stored in SQLite; tokens and API keys live in `~/.canonry/config.yaml`, bound to the project id like Google Ads and GTM connections. Unique: `(platform, projectId)`. FK: projectId → projects (cascade) |
 
 ### Intelligence
 
@@ -517,6 +517,7 @@ Several text columns store serialized JSON. Always use `parseJsonColumn()` from 
 | `research_run_queries.namedCompetitors` | `string[]` |
 | `research_run_queries.citedCompetitorDomains` | `string[]` |
 | `projects.socialPlatforms` | `SocialMonitorPlatform[]` (native `mode: 'json'`) |
+| `social_mentions.linkedUrls` | `string[]` (native `mode: 'json'`) |
 | `social_mentions.hashtags` | `string[]` (native `mode: 'json'`) |
 | `social_mentions.metadata` | `Record<string, unknown>` (native `mode: 'json'`; platform-specific fields) |
 | `social_connections.scopes` | `string[]` (native `mode: 'json'`) |

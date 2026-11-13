@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { AgentJourneyCorrelationBasis, AgentTrustReason, StoredAgentTrust, CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, RunProviderFailure, RunSyncSummary, SiteCrawlIssueEvidence, SiteCrawlSiteDto, SnapshotUsage, VerificationStatus } from '@canonry/canonry-contracts'
+import type { AgentJourneyCorrelationBasis, AgentTrustReason, StoredAgentTrust, CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, RunProviderFailure, RunSyncSummary, SiteCrawlIssueEvidence, SiteCrawlSiteDto, SnapshotUsage, SocialMonitorPlatform, VerificationStatus } from '@canonry/canonry-contracts'
 import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, SiteAuditScheduleChecks, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GaSearchLandingStatus, GaSearchLandingWindow, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@canonry/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
@@ -4498,19 +4498,13 @@ export const sentimentAttempts = sqliteTable('sentiment_attempts', {
 ])
 
 /**
- * A platform social monitoring searches. Must equal `SocialMonitorPlatform` in
- * contracts (`social-monitoring.ts`, Canonry/canonry#1463; issue #95 calls it
- * `SocialPlatformName`) once that lands, then import it from there instead.
- * Stored as TEXT, so the union is a write-side type only. Not the GA4 social
- * referral grouping (`SocialPlatform` in `social-platform.ts`).
- */
-export type SocialMonitorPlatform = 'x' | 'reddit' | 'linkedin'
-
-/**
- * One social post a social monitoring run found for a project. `(platform,
- * external_id)` identifies the post across the whole install, so it is stored
- * once however many runs see it. It goes with its run or its project; a
- * deleted query only clears `query_id`.
+ * One social post a social monitoring run found for a project. `(project_id,
+ * platform, external_id)` identifies the post within one project, so a post is
+ * stored once per project however many of its runs see it, and two projects can
+ * each keep their own copy. Column names follow `SocialMentionResult` in
+ * contracts. The composite run key keeps `project_id` and `run_id` a matched
+ * pair; the row goes with its run or its project, and a deleted query only
+ * clears `query_id`.
  *
  * Identity and capture facts are non-null; what a platform may not expose
  * (author, follower count, engagement counts, a title, a community) is null
@@ -4519,59 +4513,55 @@ export type SocialMonitorPlatform = 'x' | 'reddit' | 'linkedin'
 export const socialMentions = sqliteTable('social_mentions', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull(),
   platform: text('platform').$type<SocialMonitorPlatform>().notNull(),
   /** The tracked query whose search found the post; null when none did or it was deleted. */
   queryId: text('query_id').references(() => queries.id, { onDelete: 'set null' }),
   /** The platform's own post id. */
   externalId: text('external_id').notNull(),
   externalUrl: text('external_url').notNull(),
+  /** The search term that found the post. */
+  matchedQuery: text('matched_query').notNull(),
   authorHandle: text('author_handle'),
   authorName: text('author_name'),
   authorFollowers: integer('author_followers'),
-  /** The post body; empty for a post with only a title. */
-  contentText: text('content_text').notNull(),
   /** The post title where the platform has one (a Reddit submission). */
   contentTitle: text('content_title'),
-  /** Whether the post links to one of the project's domains. */
-  mentionsDomain: integer('mentions_domain', { mode: 'boolean' }).notNull(),
+  /** The post body; empty for a post with only a title. */
+  contentText: text('content_text').notNull(),
+  /** The project URLs the post links to, as full URLs; `[]` when it links to none. */
+  linkedUrls: text('linked_urls', { mode: 'json' }).$type<string[]>().notNull().default([]),
   sentiment: text('sentiment'),
-  engagementLikes: integer('engagement_likes'),
-  engagementShares: integer('engagement_shares'),
-  engagementComments: integer('engagement_comments'),
-  /** The platform's own score for the post (Reddit's net votes), as reported. */
-  engagementScore: integer('engagement_score'),
-  subreddit: text('subreddit'),
+  likes: integer('likes'),
+  shares: integer('shares'),
+  comments: integer('comments'),
+  /** The community the post was made in (a subreddit on Reddit). */
+  community: text('community'),
   hashtags: text('hashtags', { mode: 'json' }).$type<string[]>().notNull().default([]),
-  /** Platform-specific fields that have no column of their own. */
+  /** Platform-specific fields that have no column of their own (a platform's own score). */
   metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
   postedAt: text('posted_at').notNull(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_social_mentions_run').on(table.runId),
-  index('idx_social_mentions_project').on(table.projectId),
-  index('idx_social_mentions_project_platform').on(table.projectId, table.platform),
   index('idx_social_mentions_query').on(table.queryId),
-  uniqueIndex('idx_social_mentions_platform_external').on(table.platform, table.externalId),
+  uniqueIndex('idx_social_mentions_project_platform_external').on(table.projectId, table.platform, table.externalId),
+  foreignKey({ columns: [table.projectId, table.runId], foreignColumns: [runs.projectId, runs.id] }).onDelete('cascade'),
 ])
 
 /**
- * How a project authenticates to one social platform, one row per platform
- * and project.
- *
- * `access_token`, `refresh_token` and `api_key` hold secrets. No read API
- * returns them: the API and CLI layers that read this table mask them. Which
- * of them a row carries depends on the platform's auth, so all three are
- * nullable.
+ * Which social platforms a project has connected, one row per platform and
+ * project. Metadata only: no secret is stored here. Per root AGENTS.md
+ * "Authentication Storage", tokens and API keys live in
+ * `~/.canonry/config.yaml`, bound to `projects.id` like Google Ads and GTM
+ * connections (`GoogleAdsConnectionConfigEntry` in `packages/canonry/src/config.ts`).
+ * `token_expires_at` is not a secret and stays here so reads need no config.
  */
 export const socialConnections = sqliteTable('social_connections', {
   id: text('id').primaryKey(),
   platform: text('platform').$type<SocialMonitorPlatform>().notNull(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  accessToken: text('access_token'),
-  refreshToken: text('refresh_token'),
   tokenExpiresAt: text('token_expires_at'),
-  apiKey: text('api_key'),
   scopes: text('scopes', { mode: 'json' }).$type<string[]>().notNull().default([]),
   metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
   createdAt: text('created_at').notNull(),

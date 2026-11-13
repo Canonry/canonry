@@ -236,7 +236,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
   },
   socialConnections: {
     kind: 'internal-only',
-    reason: 'Holds social platform tokens and API keys; read APIs never return them, and the masked connection DTO arrives with the social monitoring API (#98).',
+    reason: 'Social connection metadata only (secrets live in config.yaml); its public DTO arrives with the social monitoring API (#98).',
   },
   runtimeLogMetadata: {
     kind: 'internal-only',
