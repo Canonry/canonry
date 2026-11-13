@@ -15,7 +15,6 @@ import { providerDispatchModesSchema } from './provider-batch.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 import { competitorEntrySchema } from './competitor-aliases.js'
 import { siteAuditPageBudgetSchema } from './technical-aeo.js'
-import { socialMonitorPlatformListSchema, socialMonitorProjectConfigSchema } from './social-monitoring.js'
 
 export const configMetadataSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, {
@@ -120,13 +119,6 @@ const configSpecShape = {
    * `preview`.
    */
   competitorAutoAliases: competitorAutoAliasModeInputSchema,
-  /**
-   * Platforms to search in `social-monitor` runs. No default: absent leaves
-   * the project's selection alone, the same rule as `queries`.
-   */
-  socialPlatforms: socialMonitorPlatformListSchema.optional(),
-  /** Per-platform search settings, keyed by platform. Credentials never go here. */
-  socialConfig: socialMonitorProjectConfigSchema.optional(),
 }
 
 /** The cross-field rules every config spec must meet, shared by the apply and export forms. */
