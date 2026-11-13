@@ -492,6 +492,150 @@ test('social groups sources by platform from the API and opens the raw rows in p
   expect(within(sources).getByText('Paid social')).toBeTruthy()
 })
 
+function socialPlatformRow(row: {
+  key: string
+  platform: string | null
+  label: string
+  sessions: number
+  paidSessions: number
+  conversions: number | null
+  display: string
+  rank: number | null
+  enoughSessions: boolean
+  sources?: unknown[]
+}) {
+  return {
+    key: row.key,
+    platform: row.platform,
+    label: row.label,
+    sessions: row.sessions,
+    organicSessions: row.sessions - row.paidSessions,
+    paidSessions: row.paidSessions,
+    share: 0.3,
+    conversions: row.conversions,
+    conversionsPerThousandSessions: row.display === '\u2014' ? null : Number.parseFloat(row.display),
+    conversionsPerThousandSessionsDisplay: row.display,
+    enoughSessions: row.enoughSessions,
+    rank: row.rank,
+    paid: { sessions: row.paidSessions, conversions: 0, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: '\u2014' },
+    organic: { sessions: row.sessions - row.paidSessions, conversions: 0, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: '\u2014' },
+    channelGroups: ['Organic Social'],
+    sources: row.sources ?? [],
+  }
+}
+
+/**
+ * Platforms across every GA4 channel, as the API sends them: sessions
+ * descending, with the rank, the not-ranked flag and every rate set by the
+ * server. The displays here differ from conversions / sessions on purpose, so
+ * a client recount would show.
+ */
+function socialPlatformPerformance(overrides: Record<string, unknown> = {}) {
+  const facebookSources = [
+    { source: 'FB_Ads', medium: 'paidsocial', channelGroup: 'Paid Other', trafficClass: 'paid', sessions: 1500, share: 0.47, conversions: 6, conversionsPerThousandSessions: 4, conversionsPerThousandSessionsDisplay: '4.0' },
+    { source: 'facebook.com', medium: 'referral', channelGroup: 'Organic Social', trafficClass: 'organic', sessions: 120, share: 0.04, conversions: 0, conversionsPerThousandSessions: 0, conversionsPerThousandSessionsDisplay: '0' },
+  ]
+  return {
+    status: 'ready',
+    unavailableReason: null,
+    sessions: 3220,
+    sharePct: 32.2,
+    sharePctDisplay: '32.2%',
+    paidSessions: 1500,
+    paidShare: 0.466,
+    conversions: 26,
+    conversionRateAvailable: true,
+    conversionRateUnavailableReason: null,
+    countedEventNames: ['purchase'],
+    minSessions: 1000,
+    site: { sessions: 10000, conversions: 56, conversionsPerThousandSessions: 5.6, conversionsPerThousandSessionsDisplay: '5.6' },
+    platforms: [
+      socialPlatformRow({ key: 'facebook', platform: 'facebook', label: 'Facebook', sessions: 1620, paidSessions: 1500, conversions: 6, display: '3.7', rank: 2, enoughSessions: true, sources: facebookSources }),
+      socialPlatformRow({ key: 'instagram', platform: 'instagram', label: 'Instagram', sessions: 1200, paidSessions: 0, conversions: 12, display: '9.9', rank: 1, enoughSessions: true }),
+      socialPlatformRow({ key: 'shopmy', platform: 'shopmy', label: 'ShopMy', sessions: 400, paidSessions: 0, conversions: 8, display: '20.0', rank: null, enoughSessions: false }),
+    ],
+    daily: {
+      series: [{ key: 'facebook', label: 'Facebook', sessions: 1620 }, { key: 'instagram', label: 'Instagram', sessions: 1200 }, { key: 'shopmy', label: 'ShopMy', sessions: 400 }],
+      otherCount: 0,
+      days: [{ date: '2026-03-31', sessions: 3220, values: { facebook: 1620, instagram: 1200, shopmy: 400 } }],
+    },
+    ...overrides,
+  }
+}
+
+test('social platforms across every GA4 channel rank by the API conversions per 1,000 sessions', async () => {
+  onTestFinished(mockConnectedGa({
+    '/ga/traffic': () => jsonResponse(gaTrafficResponse({ socialPlatformPerformance: socialPlatformPerformance() })),
+  }))
+
+  renderActivitySection()
+
+  const section = await waitFor(() => sectionByHeading('Social'))
+  const figures = within(within(section).getByLabelText('Social sessions'))
+  expect(figures.getByText('3,220')).toBeTruthy()
+  expect(figures.getByText('32.2% of all sessions')).toBeTruthy()
+  expect(within(figures.getByText('Top platform').closest('div') as HTMLElement).getByText('Facebook')).toBeTruthy()
+  const best = figures.getByText('Best converting').closest('div') as HTMLElement
+  expect(within(best).getByText('Instagram')).toBeTruthy()
+  expect(within(best).getByText('9.9 per 1,000 sessions')).toBeTruthy()
+
+  const platformsRow = disclosure(section, 'Social platforms')
+  expect(within(platformsRow).getByText('3 platforms · 2 sources')).toBeTruthy()
+  await openDisclosure(platformsRow)
+  const table = await within(platformsRow).findByRole('table', { name: 'Social and creator platforms by sessions and conversions' })
+  const bodyRows = within(table).getAllByRole('row').slice(1)
+  // The whole-site row is pinned first; platforms follow the server rank, and
+  // the platform with too few sessions comes last whatever its rate.
+  expect(bodyRows[0]!.getAttribute('data-testid')).toBe('social-site-average')
+  expect(within(bodyRows[0]!).getByText('10,000')).toBeTruthy()
+  expect(within(bodyRows[0]!).getByText('5.6')).toBeTruthy()
+  expect(bodyRows.slice(1).map(row => within(row).getAllByRole('cell')[0]!.textContent)).toEqual([
+    'Instagram0 sources',
+    'Facebook2 sources',
+    'ShopMy0 sources',
+  ])
+  expect(within(bodyRows[1]!).getByText('9.9')).toBeTruthy()
+  expect(within(bodyRows[1]!).getByText('1')).toBeTruthy()
+  expect(within(bodyRows[3]!).getByText('20.0')).toBeTruthy()
+  expect(within(bodyRows[3]!).getByText(ACTIVITY_COPY.notRanked)).toBeTruthy()
+
+  // An ad GA4 filed under Paid Other reads as Paid, with GA4's channel verbatim.
+  fireEvent.click(within(table).getByRole('button', { name: /Facebook/ }))
+  const sources = within(table).getByRole('table', { name: 'Facebook sources' })
+  const adRow = within(sources).getByText('FB_Ads').closest('tr') as HTMLElement
+  expect(within(adRow).getByText('Paid Other')).toBeTruthy()
+  expect(within(adRow).getByText('Paid')).toBeTruthy()
+  expect(within(adRow).getByText('4.0')).toBeTruthy()
+})
+
+test('social platforms withhold ranks with the API reason, and keep sessions and conversions', async () => {
+  const withheld = socialPlatformPerformance({ conversionRateAvailable: false, conversionRateUnavailableReason: 'sessions-before-leads' })
+  withheld.platforms = withheld.platforms.map(row => ({ ...row, rank: null, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: '\u2014' }))
+  withheld.site = { ...withheld.site, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: '\u2014' }
+  onTestFinished(mockConnectedGa({
+    '/ga/traffic': () => jsonResponse(gaTrafficResponse({ socialPlatformPerformance: withheld })),
+  }))
+
+  renderActivitySection()
+
+  const section = await waitFor(() => sectionByHeading('Social'))
+  const best = within(within(section).getByLabelText('Social sessions')).getByText('Best converting').closest('div') as HTMLElement
+  expect(within(best).getByText(ACTIVITY_COPY.notMeasured)).toBeTruthy()
+  const platformsRow = disclosure(section, 'Social platforms')
+  await openDisclosure(platformsRow)
+  expect(within(platformsRow).getByText(ACTIVITY_COPY.rateReasons['sessions-before-leads'])).toBeTruthy()
+  const table = within(platformsRow).getByRole('table', { name: 'Social and creator platforms by sessions and conversions' })
+  // Sessions order when nothing is ranked, and conversions still shown.
+  const bodyRows = within(table).getAllByRole('row').slice(1)
+  expect(bodyRows.slice(1).map(row => within(row).getAllByRole('cell')[0]!.textContent)).toEqual([
+    'Facebook2 sources',
+    'Instagram0 sources',
+    'ShopMy0 sources',
+  ])
+  expect(within(bodyRows[2]!).getByText('12')).toBeTruthy()
+  expect(within(table).queryByText(ACTIVITY_COPY.notRanked)).toBeNull()
+})
+
 test('top time picker reloads every GA surface, social included, from the same window', async () => {
   const seen = new Set<string>()
   const syncDays: number[] = []

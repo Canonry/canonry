@@ -41,6 +41,21 @@ export function formatPercent(value: number | null | undefined, unit: RatioUnit 
   return `${sign}${tenths.toFixed(1)}%`
 }
 
+/**
+ * A count per 1,000 (conversions per 1,000 sessions) with one decimal: `3.7`,
+ * `25.6`, `1,204.0`. A missing or non-finite value reads `—`, a true 0 reads
+ * `0`, and a positive value that rounds to 0.0 reads `<0.1`, so a real
+ * conversion never shows as none.
+ */
+export function formatPerThousand(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—'
+  if (value === 0) return '0'
+  const tenths = roundedTenths(Math.abs(value))
+  const sign = value < 0 ? '-' : ''
+  if (tenths === 0) return `${sign}<0.1`
+  return `${sign}${tenths.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`
+}
+
 export function formatNumber(value: number): string {
   if (!Number.isFinite(value)) return '—'
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`

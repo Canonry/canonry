@@ -137,40 +137,49 @@ export function KpiRow({ items, label }: { items: readonly KpiItem[]; label: str
   )
 }
 
-export function SortHeader<K extends string>({ label, sortKey, current, dir, onSort, align }: {
+export function SortHeader<K extends string>({ label, sortKey, current, dir, onSort, align, help }: {
   label: string
   sortKey: K
   current: K
   dir: SortDir
   onSort: (key: K) => void
   align: 'left' | 'right'
+  /** Method text beside the header. A sibling of the sort button, so it never toggles the sort or joins its name. */
+  help?: string
 }) {
   const active = current === sortKey
+  const button = (
+    // A button does not inherit text-transform, so it repeats the header
+    // style; otherwise sortable headers render in mixed case.
+    <button
+      type="button"
+      className={`${TABLE_HEAD_TEXT} cursor-pointer select-none rounded transition-colors hover:text-neutral focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mono-400`}
+      onClick={() => onSort(sortKey)}
+    >
+      {label}
+      {active && <span aria-hidden="true" className="ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>}
+    </button>
+  )
   return (
     <th
       className={`py-2 ${align === 'right' ? 'pl-4 text-right' : 'text-left'}`}
       aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : undefined}
     >
-      {/* A button does not inherit text-transform, so it repeats the header
-          style; otherwise sortable headers render in mixed case. */}
-      <button
-        type="button"
-        className={`${TABLE_HEAD_TEXT} cursor-pointer select-none rounded transition-colors hover:text-neutral focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mono-400`}
-        onClick={() => onSort(sortKey)}
-      >
-        {label}
-        {active && <span aria-hidden="true" className="ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>}
-      </button>
+      {help
+        ? <span className="inline-flex items-center gap-1">{button}<InfoTooltip text={help} /></span>
+        : button}
     </th>
   )
 }
 
-export function PlainHeader({ label, align }: { label: string; align: 'left' | 'right' }) {
+export function PlainHeader({ label, align, help }: { label: string; align: 'left' | 'right'; help?: string }) {
   // Same structure as SortHeader (sized text inside an unsized cell), so plain
   // and sortable headers share one baseline.
   return (
     <th className={`py-2 ${align === 'right' ? 'pl-4 text-right' : 'text-left'}`}>
-      <span className={TABLE_HEAD_TEXT}>{label}</span>
+      {help
+        ? <span className="inline-flex items-center gap-1"><span className={TABLE_HEAD_TEXT}>{label}</span><InfoTooltip text={help} /></span>
+        : <span className={TABLE_HEAD_TEXT}>{label}</span>}
     </th>
   )
 }
@@ -191,6 +200,16 @@ export function compareBy<T>(key: keyof T, dir: SortDir) {
   }
 }
 
+/** Order by a value the API sent; a missing value sorts last in either direction. */
+export function compareNullsLast<T>(valueOf: (item: T) => number | null, dir: SortDir) {
+  return (a: T, b: T): number => {
+    const av = valueOf(a)
+    const bv = valueOf(b)
+    if (av === null || bv === null) return Number(av === null) - Number(bv === null)
+    return dir === 'asc' ? av - bv : bv - av
+  }
+}
+
 export interface ReferralGroup<Row> {
   label: string
   sessions: number
@@ -201,6 +220,23 @@ export interface ReferralGroup<Row> {
 }
 
 type GroupSortKey = 'label' | 'sessions' | 'organicSessions' | 'paidSessions'
+
+/**
+ * A column after Share, for a table that carries more API figures per group.
+ * The cell is rendered whole (`render` returns the `<td>`), and sorting reads
+ * `sortValue` as the API sent it: the table never derives a figure.
+ */
+export interface ReferralGroupColumn<Group> {
+  key: string
+  label: string
+  /** Method text in an InfoTooltip beside the header. */
+  help?: string
+  /** Sort by this value, missing values last; omit for a column that does not sort. */
+  sortValue?: (group: Group) => number | null
+  /** Direction of the first click on this header. */
+  firstDir?: SortDir
+  render: (group: Group) => ReactNode
+}
 
 /**
  * Groups (engines, platforms) with their raw source rows behind a disclosure.
@@ -214,26 +250,42 @@ export function GroupedReferralTable<Group extends ReferralGroup<unknown>>({
   childRowKey,
   renderChildCells,
   pinLast,
+  extraColumns = [],
+  defaultSort,
+  referenceRow,
 }: {
   groups: readonly Group[]
   groupLabel: string
   caption: string
-  childColumns: ReadonlyArray<{ label: string; align: 'left' | 'right' }>
+  childColumns: ReadonlyArray<{ label: string; align: 'left' | 'right'; help?: string }>
   childRowKey: (row: Group['sources'][number]) => string
   renderChildCells: (row: Group['sources'][number]) => ReactNode
   /** Groups kept at the bottom under every sort, as the API orders them (the unattributed AI group). */
   pinLast?: (group: Group) => boolean
+  /** Figures after Share, in order. */
+  extraColumns?: ReadonlyArray<ReferralGroupColumn<Group>>
+  /** The sort on first render; sessions descending when omitted. */
+  defaultSort?: { key: string; dir: SortDir }
+  /** A reference row (a site-wide figure) pinned above the groups under every sort. */
+  referenceRow?: ReactNode
 }) {
   const baseId = useId()
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
-  const [sort, setSort] = useState<{ key: GroupSortKey; dir: SortDir }>({ key: 'sessions', dir: 'desc' })
+  const [sort, setSort] = useState<{ key: string; dir: SortDir }>(defaultSort ?? { key: 'sessions', dir: 'desc' })
   const sorted = useMemo(() => {
-    const byColumn = compareBy<Group>(sort.key, sort.dir)
+    const extra = extraColumns.find(column => column.key === sort.key)
+    const byColumn = extra?.sortValue
+      ? compareNullsLast<Group>(extra.sortValue, sort.dir)
+      : compareBy<Group>(sort.key as GroupSortKey, sort.dir)
     return [...groups].sort((a, b) => (
       Number(pinLast?.(a) ?? false) - Number(pinLast?.(b) ?? false) || byColumn(a, b)
     ))
-  }, [groups, sort, pinLast])
-  const onSort = (key: GroupSortKey) => setSort(current => nextSort(current, key, key === 'label' ? 'asc' : 'desc'))
+  }, [groups, sort, pinLast, extraColumns])
+  const onSort = (key: string) => setSort(current => nextSort(
+    current,
+    key,
+    extraColumns.find(column => column.key === key)?.firstDir ?? (key === 'label' ? 'asc' : 'desc'),
+  ))
   const toggle = (label: string) => setExpanded(current => {
     const next = new Set(current)
     if (next.has(label)) next.delete(label)
@@ -243,7 +295,7 @@ export function GroupedReferralTable<Group extends ReferralGroup<unknown>>({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[36rem] text-label-14">
+      <table className={`w-full text-label-14 ${extraColumns.length > 0 ? 'min-w-[48rem]' : 'min-w-[36rem]'}`}>
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr className="border-b border-default">
@@ -252,9 +304,13 @@ export function GroupedReferralTable<Group extends ReferralGroup<unknown>>({
             <SortHeader label="Organic" sortKey="organicSessions" current={sort.key} dir={sort.dir} onSort={onSort} align="right" />
             <SortHeader label="Paid" sortKey="paidSessions" current={sort.key} dir={sort.dir} onSort={onSort} align="right" />
             <PlainHeader label="Share" align="right" />
+            {extraColumns.map(column => (column.sortValue
+              ? <SortHeader key={column.key} label={column.label} sortKey={column.key} current={sort.key} dir={sort.dir} onSort={onSort} align="right" help={column.help} />
+              : <PlainHeader key={column.key} label={column.label} align="right" help={column.help} />))}
           </tr>
         </thead>
         <tbody>
+          {referenceRow}
           {sorted.map((group, index) => {
             const open = expanded.has(group.label)
             const panelId = `${baseId}-group-${index}`
@@ -281,16 +337,17 @@ export function GroupedReferralTable<Group extends ReferralGroup<unknown>>({
                   <td className="py-2 pl-4 text-right text-secondary tabular-nums">{group.organicSessions.toLocaleString()}</td>
                   <td className="py-2 pl-4 text-right text-secondary tabular-nums">{group.paidSessions.toLocaleString()}</td>
                   <td className="py-2 pl-4 text-right text-secondary tabular-nums">{formatPercent(group.share)}</td>
+                  {extraColumns.map(column => <Fragment key={column.key}>{column.render(group)}</Fragment>)}
                 </tr>
                 {open && (
                   <tr id={panelId}>
-                    <td colSpan={5} className="pb-3 pl-6">
+                    <td colSpan={5 + extraColumns.length} className="pb-3 pl-6">
                       <div className="overflow-x-auto material-base px-3 pb-1">
                         <table className="w-full min-w-[32rem] text-label-13">
                           <caption className="sr-only">{`${group.label} sources`}</caption>
                           <thead>
                             <tr>
-                              {childColumns.map(column => <PlainHeader key={column.label} label={column.label} align={column.align} />)}
+                              {childColumns.map(column => <PlainHeader key={column.label} label={column.label} align={column.align} help={column.help} />)}
                             </tr>
                           </thead>
                           <tbody>

@@ -185,6 +185,17 @@ for the current snapshot. Use the GA referral-history commands for daily series.
 Before you quote GA4 data, make sure that `cnry ga status` has a recent
 `lastSyncedAt`. If it is stale, get approval before you run `cnry ga sync`.
 
+To say which social or creator platforms are worth advertising on, read
+`socialPlatformPerformance` from `cnry ga traffic`: platforms across every GA4
+channel (tagged ads GA4 files as Paid Other count), each with conversions per
+1,000 sessions and a server rank. It is value per visit, not return on ad
+spend: without cost per click it says what a click is worth, so compare it
+with the platform's real cost before you recommend spend. Quote the rank only
+where the server gave one; a platform below `minSessions` is not ranked, and a
+non-null `conversionRateUnavailableReason` means no rate is quotable. Keep a
+platform's paid and organic figures apart, and remember the credit is GA4 last
+click, which undercounts upper-funnel platforms.
+
 For Cloud Run, WordPress, Vercel, or Cloudflare, use `cnry traffic status` and
 `cnry traffic events` for crawler and AI-referral evidence. Before you quote a
 server-side AI referral total, run `cnry traffic referral-assessment` for the

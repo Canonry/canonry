@@ -1,11 +1,17 @@
 import { AI_ENGINE_DOMAINS, classifyAiReferralTrafficClass } from '@canonry/canonry-contracts'
-import { gaAiReferrals, gaSocialReferrals, type DatabaseClient } from '@canonry/canonry-db'
+import { gaAcquisitionDaily, gaAiReferrals, gaLeadEventsDaily, gaSocialReferrals, type DatabaseClient } from '@canonry/canonry-db'
 
 /**
  * GA4 AI and social referral rows for a demo project, shaped the way real
  * properties report them: one platform split across several source and medium
  * spellings, paid and organic rows side by side, and AI visits under GA4's
  * `AI Assistant` channel, including one source that names no engine.
+ *
+ * The social rows also land in the per-source acquisition table, with two
+ * platform rows GA4 files outside its Social channel (a Meta ad tagged
+ * `FB_Ads`/`paidsocial` under Paid Other, a ShopMy creator link under
+ * Unassigned) and a few lead events, so the platform ranking has the same
+ * shapes a real property sends.
  */
 
 interface ReferralSeed {
@@ -40,6 +46,20 @@ const SOCIAL_ROWS: readonly ReferralSeed[] = [
   { source: 'nextdoor.com', medium: 'referral', channelGroup: 'Organic Social', daily: 1, every: 7 },
 ]
 
+/** Platform rows GA4 does not file as social: they reach only the acquisition table. */
+const NON_SOCIAL_CHANNEL_PLATFORM_ROWS: readonly ReferralSeed[] = [
+  { source: 'FB_Ads', medium: 'paidsocial', channelGroup: 'Paid Other', daily: 6 },
+  { source: 'shopmy', medium: '(not set)', channelGroup: 'Unassigned', daily: 2 },
+]
+
+/** Lead events for some platform rows: `leadEvery` days apart, one event each. */
+const PLATFORM_LEAD_ROWS: ReadonlyArray<{ source: string; medium: string; channelGroup: string; leadEvery: number }> = [
+  { source: 'FB_Ads', medium: 'paidsocial', channelGroup: 'Paid Other', leadEvery: 3 },
+  { source: 'shopmy', medium: '(not set)', channelGroup: 'Unassigned', leadEvery: 2 },
+  { source: 'ig', medium: 'social', channelGroup: 'Organic Social', leadEvery: 4 },
+  { source: 'Pinterest', medium: 'PaidSocial', channelGroup: 'Paid Social', leadEvery: 7 },
+]
+
 const AI_ROWS: readonly ReferralSeed[] = [
   { source: AI_ENGINE_DOMAINS.chatgpt, medium: 'ai-assistant', channelGroup: 'AI Assistant', daily: 3 },
   { source: AI_ENGINE_DOMAINS.perplexity, medium: 'ai-assistant', channelGroup: 'AI Assistant', daily: 1 },
@@ -58,12 +78,28 @@ const AI_LANDING_PAGES = ['/', '/services/', '/guides/'] as const
 
 export function seedGaReferrals(
   db: DatabaseClient,
-  input: { projectId: string; prefix: string; syncRunId: string; nowIso: string; dates: readonly string[] },
+  input: { projectId: string; prefix: string; syncRunId: string; nowIso: string; dates: readonly string[]; hostName: string },
 ): void {
-  const { projectId, prefix, syncRunId, nowIso, dates } = input
+  const { projectId, prefix, syncRunId, nowIso, dates, hostName } = input
+  const acquisition = (id: string, date: string, row: ReferralSeed, sessions: number) => db.insert(gaAcquisitionDaily).values({
+    id,
+    projectId,
+    date,
+    channelGroup: row.channelGroup,
+    source: row.source,
+    medium: row.medium,
+    hostName,
+    landingPage: '/',
+    landingPageNormalized: '/',
+    sessions,
+    syncedAt: nowIso,
+    syncRunId,
+    createdAt: nowIso,
+  }).run()
   for (const [day, date] of dates.entries()) {
     for (const [index, row] of SOCIAL_ROWS.entries()) {
       if (day % (row.every ?? 1) !== 0) continue
+      const sessions = row.daily + (day % 3 === 0 ? 1 : 0)
       db.insert(gaSocialReferrals).values({
         id: `${prefix}-ga-social-${day}-${index}`,
         projectId,
@@ -71,10 +107,34 @@ export function seedGaReferrals(
         source: row.source,
         medium: row.medium,
         channelGroup: row.channelGroup,
-        sessions: row.daily + (day % 3 === 0 ? 1 : 0),
+        sessions,
         users: row.daily,
         syncedAt: nowIso,
         syncRunId,
+      }).run()
+      acquisition(`${prefix}-ga-acquisition-social-${day}-${index}`, date, row, sessions)
+    }
+    for (const [index, row] of NON_SOCIAL_CHANNEL_PLATFORM_ROWS.entries()) {
+      acquisition(`${prefix}-ga-acquisition-platform-${day}-${index}`, date, row, row.daily + (day % 2))
+    }
+    for (const [index, row] of PLATFORM_LEAD_ROWS.entries()) {
+      if (day % row.leadEvery !== 0) continue
+      db.insert(gaLeadEventsDaily).values({
+        id: `${prefix}-ga-lead-platform-${day}-${index}`,
+        projectId,
+        date,
+        eventName: 'generate_lead',
+        channelGroup: row.channelGroup,
+        source: row.source,
+        medium: row.medium,
+        hostName,
+        landingPage: '/',
+        landingPageNormalized: '/',
+        attributionScope: 'landing-page',
+        eventCount: 1,
+        syncedAt: nowIso,
+        syncRunId,
+        createdAt: nowIso,
       }).run()
     }
     for (const [index, row] of AI_ROWS.entries()) {
