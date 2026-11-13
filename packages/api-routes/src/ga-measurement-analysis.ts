@@ -11,12 +11,10 @@ import {
   gscSearchData,
 } from '@canonry/canonry-db'
 import {
-  AiEngineLeadRateUnavailableReasons,
   aiEngineForReferralSource,
   aiReferralEngineLabel,
   AiReferralTrafficClasses,
   classifyAiReferralTrafficClass,
-  countedLeadEventNames,
   countsKeyEvents,
   ignoredKeyEventNames,
   filterBrandedSeedCandidates,
@@ -38,9 +36,9 @@ import type {
   AiReferralTrafficClass,
   GaMeasurementAnalysisDto,
   GaMeasurementAnalysisWindow,
-  GaMeasurementComponentStatus,
 } from '@canonry/canonry-contracts'
 import { resolveProject } from './helpers.js'
+import { hasLeadDayWithoutSessions, latestDate, leadRateUnavailableReason, resolveLeadEvents } from './ga-lead-rate.js'
 
 type Database = FastifyInstance['db']
 type WindowDays = 30 | 60 | 90
@@ -309,56 +307,6 @@ function buildAiEngineLeads(input: {
   }
 }
 
-function latestDate(rows: Array<{ date: string }>): string | null {
-  let latest: string | null = null
-  for (const row of rows) {
-    if (latest === null || row.date > latest) latest = row.date
-  }
-  return latest
-}
-
-/** True when some day with a stored lead row has no stored acquisition row at all. */
-function hasLeadDayWithoutSessions(
-  acquisitionRows: Array<{ date: string }>,
-  leadRows: Array<{ date: string }>,
-): boolean {
-  const acquisitionDates = new Set(acquisitionRows.map(row => row.date))
-  return leadRows.some(row => !acquisitionDates.has(row.date))
-}
-
-/**
- * Why a lead rate would divide unlike data, or null when it is honest. The
- * coverage checks read the unfiltered rows of the window: acquisition and
- * leads are separate sync components, and when acquisition stops landing (or
- * skips days) while leads keep landing, a bucket holds leads for days with no
- * stored sessions.
- */
-function aiEngineLeadRateUnavailableReason(input: {
-  hasData: boolean
-  acquisitionStatus: GaMeasurementComponentStatus | undefined
-  leadStatus: GaMeasurementComponentStatus | undefined
-  channelLeadsUnfiltered: boolean
-  paidOnlyByLandingPage: boolean
-  latestAcquisitionDate: string | null
-  latestLeadDate: string | null
-  leadDayWithoutSessions: boolean
-}): AiEngineLeadRateUnavailableReason | null {
-  if (!input.hasData) return AiEngineLeadRateUnavailableReasons['no-data']
-  if (input.acquisitionStatus !== 'ready' || input.leadStatus !== 'ready') {
-    return AiEngineLeadRateUnavailableReasons['sync-not-ready']
-  }
-  if (input.channelLeadsUnfiltered) return AiEngineLeadRateUnavailableReasons['channel-leads-unfiltered']
-  if (input.paidOnlyByLandingPage) return AiEngineLeadRateUnavailableReasons['paid-split-needs-landing-page']
-  if (
-    input.latestLeadDate !== null
-    && (input.latestAcquisitionDate === null || input.latestAcquisitionDate < input.latestLeadDate)
-  ) {
-    return AiEngineLeadRateUnavailableReasons['sessions-behind-leads']
-  }
-  if (input.leadDayWithoutSessions) return AiEngineLeadRateUnavailableReasons['sessions-missing-on-lead-days']
-  return null
-}
-
 type EngagementRow = typeof gaDailyTotals.$inferSelect
 
 /**
@@ -534,17 +482,19 @@ export function buildGaMeasurementAnalysis(
     .where(eq(gaMeasurementSyncStates.projectId, project.id)).get()
   // The events the project counts now: configured lead events, plus the
   // property's key events when that is on.
-  const configuredLeadEvents = [...project.measurement.leadEventNames]
   const keyEventsEnabled = countsKeyEvents(project.measurement)
-  const keyEventNames = keyEventsEnabled ? (state?.keyEventNames ?? null) : null
-  const countedEventNames = countedLeadEventNames(configuredLeadEvents, keyEventNames ?? [])
+  const {
+    configuredLeadEvents,
+    keyEventNames,
+    countedEventNames,
+    measuredEventSet,
+    reportedEventNames,
+  } = resolveLeadEvents(project.measurement, state)
   // An event is measured once a lead sync fetched its history: it is in the
   // last successfully synced set. A sync from before that set was recorded
   // fetched the configured events. Only counted AND measured events are read,
   // so an event that left the set, or one not fetched yet, never shapes the
   // anchor, the attribution scope or a total, and never reads as a zero.
-  const measuredEventSet = new Set(state?.leadEventNames ?? configuredLeadEvents)
-  const reportedEventNames = countedEventNames.filter(name => measuredEventSet.has(name))
   const leadEventCondition = reportedEventNames.length > 0
     ? inArray(gaLeadEventsDaily.eventName, reportedEventNames)
     : null
@@ -687,7 +637,7 @@ export function buildGaMeasurementAnalysis(
     periods: hasAiEngineLeadData ? gaPeriods : [],
     leads: aiEngineRows.leads,
     sessions: aiEngineRows.sessions,
-    leadRateUnavailableReason: aiEngineLeadRateUnavailableReason({
+    leadRateUnavailableReason: leadRateUnavailableReason({
       hasData: hasAiEngineLeadData,
       acquisitionStatus: state?.acquisitionStatus,
       leadStatus: state?.leadStatus,

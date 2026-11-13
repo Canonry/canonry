@@ -1927,6 +1927,10 @@ export type ApiGaTrafficPage = GaTrafficResponse['topPages'][number]
 export type ApiGaTrafficReferral = GaTrafficResponse['aiReferrals'][number]
 export type ApiGaTrafficAiLandingPage = GaTrafficResponse['aiReferralLandingPages'][number]
 export type ApiGaSocialReferral = GaTrafficResponse['socialReferrals'][number]
+/** Social and creator platforms across every GA4 channel, with conversions and a rank. Absent from an older server. */
+export type ApiGaSocialPlatformPerformance = NonNullable<GaTrafficResponse['socialPlatformPerformance']>
+export type ApiGaSocialPlatformRow = ApiGaSocialPlatformPerformance['platforms'][number]
+export type ApiGaSocialPlatformSource = ApiGaSocialPlatformRow['sources'][number]
 export type ApiGaChannelBucket = GA4ChannelBucketDto
 export type ApiGaChannelBreakdown = GA4ChannelBreakdownDto
 

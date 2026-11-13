@@ -14,6 +14,7 @@ import { buildGaOverview, parseGaOverviewWindow } from './ga-overview.js'
 import { findBiggestMover } from './ga-source-mover.js'
 import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttributionDimension, summarizeAiReferralCounts } from './ga-ai-referral-aggregation.js'
 import { groupAiEngines, groupSocialPlatforms, paidSocialSummary, socialPlatformDailySeries } from './ga-referral-groups.js'
+import { loadSocialPlatformPerformance } from './ga-social-platform-performance.js'
 import { clearGaDataOnPropertyChange, clearGaPropertyData, resolveCurrentGa4PropertyId, projectsSharingGa4Connection, readGa4Properties } from './ga-property-data.js'
 import { planGaSyncCoverage, saveGaSyncCoverage, fetchGaSyncRanges } from './ga-sync-coverage.js'
 import { persistSearchLandingFailure, persistSearchLandingSnapshot, searchLandingWindowsToFetch } from './ga-search-landing-pages.js'
@@ -1868,6 +1869,18 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       sessions: r.sessions ?? 0,
     })))
 
+    // Social and creator platforms across every GA4 channel group, with
+    // conversions, over the same window. GA4's Social channel above leaves out
+    // tagged ads it files elsewhere (fb_ads in Paid Other) and creator links
+    // (ShopMy in Unassigned); this block reads the per-source acquisition and
+    // lead tables instead, so those count under their platform.
+    const socialPlatformPerformance = loadSocialPlatformPerformance(app.db, {
+      projectId: project.id,
+      measurement: project.measurement,
+      dateConditions: (column) => dateRangeConditions(column, measuredRange),
+      totalSessions: total,
+    })
+
     return {
       totalSessions: total,
       totalOrganicSessions,
@@ -1918,6 +1931,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         source: r.source,
         sessions: r.sessions ?? 0,
       }))),
+      socialPlatformPerformance,
       socialSessions,
       ...paidSocialSummary(socialReferralDtos),
       channelBreakdown,

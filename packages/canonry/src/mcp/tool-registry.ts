@@ -2877,7 +2877,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_ga_traffic',
     title: 'Get GA traffic',
-    description: 'Get Google Analytics traffic summary for a Canonry project.',
+    description: 'Get Google Analytics traffic summary for a Canonry project: sessions by channel, AI and social referrals, and socialPlatformPerformance, which ranks social and creator platforms across every GA4 channel (including tagged ads GA4 files as Paid Other) by conversions per 1,000 sessions, with a whole-site reference. Rates are withheld with a reason when sessions and conversions would cover different days.',
     access: 'read',
     tier: 'ga',
     inputSchema: gaTrafficInputSchema,

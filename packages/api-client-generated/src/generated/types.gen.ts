@@ -6984,7 +6984,7 @@ export type Ga4MeasurementAnalysisDto = {
         }>;
         aiEngines: {
             leadRateAvailable: boolean;
-            leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | null;
+            leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | 'sessions-before-leads' | null;
             organic: {
                 periods: Array<{
                     label: 'earliest' | 'middle' | 'previous' | 'latest';
@@ -7523,7 +7523,7 @@ export type GaTrafficResponse = {
         share: number;
     }>;
     socialPlatforms: Array<{
-        platform: 'instagram' | 'facebook' | 'pinterest' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'threads' | 'snapchat' | 'nextdoor' | 'quora' | null;
+        platform: 'instagram' | 'facebook' | 'pinterest' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'threads' | 'snapchat' | 'nextdoor' | 'quora' | 'shopmy' | 'ltk' | null;
         label: string;
         sessions: number;
         organicSessions: number;
@@ -7552,6 +7552,79 @@ export type GaTrafficResponse = {
                 [key: string]: number;
             };
         }>;
+    };
+    socialPlatformPerformance?: {
+        status: 'ready' | 'unavailable';
+        unavailableReason: 'sessions-not-synced' | null;
+        sessions: number;
+        sharePct: number;
+        sharePctDisplay: string;
+        paidSessions: number;
+        paidShare: number;
+        conversions: number | null;
+        conversionRateAvailable: boolean;
+        conversionRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | 'sessions-before-leads' | null;
+        countedEventNames: Array<string>;
+        minSessions: number;
+        site: {
+            conversions: number | null;
+            conversionsPerThousandSessions: number | null;
+            conversionsPerThousandSessionsDisplay: string;
+            sessions: number | null;
+        };
+        platforms: Array<{
+            conversions: number | null;
+            conversionsPerThousandSessions: number | null;
+            conversionsPerThousandSessionsDisplay: string;
+            key: string;
+            platform: 'instagram' | 'facebook' | 'pinterest' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'threads' | 'snapchat' | 'nextdoor' | 'quora' | 'shopmy' | 'ltk' | null;
+            label: string;
+            sessions: number;
+            organicSessions: number;
+            paidSessions: number;
+            share: number;
+            enoughSessions: boolean;
+            rank: number | null;
+            paid: {
+                conversions: number | null;
+                conversionsPerThousandSessions: number | null;
+                conversionsPerThousandSessionsDisplay: string;
+                sessions: number;
+            };
+            organic: {
+                conversions: number | null;
+                conversionsPerThousandSessions: number | null;
+                conversionsPerThousandSessionsDisplay: string;
+                sessions: number;
+            };
+            channelGroups: Array<string>;
+            sources: Array<{
+                conversions: number | null;
+                conversionsPerThousandSessions: number | null;
+                conversionsPerThousandSessionsDisplay: string;
+                source: string;
+                medium: string;
+                channelGroup: string;
+                trafficClass: 'organic' | 'paid';
+                sessions: number;
+                share: number;
+            }>;
+        }>;
+        daily: {
+            series: Array<{
+                key: string;
+                label: string;
+                sessions: number;
+            }>;
+            otherCount: number;
+            days: Array<{
+                date: string;
+                sessions: number;
+                values: {
+                    [key: string]: number;
+                };
+            }>;
+        };
     };
     socialSessions: number;
     paidSocialSessions: number;
@@ -13919,7 +13992,7 @@ export type OrganicEvidenceDto = {
             }>;
             aiEngines: {
                 leadRateAvailable: boolean;
-                leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | null;
+                leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | 'sessions-before-leads' | null;
                 organic: {
                     periods: Array<{
                         label: 'earliest' | 'middle' | 'previous' | 'latest';

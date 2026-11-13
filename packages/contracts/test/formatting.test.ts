@@ -12,6 +12,7 @@ import {
   inclusiveDayCount,
   formatAxisNumber,
   formatNumber,
+  formatPerThousand,
   formatPointDelta,
   formatTenthsMagnitude,
   formatPercent,
@@ -115,6 +116,20 @@ describe('formatNumber', () => {
   test('values >= 1M abbreviate with M suffix', () => {
     expect(formatNumber(1_000_000)).toBe('1.0M')
     expect(formatNumber(2_400_000)).toBe('2.4M')
+  })
+})
+
+describe('formatPerThousand', () => {
+  test('shows one decimal, a true zero as 0, and never rounds a real count to none', () => {
+    expect(formatPerThousand(3.7)).toBe('3.7')
+    expect(formatPerThousand(40.04)).toBe('40.0')
+    expect(formatPerThousand(25.55)).toBe('25.6')
+    expect(formatPerThousand(1204)).toBe('1,204.0')
+    expect(formatPerThousand(0)).toBe('0')
+    expect(formatPerThousand(0.04)).toBe('<0.1')
+    expect(formatPerThousand(null)).toBe('—')
+    expect(formatPerThousand(undefined)).toBe('—')
+    expect(formatPerThousand(Number.NaN)).toBe('—')
   })
 })
 

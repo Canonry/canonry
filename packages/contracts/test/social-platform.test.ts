@@ -42,6 +42,33 @@ describe('socialPlatformForReferralSource', () => {
     expect(socialPlatformForReferralSource('facebook.example.com')).toBeNull()
   })
 
+  it('groups creator storefront sources (ShopMy, LTK) as their own platforms', () => {
+    for (const [source, platform] of [
+      ['shopmy', 'shopmy'],
+      ['ShopMy', 'shopmy'],
+      ['shopmy.us', 'shopmy'],
+      ['www.shopmy.us', 'shopmy'],
+      ['liketoknow.it', 'ltk'],
+      ['shopltk.com', 'ltk'],
+      ['rstyle.me', 'ltk'],
+      ['LTK', 'ltk'],
+      ['rewardstyle', 'ltk'],
+    ] as const) {
+      expect(socialPlatformForReferralSource(source), source).toBe(platform)
+    }
+    expect(socialPlatformLabel('shopmy')).toBe('ShopMy')
+    expect(socialPlatformLabel('ltk')).toBe('LTK')
+  })
+
+  it('drops bare words shorter than minLabelLength, and never a hostname', () => {
+    expect(socialPlatformForReferralSource('promo-x')).toBe('x')
+    expect(socialPlatformForReferralSource('promo-x', { minLabelLength: 2 })).toBeNull()
+    expect(socialPlatformForReferralSource('x.com', { minLabelLength: 2 })).toBe('x')
+    expect(socialPlatformForReferralSource('t.co', { minLabelLength: 2 })).toBe('x')
+    expect(socialPlatformForReferralSource('FB_Ads', { minLabelLength: 2 })).toBe('facebook')
+    expect(socialPlatformForReferralSource('ig', { minLabelLength: 2 })).toBe('instagram')
+  })
+
   it('returns null for sources no platform names and for GA4 placeholders', () => {
     for (const source of ['some-forum.example', 'newsletter', '(not set)', '(direct)', '', '   ', null, undefined]) {
       expect(socialPlatformForReferralSource(source), String(source)).toBeNull()
