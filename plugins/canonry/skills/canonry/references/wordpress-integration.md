@@ -39,7 +39,7 @@ Env-sensitive commands accept `--live` or `--staging`. If neither is provided, c
 
 ## Typical Workflow
 
-Set `WP_APP_PASSWORD` to the WordPress Application Password before running the example.
+Have the operator set `WP_APP_PASSWORD` in their terminal and run the connection command. Obtain approval for the exact WordPress change before running `set-meta` or another write.
 
 ```bash
 cnry wordpress connect mysite --url https://example.com --user admin \
@@ -62,4 +62,4 @@ cnry wordpress staging push mysite
 
 ## Related: Elementor MCP
 
-For programmatic management of Elementor page layouts, widgets, and styling via MCP tools, see the aero skill reference: [`skills/aero/references/wordpress-elementor-mcp.md`](../../aero/references/wordpress-elementor-mcp.md).
+If both skills are installed, read the [local Aero Elementor reference](../../aero/references/wordpress-elementor-mcp.md). If only the Canonry skill is installed, read the [Aero Elementor reference on GitHub](https://github.com/Canonry/canonry/blob/main/skills/aero/references/wordpress-elementor-mcp.md).

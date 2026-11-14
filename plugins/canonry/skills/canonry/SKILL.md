@@ -15,7 +15,7 @@ prerequisite or a permission mechanism.
 
 Read the initialization guidance, then call `canonry_help` with an `intent`:
 `status`, `diagnose`, `operations`, `prospecting`, `measurement`, `integrations`,
-`reports`, or a short task
+`seo`, `reports`, or a short task
 description. Select an accessible project with `canonry_projects_list` before
 using its exact name in project tools. Inspect each listed tool's input schema;
 help suggests tool names, not invented arguments or authorization.
@@ -83,6 +83,7 @@ guide plus links to host-native references. It does not replace runtime help.
 missing instead of silently creating it.
 
 **Setup:** Agent Readiness needs no answer-engine provider; AI Visibility does.
+Use `canonry_project_setup` to read stored prerequisites and the suggested next step.
 After an Agent Readiness result on an install with no provider (a `NO_PROVIDER`
 notice, or doctor's `providers.none-configured`), propose AI Visibility setup
 as the next step. The operator adds the provider key in the dashboard or in
@@ -138,6 +139,10 @@ authorize saving patterns, changing tracking, publishing plans, or settings.
 Use a supported preview where available, inspect its exact destination and
 revision, then seek approval for the actual change. A preview may itself require
 write permission; never treat a dry-run flag as a universal safety guarantee.
+
+`canonry_discover_harvest` reads saved probes and can send query text to the
+embedding provider to check novelty. Get approval for that live work. Harvest
+returns candidates for review. Promoting candidates needs its own approval.
 
 **Integrations:** inspect stored connection state and snapshot freshness first.
 Provider configuration evidence does not prove a browser event fired or a

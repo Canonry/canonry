@@ -71,8 +71,9 @@ change the plan to make a read work.
 - State where a domain places only from its `rank` (equal counts share a
   rank), never by counting rows; claim any rank or superlative only from a
   rank field or a list seen in full.
-- Coverage denominators count answers, one per query per engine: 8 queries
-  on 3 engines is 24 answers. Label them answers, never queries.
+- Coverage denominators count measured answers. A query can have several
+  answers on one engine when execution contexts differ. Use the reported
+  denominators for each signal and preserve the execution scope.
 - An empty result with `measurement.state: not_measured` means no
   measurement. An unavailable aggregate does not invalidate available
   Property metrics. Report ranked Properties and list excluded Properties
@@ -91,8 +92,8 @@ change the plan to make a read work.
 - `shape: sources` returns cited URLs. Answers without citations are absent
   from that shape, so source-row counts cannot measure answer coverage or
   prove the absence of mentions. Use `shape: answers` to explain gaps.
-- Overview's omitted query class combines classes; portfolio summary defaults
-  to non-brand. Pass an explicit class for a sequence of comparable reads
+- Both Advanced Measurement overview and portfolio summary default to
+  non-brand. Pass an explicit class for a sequence of comparable reads
   and report what the response actually served.
 
 ## Compare and drill down safely

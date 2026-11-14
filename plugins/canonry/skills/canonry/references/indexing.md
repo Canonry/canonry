@@ -2,6 +2,8 @@
 
 Use stored inspection evidence to find search indexing gaps. Google and Bing inspection results describe their own indexes.
 
+Obtain approval for the exact site, URLs, and action before starting a live inspection, sync, crawl request, or sitemap submission.
+
 ## Priority Order
 
 1. **Sitemap submission** — general-site discovery signal; submit on setup and resubmit after material sitemap changes
@@ -123,8 +125,8 @@ cnry bing submit-sitemap <project> https://example.com/sitemap.xml
 
 An accepted submission asks Bing to read the sitemap. The stored sitemap list updates after Bing reads it and Canonry syncs again.
 
-### IndexNow (instant crawl signal)
-IndexNow is a direct ping to Bing: "these URLs changed, crawl them now." Without it, Bing discovers pages on its own schedule (days to weeks). With it, typically hours.
+### IndexNow
+IndexNow notifies participating search engines when URLs change. Search engines decide when to crawl and index them.
 
 **Host the key file at the root:**
 ```
@@ -147,9 +149,7 @@ curl -X POST "https://www.bing.com/indexnow" \
   }'
 ```
 
-Expected response: `202 Accepted`
-
-**Note:** IndexNow only covers Bing (and Yandex). It does NOT affect ChatGPT, Claude, or Gemini.
+HTTP `200` means the search engine received the URLs. HTTP `202` means it received them and key validation is pending. See the [IndexNow protocol](https://www.indexnow.org/documentation).
 
 ---
 
@@ -158,7 +158,7 @@ Expected response: `202 Accepted`
 | Goal | Tool |
 |---|---|
 | Notify Google about an eligible job or livestream page | Google Indexing API |
-| Get pages into Copilot / Bing AI | IndexNow + Bing WMT |
+| Notify participating search engines of changed URLs | IndexNow |
 | Audit what Google currently knows | `cnry google coverage <project>` |
 | Audit what Bing currently knows | `cnry bing coverage <project>` |
 | Fast crawl of new/updated pages on Bing | IndexNow batch submit |

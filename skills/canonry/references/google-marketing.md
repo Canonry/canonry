@@ -75,13 +75,12 @@ OAuth starts and finishes in the same signed-in dashboard browser.
 
 ## Agent procedure
 
-1. Call `canonry_load_toolkit` with `{ "name": "google-ads" }`.
-2. Wait for the call to return.
-3. Load `gtm`, `conversion-tracking`, and `monitoring` in the same way.
-4. Read provider status and stored snapshots.
-5. Read the declared contracts.
-6. Assess each contract with `canonry_conversion_tracking_integrity`.
-7. Report static failures separately from unknown runtime evidence.
+1. Call `canonry_help` with `intent: "integrations"` and `includeCatalog: true` if you need tool discovery.
+   On progressive stdio, load `google-ads`, `gtm`, and `conversion-tracking` if the catalog lists them. Wait for each load to finish.
+2. Read provider status and stored snapshots from the available tools.
+3. Read the declared contracts.
+4. Assess each contract with `canonry_conversion_tracking_integrity`.
+5. Report static failures separately from unknown runtime evidence.
 
 Use stored evidence first. Before a live provider discovery or sync, get
 explicit approval.

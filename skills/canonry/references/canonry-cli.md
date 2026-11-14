@@ -211,11 +211,10 @@ The native MCP tool `canonry_project_update` accepts the same partial request.
 
 ```bash
 cnry get <project> scores.mentionShare.value
-cnry get <project> scores.mentionCoverage.value
-cnry get <project> scores.citationCoverage.value
-cnry get <project> insights[0].severity
+cnry get <project> mentionCoverage.populations --format json
+cnry get <project> topInsights
 cnry get <project> latestRun.status
-cnry get <project> --from overview scores.citationCoverage.value   # pick a registered source
+cnry get <project> --from overview mentionCoverage.selection   # pick a registered source
 cnry get <project> <path> --format json                          # raw JSON output
 ```
 
@@ -611,7 +610,7 @@ cnry backfill insights <project>              # backfill insights for all comple
 cnry backfill insights <project> --from-run <id> --to-run <id>  # backfill a range
 ```
 
-> **Known gap (mention-first read):** `cnry health` is **citation-only** today — it has no mention dimension. For the primary mention-first read, use `cnry overview` and `cnry get <project> scores.mentionCoverage.value` / `cnry get <project> scores.mentionShare.value` until health is extended.
+`cnry health` reports mention and citation rates with separate denominators. Use `cnry overview` for coverage by query class and scoped mention share.
 
 ### Content-target dismissals
 
@@ -833,7 +832,7 @@ A webhook that lists either event receives **only the health events it lists**, 
 
 **Site Health alerts** (`site-health.issue.new`) go only to webhooks that list the event. After each site audit, Canonry sends it when the scan found a critical page problem (no H1, several H1s, no title, or a page that names another property) on pages where that problem was not reported before. The payload lists each problem with `affectedPages`, `newPages` and up to five new example URLs, plus `scanComplete`. A problem that stays unfixed is reported once. An alert no webhook accepted is sent again after the next audit. A complete scan that no longer finds a problem clears it, so it is reported again if it comes back; a partial scan never clears anything. Nothing is recorded while no webhook lists the event, so a new subscriber hears about every current problem after the next audit.
 
-> **No mention events yet.** Notification events cover the citation signal only — there are **no** `mention.lost` / `mention.gained` events today. For mention-first monitoring, read `scores.mentionCoverage` / `scores.mentionShare` via `cnry overview` (or the `insight.*` events, which can be driven by mention-side insights); do not wire automation to mention events that aren't emitted.
+For mention-first monitoring, use `cnry overview` to read `mentionCoverage.populations`, `scores.mentionShare`, and `whatChanged.lostMentions`. The citation webhooks report citation changes. See `cnry notify events --target server` for available events.
 
 **What changed.** `cnry overview <project>` prints the dashboard's "What changed" rows: the queries that lost a mention and those that lost a citation in the latest check (each query once, the two signals counted apart, with the engines, locations, and for Advanced the Properties and markets that lost it) and the runs in progress. `cnry overview --all` prints the portfolio's rows under its table. JSON carries them as `whatChanged`: `lostMentions` / `lostCitations` (`queryCount`, at most 25 `queries`, `truncated`), `activeRuns`, the rows as `items`, and `comparison`. Simple compares each engine's answer with its previous check of the same query and location; Advanced compares each Property's answer with the comparable previous sweep.
 
@@ -1061,7 +1060,7 @@ cnry discover run <project> --icp "..." --locations michigan,florida  # geo-cons
 
 cnry discover list <project>                                     # newest-first session list
 cnry discover show <project> <session-id>                        # per-query probe rows + buckets + classified competitor domains
-cnry discover harvest <project> <session-id>                     # gated candidate seeds from the model's issued search-query fan-out (read-only; nothing is probed/tracked/promoted)
+cnry discover harvest <project> <session-id>                     # candidates from stored probes, with a possible live embedding call
 cnry discover harvest <project> <session-id> --min-probe-hits 2 --no-anchor   # raise the recurrence floor / disable the subject anchor
 cnry discover promote preview <project> <session-id>             # preview bucketed candidates + recurring suggested competitors of every classified type (read-only)
 cnry discover promote <project> <session-id>                     # adopt cited + aspirational queries + direct-competitor domains
@@ -1069,7 +1068,19 @@ cnry discover promote <project> <session-id> --competitor-types direct-competito
 cnry discover promote <project> <session-id> --bucket aspirational --no-competitors   # scope to a bucket subset / skip competitor merge
 ```
 
-Discovery requires Gemini configured (API key today; Vertex-mode embeddings are deferred). The pipeline writes a `discovery_sessions` row, a `runs` row (kind `aeo-discover-probe`), and one `discovery.basket-divergence` insight when the session completes. `discover harvest` is a separate read-only view over a completed session: it reads the search queries the answer engine actually issued to answer each probe (Gemini's `groundingMetadata.webSearchQueries` fan-out, already stored in the probe's `raw_response`) back out — no new model call — runs a mandatory quality gate (drops navigational/phone lookups, over-specific outliers, off-subject acronym collisions, exact already-tracked matches, and — via an embedding cosine pass over your tracked queries — semantic duplicates like paraphrases/synonyms that exact match can't see) and returns the survivors ranked by how many distinct probes issued each one. The output's `semanticNoveltyApplied` reports whether the embedding pass ran (it falls back to exact-match when no Gemini key is configured). These are a third signal — *issued retrieval queries*, neither "mention" nor "cited" — and carry no demand of their own; they are candidate seeds, so review them and add the good ones with `cnry query add`. Use `--min-probe-hits` to require recurrence and `--no-anchor` to allow new-subject discovery on a well-scoped project. Seed generation is location-aware: a project with locations configured (or a `--locations` label subset) geo-constrains the seed prompt so generated queries stay inside the service area, and a multi-location project gets a per-area seed quota so one area cannot dominate — `--locations` labels must match the project's configured locations or the run is rejected; projects with no locations are unaffected. After probing, one Gemini call classifies every recurring cited domain as `direct-competitor`, `ota-aggregator`, `editorial-media`, or `other` (a failed/legacy classification leaves domains `unknown`). Aero wakes unprompted with the bucket-count payload so the operator can act without polling. `discover eval` (quality-regression panel vs committed baseline, exit 1 on regression, --update-baseline to capture), `discover promote` defaults to cited + aspirational queries and `direct-competitor` domains only — aggregators and editorial media are suppressed; pass `--competitor-types` to widen the merge (or to recover legacy `unknown` entries) and `--bucket wasted-surface` for off-ICP competitor gaps. Promotion is add-only and idempotent — queries/domains already tracked are reported as skipped, never inserted twice — and only works on `completed` sessions; promoted rows carry `provenance="discovery:<sessionId>"`. Cited hosts are grouped into the registrable domain a competitor is stored as (`offers.rival.example` promotes as `rival.example`, shown with its source hosts) before the hit floor and the cap, counting each probe once. A competitor that is the project's own site, was cited as two or more different subdomains of one possibly shared host (`shared-host`), or whose name another competitor's alias claims (`claimed-by-alias`) is left out with a reason (`skippedCompetitors` in the preview, `competitorDetails` in the result) while the rest of the promote proceeds.
+Discovery probes use Gemini. The embedding step requires a Gemini API key, including on a Vertex-only installation. Use `--seed-provider gemini`, `--seed-provider openai`, or repeat the flag to use both for seed generation.
+
+The pipeline writes a `discovery_sessions` row, a `runs` row (kind `aeo-discover-probe`), and one `discovery.basket-divergence` insight when the session completes.
+
+`discover harvest` ranks search queries from stored probe responses by how many probes issued each one. It filters candidates by quality and novelty. In an installation with Gemini embeddings, it can send candidate and tracked query text to Gemini to detect paraphrases. Obtain approval for that live provider read. The result uses exact-match novelty when the embedding step cannot run. Read `semanticNoveltyApplied` to tell which check the server used.
+
+These are a third signal — *issued retrieval queries*, neither "mention" nor "cited" — and carry no demand of their own; they are candidate seeds, so review them and add the good ones with `cnry query add`. Use `--min-probe-hits` to require recurrence and `--no-anchor` to allow new-subject discovery on a well-scoped project.
+
+Seed generation is location-aware: a project with locations configured (or a `--locations` label subset) geo-constrains the seed prompt so generated queries stay inside the service area, and a multi-location project gets a per-area seed quota so one area cannot dominate — `--locations` labels must match the project's configured locations or the run is rejected; projects with no locations are unaffected.
+
+After probing, the configured classifier labels recurring cited domains. Gemini is the default. Failed or legacy classification leaves the type `unknown`. Aero wakes unprompted with the bucket-count payload so the operator can act without polling.
+
+`discover eval` (quality-regression panel vs committed baseline, exit 1 on regression, --update-baseline to capture), `discover promote` defaults to cited + aspirational queries and `direct-competitor` domains only — aggregators and editorial media are suppressed; pass `--competitor-types` to widen the merge (or to recover legacy `unknown` entries) and `--bucket wasted-surface` for off-ICP competitor gaps. Promotion is add-only and idempotent — queries/domains already tracked are reported as skipped, never inserted twice — and only works on `completed` sessions; promoted rows carry `provenance="discovery:<sessionId>"`. Cited hosts are grouped into the registrable domain a competitor is stored as (`offers.rival.example` promotes as `rival.example`, shown with its source hosts) before the hit floor and the cap, counting each probe once. A competitor that is the project's own site, was cited as two or more different subdomains of one possibly shared host (`shared-host`), or whose name another competitor's alias claims (`claimed-by-alias`) is left out with a reason (`skippedCompetitors` in the preview, `competitorDetails` in the result) while the rest of the promote proceeds.
 
 ## Bing Webmaster Tools
 

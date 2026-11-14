@@ -149,9 +149,7 @@ Keep it tight. The operator wakes to a short, decision-ready summary, not a full
 - **Gemini not configured.** Configure Gemini before starting discovery.
   The embeddings step requires a Gemini API key, including on a Vertex-only installation.
 - **ICP missing** → route returns 400 with `VALIDATION_ERROR`. Ask the operator for the ICP description in plain language.
-- **Seed collapse (hyperlocal/niche businesses)** → 40 raw seeds collapse to 1-2 canonical queries after embedding+clustering, even at low dedup thresholds. This happens when Gemini generates seed queries that all live in the same semantic pocket (e.g. all variants of "boutique hotel Harborline Beach"). The embedding model sees them as near-identical, so clustering produces one representative.
-
-  **Diagnostic signal:** `seedCountRaw / seedCount > 10:1` (e.g. 40 raw → 1 selected).
+- **Seed collapse.** Read the session's `warning` field and compare the raw and canonical seed counts. Similar wording and intent can collapse many raw candidates into a few queries.
 
   **Remediation:** break the ICP into 3-5 distinct purchase-intent angles and run one session per angle via `--icp-angle`:
 
@@ -164,7 +162,7 @@ Keep it tight. The operator wakes to a short, decision-ready summary, not a full
     --wait
   ```
 
-  Each angle generates its own 40-seed cluster independently, so aggregate coverage grows while per-session dedup stays clean. The `--wait` output prints a combined summary with per-session session IDs and a `promote` command for each. Promote the sessions individually after reviewing previews.
+  Each angle creates a session with its own candidates and probe budget. The `--wait` output identifies each session. Compare their previews before selecting queries to promote.
 
 ## Memory hygiene
 

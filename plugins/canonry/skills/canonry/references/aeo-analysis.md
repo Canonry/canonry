@@ -16,16 +16,14 @@ A "not-mentioned" query means the answer text never named the client. `answerMen
 ### First diagnostic read (mention-first)
 
 ```bash
-cnry get <project> scores.mentionCoverage.value     # mention rate (primary)
-cnry get <project> scores.mentionShare.value        # mention share / AI share-of-voice (primary)
-cnry analytics <project> --feature gaps             # mentionGap[] / notMentioned[] (who's named instead of you)
+cnry get <project> mentionCoverage.populations --format json
+cnry get <project> scores.mentionShare --format json
+cnry analytics <project> --feature gaps --format json
 ```
 
-Read citation as the secondary lens only after the mention read:
-
-```bash
-cnry get <project> scores.citationCoverage.value    # cited rate (secondary)
-```
+Select the population by `queryClass`. Its `mentionCoverage` and
+`citationCoverage` each contain a numerator, denominator, and rate. Use the
+reported scope for mention share.
 
 ## What Citation Means
 
@@ -37,7 +35,7 @@ A "cited" query means the client's domain appeared in an AI provider's grounding
 
 A "not-cited" query means the AI answered without grounding on the client's domain.
 
-A "not-measured" citation means the engine returns no sources at all (a local model with no web access), so whether it would cite the client was never observed. It is never a miss and is left out of every cited rate; report it as not measured, and read that answer's mention as usual.
+A citation is `not-measured` when the adapter captures no structured sources, as with Local chat completions. Cited rates exclude these answers. Their mention measurements remain available.
 
 ## Reading Evidence Output
 
@@ -60,7 +58,7 @@ how to fix a leaky faucet  cm      ·m     cm      0/2   0/3   ← neither: info
 
 **Branded/direct queries** (e.g., "[business name] [city]"):
 - If mentioned: good — the engine names you for your own core queries (and check the citation as the secondary confirmation)
-- If not mentioned: urgent — the engine won't even say your name; something broken at a fundamental level (indexing, schema, llms.txt). Losing the citation for your own name is the secondary signal on the same query.
+- If not mentioned, read the exact answer and check the project's recorded brand names. Use separate site and search evidence to investigate possible causes.
 
 **Competitive queries** (e.g., "best [service] [city]"):
 - If not mentioned: check who IS mentioned (mention share) — competitor analysis needed. Then check who is cited as the secondary lens.
@@ -101,7 +99,7 @@ Recommend briefs only for ownable targets; for ceded head terms, advise earning 
 ## Diagnosing Mention + Citation Gaps
 
 ### Step 0: Read the mention signal first
-Before anything else, separate the two signals. `cnry analytics <project> --feature gaps` tells you whether the query is in `notMentioned[]` (the engine never names you), `mentionGap[]` (a competitor is named instead), or only in the cited `gap[]`/`uncited[]` (a citation gap while the mention may hold). The fix priority follows the mention: earn the name first, the source citation second. `answerMentioned = null` means the snapshot wasn't checked — re-run, don't read it as not-mentioned.
+Read both signals in `cnry analytics <project> --feature gaps`. The `notMentioned[]` and `mentionGap[]` buckets use answer text. The `gap[]` and `uncited[]` buckets use citations. Report `answerMentioned = null` as unavailable.
 
 `cnry health <project>` shows mention and citation rates with separate denominators. `cnry health <project> --history` shows both signals over time.
 
@@ -123,11 +121,11 @@ because a recommended name can be a partner, place, service, or unrelated
 entity.
 
 ### Step 1: Check indexing
-Not mentioned / not cited ≠ bad content. Often the page isn't indexed yet, which starves both signals.
+Read stored indexing evidence as one possible explanation for a change in visibility.
 ```bash
 cnry google coverage <project>
 ```
-If key pages are "unknown to Google," submit them before drawing conclusions.
+For a key page, read its stored inspection with `cnry google inspections <project> --url <url>`. Report the inspection date. Use the [indexing workflow](indexing.md) for an approved submission.
 
 ### Step 2: Check if content exists
 Is there a page on the site targeting that query? If not, that's the gap — not a canonry or provider issue.
