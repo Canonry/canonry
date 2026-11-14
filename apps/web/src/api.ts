@@ -1394,7 +1394,7 @@ export function fetchGoogleConnections(project: string): Promise<ApiGoogleConnec
   )
 }
 
-export function googleConnect(project: string, type: 'gsc' | 'ga4'): Promise<GoogleOAuthStartResponse> {
+export function googleConnect(project: string, type: 'gsc' | 'ga4' | 'gbp'): Promise<GoogleOAuthStartResponse> {
   const publicUrl = getGoogleConnectPublicUrl()
   return invokeWeb<GoogleOAuthStartResponse>(() =>
     postApiV1ProjectsByNameGoogleConnect({

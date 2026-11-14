@@ -7,7 +7,7 @@
  * their account can do, in the place where it matters, instead of filling in a
  * form and being refused at the end of it.
  */
-import type { ReactNode } from 'react'
+import type { ReactNode, Ref } from 'react'
 
 import { useAccount, VIEW_ONLY_LABEL } from '../../contexts/account-context.js'
 import { Button, type ButtonProps } from '../ui/button.js'
@@ -18,9 +18,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui
  *
  * Behaves exactly like `Button` for an administrator, and for an install with
  * no accounts at all. For a viewer it is switched off and carries the reason,
- * so hovering explains it rather than leaving a dead control.
+ * so hovering explains it rather than leaving a dead control. `ref` reaches the
+ * underlying button, so a caller can move keyboard focus to it.
  */
-export function WriteButton({ disabled, title, ...props }: ButtonProps) {
+export function WriteButton({ disabled, title, ...props }: ButtonProps & { ref?: Ref<HTMLButtonElement> }) {
   const { canWrite } = useAccount()
   if (canWrite) return <Button disabled={disabled} title={title} {...props} />
   return <Button {...props} disabled title={VIEW_ONLY_LABEL} />

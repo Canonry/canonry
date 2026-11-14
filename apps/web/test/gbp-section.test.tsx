@@ -1,7 +1,7 @@
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, onTestFinished, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 // Recharts needs a sized container (jsdom has none); stub it like the other
 // chart-bearing section tests so we assert on the textual layer, not the SVG.
@@ -24,6 +24,10 @@ vi.mock('recharts', () => {
 import { act } from '@testing-library/react'
 
 import {
+  GBP_CONNECT_COPY,
+  GBP_DISCONNECT_COPY,
+  GBP_DISCOVER_COPY,
+  GBP_MANAGED_EMPTY_COPY,
   GbpSection,
   completionTone,
   gbpLodgingSourceState,
@@ -31,7 +35,9 @@ import {
   gbpPlaceActionsSourceState,
   gbpPlacesSourceState,
 } from '../src/components/project/GbpSection.js'
+import { AccountProvider, type ApiKeyAccess, type SignedInAccount } from '../src/contexts/account-context.js'
 import { getRunTrackerState, removeTrackedRun, resetRunTracker } from '../src/lib/run-tracker-store.js'
+import { createQueryClient } from '../src/queries/query-client.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
 // The run tracker is a module-global store backed by sessionStorage; reset it
@@ -48,13 +54,33 @@ afterEach(() => {
   window.sessionStorage.clear()
 })
 
-function renderGbpSection() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+function renderGbpSection({
+  account = null,
+  apiKey = null,
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+}: { account?: SignedInAccount | null; apiKey?: ApiKeyAccess | null; queryClient?: QueryClient } = {}) {
   return render(
     <QueryClientProvider client={queryClient}>
-      <GbpSection projectName="test-project" projectId="p1" />
+      <AccountProvider account={account} apiKey={apiKey}>
+        <GbpSection projectName="test-project" projectId="p1" />
+      </AccountProvider>
     </QueryClientProvider>,
   )
+}
+
+const signedInViewer: SignedInAccount = { name: 'Viewer', role: 'viewer' }
+/** A full-access key bound to one project: it may write, but is not an administrator. */
+const projectScopedKey: ApiKeyAccess = { id: 'key-1', scopes: ['*'], projectId: 'p1', readOnly: false }
+
+/** Request log for a test: "METHOD /path" for every fetch the section makes. */
+function recordRequests() {
+  const requests: string[] = []
+  return {
+    requests,
+    record(url: string, init?: RequestInit) {
+      requests.push(`${init?.method ?? 'GET'} ${url.split('?')[0]!.replace(/^https?:\/\/[^/]+/, '')}`)
+    },
+  }
 }
 
 const gbpConnection = {
@@ -428,13 +454,31 @@ test('falls back to the aggregate scope when the scoped location is untracked', 
   await waitFor(() => expect(summaryScopes.at(-1)).toBe('aggregate'))
 })
 
-test('shows a connect empty-state when the project has no GBP connection', async () => {
+/** The stored GBP reads a connected section makes on mount. */
+function connectedGbpRead(urlPath: string, locations: unknown[]): Response | null {
+  if (urlPath.endsWith('/projects/test-project/google/connections')) return jsonResponse([gbpConnection])
+  if (urlPath.endsWith('/projects/test-project/gbp/summary')) return jsonResponse(emptySummary())
+  if (urlPath.endsWith('/projects/test-project/gbp/locations')) {
+    return jsonResponse({ locations, totalDiscovered: locations.length, totalSelected: locations.length })
+  }
+  if (urlPath.endsWith('/projects/test-project/gbp/keywords')) return jsonResponse({ keywords: [], total: 0, thresholdedPct: 0 })
+  if (urlPath.endsWith('/projects/test-project/gbp/lodging')) return jsonResponse({ lodging: [], total: 0 })
+  if (urlPath.endsWith('/projects/test-project/gbp/place-actions')) return jsonResponse({ placeActions: [], total: 0 })
+  if (urlPath.endsWith('/projects/test-project/gbp/places')) return jsonResponse({ places: [], total: 0 })
+  if (urlPath.endsWith('/projects/test-project/insights')) return jsonResponse([])
+  return null
+}
+
+const settingsResponse = (configured: boolean) =>
+  jsonResponse({ providers: [], providerCatalog: [], google: { configured }, bing: { configured: false } })
+
+test('the public demo keeps the CLI setup guide and offers no connect control', async () => {
+  window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
+  onTestFinished(() => { delete window.__CANONRY_CONFIG__ })
   const restoreFetch = mockFetch((url) => {
     const urlPath = url.split('?')[0]!
-    if (urlPath.endsWith('/projects/test-project/google/connections')) {
-      // Only a GSC connection — no GBP.
-      return jsonResponse([{ ...gbpConnection, connectionType: 'gsc' }])
-    }
+    // Only a GSC connection — no GBP. Settings are never read here.
+    if (urlPath.endsWith('/projects/test-project/google/connections')) return jsonResponse([{ ...gbpConnection, connectionType: 'gsc' }])
     throw new Error(`Unexpected fetch: ${url}`)
   })
   onTestFinished(restoreFetch)
@@ -449,6 +493,300 @@ test('shows a connect empty-state when the project has no GBP connection', async
   fireEvent.click(guide)
   expect(guide.closest('details')?.open).toBe(true)
   expect(screen.getByText(/canonry gbp connect test-project/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: GBP_CONNECT_COPY.connect })).toBeNull()
+})
+
+test('Connect starts the shared Google OAuth flow as gbp and shows the connection once the popup reports it', async () => {
+  let connected = false
+  const connectBodies: unknown[] = []
+  const popup = { closed: false } as unknown as Window
+  const openSpy = vi.spyOn(window, 'open').mockReturnValue(popup)
+  onTestFinished(() => openSpy.mockRestore())
+  const restoreFetch = mockFetch((url, init) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/api/v1/settings')) return settingsResponse(true)
+    if (urlPath.endsWith('/projects/test-project/google/connect') && init?.method === 'POST') {
+      connectBodies.push(JSON.parse(String(init.body)))
+      return jsonResponse({
+        authUrl: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=test',
+        redirectUri: 'http://localhost:4100/api/v1/google/callback',
+      })
+    }
+    if (!connected && urlPath.endsWith('/projects/test-project/google/connections')) return jsonResponse([])
+    const read = connectedGbpRead(urlPath, [makeLocation({})])
+    if (read) return read
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection()
+
+  const connect = await screen.findByRole('button', { name: GBP_CONNECT_COPY.connect })
+  await waitFor(() => expect((connect as HTMLButtonElement).disabled).toBe(false))
+  // The CLI path stays available behind main's closed disclosure, below Connect.
+  const guide = screen.getByText('Connect using the CLI', { selector: 'summary' })
+  expect(guide.closest('details')?.open).toBe(false)
+  expect(connect.compareDocumentPosition(guide) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  fireEvent.click(connect)
+
+  await waitFor(() => expect(openSpy).toHaveBeenCalledOnce())
+  expect(openSpy.mock.calls[0]![0]).toBe('https://accounts.google.com/o/oauth2/v2/auth?client_id=test')
+  expect(connectBodies).toHaveLength(1)
+  expect(connectBodies[0]).toMatchObject({ type: 'gbp' })
+  expect(screen.getByRole('status').textContent).toBe(GBP_CONNECT_COPY.waiting)
+
+  // A message for another connection type does not end this flow. An accepted
+  // message would switch the status to "refreshing" at once, so the status
+  // still reading "waiting" proves this one was ignored.
+  connected = true
+  fireEvent(window, new MessageEvent('message', {
+    origin: 'http://localhost:4100',
+    source: popup,
+    data: { type: 'canonry:google-oauth-complete', connectionType: 'gsc' },
+  }))
+  expect(screen.getByRole('status').textContent).toBe(GBP_CONNECT_COPY.waiting)
+
+  fireEvent(window, new MessageEvent('message', {
+    origin: 'http://localhost:4100',
+    source: popup,
+    data: { type: 'canonry:google-oauth-complete', connectionType: 'gbp' },
+  }))
+  await screen.findByText('Connected')
+})
+
+test('Connect without Google OAuth app credentials says so and starts nothing', async () => {
+  const restoreFetch = mockFetch((url, init) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/api/v1/settings')) return settingsResponse(false)
+    if (urlPath.endsWith('/projects/test-project/google/connections')) return jsonResponse([])
+    // No POST /google/connect is expected.
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection()
+
+  await screen.findByText('App credentials missing')
+  fireEvent.click(screen.getByRole('button', { name: GBP_CONNECT_COPY.connect }))
+  expect((await screen.findByRole('alert')).textContent).toBe(GBP_CONNECT_COPY.credentialsMissing)
+})
+
+test('a connection with no locations discovers the chosen account with the tracking choice', async () => {
+  const discoverBodies: unknown[] = []
+  const restoreFetch = mockFetch((url, init) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/gbp/accounts')) {
+      return jsonResponse({
+        accounts: [
+          { name: 'accounts/1', accountName: 'Harborline Group', type: 'LOCATION_GROUP', role: 'OWNER' },
+          { name: 'accounts/2', accountName: 'Bayside Hotels', type: 'LOCATION_GROUP', role: 'MANAGER' },
+        ],
+        total: 2,
+      })
+    }
+    if (urlPath.endsWith('/projects/test-project/gbp/locations/discover') && init?.method === 'POST') {
+      discoverBodies.push(JSON.parse(String(init.body)))
+      return jsonResponse({ locations: [makeLocation({ selected: false })], totalDiscovered: 1, totalSelected: 0 })
+    }
+    const read = connectedGbpRead(urlPath, [])
+    if (read) return read
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection()
+
+  // The panel that discovers opens on its own, with the account picker filled.
+  await screen.findByText(GBP_DISCOVER_COPY.noneDiscovered)
+  const picker = await screen.findByLabelText(GBP_DISCOVER_COPY.accountLabel)
+  await screen.findByRole('option', { name: 'Bayside Hotels (accounts/2)' })
+  fireEvent.change(picker, { target: { value: 'accounts/2' } })
+  fireEvent.click(screen.getByLabelText(GBP_DISCOVER_COPY.trackNew))
+  fireEvent.click(screen.getByRole('button', { name: GBP_DISCOVER_COPY.discover }))
+
+  await waitFor(() => expect(discoverBodies).toEqual([{ accountName: 'accounts/2', selectAllNew: false }]))
+})
+
+test('later discovery reuses the project account and never reads the live account list', async () => {
+  const discoverBodies: unknown[] = []
+  const log = recordRequests()
+  const restoreFetch = mockFetch((url, init) => {
+    log.record(url, init)
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/gbp/locations/discover') && init?.method === 'POST') {
+      discoverBodies.push(JSON.parse(String(init.body)))
+      return jsonResponse({ locations: [makeLocation({})], totalDiscovered: 1, totalSelected: 1 })
+    }
+    // GET /gbp/accounts is a live Google read and must not happen here.
+    const read = connectedGbpRead(urlPath, [makeLocation({})])
+    if (read) return read
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection()
+
+  fireEvent.click(await screen.findByRole('button', { name: /Manage locations \(1\)/ }))
+  expect(screen.queryByLabelText(GBP_DISCOVER_COPY.accountLabel)).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: GBP_DISCOVER_COPY.refresh }))
+
+  await waitFor(() => expect(discoverBodies).toEqual([{ selectAllNew: true }]))
+  // The mock would answer an accounts read with an error that the hidden
+  // picker never shows, so check the request log itself.
+  expect(log.requests.some((request) => request.endsWith('/gbp/accounts'))).toBe(false)
+})
+
+test("Disconnect asks before clearing the project's Business Profile data, and keeps keyboard focus", async () => {
+  let deletes = 0
+  let connected = true
+  let connectionReads = 0
+  const restoreFetch = mockFetch((url, init) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/gbp/connection') && init?.method === 'DELETE') {
+      deletes += 1
+      connected = false
+      return new Response(null, { status: 204 })
+    }
+    if (urlPath.endsWith('/projects/test-project/google/connections')) {
+      connectionReads += 1
+      if (!connected) return jsonResponse([])
+    }
+    if (urlPath.endsWith('/api/v1/settings')) return settingsResponse(true)
+    const read = connectedGbpRead(urlPath, [makeLocation({})])
+    if (read) return read
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+  // The app's client: its write-refresh interceptor, not this section, refetches
+  // the connection after the DELETE.
+  const queryClient = createQueryClient()
+  onTestFinished(() => queryClient.clear())
+
+  renderGbpSection({ queryClient })
+
+  const disconnect = await screen.findByRole('button', { name: GBP_DISCONNECT_COPY.disconnect })
+  fireEvent.click(disconnect)
+  const confirm = screen.getByRole('group', { name: GBP_DISCONNECT_COPY.confirmTitle })
+  expect(confirm.textContent).toContain(GBP_DISCONNECT_COPY.confirmBody)
+  expect(deletes).toBe(0)
+
+  // Cancel closes the confirmation and returns focus to the control that opened it.
+  const cancel = screen.getByRole('button', { name: GBP_DISCONNECT_COPY.cancel })
+  cancel.focus()
+  fireEvent.click(cancel)
+  expect(screen.queryByRole('group', { name: GBP_DISCONNECT_COPY.confirmTitle })).toBeNull()
+  expect(document.activeElement).toBe(disconnect)
+  expect(deletes).toBe(0)
+
+  const readsBeforeDisconnect = connectionReads
+  fireEvent.click(disconnect)
+  fireEvent.click(screen.getByRole('button', { name: GBP_DISCONNECT_COPY.confirm }))
+  await waitFor(() => expect(deletes).toBe(1))
+
+  // One refetch of the connection, then focus lands on the new Connect button.
+  const connect = await screen.findByRole('button', { name: GBP_CONNECT_COPY.connect })
+  await waitFor(() => expect(document.activeElement).toBe(connect))
+  expect(connectionReads).toBe(readsBeforeDisconnect + 1)
+})
+
+test('Disconnect shows the ownership refusal in the confirmation and clears it when reopened', async () => {
+  const message = 'This Google GBP connection is owned by a different project. Disconnect from the owning project instead.'
+  const restoreFetch = mockFetch((url, init) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/gbp/connection') && init?.method === 'DELETE') {
+      return jsonResponse({ error: { code: 'VALIDATION_ERROR', message } }, 400)
+    }
+    const read = connectedGbpRead(urlPath, [makeLocation({})])
+    if (read) return read
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = createQueryClient()
+  onTestFinished(() => queryClient.clear())
+  renderGbpSection({ queryClient })
+
+  const disconnect = await screen.findByRole('button', { name: GBP_DISCONNECT_COPY.disconnect })
+  fireEvent.click(disconnect)
+  const confirmation = within(screen.getByRole('group', { name: GBP_DISCONNECT_COPY.confirmTitle }))
+  fireEvent.click(confirmation.getByRole('button', { name: GBP_DISCONNECT_COPY.confirm }))
+
+  expect((await confirmation.findByRole('alert')).textContent).toBe(message)
+  expect(screen.getByText('Connected')).toBeTruthy()
+  fireEvent.click(confirmation.getByRole('button', { name: GBP_DISCONNECT_COPY.cancel }))
+  expect(document.activeElement).toBe(disconnect)
+  fireEvent.click(disconnect)
+  expect(within(screen.getByRole('group', { name: GBP_DISCONNECT_COPY.confirmTitle })).queryByRole('alert')).toBeNull()
+})
+
+test('a signed-in viewer sees a managed empty state and no admin-only reads', async () => {
+  const log = recordRequests()
+  const restoreFetch = mockFetch((url, init) => {
+    log.record(url, init)
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/google/connections')) return jsonResponse([])
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection({ account: signedInViewer })
+
+  await screen.findByRole('heading', { name: 'Connect Google Business Profile' })
+  expect(screen.getByText(GBP_MANAGED_EMPTY_COPY)).toBeTruthy()
+  // No Connect, and no false "App credentials missing" from a refused /settings read.
+  expect(screen.queryByRole('button', { name: GBP_CONNECT_COPY.connect })).toBeNull()
+  expect(screen.queryByText('App credentials missing')).toBeNull()
+  expect(screen.getByText('Connect using the CLI', { selector: 'summary' })).toBeTruthy()
+  expect(log.requests).toEqual(['GET /api/v1/projects/test-project/google/connections'])
+})
+
+test('a viewer of a connection with no locations gets no account picker and no live account read', async () => {
+  const log = recordRequests()
+  const restoreFetch = mockFetch((url, init) => {
+    log.record(url, init)
+    const read = connectedGbpRead(url.split('?')[0]!, [])
+    if (read) return read
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection({ account: signedInViewer })
+
+  await screen.findByText(GBP_DISCOVER_COPY.noneDiscoveredManaged)
+  // No picker stuck on "Loading accounts…"; the discover control is shown off.
+  expect(screen.queryByLabelText(GBP_DISCOVER_COPY.accountLabel)).toBeNull()
+  expect((screen.getByRole('button', { name: GBP_DISCOVER_COPY.discover }) as HTMLButtonElement).disabled).toBe(true)
+  expect(log.requests.some((request) => request.endsWith('/gbp/accounts'))).toBe(false)
+})
+
+test("a project-scoped key discovers the connection's default account without listing accounts", async () => {
+  const discoverBodies: unknown[] = []
+  const log = recordRequests()
+  const restoreFetch = mockFetch((url, init) => {
+    log.record(url, init)
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/gbp/locations/discover') && init?.method === 'POST') {
+      discoverBodies.push(JSON.parse(String(init.body)))
+      return jsonResponse({ locations: [makeLocation({})], totalDiscovered: 1, totalSelected: 1 })
+    }
+    const read = connectedGbpRead(urlPath, [])
+    if (read) return read
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection({ apiKey: projectScopedKey })
+
+  await screen.findByText(GBP_DISCOVER_COPY.noneDiscoveredDefaultAccount)
+  expect(screen.queryByLabelText(GBP_DISCOVER_COPY.accountLabel)).toBeNull()
+  const discover = screen.getByRole('button', { name: GBP_DISCOVER_COPY.discover }) as HTMLButtonElement
+  expect(discover.disabled).toBe(false)
+  fireEvent.click(discover)
+
+  // Same body as `canonry gbp locations discover`: no account, so the server
+  // uses the one the connection can see.
+  await waitFor(() => expect(discoverBodies).toEqual([{ selectAllNew: true }]))
+  expect(log.requests.some((request) => request.endsWith('/gbp/accounts'))).toBe(false)
 })
 
 test('Sync queues a gbp-sync run, stays disabled, and hands off to the run tracker', async () => {
