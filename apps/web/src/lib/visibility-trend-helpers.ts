@@ -1,4 +1,4 @@
-import { defaultProviderDisplayName, formatModelName, openRouterRouteModel } from '@canonry/canonry-contracts'
+import { defaultProviderDisplayName, formatAnswerServiceRouteLabel, formatModelName, openRouterRouteModel, type ModelDefinition } from '@canonry/canonry-contracts'
 import type {
   BasketChangeEvent,
   BrandMetricsDto,
@@ -179,10 +179,15 @@ export function competitorFrameKey(
 /**
  * An engine's name as people read it ("OpenAI", "Perplexity"). Pass the
  * server's provider catalog where it is loaded: its display names come from
- * each adapter or service descriptor ("Standard · <service>"), so a routed
- * key of any family reads the way the server names it.
+ * each adapter or service descriptor. Stored profile routes name the surface
+ * and the service that supplied it, even without the catalog.
  */
-export function providerDisplayName(name: string, catalog?: ReadonlyArray<{ name: string; displayName?: string; knownModels?: readonly { id: string; displayName: string }[] }>): string {
+export function providerDisplayName(name: string, catalog?: ReadonlyArray<{
+  name: string
+  displayName?: string
+  knownModels?: readonly Pick<ModelDefinition, 'id' | 'displayName'>[]
+  profiles?: readonly { id: string; displayName?: string }[]
+}>): string {
   const routedModel = openRouterRouteModel(name)
   if (routedModel) {
     const models = catalog?.find(entry => entry.name === 'openrouter')?.knownModels
@@ -190,7 +195,7 @@ export function providerDisplayName(name: string, catalog?: ReadonlyArray<{ name
     return `${formatModelName(routedModel, models)} via OpenRouter`
   }
   const listed = catalog?.find(entry => entry.name === name)?.displayName?.trim()
-  return listed || defaultProviderDisplayName(name)
+  return formatAnswerServiceRouteLabel(name, catalog) ?? (listed || defaultProviderDisplayName(name))
 }
 
 /** Presentation-only: 0-1 rate → 0-100 axis value, one decimal. */

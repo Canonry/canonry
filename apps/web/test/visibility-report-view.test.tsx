@@ -952,15 +952,15 @@ describe('shared production visibility view', () => {
     expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Measured answers' }))
   })
 
-  it('returns focus to the exact engine button that opened the answer', () => {
+  it('shows the hosted service on the saved answer and returns focus to its engine button', () => {
     const report = reportWithAnswer('query-context', 'Saved Gemini answer.')
     const population = report.populations[0]!
-    const secondEngine = { ...population.queries.items[0]!, provider: 'openai' }
+    const secondEngine = { ...population.queries.items[0]!, provider: 'cloro:chatgpt' }
     population.queries.items.push(secondEngine)
     population.queries.total = 2
     population.evidence.items.push({
-      ...population.evidence.items[0]!, answerId: 'answer-openai', provider: secondEngine.provider,
-      answerText: 'Saved OpenAI answer.',
+      ...population.evidence.items[0]!, answerId: 'answer-hosted', provider: secondEngine.provider,
+      answerText: 'Saved ChatGPT answer.',
     })
     population.evidence.total = 2
     function Harness() {
@@ -971,13 +971,14 @@ describe('shared production visibility view', () => {
     }
     render(<Harness />)
     fireEvent.click(document.querySelector('details[data-query-results] > summary')!)
-    const trigger = screen.getByRole('button', { name: 'View answers for apartments near transit · OpenAI' })
+    const trigger = screen.getByRole('button', { name: 'View answers for apartments near transit · ChatGPT via Cloro' })
     trigger.focus()
     fireEvent.click(trigger)
 
     const answers = screen.getByRole('region', { name: VISIBILITY_ANSWERS_LABEL })
     expect(document.activeElement).toBe(answers)
-    expect(within(answers).getByText('Saved OpenAI answer.')).toBeTruthy()
+    expect(within(answers).getByText('ChatGPT via Cloro')).toBeTruthy()
+    expect(within(answers).getByText('Saved ChatGPT answer.')).toBeTruthy()
     expect(within(answers).queryByText('Saved Gemini answer.')).toBeNull()
     fireEvent.click(within(answers).getByRole('button', { name: VISIBILITY_CLOSE_ANSWERS_LABEL }))
 

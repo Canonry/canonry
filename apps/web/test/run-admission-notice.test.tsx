@@ -72,7 +72,7 @@ test('a rejected search answer service key points to the connection that owns it
   await renderInApp(() => <RunAdmissionNoticeView admission={{ refused: true, retryAfter: RETRY, providers: { 'svc:standard': AUTH } }} canFix />, client)
   const link = screen.getByRole('link', { name: 'Update Search Service key' })
   expect(link.getAttribute('href')).toBe('/settings#provider-svc')
-  expect(notice('Checks are on hold').textContent).toContain('Standard · Search Service')
+  expect(notice('Checks are on hold').textContent).toContain('Standard via Search Service')
 })
 
 test('the project page reads the run admission of its own project', async () => {
