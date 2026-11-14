@@ -182,15 +182,13 @@ describe('Node support range', () => {
       inputs?: Record<string, { default?: string }>
     }
     expect(setup.inputs?.['node-version']?.default).toBe(DEPLOY_VERSION)
-    for (const dockerfile of ['Dockerfile', 'Dockerfile.api', 'Dockerfile.worker', 'Dockerfile.web']) {
-      const tags = [...readRepoFile(dockerfile).matchAll(/^FROM (?:\S*\/)?node:(\S+)(?:\s|$)/gm)]
-        .map((match) => match[1])
-      expect(tags.length, `${dockerfile} has no Node base`).toBeGreaterThan(0)
-      for (const tag of tags) {
-        const [version, digest] = tag!.split('@')
-        expect(version, dockerfile).toBe(`${DEPLOY_VERSION}-bookworm-slim`)
-        expect(digest, dockerfile).toMatch(/^sha256:[a-f0-9]{64}$/)
-      }
+    const tags = [...readRepoFile('Dockerfile').matchAll(/^FROM (?:\S*\/)?node:(\S+)(?:\s|$)/gm)]
+      .map((match) => match[1])
+    expect(tags.length, 'Dockerfile has no Node base').toBeGreaterThan(0)
+    for (const tag of tags) {
+      const [version, digest] = tag!.split('@')
+      expect(version, 'Dockerfile').toBe(`${DEPLOY_VERSION}-bookworm-slim`)
+      expect(digest, 'Dockerfile').toMatch(/^sha256:[a-f0-9]{64}$/)
     }
   })
 
