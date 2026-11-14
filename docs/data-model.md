@@ -33,6 +33,10 @@ erDiagram
   projects ||--o{ audit_log : has
   projects ||--o{ insights : has
   projects ||--o{ health_snapshots : has
+  projects ||--o{ social_mentions : "monitors"
+  runs ||--o{ social_mentions : finds
+  queries |o--o{ social_mentions : "optionally found by"
+  projects ||--o{ social_connections : "authenticates"
 
   projects ||--o| sentiment_settings : "opts in"
   runs ||--o{ sentiment_completion_receipts : "durably completes"
@@ -129,7 +133,7 @@ erDiagram
 
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
-| **projects** | Root entity: domain, location config, provider list, `aliases`, `qualified_aliases` (JSON: the operator-chosen subset of `aliases` that Simple sentiment tells its evaluator are the brand's own names; frozen into each Simple run's sidecar, never read by mention detection), per-project `provider_models` overrides, `provider_dispatch_modes` (JSON: provider → `sync`/`batch`, read by scheduled sweeps only), `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase), nullable `site_audit_max_pages` (migration 169: the Agent Readiness page budget for scans that set none, 1 to 50,000; null means the full site), `site_audit_domains` (migration 219, JSON NOT NULL DEFAULT `[]`: owned domains every Agent Readiness scan covers besides the main domain, as bare hosts; each is one of `owned_domains`, and a write that stops owning one drops it), `competitor_auto_aliases` (migration 171, NOT NULL DEFAULT `preview`: what the unattended answer-derived competitor alias pass does, queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` runs no pass, `preview` logs and stores nothing, `apply` stores the names; an explicit apply-now stores in every mode), nullable `answer_fields_recompute` (migration 171: `full` or `competitors` while a recompute of the stored answer fields queued after an identity change is unfinished; the local server requeues it on boot) | Unique: `name` |
+| **projects** | Root entity: domain, location config, provider list, `aliases`, `qualified_aliases` (JSON: the operator-chosen subset of `aliases` that Simple sentiment tells its evaluator are the brand's own names; frozen into each Simple run's sidecar, never read by mention detection), per-project `provider_models` overrides, `provider_dispatch_modes` (JSON: provider → `sync`/`batch`, read by scheduled sweeps only), `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase), nullable `site_audit_max_pages` (migration 169: the Agent Readiness page budget for scans that set none, 1 to 50,000; null means the full site), `site_audit_domains` (migration 219, JSON NOT NULL DEFAULT `[]`: owned domains every Agent Readiness scan covers besides the main domain, as bare hosts; each is one of `owned_domains`, and a write that stops owning one drops it), `competitor_auto_aliases` (migration 171, NOT NULL DEFAULT `preview`: what the unattended answer-derived competitor alias pass does, queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` runs no pass, `preview` logs and stores nothing, `apply` stores the names; an explicit apply-now stores in every mode), nullable `answer_fields_recompute` (migration 171: `full` or `competitors` while a recompute of the stored answer fields queued after an identity change is unfinished; the local server requeues it on boot), `social_platforms` (migration 223, JSON `string[]`, NOT NULL DEFAULT `[]`: the social platforms the project monitors; every existing project reads `[]`) | Unique: `name` |
 | **queries** | Tracked queries per project. `provenance` tags where the entry came from (e.g. `cli`, `discovery:<session_id>`) so adopted basket entries can be traced back to a discovery run. | Unique: `(projectId, query)` |
 | **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. `aliases` (JSON `string[]`, migration 168, default `[]`) holds operator-curated names the competitor goes by in answer text; every competitor mention matcher layers them onto the domain label, and a Simple run freezes them into its definition. Never auto-filled from the domain label. `auto_aliases` (JSON, migration 171, default `[]`) holds names detected automatically from the project's own stored answers, each with its evidence (`CompetitorAutoAlias`: direct pairs, co-occurrences, naming answers, precision, lift, answers writing it as a name, distinct sweeps (`runs`), first and last seen, when applied); `auto_aliases` are stored only by a detection pass that applies (the project's `competitor_auto_aliases` is `apply`, or an explicit apply-now). `blocked_aliases` (JSON `string[]`, migration 171) holds names the operator blocked from that detection; removing the competitor keeps them on `market_competitor_names`, and a new row for the same domain starts with them. Readers match curated plus auto names minus blocked ones (`competitorIdentityAliases`); curated identity always wins a conflict. Every competitor list read orders by `domain`. | Unique: `(projectId, domain)` |
 | **market_competitor_names** | Answer-derived names of a competitor an Advanced market pins without a `competitors` row (migration 172): `domain` (registrable), `auto_aliases` and `blocked_aliases` as on `competitors`. Published plan revisions are immutable, so readers that score a market answer against live identity layer these onto the pin (`readMarketCompetitorNames`); a new pin by domain never copies them. A row also keeps the blocked names of a removed project competitor (with `auto_aliases` `[]` when it had no learned names), which a re-added or promoted competitor starts with: a row holding only blocked names is not empty and must be kept. | Unique: `(projectId, domain)` |
@@ -409,6 +413,13 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 
 Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside database transactions. Migration 164 creates the tables, supporting composite indexes, and an immutable-definition update trigger; it does not enable projects or admit historical work.
 
+### Social Monitoring
+
+| Table | Purpose |
+|-------|---------|
+| **social_mentions** | One social post a social monitoring run found (migration 223), with columns named after contracts `SocialMentionResult`: platform, the platform's post id and URL, `matched_query` (the search term that found it), author, title and text, `linked_urls` (the project URLs the post links to; link data, not a mention), nullable sentiment, `likes`/`shares`/`comments`, `community` (a subreddit on Reddit), `hashtags` and `metadata` (platform-specific fields such as a platform score). Author, follower and engagement fields are null when the platform does not expose them, never zero. Unique: `(projectId, platform, externalId)`, so each project keeps its own copy of a post. FK: projectId → projects (cascade); `(projectId, runId)` → `runs(project_id, id)` (cascade; the pair must match); queryId → queries (set null) |
+| **social_connections** | Which social platforms a project has connected (migration 223): `token_expires_at`, `scopes` and `metadata` only. No secret is stored in SQLite; tokens and API keys live in `~/.canonry/config.yaml`, bound to the project id like Google Ads and GTM connections. Unique: `(platform, projectId)`. FK: projectId → projects (cascade) |
+
 ### Intelligence
 
 | Table | Purpose |
@@ -505,6 +516,12 @@ Several text columns store serialized JSON. Always use `parseJsonColumn()` from 
 | `discovery_probes.citedDomains` | `string[]` |
 | `research_run_queries.namedCompetitors` | `string[]` |
 | `research_run_queries.citedCompetitorDomains` | `string[]` |
+| `projects.socialPlatforms` | `SocialMonitorPlatform[]` (native `mode: 'json'`) |
+| `social_mentions.linkedUrls` | `string[]` (native `mode: 'json'`) |
+| `social_mentions.hashtags` | `string[]` (native `mode: 'json'`) |
+| `social_mentions.metadata` | `Record<string, unknown>` (native `mode: 'json'`; platform-specific fields) |
+| `social_connections.scopes` | `string[]` (native `mode: 'json'`) |
+| `social_connections.metadata` | `Record<string, unknown>` (native `mode: 'json'`) |
 | `recommendation_briefs.brief` | `ContentBriefDto` (native `mode: 'json'`, not via `parseJsonColumn`) |
 
 ## Conventions

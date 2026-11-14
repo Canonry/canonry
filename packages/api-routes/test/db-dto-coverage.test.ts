@@ -230,6 +230,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Storage rows are projected into OperationalLogEntryDto; sequence, raw storage columns, and byte accounting never leave the log store.',
   },
+  socialMentions: {
+    kind: 'internal-only',
+    reason: 'Social monitoring storage only; its public DTO arrives with the social monitoring API (#98).',
+  },
+  socialConnections: {
+    kind: 'internal-only',
+    reason: 'Social connection metadata only (secrets live in config.yaml); its public DTO arrives with the social monitoring API (#98).',
+  },
   runtimeLogMetadata: {
     kind: 'internal-only',
     reason: 'Private cursor namespace and sequence accounting; only explicit retention/loss metadata is returned by the log store.',
@@ -240,6 +248,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: projectDtoSchema,
     internal: {
       icpDescription: 'Aero analyst context; not exposed on the public project DTO.',
+      socialPlatforms: 'Social monitoring storage only; no API reads or writes it until the social monitoring API (#98).',
     },
   },
   queries: {
