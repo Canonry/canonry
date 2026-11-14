@@ -62,6 +62,7 @@ import {
 } from '../shared/ChartPrimitives.js'
 import { fetchInsights, heyClient, isEmbed, isPublicDemo } from '../../api.js'
 import { useAccount } from '../../contexts/account-context.js'
+import { extractErrorMessage } from '../../lib/extract-error-message.js'
 import { startGoogleOAuthPopup } from '../../lib/google-oauth-popup.js'
 import { addToast } from '../../lib/toast-store.js'
 import { getRunTrackerState, subscribeRunTracker, trackRun } from '../../lib/run-tracker-store.js'
@@ -257,6 +258,7 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
 
   const disconnectMutation = useMutation({
     ...deleteApiV1ProjectsByNameGbpConnectionMutation(),
+    meta: { skipGlobalErrorToast: true },
     onSuccess: () => {
       setConfirmDisconnect(false)
       setScopeLocation(null)
@@ -282,6 +284,7 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
   })
 
   function cancelDisconnect() {
+    disconnectMutation.reset()
     setConfirmDisconnect(false)
     // The confirmation unmounts with Cancel in it; return focus to the control
     // that opened it, as DESIGN.md asks of a closing disclosure.
@@ -484,7 +487,11 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
                 size="sm"
                 aria-expanded={confirmDisconnect}
                 aria-controls="gbp-disconnect-confirm"
-                onClick={() => setConfirmDisconnect((v) => !v)}
+                disabled={disconnectMutation.isPending}
+                onClick={() => {
+                  if (confirmDisconnect) cancelDisconnect()
+                  else setConfirmDisconnect(true)
+                }}
               >
                 {GBP_DISCONNECT_COPY.disconnect}
               </WriteButton>
@@ -496,6 +503,9 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
           <div id="gbp-disconnect-confirm" role="group" aria-labelledby="gbp-disconnect-title" className="mb-4 rounded-md border border-base bg-bg-elevated/60 p-3">
             <p id="gbp-disconnect-title" className="text-copy-14-strong text-strong">{GBP_DISCONNECT_COPY.confirmTitle}</p>
             <p className="mt-1 text-copy-13 text-secondary">{GBP_DISCONNECT_COPY.confirmBody}</p>
+            {disconnectMutation.isError && (
+              <p role="alert" className="mt-2 text-copy-14 text-negative break-words">{extractErrorMessage(disconnectMutation.error)}</p>
+            )}
             <div className="mt-3 flex flex-wrap gap-2">
               <WriteButton
                 type="button"
@@ -506,7 +516,7 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
               >
                 {disconnectMutation.isPending ? GBP_DISCONNECT_COPY.disconnecting : GBP_DISCONNECT_COPY.confirm}
               </WriteButton>
-              <Button type="button" variant="outline" size="sm" onClick={cancelDisconnect}>
+              <Button type="button" variant="outline" size="sm" disabled={disconnectMutation.isPending} onClick={cancelDisconnect}>
                 {GBP_DISCONNECT_COPY.cancel}
               </Button>
             </div>

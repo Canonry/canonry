@@ -1,7 +1,7 @@
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, onTestFinished, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 // Recharts needs a sized container (jsdom has none); stub it like the other
 // chart-bearing section tests so we assert on the textual layer, not the SVG.
@@ -687,6 +687,36 @@ test("Disconnect asks before clearing the project's Business Profile data, and k
   const connect = await screen.findByRole('button', { name: GBP_CONNECT_COPY.connect })
   await waitFor(() => expect(document.activeElement).toBe(connect))
   expect(connectionReads).toBe(readsBeforeDisconnect + 1)
+})
+
+test('Disconnect shows the ownership refusal in the confirmation and clears it when reopened', async () => {
+  const message = 'This Google GBP connection is owned by a different project. Disconnect from the owning project instead.'
+  const restoreFetch = mockFetch((url, init) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/gbp/connection') && init?.method === 'DELETE') {
+      return jsonResponse({ error: { code: 'VALIDATION_ERROR', message } }, 400)
+    }
+    const read = connectedGbpRead(urlPath, [makeLocation({})])
+    if (read) return read
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = createQueryClient()
+  onTestFinished(() => queryClient.clear())
+  renderGbpSection({ queryClient })
+
+  const disconnect = await screen.findByRole('button', { name: GBP_DISCONNECT_COPY.disconnect })
+  fireEvent.click(disconnect)
+  const confirmation = within(screen.getByRole('group', { name: GBP_DISCONNECT_COPY.confirmTitle }))
+  fireEvent.click(confirmation.getByRole('button', { name: GBP_DISCONNECT_COPY.confirm }))
+
+  expect((await confirmation.findByRole('alert')).textContent).toBe(message)
+  expect(screen.getByText('Connected')).toBeTruthy()
+  fireEvent.click(confirmation.getByRole('button', { name: GBP_DISCONNECT_COPY.cancel }))
+  expect(document.activeElement).toBe(disconnect)
+  fireEvent.click(disconnect)
+  expect(within(screen.getByRole('group', { name: GBP_DISCONNECT_COPY.confirmTitle })).queryByRole('alert')).toBeNull()
 })
 
 test('a signed-in viewer sees a managed empty state and no admin-only reads', async () => {
