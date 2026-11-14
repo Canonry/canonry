@@ -1,22 +1,23 @@
-import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { ChevronRight, Loader2, Plus, RefreshCw, X } from 'lucide-react'
+import { ArrowRight, ChevronRight, History, Loader2, Plus, RefreshCw, X } from 'lucide-react'
 import {
-  RatioUnits, SchedulableRunKinds, SeoAvailability, SeoCapabilities, SeoCompetitorSorts, SeoKeywordGapKinds, SeoKeywordGapSorts, SeoMarketRankingFilters, SeoMarketRankingGroupKinds, SeoMarketRankingOutcomes,
-  SeoMarketRankingSearchStatuses, SeoMarketRankingSorts, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds,
+  RatioUnits, RunKinds, SchedulableRunKinds, SeoAvailability, SeoCapabilities, SeoCompetitorSorts, SeoKeywordGapKinds, SeoKeywordGapSorts, SeoMarketRankingFilters, SeoMarketRankingGroupKinds, SeoMarketRankingOutcomes,
+  SeoMarketRankingSearchStatuses, SeoMarketRankingSorts, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, SeoTrendKinds, TrendUnits,
   compareText, formatCalendarDay, formatDate, formatIsoDateInTimeZone, formatZonedTimestamp, formatPercent, marketRankingBands,
-  seoCapabilitySchema, seoDatasetWithoutVendor, seoMarketRankingFilterSchema, seoMarketRankingSortSchema, seoProfileInputSchema,
+  SEO_TREND_DEFAULT_DAYS, SEO_TREND_METRICS_BY_KIND, seoCapabilitySchema, seoDatasetWithoutVendor, seoMarketRankingFilterSchema, seoMarketRankingSortSchema, seoProfileInputSchema, seoTrendDaysSchema, seoTrendMetricSchema,
   type MarketRankingBand, type SeoCapability, type SeoCompetitor, type SeoCompetitorSort, type SeoContext, type SeoDevice, type SeoDomainIntelligence, type SeoKeywordGap, type SeoKeywordGapKind, type SeoKeywordGapSort, type SeoKeywordMetrics,
   type SeoMarketRankingCounts, type SeoMarketRankingFilter, type SeoMarketRankingGroup, type SeoMarketRankingRow, type SeoMarketRankingSort,
-  type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword,
-  type SeoRun, type SeoRunStatus, type SeoSyncInput, type SeoTarget, type SeoTask,
+  type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword,
+  type SeoRun, type SeoRunStatus, type SeoSyncInput, type SeoTarget, type SeoTask, type SeoTrendDays, type SeoTrendMetric, type SeoTrends,
 } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameScheduleOptions,
   getApiV1ProjectsByNameSeoContextOptions,
   getApiV1ProjectsByNameSeoProfilesOptions,
   getApiV1ProjectsByNameSeoOverviewOptions,
+  getApiV1ProjectsByNameSeoTrendsOptions,
   getApiV1ProjectsByNameSeoRankedKeywordsOptions,
   getApiV1ProjectsByNameSeoKeywordMetricsOptions,
   getApiV1ProjectsByNameSeoDomainIntelligenceOptions,
@@ -33,14 +34,23 @@ import {
 } from '@canonry/canonry-api-client/react-query'
 import { heyClient, isEmbed, isPublicDemo } from '../../api.js'
 import { useAccount } from '../../contexts/account-context.js'
+import { usePublishAeroView } from '../../contexts/aero-view-context.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { extractApiErrorInfo, extractErrorMessage } from '../../lib/extract-error-message.js'
+import { trackRun } from '../../lib/run-tracker-store.js'
+import { trackUiFilterChange } from '../../lib/ui-telemetry.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
 import { Button } from '../ui/button.js'
+import { Drawer } from '../layout/Drawer.js'
 import { DataTablePagination, DataTableSearch, MiddleTruncatedText } from '../shared/DataTableControls.js'
+import {
+  Bar, BarChart, CartesianGrid, Cell, CHART_AXIS_TICK, CHART_GRID_STROKE, CHART_SERIES_COLORS, CHART_TOOLTIP_STYLE,
+  ComposedChart, LabelList, Line, RechartsTooltip, ResponsiveContainer, XAxis, YAxis,
+} from '../shared/ChartPrimitives.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SourceLink } from '../shared/SourceLink.js'
+import { levelTrendChange, sharedLevelBasis, trendSpanLabel, TrendCard, type TrendCardFigure } from '../shared/TrendCard.js'
 
 const CAPABILITY_LABELS: Record<SeoCapability, string> = {
   [SeoCapabilities['keyword-metrics']]: 'Search demand',
@@ -75,10 +85,19 @@ const CELL = 'px-4 py-3 text-right align-top tabular-nums whitespace-nowrap'
 const ROW_HEADER = 'min-w-56 px-4 py-3 text-left align-top text-label-14'
 /** The source's absolute rank, in plain words: it counts map packs and other result blocks, so it can differ from the organic rank. */
 const PAGE_POSITION = 'Position on the page, counting maps and other blocks'
-type SeoView = SeoCapability | 'activity'
+type SeoView = SeoCapability | 'overview' | 'latest-rankings'
+const SEO_VIEW_LABELS: Record<SeoView, string> = { overview: 'Overview', 'latest-rankings': 'Latest rankings', ...CAPABILITY_LABELS }
+const EVIDENCE_ORDER = [
+  SeoCapabilities['market-rankings'], SeoCapabilities['ranked-keywords'], SeoCapabilities['keyword-metrics'],
+  SeoCapabilities['domain-intelligence'], SeoCapabilities['competitor-discovery'], SeoCapabilities['keyword-gaps'],
+]
 
 function isActive(run: SeoRun | undefined | null): boolean {
   return run?.status === SeoRunStatuses.queued || run?.status === SeoRunStatuses.running
+}
+
+function hasResults(run: SeoRun): boolean {
+  return run.status === SeoRunStatuses.completed || run.status === SeoRunStatuses.partial
 }
 
 function Value({ value, currency = false }: { value: number | null; currency?: boolean }) {
@@ -148,15 +167,15 @@ const LATEST_REFRESH_PROBLEM: Partial<Record<SeoRunStatus, string>> = {
  */
 function refreshCaveat(latest: SeoRun | null | undefined, evidence: SeoRun | null | undefined): { label: string; text: string } | null {
   const problem = latest && latest.id !== evidence?.id ? LATEST_REFRESH_PROBLEM[latest.status] : undefined
-  if (latest && problem) return { label: problem, text: `${problem}. ${latest.error ?? 'Open Activity for refresh details.'}${evidence ? ' Showing the refresh before it.' : ''}` }
+  if (latest && problem) return { label: problem, text: `${problem}. ${latest.error ?? 'Open Refresh history for details.'}${evidence ? ' Showing the refresh before it.' : ''}` }
   if (!evidence) return null
   if (evidence.failedTasks > 0) {
     const label = `${taskCount(evidence, evidence.failedTasks)} failed`
-    const where = evidence.capabilities.includes(SeoCapabilities['market-rankings']) ? 'Their queries show as Failed.' : 'Open Activity for details.'
+    const where = evidence.capabilities.includes(SeoCapabilities['market-rankings']) ? 'Their queries show as Failed.' : 'Open Refresh history for details.'
     return { label, text: `${label}: ${evidence.failedTasks} of ${taskCount(evidence, evidence.taskCount)} in this refresh returned no results. ${where}` }
   }
   return evidence.status === SeoRunStatuses.partial
-    ? { label: 'Partial results', text: `Partial results: ${evidence.error ?? `some ${taskNoun(evidence)} returned only part of their results or did not run. Open Activity for details.`}` }
+    ? { label: 'Partial results', text: `Partial results: ${evidence.error ?? `some ${taskNoun(evidence)} returned only part of their results or did not run. Open Refresh history for details.`}` }
     : null
 }
 
@@ -203,13 +222,15 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
   const [editor, setEditor] = useState<{ profile?: SeoProfile; id: string } | null>(null)
   const editorOpener = useRef<HTMLButtonElement | null>(null)
   const profileSelect = useRef<HTMLSelectElement | null>(null)
+  const profileToFocus = useRef<string | null>(null)
   const requestedProfileId = search.seoProfileId ?? selectedRun.data?.profileId
   const selected = requestedProfileId
     ? profiles.data?.profiles.find(profile => profile.id === requestedProfileId)
     : search.seoRunId ? undefined : profiles.data?.profiles[0]
-  const selectProfile = (id: string) => {
+  const selectProfile = (id: string, restoreFocus = false) => {
+    if (restoreFocus) profileToFocus.current = id
     setEditor(null)
-    void navigate({ to: '/projects/$projectName/seo-data', params: { projectName }, search: previous => ({ ...previous, seoProfileId: id, seoRunId: undefined, seoRegion: undefined, seoMarket: undefined, seoShow: undefined, seoSort: undefined, seoQ: undefined }) })
+    void navigate({ to: '/projects/$projectName/seo-data', params: { projectName }, search: previous => ({ ...previous, seoProfileId: id, seoRunId: undefined, seoView: undefined, seoRegion: undefined, seoMarket: undefined, seoShow: undefined, seoSort: undefined, seoQ: undefined, seoTrendDays: undefined, seoTrendMetric: undefined, seoTrendKeyword: undefined }) })
   }
   const canWrite = context.data?.access.canWrite === true && !isEmbed() && !isPublicDemo()
   const closeEditor = () => {
@@ -221,6 +242,11 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
       void navigate({ to: '/projects/$projectName/seo-data', params: { projectName }, search: previous => ({ ...previous, seoProfileId: selected.id }), replace: true })
     }
   }, [navigate, projectName, search.seoProfileId, selected])
+  useLayoutEffect(() => {
+    if (profileToFocus.current === null || selected?.id !== profileToFocus.current || search.seoRunId || editor) return
+    profileToFocus.current = null
+    profileSelect.current?.focus()
+  }, [editor, search.seoRunId, selected])
 
   if (context.error) return <ReadError error={context.error} retry={() => { void context.refetch() }} />
   if (profiles.error) return <ReadError error={profiles.error} retry={() => { void profiles.refetch() }} />
@@ -231,37 +257,42 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
   const setupGuide = isAdmin && !isEmbed() && !isPublicDemo()
     ? <Button asChild variant="secondary"><a href="https://github.com/Canonry/canonry/blob/main/docs/seo-data.md#host-configuration" target="_blank" rel="noopener noreferrer">SEO setup guide</a></Button>
     : undefined
+  const profileControls = profiles.data.profiles.length > 0 && <div className="flex w-full min-w-0 flex-wrap items-center gap-x-4 gap-y-1 sm:w-auto">
+    <label className="flex w-full min-w-0 items-center gap-2 sm:w-auto"><span className="text-label-13 text-secondary">Profile</span><select ref={profileSelect} aria-label="SEO profile" value={selected?.id ?? ''} onChange={event => selectProfile(event.currentTarget.value, document.activeElement === event.currentTarget)} className={`${FIELD} min-w-0 sm:min-h-9 sm:w-56`}>
+      {!selected && <option value="" disabled>Profile unavailable</option>}
+      {profiles.data.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+    </select></label>
+    {selected && <p className="break-words text-label-13 text-secondary">{scope?.label ?? selected.scope.key ?? selected.scope.kind} · {selected.rankings ? 'Market locations' : `Location ${selected.locationCode}`} · {selected.languageCode}</p>}
+  </div>
+  const showWorkspace = selected && (!search.seoRunId || (selectedRun.data?.profileId === selected.id && !selectedRun.error))
 
   return (
-    <section aria-label="SEO" className="min-w-0 space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h2 className="text-heading-20 text-heading">SEO</h2><p className="mt-1 text-copy-14 text-secondary">Search demand and organic rankings.</p></div>
+    <section aria-label="SEO" className="min-w-0 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-heading-20 text-heading">SEO</h2>
         {canWrite && canConfigure && <div className="flex flex-wrap gap-2">
           {selected && <Button variant="ghost" className="pointer-coarse:min-h-11" onClick={event => { editorOpener.current = event.currentTarget; setEditor({ profile: selected, id: selected.id }) }}>Edit profile</Button>}
           <Button variant="secondary" className="pointer-coarse:min-h-11" onClick={event => { editorOpener.current = event.currentTarget; setEditor({ id: crypto.randomUUID() }) }}><Plus aria-hidden="true" className="size-4" />New profile</Button>
         </div>}
       </div>
 
-      {profiles.data.profiles.length > 0 && <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-y border-subtle py-3">
-        <label className="flex min-w-0 flex-1 items-center gap-3 sm:flex-none"><span className="text-label-13 text-secondary">Profile</span><select ref={profileSelect} aria-label="SEO profile" value={selected?.id ?? ''} onChange={event => selectProfile(event.target.value)} className={`${FIELD} min-w-0 sm:w-64`}>
-          {!selected && <option value="" disabled>Profile unavailable</option>}
-          {profiles.data.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-        </select></label>
-        {selected && <div className="min-w-0 text-label-13 text-secondary"><p className="break-words text-copy-13-strong text-primary">{scope?.label ?? `${selected.scope.kind}${selected.scope.key ? `: ${selected.scope.key}` : ''}`}</p><p>{selected.rankings ? `${selected.rankings.locations.length} search location${selected.rankings.locations.length === 1 ? '' : 's'}` : `Location ${selected.locationCode}`} · {selected.languageCode}</p></div>}
-      </div>}
-
-      {editor && <SeoProfileEditor key={editor.id} projectName={projectName} context={context.data} profile={editor.profile} id={editor.id} onClose={closeEditor} onSaved={id => { selectProfile(id); requestAnimationFrame(() => profileSelect.current?.focus()) }} />}
+      {!showWorkspace && profileControls && <div className="border-y border-subtle py-2">{profileControls}</div>}
+      {editor && <SeoProfileEditor key={editor.id} projectName={projectName} context={context.data} profile={editor.profile} id={editor.id} onClose={closeEditor} onSaved={id => selectProfile(id, true)} />}
       {!isPublicDemo() && !context.data.available && profiles.data.profiles.length > 0 && <p role="status" className="rounded-md border border-default px-4 py-3 text-copy-14 text-secondary">{context.data.reason ?? 'Configure an SEO data provider to refresh saved profiles.'}</p>}
-      {search.seoRunId && selectedRun.error ? <div className="space-y-3"><ReadError error={selectedRun.error} retry={() => { void selectedRun.refetch() }} />{selected ? <Button variant="secondary" className="pointer-coarse:min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button> : <p className="text-copy-14 text-secondary">Select a profile to view its latest data.</p>}</div> : search.seoRunId && selectedRun.isPending ? <p role="status" className="py-10 text-copy-14 text-secondary">Loading refresh…</p> : selected && selectedRun.data && selectedRun.data.profileId !== selected.id ? <EmptyEvidence title="Refresh belongs to another profile">Choose the refresh’s profile, or return to the selected profile’s latest data.<Button variant="secondary" className="mt-4 pointer-coarse:min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button></EmptyEvidence> : selected ? <SeoProfileWorkspace key={`${selected.id}:${selected.revision}:${search.seoRunId ?? ''}`} projectName={projectName} profile={selected} context={context.data} selectedRunId={search.seoRunId} onLatest={() => selectProfile(selected.id)} /> : !canConfigure && profiles.data.profiles.length === 0 ? <EmptyEvidence title={sourceConfigured ? 'SEO scope unavailable' : 'Configure an SEO data provider'} action={!sourceConfigured ? setupGuide : undefined}>{sourceConfigured ? context.data.scopes.find(item => item.reason)?.reason ?? 'No datasets are available for this project’s measurement scopes.' : setupGuide ? 'SEO sources are configured on the Canonry server.' : 'Ask your Canonry administrator to connect an SEO data source.'}</EmptyEvidence> : requestedProfileId ? (
+      {search.seoRunId && selectedRun.error ? <div className="space-y-3"><ReadError error={selectedRun.error} retry={() => { void selectedRun.refetch() }} />{selected ? <Button variant="secondary" className="pointer-coarse:min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button> : <p className="text-copy-14 text-secondary">Select a profile to view its latest data.</p>}</div> : search.seoRunId && selectedRun.isPending ? <p role="status" className="py-10 text-copy-14 text-secondary">Loading refresh…</p> : selected && selectedRun.data && selectedRun.data.profileId !== selected.id ? <EmptyEvidence title="Refresh belongs to another profile">Choose the refresh’s profile, or return to the selected profile’s latest data.<Button variant="secondary" className="mt-4 pointer-coarse:min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button></EmptyEvidence> : selected ? <SeoProfileWorkspace key={`${selected.id}:${selected.revision}:${search.seoRunId ?? ''}`} projectName={projectName} profile={selected} context={context.data} profileControls={profileControls} selectedRunId={search.seoRunId} onLatest={() => selectProfile(selected.id)} /> : !canConfigure && profiles.data.profiles.length === 0 ? <EmptyEvidence title={sourceConfigured ? 'SEO scope unavailable' : 'Configure an SEO data provider'} action={!sourceConfigured ? setupGuide : undefined}>{sourceConfigured ? context.data.scopes.find(item => item.reason)?.reason ?? 'No datasets are available for this project’s measurement scopes.' : setupGuide ? 'SEO sources are configured on the Canonry server.' : 'Ask your Canonry administrator to connect an SEO data source.'}</EmptyEvidence> : requestedProfileId ? (
         <EmptyEvidence title="Profile unavailable">This saved profile is no longer available. Select another profile to view its data.</EmptyEvidence>
       ) : !editor && <EmptyEvidence title="No SEO data yet">{canWrite ? 'Create a profile to choose the scope, source, and searches to measure.' : 'An SEO profile is needed before data can be collected.'}</EmptyEvidence>}
     </section>
   )
 }
 
-function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onLatest }: { projectName: string; profile: SeoProfile; context: SeoContext; selectedRunId?: string; onLatest: () => void }) {
+function SeoProfileWorkspace({ projectName, profile, context, profileControls, selectedRunId, onLatest }: { projectName: string; profile: SeoProfile; context: SeoContext; profileControls: ReactNode; selectedRunId?: string; onLatest: () => void }) {
   const queryClient = useQueryClient()
-  const [view, setView] = useState<SeoView>(selectedRunId ? 'activity' : profile.capabilities.includes(SeoCapabilities['ranked-keywords']) ? SeoCapabilities['ranked-keywords'] : profile.capabilities.at(0) ?? 'activity')
+  const search = useSearch({ strict: false })
+  const navigate = useNavigate()
+  const tabs = useRef<HTMLElement | null>(null)
+  const historyTrigger = useRef<HTMLButtonElement | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const pendingSync = useRef<SeoSyncInput | null>(null)
   const seenActiveRun = useRef<string | null>(null)
@@ -275,7 +306,27 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
   const latest = overview.data?.latestRun
   const evidence = overview.data?.evidenceRun
   const evidenceCapabilities = overview.data?.evidenceRun?.capabilities ?? profile.capabilities
-  const selectedView = view === 'activity' || evidenceCapabilities.includes(view) ? view : evidenceCapabilities.at(0) ?? 'activity'
+  const views: SeoView[] = ['overview', ...EVIDENCE_ORDER.filter(capability => evidenceCapabilities.includes(capability))]
+  const hasMarketInvestigation = search.seoRegion || search.seoMarket || search.seoShow || search.seoSort || search.seoQ
+  const defaultView = !selectedRunId && hasMarketInvestigation && evidenceCapabilities.includes(SeoCapabilities['market-rankings']) ? SeoCapabilities['market-rankings'] : 'overview'
+  const requestedView = search.seoView === 'latest-rankings' ? search.seoView : views.find(view => view === search.seoView)
+  const selectedView = requestedView ?? defaultView
+  const linkedHistory = search.seoView === 'activity' || Boolean(selectedRunId && !requestedView)
+  const showingHistory = historyOpen || linkedHistory
+  const closeHistory = () => {
+    setHistoryOpen(false)
+    if (linkedHistory && selectedRunId) onLatest()
+    else if (linkedHistory) void navigate({ to: '/projects/$projectName/seo-data', params: { projectName }, search: previous => ({ ...previous, seoView: undefined }), replace: true })
+  }
+  const viewSavedData = (runId: string) => {
+    setHistoryOpen(false)
+    void navigate({ to: '/projects/$projectName/seo-data', params: { projectName }, search: previous => ({ ...previous, seoRunId: runId, seoView: 'overview', seoRegion: undefined, seoMarket: undefined, seoShow: undefined, seoSort: undefined, seoQ: undefined, seoTrendDays: undefined, seoTrendMetric: undefined, seoTrendKeyword: undefined }) })
+  }
+  const openView = (view: SeoView, focus = false) => {
+    if (focus) tabs.current?.querySelector<HTMLButtonElement>(`[data-seo-view="${view}"]`)?.focus()
+    const clearMarket = view === SeoCapabilities['market-rankings'] ? {} : { seoRegion: undefined, seoMarket: undefined, seoShow: undefined, seoSort: undefined, seoQ: undefined }
+    void navigate({ to: '/projects/$projectName/seo-data', params: { projectName }, search: previous => ({ ...previous, ...clearMarket, seoView: view === 'overview' && !selectedRunId ? undefined : view }) })
+  }
   const active = isActive(latest)
   const busy = intent.isPending || sync.isPending
   const canRun = context.access.canRun && !isEmbed() && !isPublicDemo()
@@ -285,7 +336,7 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
   const schedule = useQuery({ ...getApiV1ProjectsByNameScheduleOptions({ client: heyClient, path, query: { kind: SchedulableRunKinds['seo-sync'] } }), retry: false })
   const nextRunAt = !schedule.isError && schedule.data?.enabled && schedule.data.nextRunAt ? schedule.data.nextRunAt : null
   const nextRefresh = nextRunAt ? calendarDay(nextRunAt, schedule.data?.timezone ?? 'UTC') : null
-  const updated = evidence?.finishedAt && (evidence.status === SeoRunStatuses.completed || evidence.status === SeoRunStatuses.partial) ? calendarDay(evidence.finishedAt, TIME_ZONE) : null
+  const updated = evidence?.finishedAt && hasResults(evidence) ? calendarDay(evidence.finishedAt, TIME_ZONE) : null
   // While a refresh runs the status line is about that refresh, so the shown data's caveat waits for it to finish.
   const caveat = active ? null : refreshCaveat(latest, evidence)
 
@@ -313,7 +364,10 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
       }
       const run = await sync.mutateAsync({ path, body: pendingSync.current })
       pendingSync.current = null
-      if (isActive(run)) seenActiveRun.current = run.id
+      if (isActive(run)) {
+        seenActiveRun.current = run.id
+        trackRun({ id: run.id, projectId: run.projectId, projectName, projectLabel: projectName, kind: RunKinds['seo-sync'], sourceAction: 'seo-sync', lastAnnouncedStatus: run.status })
+      }
       await queryClient.fetchQuery(getApiV1ProjectsByNameSeoOverviewOptions({ client: heyClient, path, query: { profileId: profile.id } }))
     } catch (cause) {
       if (extractApiErrorInfo(cause).code === 'VALIDATION_ERROR') pendingSync.current = null
@@ -321,35 +375,44 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
     }
   }
 
-  return <div className="space-y-5">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-label-14 text-secondary">
-        <div aria-live="polite">{active && latest ? <p className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{latest.cancelRequested ? 'Cancellation requested' : STATUS_LABELS[latest.status]} · {latest.completedTasks} of {latest.taskCount} {taskNoun(latest)} completed</p>
-          : <p>{updated && evidence?.finishedAt ? <>Updated <time dateTime={evidence.finishedAt} title={formatZonedTimestamp(evidence.finishedAt, TIME_ZONE) ?? undefined}>{updated}</time></> : 'No completed refresh'}{nextRefresh && nextRunAt && <> · Next refresh <time dateTime={nextRunAt}>{nextRefresh}</time></>}</p>}</div>
-        {caveat && <InfoTooltip tone="caution" placement="bottom" label={caveat.label} text={caveat.text} />}
+  return <div className="space-y-3">
+    <div className="flex flex-wrap items-center justify-between gap-x-5 gap-y-1 border-y border-subtle py-1.5 sm:gap-y-3 sm:py-2">
+      {profileControls}
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-label-13 text-secondary">
+          <div aria-live="polite">{active && latest ? <p className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{latest.cancelRequested ? 'Cancellation requested' : STATUS_LABELS[latest.status]} · {latest.completedTasks} of {latest.taskCount} {taskNoun(latest)} completed</p>
+            : <p>{updated && evidence?.finishedAt ? <>Updated <time dateTime={evidence.finishedAt} title={formatZonedTimestamp(evidence.finishedAt, TIME_ZONE) ?? undefined}>{updated}</time></> : 'No completed refresh'}{nextRefresh && nextRunAt && <> · Next refresh <time dateTime={nextRunAt}>{nextRefresh}</time></>}</p>}</div>
+          {caveat && <InfoTooltip tone="caution" placement="bottom" label={caveat.label} text={caveat.text} />}
+        </div>
+        {latest && <Button ref={historyTrigger} variant="ghost" size="sm" aria-haspopup="dialog" aria-expanded={showingHistory} onClick={() => setHistoryOpen(true)}><History className="size-4" aria-hidden="true" />Refresh history</Button>}
+        {selectedRunId ? <Button variant="secondary" onClick={onLatest}>View latest data</Button> : canRun && <Button disabled={busy || active || !context.available || !connection} onClick={asyncHandler(refresh)}><RefreshCw aria-hidden="true" className={`size-4 ${busy ? 'animate-spin' : ''}`} />{busy ? 'Starting refresh…' : active ? 'Refresh in progress' : pendingSync.current ? 'Retry refresh' : 'Refresh data'}</Button>}
       </div>
-      {selectedRunId ? <Button variant="secondary" className="pointer-coarse:min-h-11" onClick={onLatest}>View latest data</Button> : canRun && <Button className="pointer-coarse:min-h-11" disabled={busy || active || !context.available || !connection} onClick={asyncHandler(refresh)}><RefreshCw aria-hidden="true" className={`size-4 ${busy ? 'animate-spin' : ''}`} />{busy ? 'Starting refresh…' : active ? 'Refresh in progress' : pendingSync.current ? 'Retry refresh' : 'Refresh data'}</Button>}
     </div>
     {error && <p role="alert" className="rounded-md border border-default p-4 text-copy-14 text-secondary">{error}{pendingSync.current && ' Retry uses the same request, so it will not start a duplicate refresh.'}</p>}
-    {selectedRunId && <p className="break-all text-copy-13 text-secondary">Viewing saved refresh {selectedRunId}.</p>}
+    {selectedRunId && updated && <p className="text-copy-13 text-secondary">Viewing the saved refresh from {updated}.</p>}
     {overview.data?.evidenceRun && overview.data.evidenceRun.profileRevision !== profile.revision && <p role="status" className="text-copy-14 text-secondary">Saved data uses profile revision {overview.data.evidenceRun.profileRevision} · {runLocation(overview.data.evidenceRun)} · {overview.data.evidenceRun.languageCode}. The current profile has changed.</p>}
     {!isPublicDemo() && scope && !scope.supported && <p role="status" className="text-copy-14 text-secondary">{scope.reason ?? 'This scope is not supported for domain data.'}</p>}
-    {overview.error ? <ReadError error={overview.error} retry={() => { void overview.refetch() }} /> : overview.data?.summary && <div>
-      <p className="mb-3 break-words text-copy-13 text-secondary">{overview.data.summary.target.value}{overview.data.summary.target.includeSubdomains ? ' · includes subdomains' : ' · exact host'}</p>
-      <dl className="grid grid-cols-1 gap-5 border-b border-subtle pb-5 sm:grid-cols-3">
-        <div><dt className="text-label-13 text-secondary">Searches you rank for</dt><dd className="mt-2 text-heading-32 tabular-nums text-heading"><Value value={overview.data.summary.organicKeywords} /></dd></div>
-        <div><dt className="text-label-13 text-secondary">In the top 10</dt><dd className="mt-2 text-heading-32 tabular-nums text-heading"><Value value={overview.data.summary.inTop10} /></dd></div>
-        <div><dt className="flex items-center gap-1.5 text-label-13 text-secondary">Estimated organic traffic<InfoTooltip text="Modeled search traffic for this target and provider geography. This is not measured site traffic." /></dt><dd className="mt-2 text-heading-32 tabular-nums text-heading"><Value value={overview.data.summary.estimatedOrganicTraffic} /></dd></div>
-      </dl>
-    </div>}
     <div>
-      <div className="flex flex-wrap gap-x-5 border-b border-subtle" aria-label="SEO views">
-        {[...evidenceCapabilities, 'activity' as const].map(item => <button key={item} type="button" aria-pressed={selectedView === item} className={`min-h-11 border-b-2 text-button-14 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${selectedView === item ? 'border-strong text-primary' : 'border-transparent text-secondary hover:text-primary'}`} onClick={() => setView(item)}>{item === 'activity' ? 'Activity' : CAPABILITY_LABELS[item]}</button>)}
-      </div>
-      {selectedView === 'activity' ? <SeoActivity projectName={projectName} profileId={profile.id} canRun={canRun} selectedRunId={selectedRunId} />
-        : overview.isPending ? <p role="status" className="py-8 text-copy-14 text-secondary">Loading saved data…</p>
-          : overview.data && <SeoEvidence key={`${profile.id}:${selectedView}:${overview.data.evidenceRunId ?? 'empty'}`} projectName={projectName} profileId={profile.id} runId={overview.data.evidenceRunId} view={selectedView} active={active} nextRefresh={nextRefresh} />}
+      <nav ref={tabs} aria-label="SEO views" className="flex min-w-0 gap-x-5 overflow-x-auto border-b border-subtle sm:flex-wrap">
+        {views.map(item => {
+          const selected = selectedView === item || (selectedView === 'latest-rankings' && item === 'overview')
+          return <button key={item} data-seo-view={item} type="button" aria-pressed={selected} className={`min-h-11 shrink-0 border-b-2 whitespace-nowrap text-button-14 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mono-400 ${selected ? 'border-strong text-primary' : 'border-transparent text-secondary hover:text-primary'}`} onClick={() => openView(item)}>{SEO_VIEW_LABELS[item]}</button>
+        })}
+      </nav>
+      {overview.error ? <div className="pt-4"><ReadError error={overview.error} retry={() => { void overview.refetch() }} /></div>
+          : overview.isPending ? <p role="status" className="py-8 text-copy-14 text-secondary">Loading saved data…</p>
+            : selectedView === 'overview' || selectedView === 'latest-rankings' ? <SeoOverviewPanel projectName={projectName} profileId={profile.id} data={overview.data} active={active} canRun={canRun} nextRefresh={nextRefresh} snapshot={Boolean(selectedRunId) || selectedView === 'latest-rankings'} historical={Boolean(selectedRunId)} onOpen={view => openView(view, true)} />
+              : <SeoEvidence key={`${profile.id}:${selectedView}:${overview.data.evidenceRunId ?? 'empty'}`} projectName={projectName} profileId={profile.id} runId={overview.data.evidenceRunId} view={selectedView} active={active} nextRefresh={nextRefresh} />}
     </div>
+    <Drawer title="Refresh history" subtitle={profile.name} open={showingHistory} onClose={closeHistory} onCloseAutoFocus={event => {
+      const trigger = historyTrigger.current
+      if (trigger?.isConnected && !(linkedHistory && selectedRunId)) {
+        event.preventDefault()
+        trigger.focus()
+      }
+    }}>
+      {showingHistory && <SeoRefreshHistory projectName={projectName} profileId={profile.id} canRun={canRun} selectedRunId={selectedRunId} exactRefresh={linkedHistory && Boolean(selectedRunId)} onViewSaved={viewSavedData} onLatest={onLatest} />}
+    </Drawer>
     <details className="group/seo-data border-t border-subtle text-label-14 text-secondary">
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-label-14-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 [&::-webkit-details-marker]:hidden"><ChevronRight className="size-3.5 shrink-0 transition-transform group-open/seo-data:rotate-90" aria-hidden="true" />Data details</summary>
       <div className="space-y-4 pb-3 text-label-13">
@@ -362,6 +425,333 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
       </div>
     </details>
   </div>
+}
+
+type SeoChartPoint = { label: string; value: number | null; tick?: string }
+const PREVIEW_ROWS = 6
+const MONTH_LABEL = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+const SHORT_MONTH = new Intl.DateTimeFormat('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' })
+const COMPACT_NUMBER = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
+const SEO_TREND_RANGES: ReadonlyArray<{ days: SeoTrendDays; label: string }> = [
+  { days: 180, label: '180 days' }, { days: 90, label: '90 days' }, { days: 30, label: '30 days' },
+]
+const SEO_TREND_METRICS = {
+  inTop10: { label: 'In the top 10' },
+  organicKeywords: { label: 'Ranked searches' },
+  estimatedOrganicTraffic: { label: 'Estimated organic traffic', help: 'Modeled search traffic for this target and geography. Site traffic is measured separately.' },
+  page1: { label: 'On page 1', help: 'Non-brand tracked queries with a Google organic position from 1 to 10. Each query is counted separately in each of its markets.' },
+  rankOrganic: { label: 'Organic position', help: 'Ranks come from the searches returned in each saved refresh. A gap means this search had no position in that refresh’s saved results.' },
+} satisfies Record<SeoTrendMetric, { label: string; help?: string }>
+
+function SeoTrendPanel({ projectName, data, days, metric, keyword, selectionPending, selectionFailed, onRangeChange, onMetricChange, onKeywordChange, refreshing, onLatest }: {
+  projectName: string
+  data: SeoTrends & { kind: NonNullable<SeoTrends['kind']> }
+  days: SeoTrendDays
+  metric?: SeoTrendMetric
+  keyword?: string
+  selectionPending: boolean
+  selectionFailed: boolean
+  onRangeChange: (days: SeoTrendDays) => void
+  onMetricChange: (metric: SeoTrendMetric) => void
+  onKeywordChange: (keyword: string) => void
+  refreshing: boolean
+  onLatest: () => void
+}) {
+  const isMarket = data.kind === SeoTrendKinds.market
+  const isRanked = data.kind === SeoTrendKinds.ranked
+  const metrics = SEO_TREND_METRICS_BY_KIND[data.kind]
+  const figures: TrendCardFigure[] = metrics.map(key => {
+    const latest = data.points.filter(point => point[key] != null).at(-1)
+    const value = latest?.[key] ?? null
+    return {
+      ...SEO_TREND_METRICS[key],
+      key,
+      value: value === null ? '—' : NUMBER.format(value),
+      stateValue: value === null,
+      detail: latest && latest !== data.points.at(-1) ? `as of ${calendarDay(latest.observedAt, TIME_ZONE) ?? latest.observedAt}` : undefined,
+      interactive: true,
+      change: levelTrendChange(data.changes[key] ?? null, TrendUnits.count),
+      series: data.points.map(point => ({ date: point.observedAt, current: point[key] ?? null })),
+      formatValue: rank => isRanked ? NUMBER.format(rank) : COMPACT_NUMBER.format(rank),
+      formatExact: value => NUMBER.format(value),
+      allowDecimals: key === 'estimatedOrganicTraffic',
+      reverseValueAxis: isRanked,
+    }
+  })
+  const defaultMetric = metrics.find(key => data.changes[key] != null) ?? metrics.find(key => data.points.some(point => point[key] != null)) ?? metrics[0]!
+  const selected = metric && metrics.includes(metric) ? metric : defaultMetric
+  const title = isMarket ? 'Google rankings over time' : isRanked ? 'Ranked search trends' : 'Organic search performance'
+  const scope = [data.target && targetLabel(data.target), 'Google', isMarket ? 'Market locations' : data.locationCode !== null ? `Location ${data.locationCode}` : null, data.languageCode].filter(Boolean).join(' · ')
+  const selectedKeyword = (selectionPending ? keyword ?? data.keyword : data.keyword) ?? ''
+  const choices = data.rankedKeywords ?? []
+  const includeSelectedKeyword = selectedKeyword !== '' && !choices.includes(selectedKeyword)
+  usePublishAeroView(projectName, {
+    view: 'seo', seoProfileId: data.profileId,
+    seoTrend: { days: data.days, metric: selected, ...(isRanked && data.keyword ? { keyword: data.keyword } : {}) },
+  })
+  const first = data.points[0]?.observedAt
+  const last = data.points.at(-1)?.observedAt
+  const span = first && last && first !== last ? trendSpanLabel({ date: first, observedAt: first }, { date: last, observedAt: last }) : undefined
+  const selectedReadings = data.points.filter(point => point[selected] != null)
+  const readings = selectedReadings.length
+  const readingDate = selectedReadings[0] ? calendarDay(selectedReadings[0].observedAt, TIME_ZONE) : null
+  const basis = metrics.length > 1 ? sharedLevelBasis(metrics.map(key => ({ change: data.changes[key] ?? null }))) : undefined
+  const priorSelection = [isRanked && data.keyword ? `“${data.keyword}”` : null, `${data.days} days`].filter(Boolean).join(' · ')
+  const trendNotice = [
+    selectionPending ? `${selectionFailed ? 'Showing previous selection' : 'Loading selection. Showing'} ${priorSelection}.` : null,
+    span,
+    readings >= 2 ? `${NUMBER.format(readings)} comparable refreshes` : null,
+    readings === 1 && readingDate ? `Saved ${readingDate}` : null,
+    basis ? `Change ${basis}` : null,
+    data.marketQueryCount !== null ? `${NUMBER.format(data.marketQueryCount)} non-brand queries across markets` : null,
+  ].filter(Boolean).join(' · ')
+  const noTrend = readings === 1
+    ? days < SEO_TREND_DEFAULT_DAYS ? 'One saved reading in this range. Choose a longer range to see a trend.' : 'One saved reading in this range. Trends appear after another comparable refresh.'
+    : days < SEO_TREND_DEFAULT_DAYS ? 'No comparable readings in this range. Choose a longer range.' : 'No comparable readings for this selection.'
+  const changeRange = (value: string) => {
+    const range = seoTrendDaysSchema.safeParse(Number(value))
+    if (range.success) onRangeChange(range.data)
+  }
+
+  return <section aria-label={title} className="material-base min-w-0 px-4">
+    <div className="flex flex-wrap items-start justify-between gap-x-5 gap-y-1 py-2 sm:py-3">
+      <div className="min-w-0 space-y-1">
+        <h3 className="text-heading-20 text-heading">{title}</h3>
+        <p className="break-words text-copy-13 text-secondary">{scope}</p>
+      </div>
+      {isRanked && (choices.length > 0 || selectedKeyword) && <label className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-label-13 text-secondary sm:w-auto sm:max-w-96">
+        Search to chart
+        <select className={`${FIELD} min-w-0 flex-1 sm:min-h-9`} value={selectedKeyword} aria-busy={refreshing} onChange={event => onKeywordChange(event.currentTarget.value)}>
+          {keyword && <option value="">Profile default</option>}
+          {includeSelectedKeyword && <option value={selectedKeyword}>{selectedKeyword}</option>}
+          {choices.map(search => <option key={search} value={search}>{search}</option>)}
+        </select>
+      </label>}
+    </div>
+    <div className="border-t border-subtle">
+      <TrendCard name={title} groups={[{ key: 'seo', figures, basis }]} selected={[selected]} onSelect={key => { const parsed = seoTrendMetricSchema.safeParse(key); if (parsed.success) onMetricChange(parsed.data) }}
+        frame="none" cadence="refresh" compact instants chartHeight={180} minimumReadings={2} showChartData span={span} currentLabel={isRanked && data.keyword ? `“${data.keyword}”` : undefined} hideSpan basisInNotice refreshing={refreshing}
+        emptyChartMessage={noTrend} notice={<span className="break-words">{trendNotice}</span>}
+        controls={<>
+          <label className="flex items-center gap-2 text-label-13 text-secondary">Range
+            <select className={`${FIELD} min-w-28 sm:min-h-9`} aria-label="SEO trend range" aria-busy={refreshing} value={days} onChange={event => changeRange(event.target.value)}>
+              {SEO_TREND_RANGES.map(range => <option key={range.days} value={range.days}>{range.label}</option>)}
+            </select>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onLatest}>Latest rankings<ArrowRight className="size-4" aria-hidden="true" /></Button>
+        </>} />
+    </div>
+  </section>
+}
+
+type SeoOverviewPanelProps = {
+  projectName: string; profileId: string; data: SeoOverview; active: boolean; canRun: boolean; nextRefresh: string | null; onOpen: (view: SeoView) => void; snapshot?: boolean; historical?: boolean;
+}
+
+function SeoOverviewPanel({ snapshot = false, historical = false, ...props }: SeoOverviewPanelProps) {
+  const search = useSearch({ strict: false })
+  const navigate = useNavigate()
+  const days = search.seoTrendDays ?? SEO_TREND_DEFAULT_DAYS
+  const keyword = search.seoTrendKeyword
+  const metric = search.seoTrendMetric
+  const snapshotHeading = useRef<HTMLHeadingElement | null>(null)
+  const { data, projectName, profileId, onOpen } = props
+  const hasRankingProfile = data.evidenceRun?.capabilities.some(capability => capability === SeoCapabilities['domain-intelligence'] || capability === SeoCapabilities['market-rankings'] || capability === SeoCapabilities['ranked-keywords']) === true
+  const trendOptions = getApiV1ProjectsByNameSeoTrendsOptions({ client: heyClient, path: { name: projectName }, query: { profileId, days, keyword } })
+  const lastTrend = useRef<SeoTrends | undefined>(undefined)
+  const trends = useQuery({
+    ...trendOptions,
+    enabled: !snapshot && hasRankingProfile,
+    placeholderData: keepPreviousData,
+  })
+  useEffect(() => {
+    if (trends.data && !trends.isPlaceholderData) lastTrend.current = trends.data
+  }, [trends.data, trends.isPlaceholderData])
+  useEffect(() => { if (snapshot) snapshotHeading.current?.focus() }, [snapshot])
+
+  if (snapshot) return <div className="pt-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h3 ref={snapshotHeading} tabIndex={-1} className="text-heading-16 text-heading focus:outline-none">Saved rankings and search data</h3>
+      {!historical && <Button variant="ghost" size="sm" onClick={() => onOpen('overview')}>Back to overview</Button>}
+    </div>
+    <SeoSnapshotPanel key={data.evidenceRunId ?? 'empty'} {...props} />
+  </div>
+
+  if (!hasRankingProfile) return <SeoSnapshotPanel key={data.evidenceRunId ?? 'empty'} {...props} />
+  const trend = trends.data ?? lastTrend.current
+  if (trends.error && !trend) return <div className="pt-4"><ReadError error={trends.error} retry={() => { void trends.refetch() }} /></div>
+  if (!trend) return <p role="status" className="py-10 text-copy-14 text-secondary">Loading SEO trends…</p>
+
+  const { kind } = trend
+  if (!kind) return <SeoSnapshotPanel key={data.evidenceRunId ?? 'empty'} {...props} />
+  const hasReadings = trend.hasRankingReadings ?? SEO_TREND_METRICS_BY_KIND[kind].some(key => trend.points.some(point => point[key] != null))
+  if (!hasReadings && kind !== SeoTrendKinds.market && !(kind === SeoTrendKinds.ranked && keyword) && (data.keywordMetricsCount > 0 || data.rankedKeywordCount > 0)) {
+    return <SeoSnapshotPanel key={data.evidenceRunId ?? 'empty'} {...props} />
+  }
+
+  const setTrendSearch = (selection: { seoTrendDays?: SeoTrendDays; seoTrendMetric?: SeoTrendMetric; seoTrendKeyword?: string }) => {
+    void navigate({ to: '/projects/$projectName/seo-data', params: { projectName }, search: previous => ({ ...previous, ...selection }), replace: true, resetScroll: false })
+  }
+  return <div className="space-y-3 pt-4">
+    <SeoTrendPanel projectName={projectName} data={{ ...trend, kind }} days={days} metric={metric} keyword={keyword}
+      selectionPending={trends.isPlaceholderData || !trends.data} selectionFailed={trends.isError}
+      refreshing={trends.isFetching} onLatest={() => onOpen('latest-rankings')}
+      onRangeChange={range => { setTrendSearch({ seoTrendDays: range }); trackUiFilterChange('window') }}
+      onMetricChange={value => { setTrendSearch({ seoTrendMetric: value }); trackUiFilterChange('other') }}
+      onKeywordChange={value => { setTrendSearch({ seoTrendKeyword: value || undefined }); trackUiFilterChange('other') }} />
+    {trends.error && <ReadError error={trends.error} retry={() => { void trends.refetch() }} />}
+  </div>
+}
+
+function SeoChart({ title, caption, category, unit, points, view, onOpen, controls, monthAxis = false, rankAxis = false }: {
+  title: string; caption: string; category: string; unit: string; points: SeoChartPoint[]; view: SeoCapability;
+  onOpen: (view: SeoView) => void; controls?: ReactNode; monthAxis?: boolean; rankAxis?: boolean;
+}) {
+  const heading = useId()
+  const description = useId()
+  const values = useId()
+  const [showValues, setShowValues] = useState(false)
+  // A zero-width mark keeps the category visible for a missing reading. Its label and table still say unavailable.
+  const chartRows = points.map(point => ({ ...point, plotted: point.value ?? (rankAxis || monthAxis ? null : 0), display: point.value === null ? '—' : NUMBER.format(point.value) }))
+  const ticks = new Map(points.map(point => [point.label, point.tick ?? point.label]))
+  const numericTick = (value: number) => COMPACT_NUMBER.format(value)
+  const categoryTick = (value: string) => ticks.get(value) ?? value
+  const tooltip = <RechartsTooltip {...CHART_TOOLTIP_STYLE} labelFormatter={label => typeof label === 'string' ? label : ''} formatter={(value, _name, item) => {
+    const row: unknown = item.payload
+    const display = row && typeof row === 'object' && 'display' in row && typeof row.display === 'string' ? row.display : undefined
+    return [display ?? (typeof value === 'number' ? NUMBER.format(value) : '—'), unit]
+  }} />
+  const color = CHART_SERIES_COLORS[1]
+
+  return <section aria-labelledby={heading} className="material-base min-w-0 p-4 sm:p-5">
+    <div className="space-y-1">
+      <h3 id={heading} className="text-heading-20 text-heading">{title}</h3>
+      <p id={description} className="break-words text-copy-13 text-secondary">{caption}</p>
+    </div>
+    {controls && <div className="mt-3">{controls}</div>}
+    <p className="mt-4 text-label-12 text-secondary">{unit}</p>
+    <div className="min-w-0 pt-1" aria-hidden="true">
+      <ResponsiveContainer width="100%" height={monthAxis ? 220 : points.length * 38 + 34}>
+        {monthAxis ? <BarChart data={chartRows} accessibilityLayer={false} margin={{ top: 12, right: 12, bottom: 2, left: 0 }}>
+          <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
+          <XAxis dataKey="label" tick={CHART_AXIS_TICK} tickFormatter={categoryTick} tickLine={false} axisLine={false} minTickGap={16} />
+          <YAxis tick={CHART_AXIS_TICK} tickFormatter={numericTick} tickLine={false} axisLine={false} allowDecimals={false} width={46} />
+          {tooltip}
+          <Bar dataKey="plotted" fill={color} maxBarSize={46} minPointSize={1} radius={[3, 3, 0, 0]} isAnimationActive={false} />
+        </BarChart> : <ComposedChart data={chartRows} layout="vertical" accessibilityLayer={false} margin={{ top: 3, right: 58, bottom: 2, left: 0 }}>
+          <CartesianGrid stroke={CHART_GRID_STROKE} horizontal={false} />
+          <YAxis type="category" dataKey="label" tick={CHART_AXIS_TICK} tickFormatter={categoryTick} tickLine={false} axisLine={false} width={view === SeoCapabilities['domain-intelligence'] ? 48 : 112} interval={0} />
+          <XAxis type="number" tick={CHART_AXIS_TICK} tickFormatter={(value: number) => rankAxis && value < 1 ? '' : numericTick(value)} tickLine={false} axisLine={false} allowDecimals={false} domain={rankAxis ? [1, 'auto'] : [0, 'auto']} />
+          {tooltip}
+          {rankAxis
+            ? <Line dataKey="plotted" stroke="none" dot={{ r: 5, fill: color, stroke: color }} activeDot={false} isAnimationActive={false}><LabelList dataKey="display" position="right" fill={CHART_AXIS_TICK.fill} fontSize={12} /></Line>
+            : <Bar dataKey="plotted" fill={color} barSize={18} minPointSize={1} radius={[0, 3, 3, 0]} isAnimationActive={false}>
+              {chartRows.map((row, index) => <Cell key={`${row.label}:${index}`} fill={row.value === null ? 'transparent' : color} />)}
+              <LabelList dataKey="display" position="right" fill={CHART_AXIS_TICK.fill} fontSize={12} />
+            </Bar>}
+        </ComposedChart>}
+      </ResponsiveContainer>
+    </div>
+    <div className="flex flex-wrap items-center justify-between gap-x-3 border-t border-subtle pt-2">
+      <Button variant="ghost" size="sm" aria-expanded={showValues} aria-controls={values} onClick={() => setShowValues(visible => !visible)}>Chart data</Button>
+      <Button variant="ghost" size="sm" aria-label={`Open ${CAPABILITY_LABELS[view]}`} onClick={() => onOpen(view)}>{CAPABILITY_LABELS[view]}<ArrowRight className="size-4" aria-hidden="true" /></Button>
+    </div>
+    <div id={values} className={showValues ? 'mt-3 border-t border-subtle' : 'sr-only'}>
+      <table aria-label={title} aria-describedby={description} className="w-full text-label-13">
+        <thead className="text-secondary"><tr><th scope="col" className="py-2 text-left">{category}</th><th scope="col" className="py-2 pl-4 text-right">{unit}</th></tr></thead>
+        <tbody className="divide-y divide-subtle">{points.map((point, index) => <tr key={`${point.label}:${index}`}><th scope="row" className="break-words py-2 text-left">{point.label}</th><td className="py-2 pl-4 text-right tabular-nums"><Value value={point.value} /></td></tr>)}</tbody>
+      </table>
+    </div>
+  </section>
+}
+
+function domainPositions(row: SeoDomainIntelligence): SeoChartPoint[] {
+  return [
+    { label: '1', value: row.top1 }, { label: '2–3', value: row.top2To3 },
+    { label: '4–10', value: row.top4To10 }, { label: '11–20', value: row.top11To20 },
+  ]
+}
+
+function targetLabel(target: SeoTarget): string {
+  return `${target.value} · ${target.includeSubdomains ? 'includes subdomains' : 'exact host'}`
+}
+
+function DomainSummary({ summary }: { summary: NonNullable<SeoOverview['summary']> }) {
+  return <dl aria-label="Organic search metrics" className="grid gap-x-6 gap-y-3 border-b border-subtle px-1 pb-4 sm:grid-cols-3">
+    <div><dt className="text-label-13 text-secondary">Searches you rank for</dt><dd className="mt-1 text-heading-24 tabular-nums text-heading"><Value value={summary.organicKeywords} /></dd></div>
+    <div><dt className="text-label-13 text-secondary">In the top 10</dt><dd className="mt-1 text-heading-24 tabular-nums text-heading"><Value value={summary.inTop10} /></dd></div>
+    <div><dt className="flex items-center gap-1.5 text-label-13 text-secondary">Estimated organic traffic<InfoTooltip text="Modeled search traffic for this target and provider geography. Site traffic is measured separately." /></dt><dd className="mt-1 text-heading-24 tabular-nums text-heading"><Value value={summary.estimatedOrganicTraffic} /></dd></div>
+  </dl>
+}
+
+function SeoSnapshotPanel({ projectName, profileId, data, active, canRun, nextRefresh, onOpen }: SeoOverviewPanelProps) {
+  const [page, setPage] = useState(1)
+  const [searchIndex, setSearchIndex] = useState<number>()
+  const args = { client: heyClient, path: { name: projectName }, query: { profileId, runId: data.evidenceRunId ?? undefined } }
+  const hasRun = data.evidenceRunId !== null
+  const hasMarket = hasRun && data.marketRankingCount > 0
+  const hasDomain = hasRun && data.summary !== null
+  const market = useQuery({ ...getApiV1ProjectsByNameSeoMarketRankingsSummaryOptions(args), enabled: hasMarket })
+  const domains = useQuery({ ...getApiV1ProjectsByNameSeoDomainIntelligenceOptions({ ...args, query: { ...args.query, limit: 20 } }), enabled: hasDomain })
+  const target = data.summary?.target
+  const domain = target && domains.data?.items.find(row => row.target.kind === target.kind && row.target.value === target.value && row.target.includeSubdomains === target.includeSubdomains)
+  const positions = domain ? domainPositions(domain) : []
+  const hasPositions = positions.some(point => point.value !== null)
+  const readRanked = hasRun && !hasMarket && !hasPositions && (!hasDomain || domains.isSuccess) && data.rankedKeywordCount > 0
+  const ranked = useQuery({ ...getApiV1ProjectsByNameSeoRankedKeywordsOptions({ ...args, query: { ...args.query, limit: PREVIEW_ROWS } }), enabled: readRanked })
+  const rankedRows = ranked.data?.items ?? []
+  const hasRanks = rankedRows.some(row => row.rankOrganic !== null)
+  const readDemand = hasRun && !hasMarket && !hasPositions && !hasRanks && (!hasDomain || domains.isSuccess) && (!readRanked || ranked.isSuccess) && data.keywordMetricsCount > 0
+  const keywords = useQuery({ ...getApiV1ProjectsByNameSeoKeywordMetricsOptions({ ...args, query: { ...args.query, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE } }), enabled: readDemand })
+  const currentRead = hasMarket ? market : hasDomain && !domains.isSuccess ? domains : readRanked && !ranked.isSuccess ? ranked : readDemand ? keywords : null
+
+  let chart: ReactNode
+  if (currentRead?.error) {
+    chart = <ReadError error={currentRead.error} retry={() => { void currentRead.refetch() }} />
+  } else if (currentRead?.isPending) {
+    chart = <p role="status" className="py-10 text-copy-14 text-secondary">Loading SEO overview…</p>
+  } else if (hasMarket && market.data) {
+    const { totals, depth } = market.data
+    chart = <SeoChart title="Google rank across markets" caption={`Non-brand queries · ${marketRankingCoverage(totals)}`} category="Outcome" unit="Queries" points={marketRankingBands(depth, totals).map(band => ({ label: band.label, value: totals[band.count] }))} view={SeoCapabilities['market-rankings']} onOpen={onOpen} />
+  } else if (domain && hasPositions) {
+    chart = <SeoChart title="Organic positions in the top 20" caption={`${targetLabel(domain.target)} · Google · Location ${domain.provenance.locationCode} · ${domain.provenance.languageCode}`} category="Position" unit="Ranking searches" points={positions} view={SeoCapabilities['domain-intelligence']} onOpen={onOpen} />
+  } else if (readRanked && hasRanks) {
+    chart = <SeoChart title="Organic positions for saved searches" caption={`First ${rankedRows.length} of ${NUMBER.format(data.rankedKeywordCount)} saved results · Google`} category="Search and target" unit="Organic position" rankAxis view={SeoCapabilities['ranked-keywords']} onOpen={onOpen} points={rankedRows.map(row => ({ label: `${row.keyword} · ${targetLabel(row.target)}`, tick: shortSearch(row.keyword), value: row.rankOrganic }))} />
+  } else if (readDemand && keywords.data?.items.length) {
+    const rows = keywords.data.items
+    const row = (searchIndex !== undefined ? rows[searchIndex] : undefined) ?? rows.find(item => item.monthlySearches.some(month => month.searchVolume !== null)) ?? rows[0]!
+    const months = [...row.monthlySearches].sort((a, b) => a.year - b.year || a.month - b.month).map(month => {
+      const date = new Date(Date.UTC(month.year, month.month - 1, 1))
+      return { label: MONTH_LABEL.format(date), tick: SHORT_MONTH.format(date), value: month.searchVolume }
+    })
+    const hasMonths = months.some(month => month.value !== null)
+    const controls = <>
+      <label className="flex w-fit max-w-full flex-wrap items-center gap-x-3 gap-y-1 text-label-13 text-secondary">Search to chart
+        <select className={`${FIELD} min-w-0 sm:max-w-96`} value={rows.indexOf(row)} onChange={event => { setSearchIndex(Number(event.target.value)); trackUiFilterChange('other') }}>{rows.map((item, index) => <option key={`${item.keyword}:${index}`} value={index}>{item.keyword}</option>)}</select>
+      </label>
+      {keywords.data.total > PAGE_SIZE && <DataTablePagination page={page} pageSize={PAGE_SIZE} visibleRows={rows.length} totalRows={keywords.data.total} disabled={keywords.isFetching} itemLabel="searches" onPageChange={next => { setSearchIndex(undefined); setPage(next) }} />}
+    </>
+    const demandCaption = `${row.keyword} · Google · Location ${row.provenance.locationCode} · ${row.provenance.languageCode}`
+    chart = hasMonths
+      ? <SeoChart title="Monthly search demand" caption={demandCaption} category="Month" unit="Estimated searches" points={months} monthAxis view={SeoCapabilities['keyword-metrics']} onOpen={onOpen} controls={controls} />
+      : row.searchVolume !== null
+        ? <SeoChart title="Search demand estimate" caption={demandCaption} category="Search" unit="Estimated monthly searches" points={[{ label: row.keyword, tick: shortSearch(row.keyword), value: row.searchVolume }]} view={SeoCapabilities['keyword-metrics']} onOpen={onOpen} controls={controls} />
+        : <div className="material-base p-4 sm:p-5"><h3 className="mb-3 text-heading-20 text-heading">Search demand</h3>{controls}<p className="mt-4 text-copy-14 text-secondary">The source did not report an estimate for this search.</p></div>
+  } else {
+    const view = EVIDENCE_ORDER.find(capability => data.evidenceRun?.capabilities.includes(capability))
+    chart = <div className="material-base">
+      <EmptyEvidence title={active ? 'Refresh in progress' : hasRun ? 'No rankings or search demand to chart' : 'No SEO results yet'}>
+        {active ? 'Results will appear after the refresh saves data.' : hasRun ? 'Open the saved evidence for this profile.' : nextRefresh ? `First refresh ${nextRefresh}.` : canRun ? 'Refresh this profile to collect its first results.' : 'Results will appear after this profile is refreshed.'}
+      </EmptyEvidence>
+      {hasRun && view && <div className="pb-4 text-center"><Button variant="secondary" aria-label={`Open ${SEO_VIEW_LABELS[view]}`} onClick={() => onOpen(view)}>{SEO_VIEW_LABELS[view]}<ArrowRight className="size-4" aria-hidden="true" /></Button></div>}
+    </div>
+  }
+
+  return <div className="space-y-4 pt-4">{chart}{data.summary && <DomainSummary summary={data.summary} />}</div>
+}
+
+function shortSearch(value: string): string {
+  return value.length > 16 ? `${value.slice(0, 15)}…` : value
 }
 
 function SeoEvidence({ projectName, profileId, runId, view, active, nextRefresh }: { projectName: string; profileId: string; runId: string | null; view: SeoCapability; active: boolean; nextRefresh: string | null }) {
@@ -395,7 +785,7 @@ function SeoEvidenceTable({ projectName, profileId, runId, view, active }: { pro
     {view === SeoCapabilities['competitor-discovery'] && <p className="flex items-center gap-1.5 text-label-13 text-secondary">Domains sharing organic searches<InfoTooltip text="Discovery uses this profile’s whole domains, location and language. Suggested domains are not automatically added to tracked competitors. Counts describe the source’s database; the table is limited to this refresh’s saved results." /></p>}
     {selected.error ? <ReadError error={selected.error} retry={() => { void selected.refetch() }} />
       : !selected.data ? <p role="status" className="py-8 text-label-14 text-secondary">Loading {CAPABILITY_LABELS[view].toLowerCase()}…</p>
-        : selected.data.items.length === 0 ? <EmptyEvidence title={active ? 'Refresh in progress' : gapKind ? 'No matching comparisons' : 'No results returned'}>{active ? 'This profile is collecting data.' : gapKind ? 'Choose another comparison filter to see the remaining saved results.' : 'The source did not return records for this scope. Review the refresh in Activity before changing the profile.'}</EmptyEvidence>
+        : selected.data.items.length === 0 ? <EmptyEvidence title={active ? 'Refresh in progress' : gapKind ? 'No matching comparisons' : 'No results returned'}>{active ? 'This profile is collecting data.' : gapKind ? 'Choose another comparison filter to see the remaining saved results.' : 'The source did not return records for this scope. Review the refresh in Refresh history.'}</EmptyEvidence>
           : <>
       <div className="relative overflow-x-auto material-base" role="region" aria-label={`${CAPABILITY_LABELS[view]} table`} aria-busy={selected.isFetching} tabIndex={0}>
       {view === SeoCapabilities['ranked-keywords'] && ranked.data && <RankedTable rows={ranked.data.items} />}
@@ -573,26 +963,19 @@ function MarketRankingsView({ projectName, profileId, runId, active }: { project
   if (totals.queries === 0) {
     return <div className="pt-4">{trail}{scoped
       ? <EmptyEvidence title="No rankings here">This refresh has no rankings for this {marketKey !== undefined ? 'market' : 'region'}.</EmptyEvidence>
-      : <EmptyEvidence title={active ? 'Refresh in progress' : 'No results returned'}>{active ? 'This profile is collecting data.' : 'The source did not return records for this scope. Review the refresh in Activity before changing the profile.'}</EmptyEvidence>}</div>
+      : <EmptyEvidence title={active ? 'Refresh in progress' : 'No results returned'}>{active ? 'This profile is collecting data.' : 'The source did not return records for this scope. Review the refresh in Refresh history.'}</EmptyEvidence>}</div>
   }
   const bands = marketRankingBands(depth, totals)
   // Needs work leads; a scope with nothing off page 1 opens on every query instead of an empty list.
   const show: MarketShow = chosenShow ?? (totals.needsWork > 0 ? SeoMarketRankingFilters['needs-work'] : SHOW_ALL)
   // One region holds markets worth opening; a lone market would only repeat the queries below.
   const showGroups = groups.length > 1 || groups.some(group => group.kind === SeoMarketRankingGroupKinds.region)
-  // The rank figures leave out queries with an incomplete or no result; the caption names them, so the figures reconcile with the total.
-  const coverage = [
-    `${NUMBER.format(totals.queries)} ${totals.queries === 1 ? 'query' : 'queries'}`,
-    ...(totals.partlyChecked > 0 ? [`${NUMBER.format(totals.partlyChecked)} partly checked`] : []),
-    ...(totals.failed > 0 ? [`${NUMBER.format(totals.failed)} failed`] : []),
-    ...(totals.cancelled > 0 ? [`${NUMBER.format(totals.cancelled)} not searched`] : []),
-  ].join(' · ')
   return <div className="space-y-6 pt-4">
     {trail}
     <section aria-labelledby={figuresHeading} className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h3 id={figuresHeading} className="text-heading-16 text-heading">Google rank</h3>
-        <p className="text-copy-13 tabular-nums text-secondary">{coverage}</p>
+        <p className="text-copy-13 tabular-nums text-secondary">{marketRankingCoverage(totals)}</p>
       </div>
       <dl className={`grid grid-cols-2 gap-5 border-b border-subtle pb-5 ${TILE_COLUMNS[bands.length + 1] ?? 'sm:grid-cols-5'}`}>
         {bands.map(band => <RankTile key={band.count} label={band.label} help={bandHelp(band, depth)} value={totals[band.count]} />)}
@@ -611,6 +994,15 @@ function MarketRankingsView({ projectName, profileId, runId, active }: { project
   </div>
 }
 
+function marketRankingCoverage(totals: SeoMarketRankingCounts): string {
+  return [
+    `${NUMBER.format(totals.queries)} ${totals.queries === 1 ? 'query' : 'queries'}`,
+    ...(totals.partlyChecked > 0 ? [`${NUMBER.format(totals.partlyChecked)} partly checked`] : []),
+    ...(totals.failed > 0 ? [`${NUMBER.format(totals.failed)} failed`] : []),
+    ...(totals.cancelled > 0 ? [`${NUMBER.format(totals.cancelled)} not searched`] : []),
+  ].join(' · ')
+}
+
 function RankTile({ label, help, value, className }: { label: string; help: string; value: number; className?: string }) {
   return <div className={className}>
     <dt className="flex items-center gap-1.5 text-label-13 text-secondary">{label}<InfoTooltip text={help} placement="bottom" /></dt>
@@ -622,7 +1014,7 @@ function RankTile({ label, help, value, className }: { label: string; help: stri
 function MarketScopeTrail({ projectName, regionKey, marketKey, regionLabel, marketLabel }: { projectName: string; regionKey?: string; marketKey?: string; regionLabel: string | null; marketLabel: string | null }) {
   const region = regionLabel ?? 'Region not in this refresh'
   return <nav aria-label="Market rankings scope" className="flex flex-wrap items-center gap-x-2 text-label-14">
-    <Link to="/projects/$projectName/seo-data" params={{ projectName }} search={previous => ({ ...previous, seoRegion: undefined, seoMarket: undefined })} className={CRUMB_LINK}>All markets</Link>
+    <Link to="/projects/$projectName/seo-data" params={{ projectName }} search={previous => ({ ...previous, seoView: SeoCapabilities['market-rankings'], seoRegion: undefined, seoMarket: undefined })} className={CRUMB_LINK}>All markets</Link>
     {regionKey !== undefined && <><span aria-hidden="true" className="text-muted">/</span>{marketKey !== undefined
       ? <Link to="/projects/$projectName/seo-data" params={{ projectName }} search={previous => ({ ...previous, seoMarket: undefined })} className={CRUMB_LINK}>{region}</Link>
       : <span aria-current="page" className="text-label-14-strong text-primary">{region}</span>}</>}
@@ -853,31 +1245,78 @@ function MarketRankingDetails({ row, requested }: { row: SeoMarketRankingRow; re
   </div>
 }
 
-function SeoActivity({ projectName, profileId, canRun, selectedRunId }: { projectName: string; profileId: string; canRun: boolean; selectedRunId?: string }) {
+function SeoRefreshHistory({ projectName, profileId, canRun, selectedRunId, exactRefresh, onViewSaved, onLatest }: {
+  projectName: string
+  profileId: string
+  canRun: boolean
+  selectedRunId?: string
+  exactRefresh: boolean
+  onViewSaved: (runId: string) => void
+  onLatest: () => void
+}) {
+  const queryClient = useQueryClient()
   const [detailId, setDetailId] = useState<string | null>(selectedRunId ?? null)
   const [error, setError] = useState<string | null>(null)
-  const runs = useQuery({ ...getApiV1ProjectsByNameSeoRunsOptions({ client: heyClient, path: { name: projectName }, query: { profileId } }), refetchInterval: query => query.state.data?.runs.some(isActive) ? 2000 : false })
-  const detail = useQuery({ ...getApiV1ProjectsByNameSeoRunsByIdOptions({ client: heyClient, path: { name: projectName, id: detailId ?? '' } }), enabled: Boolean(detailId), refetchInterval: query => isActive(query.state.data) ? 2000 : false })
+  const path = { name: projectName }
+  const runs = useQuery({ ...getApiV1ProjectsByNameSeoRunsOptions({ client: heyClient, path, query: { profileId } }), enabled: !exactRefresh, refetchInterval: query => query.state.data?.runs.some(isActive) ? 2000 : false })
+  const detail = useQuery({ ...getApiV1ProjectsByNameSeoRunsByIdOptions({ client: heyClient, path: { ...path, id: detailId ?? '' } }), enabled: Boolean(detailId), refetchInterval: query => isActive(query.state.data) ? 2000 : false })
   const cancel = useMutation({ ...postApiV1ProjectsByNameSeoRunsByIdCancelMutation({ client: heyClient }), meta: { skipGlobalErrorToast: true } })
   const stop = async (id: string) => {
     if (!canRun || cancel.isPending) return
     setError(null)
-    try { await cancel.mutateAsync({ path: { name: projectName, id } }) } catch (cause) { setError(extractErrorMessage(cause)) }
+    try {
+      await cancel.mutateAsync({ path: { ...path, id } })
+      await invalidateProjectQueryDomain(queryClient, 'seo', { projectName })
+    } catch (cause) {
+      setError(extractErrorMessage(cause))
+    }
   }
-  if (runs.error) return <div className="py-4"><ReadError error={runs.error} retry={() => { void runs.refetch() }} /></div>
-  if (!runs.data) return <p role="status" className="py-8 text-copy-14 text-secondary">Loading activity…</p>
-  const activityRuns = detail.data && !runs.data.runs.some(run => run.id === detail.data.id) ? [detail.data, ...runs.data.runs] : runs.data.runs
-  if (!activityRuns.length) return <EmptyEvidence title="No refreshes yet">Refresh this profile to collect its first saved results.</EmptyEvidence>
-  return <div className="divide-y divide-subtle">
-    {error && <p role="alert" className="py-3 text-copy-14">{error}</p>}
-    {activityRuns.map(run => <div key={run.id} className="py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div className="space-y-2"><div className="flex flex-wrap items-center gap-3"><RunBadge status={run.status} /><span className="text-label-14">{formatZonedTimestamp(run.createdAt, TIME_ZONE)}</span></div><p className="text-copy-13 text-secondary">{run.completedTasks} of {run.taskCount} {taskNoun(run)} completed{run.failedTasks > 0 ? ` · ${run.failedTasks} failed` : ''}</p></div><div className="flex gap-2"><Button variant="ghost" className="pointer-coarse:min-h-11" aria-expanded={detailId === run.id} aria-controls={`seo-run-${run.id}`} onClick={() => setDetailId(detailId === run.id ? null : run.id)}>Details<span className="sr-only"> for refresh {run.id}</span></Button>{canRun && isActive(run) && <Button variant="secondary" className="pointer-coarse:min-h-11" disabled={cancel.isPending || run.cancelRequested} onClick={asyncHandler(() => stop(run.id))}>{run.cancelRequested ? 'Cancellation requested' : 'Cancel refresh'}</Button>}</div></div>
-      {detailId === run.id && <div id={`seo-run-${run.id}`} className="mt-4 space-y-3 rounded-md bg-surface p-4 text-label-13 text-secondary">
-        <p className="break-all">Refresh {run.id}</p><p>Profile revision {run.profileRevision} · {runLocation(run)} · {run.languageCode}</p><p>Scope: {run.scope.kind}{run.scope.key ? ` · ${run.scope.key}` : ''}{run.scope.expectedPlanRevision !== undefined ? ` · plan revision ${run.scope.expectedPlanRevision}` : ''}</p>{run.error && <p>{run.error}</p>}
-        {detail.error ? <ReadError error={detail.error} retry={() => { void detail.refetch() }} /> : detail.data ? detail.data.tasks.some(listedTask) && <ul className="space-y-3">{detail.data.tasks.filter(listedTask).map(task => <li key={task.id}><div className="flex flex-wrap items-center justify-between gap-2"><span>{CAPABILITY_LABELS[task.capability]}{task.searchText !== null ? ` · “${task.searchText}” from ${task.locationLabel ?? 'its market'}` : task.target ? ` · ${task.target.value}` : ''}{task.comparison ? ` · ${task.comparison.competitor.value} · ${GAP_LABELS[task.comparison.mode]} searches` : ''}{task.retried ? ' · retried once' : ''}</span><RunBadge status={task.status} /></div>{task.error && <p className="mt-1">{task.error}</p>}</li>)}</ul> : <p role="status">Loading refresh details…</p>}
-      </div>}
-    </div>)}
-  </div>
+  const loaded = exactRefresh ? detail : runs
+  if (loaded.error) return <ReadError error={loaded.error} retry={() => { void loaded.refetch() }} />
+  if (!loaded.data) return <p role="status" className="py-4 text-copy-14 text-secondary">{exactRefresh ? 'Loading refresh details…' : 'Loading refresh history…'}</p>
+  const history = exactRefresh && detail.data ? [detail.data] : runs.data?.runs ?? []
+  if (!history.length) return <EmptyEvidence title="No refreshes yet">Refresh this profile to collect its first saved results.</EmptyEvidence>
+
+  const listedTasks = detail.data?.tasks.filter(listedTask) ?? []
+  return <>
+    {error && <p role="alert" className="text-copy-14 text-negative">{error}</p>}
+    <ul className="divide-y divide-subtle" aria-label="SEO refreshes">
+      {history.map(run => {
+        const expanded = exactRefresh || detailId === run.id
+        return <li key={run.id} className="py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <time dateTime={run.createdAt} className="text-label-14">{formatZonedTimestamp(run.createdAt, TIME_ZONE)}</time>
+                <RunBadge status={run.status} />
+              </div>
+              <p className="text-copy-13 text-secondary">{run.completedTasks} of {run.taskCount} {taskNoun(run)} completed{run.failedTasks > 0 ? ` · ${run.failedTasks} failed` : ''}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {!exactRefresh && <Button variant="ghost" size="sm" aria-expanded={expanded} aria-controls={`seo-run-${run.id}`} onClick={() => setDetailId(expanded ? null : run.id)}>Details<span className="sr-only"> for refresh {run.id}</span></Button>}
+              {canRun && isActive(run) && <Button variant="secondary" size="sm" disabled={cancel.isPending || run.cancelRequested} onClick={asyncHandler(() => stop(run.id))}>{run.cancelRequested ? 'Cancellation requested' : 'Cancel refresh'}</Button>}
+            </div>
+          </div>
+          {expanded && <div id={`seo-run-${run.id}`} className="mt-3 space-y-2 border-t border-subtle pt-3 text-label-13 text-secondary">
+            <p className="break-all">Refresh {run.id}</p>
+            <p>Profile revision {run.profileRevision} · {runLocation(run)} · {run.languageCode}</p>
+            <p>Scope {run.scope.kind}{run.scope.key ? ` · ${run.scope.key}` : ''}{run.scope.expectedPlanRevision !== undefined ? ` · plan revision ${run.scope.expectedPlanRevision}` : ''}</p>
+            {run.error && <p>{run.error}</p>}
+            {detail.error ? <ReadError error={detail.error} retry={() => { void detail.refetch() }} /> : detail.data ? listedTasks.length > 0 && <ul className="space-y-3" aria-label="Refresh tasks">
+              {listedTasks.map(task => <li key={task.id}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>{CAPABILITY_LABELS[task.capability]}{task.searchText !== null ? ` · “${task.searchText}” from ${task.locationLabel ?? 'its market'}` : task.target ? ` · ${task.target.value}` : ''}{task.comparison ? ` · ${task.comparison.competitor.value} · ${GAP_LABELS[task.comparison.mode]} searches` : ''}{task.retried ? ' · retried once' : ''}</span><RunBadge status={task.status} />
+                </div>
+                {task.error && <p className="mt-1">{task.error}</p>}
+              </li>)}
+            </ul> : <p role="status">Loading refresh details…</p>}
+            {hasResults(run) && <Button variant="secondary" size="sm" onClick={() => onViewSaved(run.id)}>View saved data</Button>}
+          </div>}
+        </li>
+      })}
+    </ul>
+    {exactRefresh && <div><Button variant="ghost" onClick={onLatest}>View latest data</Button></div>}
+  </>
 }
 
 function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved }: { projectName: string; context: SeoContext; profile?: SeoProfile; id: string; onClose: () => void; onSaved: (id: string) => void }) {

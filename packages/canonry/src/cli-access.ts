@@ -380,6 +380,7 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'seo.runs': 'stored',
   'seo.status': 'stored',
   'seo.sync': 'write',
+  'seo.trends': 'stored',
   'serve': 'write',
   'settings': 'stored',
   'settings.google': 'write',

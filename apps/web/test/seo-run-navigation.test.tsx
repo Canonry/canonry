@@ -2,11 +2,15 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { RunKinds, RunStatuses, RunTriggers, type RunKind } from '@canonry/canonry-contracts'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
+import { RunNotificationObserver } from '../src/App.js'
 import { toRunListItem } from '../src/build-dashboard.js'
+import { Toaster } from '../src/components/layout/Toaster.js'
 import { PastSweeps } from '../src/components/project/PastSweeps.js'
 import { RunRow } from '../src/components/shared/RunRow.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
+import { resetRunTracker, trackRun } from '../src/lib/run-tracker-store.js'
+import { resetToasts } from '../src/lib/toast-store.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { OverviewPage } from '../src/pages/OverviewPage.js'
 
@@ -16,6 +20,9 @@ const clients: QueryClient[] = []
 afterEach(() => {
   cleanup()
   clients.splice(0).forEach(client => client.clear())
+  resetRunTracker()
+  resetToasts()
+  vi.unstubAllGlobals()
 })
 
 const advancedContext = {
@@ -47,7 +54,7 @@ async function mount(surface: Surface, kind: RunKind = RunKinds['seo-sync'], ove
       : <RunRow run={run} projectSlug={project.name} />,
   })
   const destination = createRoute({ getParentRoute: () => root, path: '/projects/$projectName/seo-data', component: () => <h1>Saved SEO refresh</h1> })
-  const search = new URLSearchParams({ ...advancedContext, seoProfileId: 'old-profile', runId: 'old-sweep', evidenceId: 'old-answer' })
+  const search = new URLSearchParams({ ...advancedContext, seoProfileId: 'old-profile', seoView: 'keyword-metrics', runId: 'old-sweep', evidenceId: 'old-answer' })
   const router = createRouter({ routeTree: root.addChildren([source, destination]), history: createMemoryHistory({ initialEntries: [`${initialPath}?${search}`] }) })
   await router.load()
   render(<QueryClientProvider client={client}><DashboardProvider value={fixture}><RouterProvider router={router} /></DashboardProvider></QueryClientProvider>)
@@ -63,6 +70,7 @@ test.each<Surface>(['overview', 'past checks', 'run history'])('%s opens the exa
   expect(router.state.location.pathname).toBe('/projects/canonical-slug/seo-data')
   expect(router.state.location.search).toMatchObject({ ...advancedContext, seoRunId: 'selected-refresh' })
   expect(router.state.location.search.seoProfileId).toBeUndefined()
+  expect(router.state.location.search.seoView).toBeUndefined()
   expect(router.state.location.search.runId).toBeUndefined()
   expect(router.state.location.search.evidenceId).toBeUndefined()
 })
@@ -86,4 +94,40 @@ test.each<Surface>(['past checks', 'run history'])('%s opens a scheduled SEO ref
   await waitFor(() => expect(router.state.location.search.runId).toBe('selected-refresh'))
   expect(router.state.location.pathname).toBe(initialPath)
   expect(router.state.location.search.seoRunId).toBeUndefined()
+})
+
+test('a completed SEO refresh opens its exact history from the shared run notification', async () => {
+  const fixture = createDashboardFixture()
+  const project = fixture.dashboard.portfolioOverview.projects[0]!.project
+  project.name = 'canonical-slug'
+  project.displayName = 'Customer-facing display name'
+  const run = {
+    id: 'completed-refresh', projectId: project.id, kind: RunKinds['seo-sync'],
+    status: RunStatuses.completed, trigger: RunTriggers.manual,
+    createdAt: '2026-10-20T12:00:00Z', startedAt: '2026-10-20T12:00:00Z', finishedAt: '2026-10-20T12:01:00Z',
+  }
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const path = new URL(request.url).pathname
+    if (path === '/api/v1/runs') return Response.json([run])
+    if (path === '/api/v1/projects') return Response.json([project])
+    throw new Error(`Unexpected notification request ${path}`)
+  })
+  trackRun({ id: run.id, projectId: run.projectId, projectName: project.name, kind: run.kind, sourceAction: 'seo-sync' })
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  clients.push(client)
+  const root = createRootRoute({ validateSearch: (search: Record<string, unknown>) => search })
+  const source = createRoute({ getParentRoute: () => root, path: '/', component: () => <><RunNotificationObserver /><Toaster /></> })
+  const destination = createRoute({ getParentRoute: () => root, path: '/projects/$projectName/seo-data', component: () => <h1>Saved SEO refresh</h1> })
+  const search = new URLSearchParams({ ...advancedContext, seoProfileId: 'old-profile', seoView: 'keyword-metrics', runId: 'old-sweep' })
+  const router = createRouter({ routeTree: root.addChildren([source, destination]), history: createMemoryHistory({ initialEntries: [`/?${search}`] }) })
+  await router.load()
+  render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>)
+
+  fireEvent.click(await screen.findByRole('button', { name: 'View refresh: SEO data refresh completed' }))
+  await screen.findByRole('heading', { name: 'Saved SEO refresh' })
+  expect(router.state.location.pathname).toBe('/projects/canonical-slug/seo-data')
+  expect(router.state.location.search).toMatchObject({ ...advancedContext, seoRunId: run.id })
+  expect(router.state.location.search.seoProfileId).toBeUndefined()
+  expect(router.state.location.search.seoView).toBeUndefined()
+  expect(router.state.location.search.runId).toBeUndefined()
 })

@@ -100,14 +100,24 @@ The public demo uses seeded stored evidence and hides execution-configuration
 notices; refresh and profile writes remain unavailable.
 Saved profiles define Simple or Advanced scope; `seoProfileId` selects a profile,
 and `seoRunId` links Activity to a specific refresh. The project context row has
-no separate SEO scope picker. Reads use the generated SDK and pin evidence tables
+no separate SEO scope picker. `seoView` selects an evidence view. Clean links
+open Overview, links to an exact refresh open the Refresh history drawer, and
+existing market investigation links open Market rankings. Reads use the generated SDK and pin evidence tables
 to `overview.evidenceRunId`; the newest job's status can change while the prior
 completed or partial snapshot stays visible. Freshness uses that selected
-`evidenceRun`, never the project-wide last-completed timestamp. Overview Activity,
-Past checks, and run history use `RunDetailLink` to open SEO refreshes through
-`seoRunId`, preserving Advanced context and clearing stale profile/drawer IDs.
-Summary values come from the API,
-including top-ten counts. Evidence pages use the server's total and pagination.
+`evidenceRun`, never the project-wide last-completed timestamp. Project Activity,
+Past checks, run history, and sync completion notifications open SEO refreshes
+through `seoRunId`, preserving Advanced context and clearing stale profile/drawer
+IDs. Refresh history sits beside the shared sync status and can open the saved
+report for a specific refresh. Only active refreshes can be cancelled.
+Overview uses `TrendCard` with `/seo/trends` observations and server changes at
+30, 90, or 180 days. It defaults to top-10 domain rankings when chartable,
+page-one market rankings, or organic position for one selected saved search.
+Missing metrics stay gaps and preserve the range controls. Latest rankings
+opens the saved snapshot without adding a tab. When ranking readings are
+unavailable, chart the source's monthly estimates for one selected search.
+Chart data exposes exact readings, including zero.
+Evidence pages use the server's total and pagination.
 Profile setup stores source, targets, explicit keywords, locale, capabilities,
 and plan revision; its dataset choices intersect source and scope capabilities
 when the API supplies them. Credentials and internal request accounting remain host-only;

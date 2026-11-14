@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type ProjectOverviewDto, type ProjectSetupDto, type VisibilityReportResponse } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, SeoCapabilities, SeoProviders, emptySeoResults, type ContentTargetsResponseDto, type ProjectOverviewDto, type ProjectSetupDto, type SeoProfileInput, type SeoTrends, type VisibilityReportResponse } from '@canonry/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -16,8 +16,10 @@ import {
   querySnapshots,
   siteAuditSnapshots,
   siteCrawlSnapshots,
+  seoProfiles,
 } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
+import { seedSeoEvidence, seoProfileFixture } from './seo-fixture.js'
 
 /**
  * Probe runs (`runs.trigger = 'probe'`) write snapshots so an operator can
@@ -165,6 +167,29 @@ async function get<T>(path: string): Promise<{ status: number; body: T }> {
 // ============================================================================
 
 describe('probe runs are excluded from dashboard / analytics aggregates', () => {
+  it('SEO trends exclude a newer saved probe observation', async () => {
+    const target = { kind: 'domain', value: 'real-brand.example.com', includeSubdomains: true } as const
+    const capability = SeoCapabilities['domain-intelligence']
+    const profile: SeoProfileInput = { ...seoProfileFixture, targets: [target], capabilities: [capability] }
+    const observedAt = '2026-10-10T12:00:00.000Z'
+    ctx.db.insert(seoProfiles).values({ id: 'default', projectId: ctx.projectId, revision: 1, input: profile, createdAt: observedAt, updatedAt: observedAt }).run()
+    for (const { id, trigger, date, count } of [
+      { id: 'real-seo', trigger: RunTriggers.manual, date: observedAt, count: 33 },
+      { id: 'probe-seo', trigger: RunTriggers.probe, date: '2026-10-12T12:00:00.000Z', count: 999 },
+    ]) {
+      seedSeoEvidence(ctx.db, { id, trigger, createdAt: date, finishedAt: date, projectId: ctx.projectId, profileId: 'default', profile, status: 'completed',
+        tasks: [{ request: { capability, target, locationCode: 2840, languageCode: 'en', keywords: [], limit: 100, tag: id },
+          results: { ...emptySeoResults(), domainIntelligence: [{ target, organicKeywords: count, estimatedOrganicTraffic: null,
+            estimatedOrganicTrafficValueUsd: null, top1: 0, top2To3: 0, top4To10: 0, top11To20: 0,
+            provenance: { provider: SeoProviders.dataforseo, dataset: 'google-labs', engine: 'google', locationCode: 2840, languageCode: 'en', device: 'unspecified', collectedAt: date, sourceUpdatedAt: null },
+          }] } }],
+      })
+    }
+    const { body } = await get<SeoTrends>('/api/v1/projects/probe-excl/seo/trends?profileId=default')
+    expect(body.points).toEqual([{ runId: 'real-seo', observedAt, organicKeywords: 33, inTop10: 0, estimatedOrganicTraffic: null, page1: null }])
+    expect(body.changes.organicKeywords).toBeNull()
+  })
+
   it('citations/visibility reads the real run, not the newer probe', async () => {
     const { body } = await get<{
       summary: { latestRunId: string | null; queriesCitedAndMentioned: number; totalQueries: number }

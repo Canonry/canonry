@@ -1,4 +1,4 @@
-import { seoCompetitorQuerySchema, seoEvidenceQuerySchema, seoKeywordGapQuerySchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoSyncInputSchema } from '@canonry/canonry-contracts'
+import { seoCompetitorQuerySchema, seoEvidenceQuerySchema, seoKeywordGapQuerySchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoSyncInputSchema, seoTrendsQuerySchema } from '@canonry/canonry-contracts'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requirePositional, requireProject, requireStringOption, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -6,7 +6,7 @@ import {
   showSeoContext, showSeoStatus, listSeoProfiles, showSeoProfile, setSeoProfile,
   prepareSeoRefresh, syncSeo, listSeoRuns, showSeoRun, cancelSeoRun,
   showSeoOperatorTask, reconcileSeoTask,
-  showSeoOverview, showSeoKeywordMetrics, showSeoDomainIntelligence, showSeoRankedKeywords, showSeoCompetitors, showSeoKeywordGaps, showSeoMarketRankings, showSeoMarketSummary,
+  showSeoOverview, showSeoTrends, showSeoKeywordMetrics, showSeoDomainIntelligence, showSeoRankedKeywords, showSeoCompetitors, showSeoKeywordGaps, showSeoMarketRankings, showSeoMarketSummary,
 } from '../commands/seo.js'
 
 const selectionOptions = { 'profile-id': stringOption(), 'run-id': stringOption(), limit: stringOption(), offset: stringOption() }
@@ -94,6 +94,17 @@ export const SEO_CLI_COMMANDS: readonly CliCommandSpec[] = [
   { path: ['seo', 'run', 'show'], usage: 'canonry seo run show <project> <run-id> [--format json]', access: 'stored', help: 'Read the stored task outcomes and bounded evidence preview.', run: input => showSeoRun(project(input), id(input), input.format) },
   { path: ['seo', 'run', 'cancel'], usage: 'canonry seo run cancel <project> <run-id> [--format json]', access: 'write', help: 'Stop undispatched tasks. Accepted source requests may still settle; cancellation never implies a refund.', run: input => cancelSeoRun(project(input), id(input), input.format) },
   { path: ['seo', 'overview'], usage: 'canonry seo overview <project> [--profile-id <id>] [--run-id <id>] [--format json]', access: 'stored', options: selectionOptions, help: evidenceHelp, run: input => showSeoOverview(project(input), selection(input), input.format) },
+  {
+    path: ['seo', 'trends'], usage: 'canonry seo trends <project> --profile-id <id> [--days 30|90|180] [--keyword <search>] [--format json]', access: 'stored',
+    options: { 'profile-id': stringOption(), days: stringOption(), keyword: stringOption() },
+    help: 'Read comparable saved organic or market rankings over time. The window defaults to 180 days and ends on the latest observation. Use --keyword to select a search from a ranked-keywords profile. Each observation keeps its refresh ID and date. Missing readings remain unavailable. No provider calls.',
+    run: input => {
+      const days = getString(input.values, 'days')
+      const result = seoTrendsQuerySchema.safeParse({ profileId: getString(input.values, 'profile-id'), days: days === undefined ? undefined : Number(days), keyword: getString(input.values, 'keyword') })
+      if (!result.success) throw usageError('Provide --profile-id, an optional --days of 30, 90 or 180, and an optional non-empty --keyword of up to 512 characters.')
+      return showSeoTrends(project(input), result.data, input.format)
+    },
+  },
   { path: ['seo', 'keyword-metrics'], usage: 'canonry seo keyword-metrics <project> [--profile-id <id>] [--run-id <id>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: selectionOptions, help: evidenceHelp, run: input => showSeoKeywordMetrics(project(input), selection(input), input.format) },
   { path: ['seo', 'domain-intelligence'], usage: 'canonry seo domain-intelligence <project> [--profile-id <id>] [--run-id <id>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: selectionOptions, help: evidenceHelp, run: input => showSeoDomainIntelligence(project(input), selection(input), input.format) },
   { path: ['seo', 'ranked-keywords'], usage: 'canonry seo ranked-keywords <project> [--profile-id <id>] [--run-id <id>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: selectionOptions, help: evidenceHelp, run: input => showSeoRankedKeywords(project(input), selection(input), input.format) },

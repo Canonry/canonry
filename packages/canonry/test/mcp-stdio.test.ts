@@ -391,9 +391,10 @@ describe('canonry-mcp stdio', () => {
   }, SUBPROCESS_CASE_TIMEOUT_MS)
 
   it('keeps stdio stored-only startup and a stored tool request on the marked read boundary', async () => {
-    const requests: Array<{ method: string; path: string; storedOnly: string | undefined }> = []
+    const requests: Array<{ method: string; path: string; query: string; storedOnly: string | undefined }> = []
     const api = await startStubApi(undefined, request => {
-      requests.push({ method: request.method ?? '', path: new URL(request.url ?? '/', 'http://127.0.0.1').pathname, storedOnly: request.headers['x-canonry-stored-only'] as string | undefined })
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+      requests.push({ method: request.method ?? '', path: url.pathname, query: url.search, storedOnly: request.headers['x-canonry-stored-only'] as string | undefined })
     })
     servers.push(api)
     const { client } = await startMcpClient({
@@ -410,6 +411,15 @@ describe('canonry-mcp stdio', () => {
     const projects = await client.callTool({ name: 'canonry_projects_list', arguments: {} })
     expect(projects.isError).not.toBe(true)
     expect(requests.find(request => request.path === '/api/v1/projects')?.storedOnly).toBe('1')
+
+    const seo = await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'seo' } })
+    expect(seo.isError).not.toBe(true)
+    const trends = await client.callTool({ name: 'canonry_seo_trends', arguments: { project: 'acme', profileId: 'us', days: 90 } })
+    expect(trends.isError).not.toBe(true)
+    expect(trends.structuredContent).toMatchObject({ profileId: 'us', days: 90, points: [] })
+    const read = requests.find(request => request.path === '/api/v1/projects/acme/seo/trends')
+    expect(read).toMatchObject({ method: 'GET', storedOnly: '1' })
+    expect(Object.fromEntries(new URLSearchParams(read?.query))).toEqual({ profileId: 'us', days: '90' })
   }, SUBPROCESS_CASE_TIMEOUT_MS)
 })
 
@@ -531,6 +541,14 @@ function handleRequest(request: IncomingMessage, response: ServerResponse, onRun
       } else if (request.method === 'PUT' && JSON.stringify(body) === JSON.stringify({ reset: { model: true, quota: ['maxRequestsPerDay'] }, expectedRevision: 'connection-v1' })) {
         send(response, { name: 'openai', configured: true })
       } else send(response, { error: { code: 'VALIDATION_ERROR', message: 'Unexpected lifecycle wire request' } }, 400)
+    })
+    return
+  }
+  if (request.method === 'GET' && url.pathname === '/api/v1/projects/acme/seo/trends') {
+    send(response, {
+      kind: 'domain', profileId: 'us', profileRevision: 1, target: { kind: 'domain', value: 'acme.example.com', includeSubdomains: true },
+      scope: { kind: 'project' }, days: 90, languageCode: 'en', locationCode: 2840,
+      marketQueryCount: null, points: [], changes: { organicKeywords: null, inTop10: null, estimatedOrganicTraffic: null, page1: null },
     })
     return
   }

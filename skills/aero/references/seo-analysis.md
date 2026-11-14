@@ -49,6 +49,18 @@ If no usable evidence exists, explain the missing dataset and request an operato
 Aero cannot edit profiles, start or cancel SEO refreshes, or inspect operator receipts.
 Analysis never requires a refresh intent. Keep credentials and hosted financial controls out of the response.
 
+## Read trends
+
+Use `canonry_seo_trends` with the selected `profileId` and a 30-, 90- or 180-day window.
+The first target's domain readings cover ranked searches, the top 10 and estimated
+organic traffic. Market readings count tracked non-brand query assignments on page
+one across comparable refreshes. For ranked-keyword profiles, select one search
+with `keyword`. A missing position means the saved sample supplied no usable rank.
+Use the server's change basis and actual observation dates. Keep nulls as gaps
+and make no change claim from a single reading. Use each
+point's `runId` for drill-down. Monthly keyword estimates use the source's calendar
+months and represent search demand separately.
+
 ## Preserve the measurement boundary
 
 - Simple profiles use project scope. Advanced profiles retain their project scope or group, market, or Property key, plus plan revision.

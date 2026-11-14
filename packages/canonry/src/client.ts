@@ -17,6 +17,8 @@ import type { SeoOperatorTask, SeoReconcileInput, SeoReconcileResult } from '@ca
 import { getApiV1SeoOperatorTasksById, postApiV1SeoOperatorTasksByIdReconcile } from '@canonry/canonry-api-client'
 import type { SeoContext, SeoStatus, SeoProfileList, SeoProfile, SeoQuote, SeoRun, SeoRunList, SeoRunDetail, SeoOverview, SeoKeywordMetricsList, SeoDomainIntelligenceList, SeoRankedKeywordList, SeoCompetitorList, SeoCompetitorQuery, SeoKeywordGapList, SeoKeywordGapQuery, SeoMarketRankingList, SeoMarketRankingQuery, SeoMarketRankingSummary, SeoMarketRankingSummaryQuery, SeoProfileInput, SeoRefreshIntentInput, SeoSyncInput, SeoEvidenceQuery } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameSeoContext, getApiV1ProjectsByNameSeoStatus, getApiV1ProjectsByNameSeoProfiles, getApiV1ProjectsByNameSeoProfilesById, putApiV1ProjectsByNameSeoProfilesById, postApiV1ProjectsByNameSeoRefreshIntents, postApiV1ProjectsByNameSeoSync, getApiV1ProjectsByNameSeoRuns, getApiV1ProjectsByNameSeoRunsById, postApiV1ProjectsByNameSeoRunsByIdCancel, getApiV1ProjectsByNameSeoOverview, getApiV1ProjectsByNameSeoKeywordMetrics, getApiV1ProjectsByNameSeoDomainIntelligence, getApiV1ProjectsByNameSeoRankedKeywords, getApiV1ProjectsByNameSeoCompetitors, getApiV1ProjectsByNameSeoKeywordGaps, getApiV1ProjectsByNameSeoMarketRankings, getApiV1ProjectsByNameSeoMarketRankingsSummary } from '@canonry/canonry-api-client'
+import type { SeoTrends, SeoTrendsQuery } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameSeoTrends } from '@canonry/canonry-api-client'
 import { getApiV1ProjectsByNameTrafficSamples, getApiV1ProjectsByNameTrafficUnrecognizedAgents } from '@canonry/canonry-api-client'
 
 import type { GaAcquisitionQuery, GaAcquisitionResponse } from '@canonry/canonry-contracts'
@@ -4541,6 +4543,12 @@ export class ApiClient {
 
   async getSeoOverview(project: string, query?: SeoEvidenceQuery): Promise<SeoOverview> {
     return this.invoke<SeoOverview>(() => getApiV1ProjectsByNameSeoOverview({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
+  async getSeoTrends(project: string, query: SeoTrendsQuery): Promise<SeoTrends> {
+    return this.invoke<SeoTrends>(() => getApiV1ProjectsByNameSeoTrends({
       client: this.heyClient, path: { name: project }, query,
     }))
   }

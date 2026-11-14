@@ -143,10 +143,10 @@ Every search the refresh planned has a row in each market it answers, and `searc
 
 - `completed`: `depth` is the requested depth. `rankOrganic` is the best organic position of the Target within it; null means the site was not in the checked results.
 - `partial`: the source could not retrieve some results pages and returned the rest, charging only for those. The rows keep them, and `depth` is the deepest organic position they reached, so an unranked site reads "Not in top 30" (partly checked) rather than claiming the requested 50.
-- `failed`: the search returned no usable results, so the rows have no rank, `depth` 0 and no `provenance`. The dashboard shows "Failed" and the CLI "Search failed" instead of leaving the query out of its market, and the refresh's Activity names each failed search by its search text and location.
+- `failed`: the search returned no usable results, so the rows have no rank, `depth` 0 and no `provenance`. The dashboard shows "Failed" and the CLI "Search failed". Refresh history names each failed search by its search text and location.
 - `cancelled`: the search never ran because the refresh stopped first (cancelled, a spending limit, or the source became unavailable). The dashboard and the CLI show "Not searched".
 
-A search that Google itself answered with an error is sent once more at the end of the refresh, after every other search, under the same spending limits. Its row then shows how the retry ended, and Activity marks it "retried once". A retry is never retried, other failures are not retried, and a retry that would pass a spending limit is skipped; the next refresh searches every failed search again. `regionKey` and `regionLabel` name the market's top-level group. Rows read in region, market and search-text order.
+A search that Google itself answered with an error is sent once more at the end of the refresh, after every other search, under the same spending limits. Its row then shows how the retry ended, and Refresh history marks it "retried once". A retry is never retried, other failures are not retried, and a retry that would pass a spending limit is skipped; the next refresh searches every failed search again. `regionKey` and `regionLabel` name the market's top-level group. Rows read in region, market and search-text order.
 
 ### Reading the results by outcome
 
@@ -170,7 +170,38 @@ A rank found in a partial search stands. `rivalAhead` is true when a tracked com
 
 ### Dashboard
 
-The web SEO tab leads with the refresh line (`Updated` date, the next scheduled refresh from the project's `seo-sync` schedule, and a caveat such as "2 searches failed" with its sentence in a tooltip), then the Google rank counts with a caption naming the queries they leave out (partly checked, failed, not searched), a table of regions or markets five at a time that opens each one (`seoRegion` and `seoMarket` in the URL), and the queries ten at a time. The queries open on Needs work, closest to page 1 first; Show picks another outcome, Find a query searches, and the Query and Google rank headers re-sort, all kept in the URL (`seoShow`, `seoQ`, `seoSort`) so a link reopens the same view. Each row's Details opens a full-width row with the ranking page (linked), the searched text and location, the position on the page, the tracked competitors and the source. Every count, filter and order is the API's. Market-rankings profiles are set up through the API, CLI or MCP for now, and the web editor keeps their settings when editing other fields.
+SEO opens on Overview for the selected profile. Domain intelligence starts with
+searches in Google's top 10 when that metric has enough readings. Ranked
+searches and estimated organic traffic are also selectable. Market rankings
+charts the number of tracked non-brand query and market pairs on page one.
+Profiles with saved ranked-keyword results can chart the organic position of
+one search across refreshes. Choose another saved search from the chart. Pick a
+30-, 90- or 180-day range, ending on the latest observation. A gap marks an
+unavailable reading, and one reading has no change to report. Latest rankings
+opens the saved breakdown. If ranking readings are unavailable, search demand
+uses the source's saved calendar-month estimates for a selected search.
+
+The refresh toolbar shows progress, the last saved data and the next scheduled
+refresh. Refresh history opens the saved jobs, with details and cancellation
+where available. Links from project Activity or a completion notification open
+the exact refresh. View saved data opens that refresh's evidence.
+
+```bash
+canonry seo trends example --profile-id us-organic --days 90 --format json
+canonry seo trends example --profile-id us-organic --keyword "solar installer" --format json
+```
+
+The stored read is `GET /projects/:name/seo/trends` and MCP
+`canonry_seo_trends`. Observations share the measurement scope, primary target,
+and relevant source settings. Renaming a profile preserves comparable history.
+Market observations also share the query and market basket and search settings.
+A trend change compares the first and latest reported value in the range.
+For ranked-keyword trends, omitting `keyword` picks a saved search with the most
+usable readings. A missing position means the refresh's saved sample did not
+supply a rank for that search. Estimated organic traffic is the provider's
+estimate. Search Engines and site analytics report their own measured performance.
+
+The Market rankings view shows Google rank counts with a caption naming the queries they leave out (partly checked, failed, not searched), followed by regions or markets five at a time and queries ten at a time. The queries open on Needs work, closest to page 1 first. Show picks another outcome, Find a query searches, and the Query and Google rank headers re-sort. The URL preserves the scope and filters (`seoRegion`, `seoMarket`, `seoShow`, `seoQ`, `seoSort`). Each row's Details shows the ranking page, the searched text and location, the position on the page, the tracked competitors and the source. Market-rankings profiles are set up through the API, CLI or MCP. The web editor keeps their search settings when editing other fields.
 
 A refresh runs its searches one at a time, so a large one takes a while. Restarting the server mid-search leaves that search for operator reconciliation, as with any paid request; avoid restarts while a market-rankings refresh runs.
 
