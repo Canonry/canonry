@@ -7,64 +7,183 @@
       --screenshot="$PWD/docs/images/social-preview.png" "file://$PWD/docs/images/social-preview.html"
 
   Fonts load from Google Fonts, so rendering needs network access. Upload the PNG on GitHub under
-  Settings > General > Social preview. Every command in the terminal is real CLI syntax (see
-  skills/canonry/references/canonry-cli.md), and each colored signal in the title matches its command's label.
+  Settings > General > Social preview. Every figure comes from the live demo's stored data (see the
+  comments on each chart); keep it that way if you change one. Mention figures use non-brand queries only.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>Canonry social preview</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..600&display=block">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..700&display=block">
 <style>
+  /* Light theme. Engine colors are the dashboard's PROVIDER_SERIES_COLORS one step deeper for white. */
+  :root {
+    --bg: #ffffff; --fg: #171717; --fg-2: #5c5c5c; --fg-3: #8a8a8a;
+    --grid: rgb(0 0 0 / 0.07); --axis: rgb(0 0 0 / 0.3); --rule: #e6e6e6;
+    --claude: #ea580c; --gemini: #2563eb; --openai: #059669;
+  }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { width: 1280px; height: 640px; overflow: hidden; }
-  body { background: #0a0a0a; color: #ededed; font-family: 'Geist', system-ui, sans-serif;
+  body { background: var(--bg); color: var(--fg); font-family: 'Geist', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
   .card { position: relative; width: 1280px; height: 640px; overflow: hidden; }
-  .glow { position: absolute; inset: 0;
-    background:
-      radial-gradient(560px 380px at 40px 20px, rgba(217, 63, 69, 0.11), transparent 70%),
-      radial-gradient(900px 400px at 640px 640px, rgba(255, 255, 255, 0.05), transparent 70%); }
-  .stack { position: absolute; left: 72px; right: 72px; top: 56px; bottom: 0; display: flex; flex-direction: column; }
+  .head { position: absolute; left: 64px; right: 64px; top: 40px; }
   .lockup { display: flex; align-items: center; gap: 12px; }
-  .lockup img { width: 44px; height: 44px; display: block; }
-  .lockup span { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; }
-  h1 { margin-top: 36px; max-width: 1110px; font-size: 58px; line-height: 1.06; font-weight: 600; letter-spacing: -0.045em; text-wrap: balance; }
-  h1 .kicker { color: #8f8f8f; }
-  /* The window runs off the bottom edge and fades out after the five color-linked commands. */
-  .term { flex: 1; margin: 36px 0 -40px; overflow: hidden; background: #0f0f0f; border: 1px solid #2a2a2a; border-radius: 14px;
-    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 100px), transparent calc(100% - 20px));
-    mask-image: linear-gradient(to bottom, #000 calc(100% - 100px), transparent calc(100% - 20px)); }
-  .bar { height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1f1f1f; }
-  .bar i { width: 12px; height: 12px; border-radius: 50%; background: #2e2e2e; }
-  pre { padding: 18px 30px; font: 400 21px/35px 'Geist Mono', ui-monospace, monospace; color: #a1a1a1; white-space: pre; }
-  pre .prompt { color: #8f8f8f; }
-  pre .label { color: #ededed; }
-  /* Each signal named in the title shares a color with its command's label. */
-  .s1, pre .label.s1 { color: #60a5fa; }
-  .s2, pre .label.s2 { color: #34d399; }
-  .s3, pre .label.s3 { color: #fb923c; }
-  .s4, pre .label.s4 { color: #22d3ee; }
-  .s5, pre .label.s5 { color: #f472b6; }
+  .lockup img { width: 36px; height: 36px; display: block; }
+  .lockup span { font-size: 24px; font-weight: 600; letter-spacing: -0.025em; }
+  h1 { margin-top: 20px; font-size: 46px; line-height: 1.05; font-weight: 650; letter-spacing: -0.042em; }
+  svg { position: absolute; inset: 0; }
+  svg text { font-family: 'Geist', sans-serif; }
+  svg .mono { font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
 <div class="card">
-  <div class="glow"></div>
-  <div class="stack">
+  <header class="head">
     <div class="lockup"><img src="../../apps/web/public/favicon.svg" alt=""><span>Canonry</span></div>
-    <h1><span class="s1">AI answers</span>, <span class="s2">Search Console</span>, <span class="s3">GA4</span>, <span class="s4">AI crawlers</span>, and <span class="s5">ads</span>. <span class="kicker">One platform your agent runs.</span></h1>
-    <div class="term"><div class="bar"><i></i><i></i><i></i></div>
-    <pre><span class="prompt">$</span> cnry citations visibility my-site    <span class="label s1"># AI answers</span>
-<span class="prompt">$</span> cnry google performance my-site      <span class="label s2"># Search Console</span>
-<span class="prompt">$</span> cnry ga acquisition my-site          <span class="label s3"># GA4</span>
-<span class="prompt">$</span> cnry traffic analytics my-site       <span class="label s4"># AI crawlers</span>
-<span class="prompt">$</span> cnry ads summary my-site             <span class="label s5"># ChatGPT Ads</span>
-<span class="prompt">$</span> cnry agent-readiness score my-site   <span class="label"># Site audit</span>
-<span class="prompt">$</span> cnry seo keyword-gaps my-site        <span class="label"># SEO gaps</span>
-<span class="prompt">$</span> cnry gbp reviews my-site             <span class="label"># Local reviews</span></pre>
-    </div>
-  </div>
+    <h1>Agent-first AEO, open source and self-hosted.</h1>
+  </header>
+  <svg width="1280" height="640" viewBox="0 0 1280 640" aria-hidden="true">
+    <!-- Left: share of the demo's 8 non-brand queries whose answers name the brand, per engine, over its six
+         weekly sweeps (packages/canonry/src/demo/summit-sweeps.ts, SUMMIT_ENGINE_PLANS mentioned counts). -->
+    <text x="64" y="212" style="fill: var(--fg); font-size: 23px; font-weight: 600;">Mentioned in AI answers</text>
+    <text x="748" y="212" text-anchor="end" style="fill: var(--fg-3); font-size: 17px;">non-brand queries</text>
+    <line x1="112" x2="556" y1="542.5" y2="542.5" style="stroke: var(--axis); stroke-width: 1;"></line>
+    <text x="98" y="547.5" class="mono" text-anchor="end" style="fill: var(--fg-3); font-size: 16px;">0%</text>
+    <line x1="112" x2="556" y1="394.5" y2="394.5" style="stroke: var(--grid); stroke-width: 1;"></line>
+    <text x="98" y="399.5" class="mono" text-anchor="end" style="fill: var(--fg-3); font-size: 16px;">50%</text>
+    <line x1="112" x2="556" y1="246.5" y2="246.5" style="stroke: var(--grid); stroke-width: 1;"></line>
+    <text x="98" y="251.5" class="mono" text-anchor="end" style="fill: var(--fg-3); font-size: 16px;">100%</text>
+    <line x1="120.5" x2="120.5" y1="542" y2="548" style="stroke: var(--axis); stroke-width: 1;"></line>
+    <line x1="206.5" x2="206.5" y1="542" y2="548" style="stroke: var(--axis); stroke-width: 1;"></line>
+    <line x1="291.5" x2="291.5" y1="542" y2="548" style="stroke: var(--axis); stroke-width: 1;"></line>
+    <line x1="377.5" x2="377.5" y1="542" y2="548" style="stroke: var(--axis); stroke-width: 1;"></line>
+    <line x1="462.5" x2="462.5" y1="542" y2="548" style="stroke: var(--axis); stroke-width: 1;"></line>
+    <line x1="548.5" x2="548.5" y1="542" y2="548" style="stroke: var(--axis); stroke-width: 1;"></line>
+    <text x="120" y="574" style="fill: var(--fg-3); font-size: 17px;">5 weeks ago</text>
+    <text x="548" y="574" text-anchor="end" style="fill: var(--fg-3); font-size: 17px;">now</text>
+    <path d="M120.00 431.00 L205.60 505.00 L291.20 394.00 L376.80 468.00 L462.40 394.00 L548.00 431.00" stroke-linejoin="round" stroke-linecap="round" style="fill: none; stroke: var(--claude); stroke-width: 4;"></path>
+    <circle cx="120" cy="431" r="5.5" style="fill: var(--claude); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="205.6" cy="505" r="5.5" style="fill: var(--claude); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="291.2" cy="394" r="5.5" style="fill: var(--claude); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="376.79999999999995" cy="468" r="5.5" style="fill: var(--claude); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="462.4" cy="394" r="5.5" style="fill: var(--claude); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="548" cy="431" r="5.5" style="fill: var(--claude); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <text x="576" y="438.5" style="fill: var(--fg-2); font-size: 21px;">Claude</text>
+    <text x="748" y="438.5" class="mono" text-anchor="end" style="fill: var(--fg); font-size: 21px; font-weight: 600;">3 of 8</text>
+    <path d="M120.00 394.00 L205.60 394.00 L291.20 394.00 L376.80 468.00 L462.40 431.00 L548.00 357.00" stroke-linejoin="round" stroke-linecap="round" style="fill: none; stroke: var(--gemini); stroke-width: 4;"></path>
+    <circle cx="120" cy="394" r="5.5" style="fill: var(--gemini); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="205.6" cy="394" r="5.5" style="fill: var(--gemini); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="291.2" cy="394" r="5.5" style="fill: var(--gemini); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="376.79999999999995" cy="468" r="5.5" style="fill: var(--gemini); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="462.4" cy="431" r="5.5" style="fill: var(--gemini); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="548" cy="357" r="5.5" style="fill: var(--gemini); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <text x="576" y="364.5" style="fill: var(--fg-2); font-size: 21px;">Gemini</text>
+    <text x="748" y="364.5" class="mono" text-anchor="end" style="fill: var(--fg); font-size: 21px; font-weight: 600;">5 of 8</text>
+    <path d="M120.00 468.00 L205.60 431.00 L291.20 431.00 L376.80 394.00 L462.40 357.00 L548.00 320.00" stroke-linejoin="round" stroke-linecap="round" style="fill: none; stroke: var(--openai); stroke-width: 4;"></path>
+    <circle cx="120" cy="468" r="5.5" style="fill: var(--openai); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="205.6" cy="431" r="5.5" style="fill: var(--openai); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="291.2" cy="431" r="5.5" style="fill: var(--openai); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="376.79999999999995" cy="394" r="5.5" style="fill: var(--openai); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="462.4" cy="357" r="5.5" style="fill: var(--openai); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <circle cx="548" cy="320" r="5.5" style="fill: var(--openai); stroke: var(--bg); stroke-width: 2.5;"></circle>
+    <text x="576" y="327.5" style="fill: var(--fg-2); font-size: 21px;">ChatGPT</text>
+    <text x="748" y="327.5" class="mono" text-anchor="end" style="fill: var(--fg); font-size: 21px; font-weight: 600;">6 of 8</text>
+    <!-- Right: the last 24 hours of the demo's Cloudflare traffic source, stacked by kind of visit
+         (packages/canonry/src/demo/seed-exploration.ts; GET /api/v1/projects/summit-roofing/traffic/analytics). -->
+    <line x1="792.5" x2="792.5" y1="194" y2="574" style="stroke: var(--rule); stroke-width: 1;"></line>
+    <text x="828" y="212" style="fill: var(--fg); font-size: 22px; font-weight: 600;">AI traffic from server logs</text>
+    <text x="1216" y="212" text-anchor="end" style="fill: var(--fg-3); font-size: 16px;">24 hours</text>
+    <text x="828" y="264" class="mono" style="fill: var(--fg); font-size: 30px; font-weight: 650;">108</text>
+    <rect x="828" y="278" width="11" height="11" rx="2.5" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <text x="845" y="288" style="fill: var(--fg-2); font-size: 15.5px;">crawls</text>
+    <text x="957.3333333333334" y="264" class="mono" style="fill: var(--fg); font-size: 30px; font-weight: 650;">36</text>
+    <rect x="957.3333333333334" y="278" width="11" height="11" rx="2.5" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <text x="974.3333333333334" y="288" style="fill: var(--fg-2); font-size: 15.5px;">live fetches</text>
+    <text x="1086.6666666666667" y="264" class="mono" style="fill: var(--fg); font-size: 30px; font-weight: 650;">48</text>
+    <rect x="1086.6666666666667" y="278" width="11" height="11" rx="2.5" style="fill: var(--openai); opacity: 1;"></rect>
+    <text x="1103.6666666666667" y="288" style="fill: var(--fg-2); font-size: 15.5px;">visits</text>
+    <line x1="854" x2="1216" y1="542.5" y2="542.5" style="stroke: var(--axis); stroke-width: 1;"></line>
+    <text x="846" y="547" class="mono" text-anchor="end" style="fill: var(--fg-3); font-size: 13px;">0</text>
+    <line x1="854" x2="1216" y1="444.5" y2="444.5" style="stroke: var(--grid); stroke-width: 1;"></line>
+    <text x="846" y="449" class="mono" text-anchor="end" style="fill: var(--fg-3); font-size: 13px;">5</text>
+    <line x1="854" x2="1216" y1="346.5" y2="346.5" style="stroke: var(--grid); stroke-width: 1;"></line>
+    <text x="846" y="351" class="mono" text-anchor="end" style="fill: var(--fg-3); font-size: 13px;">10</text>
+    <rect x="855.5" y="483.2" width="12.083333333333334" height="57.8" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="855.5" y="463.6" width="12.083333333333334" height="18.6" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="855.5" y="424.4" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="870.5833333333334" y="424.4" width="12.083333333333334" height="116.6" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="870.5833333333334" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="870.5833333333334" y="346" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="885.6666666666666" y="444" width="12.083333333333334" height="97" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="885.6666666666666" y="424.4" width="12.083333333333334" height="18.6" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="885.6666666666666" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="900.75" y="463.6" width="12.083333333333334" height="77.4" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="900.75" y="424.4" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="900.75" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="915.8333333333334" y="483.2" width="12.083333333333334" height="57.8" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="915.8333333333334" y="463.6" width="12.083333333333334" height="18.6" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="915.8333333333334" y="424.4" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="930.9166666666666" y="424.4" width="12.083333333333334" height="116.6" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="930.9166666666666" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="930.9166666666666" y="346" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="946" y="444" width="12.083333333333334" height="97" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="946" y="424.4" width="12.083333333333334" height="18.6" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="946" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="961.0833333333334" y="463.6" width="12.083333333333334" height="77.4" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="961.0833333333334" y="424.4" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="961.0833333333334" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="976.1666666666666" y="483.2" width="12.083333333333334" height="57.8" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="976.1666666666666" y="463.6" width="12.083333333333334" height="18.6" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="976.1666666666666" y="424.4" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="991.25" y="424.4" width="12.083333333333334" height="116.6" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="991.25" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="991.25" y="346" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1006.3333333333334" y="444" width="12.083333333333334" height="97" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1006.3333333333334" y="424.4" width="12.083333333333334" height="18.6" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1006.3333333333334" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1021.4166666666667" y="463.6" width="12.083333333333334" height="77.4" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1021.4166666666667" y="424.4" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1021.4166666666667" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1036.5" y="483.2" width="12.083333333333334" height="57.8" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1036.5" y="463.6" width="12.083333333333334" height="18.6" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1036.5" y="424.4" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1051.5833333333333" y="424.4" width="12.083333333333334" height="116.6" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1051.5833333333333" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1051.5833333333333" y="346" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1066.6666666666667" y="444" width="12.083333333333334" height="97" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1066.6666666666667" y="424.4" width="12.083333333333334" height="18.6" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1066.6666666666667" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1081.75" y="463.6" width="12.083333333333334" height="77.4" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1081.75" y="424.4" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1081.75" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1096.8333333333333" y="483.2" width="12.083333333333334" height="57.8" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1096.8333333333333" y="463.6" width="12.083333333333334" height="18.6" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1096.8333333333333" y="424.4" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1111.9166666666667" y="424.4" width="12.083333333333334" height="116.6" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1111.9166666666667" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1111.9166666666667" y="346" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1127" y="444" width="12.083333333333334" height="97" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1127" y="424.4" width="12.083333333333334" height="18.6" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1127" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1142.0833333333335" y="463.6" width="12.083333333333334" height="77.4" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1142.0833333333335" y="424.4" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1142.0833333333335" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1157.1666666666667" y="483.2" width="12.083333333333334" height="57.8" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1157.1666666666667" y="463.6" width="12.083333333333334" height="18.6" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1157.1666666666667" y="424.4" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1172.25" y="424.4" width="12.083333333333334" height="116.6" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1172.25" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1172.25" y="346" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1187.3333333333335" y="444" width="12.083333333333334" height="97" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1187.3333333333335" y="424.4" width="12.083333333333334" height="18.6" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1187.3333333333335" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <rect x="1202.4166666666667" y="463.6" width="12.083333333333334" height="77.4" rx="0" style="fill: var(--openai); opacity: 0.3;"></rect>
+    <rect x="1202.4166666666667" y="424.4" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 0.62;"></rect>
+    <rect x="1202.4166666666667" y="385.2" width="12.083333333333334" height="38.2" rx="0" style="fill: var(--openai); opacity: 1;"></rect>
+    <text x="854" y="574" style="fill: var(--fg-3); font-size: 17px;">24 hours ago</text>
+    <text x="1216" y="574" text-anchor="end" style="fill: var(--fg-3); font-size: 17px;">now</text>
+  </svg>
 </div>
 </body>
 </html>
