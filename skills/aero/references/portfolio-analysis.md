@@ -29,9 +29,10 @@ different queries: a group counts every query of its Properties, a market only
 its own. A market and a provider location are distinct scopes too. Use only the
 filters exposed by each tool; never invent a model or market parameter.
 
-The chat does not inherit dashboard selections. Resolve names and URLs from
-the request; ask for the selection when a reference such as "this market"
-cannot be resolved. For an unqualified portfolio ranking, use non-brand
+If the user refers to the dashboard selection in built-in Aero, call
+`aero_inspect_view` to resolve the current Property, market, or filters.
+Otherwise, resolve names and URLs from the request. Ask which selection the
+user means if it remains ambiguous. For an unqualified portfolio ranking, use non-brand
 queries and state the returned scope. Keep branded recall separate. An
 explicit request for all classes permits a combined coverage read, not an
 invented combined share-of-voice ratio.
@@ -44,7 +45,7 @@ invented combined share-of-voice ratio.
 | Which Advanced Properties are strongest or weakest? | `canonry_measurement_portfolio_summary`; use the first-page `mentionRanking` summaries and `tiedAtWeakest`. Default `nextCursor` walks only `pageList: weakest-properties`; use `list: strongest-mentions`, `weakest-mentions` or `excluded-mentions` for a complete other ranking. Pass `groupKey` for one metro |
 | Which metros have the biggest gaps? | The portfolio summary's `weakestMarkets` ranks full top-level metro rates before paging. For every metro, page `list: markets`; `groupKey` selects one metro's direct submarkets. `tiedAtWeakest` describes a zero-mention AND zero-citation Property cohort, not full metro rates |
 | What is measured for one Property, group or market? | `canonry_measurement_overview` with `scope: property` / `targetKey`, `scope: group` / `groupKey`, or `scope: market` / `marketKey` (a kind market id from `canonry_visibility_report` `scopeOptions`). It reads `non-brand` unless `queryClass` names another; read branded as a separate call and never report `queryClass: all`, which pools both. Quote the returned `scope` kind and label: a group figure is never a market's figure |
-| Which questions explain a Property's gaps? | `canonry_measurement_property_questions`, then `canonry_measurement_question_result` with a returned `resultId` |
+| Which queries explain a Property's gaps? | `canonry_measurement_property_questions`, then `canonry_measurement_question_result` with a returned `resultId` |
 | What was mentioned or linked in individual answers? | `canonry_measurement_property_evidence` with `shape: answers` |
 | Who appeared instead of one Property? | `canonry_measurement_property_competitors`; compact summary rows omit per-Property named-instead evidence. Names are written in answer prose, independently of citations |
 | Who do answers name instead across the portfolio? | `canonry_competitor_landscape` with `queryClass`, `runId: latest` and `answers: not-mentioned`; this selection publishes counts, never competitive shares. Or page the compact portfolio summary's `list: observed-names` with `answers: not-mentioned`. Per-Property lists are samples, never a portfolio ranking |

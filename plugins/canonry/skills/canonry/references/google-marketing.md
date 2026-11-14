@@ -86,9 +86,10 @@ OAuth starts and finishes in the same signed-in dashboard browser.
 Use stored evidence first. Before a live provider discovery or sync, get
 explicit approval.
 
-Live discovery needs a full-instance key with
-`google-marketing.read-live`. Sync also needs
-`google-marketing.write` and can use a project-scoped key. A sync queues a run.
+For a signed-in user, live discovery and sync require the administrator role.
+With API credentials, live discovery needs a full-instance key with
+`google-marketing.read-live`. Sync also needs `google-marketing.write` and can
+use a project-scoped key. A sync queues a run.
 Poll `canonry_run_get` with the returned run ID until its status is `completed`,
 `failed`, or `cancelled`. Assess new evidence only after `completed`. If the run
 fails or is cancelled, report that result instead.

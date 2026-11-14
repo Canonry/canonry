@@ -11,14 +11,24 @@ instead of substituting project-level metrics. For Agent Readiness work, read
 `site-health.md`. Built-in Aero uses the corresponding exposed `canonry_*`
 tools; CLI examples below assume an external host with a shell.
 
-**Read the mention signal first in every workflow.** Compute and compare **mention rate + mention share** before cited rate. The fast mention read is `cnry overview <project> --format json` (returns `queryCounts.mentionRate`, `scores.mention`, `scores.mentionShare`) plus `cnry analytics <project> --feature gaps --format json` (returns `mentionedQueries[]`, `mentionGap[]`, `notMentioned[]` alongside the cited buckets, plus `citationNotMeasured[]` for queries whose engines return no sources). Use `cnry citations visibility <project>` for the per-query drilldown — it prints a two-glyph `[C/c/·][M/m]` cell per (query × engine), where `·` means the engine returns no sources, so the citation was not measured (never a miss). `cnry evidence <project>` lists each query's latest citation (`✓ cited`, `✗ not-cited`, `· not measured`) and `Cited: X / Y` over the queries whose answers carried sources. Mention and citation are independent — never derive one from the other. Treat `answerMentioned = null` as "not checked," never as not-mentioned.
+**Read the mention signal first.** In `cnry overview <project> --format json`,
+use `mentionCoverage.populations` for mention and citation rates by query class.
+Use `scores.mentionShare` for mention share and keep its reported scope.
+The legacy `scores.mention` and `queryCounts` pool branded and non-brand queries.
+
+For individual gaps, `cnry analytics <project> --feature gaps --format json`
+returns `mentionedQueries[]`, `mentionGap[]`, `notMentioned[]`, cited buckets,
+and `citationNotMeasured[]`. Use `cnry citations visibility <project>` for
+the per-query drilldown. Each query and engine has a `[C/c/·][M/m]` cell.
+`·` means the engine does not supply a citation measurement.
+`answerMentioned = null` means the mention was not checked.
 
 ## Workflow 1: New Client Baseline
 
 Trigger: First sweep completes for a new project
 
 Steps:
-1. `cnry overview <project> --format json` → mention read first: `queryCounts.mentionRate`, `scores.mention`, `scores.mentionShare`. Then `cnry analytics <project> --feature gaps --format json` for `mentionedQueries[]` / `mentionGap[]` / `notMentioned[]`, and `cnry citations visibility <project> --format json` for the per-query × engine drilldown (each engine's `mentioned` and `citationState`, where `not-measured` is never a miss) and the secondary cited data.
+1. `cnry overview <project> --format json` → read the class-specific coverage and scoped mention share. Then `cnry analytics <project> --feature gaps --format json` for `mentionedQueries[]` / `mentionGap[]` / `notMentioned[]`, and `cnry citations visibility <project> --format json` for the per-query × engine drilldown (each engine's `mentioned` and `citationState`, where `not-measured` is never a miss) and the secondary cited data.
 2. Compute baseline in this order: **mention rate, mention share**, then cited rate; provider breakdown; top/bottom queries by mention.
 3. With explicit operator approval for the crawl and persisted run, `cnry agent-readiness run <project> --wait`, then `cnry agent-readiness score <project> --format json` for the Agent Readiness score. Use `cnry agent-readiness overview <project> --format json` only to add crawl metadata (root, completeness, budgets, and termination); it never replaces the score. The crawl discovers the in-scope URL inventory from the root, sitemaps, and internal links. Without `--max-pages` the scan uses the project's saved page budget (`cnry project update <project> --site-audit-max-pages <n|full>`), else the full site (up to 50,000 pages); the edge budget is unset by default and the crawl engine derives it from the page count, so `--max-edges` sets a ceiling rather than lifting one. Use `--max-pages`, `--max-edges`, or `--max-depth` to tighten them. `--wait` stops polling after 15 minutes while a larger scan keeps running; follow it with `cnry agent-readiness progress <project> --run-id <id>`. Dead-link checks remain off unless `--check-dead-links` is explicit. For architecture investigation, use bounded Agent Readiness subgraph/path/changes reads rather than attempting to load the visualization graph. Treat `countAccuracy: "lower-bound"` subgraph counts as minimums, and qualify an incomplete path's unreachable/truncated result with `complete: false` plus `termination`; neither is a site-wide conclusion. Persists to the dashboard and is trendable via `cnry agent-readiness trend <project>`.
 4. Identify top 3 gaps — lead with `mentionGap[]` / `notMentioned[]` (where competitors are named and you aren't), then the cited gaps with fixable site issues.
@@ -27,13 +37,13 @@ Steps:
 
 ## Workflow 2: Regression Response
 
-Trigger: Comparison shows decline or webhook fires regression.detected
+Trigger: A stored comparison shows a decline or a `citation.lost` notification arrives.
 
 Steps:
-1. `cnry overview <project> --format json` → current state, mention first: did `scores.mention` / `scores.mentionShare` move? Its `whatChanged` already lists what the latest check lost: `lostMentions` first, then `lostCitations`, each query once with the engines and locations (and for Advanced the Properties and markets) that lost it. These are the dashboard's What changed counts, so start from them instead of recounting. Check `comparison` first: when it is `unavailable`, nothing was compared and a 0 is unknown. When `truncated` is true, `queries` lists only the first 25 of `queryCount`. Then `cnry analytics <project> --feature gaps --format json` (`mentionGap[]` / `notMentioned[]`) and `cnry citations visibility <project> --format json` for the per-query × engine drilldown (which signal actually dropped on which provider; a `not-measured` citation never dropped).
-2. `cnry history <project>` → trend for affected query
+1. `cnry overview <project> --format json` → read current class-specific coverage and scoped mention share. Its `whatChanged` already lists what the latest check lost: `lostMentions` first, then `lostCitations`, each query once with the engines and locations (and for Advanced the Properties and markets) that lost it. These are the dashboard's What changed counts, so start from them instead of recounting. Check `comparison` first: when it is `unavailable`, nothing was compared and a 0 is unknown. When `truncated` is true, `queries` lists only the first 25 of `queryCount`. Then `cnry analytics <project> --feature gaps --format json` (`mentionGap[]` / `notMentioned[]`) and `cnry citations visibility <project> --format json` for the per-query × engine drilldown (which signal actually dropped on which provider; a `not-measured` citation never dropped).
+2. Read `cnry visibility-stats <project> --by-provider --format json` for the affected query's per-engine samples. Use `--since` and `--until` to select the periods.
 3. Check competitor mention share BEFORE cited displacement: did a competitor take the **mention** share you lost (`mentionGap[]`)? Only then ask whether a competitor gained the **citation** you lost.
-4. Check indexing: `cnry google coverage <project>` → is the page still indexed? (a deindexed/thin page starves both signals)
+4. Read stored indexing evidence for the exact URL with `cnry google inspections <project> --url <url>` or `canonry_gsc_inspections`. State the inspection date.
 5. Read the page's persisted audit with `canonry_agent_readiness_page_audit`. Propose a bounded new audit only if the stored evidence cannot answer the question.
 6. Diagnose cause: indexing issue / content issue / competitive displacement (mention-share loss first, citation loss second)
 7. Recommend fix with evidence — lead with what restores the mention
@@ -48,14 +58,17 @@ run instead of a real sweep:
 cnry run <project> --probe --provider <p> --query "<regressed-query>"
 ```
 
-Then `cnry runs get <id>` to inspect the snapshot. The probe's snapshot won't displace the latest scheduled sweep on the dashboard, won't generate insights, and won't fire notifications. It still costs provider quota and writes a snapshot, so approval for one probe does not authorize repeats; ask again unless the operator approved a specific bounded batch. Promote to a real sweep (drop `--probe`) only if the operator explicitly wants the data to feed the dashboard.
+Inspect the stored snapshot with `cnry run show <id> --format json` or
+`canonry_run_get`. Probes use provider quota. Dashboard metrics, insights, and
+notifications exclude them. Run a full sweep only when the operator requests a
+new dashboard measurement.
 
 ## Workflow 3: Weekly Review
 
 Trigger: Scheduled (weekly, or on-demand)
 
 Steps:
-1. `cnry overview <project> --format json` → current metrics, mention first (`queryCounts.mentionRate`, `scores.mention`, `scores.mentionShare`); `cnry analytics <project> --feature gaps --format json` for the mention gaps; `cnry citations visibility <project> --format json` for the per-query × engine drilldown (`not-measured` citations stay out of gained/lost)
+1. Read `cnry overview <project> --format json` for class-specific coverage and scoped mention share. Use the gaps and per-query reads for detail.
 2. Compare compatible stored periods/runs using the reporting or portfolio playbook — mention rate + mention share first, cited rate second
 3. Compute deltas: mentions gained/lost/stable (primary), then citations gained/lost/stable (secondary). The latest check's losses are the overview's `whatChanged.lostMentions` and `lostCitations` (check `comparison` and `truncated`); compare stored runs only for gains and for sweeps before it.
 4. Flag any new regressions not yet addressed (lead with lost mentions)

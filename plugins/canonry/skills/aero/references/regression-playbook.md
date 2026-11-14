@@ -9,7 +9,12 @@ description: Detection → triage → diagnosis → response for lost mentions (
 
 A regression is, primarily, a **lost mention**: a query+provider pair whose answer text named the brand (`answerMentioned = true`) in run N no longer does in run N+1. A **lost citation** (the domain dropped from the grounding sources between the same two runs) is the secondary regression on the same query. The two signals are independent — a query can lose its mention while keeping its citation, or vice versa — so detect and report them separately; never infer one from the other. Treat `answerMentioned = null` as "not checked," not as a lost mention.
 
-**Confirm the drop is real, not sampling noise.** A single run is n=1 per provider — far too small to call a regression. Before escalating, pull `cnry visibility-stats <project> --by-provider` (MCP: `canonry_visibility_stats`) for the affected query: it returns the per-query mention/citation **rate with its sample size** (`checked` = the n for mention, `total` for citation) pooled across recent runs, so you can tell a genuine rate decline from one flaky probe. Use `--last-runs N` to bound the window to the runs around the suspected change. `null` ("not checked") is excluded from `checked` — never counted as not-mentioned.
+**Check the sample size.** For the affected query, run
+`cnry visibility-stats <project> --by-provider --format json` or use
+`canonry_visibility_stats`. The mention denominator is `checked`. The
+citation denominator excludes `citationNotMeasured` from `total`. Use
+`--last-runs N` or explicit date bounds to select the evidence. Check
+comparable periods before calling a one-run change a trend.
 
 ## Triage
 
@@ -27,18 +32,17 @@ Classify the regression by severity. Mention loss leads; mention-share loss to a
 For each regression, check causes in order:
 
 1. **Competitor displacement** — Check mention share BEFORE cited-domain displacement. First: did a competitor brand take the mention share you lost? Compare `scores.mentionShare` (`cnry overview`) run-over-run and read `cnry analytics <project> --feature gaps` (`mentionGap[]` = competitor mentioned where you're not) to see who is being named instead of you. Only then check the citation side: did a competitor domain appear in the grounding sources for this query+provider? Check current run snapshots. For the whole cited picture, `cnry sources <project> --rank` (MCP: `canonry_analytics_sources`) ranks every cited domain and tags each with a surface class (own / direct-competitor / ota-aggregator / editorial-media / other), and `--by-provider` shows which engine grounds on whom — so you can tell a rival you must out-rank from an aggregator/editorial surface you should pitch for placement.
-2. **Indexing loss** — Is the page still indexed? Check Google Search Console integration or HTTP status. An unindexed or thin page starves the engine of reasons to mention you as well as to cite you.
+2. **Indexing loss** — Read the most recent stored Search Console inspection for the page. An HTTP status describes the fetch, so use it as separate evidence.
 3. **Content change** — Did the page content change significantly? Compare content hashes if available.
 4. **Provider behavior change** — Did the provider change its response pattern for this query type?
 5. **Unknown** — No clear cause identified. Flag for manual investigation.
 
 ## Response
 
-1. Alert the client with specific data (query, provider, dates, evidence)
-2. Recommend diagnostic steps based on suspected cause
-3. If actionable: generate fix (schema update, content suggestion, indexing resubmission)
-4. Set monitoring flag to track if the regression resolves
-5. Update memory with the regression event and diagnosis
+1. Report the affected query, provider, measurement dates, and stored evidence to the operator.
+2. Recommend a diagnostic step for each plausible cause.
+3. If the evidence supports a fix, draft it for review.
+4. Use later compatible measurements to check for recovery. Read the regression evidence back from Canonry.
 
 ## Local (Google Business Profile) insights
 

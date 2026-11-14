@@ -3,7 +3,7 @@ name: aero
 description: "Diagnose AEO regressions and interpret Canonry AI visibility, SEO data, Advanced multi-property portfolios, and Agent Readiness evidence. Use when prioritizing keyword or organic ranking opportunities, explaining mention or citation changes, comparing Properties or markets, diagnosing page findings, preparing reports, or analyzing a completed `cnry` sweep or Agent Readiness audit scan. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations."
 metadata:
   homepage: https://canonry.ai
-  repository: https://github.com/AINYC/aero
+  repository: https://github.com/Canonry/canonry
 ---
 
 # Aero Orchestration Skill
@@ -218,7 +218,12 @@ first. Report crawled, read, clicked, came back and converted as separate
 numbers, and never report zero conversions until you have checked that the
 conversion is tracked and reaches GA4.
 
-**Diagnosing a stuck Vercel/Cloud Run source:** if `cnry traffic status` shows `status=error` with a recent `lastError` of `refusing to advance` or `ExceedsBillingLimitError`, the source's `lastSyncedAt` has aged past the upstream retention boundary and every sync now throws. Recovery: `cnry traffic reset <project> --source <id> --advance-to-now`. This advances `lastSyncedAt` to NOW and resumes going-forward syncs — historical events in the gap are unrecoverable from the sync path; run `cnry traffic backfill --days N` separately if any of that history is needed (capped at retention).
+**Vercel retention errors.** If `cnry traffic status` reports that Vercel
+refused to advance past its log retention boundary, read the source's error
+and affected window. With approval to skip the gap, run
+`cnry traffic reset <project> --source <id> --advance-to-now`.
+If the operator approves recovery of retained history, run
+`cnry traffic backfill <project> --source <id> --days N`.
 
 ## Judgment Rules
 
@@ -247,7 +252,7 @@ approval before running it. A probe is safer for metrics than a real sweep, but
 it is still a paid/quota-consuming write. After approval, use `cnry run
 <project> --probe --provider <p> --query "..."`. Probe runs:
 - Still cost provider API quota (same wire call)
-- Write a snapshot you can inspect via `cnry runs get <id>`
+- Write a snapshot you can inspect via `cnry run show <id> --format json` or `canonry_run_get`
 - Are EXCLUDED from dashboard, analytics, intelligence, insights, and notifications
 - Won't wake you up again via the post-run hook (no recursive analysis loops)
 

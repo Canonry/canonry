@@ -8,6 +8,7 @@ Canonry integrates with WordPress through the core REST API plus Application Pas
 - Audit pages for `noindex`, missing SEO title, missing meta description, missing schema, and thin content
 - Compare live vs staging for a page with `cnry wordpress diff`
 - Update SEO meta when the site exposes writable REST meta fields
+- Deploy a profile's JSON-LD with `cnry wordpress schema deploy <project> --profile <file>` when the site supports the write
 
 ## What Stays Manual
 
@@ -38,8 +39,11 @@ Env-sensitive commands accept `--live` or `--staging`. If neither is provided, c
 
 ## Typical Workflow
 
+Set `WP_APP_PASSWORD` to the WordPress Application Password before running the example.
+
 ```bash
-cnry wordpress connect mysite --url https://example.com --user admin --staging-url https://staging.example.com --default-env staging
+cnry wordpress connect mysite --url https://example.com --user admin \
+  --app-password "$WP_APP_PASSWORD" --staging-url https://staging.example.com --default-env staging
 cnry wordpress pages mysite --staging
 cnry wordpress page mysite pricing --staging
 cnry wordpress set-meta mysite pricing --title "SEO title" --description "Meta description" --staging

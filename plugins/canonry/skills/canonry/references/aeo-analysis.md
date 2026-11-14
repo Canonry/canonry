@@ -103,7 +103,7 @@ Recommend briefs only for ownable targets; for ceded head terms, advise earning 
 ### Step 0: Read the mention signal first
 Before anything else, separate the two signals. `cnry analytics <project> --feature gaps` tells you whether the query is in `notMentioned[]` (the engine never names you), `mentionGap[]` (a competitor is named instead), or only in the cited `gap[]`/`uncited[]` (a citation gap while the mention may hold). The fix priority follows the mention: earn the name first, the source citation second. `answerMentioned = null` means the snapshot wasn't checked — re-run, don't read it as not-mentioned.
 
-> **Known gap:** `cnry health` is citation-only today (no mention dimension). For the mention-first read, use `cnry overview` / `cnry get <project> scores.mentionCoverage.value` / `cnry get <project> scores.mentionShare.value` until health is extended.
+`cnry health <project>` shows mention and citation rates with separate denominators. `cnry health <project> --history` shows both signals over time.
 
 ### Stored competitor suggestions
 
@@ -145,9 +145,9 @@ Gemini, OpenAI, Claude, and Perplexity may behave differently. One citing a doma
 
 ### Step 5: Check analytics trends
 ```bash
-cnry analytics <project> --feature gaps --window 30d
+cnry analytics <project> --feature metrics --window 30d
 ```
-Look for patterns: are gaps growing or shrinking? Are new competitors appearing?
+Read the mention and citation trends. Use `--feature gaps` for the latest eligible sweep. Its window controls the consistency history.
 
 ### Step 6: Check GA4 traffic for impact
 A lost mention (or lost citation) isn't always a lost user. Before declaring a regression real, confirm whether AI-referral traffic actually fell on the same window:
@@ -158,12 +158,7 @@ cnry ga ai-referral-daily <project> --format json
                                                       # attribution dimensions; totals match `cnry ga traffic`
 cnry ga attribution <project> --trend             # 7d/30d direction per channel + biggest mover
 ```
-Read the result against the citation loss window:
-- **AI sessions flat or up** → the citation loss may be sweep-side noise (provider variance, query refresh). Track for one more cycle before alarming the client.
-- **AI sessions dropped on the same date** → real outage; escalate. Cross-reference `aiReferrals[]` from `cnry ga traffic` to identify which provider lost traffic.
-- **Organic dropped but AI held** → the citation loss is masking a separate indexing issue. Re-run Step 1.
-
-GA4 also covers the inverse case: a *gain* on `attribution --trend` for the AI channel that isn't reflected in citation count usually means a provider expanded an existing citation's exposure (more queries triggering it) — a quiet win worth flagging in the next report.
+Compare the same date range in both instruments. If AI sessions also fell, read `aiReferrals[]` from `cnry ga traffic` to find the sources with fewer sessions. A sweep and GA4 measure different populations. Their changes do not establish what caused the traffic change.
 
 ## Trend Interpretation
 
@@ -196,9 +191,9 @@ To answer "did it move since the last sweep?", read `populations[].comparison` f
 
 ### Low overall mention rate (< 50%)
 Mention rate is the primary KPI — fix this before cited rate.
-1. Audit indexing — `cnry google coverage <project>` (an unindexed page can't be named or cited)
-2. Submit unindexed pages to Google Indexing API
-3. Submit sitemap to Bing WMT + send IndexNow batch
+1. Audit Google index coverage with `cnry google coverage <project>`.
+2. Submit the sitemap with `cnry google submit-sitemap <project> --configured`. Use the Google Indexing API for eligible job and livestream pages.
+3. Submit the sitemap with `cnry bing submit-sitemap <project> <url>`.
 4. Check core pages for schema (LocalBusiness / Organization / FAQPage) so the brand name is unambiguous
 5. Map `notMentioned[]` / `mentionGap[]` queries to pages — which have no corresponding page, and who is named instead?
 

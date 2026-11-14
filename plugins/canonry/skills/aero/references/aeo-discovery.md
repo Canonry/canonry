@@ -5,17 +5,15 @@ description: How to operate the tracked-basket discovery pipeline. Read when an 
 
 # AEO Discovery (Tracked-Basket Expansion)
 
-Discovery turns a free-text ICP description into a deduped basket of representative queries, probes each against Gemini grounding, and classifies the results into three buckets. Read each bucket as **mention-or-citation** presence — the brand named in the answer text (`answerMentioned`, the primary signal) OR the domain in the grounding sources (`cited`, the secondary signal) — not citation alone:
+Discovery turns an ideal customer profile (ICP) into candidate queries and probes the deduplicated queries with Gemini. The three buckets use the source domains in each probe.
 
-- **cited** — the project shows up for the query: its brand is mentioned in the answer text, or its canonical/owned domain appears in the grounding sources (mention-or-citation present)
-- **wasted-surface** — a tracked competitor shows up (mentioned or cited) but the project does not
-- **aspirational** — neither the project nor a tracked competitor shows up on either signal (greenfield)
+- **cited** — the answer cites a project domain.
+- **wasted-surface** — a tracked competitor domain appears in the sources, and every project domain is absent.
+- **aspirational** — the answer cites neither a project domain nor a tracked competitor domain.
 
-Plus a competitor map: every non-canonical domain (and named competitor brand) that shows up across probes, ranked by hit count and classified by type, so the operator can spot recurring competitors that aren't yet on the watchlist. Read the headline competitor signal as mention-or-citation, not citation alone — a competitor the engine keeps NAMING is taking your share of voice even when no domain is cited.
+The competitor map ranks cited domains outside the project's own domains. Each domain counts once per probe. Report a project mention separately from the probe's `answerMentioned` field. A null value means that the probe did not measure the mention.
 
-> **Mention data on probes (engine PR #707, merged 2026-06-17).** Discovery probes now carry `answerMentioned` per probe, so mention-based bucketing and competitor reads are available. Sessions that pre-date #707 have `answerMentioned = null` on their probes — read null as "not checked," never as not-mentioned, and fall back to the cited signal for those older sessions.
-
-After probing, one Gemini call classifies every recurring cited domain into a `competitorType`:
+After probing, Canonry uses the configured domain classifier to assign a `competitorType` to each cited domain. Gemini is the default classifier.
 
 - **direct-competitor** — a business competing for the same customers (another hotel, another tool in the category). The only type promoted by default.
 - **ota-aggregator** — OTAs, marketplaces, directories, review aggregators (expedia.com, booking.com, g2.com). Suppressed from competitor tracking.
@@ -31,34 +29,42 @@ After probing, one Gemini call classifies every recurring cited domain into a `c
 
 ## Triggering a session
 
-Discovery is a paid, quota-consuming write (about $1 at the default 100-probe
-budget). Show the proposed ICP, provider, and probe budget, then get explicit
-operator approval before starting a session. After approval, the operator runs:
+Discovery uses provider quota. State the proposed ICP, seed providers, and
+probe budget. After the operator approves the session, run the CLI command or
+call the exposed tool.
 
 ```bash
 cnry discover run <project> --icp "..." --wait
 ```
 
-Or the MCP equivalent: `canonry_discover_run_start` with `{ project, request: { icpDescription, dedupThreshold?, maxProbes? } }`. The endpoint returns `{ runId, sessionId, status: "running" }` immediately and finishes the work in the background. Poll `canonry_discover_session_get` until `status` is `completed` or `failed`.
+`canonry_discover_run_start` accepts `{ project, request }` in an external MCP
+host. Built-in Aero passes `{ request }` for its current project. Set
+`icpDescription` in `request` to override the stored ICP. The tool
+returns `runId`, `sessionId`, and `status: "running"`. Poll
+`canonry_discover_session_get` for `completed` or `failed`.
 
 ICP fallback: if the request omits `icpDescription`, the route uses `projects.icp_description` if set. Surface a clear "needs an ICP" prompt if neither is available.
 
 ## Cost + budget
 
-Per session: ~$1 at the default probe budget (100 queries × 1 Gemini grounded call each, plus a single batched embed call for ~$0.0002). Hard cap: 500 probes per session, enforced both client-side (Zod) and server-side. Recommend the default (100) unless the operator has a specific reason.
+The default limit is 100 probes per session. `--max-probes` (MCP
+`request.maxProbes`) accepts up to 500. The session also uses provider calls
+for seed generation, embeddings, and domain classification. Use configured
+pricing to assess cost.
 
 ## Reading the result
 
 `canonry_discover_session_get` returns:
 
-- Session-level: `seedCountRaw` vs `seedCount` (proves embedding dedup did real work), bucket counts, `competitorMap` (top recurring non-tracked domains, each with `hits` and `competitorType`).
-- Per-probe: query, bucket, citation state, the cited domains list.
+- At session level, read `seedCountRaw`, `seedCount`, bucket counts, and
+  `competitorMap`. Map entries carry `hits` and `competitorType`.
+- Per probe, read the query, bucket, `citationState`, cited domains, and `answerMentioned`.
 
 Things to call out without being asked:
 
 - **High wasted-surface ratio** (≥ 40% of probes, or > cited count at ≥ 20%) → the project is missing from its own competitive space. The auto-written `discovery.basket-divergence` insight flags this as `high` severity.
 - **Recurring `direct-competitor` domains** in `competitorMap` that aren't already in the project's tracked competitor list → `cnry discover promote` adopts `direct-competitor` domains with at least 2 hits automatically alongside the queries; or add them à la carte with `cnry competitor add <project> <domain>`. Domains classified `ota-aggregator` / `editorial-media` / `other` are surfaced but **not** promoted by default — flag a recurring `editorial-media` site as a placement opportunity, not a competitor.
-- **Aspirational greenfield** queries with no tracked competitor and no canonical cite → low-friction content opportunities.
+- **Aspirational queries** can suggest content opportunities. Use the individual probe's mention field before making claims about brand presence.
 
 ## Promoting a session into the tracked basket
 
@@ -68,11 +74,12 @@ Once a session is `completed`, preview first unless the operator has already app
 cnry discover promote preview <project> <session-id>
 ```
 
-Or the MCP equivalent: `canonry_discover_promote_preview` with `{ project, sessionId }`.
+Or use `canonry_discover_promote_preview`. Pass `{ project, sessionId }` in an
+external MCP host and `{ sessionId }` in built-in Aero.
 
 The preview returns every bucket so you can explain the tradeoff:
 
-- `cited` — already grounded to the project, safe to track.
+- `cited` — the sources include at least one project domain.
 - `aspirational` — greenfield ICP-fit opportunities, safe to track as a growth basket.
 - `wasted-surface` — competitor-cited but project-missing. Treat as content-planning evidence first; do not add it to the weekly tracked basket unless the operator explicitly wants those off-ICP competitor gaps tracked.
 - `suggestedCompetitors`: recurring competitors (≥ 2 probes) not already tracked, of **every** classified type, each tagged with `competitorType` and stored as its registrable domain, with the cited hosts merged into it under `sources` (`offers.rival.example` promotes as `rival.example`). The default promote adopts only the `direct-competitor` ones; the others are shown so you can recommend a `--competitor-types` widening.
@@ -88,7 +95,8 @@ cnry discover promote <project> <session-id> --competitor-types direct-competito
 cnry discover promote <project> <session-id> --no-competitors                         # queries only, skip the competitor merge
 ```
 
-Or the MCP equivalent:
+For the MCP equivalent, call `canonry_discover_promote`. In an external MCP
+host, include the project. Built-in Aero uses the current project.
 
 ```json
 { "project": "<project>", "sessionId": "<session-id>" }
@@ -101,7 +109,7 @@ That default request promotes `cited` + `aspirational` queries and `direct-compe
 ```
 
 - **Default is cited + aspirational.** `wasted-surface` queries are off-ICP competitor gaps; promote them only when the operator explicitly wants those tracked in the weekly basket.
-- **Competitor promotion requires recurrence + a promotable type.** The default competitor merge ignores one-off domains (< 2 hits) and adopts only domains classified `direct-competitor`. Pass `competitorTypes` (CLI: `--competitor-types`) to also adopt `editorial-media` channels, or `competitorTypes: ["unknown"]` to recover a legacy session promoted before classification existed.
+- **Competitor types.** By default, promotion includes direct competitors cited in at least two probes. To include editorial sites alongside direct competitors, pass both `direct-competitor` and `editorial-media` in `competitorTypes` (CLI `--competitor-types`). An explicit list replaces the default filter.
 - **Add-only and idempotent.** Queries and competitor domains already tracked are returned under `skipped`, never inserted twice. Re-running a promote is safe. Competitors left out for any other reason are listed there too, with the reason in `competitorDetails`; the rest of the promote still lands.
 - **Completed sessions only.** Promoting a `queued`/`seeding`/`probing`/`failed` session is rejected — the buckets aren't final.
 - Promoted rows carry `provenance="discovery:<sessionId>"`, so a tracked query can always be traced back to the session that surfaced it.
@@ -112,7 +120,7 @@ The follow-up payload `RunCoordinator` queues for you includes:
 
 ```
 [system] Discovery run <runId> completed for project <name> (session <sessionId>).
-Buckets — cited:<n>, wasted-surface:<n>, aspirational:<n> (<probeCount> probes; seed provider: gemini).
+Buckets — cited:<n>, wasted-surface:<n>, aspirational:<n> (<probeCount> probes; seed provider: <seedProvider>).
 Top recurring competitor domains: <domain1>(<hits>), <domain2>(<hits>), …
 ```
 
@@ -127,15 +135,19 @@ Do not recommend "promote everything" as the default. The safe path is: inspect 
 
 Keep it tight. The operator wakes to a short, decision-ready summary, not a full report.
 
-## What discovery does NOT do (yet)
+## Seed providers and probe scope
 
-- **No multi-provider amplification.** v1 probes Gemini only. v2 will probe across Gemini + ChatGPT + Claude in one session (the schema is already shaped for it — `discovery_probes` has no `UNIQUE(session_id, query)` exactly because of this).
-- **No re-run drift.** Each session is independent. Comparing sessions over time is on the PR 4 / PR 5 roadmap.
+- Gemini generates seeds by default. Select Gemini, OpenAI, or both via
+  `--seed-provider` or MCP `request.seedProviders`.
+- Gemini runs every probe. With multiple resolved locations, the probes use
+  the first, with the project's default first if selected.
+- Each session has its own query basket. Compare the selected queries and
+  scope before comparing session counts.
 
 ## Failure modes
 
-- **Gemini not configured** → orchestrator throws early; `runs.status='failed'` with `Gemini provider is not configured.` Surface as "configure Gemini before running discovery" — link to `cnry init` or `~/.canonry/config.yaml`.
-- **Vertex-only Gemini** → embeddings step throws (Vertex embeddings deferred). Same surface, "use a Gemini API key for now."
+- **Gemini not configured.** Configure Gemini before starting discovery.
+  The embeddings step requires a Gemini API key, including on a Vertex-only installation.
 - **ICP missing** → route returns 400 with `VALIDATION_ERROR`. Ask the operator for the ICP description in plain language.
 - **Seed collapse (hyperlocal/niche businesses)** → 40 raw seeds collapse to 1-2 canonical queries after embedding+clustering, even at low dedup thresholds. This happens when Gemini generates seed queries that all live in the same semantic pocket (e.g. all variants of "boutique hotel Harborline Beach"). The embedding model sees them as near-identical, so clustering produces one representative.
 

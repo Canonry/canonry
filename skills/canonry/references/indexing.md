@@ -1,6 +1,6 @@
 # Indexing Workflows for AEO
 
-Getting pages indexed fast is high-leverage AEO work. Unindexed pages are invisible to AI citation regardless of content quality.
+Use stored inspection evidence to find search indexing gaps. Google and Bing inspection results describe their own indexes.
 
 ## Priority Order
 
@@ -18,9 +18,9 @@ cnry google coverage <project>
 ```
 
 Statuses to act on:
-- `URL is unknown to Google` → highest priority, submit immediately
-- `Discovered - currently not indexed` → Google found it but hasn't crawled — submit to accelerate
-- `indexed` → no action needed
+- `URL is unknown to Google` → check that the sitemap lists the URL and that Google can access the page.
+- `Discovered - currently not indexed` → review crawl access, internal links, and the sitemap.
+- `indexed` → the inspection confirms indexing for that URL.
 
 ### Sync GSC data
 ```bash
@@ -38,7 +38,7 @@ cnry google query-totals <project> --window 30d        # one row per named query
 
 ### Discover and inspect sitemaps
 ```bash
-cnry google discover-sitemaps <project> --wait   # auto-discover sitemaps and queue inspection
+cnry google discover-sitemaps <project> --wait   # select a submitted GSC sitemap and queue inspection
 cnry google list-sitemaps <project>               # list submitted sitemaps
 cnry google inspect-sitemap <project> --wait      # bulk inspect all sitemap URLs
 ```
@@ -65,11 +65,8 @@ cnry google deindexed <project>                  # pages that lost indexing
 
 ### Submit URLs to Google Indexing API
 ```bash
-# Single URL
+# An eligible URL
 cnry google request-indexing <project> <url>
-
-# All unindexed at once
-cnry google request-indexing <project> --all-unindexed
 ```
 
 **Requirements:**
@@ -77,9 +74,7 @@ cnry google request-indexing <project> --all-unindexed
 - OAuth connection set up in canonry (`cnry settings` shows Google connection)
 - The URL has eligible `JobPosting` or livestream `BroadcastEvent` structured data
 
-**After submitting:** Check coverage again after 48h. Once indexed, ask for
-explicit approval before running a quota-consuming sweep — pages must be
-indexed before citation is possible.
+The bulk `--all-unindexed` flag uses stored inspection results on the project domain. If every selected URL qualifies, you can use the bulk command. Check coverage again after submission.
 
 ---
 
@@ -120,8 +115,13 @@ cnry bing request-indexing <project> <url>
 cnry bing request-indexing <project> --all-unindexed
 ```
 
-### Submit sitemap (manual, one-time)
-Bing WMT → Sitemaps → submit `https://example.com/sitemap.xml`
+### Submit or resubmit a sitemap
+
+```bash
+cnry bing submit-sitemap <project> https://example.com/sitemap.xml
+```
+
+An accepted submission asks Bing to read the sitemap. The stored sitemap list updates after Bing reads it and Canonry syncs again.
 
 ### IndexNow (instant crawl signal)
 IndexNow is a direct ping to Bing: "these URLs changed, crawl them now." Without it, Bing discovers pages on its own schedule (days to weeks). With it, typically hours.
@@ -172,10 +172,8 @@ Expected response: `202 Accepted`
 ## General Workflow for New Client Pages
 
 1. `cnry google submit-sitemap <project> --configured` — submit the saved sitemap
-2. `cnry google coverage <project>` — identify unindexed pages
-3. For eligible job or livestream pages only: `cnry google request-indexing <project> --all-unindexed`
-4. `cnry bing request-indexing <project> --all-unindexed` — push to Bing
-5. Submit sitemap to Bing WMT (manual, one-time per site)
-6. Send IndexNow batch for key URLs
-7. Re-check coverage after 48h
-8. After explicit approval, run a sweep once pages are confirmed indexed
+2. Read `cnry google coverage <project>` to identify unindexed pages.
+3. For each eligible job or livestream page, run `cnry google request-indexing <project> <url>`.
+4. Submit the sitemap with `cnry bing submit-sitemap <project> <url>`.
+5. Notify Bing about changed URLs with `cnry bing request-indexing <project> <url>` or IndexNow.
+6. Check coverage again before interpreting changes in search visibility.

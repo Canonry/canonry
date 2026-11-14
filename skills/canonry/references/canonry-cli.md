@@ -191,7 +191,7 @@ counted and are listed in `leads.countedEvents.ignoredKeyEvents`; configure
 one as a lead event to count it. Omitted
 `measurement.countKeyEvents` means on; `--no-count-key-events` (or
 `countKeyEvents: false`) counts only the configured events. When the counted set
-changes, the next GA sync refreshes the full 90-day GA4 window. A failed
+changes, the next GA sync refreshes 180 days of lead-event data. A failed
 key-event read keeps the previous list and never fails the sync.
 
 The CLI sends the revision it read, or validates an explicit positive
@@ -244,7 +244,7 @@ cnry snapshot "Acme Corp" --domain acme.example.com --provider gemini --format j
 cnry snapshot "Acme Corp" --domain acme.example.com --provider-mode api  # all configured API providers
 cnry snapshot "Acme Corp" --domain acme.example.com --provider-mode browser --queries "best widget suppliers"
 
-cnry run <project>                             # sweep all configured providers
+cnry run <project>                             # sweep the project's configured measurement scope
 cnry run preview <project> --format json       # stored-only workload/admission for the next default full manual sweep
 cnry run <project> --provider gemini           # single provider only
 cnry run <project> --query "alpha" --query "beta"  # scope sweep to a subset of tracked queries (repeatable)
@@ -452,6 +452,7 @@ cnry analytics <project> --feature gaps        # brand gap analysis — mention 
 cnry analytics <project> --feature sources     # source breakdown by category
 cnry analytics <project> --window 7d           # time window: 7d, 30d, 90d, all
 cnry analytics <project> --feature metrics --query-class non-brand  # branded|non-brand answers only (metrics and sources); omitted = all, which pools both
+cnry organic-evidence <project> --period 90 --format json  # reconcile stored Search Console, GA4, and server traffic evidence
 ```
 
 ### Cited-source rankings (`cnry sources`)
@@ -668,6 +669,16 @@ cnry competitor suggest <project> --window 30d --min-answers 3 --query-class non
 
 `competitor suggest` reads stored answer and citation evidence and ranks possible competitors. It never starts a sweep or writes data. Use `--format jsonl` for one candidate per line. The response keeps naming counts separate from citation counts and includes the query class, answer floor, run IDs, sample URLs, exclusions, and count units. An exact suggestion read refuses with `VALIDATION_ERROR` above 10,000 eligible answer rows instead of sampling; narrow `--window` or use `--group-key` for one Advanced market. A Simple project without a usable brand alias uses the pooled `all` class unless an explicit class filter is requested. Exact reads also refuse more than 200,000 characters in one answer, 20 million evidence characters, or 200,000 source references with narrowing guidance. Scans yield so other requests remain responsive. Unknown untracked candidates with only unpaired prose matches are excluded as `unpaired-name`; mention counts stay unchanged for comparison with a bare-add preview. Human output shows both-answer and paired-answer counts and exclusion reasons.
 
+### Tracking assignments
+
+```bash
+cnry query workspace <project> --format json            # read current assignments and workspace version
+cnry query preview <project> changes.json --format json # preview assignment changes
+cnry query commit <project> reviewed.json --format json # publish the reviewed changes
+```
+
+The assignment preview takes `expectedWorkspaceVersion`, `additions`, `removals`, and optional `edits`. Commit the same request with the returned `previewToken` and `reviewedAt`. Preview and commit require write access.
+
 ### Query class
 
 Every tracked query is `branded` (it names the project) or `non-brand`, and the two are never counted together. The server decides the class; read it, never work it out from the query text.
@@ -731,6 +742,19 @@ for competitive percentages (REST `queryClass=non-brand`, MCP
 `queryClass: "non-brand"`). Omitted class or `all` returns pooled counts and
 null shares. Request branded evidence separately for brand recall.
 
+## Research
+
+```bash
+cnry research run <project> "Which suppliers serve this market?" --provider gemini --idempotency-key <key> --wait --format json
+cnry research batch <project> reviewed-runs.json --wait --format json
+cnry research list <project> --limit 20 --format json
+cnry research show <project> <run-id> --format json
+```
+
+Research saves answers separately from tracked measurement. `research run` accepts up to 50 queries. Use `--market` or `--property` for one Advanced destination. Select an engine location separately with `--location` or `--no-location`. `--model` requires `--provider`.
+
+For a reviewed batch, provide one `idempotencyKey` and a `runs` array. Each run needs final `queries`, `provider`, `model`, and `location` (an object or `null`). For an Advanced destination, include `expectedPlanRevision` in `scope`. A batch can submit up to 20 destinations and 50 total queries. Use the same key and payload on retry. Pass the returned `nextCursor` to `research list --cursor` to read older runs.
+
 ## Target Measurement Plans
 
 ```bash
@@ -739,6 +763,8 @@ cnry measurement-plan discover <project> --sitemap-url https://example.com/sitem
 cnry measurement-plan show <project>                    # active immutable revision
 cnry measurement-plan show <project> --revision 2       # one historical revision
 cnry measurement-plan versions <project>
+cnry measurement-plan visibility <project> --format json # stored AI Visibility for Simple or Advanced
+cnry measurement-plan visibility <project> selection.json --format json # filter the report
 cnry measurement-plan publish <project> plan.yaml       # legacy schema v1 only; refuses over an active v2 plan (use: measurement-plan advanced <project> draft-action)
 cnry measurement-plan report <project> --revision 2     # stored evidence only; never starts provider work; a schema v2 revision reads non-brand unless --query-class branded|all; a schema v1 revision reads every answer and refuses --query-class non-brand or branded
 cnry measurement-plan retire <project> <stable-key>
@@ -775,6 +801,7 @@ cnry doctor --project <project> --check site.reachability   # probe the homepage
 cnry schedule set <project> --kind site-audit --preset weekly     # Agent Readiness audit scan: bounded full-site crawl and audit (no --source/--provider)
 cnry schedule set <project> --kind site-audit --check-dead-links --include-geo   # weekly deep scan: dead links + location checks on every scheduled scan
 cnry schedule set <project> --kind seo-sync --cron '0 7 2 * *'  # paid SEO refresh of every saved profile, monthly (needs seo.run; no --source/--provider)
+cnry schedule preview <project> --preset weekly --format json  # preview the next occurrence without enabling a schedule
 cnry schedule show <project>
 cnry schedule list <project> --format json      # all configured schedule kinds
 cnry schedule enable <project>
@@ -788,7 +815,7 @@ cnry notify remove <project> <id>
 cnry notify test <project> <id>
 ```
 
-Available events: `citation.lost`, `citation.gained`, `run.completed`, `run.failed`, `insight.critical`, `insight.high`
+Use `cnry notify events --target server` for the connected server's current event catalog.
 
 `insight.critical` and `insight.high` fire when the intelligence engine generates critical- or high-severity insights after a sweep completes.
 
@@ -821,7 +848,7 @@ A project whose overview `cnry overview --all` can't read keeps its table row, m
 ## Provider Settings & Quotas
 
 ```bash
-cnry settings                                  # show config: providers, apiUrl, db path
+cnry settings                                  # show connected server's provider and Google OAuth settings
 cnry settings --format json
 cnry settings reload-providers --format json   # apply the server's saved provider config
 cnry settings provider gemini --api-key <KEY> --model gemini-flash-latest
@@ -1355,7 +1382,7 @@ cnry ga social-referral-summary <project> [--trend]
                                                   # socialSharePct, topSources[]; --trend adds 7d/30d direction
 cnry ga session-history <project> [--window 30d] [--start YYYY-MM-DD] [--end YYYY-MM-DD]
                                                   # daily totals: {date, sessions, organicSessions, users}
-cnry ga overview <project> [--window 7d|30d|90d]
+cnry ga overview <project> [--window 7d|30d|90d|180d]
                                                   # GA4's overview for the complete days ending yesterday
                                                   # (default 30d): users, new users, sessions, organic
                                                   # sessions, views, event count, key events, engagement
@@ -1848,8 +1875,8 @@ Kinds: `struggle`, `bug`, `improvement`, `other` (default). MCP equivalent: `can
 [--request-id <id>] [--since <ISO>] [--until <ISO>]
 [--limit <1..200>] [--cursor <cursor>] --format json`
 returns `{entries,nextCursor,truncated,dropped,retention,retentionPolicy,captureErrors,observedAt}`.
-`jsonl` preserves this object envelope. It requires an instance-wide `logs.read`
-grant (or wildcard); project-scoped credentials are rejected. Only allowlisted
+`jsonl` preserves this object envelope. It requires a host-approved operator key
+with an instance-wide `logs.read` grant (or wildcard). Only allowlisted
 diagnostic metadata and sanitized messages are exposed, including application
 and HTTP failures. File-backed hosts retain logs across restarts, capped at
 10,000 events and seven days; in-memory hosts report process retention. Raw
@@ -1874,7 +1901,6 @@ and request IDs are exposed when available; no mutation is automatically retried
 cnry apply project.yaml                        # apply declarative config
 cnry apply file1.yaml file2.yaml               # multiple files
 cnry export <project> --include-results > project.yaml
-cnry sitemap inspect <project>
 ```
 
 ## Agent
@@ -1895,6 +1921,7 @@ cnry agent ask <project> "<prompt>" --provider claude
 cnry agent ask <project> "<prompt>" --provider zai
 cnry agent ask <project> "<prompt>" --provider openai
 cnry agent ask <project> "<prompt>" --provider gemini
+cnry agent ask <project> "<prompt>" --provider openrouter --model publisher/model
 
 # Restrict the tool surface. Default is --scope all (full read+write surface).
 # --scope read-only matches the dashboard bar default so pasted "Copy as CLI"
@@ -1921,11 +1948,8 @@ cnry agent memory set <project> --key <k> --value <v>     # 2 KB cap per value
 cnry agent memory forget <project> --key <k>
 ```
 
-**Provider detection order** when `--provider` is omitted: `claude` →
-`openai` → `gemini` → `zai`, whichever has an API key present first (from
-`~/.canonry/config.yaml` providers block, or the matching env var
-`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ZAI_API_KEY`).
-The `deepinfra` provider was removed; pin one of the four above.
+An explicit `--provider` takes precedence over the server's `agent.provider` setting. An unpinned turn can reuse the conversation's provider. Otherwise Aero checks for keys in order (`claude`, `openai`, `gemini`, `zai`, then `openrouter`) and picks the first match. Use `cnry agent providers <project>` to inspect the server's available choices.
+If an older configuration uses the retired `deepinfra` provider, switch to a supported provider.
 
 Conversations **persist per project** — `cnry agent ask` continues the
 active conversation each invocation. Use `cnry agent conversations list <project>`
