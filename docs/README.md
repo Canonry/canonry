@@ -27,7 +27,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`aero-evaluation.md`](aero-evaluation.md) | current | contributors | Analyst replay tests and offline evaluation of captured native turns |
 | [`testing.md`](testing.md) | current | contributors | Validation and test workflow guidance |
 | [`plugins.md`](plugins.md) | current | agent users | Portable Agent Plugin structure, client adapters, installation, coexistence, and security boundaries |
-| [`mcp.md`](mcp.md) | current | operators, agent users, contributors | MCP stdio adapter rationale, setup, auth model, safety rules, and limitations |
+| [`mcp.md`](mcp.md) | current | operators, agent users, contributors | Stdio and hosted HTTP MCP setup, authentication, tool discovery, and access limits |
 | [`chatgpt-sign-in.md`](chatgpt-sign-in.md) | current | operators | Sign in with ChatGPT for invited people, invitations, and Aero on a person's own ChatGPT plan |
 | [`mcp-gateway-contract.md`](mcp-gateway-contract.md) | current | gateway engineers | Instance OAuth, identity, stored-read policy, modern/legacy transport, and synthetic integration contract |
 | [`../apps/mcp-gateway/README.md`](../apps/mcp-gateway/README.md) | implementation | operators, reviewers | Independent remote MCP gateway, encrypted routing/auth state, deployment and synthetic review procedure |
@@ -36,7 +36,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`competitor-landscape.md`](competitor-landscape.md) | current | operators, engineers | Pinned-first historical competitor evidence for Simple and Advanced Measurement scopes |
 | [`query-visibility.md`](query-visibility.md) | current | operators, contributors | Query assignments, research promotion, market scopes, and frozen visibility results |
 | [`google-marketing.md`](google-marketing.md) | current | operators, agents | Google Ads and GTM setup, conversion evidence, integrity states, live-read authority, and v1 safety boundary |
-| [`batch-mode.md`](batch-mode.md) | current | operators, agents, engineers | Provider batch dispatch for scheduled sweeps: config, eligibility, run lifecycle, fills, cost accounting, and risks (ZDR, spend limits) |
+| [`batch-mode.md`](batch-mode.md) | current | operators, agents, engineers | Batch dispatch for scheduled and manual sweeps, eligibility, fills, cost, and data retention |
 | [`providers/README.md`](providers/README.md) | current | engineers | Provider system overview, ProviderAdapter interface, how to add a provider |
 | [`providers/model-selection.md`](providers/model-selection.md) | current | operators, engineers | Model selection and evidence rules for direct APIs and OpenRouter |
 | [`providers/gemini.md`](providers/gemini.md) | current | engineers | Gemini provider behavior and constraints |
@@ -53,13 +53,16 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`wordpress-setup.md`](wordpress-setup.md) | current | operators | WordPress REST + Application Password setup, staging diffs, and manual handoff workflows |
 | [`cloudflare-traffic-setup.md`](cloudflare-traffic-setup.md) | current | operators | Cloudflare Queue-pull server-side traffic: token scopes, queue + HTTP pull consumer, request-volume sizing, asset-exclusion and fail-open routes |
 | [`server-side-traffic.md`](../skills/canonry/references/server-side-traffic.md) | current | operators | Cloudflare direct-push or Queue-pull and Cloud Run, WordPress, and Vercel pull-source setup, smoke tests, rollback, and troubleshooting |
+| [`sentiment.md`](sentiment.md) | experimental | operators, contributors | Sentiment configuration, permissions, and measurement scope |
 
 ## Implementation Records
 
 | Document | Label | Audience | Purpose |
 | --- | --- | --- | --- |
 | [`oss-onboarding-evaluation.md`](oss-onboarding-evaluation.md) | historical | product, design, engineers | Evaluation, decisions, and proposals from the OSS onboarding rework |
-| [`technical-scopes/muse-web-search.md`](technical-scopes/muse-web-search.md) | implementation scope | engineers | Muse web search boundaries and validation plan |
+| [`technical-scopes/muse-web-search.md`](technical-scopes/muse-web-search.md) | historical | engineers | Initial Muse web search scope. See the [Muse provider guide](providers/muse.md) for current behavior. |
+| [`google-business-posts-and-review-events.md`](google-business-posts-and-review-events.md) | implementation | operators, engineers | Local Posts publication and review event contracts |
+| [`sentiment-validation.md`](sentiment-validation.md) | validation record | reviewers, contributors | Sentiment validation evidence and evaluation gates |
 
 Find new plans, product direction, and design rationale in PR descriptions.
 Use the current guides and per-package `AGENTS.md` files for current behavior.
@@ -69,5 +72,3 @@ Use the current guides and per-package `AGENTS.md` files for current behavior.
 1. Read [`README.md`](../README.md) for product context and quickstart.
 2. Read [`architecture.md`](architecture.md) for the current shape of the system.
 3. Use the provider, deployment, and testing docs for current implementation details.
-
-- [Experimental sentiment](sentiment.md): configuration, frozen provenance, permissions, and [validation gates](sentiment-validation.md).

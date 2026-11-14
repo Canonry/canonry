@@ -27,7 +27,7 @@ erDiagram
   projects ||--o{ measurement_plan_versions : "publishes"
   projects ||--o{ measurement_segments : "identifies"
   measurement_plan_versions ||--o{ runs : "optionally pins"
-  projects ||--o| schedules : "has (1:1)"
+  projects ||--o{ schedules : has
   projects ||--o{ notifications : has
   notifications ||--o{ review_webhook_deliveries : delivers
   projects ||--o{ audit_log : has
@@ -143,7 +143,7 @@ erDiagram
 | **provider_batch_requests** | Maps each batch line's short `custom_id` (the row id) to its slot: execution id, query, requested model and location, and the ingest `outcome`. | FK: batchId → provider_batches (CASCADE), queryId → queries (SET NULL, indexed); unique `(batchId, executionId)` |
 | **research_runs** | Saved batch header for ad-hoc model research. Isolated from tracked monitoring; `initiatedBy` records the account or API key that started new runs. Historical rows can be null. | FK: projectId → projects, unique `(projectId, idempotencyKey)` |
 | **research_run_queries** | One persisted answer/evidence result per research batch query. | FK: researchRunId → research_runs, unique `(researchRunId, position)` |
-| **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
+| **schedules** | One schedule per project and run kind. Each row stores timing, timezone, and enablement. | Unique: `(projectId, kind)` |
 | **notifications** | Alert configurations per project | FK: projectId → projects |
 | **review_webhook_deliveries** | One durable delivery per negative-review event and destination (v189), empty on upgrade. `state` is `pending`, `attempting`, `sent`, `uncertain` (a chat send that got no answer, never resent), `failed` (refused, or out of retries) or `canceled`; `retry_at` is when a pending delivery is next due. An engine timer drains due rows every minute. | FK: projectId → projects, notificationId → notifications; unique (project_id, notification_id, event_id) |
 | **audit_log** | Change tracking. Authenticated actor plus nullable `credentialId` and `requestId`; client/session hints are not identity. Credential IDs remain after key deletion. | FK: projectId → projects (optional) |
@@ -155,16 +155,12 @@ monitoring metric. New run headers preserve initiating-principal attribution;
 rows created before that field was introduced remain unattributed. Deleting a project cascades to its research runs, and
 deleting a research run cascades to its query results.
 
-Measurement planning is additive. Existing projects and ordinary
-`answer-visibility` runs do not require a plan, and publishing a plan does not
-change their metrics or scheduling. The compiler freezes a deduplicated graph:
-every project query gets a baseline edge, while user-selected Target assignments
-add attribution edges to the same execution node when query text and context are
-identical. Optional groups own membership and competitor metadata only; their
-reporting edges are derived from member Target assignments and never own query
-intent. A plan-aware runner can later pin the exact revision and manifest so
-historical execution remains reproducible after the active plan or tracked-query
-library changes.
+Simple projects can run without a published plan. The measurement compiler
+deduplicates execution nodes that share query text and context. Target
+assignments point to those nodes. Groups derive their reporting edges from
+member Target assignments. When the queue creates a plan-aware run, it pins the
+published revision and freezes the run manifest. Historical reads retain that
+execution context after the active plan or tracked queries change.
 
 ### Agent Readiness Crawl Persistence
 
@@ -415,7 +411,7 @@ Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside 
 | Table | Purpose |
 |-------|---------|
 | **insights** | Per-run analysis insights (regressions, gains). FK: projectId → projects, runId → runs |
-| **health_snapshots** | Citation health snapshots per run. FK: projectId → projects, runId → runs |
+| **health_snapshots** | Per-run mention and citation health. Mention rates use all pairs. Citation rates exclude pairs whose sources the adapter cannot measure. FK: projectId → projects, runId → runs |
 
 ### System
 
@@ -450,9 +446,9 @@ invalidate histories left behind by an older writer.
 
 | Table | Purpose |
 |-------|---------|
-| **agent_sessions** | One active Aero conversation per project. Durable half of the hybrid session registry — stores transcript, queued follow-ups, and chosen provider/model so a live pi-agent-core Agent can be rehydrated after a restart. Unique: `projectId`. FK: projectId → projects |
+| **agent_sessions** | One active operator Aero conversation per project. Durable half of the hybrid session registry — stores transcript, queued follow-ups, and chosen provider/model so a live pi-agent-core Agent can be rehydrated after a restart. Unique: `projectId`. FK: projectId → projects |
 | **agent_provider_cooldowns** | Install-wide Aero automatic-work holds shared across projects and restarts. Primary key is a provider/credential digest. Stores a safe auth/billing reason, expiry and unique failure identity, so an older in-flight success cannot clear a newer failure. No credentials or raw provider text. The providers API exposes only reason, retry time and recovery instructions. |
-| **agent_conversations** | Inactive Aero conversations. Stores title, transcript, prompt snapshot, model, pending follow-ups, and timestamps. New/resume swaps with the active slot in one transaction. `llm_usage_events` and `agent_tool_events` keep the conversation id through new, resume and archive (a plain column since migration 165, because the id moves between the two tables); deleting a conversation clears it. FK: projectId → projects |
+| **agent_conversations** | Archived operator Aero conversations. Stores title, transcript, prompt snapshot, model, pending follow-ups, and timestamps. New/resume swaps with the active slot in one transaction. `llm_usage_events` and `agent_tool_events` keep the conversation id through new, resume and archive (a plain column since migration 165, because the id moves between the two tables); deleting a conversation clears it. FK: projectId → projects |
 | **agent_memory** | Project-scoped durable notes written by Aero (`remember`), the operator (CLI / API), or the compaction summarizer. Shared notes and only the active conversation's compaction summaries hydrate its system prompt under `<memory>`. Keys starting with `compaction:` are reserved for summarized transcript slices. Unique: `(projectId, key)`. FK: projectId → projects |
 
 ### Discovery (three-ring model)
@@ -460,7 +456,7 @@ invalidate histories left behind by an older writer.
 | Table | Purpose |
 |-------|---------|
 | **discovery_sessions** | One row per `canonry discover run` invocation. Captures the research artifact for a session: ICP snapshot, seed/dedup/probe phase counts, bucket counts (cited / aspirational / wasted-surface), `competitor_map` as a JSON array of `{domain, hits}` entries (default `'[]'`), a nullable `warning` (non-fatal operator flag, e.g. the seed-dedup degenerate-collapse guard), and the nullable seed-source diagnostics `seed_from_answer_count` / `seed_from_grounding_count, seed_brand_filtered_count` (split of raw seed candidates by origin — answer text vs. grounding fan-out — recorded at seed time; null on legacy sessions, consumed by no gate). Status flows `queued → seeding → probing → completed` (or `failed`). FK: projectId → projects |
-| **discovery_probes** | One row per (session × candidate query) probe. Stores the query text (free-form — not promoted to `queries` until the operator adopts it), citation_state, cited_domains, `answer_mentioned` (the answer-text mention signal, independent of citation; nullable for legacy rows), bucket classification, and raw provider response. **No `UNIQUE(session_id, query)`** so v2 multi-provider amplification can probe the same query across Gemini + ChatGPT + Claude in one session without a migration. FK: sessionId → discovery_sessions, projectId → projects |
+| **discovery_probes** | One row per (session × candidate query) probe. Stores the query text (free-form — not promoted to `queries` until the operator adopts it), citation_state, cited_domains, `answer_mentioned` (the answer-text mention signal, independent of citation; nullable for legacy rows), bucket classification, and raw provider response. Gemini executes the probes. The bucket uses cited domains, and `answer_mentioned` remains a separate signal. FK: sessionId → discovery_sessions, projectId → projects |
 | **research_runs / research_run_queries** | Saved, isolated free-form research batches. Each result stores the answer, source links, cited domains, answer-text named competitors, and cited competitor domains as separate signals. They never create tracked `queries`, shared `runs`, snapshots, insights, notifications, or schedules. |
 
 ### Content

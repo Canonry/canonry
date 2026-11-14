@@ -267,10 +267,9 @@ if ( isset( $_SERVER['HTTP_USER_AGENT'] ) && preg_match( '/GPTBot|OAI-SearchBot|
 > `204` for scripts stranded in old cached HTML, but never records an event.
 
 ```bash
-# 1. Install the plugin. Download the latest release zip from the
-#    canonry-traffic-logger plugin's GitHub release (the repo CI workflow
-#    publishes a zip on every plugin-file change), then in wp-admin:
-#    Plugins → Add New → Upload Plugin → upload + activate.
+# 1. Download the latest Canonry Traffic Logger release zip from GitHub.
+#    GitHub publishes a zip for each new plugin version.
+#    In wp-admin, upload and activate it under Plugins → Add New → Upload Plugin.
 
 # 2. In wp-admin, create an Application Password for the operator user:
 #    Users → Profile → Application Passwords. Copy the generated password.

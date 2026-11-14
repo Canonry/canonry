@@ -9,13 +9,10 @@ export const GA4_MAX_SYNC_DAYS = 180
  * Resolve a caller-supplied sync window into the window that will actually be
  * fetched, and say whether the two differ.
  *
- * Every fetch in `ga4-client.ts` bounds `days` to `[1, GA4_MAX_SYNC_DAYS]`.
- * That clamp is invisible from the outside: `--days 500` used to return
- * `{"days": 500, "synced": true}` while writing exactly 90 days, so a caller
- * had no way to tell truncated history from a property that only had 90 days
- * of data. Resolving the window through one helper is what lets the sync
- * response report the EFFECTIVE count alongside what was asked for — and
- * keeps the bound from drifting between the six fetch sites and the route.
+ * Detail reports bound `days` to `[1, GA4_MAX_SYNC_DAYS]`.
+ * The sync response reports the effective window alongside the requested
+ * window. Callers can distinguish a clamped request from sparse property data.
+ * This helper keeps the route and report fetches on the same bound.
  *
  * A non-finite `days` (e.g. `parseInt('abc')`) falls back to the default
  * rather than propagating `NaN` into the response contract.
