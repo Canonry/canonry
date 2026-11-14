@@ -10,6 +10,12 @@ Both reads accept `--sort`; the API sorts before pagination and keeps missing
 values last. Preserve run ID and sort while paging; commands never sort one page.
 Do not infer gaps from missing rows or recalculate API comparisons in commands.
 
+`seo trends` reads `/projects/:name/seo/trends` through the SDK. It requires a
+saved profile and accepts `--days 30`, `90`, or `180` and `--keyword` for a
+ranked-keywords series. Preserve the server's
+comparison scope, timestamps, nulls and change basis. The matching stored MCP
+tool is `canonry_seo_trends`.
+
 ## Purpose
 
 The publishable npm package (`@canonry/canonry`). Bundles the CLI, local Fastify server, in-process job runner, provider registry, scheduler, and pre-built SPA. This is what users install with `npm install -g @canonry/canonry`.

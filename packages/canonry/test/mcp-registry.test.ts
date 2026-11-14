@@ -37,6 +37,7 @@ const expectedToolNames = [
   'canonry_seo_run',
   'canonry_seo_run_cancel',
   'canonry_seo_overview',
+  'canonry_seo_trends',
   'canonry_seo_keyword_metrics',
   'canonry_seo_domain_intelligence',
   'canonry_seo_ranked_keywords',
@@ -867,8 +868,8 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    // 217 canonical reads plus 16 deprecated read aliases (canonry_technical_aeo_run is the one write alias).
-    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(233)
+    // 218 canonical reads plus 16 deprecated read aliases (canonry_technical_aeo_run is the one write alias).
+    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(234)
     expect(canonryMcpTools.filter(tool => tool.deprecatedAliasOf !== undefined)).toHaveLength(17)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator && !tool.requiresConnectionProfile).map(tool => tool.name)

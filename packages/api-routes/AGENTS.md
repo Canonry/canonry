@@ -1139,6 +1139,21 @@ Properties can use explicit keyword metrics. Domain intelligence cannot substitu
 a broader domain for a Property. Saved evidence defaults to the latest completed
 or partial job for the selected profile, independently of the latest refresh state.
 
+`GET /seo/trends` reads saved refreshes for an explicit profile. Compare historical
+reads with the latest completed or partial refresh's frozen measurement scope,
+primary target, source and locale. Profile labels can change within a comparable
+history. Market trends hold the planned non-brand query and market basket and
+search settings fixed. Only settled tasks contribute readings. A rank found on
+page one counts even from a partial search. A search that leaves first-page
+membership unknown creates a gap. A fully checked page with no rank contributes
+zero. Ranked-keyword trends compare the same search across refreshes with a fixed
+sample limit. A search missing from the saved sample has a gap. The response
+includes up to 100 suggestions from the full comparable window. An explicit
+keyword can address any saved search in that window. Return provider collection
+times, exact readings, and first-in-window changes through the shared TrendChange
+contract. The inclusive window ends on the latest comparable terminal observation,
+including unavailable refreshes.
+
 Competitor discovery and keyword gaps are whole-domain project research for both
 Simple and Advanced projects. Neither provider endpoint can promise an exact-host,
 Property, group or market footprint; reject those scopes with project-scope recovery

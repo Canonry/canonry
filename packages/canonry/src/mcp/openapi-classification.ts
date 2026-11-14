@@ -15,6 +15,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/seo/runs/{id}': 'included',
   'POST /api/v1/projects/{name}/seo/runs/{id}/cancel': 'included',
   'GET /api/v1/projects/{name}/seo/overview': 'included',
+  'GET /api/v1/projects/{name}/seo/trends': 'included',
   'GET /api/v1/projects/{name}/seo/keyword-metrics': 'included',
   'GET /api/v1/projects/{name}/seo/market-rankings': 'included',
   'GET /api/v1/projects/{name}/seo/market-rankings/summary': 'included',

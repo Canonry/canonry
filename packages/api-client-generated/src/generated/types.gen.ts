@@ -606,6 +606,95 @@ export type SeoOverview = {
     keywordGapCount: number;
 };
 
+export type SeoTrends = {
+    kind: 'domain' | 'market' | 'ranked' | null;
+    profileId: string;
+    profileRevision: number | null;
+    target: {
+        kind: 'domain' | 'host';
+        value: string;
+        includeSubdomains: boolean;
+    } | null;
+    scope: {
+        kind: 'project' | 'group' | 'market' | 'property';
+        key?: string;
+        expectedPlanRevision?: number;
+    } | null;
+    languageCode: string;
+    locationCode: number | null;
+    days: 30 | 90 | 180;
+    marketQueryCount: number | null;
+    hasRankingReadings?: boolean;
+    keyword?: string | null;
+    rankedKeywords?: Array<string>;
+    points: Array<{
+        runId: string;
+        observedAt: string;
+        organicKeywords: number | null;
+        inTop10: number | null;
+        estimatedOrganicTraffic: number | null;
+        page1: number | null;
+        rankOrganic?: number | null;
+    }>;
+    changes: {
+        organicKeywords: {
+            difference: number;
+            ratio: number | null;
+            tone: 'better' | 'worse' | 'neutral';
+            basis: {
+                type: 'first-in-window';
+                date: string;
+                observedAt: string | null;
+                label: string | null;
+            };
+        } | null;
+        inTop10: {
+            difference: number;
+            ratio: number | null;
+            tone: 'better' | 'worse' | 'neutral';
+            basis: {
+                type: 'first-in-window';
+                date: string;
+                observedAt: string | null;
+                label: string | null;
+            };
+        } | null;
+        estimatedOrganicTraffic: {
+            difference: number;
+            ratio: number | null;
+            tone: 'better' | 'worse' | 'neutral';
+            basis: {
+                type: 'first-in-window';
+                date: string;
+                observedAt: string | null;
+                label: string | null;
+            };
+        } | null;
+        page1: {
+            difference: number;
+            ratio: number | null;
+            tone: 'better' | 'worse' | 'neutral';
+            basis: {
+                type: 'first-in-window';
+                date: string;
+                observedAt: string | null;
+                label: string | null;
+            };
+        } | null;
+        rankOrganic?: {
+            difference: number;
+            ratio: number | null;
+            tone: 'better' | 'worse' | 'neutral';
+            basis: {
+                type: 'first-in-window';
+                date: string;
+                observedAt: string | null;
+                label: string | null;
+            };
+        } | null;
+    };
+};
+
 export type SeoKeywordMetricsList = {
     runId: string | null;
     total: number;
@@ -2785,6 +2874,11 @@ export type AgentPromptRequest = {
         seoRunId?: string;
         seoRegionKey?: string;
         seoMarketKey?: string;
+        seoTrend?: {
+            days: 30 | 90 | 180;
+            metric: 'inTop10' | 'organicKeywords' | 'estimatedOrganicTraffic' | 'page1' | 'rankOrganic';
+            keyword?: string;
+        };
         unavailableReason?: string;
         selection?: {
             mode: 'auto' | 'simple' | 'advanced';
@@ -20617,6 +20711,57 @@ export type GetApiV1ProjectsByNameSeoOverviewResponses = {
 };
 
 export type GetApiV1ProjectsByNameSeoOverviewResponse = GetApiV1ProjectsByNameSeoOverviewResponses[keyof GetApiV1ProjectsByNameSeoOverviewResponses];
+
+export type GetApiV1ProjectsByNameSeoTrendsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Exact project-scoped SEO profile identifier.
+         */
+        profileId: string;
+        /**
+         * Inclusive window in UTC calendar days, ending on the latest comparable refresh observation.
+         */
+        days?: 30 | 90 | 180;
+        /**
+         * Select a search for a ranked-keywords trend. Omit to use the default saved search.
+         */
+        keyword?: string;
+    };
+    url: '/api/v1/projects/{name}/seo/trends';
+};
+
+export type GetApiV1ProjectsByNameSeoTrendsErrors = {
+    /**
+     * Invalid SEO trend selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected profile not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoTrendsError = GetApiV1ProjectsByNameSeoTrendsErrors[keyof GetApiV1ProjectsByNameSeoTrendsErrors];
+
+export type GetApiV1ProjectsByNameSeoTrendsResponses = {
+    /**
+     * Comparable SEO observations and their changes.
+     */
+    200: SeoTrends;
+};
+
+export type GetApiV1ProjectsByNameSeoTrendsResponse = GetApiV1ProjectsByNameSeoTrendsResponses[keyof GetApiV1ProjectsByNameSeoTrendsResponses];
 
 export type GetApiV1ProjectsByNameSeoKeywordMetricsData = {
     body?: never;

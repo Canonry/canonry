@@ -1,6 +1,6 @@
 # Aero (built-in agent)
 
-The SEO view context resolves its selected profile through the public stored overview. Keep provider estimates separate from observed Search Console and AI citation/mention evidence. Profile writes, paid refresh/cancel and private operator receipt tools are excluded from Aero.
+The SEO view context reads the selected trend metric, range, and optional search through the public stored trends endpoint. Saved refresh and market drill-ins use the public stored overview and market summary. Keep provider estimates separate from observed Search Console and AI citation/mention evidence. Profile writes, paid refresh/cancel and private operator receipt tools are excluded from Aero.
 
 Canonry ships a built-in AI agent called **Aero**, built on
 [`@earendil-works/pi-agent-core`](https://github.com/earendil-works/pi). Users

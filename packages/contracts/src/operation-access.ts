@@ -96,6 +96,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set(withLegacyAge
   'GET /api/v1/projects/{name}/seo/runs',
   'GET /api/v1/projects/{name}/seo/runs/{id}',
   'GET /api/v1/projects/{name}/seo/overview',
+  'GET /api/v1/projects/{name}/seo/trends',
   'GET /api/v1/projects/{name}/seo/keyword-metrics',
   'GET /api/v1/projects/{name}/seo/domain-intelligence',
   'GET /api/v1/projects/{name}/seo/ranked-keywords',

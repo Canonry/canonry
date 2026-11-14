@@ -9,6 +9,12 @@ comparison database, not absent from a truncated page. Keep locale and run ident
 Both reads accept the shared query schema’s `sort` as read-only tuning. Sorting
 happens on the API before paging; preserve filters and sort across pages.
 
+`canonry_seo_trends` reads comparable saved observations for a single profile,
+with a window of 30, 90 or 180 days. Ranked-keyword profiles accept `keyword`
+to select a search. Preserve the returned scope, missing readings and change
+basis. Use each observation's run ID to open its saved refresh. No provider
+execution is involved.
+
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not

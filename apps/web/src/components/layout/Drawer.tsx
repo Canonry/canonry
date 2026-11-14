@@ -9,6 +9,7 @@ export function Drawer({
   open,
   onClose,
   onClosed,
+  onCloseAutoFocus,
 }: {
   title: string
   subtitle: string
@@ -16,12 +17,21 @@ export function Drawer({
   open: boolean
   onClose: () => void
   onClosed?: () => void
+  onCloseAutoFocus?: (event: Event) => void
 }) {
+  const restoreFocus = (event: Event) => {
+    onCloseAutoFocus?.(event)
+    if (onClosed && !event.defaultPrevented) {
+      event.preventDefault()
+      onClosed()
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={(nextOpen) => (nextOpen ? undefined : onClose())}>
-      <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
+      <SheetContent onCloseAutoFocus={restoreFocus}>
         <SheetHeader className="drawer-head">
-          <SheetTitle id="drawer-title">{title}</SheetTitle>
+          <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{subtitle}</SheetDescription>
         </SheetHeader>
         <div className="drawer-body">{children}</div>

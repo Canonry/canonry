@@ -3,7 +3,7 @@ import { SeoMarketRankingOutcomes, formatNumber, marketRankingBands, seoProfileI
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError, type CliFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import { seoReconcileInputSchema } from '@canonry/canonry-contracts'
+import { SeoTrendKinds, seoReconcileInputSchema, type SeoTrendsQuery, type TrendChange } from '@canonry/canonry-contracts'
 
 export async function showSeoOperatorTask(id: string, format: CliFormat): Promise<void> {
   const value = await createApiClient().getSeoOperatorTask(id)
@@ -134,6 +134,44 @@ export async function showSeoOverview(project: string, query: SeoEvidenceQuery, 
   console.log(`Saved rows: ${value.keywordMetricsCount} keyword metrics · ${value.rankedKeywordCount} ranked keywords · ${value.domainIntelligenceCount} domain summaries · ${value.marketRankingCount} market rankings · ${value.competitorCount} competitors · ${value.keywordGapCount} keyword gaps`)
   if (value.summary) console.log(`${value.summary.target.value}: ${value.summary.organicKeywords ?? 'Unavailable'} organic keywords · ${value.summary.inTop10 ?? 'Unavailable'} in top 10 · ${value.summary.estimatedOrganicTraffic ?? 'Unavailable'} estimated monthly traffic`)
   if (value.evidenceRunId) console.log(`Evidence run: ${value.evidenceRunId}`)
+}
+
+export async function showSeoTrends(project: string, query: SeoTrendsQuery, format: CliFormat): Promise<void> {
+  const value = await createApiClient().getSeoTrends(project, query)
+  if (printSeoJson(value, format)) return
+  console.log(`SEO trends · profile ${value.profileId} · ${value.days} days`)
+  if (value.scope) console.log(`Scope: ${value.scope.kind}${value.scope.key ? ` ${value.scope.key}` : ''}${value.scope.expectedPlanRevision === undefined ? '' : ` · plan revision ${value.scope.expectedPlanRevision}`}`)
+  if (value.target) console.log(`Target: ${value.target.value} · ${value.target.includeSubdomains ? 'includes subdomains' : 'exact host'}`)
+  if (value.kind === SeoTrendKinds.market) console.log(`Google · market locations · ${value.languageCode}`)
+  else if (value.locationCode !== null) console.log(`Google · location ${value.locationCode} · ${value.languageCode}`)
+  if (value.kind === SeoTrendKinds.ranked && value.keyword) console.log(`Search: ${value.keyword}`)
+  if (value.points.length === 0) {
+    console.log('No comparable saved observations in this window.')
+    return
+  }
+  // Preserve the recorded precision in a time series. The compact count formatter is for scan summaries.
+  const display = (reading: number | null) => reading ?? 'Unavailable'
+  const printChange = (label: string, change: TrendChange | null) => {
+    if (change) console.log(`${label}: ${change.difference > 0 ? '+' : ''}${change.difference} since ${change.basis.observedAt ?? change.basis.date}`)
+  }
+  if (value.kind === SeoTrendKinds.market) {
+    console.log(`Page 1 · ${display(value.marketQueryCount)} tracked non-brand query assignments`)
+    printChange('Change in page 1 queries', value.changes.page1)
+    console.log('Observed at\tRefresh ID\tPage 1')
+    for (const point of value.points) console.log(`${point.observedAt}\t${point.runId}\t${display(point.page1)}`)
+    return
+  }
+  if (value.kind === SeoTrendKinds.ranked) {
+    printChange('Change in organic position', value.changes.rankOrganic ?? null)
+    console.log('Observed at\tRefresh ID\tOrganic position')
+    for (const point of value.points) console.log(`${point.observedAt}\t${point.runId}\t${display(point.rankOrganic ?? null)}`)
+    return
+  }
+  printChange('Change in ranked searches', value.changes.organicKeywords)
+  printChange('Change in top-10 rankings', value.changes.inTop10)
+  printChange('Change in estimated organic traffic', value.changes.estimatedOrganicTraffic)
+  console.log('Observed at\tRefresh ID\tRanked searches\tIn the top 10\tEstimated organic traffic')
+  for (const point of value.points) console.log(`${point.observedAt}\t${point.runId}\t${display(point.organicKeywords)}\t${display(point.inTop10)}\t${display(point.estimatedOrganicTraffic)}`)
 }
 
 export async function showSeoKeywordMetrics(project: string, query: SeoEvidenceQuery, format: CliFormat): Promise<void> {
