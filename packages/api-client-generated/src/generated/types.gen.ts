@@ -39109,6 +39109,10 @@ export type GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestData = {
 
 export type GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestErrors = {
     /**
+     * Administrator access or wildcard API key scope is required.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project or session not found.
      */
     404: ErrorEnvelope;

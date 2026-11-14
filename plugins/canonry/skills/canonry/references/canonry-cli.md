@@ -1072,7 +1072,7 @@ Discovery probes use Gemini. The embedding step requires a Gemini API key, inclu
 
 The pipeline writes a `discovery_sessions` row, a `runs` row (kind `aeo-discover-probe`), and one `discovery.basket-divergence` insight when the session completes.
 
-`discover harvest` ranks search queries from stored probe responses by how many probes issued each one. It filters candidates by quality and novelty. In an installation with Gemini embeddings, it can send candidate and tracked query text to Gemini to detect paraphrases. Obtain approval for that live provider read. The result uses exact-match novelty when the embedding step cannot run. Read `semanticNoveltyApplied` to tell which check the server used.
+`discover harvest` ranks search queries from stored probe responses by how many probes issued each one. With Gemini embeddings, it can send candidate and tracked query text to Gemini to check for paraphrases. Obtain approval for that live provider read. The CLI needs a bearer key with `*` scope and access to the project. For stored-only work, use `discover show`. Read `semanticNoveltyApplied` to see whether the server used embeddings. When the embedding step cannot run, harvest checks for exact matches.
 
 These are a third signal — *issued retrieval queries*, neither "mention" nor "cited" — and carry no demand of their own; they are candidate seeds, so review them and add the good ones with `cnry query add`. Use `--min-probe-hits` to require recurrence and `--no-anchor` to allow new-subject discovery on a well-scoped project.
 

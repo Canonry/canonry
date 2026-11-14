@@ -154,9 +154,11 @@ Use a supported preview where available, inspect its exact destination and
 revision, then seek approval for the actual change. A preview may itself require
 write permission; never treat a dry-run flag as a universal safety guarantee.
 
-`canonry_discover_harvest` reads saved probes and can send query text to the
-embedding provider to check novelty. Get approval for that live work. Harvest
-returns candidates for review. Promoting candidates needs its own approval.
+`canonry_discover_harvest` reads saved probes and can send query text to Gemini
+to check for paraphrases. Get approval for that live work. Harvest requires an
+administrator account or a bearer key with `*` scope and access to the project.
+Use the saved session read for stored-only work. Promoting candidates needs its
+own approval.
 
 **Integrations:** inspect stored connection state and snapshot freshness first.
 Provider configuration evidence does not prove a browser event fired or a

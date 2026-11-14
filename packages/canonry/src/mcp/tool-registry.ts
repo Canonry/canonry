@@ -4300,7 +4300,7 @@ const rawCanonryMcpTools = [
     name: 'canonry_discover_harvest',
     title: 'Harvest discovery search queries',
     description:
-      'Rank candidate search queries by how often they appeared in the stored discovery probes. These issued searches are retrieval evidence, separate from mentions, citations, and search demand. The novelty check can send candidate and tracked query text to Gemini for embeddings. Get approval before the live read. Check semanticNoveltyApplied to see whether embeddings were used. Review candidates before adding any through canonry_queries_add. Use minProbeHits to raise the recurrence floor and anchor=false to skip the subject filter. stats lists rejection counts.',
+      'Rank candidate search queries by how often they appeared in the stored discovery probes. These issued searches are retrieval evidence, separate from mentions, citations, and search demand. The novelty check can send candidate and tracked query text to Gemini for embeddings. This MCP tool requires a wildcard (*) API key with access to the project. Get approval before the live read. Check semanticNoveltyApplied to see whether embeddings were used. Review candidates before adding any through canonry_queries_add. Use minProbeHits to raise the recurrence floor and anchor=false to skip the subject filter. stats lists rejection counts.',
     access: 'read',
     tier: 'discovery',
     inputSchema: discoveryHarvestInputSchema,

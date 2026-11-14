@@ -4,8 +4,9 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
+  apiKeys,
   auditLog,
   competitors,
   createClient,
@@ -16,8 +17,9 @@ import {
   projects,
   queries,
   runs,
+  users,
 } from '@canonry/canonry-db'
-import { apiRoutes } from '../src/index.js'
+import { apiRoutes, createUserSession, hashApiKey, USER_SESSION_COOKIE_NAME } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 import {
   buildCompetitorMap,
@@ -2546,6 +2548,53 @@ describe('GET /discover/sessions/:id/harvest', () => {
     ).run()
     return sessionId
   }
+
+  it('requires paid-read authority before harvesting queries with embeddings', async () => {
+    const { app, db, tmpDir } = buildApp()
+    onTestFinished(async () => {
+      await app.close()
+      db.$client.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    })
+    const embedQueries = vi.fn(fakeEmbed)
+    app.register(apiRoutes, { db, harvestSearchQueries: fakeExtract, embedQueries })
+    const { projectId } = seedProject(db)
+    const now = new Date().toISOString()
+    db.insert(queries).values({
+      id: 'tracked-query', projectId, query: 'solar panel cost', provenance: 'cli', createdAt: now,
+    }).run()
+    const sessionId = seedHarvestSession(db, projectId, [
+      { id: 'harvest-probe', searchQueries: ['solar battery storage'] },
+    ])
+    for (const [id, scope] of [['reader', 'read'], ['ads-only', 'ads.write'], ['operator', '*']] as const) {
+      const token = `cnry_harvest_${id}`
+      db.insert(apiKeys).values({
+        id, name: id, scopes: [scope], keyHash: hashApiKey(token), keyPrefix: token.slice(0, 9), createdAt: now,
+      }).run()
+    }
+    const admin = { id: 'admin', name: 'Admin', nameKey: 'admin', passwordHash: 'unused', role: 'admin', createdAt: now } as const
+    db.insert(users).values([admin, { ...admin, id: 'viewer', name: 'Viewer', nameKey: 'viewer', role: 'viewer' }]).run()
+
+    const url = `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/harvest`
+    const bearer = (id: string) => ({ authorization: `Bearer cnry_harvest_${id}` })
+    const cookie = (id: string) => ({ cookie: `${USER_SESSION_COOKIE_NAME}=${createUserSession(db, id)}` })
+    for (const headers of [bearer('reader'), bearer('ads-only'), cookie('viewer')]) {
+      const denied = await app.inject({ method: 'GET', url, headers })
+      expect(denied.statusCode).toBe(403)
+      expect(denied.json()).toMatchObject({ error: { code: 'FORBIDDEN' } })
+    }
+    expect(embedQueries).not.toHaveBeenCalled()
+
+    for (const headers of [bearer('operator'), cookie('admin')]) {
+      const allowed = await app.inject({ method: 'GET', url, headers })
+      expect(allowed.statusCode).toBe(200)
+      expect(allowed.json()).toMatchObject({
+        semanticNoveltyApplied: true,
+        candidates: [{ query: 'solar battery storage', probeHits: 1 }],
+      })
+    }
+    expect(embedQueries).toHaveBeenCalledTimes(2)
+  })
 
   it('extracts, aggregates, gates, and ranks issued queries by probe recurrence', async () => {
     const { app, db, tmpDir } = buildHarvestApp(fakeExtract)
