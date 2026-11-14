@@ -20,7 +20,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 
 | Document | Label | Audience | Purpose |
 | --- | --- | --- | --- |
-| [`CODEMAP.md`](CODEMAP.md) | current | engineers, agents | File-level index: every `apps/` + `packages/` key file, navigation recipes, and agent efficiency tips — start here for “where is …?” |
+| [`CODEMAP.md`](CODEMAP.md) | current | engineers, agents | Key app and package files and where to start common changes |
 | [`architecture.md`](architecture.md) | current | engineers | System architecture, dependency graph, run lifecycle, provider system |
 | [`data-model.md`](data-model.md) | current | engineers | ER diagram, table groups, JSON column shapes |
 | [`deployment.md`](deployment.md) | current | operators | Current deployment and runtime guidance |
@@ -38,7 +38,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`google-marketing.md`](google-marketing.md) | current | operators, agents | Google Ads and GTM setup, conversion evidence, integrity states, live-read authority, and v1 safety boundary |
 | [`batch-mode.md`](batch-mode.md) | current | operators, agents, engineers | Provider batch dispatch for scheduled sweeps: config, eligibility, run lifecycle, fills, cost accounting, and risks (ZDR, spend limits) |
 | [`providers/README.md`](providers/README.md) | current | engineers | Provider system overview, ProviderAdapter interface, how to add a provider |
-| [`providers/model-selection.md`](providers/model-selection.md) | current | operators, engineers | Direct-model selection, answer and citation evidence, and model router trade-offs |
+| [`providers/model-selection.md`](providers/model-selection.md) | current | operators, engineers | Model selection and evidence rules for direct APIs and OpenRouter |
 | [`providers/gemini.md`](providers/gemini.md) | current | engineers | Gemini provider behavior and constraints |
 | [`providers/openrouter.md`](providers/openrouter.md) | current | engineers | Multi-model setup, sweep identity and independent evaluator roles |
 | [`providers/answer-services.md`](providers/answer-services.md) | current | engineers | Shared layer for hosted search answer services: profiles, evidence, eligibility, adding a vendor |
@@ -58,13 +58,11 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 
 | Document | Label | Audience | Purpose |
 | --- | --- | --- | --- |
-| [`oss-onboarding-evaluation.md`](oss-onboarding-evaluation.md) | implemented | product, design, engineers | Source-based evaluation and decisions for the OSS onboarding rework |
+| [`oss-onboarding-evaluation.md`](oss-onboarding-evaluation.md) | historical | product, design, engineers | Evaluation, decisions, and proposals from the OSS onboarding rework |
 | [`technical-scopes/muse-web-search.md`](technical-scopes/muse-web-search.md) | implementation scope | engineers | Muse web search boundaries and validation plan |
 
-New plans, product direction, and design rationale live in PR descriptions.
-The implementation record above preserves context, but it does not define
-current behavior. Durable behavior rules live in the per-package `AGENTS.md`
-files.
+Find new plans, product direction, and design rationale in PR descriptions.
+Use the current guides and per-package `AGENTS.md` files for current behavior.
 
 ## Reading Order
 

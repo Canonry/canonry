@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Google Business Profile (GBP) integration — typed clients for the Account Management, Business Information, Performance, Place Actions, Lodging, and legacy v4 Reviews APIs. Used by the local-AEO surface (keyword impressions, daily metrics, booking/reservation CTAs, hotel attributes, reviews).
+Google Business Profile (GBP) clients for Account Management, Business Information, Performance, Place Actions, Lodging, and legacy v4 Reviews and Local Posts.
 
 > **Note:** Google's My Business **Q&A** API was shut down (returns HTTP 501 `API_UNSUPPORTED` as of 2026), so there is no Q&A client. The v4 **Reviews** API is producer-restricted: the reviews call returns `403 SERVICE_DISABLED` until Google enables `mybusiness.googleapis.com` for the Cloud project, which the project owner cannot do (`gcloud services enable` answers `PERMISSION_DENIED` `110002`). The reviews client exists anyway; `classifyReviewsError` tells that gate apart from a transient failure so callers degrade instead of failing.
 
@@ -19,6 +19,7 @@ OAuth and token storage live in `packages/integration-google` and `packages/api-
 | `src/lodging-client.ts` | `getLodging` (maps HTTP 400 `FAILED_PRECONDITION` → `null` for non-lodging locations so the worker skips them cleanly; other errors propagate) + `countPopulatedGroups` (non-empty top-level attribute groups, excluding `name`/`metadata`) + `hashLodging` (stable key-sorted stringify + sha256, drives snapshot-on-change) — Lodging API |
 | `src/attributes-client.ts` | `getAttributes` (owner-set attributes for ANY business category via Business Information `GET /{location}/attributes`; flattens the BOOL/ENUM/URL/REPEATED_ENUM value carriers into `{values, unsetValues, uris}`; returns `[]` on 404; no readMask, no pagination) + `countAttributes` + `hashAttributes` (order-independent sha256, drives snapshot-on-change) — Business Information API |
 | `src/reviews-client.ts` | `listReviews(accessToken, accountName, locationName, { stopBefore })` — v4 `GET accounts/{a}/locations/{l}/reviews`, 50 per page, `orderBy=update_time desc`, maps the `ONE`..`FIVE` enum to 1-5 and normalizes timestamps to millisecond ISO (`normalizeGoogleTimestamp`; Google mixes fractional precisions, which do not sort as strings). Stops paging past `stopBefore` only when the page really is newest-first. All-or-nothing: a failed page throws. `classifyReviewsError` → `unavailable` (403, zero-quota 429, 404; `projectWide` for SERVICE_DISABLED / API_DISABLED / QUOTA_ZERO) or `error`. Shapes are from Google's reference, not a live capture, since the API is gated. |
+| `src/local-posts-client.ts` | v4 Local Posts. `listLocalPosts` returns one page and a continuation token. `getLocalPost` reads an exact post. `createLocalPost` makes one provider attempt. |
 | `src/http.ts` | `gbpFetchGet` — shared GET helper. Wraps `gbpFetchOnce` in the shared `withRetry`; the GBP-specific `isRetryable` predicate retries 429 (except the 0-QPM access gate, `quotaLimitValue === 0`) and 503, never 401/403/404/4xx/other-5xx. Parses `error.details[].reason` and `quota_limit_value` into `GbpApiError`. |
 | `src/types.ts` | `GbpApiError` (carries `status` + structured `reason` like `ACCESS_TOKEN_SCOPE_INSUFFICIENT`, `RATE_LIMIT_EXCEEDED`) + `GbpFetchOptions` + response types |
 | `src/constants.ts` | API hosts, OAuth scope, request timeout, default page sizes |
@@ -27,14 +28,14 @@ OAuth and token storage live in `packages/integration-google` and `packages/api-
 ## Patterns
 
 - **Single scope** — the Business Profile API family uses one scope: `https://www.googleapis.com/auth/business.manage`. No read-only variant exists. Re-export as `GBP_SCOPE`.
-- **Pagination** — all list endpoints return `nextPageToken`. Each client paginates internally and returns the full collected array; callers don't deal with tokens.
+- **Pagination.** Account, location, keyword, Place Actions, and review clients handle pagination internally. `listLocalPosts` returns `nextPageToken` for the caller to continue.
 - **Quota project header** — when the API is called from a context that needs explicit quota attribution (e.g. gcloud-issued tokens), callers pass an `x-goog-user-project` header. The clients accept an optional `quotaProject` argument that they pass through.
 - **Error mapping** — non-2xx responses throw `GbpApiError`. The error carries the HTTP status code, the structured `reason` parsed from `error.details[].reason`, and the parsed `quotaLimitValue` so callers in `packages/api-routes` can map cleanly to `AppError` factories (`quotaExceeded`, `authRequired`, `providerError`).
 - **Retry / backoff guards** — `gbpFetchGet` implements Google's documented retry policy ([limits doc](https://developers.google.com/my-business/content/limits)): exponential backoff with jitter (`sleep = random() * baseDelayMs * 2^attempt`, default `baseDelayMs = 1000`, `maxRetries = 5`). Retried: 429 (except the 0-QPM access gate — `quotaLimitValue === 0` — which is unrecoverable until Google approves the form) and 503 transient errors. **Not retried**: 401 (auth expired), 403 (scope / API-disabled / permission), 404, validation errors, other 5xx. Callers can override the retry policy with `opts.retry` for tests or alternate behaviors.
 
 ## Host Map
 
-Every GBP sub-API this package calls lives on a v1 host (one host per sub-API — see `constants.ts`): Account Management, Business Information (locations + attributes), Place Actions, Performance, and Lodging. Each client file documents which host it targets. The only sub-API Google never migrated off v4 is **Reviews** (`mybusiness.googleapis.com/v4/...`), which `reviews-client.ts` targets; it is access-gated (see the Purpose note). v4 addresses a location through its account (`accounts/{a}/locations/{l}`), which is why `gbp_locations` keeps `account_name`.
+Account Management, Business Information, Place Actions, Performance, and Lodging use separate v1 hosts defined in `constants.ts`. Reviews and Local Posts use `mybusiness.googleapis.com/v4`. The v4 routes address a location through its account (`accounts/{a}/locations/{l}`). For this reason, `gbp_locations` keeps `account_name`.
 
 ## Common Mistakes
 

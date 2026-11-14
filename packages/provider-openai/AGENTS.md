@@ -15,24 +15,23 @@ OpenAI adapter — implements `ProviderAdapter` for OpenAI's Responses API using
 
 ## Patterns
 
-All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@canonry/canonry-contracts`:
+`openaiAdapter` implements `ProviderAdapter` from `@canonry/canonry-contracts`.
 
-- **`validateConfig(config)`** — verify API key and model are valid
-- **`healthcheck(config)`** — test connectivity to the provider
-- **`executeTrackedQuery(input)`** — send a tracked query and capture raw response with web search results
-  - It is `buildTrackedQueryRequest` (the exact wire body) → the SDK call → `parseTrackedQueryResponse` (usage and stop reason included). Batch dispatch reuses both halves, so change the request or its reading there, never inline in `executeTrackedQuery`; `test/tracked-query-request.test.ts` pins the built body against the wire.
+- **`validateConfig(config)`** — require an API key and resolve the model
+- **`healthcheck(config, signal?)`** — check connectivity with a short Responses request
+- **`executeTrackedQuery(input, config)`** — build the request with `buildTrackedQueryRequest`, make the SDK call, and read it with `parseTrackedQueryResponse`
 - **`normalizeResult(raw)`** — convert provider-specific response to standard `NormalizedQueryResult`
-- **`generateText(config, prompt)`** — general-purpose text generation
+- **`generateText(prompt, config)`** — general-purpose text generation
 
 Retrieval contract: every tracked query runs `search-required-v1` (`OPENAI_RETRIEVAL_CONTRACT` in `src/normalize.ts`): verbatim query, no `instructions`, `tool_choice: "required"` with `web_search` as the only tool. Adding any other tool to that request makes `required` stop forcing a search, so it is a contract change. `retrievalStatus` is read from `web_search_call` output items; a missing/empty output or an unfinished response without a search call is `unknown`, never `not-used`. Details and the history of the mislabelled `native-auto-v1` rows: `docs/providers/openai.md` → "Retrieval contract".
 
-Note: The OpenAI `web_search` API returns fewer/different results than the ChatGPT UI search. That gap is structural (the API does not carry logged-in user context, conversation history, or personalization) and is addressed separately by a planned browser provider (drive the ChatGPT UI itself), not by switching API tool flavors.
+OpenAI Responses API runs and `cdp:chatgpt` runs measure separate surfaces. The [browser adapter](../provider-cdp/AGENTS.md) captures answers and citations from a Chrome session.
 
 - **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (`src/anchored-spans.ts`) reads a stored response's `url_citation` annotations. The annotation span is the citation chip itself, so the window is the text before it on the same line (from the previous annotation's end at most); offsets are UTF-16, which `String.slice` counts. Stored data only; it never resolves a URL.
 
 ## Common Mistakes
 
-- **Not normalizing grounding sources to standard `CitedSource` format** — each provider returns different shapes.
+- Return grounding sources in the shared `GroundingSource` format.
 - **Not handling rate limits** — implement retry with exponential backoff for 429 responses.
 - **Forgetting to export from `adapter.ts`** — the provider registry imports the adapter object.
 

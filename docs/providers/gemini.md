@@ -2,24 +2,24 @@
 
 ## Role
 
-`packages/provider-gemini` is one of three answer-visibility provider adapters (alongside OpenAI and Claude). It queries the Gemini API with Google Search grounding enabled to determine which domains are cited in AI-generated answers for tracked queries.
+`packages/provider-gemini` sends tracked queries to Gemini with Google Search grounding. Canonry uses the answer text for mentions and grounding sources for cited domains.
 
 ## Provider Contract
 
 ### `validateConfig(config: GeminiConfig): GeminiHealthcheckResult`
 
-Validates that the config has a non-empty API key. Returns the model name that will be used.
+Checks for an AI Studio API key or a Vertex AI project ID. It returns the resolved model.
 
 ### `healthcheck(config: GeminiConfig, signal?: AbortSignal): Promise<GeminiHealthcheckResult>`
 
-Makes a lightweight Gemini API call to verify the key works. Returns ok/error with a message.
+Sends a short generation request to the configured backend without Google Search. It returns the result and a message.
 
 ### `executeTrackedQuery(input: GeminiTrackedQueryInput): Promise<GeminiRawResult>`
 
 Sends the query to Gemini with the `googleSearch` tool enabled. The query is sent as-is aside from optional location context. Returns:
 
-- `rawResponse` — the full Gemini API response (candidates, usage metadata)
-- `groundingSources` — extracted `{ uri, title }` pairs from the grounding chunks referenced by `groundingSupports`
+- `rawResponse` — selected Gemini response fields, including candidate content, grounding metadata, usage, and the reported model version
+- `groundingSources` — `{ uri, title }` pairs from supported chunks, or all grounding chunks when the response has no usable support mapping
 - `searchQueries` — the web search queries Gemini used internally
 - `model` — the model used (default: `gemini-flash-latest`)
 
@@ -27,7 +27,7 @@ Sends the query to Gemini with the `googleSearch` tool enabled. The query is sen
 
 Extracts analyst-relevant fields from the raw response:
 
-- `answerText` — concatenated text from all candidate parts
+- `answerText` — concatenated text from the first candidate's parts
 - `citedDomains` — unique domains extracted from grounding source URIs (www. stripped)
 - `groundingSources` — pass-through of `{ uri, title }` pairs
 - `searchQueries` — pass-through of search queries used
@@ -42,7 +42,7 @@ Model dropdowns recommend general-purpose Flash and Pro models from the shared c
 
 Optional. Set `GeminiConfig.baseUrl` — via the `GEMINI_BASE_URL` env var or `providers.gemini.baseUrl` in `~/.canonry/config.yaml` — to route requests through a proxy or gateway in front of the Gemini API. It maps to the SDK's `httpOptions.baseUrl` and applies to both AI Studio (API key) and Vertex AI auth. When unset, the SDK uses its default endpoint. The same `baseUrl` is threaded into discovery's embeddings client (`embedQueries` → the native SDK), so a proxy captures both tracked-query sweeps and discovery embeddings. A path-prefix base URL (e.g. `https://proxy/gemini`) is preserved — the SDK appends the API path to it rather than swapping only the host.
 
-**Vertex caveat:** in Vertex AI mode the SDK builds Vertex-shaped request paths (`/v1/projects/.../locations/...`), so the proxy must expose a Vertex-compatible route — an AI Studio (`generativelanguage`-style) passthrough will not match.
+In Vertex AI mode, use a proxy that accepts Vertex AI request paths such as `/v1beta1/projects/.../locations/...`.
 
 ## Grounding & Citation Detection
 
@@ -52,9 +52,9 @@ The provider uses Gemini's built-in **Google Search grounding** (`googleSearch` 
 2. Returns grounding metadata with retrieved chunks and support mappings
 3. Includes the search queries it used
 
-Citation detection prefers the chunk indices referenced by `groundingSupports`, rather than treating every retrieved chunk as a final citation. The job runner then matches those domains against the project's canonical domain and competitor domains to determine citation state.
+Citation detection uses the chunk indices in `groundingSupports`. When the first candidate has no valid support indices, the adapter falls back to its grounding chunks.
 
-The adapter records retrieval separately from citations. Positive `usageMetadata.toolUsePromptTokenCount`, nonempty `webSearchQueries`, or web source URIs establish `used`, including a search that yields no final citation. Google Search is the only offered tool, so tool-result tokens prove retrieval even when grounding metadata or the final answer is missing. Without that evidence, a nonempty answer ending with `STOP` is `not-used` only when `usageMetadata.promptTokenCount` is at most 60, the size of a query on its own; empty and unfinished answers remain `unknown`. Stored responses use the same detection when normalized. The `native-auto-v1` contract means search is offered; Gemini chooses whether to use it.
+The adapter records retrieval separately from citations. A positive `usageMetadata.toolUsePromptTokenCount`, nonempty `webSearchQueries`, or a web source URI marks retrieval as `used`. Without that evidence, `not-used` requires a nonempty answer that ends with `STOP` and a prompt count from 1 to 60 tokens. Other responses remain `unknown`. The adapter applies the same rules to stored responses. Under `native-auto-v1`, Gemini chooses whether to search.
 
 **Searches without grounding metadata.** Gemini 3.5 and 3.6 never report `toolUsePromptTokenCount`; they count search input as prompt tokens instead. A few of their answers run a search yet return no `groundingMetadata`, and the prompt count is the only trace. In stored answers, a query alone took at most 20 prompt tokens, and every Gemini 3.5 or 3.6 answer that listed its searches took 95 or more. So a completed answer with no grounding metadata and a prompt count above 60, or no count at all, is `unknown`: the evidence suggests a search but does not record one. Recording it as `not-used` would read as an answer written from memory and drop it from cited-rate denominators. Its `searchQueries` stay empty and `usage.searchCount` stays 0, since only listed queries are counted.
 
@@ -67,10 +67,8 @@ Two limits follow from reading the prompt size. A query long enough to pass 60 t
 
 ### Domain extraction
 
-- URIs are parsed with `new URL()`
-- `www.` prefix is stripped
-- Duplicates are removed
-- Invalid URIs are silently skipped
+- Canonry extracts hosts from valid source URIs and removes the `www.` prefix and duplicate hosts.
+- For a Vertex grounding redirect, Canonry reads a URL in the decoded path or falls back to a domain in the source title.
 
 ## Quota Defaults
 
@@ -88,7 +86,7 @@ Retry:
 - timeouts
 - `5xx`
 
-With full-jitter exponential backoff up to 4 total attempts. Fail non-429 `4xx` responses immediately.
+The adapter makes at most four attempts. Its default retry delays are one, two, and four seconds, without jitter. If Gemini supplies `RetryInfo.retryDelay` of at most 65 seconds, Canonry waits that delay plus 500 milliseconds. Daily quota errors and requests for longer delays fail immediately.
 
 ## Data Stored per Snapshot
 
@@ -109,7 +107,7 @@ This gives analysts access to:
 
 - Which sources Gemini cited (grounding evidence)
 - What search queries Gemini used (search intent)
-- The full API response for debugging
+- The retained API response fields for debugging
 - The model version for reproducibility
 
 The stored Gemini payload now preserves `groundingSupports` so historical snapshots can be reparsed with the same citation-selection logic used for live runs.

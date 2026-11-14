@@ -1,6 +1,6 @@
 # CODEMAP — File-Level Index for Agents
 
-> Single-pass navigation map. Every entry is a real path. Per-package `AGENTS.md` owns durable rules; this file is the fast index. Regenerate the file list with `find apps packages -type f -name '*.ts' -o -name '*.tsx' | sort`.
+> This index lists key source paths. Per-package `AGENTS.md` files define the rules. Refresh the tracked source list with `git ls-files -- 'apps/**/*.ts' 'apps/**/*.tsx' 'packages/**/*.ts' 'packages/**/*.tsx'`.
 
 Start with `AGENTS.md` (project overview + deployment posture), then `docs/README.md` (doc map), then the per-package `AGENTS.md` nearest your task. Never read `AGENTS.md` in one giant chunk — read the section you need.
 
@@ -25,7 +25,7 @@ Bundled via `packages/canonry/build-web.ts` → `packages/canonry/assets/`. Lowe
 | `src/App.tsx` | Root layout, first-run redirect (`/` → `/setup` when 0 projects), health, notifications, AeroBar host | Check before changing first-open flow |
 | `src/router/routes.tsx` | TanStack Router tree (`/`, `/projects`, `/projects/$projectName`, `/runs`, `/traffic`, etc.) | Route = one lazy chunk |
 | `src/pages/OnboardingSetupPage.tsx` / `ProjectSetupTracker.tsx` | `/setup`: the website form, then one project's setup tracker (Website, Agent Readiness, AI Visibility rows) | Track states come from `GET /projects/{name}/setup`; the AI Visibility panel is `src/components/setup/AiVisibilitySetupPanel.tsx` |
-| `src/pages/SetupPage.tsx` | Legacy wizard (`?experience=legacy`): `System check → Create project → Queries → Competitors → Launch`, and a project's Set up AI Visibility page | State machine `deriveSetupStep`, resume from `useDashboard`; shares the engines, queries and first-check pieces in `src/components/setup/` with the tracker's panel |
+| `src/pages/SetupPage.tsx` | Legacy wizard (`?experience=legacy`): `System check → Create project → Queries → Competitors → Launch`, and a project's Set up AI Visibility page | `deriveSetupStep` resolves the wizard state. `src/queries/use-dashboard-overview.ts` supplies resume data. The wizard and the tracker share `src/components/setup/`. |
 | `src/pages/ProjectPage.tsx` | Project shell + tab router (`overview`, `portfolio`, `search-console`, `seo-data`, `journeys`, `conversions`, `local`, `queries`, `client-queries`, `discovery`, `activity`, `traffic`, `backlinks`, `agent-readiness`, `history`, `settings`); the `agent-readiness` tab is labeled **Agent Readiness**, and the deprecated `/technical-aeo` route redirects to it | Extract before adding hooks |
 | `src/pages/OverviewPage.tsx` | Portfolio overview (project list, sparkline, health cards) | "What changed" is built in `build-dashboard.ts` with contracts `portfolioWhatChangedItems`, the roll-up `canonry overview --all` prints: each project's rows from its server `whatChanged` lost counts, its runs in progress from the polled run list, then the couldn't-load, all-clear or awaiting row. The lost counts come only from the server; the page loads no answer evidence |
 | `src/pages/ProjectsPage.tsx` / `HistoryPage.tsx` / `RunsPage.tsx` / `SettingsPage.tsx` / `BacklinksPage.tsx` / `TrafficPage.tsx` | One file per route | |
@@ -47,7 +47,8 @@ Bundled via `packages/canonry/build-web.ts` → `packages/canonry/assets/`. Lowe
 | `AGENTS.md` | Per-app agent rules, API call patterns | |
 
 ### `apps/api/` — Cloud Run entry (imports `packages/api-routes`)
-### `apps/worker/` — Cloud worker entry
+
+`src/app.ts` mounts the shared REST routes. `src/index.ts` starts the server.
 
 ## Packages
 
@@ -57,7 +58,7 @@ bundled into this one.
 
 | Path | Role |
 |------|------|
-| `src/server.ts` | 2969 LOC Fastify setup: mounts `api-routes`, serves SPA, registers providers, scheduler. Key seams: `basePath` (`CANONRY_BASE_PATH` → `config.basePath`), `assetsDir` override (default `assets/`), `resolveEmbedConfig` at boot, `sendSpaDocument` CSP `frame-ancestors`, `window.__CANONRY_CONFIG__` injection |
+| `src/server.ts` | Mounts `api-routes`, serves the SPA, and registers providers and the scheduler. Resolves `basePath`, the `assetsDir` override, and embed configuration. `sendSpaDocument` sets CSP `frame-ancestors` and injects `window.__CANONRY_CONFIG__`. |
 | `build-web.ts` | Builds `apps/web` then `cp apps/web/dist → assets/` (preserves `agent-workspace/`, verifies hashed refs) |
 | `src/embed.ts` | `resolveEmbedConfig(env, config)` — env over `config.yaml` `embed:` (origins/views/projectTabs/theme), fail-closed `frame-ancestors 'none'` |
 | `src/config.ts` | `CanonryConfig` + `.canonry/config.yaml` load/save, provider creds, Cloudflare per-source traffic credentials, `embed`, `agent.mode`, `basePath` |
@@ -72,21 +73,21 @@ bundled into this one.
 | `src/provider-batch-poller.ts` | In-process loop that owns submitted provider batches: per-batch poll backoff (30s doubling to 10 min), deadline cancel + 1 h grace, hands ended batches to `JobRunner.ingestProviderBatch` and runs to `JobRunner.finalizeBatchRun`; started/stopped by `server.ts` |
 | `src/scheduler.ts` | Cron kinds: `answer-visibility`, `traffic-sync`, `gbp-sync`, `data-refresh`, `backlinks-sync`, `site-audit`, `ads-sync`, `doctor` |
 | `src/agent/*` | Aero agent: `session.ts` (pi-agent-core), `session-registry.ts` (hybrid mem+DB), `runtime.ts` (progressive tools / limits), `view-context.ts` (selected evidence), `tools.ts` (MCP adapter catalog), `memory-store.ts`, `compaction.ts` |
-| `src/mcp/*` | `canonry-mcp` stdio adapter, `tool-registry.ts` (188 tools), `toolkits.ts`, `dynamic-catalog.ts`. Cloudflare connect is classified `deferred`: deployment consumes local secrets and must stay out of MCP/Aero transcripts. |
+| `src/mcp/*` | `canonry-mcp` stdio adapter, `tool-registry.ts`, `toolkits.ts`, `dynamic-catalog.ts`. Cloudflare connect has classification `deferred` because deployment uses local secrets. |
 | `src/gsc-sitemap-submission.ts` | GSC sitemap helpers (`dedupeGscSitemapUrls`, `resolveDiscoveredGscSitemapUrls`, `submitGscSitemapBatches`) — dedupe + index expansion (4× parallel) + 50-url batched submit |
 | `src/cli.ts` / `src/cli-commands.ts` / `src/commands/*` | CLI dispatch and command implementations. Cloudflare traffic connect writes secret-free direct-push or Queue-pull artifacts; auto-deploy requires explicit route acknowledgement and local credential ownership. |
 | `src/client.ts` | `ApiClient` + `createApiClient()` |
 | `assets/` | Bundled SPA output (do not edit by hand; `build-web.ts` regenerates) |
-| `AGENTS.md` | Per-package agent rules (416 lines, key seam table) |
+| `AGENTS.md` | Per-package agent rules and key files |
 
-### `packages/api-routes/` — Shared Fastify route plugins (~180 ops, 83 files)
+### `packages/api-routes/` — Shared Fastify route plugins
 
 | Path | Role |
 |------|------|
 | `src/index.ts` | Plugin entry, `ApiRoutesOptions`, global error handler |
 | `src/helpers.ts` | `resolveProject()`, `writeAuditLog()`, `notProbeRun()` — **every dashboard read MUST AND `notProbeRun()`** |
 | `src/auth.ts` | API key + session, `hashApiKey`, `requireScope`, read-only gate (method-based), `requirePaidReadScope` for billed GETs |
-| `src/projects.ts` | `PUT /projects/:name` upsert (largest route file) |
+| `src/projects.ts` | `PUT /projects/:name` upsert |
 | `src/runs.ts` | Run CRUD + batch `POST /runs`; `dispatchMode` on both triggers; run detail `providerBatches` + `usage` |
 | `src/run-queue.ts` | `queueRunIfProjectIdle`: stamps the plan manifest and freezes `runs.provider_dispatch_modes` (rules: `resolveRunDispatchModes` in contracts) |
 | `src/provider-batches.ts` | Reads over `provider_batches` (run detail, fill age, scheduler `batch-pending`) |
@@ -109,7 +110,7 @@ bundled into this one.
 Single source of truth for API ↔ web ↔ CLI types. Every new route adds a Zod schema here + `openapi.ts` registration + generated client.
 Batch dispatch: `src/provider-batch.ts` (dispatch mode, batch status, usage, price schemas, adapter capability), `src/run-dispatch.ts` (`resolveRunDispatchModes`, ineligibility reasons, ledger outcomes, `summarizeRunUsage`), and `src/sweep-pricing.ts` (built-in `DEFAULT_MODEL_PRICES`, `resolveModelPrice`, `estimateAnswerCostMicros`, `buildSnapshotUsage`, `usageCount`: per-answer cost estimates; update a model price here).
 
-### `packages/db/` — Drizzle ORM, SQLite/Postgres, migrations
+### `packages/db/` — Drizzle ORM, SQLite client, migrations
 Schema in `src/schema.ts`. ER diagram in `docs/data-model.md`.
 
 ### `packages/config/` — Typed env parsing
@@ -144,9 +145,8 @@ Schema in `src/schema.ts`. ER diagram in `docs/data-model.md`.
 
 ## Agent Efficiency Tips
 
-- Prefer `muse.search` (ripgrep, bounded) over `muse.bash` for code search — bash fan-out spawns saturate the host.
-- `muse.read_file` caps at 500 lines — read `SetupPage.tsx`/`ProjectPage.tsx`/`server.ts` in windows, not whole file.
-- `pnpm run typecheck` / `pnpm run test` / `pnpm run lint` must pass before PR — see `CONTRIBUTING.md`.
+- Use `rg --files` to locate files and `rg -n` to locate symbols. Read the relevant lines of large files.
+- Follow the validation requirements in `CONTRIBUTING.md` before you open a PR.
 - `pnpm gen` regenerates SDK after contract/route changes.
 - `pnpm plugin:sync` / `pnpm plugin:check` for skill drift.
-- Regenerate file list: `find apps packages -type f -name '*.ts' -o -name '*.tsx' | sort` then update this file; run `pnpm plugin:sync` after touching `skills/` or `plugins/canonry/`.
+- To list new source files before Git tracks them, use `find apps packages -type f -name '*.ts' -o -type f -name '*.tsx'`.

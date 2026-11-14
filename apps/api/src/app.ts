@@ -73,7 +73,7 @@ export function buildApp(env: PlatformEnv) {
   // validationPattern / validationHint). This is a deliberate hand-mirrored copy
   // because apps/api must not pull the provider SDK graphs; a stale copy makes
   // the cloud /settings catalog advertise a wrong "inherited default" and a
-  // truncated model list versus what the worker actually runs. Durable fix
+  // truncated model list versus what `canonry serve` actually runs. Durable fix
   // (deferred): move each registry into an SDK-free module shared by the adapter
   // and this list so they cannot drift.
   const providerAdapters = [

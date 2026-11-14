@@ -11,7 +11,6 @@ on:
       - 'docker/**'
       - 'apps/api/**'
       - 'apps/web/**'
-      - 'apps/worker/**'
       - 'packages/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -104,7 +103,7 @@ jobs:
           fi
 
           if git diff --quiet "$BASE_SHA" HEAD -- \
-            .dockerignore Dockerfile docker apps/api apps/web apps/worker packages \
+            .dockerignore Dockerfile docker apps/api apps/web packages \
             package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json; then
             echo "docker_changed=false" >> "$GITHUB_OUTPUT"
           else

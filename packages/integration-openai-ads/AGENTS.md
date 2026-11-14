@@ -8,7 +8,7 @@ upload, and lifecycle mutations. The paid-surface counterpart
 to the organic answer-visibility data: ads render only in the ChatGPT consumer
 UI (never in API answers), so this client is the only window into the paid
 layer. Public Canonry routes place lifecycle preparation behind `ads.write`,
-force creates paused, omit archive, and record durable receipts. Activation
+force creates paused, and record durable receipts. Activation
 uses the exported upstream primitives only after a separate `ads.approve` key
 issues a short-lived grant for an exact campaign tree and a distinct
 `ads.activate` executor key. Canonry checkpoints each step, activates children
@@ -73,11 +73,7 @@ before parents, and rolls back parents before children on failure.
 - **Provider writes are not idempotent by contract**: callers must establish a
   durable operation receipt before the network call and never blindly retry an
   ambiguous outcome. Canonry's route layer owns that receipt policy.
-- **Activation and archive are policy decisions**: archive is irreversible and
-  exists only as guarded, human-only API routes (never an MCP tool; see
-  `packages/api-routes/AGENTS.md` → "OpenAI ads writes"). Activation is available only through the exact tree,
-  advertiser-account, and executor-bound approval-grant route; direct entity activation is never exposed. Creates are paused and
-  updates require a paused entity.
+- **Activation and archive.** The archive API routes require `ads.write`, a paused entity, and its reviewed `expectedUpdatedAt` revision. MCP classifies these routes as `deferred`. See `packages/api-routes/AGENTS.md` for archive and reconciliation rules. Activation uses a grant bound to the exact campaign tree, advertiser account, and executor. Creates start paused and updates require a paused entity.
 - **Vocabulary**: paid metrics are `paid` / `sponsored` — never reuse
   `mentioned` / `cited` (those mean answer-text and source-list presence).
 

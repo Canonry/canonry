@@ -1,5 +1,7 @@
 # Canonry OSS onboarding rework: reveal the operating platform
 
+> **Historical decision and proposal record.** This document preserves the evaluation, the decisions at the time, and the proposed delivery plan. For current onboarding behavior, see the [code map](CODEMAP.md#navigation-recipes) and the [project setup route](../packages/api-routes/src/project-setup.ts).
+
 > **Naming note:** this record keeps the names in use when it was written. The feature it calls Site Health, Page Health, Technical AEO, the technical audit, and the site audit is now **Agent Readiness** (CLI `canonry agent-readiness`, API `/agent-readiness`, MCP `canonry_agent_readiness_*`); the old command, route, and tool names still work as deprecated aliases. Its "Page health" view is now **Score**, and the onboarding stage it calls Site audit is now **Scan site**.
 
 ## The rework in one sentence
@@ -485,6 +487,8 @@ The web UI should label non-web handoffs accurately:
 Do not claim the browser can execute a capability that exists only through CLI/API/MCP.
 
 ## Technical implementation scope
+
+> This section records the proposed scope at the time of the rework.
 
 ### Scope verdict
 

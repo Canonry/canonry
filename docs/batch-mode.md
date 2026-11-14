@@ -15,9 +15,8 @@ sweeps.
 | Provider | Batch mode |
 |---|---|
 | Claude | Supported (Message Batches API) |
-| OpenAI, Gemini | Not yet. Their batch support for web search is still being verified. |
-| Perplexity, local, CDP | Never. Perplexity has no batch discount; the others have no batch API. |
-| Muse | Not supported. The adapter does not split `buildTrackedQueryRequest` / `parseTrackedQueryResponse` and has no batch capability, so its sweeps run sync. |
+| OpenAI, Gemini, Perplexity, Muse, Local, and ChatGPT (Browser) | Synchronous dispatch |
+| OpenRouter model routes and search answer service profiles | Synchronous dispatch |
 
 ## Enable it
 

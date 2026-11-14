@@ -103,12 +103,12 @@ Outside contributions still need full CI after submission. Skipped or absent CI 
 `pnpm install` installs the Git hooks. Ordinary code commits lint staged JS/TS content, including partially staged files.
 It runs syntax rules and repository guards without loading TypeScript projects. It never changes files or the index.
 Both use oxlint, which is fast enough to need no result cache.
-Documentation-only commits skip the linter. The commit-message hook checks Conventional Commits. Pushes run the three drift gates below.
+Documentation-only commits skip the linter. The commit-message hook checks Conventional Commits.
 
 See [the testing guide](docs/testing.md) for the local and CI commands.
 
-API changes need `pnpm gen`. Review and stage the generated files before `pnpm gen:check`.
-The check compares temporary output and the Git index without changing either.
-Pre-push runs the three drift gates and requires their inputs and output to match the pushed commit.
+After API changes, run `pnpm gen`. Review and stage the generated files before you run `pnpm gen:check`.
+The check compares temporary output with the Git index. It leaves the index unchanged.
+Pre-push runs `pnpm gen:check --committed` and `pnpm plugin:check`. The drift inputs must match the pushed commit.
 Changes to `.oxlintrc.json` or `eslint-rules/` trigger full typed lint. Ordinary commits keep the staged-file check.
 Codegen and dashboard builds reuse cached results only when their inputs and output contents match.

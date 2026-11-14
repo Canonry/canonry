@@ -19,8 +19,9 @@ Direct and routed observations never share snapshot or comparison identity.
   output cap, per-million prices, input modalities, tool and reasoning support
   read from the same response; Aero builds models pi-ai lacks from them. Sweeps
   ignore them and `GET /settings` strips them.
-- Jev and model routers are excluded from sweep choices. Jev uses the dedicated
-  decisions API in `integration-typesafe`; Aero/domain classification use pi,
-  with models from this catalog (`packages/canonry/src/agent/openrouter-models.ts`).
+- Sweep choices exclude routes with the `openrouter/` and `typesafe/` prefixes.
+  Jev sentiment uses the direct TypeSafe decisions API or OpenRouter's
+  SystemOne API. See `packages/canonry/src/sentiment-openrouter.ts`.
+  Aero and domain classification use pi with models from this catalog.
 
 Read root AGENTS.md and the test-audit skill before changing tests.

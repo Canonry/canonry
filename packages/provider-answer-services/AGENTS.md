@@ -31,6 +31,6 @@ vendor checklist: `docs/providers/answer-services.md`.
 - `test/fake-service.ts` (exported as `./testing`) is a test-only service used by
   other packages' end-to-end tests. It is not a vendor and must never be
   registered.
-- No test or health check may call a vendor API. Live calls need the owner's approval.
+- Use fake HTTP responses in tests. For a health check, call only the free metadata endpoint declared by the descriptor. With no declared endpoint, return `verified: false` without an API call.
 
 Read root AGENTS.md and the test-audit skill before changing tests.

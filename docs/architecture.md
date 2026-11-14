@@ -8,7 +8,7 @@ Locations are modeled as project-scoped run context. A project can define named 
 
 ## Local Architecture
 
-The local installation runs as a **single Node.js process** — no Docker, no Postgres, no message queue.
+The local installation runs as a **single Node.js process** with SQLite and an in-process job runner.
 
 ```mermaid
 flowchart LR
@@ -35,6 +35,7 @@ flowchart LR
   User -. CLI .-> API
   Gemini --> Target
   OpenAI --> Target
+  OpenRouter --> Target
   Muse --> Target
   Claude --> Target
   Perplexity --> Target
@@ -65,6 +66,7 @@ flowchart LR
 flowchart TD
   subgraph Apps
     web["apps/web"]
+    api["apps/api"]
   end
 
   subgraph Packages
@@ -95,6 +97,7 @@ flowchart TD
   end
 
   web -.-> contracts
+  api --> routes & db & config & contracts
 
   canonry --> routes
   canonry --> db
@@ -173,14 +176,16 @@ tracked query, shared run, snapshot, insight, notification, or schedule event.
 
 ## Deployment Model
 
-Canonry ships as a **self-hosted single-process install** — that is the only supported deployment. You run `cnry serve` on your own machine, a VPS, or a container; the SPA, API, job runner, and SQLite database all live in that one process. See [docs/deployment.md](deployment.md) for Docker, Railway, Render, systemd, and Tailscale recipes.
+Run `canonry serve` on your own machine, a VPS, or a container. One process serves the SPA and REST API, runs jobs and schedules, and uses SQLite. See the [deployment guide](deployment.md) for setup.
+
+The standalone `apps/api` entry point mounts the shared REST routes on Cloud Run and uses SQLite. The full engine runs through `canonry serve`.
 
 ## Service Boundaries
 
 - **`@canonry/agent-readiness`** (formerly `@canonry/aeo-audit`) — published
   audit engine used by the local `packages/canonry` Agent Readiness executor. It
   provides the full-site crawl event and graph contract.
-- **`apps/worker`** — has no audit-engine dependency or audit execution path.
+- **`apps/api/`** — standalone Cloud Run REST entry point.
 - **`packages/api-routes/`** — HTTP surface, validation, orchestration, read APIs.
 - **`packages/canonry/`** — CLI, local server, job runner (the publishable artifact).
 - **`packages/provider-*/`** — Provider adapters and normalization layers.

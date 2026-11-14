@@ -4,23 +4,18 @@ Canonry runs as a self-hosted server. This guide covers common deployment patter
 
 ## Tenancy model (read this first)
 
-**Canonry is single-tenant.** Every deployment — local `canonry serve` or the
-Cloud Run `apps/api` shape — is designed to host exactly one trust boundary:
-one operator's projects, or one team's projects. There is no per-tenant
-isolation inside an instance.
+**Canonry is single-tenant.** Each deployment serves one operator or team.
 
-What this means:
-- Every valid `cnry_…` API key can read and write every project on the
-  instance. Treat each key like a root credential.
-- Two projects on the same instance that track the same `canonicalDomain`
-  share their Google Search Console / Bing OAuth connections by design.
-- `PUT /api/v1/settings/*` rewrites global provider keys and OAuth client
-  secrets — anyone with any key can flip them.
+- A full-instance wildcard key (`*`) can read and write every project.
+  Read-only keys block writes. Project-scoped keys limit project access.
+- Global settings routes use their own permissions. For example, provider
+  configuration requires `settings.write` or a wildcard grant.
+- Projects with the same `canonicalDomain` share their Google Search
+  Console and Bing Webmaster Tools connections.
 
-If you need to host multiple unrelated teams, deploy one Cloud Run service
-per team, with separate databases and OAuth clients. Multi-tenancy as a
-schema feature is **not** on the current roadmap — see root `AGENTS.md`
-→ "Deployment Posture" for what it would take to build it.
+For unrelated teams, deploy a separate instance, database, and OAuth client
+for each team. See [Deployment Posture](../AGENTS.md#deployment-posture-critical)
+for the trust boundary.
 
 ### Trusted reverse proxies
 
@@ -30,6 +25,13 @@ counts are rejected because they cannot authenticate the immediate proxy peer.
 Use `true` only when network access guarantees that every connection comes
 through a trusted proxy. The standalone server defaults to `false`; Cloud Run
 requires an explicit setting.
+
+## Standalone Cloud Run API
+
+The `apps/api` entry point mounts the shared REST routes. Set `DATABASE_URL`
+to a writable SQLite file path, such as `/data/canonry/data.db`. The API opens
+that path as a local file. Use `canonry serve` to run the full engine,
+including scheduled jobs and the dashboard.
 
 ## Local (default)
 
@@ -611,35 +613,54 @@ sudo systemctl enable --now canonry
 
 ## Docker
 
+### Repository image
+
+The repository image runs `canonry bootstrap` at startup. Its configuration and
+SQLite data live in `/data/canonry` by default.
+
+```bash
+docker build -t canonry .
+docker run -d --name canonry \
+  -p 4100:4100 \
+  -v canonry-data:/data/canonry \
+  canonry
+```
+
+### Custom image from npm
+
+Save this example as `Dockerfile.npm`. It uses the root user's default
+configuration directory, `/root/.canonry`.
+
 ```dockerfile
 FROM node:26.12.1-bookworm-slim@sha256:1e96b01216cab31612cd1f9480e83413472dee8686d423cb4c1ec62bf8a26e9e
 RUN npm install -g @canonry/canonry
 # Tells update notices to upgrade by rebuilding this image.
 ENV CANONRY_INSTALL_METHOD=docker
 EXPOSE 4100
-CMD ["canonry", "serve", "--host", "0.0.0.0"]
+CMD ["sh", "-c", "canonry bootstrap && exec canonry serve --host 0.0.0.0"]
 ```
 
 ```bash
-docker build -t canonry .
-docker run -d \
+docker build -f Dockerfile.npm -t canonry-npm .
+docker run -d --name canonry-npm \
   -p 4100:4100 \
-  -v $HOME/.canonry:/root/.canonry \
-  -e CANONRY_BASE_PATH=/canonry/ \
-  canonry
+  -v canonry-npm-data:/root/.canonry \
+  canonry-npm
 ```
 
-Direct access through `localhost` or the Docker host's IP address requires no
-`publicUrl`. For a DNS name, configure `publicUrl` as described under
-"Behind a Reverse Proxy".
+### Open the dashboard
 
-The container binds `0.0.0.0`, so the first-run password setup always asks
-for the root API key, also from the Docker host. In the example above, the key
-is `apiKey` in the mounted `$HOME/.canonry/config.yaml`. For a container
-without that mount, read it from the container:
+Open `http://127.0.0.1:4100` from the Docker host. For a DNS name, configure
+`publicUrl` as described in [Behind a Reverse Proxy](#behind-a-reverse-proxy).
+If you serve Canonry under `/canonry/`, add `-e CANONRY_BASE_PATH=/canonry/`
+to `docker run`. Open the dashboard at `http://127.0.0.1:4100/canonry/`.
+
+Both examples bind to `0.0.0.0`. First-run password setup requires the root API
+key. Read `apiKey` from the running container. For the custom image, replace
+`canonry` with `canonry-npm` in the command.
 
 ```bash
-docker exec <container> sh -c 'grep "^apiKey:" "${CANONRY_CONFIG_DIR:-$HOME/.canonry}/config.yaml"'
+docker exec canonry sh -c 'grep "^apiKey:" "${CANONRY_CONFIG_DIR:-$HOME/.canonry}/config.yaml"'
 ```
 
 ---

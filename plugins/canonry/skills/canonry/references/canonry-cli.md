@@ -1808,16 +1808,16 @@ To keep backlinks fresh automatically, schedule a `backlinks-sync` kind (`cnry s
 
 ## CDP / Browser Provider
 
-The CDP (Chrome DevTools Protocol) provider enables browser-based queries against AI chat interfaces (e.g., ChatGPT). This gives more accurate results than API-based providers for some use cases.
+The `cdp:chatgpt` provider uses Chrome DevTools Protocol (CDP) to submit queries to the ChatGPT web UI. It captures the answer and citations from the browser session.
 
 ```bash
 cnry cdp connect --host localhost --port 9222  # connect to Chrome CDP
 cnry cdp status                                # show connection status
-cnry cdp targets                               # list available targets (ChatGPT, etc.)
+cnry cdp targets                               # list supported browser targets
 cnry cdp screenshot <query> --targets chatgpt  # screenshot a query result
 ```
 
-**Requires:** Chrome running with `--remote-debugging-port=9222`
+Start Chrome with `--remote-debugging-port=9222` and sign in to ChatGPT before you run browser queries.
 
 ## Telemetry
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Drizzle ORM schema, migrations, and database client. SQLite locally (via better-sqlite3), Postgres for cloud. Auto-migrates on startup. Tables cover projects, runs, snapshots, integrations, and system tracking.
+Drizzle ORM schema, migrations, and client. Both `canonry serve` and `apps/api` use SQLite via `better-sqlite3`. The server applies migrations at startup. Tables store project data, runs, snapshots, integrations, and system state.
 
 ## Key Files
 
