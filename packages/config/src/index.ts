@@ -54,7 +54,6 @@ export function resolveOperatorApiKeyIds(source: NodeJS.ProcessEnv): string[] {
 const envSchema = z.object({
   DATABASE_URL: z.string().default('postgresql://aeo:aeo@postgres:5432/aeo_platform'),
   API_PORT: z.coerce.number().int().positive().default(3000),
-  WORKER_PORT: z.coerce.number().int().positive().default(3001),
   WEB_PORT: z.coerce.number().int().positive().default(4173),
   BOOTSTRAP_SECRET: z.string().default('change-me'),
   CANONRY_BASE_PATH: z.string().default('/'),
@@ -202,7 +201,6 @@ export function withBootstrapProviderDefaults<T extends { model?: string | null;
 export interface PlatformEnv {
   databaseUrl: string
   apiPort: number
-  workerPort: number
   webPort: number
   basePath: string
   bootstrapSecret: string
@@ -338,7 +336,6 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
   return {
     databaseUrl: parsed.DATABASE_URL,
     apiPort: parsed.API_PORT,
-    workerPort: parsed.WORKER_PORT,
     webPort: parsed.WEB_PORT,
     basePath: parsed.CANONRY_BASE_PATH,
     bootstrapSecret: parsed.BOOTSTRAP_SECRET,

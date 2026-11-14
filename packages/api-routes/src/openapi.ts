@@ -8386,8 +8386,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/discover/sessions/{id}/harvest',
     summary: 'Harvest issued search queries (grounding fan-out) from a session',
-    description:
-      "Reads the search queries the answer engine actually issued to answer each probe (Gemini's `groundingMetadata.webSearchQueries` fan-out) back out of the session's stored probe payloads, then runs a mandatory quality gate and returns the survivors as candidate seeds, ranked by how many distinct probes issued each one. The gate drops navigational/phone lookups, over-specific outliers, off-subject acronym collisions, exact already-tracked matches, and — via an embedding cosine pass over the project's tracked queries — semantic duplicates (paraphrases/synonyms an exact match can't see). `semanticNoveltyApplied` reports whether that embedding pass ran (it falls back to exact-match when embeddings are unavailable). These are a THIRD signal — *issued retrieval queries* — distinct from `mention` (answer text) and `cited` (source list); they carry no demand of their own. Read-only and derived: nothing is probed, tracked, or promoted. `minProbeHits` raises the recurrence floor; `anchor=false` disables the subject anchor for new-subject discovery on a well-scoped project. `stats` carries the raw count and a per-reason rejection tally. Issue #713.",
+    description: 'Ranks search queries from stored probe results by how many probes issued each query. The novelty check can send candidate and tracked query text to the configured embedding provider. Requires a signed-in administrator or wildcard (*) API key, subject to project access. `semanticNoveltyApplied` reports whether the embedding check ran. If embeddings are unavailable, novelty uses exact matches. Issued search queries are retrieval evidence, separate from mentions and citations. The route returns candidates for review without tracking or promoting them.',
     tags: ['discovery'],
     parameters: [
       nameParameter,
@@ -8397,6 +8396,7 @@ const routeCatalog: OpenApiOperation[] = [
     ],
     responses: {
       200: jsonResponse('Harvested candidate seeds + gate stats returned.', 'DiscoveryHarvestDto'),
+      403: errorResponse('Administrator access or wildcard API key scope is required.'),
       404: errorResponse('Project or session not found.'),
     },
   },

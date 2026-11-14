@@ -2,13 +2,13 @@
 
 ## Role
 
-`packages/provider-claude` is one of three answer-visibility provider adapters (alongside Gemini and OpenAI). It queries the Anthropic Messages API with web search enabled to determine which domains are cited in AI-generated answers for tracked queries.
+`packages/provider-claude` sends tracked queries to the Anthropic Messages API with web search. Canonry uses the answer text for mentions and the answer citations for cited domains.
 
 ## Provider Contract
 
 ### `validateConfig(config: ClaudeConfig): ClaudeHealthcheckResult`
 
-Validates that the config has a non-empty API key. Returns the model name that will be used. Every `claude-*` model is accepted. For a model that rejects forced `tool_choice` (see [Retrieval contract](#retrieval-contract)) the message says that tracked queries run under `native-auto-v1` and that retrieval is not guaranteed.
+Checks for a nonempty API key and returns the resolved model. The adapter accepts the `claude-` prefix and falls back to its default for other prefixes. For a model that rejects forced `tool_choice`, the message identifies `native-auto-v1`. See [Retrieval contract](#retrieval-contract).
 
 ### `healthcheck(config: ClaudeConfig, signal?: AbortSignal): Promise<ClaudeHealthcheckResult>`
 
@@ -16,7 +16,7 @@ Makes a lightweight Anthropic API call to verify the key works. Returns ok/error
 
 ### `executeTrackedQuery(input: ClaudeTrackedQueryInput): Promise<ClaudeRawResult>`
 
-Sends the query to the Anthropic Messages API with `web_search_20250305` tool enabled (`max_uses: 5`). The query is sent as-is, with no system prompt. `tool_choice` depends on the model's [retrieval contract](#retrieval-contract). Returns:
+Sends the unchanged query to the Anthropic Messages API with `web_search_20250305` (`max_uses: 5`). A requested location goes in the tool's `user_location`. The adapter sends no system prompt. The model's [retrieval contract](#retrieval-contract) selects `tool_choice`. The result includes these fields.
 
 - `rawResponse` — the full Anthropic API response (content blocks, usage metadata)
 - `groundingSources` — extracted `{ uri, title }` pairs from final `text.citations` entries of type `web_search_result_location`
@@ -30,7 +30,7 @@ Sends the query to the Anthropic Messages API with `web_search_20250305` tool en
 Extracts analyst-relevant fields from the raw response:
 
 - `answerText` — concatenated text from `text` content blocks
-- `citedDomains` — unique domains extracted from web search result URLs (www. stripped)
+- `citedDomains` — unique domains from the final answer's web citations (`www.` stripped)
 - `groundingSources` — pass-through of `{ uri, title }` pairs
 - `searchQueries` — pass-through of search queries used
 - `retrievalStatus` — re-read from the stored response, as in `executeTrackedQuery`
@@ -44,14 +44,14 @@ Every Claude snapshot stores `retrieval_contract`, the search policy of the requ
 | Every other `claude-*` model, including the default | `search-required-v1` | `{ "type": "tool", "name": "web_search" }` | Required by the API control |
 | `claude-opus-5-5`, `claude-fable-5-1`, `claude-mythos-5-1` | `native-auto-v1` | `{ "type": "auto" }` | Claude decides; not guaranteed |
 
-Claude decides for itself whether a query needs a search, and newer models search less often. An answer written without retrieval stores zero cited domains and zero mentions, so at rest it looks like a searched answer that did not cite the brand. `search-required-v1` prevents that by forcing the `web_search` call instead of adding a system prompt, which would also steer tone and source choice.
+Under `native-auto-v1`, Claude decides whether the query needs a search. Canonry still measures mentions in the answer text when Claude skips retrieval. Under `search-required-v1`, the request requires a `web_search` call.
 
 Anthropic documents that Claude Opus 5.5, Claude Fable 5.1 and Claude Mythos 5.1 return HTTP 400 for a forced `tool_choice` (`any` or `tool`): `tool_choice: type "tool" and "any" are not supported for this model.` ([Forcing tool use](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools#forcing-tool-use), [error reference](https://platform.claude.com/docs/en/api/errors#forced-tool-use-not-supported)). Those models run `native-auto-v1`: the same query, the same tool and no system prompt, with the search left to Claude. This is also what the adapter sent before `search-required-v1` existed.
 
 On these models, visibility numbers can include answers written without a search. Two fields keep that visible:
 
 - `retrieval_contract = native-auto-v1` shows that retrieval was not required.
-- `retrieval_status = not-used` marks each answer that did not search, so it is not read as a real miss.
+- `retrieval_status = not-used` marks answers with an intact response and no search call. Frozen measurement comparisons exclude these answers from their cited denominator and keep them in their mention denominator.
 
 A trend that spans a model switch between the two groups also spans a change of contract, and the rows show where it happened.
 

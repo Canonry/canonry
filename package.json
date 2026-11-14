@@ -1,7 +1,7 @@
 {
   "name": "canonry",
   "private": true,
-  "version": "7.108.2",
+  "version": "7.108.3",
   "type": "module",
   "packageManager": "pnpm@12.14.0",
   "scripts": {
@@ -24,7 +24,6 @@
     "guide:check": "node scripts/sync-agent-operations.mjs --check",
     "plugin:check": "node scripts/sync-canonry-plugin.mjs --check",
     "dev:api": "pnpm --filter @canonry/canonry-api run dev",
-    "dev:worker": "pnpm --filter @canonry/canonry-worker run dev",
     "dev:web": "pnpm --filter @canonry/canonry-web run dev",
     "prepare": "husky || true"
   },

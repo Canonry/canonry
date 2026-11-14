@@ -2,13 +2,13 @@
 
 ## Overview
 
-Canonry is a self-hosted agent-first AEO operating platform. It tracks how AI answer engines (Gemini, OpenAI, Muse, Claude, Perplexity, and local LLMs) mention or cite a domain for tracked queries, and acts on that signal through the content engine and integrations. A local LLM returns no sources, so only its mentions are measured.
+Canonry is a self-hosted, agent-first AEO platform. It measures brand mentions and domain citations for tracked queries across its [supported providers](providers/README.md). Its content engine and integrations use those observations. The Local adapter captures no structured sources, so its answers contribute to mention measurements only.
 
-Locations are modeled as project-scoped run context. A project can define named locations and an optional default location, while queries remain project-wide.
+A project can define named locations and a default location. An Advanced Measurement plan also assigns queries and measurement contexts to Properties and markets.
 
 ## Local Architecture
 
-The local installation runs as a **single Node.js process** — no Docker, no Postgres, no message queue.
+The local installation runs as a **single Node.js process** with SQLite and an in-process job runner.
 
 ```mermaid
 flowchart LR
@@ -27,7 +27,9 @@ flowchart LR
     Registry --> Muse["provider-muse"]
     Registry --> Claude["provider-claude"]
     Registry --> Perplexity["provider-perplexity"]
+    Registry --> Local["provider-local"]
     Registry --> CDP["provider-cdp"]
+    Registry --> AnswerServices["provider-answer-services (profiles)"]
     JobRunner --> SQLite
   end
 
@@ -35,10 +37,13 @@ flowchart LR
   User -. CLI .-> API
   Gemini --> Target
   OpenAI --> Target
+  OpenRouter --> Target
   Muse --> Target
   Claude --> Target
   Perplexity --> Target
+  Local --> Target
   CDP --> Target
+  AnswerServices --> Target
 ```
 
 ### Key components
@@ -54,8 +59,8 @@ flowchart LR
 
 1. Analyst runs `canonry run <project>` with the project default location, an explicit `--location`, `--all-locations`, or no location context
 2. API creates a run record and enqueues a job
-3. Job runner resolves the run location, fans out `executeTrackedQuery` for each query across all configured providers via the provider registry, and passes the location hint to providers
-4. Raw observation snapshots (`cited` / `not-cited`, or `not-measured` for an engine that returns no sources) are persisted per query per run, tagged with the run's location label when present
+3. The job runner executes the run's selected providers and queries. A published plan supplies frozen execution slots. Each adapter receives the requested location and reports its treatment.
+4. Each saved answer records its mention and citation observations by query and provider. Plan-aware runs also record the execution ID and location context.
 5. Transitions (`lost`, `emerging`) are computed at query time by comparing each measured snapshot with the last measured one before it. A `not-measured` snapshot is skipped, so it never gains or loses a citation
 6. Dashboard polls API for results and renders visibility data
 
@@ -65,6 +70,7 @@ flowchart LR
 flowchart TD
   subgraph Apps
     web["apps/web"]
+    api["apps/api"]
   end
 
   subgraph Packages
@@ -85,6 +91,7 @@ flowchart TD
     local["provider-local"]
     perplexity["provider-perplexity"]
     cdp["provider-cdp"]
+    answerServices["provider-answer-services"]
   end
 
   subgraph Integrations
@@ -95,19 +102,20 @@ flowchart TD
   end
 
   web -.-> contracts
+  api --> routes & db & config & contracts
 
   canonry --> routes
   canonry --> db
   canonry --> config
   canonry --> contracts
   canonry --> intelligence
-  canonry --> gemini & openai & openrouter & muse & claude & local & perplexity & cdp
+  canonry --> gemini & openai & openrouter & muse & claude & local & perplexity & cdp & answerServices
 
   routes --> db
   routes --> contracts
   routes --> gsc & ga4 & bing & wp
 
-  gemini & openai & openrouter & muse & claude & local & perplexity & cdp --> contracts
+  gemini & openai & openrouter & muse & claude & local & perplexity & cdp & answerServices --> contracts
   gsc & ga4 & bing & wp --> contracts
   db --> contracts
 ```
@@ -136,35 +144,22 @@ stateDiagram-v2
 
 **Transitions:**
 - `queued` → `running`: Job runner dequeues and starts executing providers
-- `running` → `completed`: All configured providers returned results successfully
-- `running` → `partial`: At least one provider succeeded, at least one failed
-- `running` → `failed`: Every provider failed (network errors, quota exhaustion, etc.)
+- `running` → `completed`: The sweep finished with all planned answers
+- `running` → `partial`: The sweep saved answers and recorded provider errors, skipped providers, or a plan shortfall
+- `running` → `failed`: The sweep saved no answers and recorded a failure
 - `running` → `cancelled`: User explicitly cancelled via API
 
 ## Provider System
 
-All providers implement the `ProviderAdapter` interface from `packages/contracts`:
+The shared [`ProviderAdapter` interface](../packages/contracts/src/provider.ts)
+defines execution, normalization, and optional capabilities such as batch
+dispatch and text generation. The provider registry registers configured
+connections. OpenRouter model routes and search answer service profiles use
+their connection's credentials and quota. Each route requires explicit selection.
 
-```
-ProviderAdapter {
-  name: string
-  displayName: string
-  mode: 'api' | 'browser'
-  keyUrl?: string
-  validateConfig(config) → ValidationResult
-  healthcheck(config, signal?) → HealthcheckResult
-  executeTrackedQuery(input) → RawQueryResult
-  normalizeResult(raw) → NormalizedQueryResult
-  generateText(config, prompt) → string
-}
-```
-
-The `ProviderRegistry` in `packages/canonry` collects all adapters at startup. When a run executes, the job runner:
-
-1. Reads the project's configured providers
-2. For each provider, calls `executeTrackedQuery()` with the query and location context
-3. Calls `normalizeResult()` to convert provider-specific responses to standard `NormalizedQueryResult`
-4. Persists `query_snapshots` — one per query per provider per run
+The job runner executes the selected work and normalizes responses before it
+persists them in `query_snapshots`. Plan-aware runs can store several answers
+for one query and provider when the execution contexts differ.
 
 Ad-hoc research uses the same provider adapters through a separate
 `research_runs` → `research_run_queries` executor. It persists returned answer
@@ -173,14 +168,16 @@ tracked query, shared run, snapshot, insight, notification, or schedule event.
 
 ## Deployment Model
 
-Canonry ships as a **self-hosted single-process install** — that is the only supported deployment. You run `cnry serve` on your own machine, a VPS, or a container; the SPA, API, job runner, and SQLite database all live in that one process. See [docs/deployment.md](deployment.md) for Docker, Railway, Render, systemd, and Tailscale recipes.
+Run `canonry serve` on your own machine, a VPS, or a container. One process serves the SPA and REST API, runs jobs and schedules, and uses SQLite. See the [deployment guide](deployment.md) for setup.
+
+The standalone `apps/api` entry point mounts the shared REST routes on Cloud Run and uses SQLite. The full engine runs through `canonry serve`.
 
 ## Service Boundaries
 
 - **`@canonry/agent-readiness`** (formerly `@canonry/aeo-audit`) — published
   audit engine used by the local `packages/canonry` Agent Readiness executor. It
   provides the full-site crawl event and graph contract.
-- **`apps/worker`** — has no audit-engine dependency or audit execution path.
+- **`apps/api/`** — standalone Cloud Run REST entry point.
 - **`packages/api-routes/`** — HTTP surface, validation, orchestration, read APIs.
 - **`packages/canonry/`** — CLI, local server, job runner (the publishable artifact).
 - **`packages/provider-*/`** — Provider adapters and normalization layers.
@@ -195,7 +192,7 @@ Canonry ships as a **self-hosted single-process install** — that is the only s
 - This repo remains independent from the audit package repo
 - Consume only published audit-engine releases; keep the local
   `@canonry/agent-readiness` pin explicit
-- API key-based auth
+- REST API keys, signed-in browser sessions, and OAuth for hosted MCP
 - Raw observation snapshots only; transitions computed at query time
 - Agent-first Agent Readiness parity: browser color, size, focus, and scan-change
   semantics must exist as typed API fields or bounded CLI/MCP reads. The raw
@@ -213,8 +210,8 @@ These remain separate to avoid mixing Agent Readiness with live-answer visibilit
 Canonry ships a built-in AI agent (Aero) backed by `@earendil-works/pi-agent-core`, plus a webhook path for external agents (Claude Code, Codex, custom). See `packages/canonry/src/agent/AGENTS.md` for the full surface.
 
 - **Native loop:** `packages/canonry/src/agent/` (`session.ts`, `session-registry.ts`, `tools.ts`, `agent-routes.ts`).
-- **Persistence:** one rolling session per project in the `agent_sessions` table — survives `canonry serve` restarts.
-- **Proactive:** `RunCoordinator` synthesizes a follow-up message after each `run.completed`; `SessionRegistry.drainNow` wakes the agent without a user prompt.
+- **Persistence.** Operator conversations persist across restarts. `agent_sessions` holds the active conversation and `agent_conversations` holds archived ones. Enabled viewer sessions are separate and in memory.
+- **Proactive operation.** `RunCoordinator` queues operator follow-ups after eligible runs. Probe runs do not wake Aero.
 - **External agents:** `canonry agent attach <project> --url <webhook-url>` registers a webhook for `run.completed`, `insight.critical`, `insight.high`, `citation.gained`.
 
 The agent layer is a consumer of the same CLI/API surface — nothing in it is privileged. Per AGENTS.md, "If an AI agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug."

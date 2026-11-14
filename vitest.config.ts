@@ -68,7 +68,7 @@ const NODE_PACKAGES = [
   'provider-perplexity',
 ] as const
 
-const NODE_APPS = ['api', 'worker', 'mcp-gateway'] as const
+const NODE_APPS = ['api', 'mcp-gateway'] as const
 
 /**
  * Projects whose test files share a worker, and its module cache, instead of
@@ -116,7 +116,6 @@ const SHARED_WORKER_PROJECTS: ReadonlySet<string> = new Set([
   'provider-openai',
   'provider-perplexity',
   'api',
-  'worker',
 ])
 
 const MODULE_MOCK = /\bvi\.(?:mock|doMock)\(/

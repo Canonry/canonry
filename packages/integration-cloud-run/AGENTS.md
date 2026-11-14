@@ -20,7 +20,7 @@ Cloud Run / Cloud Logging integration — pulls request logs for `cloud_run_revi
 - **Bearer-token auth.** The caller supplies an OAuth access token (`logging.logEntries.list`-class scope). This package does not own the token — credentials live in `~/.canonry/config.yaml` and are exchanged by the consumer (CLI/script/server).
 - **Pull-only, cursor-paginated.** `listCloudRunTrafficEvents` accepts `pageToken` / `pageSize` / `maxPages` so callers can do incremental syncs. No push, no SaaS relay.
 - **Provider-neutral output.** Every adapter in the traffic stack normalizes to the same `NormalizedTrafficRequest` shape from `@canonry/canonry-contracts`. Do not leak Cloud Logging types past the package boundary.
-- **Narrow filters when possible.** `buildCloudRunLogFilter` composes filters incrementally (service, location, time window, request URL substring, user-agent substrings). Narrower filters lower Cloud Logging cost; the `--narrow-bots` mode in the probe script intentionally trades human-AI-referral coverage for crawler-only coverage.
+- **Log filters.** `buildCloudRunLogFilter` accepts service, location, time window, request URL, and user-agent filters. Use `--service` and `--location` on `canonry traffic connect cloud-run` to limit a source to the service and region it monitors.
 
 ## Test Ownership
 
@@ -38,4 +38,4 @@ Cloud Run / Cloud Logging integration — pulls request logs for `cloud_run_revi
 
 - `packages/contracts/src/traffic.ts` — the `NormalizedTrafficRequest` contract this package emits
 - `packages/integration-traffic/` — provider-neutral classifier + rollup over normalized events
-- `scripts/test-cloud-run-traffic-pull.ts` — local probe that exercises pull → normalize → analyze
+- [Cloud Run traffic setup and sync](../../skills/canonry/references/server-side-traffic.md#connecting-a-cloud-run-source)

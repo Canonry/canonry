@@ -6,65 +6,47 @@ Providers are adapters that connect canonry to AI answer engines. Each provider 
 
 ## Available Providers
 
-See [why we use model providers' APIs directly](model-selection.md) for the
-model-selection criteria and the answer and citation evidence that each adapter captures.
+See [how Canonry selects models and measures answers](model-selection.md) for
+model-selection criteria and the evidence that each adapter captures.
 
 | Provider | Package | Mode | Service |
 |----------|---------|------|---------|
 | Gemini | `provider-gemini` | API | Google Gemini with `googleSearch` grounding |
 | OpenAI | `provider-openai` | API | OpenAI Responses API with `web_search` |
-| OpenRouter | `provider-openrouter` | API | Several pinned model routes sharing one key, with search and source annotations |
+| OpenRouter | `provider-openrouter` | API | Pinned model routes (`openrouter:publisher/model`) with web search and source annotations |
 | Muse | `provider-muse` | API | Meta Model API Responses with `web_search` |
 | Claude | `provider-claude` | API | Anthropic Messages API with `web_search_20250305` |
 | Perplexity | `provider-perplexity` | API | Perplexity Agent API (`/v1/agent`, `fast` preset) with forced `web_search` |
-| Local | `provider-local` | API | Any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM) |
-| CDP | `provider-cdp` | Browser | Chrome DevTools Protocol (e.g., ChatGPT UI automation) |
-| Search answer services | `provider-answer-services` | API | Hosted services that search and answer; one shared layer, one thin adapter per vendor ([Search answer services](./answer-services.md); `cnry settings` lists the registered ones) |
+| Local | `provider-local` | API | OpenAI-compatible Chat Completions endpoint (Ollama, LM Studio, vLLM) |
+| ChatGPT (Browser) | `provider-cdp` | Browser | ChatGPT web UI via Chrome DevTools Protocol (`cdp:chatgpt`) |
+| Search answer services | `provider-answer-services` | API | Hosted search and answer services with a shared adapter layer ([registered services](./answer-services.md#registered-services)) |
 
 ## ProviderAdapter Interface
 
-Every provider must implement:
+The [shared `ProviderAdapter` interface](../../packages/contracts/src/provider.ts)
+defines provider identity, location support, model validation, connection checks,
+execution, and normalization. Optional capabilities include model discovery,
+plain text generation, batch execution, and route families.
 
-```typescript
-interface ProviderAdapter {
-  name: string              // e.g., 'gemini'
-  displayName: string       // e.g., 'Google Gemini'
-  mode: 'api' | 'browser'
-  supportsLocationContext: boolean
-  modelRegistry: ProviderModelRegistry
-  keyUrl?: string           // URL where users get an API key
-
-  listModels?(config: ProviderConfig, signal: AbortSignal): Promise<ModelDefinition[]>
-  validateConfig(config: ProviderConfig): ProviderHealthcheckResult
-  healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult>  // stop retrying and cancel once signal aborts
-  executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult>
-  normalizeResult(raw: RawQueryResult): NormalizedQueryResult
-  generateText?(prompt: string, config: ProviderConfig): Promise<string>  // absent for answer services; check canGenerateText
-  kind?: 'answer-engine' | 'model-gateway' | 'answer-service'           // absent means answer-engine
-  capabilities?: ProviderCapabilities                                    // workflows an explicit selection may run
-  routes?: ProviderRouteFamily                                           // routed connection: the bare name is never a target
-}
-```
-
-A hosted search answer service does not implement this interface by hand: it
-supplies a descriptor, request builder and parser to
-`packages/provider-answer-services` (see [Search answer services](./answer-services.md)).
+OpenRouter uses one connection for several pinned model routes. Search answer
+services use one connection per vendor and one route per profile. Each vendor
+supplies a descriptor, request builder, and parser to the shared factory.
+See [Search answer services](./answer-services.md).
 
 ## How to Add a New Provider
 
-1. Create `packages/provider-<name>/` with the standard 4-file structure:
-   - `src/adapter.ts` — export the `ProviderAdapter` object
-   - `src/normalize.ts` — implement the 5 interface functions
-   - `src/types.ts` — provider-specific config and response types
-   - `src/index.ts` — re-export public API
-2. Add the provider to the shared identity constants and location handling in `packages/contracts/`. `ProviderName` is a string validated against registered adapters.
-3. Register the adapter in `packages/canonry/src/server.ts`. Add configuration, package dependencies, the Cloud API catalog, and the Vitest project. Include citation capture and stored-response backfill when supported.
-4. Add a `docs/providers/<name>.md` file documenting service-specific quirks.
-5. Update the skills reference in `skills/canonry/references/canonry-cli.md`.
+For a hosted search answer service, follow the [vendor checklist](./answer-services.md#adding-a-vendor).
+For a new API answer engine, follow these steps.
+
+1. Export the `ProviderAdapter` from `packages/provider-<name>/src/adapter.ts`. Keep provider-specific request and response handling in that package.
+2. Add the identity and location handling to `packages/contracts/`.
+3. Register the adapter in `packages/canonry/src/server.ts`. Add configuration, package dependencies, the Cloud API catalog, and the Vitest project.
+4. Add citation capture and stored-response backfill when the response supplies the evidence.
+5. Add `docs/providers/<name>.md` and update `skills/canonry/references/canonry-cli.md`.
 
 ## Provider-Specific Documentation
 
-- [Gemini](./gemini.md) — googleSearch grounding, support-based citation selection, base64 proxy URLs
+- [Gemini](./gemini.md) — Google Search grounding, support-based citation selection, grounding redirects
 - [OpenAI](./openai.md) — web_search tool, URL annotation extraction, web_search_call query parsing
 - [OpenRouter](./openrouter.md) — multi-model setup, separate sweep identities, Aero and evaluator roles
 - [Search answer services](./answer-services.md): profiles, never-implicit selection, source relationships, completion and usage basis, adding a vendor
@@ -72,6 +54,7 @@ supplies a descriptor, request builder and parser to
 - [Claude](./claude.md) — web_search_20250305 tool, final-text citation extraction, tool error handling
 - [Perplexity](./perplexity.md) — Agent API presets, `search_results` output item, retired Sonar ids, stored Sonar history
 - [Local](./local.md) — OpenAI-compatible endpoints, no web search grounding
+- [ChatGPT (Browser)](../../packages/provider-cdp/AGENTS.md) — CDP connection and browser capture
 
 
 ## Available models and Research defaults

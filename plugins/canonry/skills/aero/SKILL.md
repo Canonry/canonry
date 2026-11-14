@@ -3,7 +3,7 @@ name: aero
 description: "Diagnose AEO regressions and interpret Canonry AI visibility, SEO data, Advanced multi-property portfolios, and Agent Readiness evidence. Use when prioritizing keyword or organic ranking opportunities, explaining mention or citation changes, comparing Properties or markets, diagnosing page findings, preparing reports, or analyzing a completed `cnry` sweep or Agent Readiness audit scan. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations."
 metadata:
   homepage: https://canonry.ai
-  repository: https://github.com/AINYC/aero
+  repository: https://github.com/Canonry/canonry
 ---
 
 # Aero Orchestration Skill
@@ -123,7 +123,7 @@ covering that work; an existing explicit authorization remains valid.
   and `criticizedProperties`. Take per-engine figures from its `provider`
   breakdowns instead of filtering. A `provider` filter takes ids (`openai`
   for ChatGPT, `gemini`, `claude`), and an empty filtered read means the
-  filter matched nothing, not that sentiment is missing.
+  filter matched nothing in that selection.
   `criticizedProperties.keys` lists up to five Properties, most criticized
   first. Give favorable, mixed and unfavorable as counts over
   `coverage.judged`, which counts assessments (one answer can assess several
@@ -132,8 +132,8 @@ covering that work; an existing explicit authorization remains valid.
   criticized Properties' answers with `canonry_sentiment_evidence` (scope
   `property`, `outcome: ["mixed", "unfavorable"]`). Non-brand is exceptions
   only: list its mixed and unfavorable answers, never a non-brand favorable
-  share. Its rated share is low because most market answers do not name the
-  Property; that is not missing data. Never pool the two classes, and do not
+  share. Read the returned coverage and outcome states before interpreting a
+  low rated share. Never pool the two classes, and do not
   quote `sentiment.overall` from the project overview, which pools them. An
   absent subject is not unfavorable, an unrated or partial result is not "no
   criticism", and partial values are provisional. Say the ratings are
@@ -174,6 +174,10 @@ covering that work; an existing explicit authorization remains valid.
   comparison, and authority rules. Its MCP onboarding instructions apply to
   external hosts; built-in Aero loads its authorized toolkits and has skill-doc
   readers. Tool descriptions define the parameters actually available.
+
+Built-in viewer sessions use read-only tools. If the install manages sweeps,
+built-in Aero cannot start, fill, or cancel an AI Visibility sweep. Use the
+available tool catalog to check which actions this session permits.
 
 Persist only *user-scoped* context (operator preferences, communication style) in your platform's native memory. Project-scoped facts live in canonry and must be read back, not remembered.
 
@@ -218,7 +222,12 @@ first. Report crawled, read, clicked, came back and converted as separate
 numbers, and never report zero conversions until you have checked that the
 conversion is tracked and reaches GA4.
 
-**Diagnosing a stuck Vercel/Cloud Run source:** if `cnry traffic status` shows `status=error` with a recent `lastError` of `refusing to advance` or `ExceedsBillingLimitError`, the source's `lastSyncedAt` has aged past the upstream retention boundary and every sync now throws. Recovery: `cnry traffic reset <project> --source <id> --advance-to-now`. This advances `lastSyncedAt` to NOW and resumes going-forward syncs — historical events in the gap are unrecoverable from the sync path; run `cnry traffic backfill --days N` separately if any of that history is needed (capped at retention).
+**Vercel retention errors.** If `cnry traffic status` reports that Vercel
+refused to advance past its log retention boundary, read the source's error
+and affected window. With approval to skip the gap, run
+`cnry traffic reset <project> --source <id> --advance-to-now`.
+If the operator approves recovery of retained history, run
+`cnry traffic backfill <project> --source <id> --days N`.
 
 ## Judgment Rules
 
@@ -229,7 +238,7 @@ Mention is the primary gauge (see "Two signals, not one" above); citation is the
 1. **Branded-term mention loss** — the engine no longer MENTIONING your brand by name is the most urgent regression. Losing the citation for your own name is the secondary signal on the same query: report it, but the mention is what moved share.
 2. **Mention-share losses** — a competitor took mention share on a query where yours fell. Rank by share swing first, then by any lost citation on the same query.
 3. **Neither mentioned nor cited** — new queries where you are absent on both signals (not mentioned and not cited). Mention gap leads; the missing citation is the trailing clause.
-4. **Indexing issues**, only when indexing or Agent Readiness evidence read in this turn shows them. Pages not indexed can't be cited, and a weak/unindexed page also starves the engine of reasons to mention you; it feeds both signals.
+4. **Indexing issues** — use stored search inspection results for indexing and Agent Readiness findings for crawl eligibility. Use answer evidence to investigate the mention or citation change.
 5. **Content optimization**, only when page or answer evidence read in this turn points to it. Improve mention rate first (give the answer a reason to name you), then cited rate on partially-covered queries.
 
 ### What NOT to Do
@@ -247,7 +256,7 @@ approval before running it. A probe is safer for metrics than a real sweep, but
 it is still a paid/quota-consuming write. After approval, use `cnry run
 <project> --probe --provider <p> --query "..."`. Probe runs:
 - Still cost provider API quota (same wire call)
-- Write a snapshot you can inspect via `cnry runs get <id>`
+- Write a snapshot you can inspect via `cnry run show <id> --format json` or `canonry_run_get`
 - Are EXCLUDED from dashboard, analytics, intelligence, insights, and notifications
 - Won't wake you up again via the post-run hook (no recursive analysis loops)
 

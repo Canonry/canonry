@@ -15,7 +15,7 @@ prerequisite or a permission mechanism.
 
 Read the initialization guidance, then call `canonry_help` with an `intent`:
 `status`, `diagnose`, `operations`, `prospecting`, `measurement`, `integrations`,
-`reports`, or a short task
+`seo`, `reports`, or a short task
 description. Select an accessible project with `canonry_projects_list` before
 using its exact name in project tools. Inspect each listed tool's input schema;
 help suggests tool names, not invented arguments or authorization.
@@ -52,11 +52,11 @@ guide plus links to host-native references. It does not replace runtime help.
   compute one signal from the other.
 - `answerMentioned: null` means not checked, not false. Missing runs and empty
   populations mean no measurement, not zero visibility.
-- `citationState: not-measured` (with `cited: null`) means the engine returns no
-  sources, such as a local model without web access, so whether it cites the
-  domain was never observed. It is never a miss: cited rates leave it out and
-  count it as `citationNotMeasured`, and a cited rate with nothing measured is
-  null, not 0. Mention is still measured on those answers. Other reads show the
+- `citationState: not-measured` (with `cited: null`) means the adapter captures
+  no structured sources, as with Local chat completions. Canonry excludes those
+  answers from cited rates and counts them in `citationNotMeasured`. The cited
+  rate is null when there are no measured citations. Canonry still measures
+  mentions on those answers. Other reads show the
   same state in their own shape:
   - visibility report: an answer's `citationUnavailableReason:
     citation-not-measured`, or a rate's `reason: citation-not-measured`;
@@ -83,6 +83,7 @@ guide plus links to host-native references. It does not replace runtime help.
 missing instead of silently creating it.
 
 **Setup:** Agent Readiness needs no answer-engine provider; AI Visibility does.
+Use `canonry_project_setup` to read stored prerequisites and the suggested next step.
 After an Agent Readiness result on an install with no provider (a `NO_PROVIDER`
 notice, or doctor's `providers.none-configured`), propose AI Visibility setup
 as the next step. The operator adds the provider key in the dashboard or in
@@ -139,6 +140,12 @@ Use a supported preview where available, inspect its exact destination and
 revision, then seek approval for the actual change. A preview may itself require
 write permission; never treat a dry-run flag as a universal safety guarantee.
 
+`canonry_discover_harvest` reads saved probes and can send query text to Gemini
+to check for paraphrases. Get approval for that live work. Harvest requires an
+administrator account or a bearer key with `*` scope and access to the project.
+Use the saved session read for stored-only work. Promoting candidates needs its
+own approval.
+
 **Integrations:** inspect stored connection state and snapshot freshness first.
 Provider configuration evidence does not prove a browser event fired or a
 conversion was recorded. Connection, resource selection, refresh/sync, and live
@@ -149,7 +156,7 @@ flow, never in chat, tool arguments, reports, or public guidance.
 and citation signals separate, include dates and sample sizes, and state missing
 or stale inputs. For Advanced Property mention rankings, use
 `canonry_measurement_portfolio_summary` and its `mentionRanking.strongest`,
-`.weakest`, and `.excluded` lists. It defaults to non-brand questions; state the
+`.weakest`, and `.excluded` lists. It defaults to non-brand queries. State the
 returned class and report branded results separately. An unavailable portfolio
 aggregate does not invalidate available Property mention rates. Flag excluded
 Properties individually; do not silently replace mention ranking with citation

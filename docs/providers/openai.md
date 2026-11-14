@@ -2,7 +2,7 @@
 
 ## Role
 
-`packages/provider-openai` is one of three answer-visibility provider adapters (alongside Gemini and Claude). It queries the OpenAI Responses API with web search enabled to determine which domains are cited in AI-generated answers for tracked queries.
+`packages/provider-openai` sends tracked queries to the OpenAI Responses API with web search. Canonry uses the answer text for mentions and URL citation annotations for cited domains.
 
 ## Provider Contract
 
@@ -16,7 +16,7 @@ Makes a lightweight OpenAI API call to verify the key works. Returns ok/error wi
 
 ### `executeTrackedQuery(input: OpenAITrackedQueryInput): Promise<OpenAIRawResult>`
 
-Sends the query to the OpenAI Responses API with `web_search` as the only tool and `tool_choice: "required"`, so the model must search before it answers (see [Retrieval contract](#retrieval-contract)). The query is sent as-is, with no `instructions`. Returns:
+Sends the unchanged query to the OpenAI Responses API without `instructions`. The adapter requires the `web_search` tool and sends a requested location in `user_location`. See [Retrieval contract](#retrieval-contract). The result includes these fields.
 
 - `rawResponse` — the full OpenAI API response (output items, usage metadata)
 - `groundingSources` — extracted `{ uri, title }` pairs from URL citation annotations
@@ -37,7 +37,7 @@ Extracts analyst-relevant fields from the raw response:
 
 ## Retrieval contract
 
-Every snapshot records the search policy its request was built under (`query_snapshots.retrieval_contract`; definitions in `packages/contracts/src/retrieval.ts`). OpenAI runs **`search-required-v1`**: the unmodified query as `input`, no `instructions`, and `tool_choice: "required"` with `web_search` as the only tool. `required` forces a call to *some* tool, so it forces a search only because no other tool is offered; adding a tool to this request changes the contract. It measures a search-grounded answer, not a reproduction of ChatGPT, whose system instructions, routing, and search policy are not public. Claude runs the same contract through `tool_choice: { type: "tool", name: "web_search" }`.
+OpenAI records `search-required-v1` in `query_snapshots.retrieval_contract`. The request sends `tool_choice: "required"` with `web_search` as its only tool. Adding another tool changes that contract, since `required` lets the model select from the tools in the request. These observations measure the Responses API. The `cdp:chatgpt` browser adapter measures the ChatGPT web UI separately.
 
 ### Retrieval detection
 
@@ -46,7 +46,7 @@ Every snapshot records the search policy its request was built under (`query_sna
 | Response | `retrievalStatus` |
 |---|---|
 | any `web_search_call` output item (any action: `search`, `open_page`, `find_in_page`; with or without a query) | `used` |
-| `status: "completed"` and no `web_search_call` item | `not-used` (the contract did not hold for this answer) |
+| Nonempty `output`, `status: "completed"` or omitted, and no `web_search_call` item | `not-used` |
 | no search call and `status` is `incomplete`, `failed`, or any other unfinished state | `unknown` |
 | `output` missing, not an array, or empty | `unknown` |
 

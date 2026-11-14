@@ -59,7 +59,9 @@ Rules the shared layer enforces for every vendor:
 
 ## Requests, retries and limits
 
-All requests go through one HTTP layer: the descriptor's auth header, a per-profile deadline, a response size cap (a raw payload over 1 MB is replaced by a marker and `rawTruncated` is set), and the shared execution gate and daily quota of the connection. Retries happen only for statuses the vendor documents as safe (throttles and declared server errors), honour `Retry-After`, and never happen once a response body began or after a dropped connection, because the paid request may already have been billed. Streamed answers that end before the vendor's final event are partial.
+The shared HTTP layer uses the descriptor's authentication and the profile's deadline. It rejects responses over 8 MiB. For an accepted response over 1 MiB, Canonry stores a marker in place of the raw payload and sets `rawTruncated`.
+
+Profiles on the same connection share its execution gate and daily quota. Canonry retries only the HTTP statuses in the vendor descriptor and honors `Retry-After`. It stops retrying once the response body starts or the connection drops. A stream that ends before the vendor's final event is partial.
 
 ## Adding a vendor
 

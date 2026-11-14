@@ -27,7 +27,7 @@ erDiagram
   projects ||--o{ measurement_plan_versions : "publishes"
   projects ||--o{ measurement_segments : "identifies"
   measurement_plan_versions ||--o{ runs : "optionally pins"
-  projects ||--o| schedules : "has (1:1)"
+  projects ||--o{ schedules : has
   projects ||--o{ notifications : has
   notifications ||--o{ review_webhook_deliveries : delivers
   projects ||--o{ audit_log : has
@@ -143,7 +143,7 @@ erDiagram
 | **provider_batch_requests** | Maps each batch line's short `custom_id` (the row id) to its slot: execution id, query, requested model and location, and the ingest `outcome`. | FK: batchId → provider_batches (CASCADE), queryId → queries (SET NULL, indexed); unique `(batchId, executionId)` |
 | **research_runs** | Saved batch header for ad-hoc model research. Isolated from tracked monitoring; `initiatedBy` records the account or API key that started new runs. Historical rows can be null. | FK: projectId → projects, unique `(projectId, idempotencyKey)` |
 | **research_run_queries** | One persisted answer/evidence result per research batch query. | FK: researchRunId → research_runs, unique `(researchRunId, position)` |
-| **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
+| **schedules** | One schedule per project and run kind. Each row stores timing, timezone, and enablement. | Unique: `(projectId, kind)` |
 | **notifications** | Alert configurations per project | FK: projectId → projects |
 | **review_webhook_deliveries** | One durable delivery per negative-review event and destination (v189), empty on upgrade. `state` is `pending`, `attempting`, `sent`, `uncertain` (a chat send that got no answer, never resent), `failed` (refused, or out of retries) or `canceled`; `retry_at` is when a pending delivery is next due. An engine timer drains due rows every minute. | FK: projectId → projects, notificationId → notifications; unique (project_id, notification_id, event_id) |
 | **audit_log** | Change tracking. Authenticated actor plus nullable `credentialId` and `requestId`; client/session hints are not identity. Credential IDs remain after key deletion. | FK: projectId → projects (optional) |
@@ -155,16 +155,12 @@ monitoring metric. New run headers preserve initiating-principal attribution;
 rows created before that field was introduced remain unattributed. Deleting a project cascades to its research runs, and
 deleting a research run cascades to its query results.
 
-Measurement planning is additive. Existing projects and ordinary
-`answer-visibility` runs do not require a plan, and publishing a plan does not
-change their metrics or scheduling. The compiler freezes a deduplicated graph:
-every project query gets a baseline edge, while user-selected Target assignments
-add attribution edges to the same execution node when query text and context are
-identical. Optional groups own membership and competitor metadata only; their
-reporting edges are derived from member Target assignments and never own query
-intent. A plan-aware runner can later pin the exact revision and manifest so
-historical execution remains reproducible after the active plan or tracked-query
-library changes.
+Simple projects can run without a published plan. The measurement compiler
+deduplicates execution nodes that share query text and context. Target
+assignments point to those nodes. Groups derive their reporting edges from
+member Target assignments. When the queue creates a plan-aware run, it pins the
+published revision and freezes the run manifest. Historical reads retain that
+execution context after the active plan or tracked queries change.
 
 ### Agent Readiness Crawl Persistence
 
@@ -327,21 +323,22 @@ configuration value into an observation. Treat NULL as unknown.
 
 ### Integrations — Google Analytics
 
-GA rows record no GA4 property (only `ga_search_landing_windows.property_id` does), so a project's rows always come from the one property it resolves to. `ga disconnect`, and every connection write that moves a project to another property or to none, deletes that project's rows from every table below except `ga_connections` (`packages/api-routes/src/ga-property-data.ts`). That includes `ga_measurement_sync_state`, so the next sync backfills acquisition and lead events in full, as a first sync does.
+Each project syncs data from one GA4 property. Sync coverage and Search Console landing-page windows record the property ID with the data. When a connection change moves a project to another property or removes its property, Canonry clears its sync data and state (`packages/api-routes/src/ga-property-data.ts`). The next sync backfills acquisition and lead events in full.
 
 | Table | Purpose |
 |-------|---------|
 | **ga_connections** | GA4 property connection (1:1 with project) |
 | **ga_traffic_snapshots** | Per-page daily traffic snapshots. Includes `sessions`, `organic_sessions`, and `direct_sessions` (nullable; populated by GA4 sync) — supports per-channel landing-page breakdowns. |
-| **ga_daily_totals** | GA4 property-level daily totals (no landing-page dimension), so `users` is deduplicated by GA and matches the GA UI. `SUM(users)` over `ga_traffic_snapshots` overcounts multi-page visitors and must not be used for a daily user count. Also holds `engagement_rate` (a real GA4 metric, requested directly) and `new_users`; returning users are DERIVED as `users - new_users` because GA4 exposes no `returningUsers` metric, and the subtraction is exact here since the date-only grain has GA deduplicate both counts inside the day. Both columns are nullable with no default — rows written before v116 have no reading, and a 0 would read as a real "nobody engaged, nobody returned" day. v188 adds the rest of the GA4 overview's daily figures (`active_users`, `organic_sessions`, `views`, `event_count`, `key_events`, `engagement_seconds`, `bounce_rate`), nullable for the same reason; every sync rewrites the last `GA_OVERVIEW_HISTORY_DAYS` (180) days, counted in the property's reporting time zone like GA4's own dates, so each overview window has its previous period. Disconnect deletes the rows. Unique: `(project_id, date)` |
-| **ga_window_metrics** | GA4's own totals for each overview window (`7d` / `30d` / `90d` of complete days ending yesterday in the property's reporting time zone) and for the period of the same length before it: one row per `(project_id, window_key, period)` with `period` `current` or `previous`, replaced together on every sync (v188). Users are distinct over the whole period and the rates are GA4's, which no sum of daily rows reproduces. Every figure is nullable: GA4 sends no row for a period with no data. Disconnect deletes the rows, so another property never shows them. |
+| **ga_daily_totals** | GA4 property totals by date. GA4 deduplicates users within each date. `SUM(users)` over `ga_traffic_snapshots` overcounts visitors who land on multiple pages. v116 adds nullable `engagement_rate` and `new_users`. v188 adds nullable `active_users`, `organic_sessions`, `views`, `event_count`, `key_events`, `engagement_seconds`, and `bounce_rate`. The sync plans 360 complete days plus the current day in the property's reporting time zone. It replaces the date ranges that the coverage plan requests. Unique key `(project_id, date)`. |
+| **ga_sync_coverage** | Successful sync dates by project and report component, including dates with no rows. Canonry reuses older coverage for the same property and report definition for 30 days. Each sync refreshes the latest 14 days in scope. Primary key `(project_id, component, date)`. |
+| **ga_window_metrics** | GA4 totals for each overview window (`7d` / `30d` / `90d` / `180d`) and the preceding period of equal length. Both use complete days in the property's reporting time zone. Each sync replaces the `current` and `previous` rows together (v188). GA4 computes distinct users and rates over each whole period. Figures are nullable because GA4 can return no row for a period. Unique key `(project_id, window_key, period)`. |
 | **ga_traffic_summaries** | Aggregated traffic summaries |
 | **ga_ai_referrals** | AI engine referral tracking. `traffic_class` splits `paid` AI traffic (paid/cpc/sponsored UTM values or GA4 paid channel groups, including tagged ChatGPT ads) from `organic`/non-paid AI referrals. Unique: `(projectId, date, source, medium, sourceDimension, channelGroup, landingPage)` |
 | **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, channelGroup)` |
 | **ga_acquisition_daily** | GA4 session acquisition rows at `(project, date, channel group, source, medium, host, landing page)` grain. `landing_page_normalized` supports page rollups; sessions are non-negative. |
 | **ga_lead_events_daily** | GA4 configured lead-event counts at acquisition dimensions plus `event_name` and `attribution_scope`. Scope is `landing-page` or `channel`; counts are non-negative, and the full grain is unique. |
 | **ga_measurement_sync_state** | One per-project status row for the acquisition, lead and Search Console landing-page components. Acquisition and leads are `never-synced`, `ready`, or `error`, with their error/timestamp; lead scope is nullable until a lead sync establishes `landing-page` or `channel`. The landing-page component (v176, defaulted columns `search_landing_status` / `_error` / `_synced_at` / `_attempted_at`) adds `unavailable` (GA4 refused the Search Console metrics); `synced_at` is when the stored snapshot was written and `attempted_at` the last try, so a failed try keeps the old snapshot and its time. `lead_event_names` is the event set the last lead sync counted (a changed set refreshes the full GA4 window), `key_event_names` the property's key events from the last successful Admin API read, and `key_events_error` the latest failed read (v194). |
-| **ga_search_landing_windows** | GA4's "Google organic search traffic: Landing page + query string" report (Search Console link), one row per project and `window_key` (`7d` / `28d` / `90d`, each ending yesterday in the property time zone). Holds the GA4 `property_id` it was read from (a failed sync against another property drops the snapshot rather than keep it), the window dates and `time_zone`, GA4's own TOTAL row (`total_clicks`, `total_impressions`, `total_ctr` 0..1, `total_average_position`, `total_active_users`; the ratios are null with no impressions), `report_row_count`, `rows_capped`, and GA4's thresholding / `(other)` row flags. The Total is never a sum of `ga_search_landing_pages`: users are distinct per grain and CTR and position are ratios. A sync deletes and rewrites every window and page row together. Unique: `(project_id, window_key)` |
+| **ga_search_landing_windows** | GA4's "Google organic search traffic: Landing page + query string" report (Search Console link). Each window (`7d` / `28d` / `90d` / `180d`) ends yesterday in the property's reporting time zone. The row records the property ID, date range, time zone, GA4's TOTAL row, row count, and cap and data-quality flags. CTR and position are null when GA4 reports zero impressions. The sync can reuse fresh windows with identical request definitions. A failed sync keeps the last successful snapshot for the same property. Unique key `(project_id, window_key)`. |
 | **ga_search_landing_pages** | One landing page of one window of that report: GA4's raw `landingPagePlusQueryString` in `landing_page` (never normalized), `clicks`, `impressions`, `ctr` (0..1) and `average_position` (both null with no impressions), `active_users` (GA4's plain `activeUsers`). At most 10,000 rows per window, the most clicks, then impressions, first. Unique: `(project_id, window_key, landing_page)` |
 
 ### Integrations — Google Business Profile
@@ -414,7 +411,7 @@ Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside 
 | Table | Purpose |
 |-------|---------|
 | **insights** | Per-run analysis insights (regressions, gains). FK: projectId → projects, runId → runs |
-| **health_snapshots** | Citation health snapshots per run. FK: projectId → projects, runId → runs |
+| **health_snapshots** | Per-run mention and citation health. Mention rates use all pairs. Citation rates exclude pairs whose sources the adapter cannot measure. FK: projectId → projects, runId → runs |
 
 ### System
 
@@ -449,9 +446,9 @@ invalidate histories left behind by an older writer.
 
 | Table | Purpose |
 |-------|---------|
-| **agent_sessions** | One active Aero conversation per project. Durable half of the hybrid session registry — stores transcript, queued follow-ups, and chosen provider/model so a live pi-agent-core Agent can be rehydrated after a restart. Unique: `projectId`. FK: projectId → projects |
+| **agent_sessions** | One active operator Aero conversation per project. Durable half of the hybrid session registry — stores transcript, queued follow-ups, and chosen provider/model so a live pi-agent-core Agent can be rehydrated after a restart. Unique: `projectId`. FK: projectId → projects |
 | **agent_provider_cooldowns** | Install-wide Aero automatic-work holds shared across projects and restarts. Primary key is a provider/credential digest. Stores a safe auth/billing reason, expiry and unique failure identity, so an older in-flight success cannot clear a newer failure. No credentials or raw provider text. The providers API exposes only reason, retry time and recovery instructions. |
-| **agent_conversations** | Inactive Aero conversations. Stores title, transcript, prompt snapshot, model, pending follow-ups, and timestamps. New/resume swaps with the active slot in one transaction. `llm_usage_events` and `agent_tool_events` keep the conversation id through new, resume and archive (a plain column since migration 165, because the id moves between the two tables); deleting a conversation clears it. FK: projectId → projects |
+| **agent_conversations** | Archived operator Aero conversations. Stores title, transcript, prompt snapshot, model, pending follow-ups, and timestamps. New/resume swaps with the active slot in one transaction. `llm_usage_events` and `agent_tool_events` keep the conversation id through new, resume and archive (a plain column since migration 165, because the id moves between the two tables); deleting a conversation clears it. FK: projectId → projects |
 | **agent_memory** | Project-scoped durable notes written by Aero (`remember`), the operator (CLI / API), or the compaction summarizer. Shared notes and only the active conversation's compaction summaries hydrate its system prompt under `<memory>`. Keys starting with `compaction:` are reserved for summarized transcript slices. Unique: `(projectId, key)`. FK: projectId → projects |
 
 ### Discovery (three-ring model)
@@ -459,7 +456,7 @@ invalidate histories left behind by an older writer.
 | Table | Purpose |
 |-------|---------|
 | **discovery_sessions** | One row per `canonry discover run` invocation. Captures the research artifact for a session: ICP snapshot, seed/dedup/probe phase counts, bucket counts (cited / aspirational / wasted-surface), `competitor_map` as a JSON array of `{domain, hits}` entries (default `'[]'`), a nullable `warning` (non-fatal operator flag, e.g. the seed-dedup degenerate-collapse guard), and the nullable seed-source diagnostics `seed_from_answer_count` / `seed_from_grounding_count, seed_brand_filtered_count` (split of raw seed candidates by origin — answer text vs. grounding fan-out — recorded at seed time; null on legacy sessions, consumed by no gate). Status flows `queued → seeding → probing → completed` (or `failed`). FK: projectId → projects |
-| **discovery_probes** | One row per (session × candidate query) probe. Stores the query text (free-form — not promoted to `queries` until the operator adopts it), citation_state, cited_domains, `answer_mentioned` (the answer-text mention signal, independent of citation; nullable for legacy rows), bucket classification, and raw provider response. **No `UNIQUE(session_id, query)`** so v2 multi-provider amplification can probe the same query across Gemini + ChatGPT + Claude in one session without a migration. FK: sessionId → discovery_sessions, projectId → projects |
+| **discovery_probes** | One row per (session × candidate query) probe. Stores the query text (free-form — not promoted to `queries` until the operator adopts it), citation_state, cited_domains, `answer_mentioned` (the answer-text mention signal, independent of citation; nullable for legacy rows), bucket classification, and raw provider response. Gemini executes the probes. The bucket uses cited domains, and `answer_mentioned` remains a separate signal. FK: sessionId → discovery_sessions, projectId → projects |
 | **research_runs / research_run_queries** | Saved, isolated free-form research batches. Each result stores the answer, source links, cited domains, answer-text named competitors, and cited competitor domains as separate signals. They never create tracked `queries`, shared `runs`, snapshots, insights, notifications, or schedules. |
 
 ### Content

@@ -16,16 +16,14 @@ A "not-mentioned" query means the answer text never named the client. `answerMen
 ### First diagnostic read (mention-first)
 
 ```bash
-cnry get <project> scores.mentionCoverage.value     # mention rate (primary)
-cnry get <project> scores.mentionShare.value        # mention share / AI share-of-voice (primary)
-cnry analytics <project> --feature gaps             # mentionGap[] / notMentioned[] (who's named instead of you)
+cnry get <project> mentionCoverage.populations --format json
+cnry get <project> scores.mentionShare --format json
+cnry analytics <project> --feature gaps --format json
 ```
 
-Read citation as the secondary lens only after the mention read:
-
-```bash
-cnry get <project> scores.citationCoverage.value    # cited rate (secondary)
-```
+Select the population by `queryClass`. Its `mentionCoverage` and
+`citationCoverage` each contain a numerator, denominator, and rate. Use the
+reported scope for mention share.
 
 ## What Citation Means
 
@@ -37,7 +35,7 @@ A "cited" query means the client's domain appeared in an AI provider's grounding
 
 A "not-cited" query means the AI answered without grounding on the client's domain.
 
-A "not-measured" citation means the engine returns no sources at all (a local model with no web access), so whether it would cite the client was never observed. It is never a miss and is left out of every cited rate; report it as not measured, and read that answer's mention as usual.
+A citation is `not-measured` when the adapter captures no structured sources, as with Local chat completions. Cited rates exclude these answers. Their mention measurements remain available.
 
 ## Reading Evidence Output
 
@@ -60,7 +58,7 @@ how to fix a leaky faucet  cm      ·m     cm      0/2   0/3   ← neither: info
 
 **Branded/direct queries** (e.g., "[business name] [city]"):
 - If mentioned: good — the engine names you for your own core queries (and check the citation as the secondary confirmation)
-- If not mentioned: urgent — the engine won't even say your name; something broken at a fundamental level (indexing, schema, llms.txt). Losing the citation for your own name is the secondary signal on the same query.
+- If not mentioned, read the exact answer and check the project's recorded brand names. Use separate site and search evidence to investigate possible causes.
 
 **Competitive queries** (e.g., "best [service] [city]"):
 - If not mentioned: check who IS mentioned (mention share) — competitor analysis needed. Then check who is cited as the secondary lens.
@@ -101,9 +99,9 @@ Recommend briefs only for ownable targets; for ceded head terms, advise earning 
 ## Diagnosing Mention + Citation Gaps
 
 ### Step 0: Read the mention signal first
-Before anything else, separate the two signals. `cnry analytics <project> --feature gaps` tells you whether the query is in `notMentioned[]` (the engine never names you), `mentionGap[]` (a competitor is named instead), or only in the cited `gap[]`/`uncited[]` (a citation gap while the mention may hold). The fix priority follows the mention: earn the name first, the source citation second. `answerMentioned = null` means the snapshot wasn't checked — re-run, don't read it as not-mentioned.
+Read both signals in `cnry analytics <project> --feature gaps`. The `notMentioned[]` and `mentionGap[]` buckets use answer text. The `gap[]` and `uncited[]` buckets use citations. Report `answerMentioned = null` as unavailable.
 
-> **Known gap:** `cnry health` is citation-only today (no mention dimension). For the mention-first read, use `cnry overview` / `cnry get <project> scores.mentionCoverage.value` / `cnry get <project> scores.mentionShare.value` until health is extended.
+`cnry health <project>` shows mention and citation rates with separate denominators. `cnry health <project> --history` shows both signals over time.
 
 ### Stored competitor suggestions
 
@@ -123,11 +121,11 @@ because a recommended name can be a partner, place, service, or unrelated
 entity.
 
 ### Step 1: Check indexing
-Not mentioned / not cited ≠ bad content. Often the page isn't indexed yet, which starves both signals.
+Read stored indexing evidence as one possible explanation for a change in visibility.
 ```bash
 cnry google coverage <project>
 ```
-If key pages are "unknown to Google," submit them before drawing conclusions.
+For a key page, read its stored inspection with `cnry google inspections <project> --url <url>`. Report the inspection date. Use the [indexing workflow](indexing.md) for an approved submission.
 
 ### Step 2: Check if content exists
 Is there a page on the site targeting that query? If not, that's the gap — not a canonry or provider issue.
@@ -145,9 +143,9 @@ Gemini, OpenAI, Claude, and Perplexity may behave differently. One citing a doma
 
 ### Step 5: Check analytics trends
 ```bash
-cnry analytics <project> --feature gaps --window 30d
+cnry analytics <project> --feature metrics --window 30d
 ```
-Look for patterns: are gaps growing or shrinking? Are new competitors appearing?
+Read the mention and citation trends. Use `--feature gaps` for the latest eligible sweep. Its window controls the consistency history.
 
 ### Step 6: Check GA4 traffic for impact
 A lost mention (or lost citation) isn't always a lost user. Before declaring a regression real, confirm whether AI-referral traffic actually fell on the same window:
@@ -158,12 +156,7 @@ cnry ga ai-referral-daily <project> --format json
                                                       # attribution dimensions; totals match `cnry ga traffic`
 cnry ga attribution <project> --trend             # 7d/30d direction per channel + biggest mover
 ```
-Read the result against the citation loss window:
-- **AI sessions flat or up** → the citation loss may be sweep-side noise (provider variance, query refresh). Track for one more cycle before alarming the client.
-- **AI sessions dropped on the same date** → real outage; escalate. Cross-reference `aiReferrals[]` from `cnry ga traffic` to identify which provider lost traffic.
-- **Organic dropped but AI held** → the citation loss is masking a separate indexing issue. Re-run Step 1.
-
-GA4 also covers the inverse case: a *gain* on `attribution --trend` for the AI channel that isn't reflected in citation count usually means a provider expanded an existing citation's exposure (more queries triggering it) — a quiet win worth flagging in the next report.
+Compare the same date range in both instruments. If AI sessions also fell, read `aiReferrals[]` from `cnry ga traffic` to find the sources with fewer sessions. A sweep and GA4 measure different populations. Their changes do not establish what caused the traffic change.
 
 ## Trend Interpretation
 
@@ -196,9 +189,9 @@ To answer "did it move since the last sweep?", read `populations[].comparison` f
 
 ### Low overall mention rate (< 50%)
 Mention rate is the primary KPI — fix this before cited rate.
-1. Audit indexing — `cnry google coverage <project>` (an unindexed page can't be named or cited)
-2. Submit unindexed pages to Google Indexing API
-3. Submit sitemap to Bing WMT + send IndexNow batch
+1. Audit Google index coverage with `cnry google coverage <project>`.
+2. Submit the sitemap with `cnry google submit-sitemap <project> --configured`. Use the Google Indexing API for eligible job and livestream pages.
+3. Submit the sitemap with `cnry bing submit-sitemap <project> <url>`.
 4. Check core pages for schema (LocalBusiness / Organization / FAQPage) so the brand name is unambiguous
 5. Map `notMentioned[]` / `mentionGap[]` queries to pages — which have no corresponding page, and who is named instead?
 

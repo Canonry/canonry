@@ -407,15 +407,6 @@ importers:
         specifier: ^8.3.5
         version: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
 
-  apps/worker:
-    dependencies:
-      '@canonry/canonry-config':
-        specifier: workspace:*
-        version: link:../../packages/config
-      tsx:
-        specifier: ^4.23.15
-        version: 4.23.15
-
   packages/api-client-generated:
     devDependencies:
       '@canonry/canonry-api-routes':

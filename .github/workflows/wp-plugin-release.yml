@@ -54,4 +54,4 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}" \
             "dist/canonry-traffic-logger-${{ steps.version.outputs.version }}.zip" \
             --title "WordPress Traffic Logger v${{ steps.version.outputs.version }}" \
-            --notes "Install: download the zip, upload via wp-admin → Plugins → Add New → Upload Plugin, activate. Create an Application Password under Users → Profile and connect with \`canonry traffic connect wordpress --url https://your-site --username <user> --app-password '<app pw>'\`."
+            --notes "Download the zip. In wp-admin, upload and activate it under Plugins → Add New → Upload Plugin. Create an Application Password under Users → Profile. Connect with \`canonry traffic connect wordpress <project> --url https://your-site --username <user> --app-password '<app pw>'\`."

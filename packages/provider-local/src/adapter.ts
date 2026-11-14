@@ -61,7 +61,7 @@ export const localAdapter: ProviderAdapter = {
   name: 'local',
   displayName: 'Local',
   mode: 'api',
-  // normalize.ts folds the location into the system message.
+  // normalize.ts folds the location into the user message.
   supportsLocationContext: true,
   modelRegistry: {
     defaultModel: 'llama3',

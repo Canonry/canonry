@@ -2,7 +2,7 @@
 
 ## Role
 
-`packages/provider-perplexity` is the answer-visibility adapter for Perplexity. It calls the **Agent API** (`POST https://api.perplexity.ai/v1/agent`) and reads which domains an answer cites for each tracked query.
+`packages/provider-perplexity` sends tracked queries to the Agent API (`POST https://api.perplexity.ai/v1/agent`). Canonry measures mentions from answer text and cited domains from the source URLs that the adapter extracts.
 
 Perplexity retired Sonar Chat Completions on 2026-09-27 ([migration guide](https://docs.perplexity.ai/docs/agent-api/migrate-from-sonar)). Rows written before the switch are Sonar responses; the adapter still parses them (see [Stored history](#stored-history)).
 
@@ -40,7 +40,7 @@ Retired names still validate and resolve through `PROVIDER_MODEL_ALIASES` in `pa
 | Field | Source |
 |-------|--------|
 | `answerText` | `output_text` parts of every `message` item, joined |
-| `groundingSources` | `search_results` item `results[]`, then `fetch_url_results` `contents[]`, then `url_citation` annotations on the message; deduplicated by URL in output order |
+| `groundingSources` | URLs in `search_results.results`, `fetch_url_results.contents`, and message annotations, deduplicated in output order |
 | `citedDomains` | Unique hosts of `groundingSources` |
 | `searchQueries` | `search_results` item `queries[]` |
 | `retrievalStatus` | `used` with a `search_results` or `fetch_url_results` item; `not-used` with a message and neither; `unknown` otherwise |
@@ -49,7 +49,7 @@ Retired names still validate and resolve through `PROVIDER_MODEL_ALIASES` in `pa
 | `usage` | `usage`: `input_tokens` minus the cache reads and writes `input_tokens_details` breaks out of it = input tokens; `cache_read_input_tokens` = cached; `cache_creation_input_tokens` = cache writes; `output_tokens` = output. Searches are `tool_calls_details.web_search.invocation` (the billed count) when reported, else one per `search_results` item. No `usage` object → none recorded |
 | `stopReason` | `incomplete_details.reason` when set, else `status` |
 
-There is no top-level `citations` or `search_results` on an Agent response. A failed or cancelled run comes back as HTTP 200 with `status` and `error` set, so the adapter checks `status` and throws for anything but `completed` or `incomplete`. An `incomplete` run passes only when it still carries answer text; one that stopped before any answer throws, so it is recorded as a failed slot rather than a measured non-mention. HTTP 429 and 5xx retry through `withRetry`; other 4xx do not.
+The adapter reads sources from the `output` array and checks the response `status` even on HTTP 200. It accepts `completed` or an absent status. It accepts `incomplete` only with nonempty answer text. Other statuses fail the query. The shared retry policy covers rate limits, 5xx responses, and network errors.
 
 ## Comparability
 

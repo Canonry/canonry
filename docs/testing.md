@@ -149,7 +149,8 @@ Include the tested SHA, exact commands, test totals, and results before submissi
 Failed or unrun required checks block submission without an explicit maintainer exception.
 Docs/comment-only and configuration changes use the applicable checks under [Before Merging](#before-merging).
 
-`pnpm verify` includes generated-file drift, documentation assertions, and all workspace tests, typechecks, and lint.
+`pnpm verify` includes generated-file drift, workspace tests, typechecks, and lint.
+Contributor CI also checks that each package has an `AGENTS.md` with `bash scripts/check-docs.sh`.
 It stops at the first failure. Report only checks that actually ran.
 For owner (`arberx`) changes, `pnpm verify` remains optional locally, not a per-commit or per-push requirement.
 Owner changes use affected package checks at final validation, including dependent packages for changes that span the workspace.
@@ -162,7 +163,7 @@ Do not run tests during local iteration. At final validation:
 
 1. Run `pnpm check`, affected package tests, typechecks, and type-aware lint. Cover meaningful invalid, boundary, and permission cases; broaden validation for shared runtime, contracts, dependencies, migrations, and authorization changes.
 2. Build the affected surface and smoke its actual behavior through the relevant API, CLI, MCP, or browser. Packaging changes require a packed install smoke check; database changes require applicable fresh-install and upgrade migration checks.
-3. Run applicable SDK, plugin, and Val drift checks. Regenerate at the source and review generated changes; never weaken checks to make them pass. Hooks check staged lint and drift; they do not replace tests, typechecks, builds, or smoke checks.
+3. Run the applicable SDK and plugin drift checks. Regenerate from the source and review the generated changes. Keep the drift checks in place.
 4. Fetch the latest PR target, integrate upstream changes, inspect the complete target-to-head diff, and resolve conflicts. At final validation, rerun only checks whose inputs changed.
 5. Recheck an attempted version bump against the current target tip and published npm versions immediately before pushing. Publish compares against the previous main commit; reusing the target's version skips npm and Homebrew even if merge-base checks pass.
 6. After pushing, before handoff or merge, verify the validated commit matches the remote branch and PR `headRefOid`; require GitHub `mergeable: MERGEABLE`. Report remaining working-tree changes without discarding another agent's work. Record exact commands, results, validated SHA, and blockers; failed or unrun required checks mean the change is not ready.
@@ -263,13 +264,12 @@ canonry serve
 
 1. Run tests and typechecks for the affected packages.
 2. Run `packages/canonry/test/agent-readiness-dependency-contract.test.ts` to verify the published audit-engine pins and integration boundaries.
-3. Confirm the worker starts without an audit-engine dependency; audit execution belongs to the production full-crawl engine.
-4. Confirm `packages/api-routes/` has no direct dependency on `apps/*`.
-5. Confirm `packages/canonry/` bundles SPA assets correctly (`build-web.ts`).
+3. Confirm `packages/api-routes/` has no direct dependency on `apps/*`.
+4. Confirm `packages/canonry/` bundles SPA assets correctly (`build-web.ts`).
 
 ## Provider Tests
 
-The provider packages (`packages/provider-gemini`, `provider-openai`, `provider-muse`, `provider-claude`, `provider-perplexity`, `provider-local`, `provider-cdp`) have unit tests that validate:
+The unit tests in `packages/provider-*/test/` cover provider-specific contracts. The [provider guide](providers/README.md) lists current adapters. Coverage includes these behaviors.
 
 - Config validation (accepts valid keys, rejects empty)
 - Custom model passthrough
@@ -277,16 +277,19 @@ The provider packages (`packages/provider-gemini`, `provider-openai`, `provider-
 - Domain extraction from grounding source URIs (www. stripping, deduplication)
 - Graceful handling of empty responses and invalid URIs
 
-These tests do **not** make real API calls. They test `normalizeResult` against synthetic raw result objects to verify the parsing and extraction logic.
+Use fixtures and stub HTTP responses for provider tests. Parser tests exercise source and answer extraction. Adapter tests can exercise request and response handling through the SDK.
 
 ### Provider-specific response formats
 
-- **Gemini**: `candidates[].content.parts[].text` + `groundingMetadata.groundingChunks`
+- **Gemini** uses the first candidate's text and the chunks referenced by `groundingSupports`. It falls back to grounding chunks when no support index is valid.
 - **OpenAI**: `output[].content[].text` + `output[].content[].annotations[]` (URL citations)
-- **Muse**: final `message` → `output_text` blocks + their `url_citation` annotations; `web_search_call` items set retrieval status
-- **Claude**: `content[].text` + `web_search_tool_result` blocks with `search_results`
-- **Perplexity**: Agent API `output[]` (`message` text + `search_results` item); stored Sonar rows keep the `search_results` / `citations` parser
-- **Local**: heuristic URL/domain scan over the raw answer text (no native web search)
+- **OpenRouter**: chat completion message text and `url_citation` annotations
+- **Muse** uses final `message` text and `url_citation` annotations. `web_search_call` items supply separate retrieval evidence.
+- **Claude** uses final text blocks and their `web_search_result_location` citations.
+- **Perplexity** reads Agent API message text and sources from search results, page reads, and message annotations. Historical Sonar rows keep their own parser.
+- **Local**: chat completion text for mentions, with citations marked as unmeasured
+- **ChatGPT (Browser)** reads answers and citations from the rendered page.
+- **Search answer services** use profile-specific parsers and preserve the relationship of each source to the answer.
 
 To test live API calls, use the CLI with real API keys:
 
@@ -294,17 +297,17 @@ To test live API calls, use the CLI with real API keys:
 canonry init                                    # provide API keys for one or more providers
 canonry project create test --domain example.com --country US --language en
 canonry query add test "best dentist brooklyn"
-canonry run test                                # runs against all configured providers
+canonry run test                                # uses the project selection, or configured direct engines by default
 canonry run test --provider gemini              # single-provider run
-canonry status test                             # view citation results
+canonry citations visibility test               # view mention and citation results
 ```
 
 ## End-to-End Verification
 
 1. `canonry init` creates `~/.canonry/` with SQLite DB and auto-generated API key
 2. `canonry serve` starts server, dashboard loads
-3. `canonry project create` / `query add` / `run` workflow completes with results from all configured providers
-4. Run results include per-provider grounding sources, search queries, and cited domains
+3. `canonry project create`, `query add`, and `run` produce results from the selected providers
+4. Run results show mention and citation outcomes plus any grounding sources and search queries the provider supplies
 5. `canonry export` produces valid `canonry.yaml`
 6. `canonry apply` is idempotent and records audit log entries
 7. Dashboard shows visibility data
