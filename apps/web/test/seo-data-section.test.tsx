@@ -203,7 +203,7 @@ test('SEO opens on comparable ranking trends and keeps detail reads pinned to th
   expect(within(await screen.findByRole('table', { name: /Estimated organic traffic per refresh/ })).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['61.5', 'Not recorded', '98.4'])
   fireEvent.change(screen.getByRole('combobox', { name: 'SEO trend range' }), { target: { value: '30' } })
   await screen.findByText('One saved reading in this range. Choose a longer range to see a trend.')
-  expect(screen.getByText('Saved Oct 20')).toBeTruthy()
+  expect(screen.getByRole('button', { name: /^About this chart\..*Reading from Oct 20/ })).toBeTruthy()
   expect(within(screen.getByRole('table', { name: /Estimated organic traffic per refresh/ })).getByRole('cell').textContent).toEqual('98.4')
   expect(reads.filter(url => url.pathname.endsWith('/trends')).map(url => Object.fromEntries(url.searchParams))).toEqual([{ profileId: 'simple', days: '180' }, { profileId: 'simple', days: '30' }])
   await waitFor(() => expect(aeroContexts.at(-1)).toEqual({ view: 'seo', seoProfileId: 'simple', seoTrend: { days: 30, metric: 'estimatedOrganicTraffic' } }))
@@ -266,7 +266,7 @@ test('SEO picks an available organic trend and keeps the range picker when recen
       const older = { ...firstTrendPoint, inTop10: null, estimatedOrganicTraffic: null, organicKeywords: 488 }
       const next = { ...older, observedAt: '2026-08-20T12:00:00Z', runId: 'august', organicKeywords: 521 }
       return trendEvidence(url, {
-        points: recent ? [{ ...trendGap, observedAt: '2026-10-20T12:00:00Z' }] : [older, next, { ...trendGap, observedAt: '2026-10-20T12:00:00Z' }],
+        points: recent ? [{ ...trendGap, observedAt: '2026-10-20T12:00:00Z' }] : [{ ...older, estimatedOrganicTraffic: 61.5 }, next, { ...trendGap, observedAt: '2026-10-20T12:00:00Z' }],
         hasRankingReadings: true,
         changes: {
           inTop10: null, page1: null, estimatedOrganicTraffic: null,
@@ -280,12 +280,24 @@ test('SEO picks an available organic trend and keeps the range picker when recen
   await mount()
   const timeline = await screen.findByRole('table', { name: /Ranked searches per refresh/ })
   expect(within(timeline).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['488', '521', 'Not recorded'])
-  expect(screen.getByText(/^Results saved/).querySelector('time')?.dateTime).toBe(saved.finishedAt)
-  expect(screen.getByText('Last reading Aug 20')).toBeTruthy()
+  const sync = screen.getByText(/^Last refresh/)
+  expect(sync.querySelector('time')?.dateTime).toBe(saved.finishedAt)
+  const chartHelp = screen.getByRole('button', { name: /^About this chart\./ })
+  expect(chartHelp.getAttribute('aria-label')).toContain('Data through Aug 20')
+  expect(screen.queryByText(/Data through|comparable refreshes/)).toBeNull()
+  fireEvent.focus(chartHelp)
+  expect(screen.getByText(/Data through Aug 20/)).toBeTruthy()
+  fireEvent.blur(chartHelp)
+  fireEvent.click(screen.getByRole('tab', { name: /^Estimated organic traffic/ }))
+  await screen.findByRole('button', { name: /^About this chart\..*Data through Jul 20/ })
+  expect(screen.getByText(/^Last refresh/)).toBe(sync)
+  fireEvent.click(screen.getByRole('tab', { name: /^Ranked searches/ }))
+  await screen.findByRole('button', { name: /^About this chart\..*Data through Aug 20/ })
   const range = screen.getByRole('combobox', { name: 'SEO trend range' })
   range.focus()
   fireEvent.change(range, { target: { value: '30' } })
   await screen.findByText('No comparable readings in this range. Choose a longer range.')
+  expect(screen.queryByRole('button', { name: /Data through/ })).toBeNull()
   expect(document.activeElement).toBe(range)
   expect(screen.getByRole('combobox', { name: 'SEO trend range' })).toBe(range)
   fireEvent.change(range, { target: { value: '180' } })
@@ -453,14 +465,14 @@ test.each([SeoRunStatuses.completed, SeoRunStatuses.partial, null])('selected pr
   if (status) await openEvidence('Searches you rank for')
   await screen.findByRole('heading', { name: status ? 'No results returned' : 'No SEO results yet' })
   if (status) {
-    const freshness = screen.getByText(/^Results saved/)
+    const freshness = screen.getByText(/^Last refresh/)
     expect(freshness.querySelector('time')?.getAttribute('datetime')).toBe(selectedFinishedAt)
     expect(freshness.querySelector('time')?.textContent).toMatch(/^Oct 18\b/)
     // A partial refresh with no failed task says so in a caveat, the sentence in its tooltip.
     expect(screen.queryByRole('button', { name: 'Partial results: some tasks returned only part of their results or did not run. Open Refresh history for details.' }) !== null).toBe(status === SeoRunStatuses.partial)
   } else {
     expect(screen.getByText('No saved results')).not.toBeNull()
-    expect(screen.queryByText(/^Results saved/)).toBeNull()
+    expect(screen.queryByText(/^Last refresh/)).toBeNull()
   }
 })
 
@@ -904,7 +916,7 @@ test('market rankings lead with the refresh, then server counts by outcome and t
     : summary())
   const { router } = await mount('markets')
   await screen.findByRole('heading', { name: 'Google rankings over time' })
-  expect(within(screen.getByRole('region', { name: 'Google rankings over time', exact: true })).getByText('Last reading Jul 20')).toBeTruthy()
+  expect(within(screen.getByRole('region', { name: 'Google rankings over time', exact: true })).getByRole('button', { name: /^About this chart\..*Data through Jul 20/ })).toBeTruthy()
   await openEvidence('Latest rankings')
   const chartData = await screen.findByRole('table', { name: 'Google rank across markets' })
   expect(within(chartData).getByRole('row', { name: 'Not in top 50 4' })).not.toBeNull()
@@ -914,9 +926,10 @@ test('market rankings lead with the refresh, then server counts by outcome and t
   expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Market rankings', pressed: true }))
   // The caption names what the rank figures leave out, so they reconcile with the total.
   expect(within(figures).getByText('18 queries · 6 partly checked · 2 failed')).not.toBeNull()
-  // Freshness, the next scheduled refresh and the failed searches share one line, the sentence behind a caveat.
-  const freshness = screen.getByText(/^Results saved/)
-  expect([...freshness.querySelectorAll('time')].map(time => [time.getAttribute('datetime'), /^(?:Oct 25|Nov 8)\b/.test(time.textContent ?? '')])).toEqual([['2026-10-25T20:00:00Z', true], ['2026-11-08T09:00:00.000Z', true]])
+  const freshness = screen.getByText(/^Last refresh/)
+  expect(freshness.querySelector('time')?.dateTime).toBe('2026-10-25T20:00:00Z')
+  expect(screen.queryByText(/Next scheduled refresh/)).toBeNull()
+  expect(screen.getByRole('button', { name: /^About refreshes\..*Next scheduled refresh Nov 8/ })).toBeTruthy()
   expect(screen.getByRole('button', { name: '2 searches failed: 2 of 10 searches in this refresh returned no results. Their queries show as Failed.' })).not.toBeNull()
   expect(lastRead('/schedule')).toEqual({ kind: 'seo-sync' })
   const values = within(figures).getAllByRole('definition')

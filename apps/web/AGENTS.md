@@ -152,8 +152,9 @@ with missing values last in either direction. Headers toggle ascending/descendin
 show `aria-sort`, and reset to page 1 while retaining the selected refresh and
 gap filter. The prior rows stay mounted during sorting so keyboard focus survives.
 
-The status line reads `Results saved <date>` from the evidence run and `Next scheduled refresh <date>`
-from the project's `seo-sync` schedule (none when it is missing or paused), and at
+The status line reads `Last refresh <date>` from the evidence run. The refresh
+info icon holds the next enabled `seo-sync` date and explains the refresh action.
+The chart's info icon holds observation dates and comparison context. Show at
 most one caution caveat (`refreshCaveat`): the newest refresh ending without data,
 else the shown refresh's failed searches ("2 searches failed"), else a partial
 refresh, each with its sentence in the tooltip. It hides while a refresh runs.

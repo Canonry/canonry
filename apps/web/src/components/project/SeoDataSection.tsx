@@ -373,16 +373,20 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
   const busy = intent.isPending || sync.isPending
   const canRun = context.access.canRun && !isEmbed() && !isPublicDemo()
   const connection = context.connections.find(item => item.id === profile.connectionId)
-  const refreshSource = connection?.label ?? 'the configured source'
-  const refreshHelp = profile.capabilities.includes(SeoCapabilities['market-rankings'])
-    ? `Refresh now runs new Google searches through ${refreshSource} for this profile’s tracked queries and markets.`
-    : `Refresh now requests the latest data available from ${refreshSource}. The source may return the same readings until its dataset updates.`
   const scope = context.scopes.find(item => item.kind === profile.scope.kind && item.key === (profile.scope.key ?? null))
   // A project's SEO refresh schedule refreshes every saved profile; a missing schedule (404) means no date.
   const schedule = useQuery({ ...getApiV1ProjectsByNameScheduleOptions({ client: heyClient, path, query: { kind: SchedulableRunKinds['seo-sync'] } }), retry: false })
   const nextRunAt = !schedule.isError && schedule.data?.enabled && schedule.data.nextRunAt ? schedule.data.nextRunAt : null
   const nextRefresh = nextRunAt ? calendarDay(nextRunAt, schedule.data?.timezone ?? 'UTC') : null
   const savedDay = evidence?.finishedAt && hasResults(evidence) ? calendarDay(evidence.finishedAt, TIME_ZONE) : null
+  const refreshHelp = canRun && connection && (profile.capabilities.includes(SeoCapabilities['market-rankings'])
+    ? `Refresh now runs new Google searches through ${connection.label} for this profile’s tracked queries and markets.`
+    : `Refresh now requests the latest data available from ${connection.label}. The source may return the same readings until its dataset updates.`)
+  const refreshDetails = [
+    savedDay && 'Last refresh shows when Canonry saved these results.',
+    nextRefresh && `Next scheduled refresh ${nextRefresh}.`,
+    refreshHelp,
+  ].filter(Boolean).join(' ')
   const caveat = active ? null : refreshCaveat(latest, evidence)
 
   useEffect(() => {
@@ -425,21 +429,20 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
     <div className="flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border-t border-subtle pt-3">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-copy-13 text-secondary" aria-live="polite">
         {overview.data && <p>
-          {savedDay && evidence?.finishedAt ? <>{selectedRunId ? 'Viewing saved results from' : 'Results saved'} <time dateTime={evidence.finishedAt} title={formatZonedTimestamp(evidence.finishedAt, TIME_ZONE) ?? undefined}>{savedDay}</time></> : 'No saved results'}
-          {!selectedRunId && nextRefresh && nextRunAt && <> · Next scheduled refresh <time dateTime={nextRunAt}>{nextRefresh}</time></>}
+          {savedDay && evidence?.finishedAt ? <>{selectedRunId ? 'Viewing saved results from' : 'Last refresh'} <time dateTime={evidence.finishedAt} title={formatZonedTimestamp(evidence.finishedAt, TIME_ZONE) ?? undefined}>{savedDay}</time></> : 'No saved results'}
         </p>}
+        {!selectedRunId && refreshDetails && <InfoTooltip placement="bottom" text={`About refreshes. ${refreshDetails}`} />}
         {active && latest && <p className="flex items-center gap-2"><Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />{latest.cancelRequested ? 'Cancellation requested' : STATUS_LABELS[latest.status]} · {latest.completedTasks} of {latest.taskCount} {taskNoun(latest)} completed</p>}
         {caveat && <InfoTooltip tone="caution" placement="bottom" label={caveat.label} text={caveat.text} />}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {latest && <Button ref={historyTrigger} variant="ghost" size="sm" aria-haspopup="dialog" aria-expanded={showingHistory} onClick={() => setHistoryOpen(true)}><History className="size-4" aria-hidden="true" />Refresh history</Button>}
-        {selectedRunId ? <Button variant="secondary" onClick={onLatest}>View latest data</Button> : canRun && <div className="flex items-center gap-2">
+        {selectedRunId ? <Button variant="secondary" onClick={onLatest}>View latest data</Button> : canRun && (
           <Button disabled={busy || active || !overview.data || !context.available || !connection} onClick={asyncHandler(refresh)}>
             <RefreshCw aria-hidden="true" className={`size-4 ${busy ? 'motion-safe:animate-spin' : ''}`} />
             {busy ? 'Starting refresh…' : active ? 'Refresh in progress' : pendingSync.current ? 'Retry refresh' : 'Refresh now'}
           </Button>
-          {connection && <InfoTooltip placement="bottom" text={refreshHelp} />}
-        </div>}
+        )}
       </div>
     </div>
     {error && <p role="alert" className="rounded-md border border-default p-4 text-copy-14 text-secondary">{error}{pendingSync.current && ' Retry uses the same request, so it will not start a duplicate refresh.'}</p>}
@@ -522,7 +525,6 @@ function SeoTrendPanel({ projectName, data, days, metric, keyword, selectionPend
       key,
       value: value === null ? '—' : NUMBER.format(value),
       stateValue: value === null,
-      detail: latest && latest !== data.points.at(-1) ? `Last reading ${calendarDay(latest.observedAt, TIME_ZONE) ?? latest.observedAt}` : undefined,
       interactive: true,
       change: levelTrendChange(data.changes[key] ?? null, TrendUnits.count),
       series: data.points.map(point => ({ date: point.observedAt, current: point[key] ?? null })),
@@ -548,17 +550,21 @@ function SeoTrendPanel({ projectName, data, days, metric, keyword, selectionPend
   const span = first && last && first !== last ? trendSpanLabel({ date: first, observedAt: first }, { date: last, observedAt: last }) : undefined
   const selectedReadings = data.points.filter(point => point[selected] != null)
   const readings = selectedReadings.length
-  const readingDate = selectedReadings[0] ? calendarDay(selectedReadings[0].observedAt, TIME_ZONE) : null
+  const lastReading = selectedReadings.at(-1)
+  const readingDate = lastReading ? calendarDay(lastReading.observedAt, TIME_ZONE) : null
+  const endsWithGap = lastReading && lastReading !== data.points.at(-1)
   const basis = metrics.length > 1 ? sharedLevelBasis(metrics.map(key => ({ change: data.changes[key] ?? null }))) : undefined
   const priorSelection = [isRanked && data.keyword ? `“${data.keyword}”` : null, `${data.days} days`].filter(Boolean).join(' · ')
-  const trendNotice = [
-    selectionPending ? `${selectionFailed ? 'Showing previous selection' : 'Loading selection. Showing'} ${priorSelection}.` : null,
-    span,
-    readings >= 2 ? `${NUMBER.format(readings)} comparable refreshes` : null,
-    readings === 1 && readingDate ? `Saved ${readingDate}` : null,
-    basis ? `Change ${basis}` : null,
-    data.marketQueryCount !== null ? `${NUMBER.format(data.marketQueryCount)} non-brand queries across markets` : null,
-  ].filter(Boolean).join(' · ')
+  const trendNotice = selectionPending ? `${selectionFailed ? 'Showing previous selection' : 'Loading selection. Showing'} ${priorSelection}.` : undefined
+  const chartDetails = [
+    readingDate && endsWithGap && `Data through ${readingDate}.`,
+    span && `Chart dates ${span}.`,
+    readings >= 2 && `${NUMBER.format(readings)} comparable refreshes.`,
+    readings === 1 && readingDate && !endsWithGap && `Reading from ${readingDate}.`,
+    basis && `Change ${basis}.`,
+    data.marketQueryCount !== null && `${NUMBER.format(data.marketQueryCount)} non-brand queries across markets.`,
+    !isMarket && data.locationCode !== null && `Search location code ${data.locationCode}.`,
+  ].filter(Boolean).join(' ')
   const noTrend = readings === 1
     ? days < SEO_TREND_DEFAULT_DAYS ? 'One saved reading in this range. Choose a longer range to see a trend.' : 'One saved reading in this range. Trends appear after another comparable refresh.'
     : days < SEO_TREND_DEFAULT_DAYS ? 'No comparable readings in this range. Choose a longer range.' : 'No comparable readings for this selection.'
@@ -570,8 +576,11 @@ function SeoTrendPanel({ projectName, data, days, metric, keyword, selectionPend
   return <section aria-label={title} className="material-base min-w-0 px-4">
     <div className="flex flex-wrap items-start justify-between gap-x-5 gap-y-1 py-2 sm:py-3">
       <div className="min-w-0 space-y-1">
-        <h3 className="text-heading-20 text-heading">{title}</h3>
-        <p className="break-words text-copy-13 text-secondary">{scope}{!isMarket && data.locationCode !== null && <> <InfoTooltip placement="bottom" text={`Search location code ${data.locationCode}.`} /></>}</p>
+        <div className="flex items-center gap-2">
+          <h3 className="text-heading-20 text-heading">{title}</h3>
+          {chartDetails && <InfoTooltip placement="bottom" text={`About this chart. ${chartDetails}`} />}
+        </div>
+        <p className="break-words text-copy-13 text-secondary">{scope}</p>
       </div>
       {isRanked && (choices.length > 0 || selectedKeyword) && <label className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-label-13 text-secondary sm:w-auto sm:max-w-96">
         Search to chart
@@ -585,7 +594,7 @@ function SeoTrendPanel({ projectName, data, days, metric, keyword, selectionPend
     <div className="border-t border-subtle">
       <TrendCard name={title} groups={[{ key: 'seo', figures, basis }]} selected={[selected]} onSelect={key => { const parsed = seoTrendMetricSchema.safeParse(key); if (parsed.success) onMetricChange(parsed.data) }}
         frame="none" cadence="refresh" compact instants chartHeight={180} minimumReadings={2} showChartData span={span} currentLabel={isRanked && data.keyword ? `“${data.keyword}”` : undefined} hideSpan basisInNotice refreshing={refreshing}
-        emptyChartMessage={noTrend} notice={<span className="break-words">{trendNotice}</span>}
+        emptyChartMessage={noTrend} notice={trendNotice}
         controls={<>
           <label className="flex items-center gap-2 text-label-13 text-secondary">Range
             <select className={`${FIELD} min-w-28 sm:min-h-9`} aria-label="SEO trend range" aria-busy={refreshing} value={days} onChange={event => changeRange(event.target.value)}>
