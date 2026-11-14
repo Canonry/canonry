@@ -5643,6 +5643,19 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       stampBrowserAgentOlderCount(tx, new Date().toISOString())
     },
   },
+  {
+    version: 223,
+    name: 'durable-aero-provider-cooldowns',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS agent_provider_cooldowns (
+        account_key TEXT PRIMARY KEY,
+        failure_id TEXT NOT NULL,
+        reason TEXT NOT NULL CHECK (reason IN ('PROVIDER_AUTH', 'PROVIDER_BILLING')),
+        retry_at INTEGER NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_provider_cooldowns_retry ON agent_provider_cooldowns(retry_at)`,
+    ],
+  },
 ]
 
 /** v222: the hourly tables holding a hosted browser agent's hours, counted or judged likely fake. */

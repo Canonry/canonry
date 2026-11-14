@@ -280,7 +280,7 @@ describe('executeBacklinkExtract', () => {
 })
 
 describe('backlink extract outcome telemetry', () => {
-  const extracted = { feature: 'backlinks', operation: 'extract', durationBucket: expect.any(String) }
+  const extracted = { operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'backlinks', operation: 'extract', durationBucket: expect.any(String) }
 
   it('reports an extract once its rows are saved, triggered like its run: by hand, or as a sync follow-up', async () => {
     insertProject('p1', 'roots', 'roots.io')

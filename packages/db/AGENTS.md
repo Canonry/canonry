@@ -47,6 +47,14 @@ Drizzle ORM schema, migrations, and database client. SQLite locally (via better-
 
 ## Patterns
 
+Migration 223 adds `agent_provider_cooldowns`: install-wide Aero background holds
+keyed by a provider/credential digest, shared across projects and restarts. The
+row stores only a unique failure identity, auth/billing reason and expiry; never
+credentials or raw provider errors. A successful request begun after that failure
+may clear that exact failure identity, so an older success cannot clear a newer
+hold. A new credential has its own hold; expired rows are pruned on the next
+account failure.
+
 Health notification recipient histories live in `doctor_health_state.urgentReceipts`
 and `site_liveness_state.urgentReceipts` (migration 183, nullable native JSON).
 Each notification id stores its destination URL and outstanding breach signature

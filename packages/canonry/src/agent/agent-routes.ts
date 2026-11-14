@@ -18,6 +18,8 @@ import {
   validationError,
   type AgentMemoryListResponse,
   describeError,
+  OutcomePhases,
+  type OutcomePhase,
 } from '@canonry/canonry-contracts'
 import type { Agent, AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core'
 import { registerAgentConversationRoutes, requireInstanceAdministrator, type OutcomeAttribution } from '@canonry/canonry-api-routes'
@@ -30,7 +32,6 @@ import {
   AeroToolScopes,
   isAeroToolProfile,
 } from './tools.js'
-import { buildAgentProvidersResponse } from './providers.js'
 import {
   COMPACTION_KEY_PREFIX,
   deleteMemoryEntry,
@@ -153,6 +154,8 @@ async function streamAgentTurn(
   reply: FastifyReply,
   agent: Agent,
   turn: {
+    /** Local diagnostic context only; never included in anonymous telemetry. */
+    projectId: string
     batch: AgentMessage | AgentMessage[]
     save: () => void
     detach: () => void
@@ -197,15 +200,18 @@ async function streamAgentTurn(
 
   let failed = false
   let failure: unknown
+  let failurePhase: OutcomePhase | undefined
   try {
     await agent.prompt(turn.batch)
     await agent.waitForIdle()
   } catch (err) {
     failed = true
     failure = err
+    failurePhase = OutcomePhases.unknown
     write({ type: 'error', message: describeError(err) })
   } finally {
     try { turn.save() } catch (err) {
+      if (!failed) failurePhase = OutcomePhases.persistence
       failed = true
       failure ??= err
       write({ type: 'error', message: describeError(err) })
@@ -219,7 +225,7 @@ async function streamAgentTurn(
     if (!reply.raw.writableEnded) {
       reply.raw.end()
     }
-    trackAeroTurn(agent, { trigger: OutcomeTriggers.manual, attribution: turn.attribution, status: reported, error: failure })
+    trackAeroTurn(agent, { trigger: OutcomeTriggers.manual, attribution: turn.attribution, status: reported, error: failure, phase: failurePhase, projectId: turn.projectId })
   }
 }
 
@@ -262,6 +268,7 @@ async function streamViewerTurn(
   }
   try {
     await streamAgentTurn(reply, turn.agent, {
+      projectId: project.id,
       batch: promptMessage(body.prompt, body.context),
       save: () => {},
       detach: () => reply.raw.off('close', onClose),
@@ -376,7 +383,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     async (request) => {
       requireInstanceAdministrator(request)
       resolveProject(opts.db, request.params.name)
-      return buildAgentProvidersResponse(opts.sessionRegistry.getConfig(), { models: true })
+      return opts.sessionRegistry.providerOptions()
     },
   )
 
@@ -483,6 +490,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     const pending = opts.sessionRegistry.consumePending(project.name)
     const userMessage = promptMessage(promptText, body.context)
     await streamAgentTurn(reply, agent, {
+      projectId: project.id,
       batch: pending.length > 0 ? [...pending, userMessage] : userMessage,
       save: () => opts.sessionRegistry.save(project.name),
       detach: () => reply.raw.off('close', onClose),

@@ -2956,6 +2956,11 @@ export type AgentProvidersResponseDto = {
         defaultModel: string;
         configured: boolean;
         keySource: 'config' | 'env' | null;
+        backgroundPause?: {
+            reason: 'PROVIDER_AUTH' | 'PROVIDER_BILLING';
+            retryAt: string;
+            recovery: string;
+        } | null;
         models?: Array<{
             id: string;
             displayName: string;

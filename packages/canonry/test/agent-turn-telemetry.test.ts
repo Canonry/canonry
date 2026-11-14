@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate, projects, type DatabaseClient } from '@canonry/canonry-db'
-import { AppError } from '@canonry/canonry-contracts'
+import { agentProviderCooldowns, createClient, migrate, projects, type DatabaseClient } from '@canonry/canonry-db'
+import { agentProvidersResponseDtoSchema, AppError } from '@canonry/canonry-contracts'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { createAssistantMessageEventStream, createProvider, type Api, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { aeroModels } from '../src/agent/pi-models.js'
@@ -135,6 +135,9 @@ describe('Aero turn outcome', () => {
     expect(turnEvents()).toEqual([['feature.completed', {
       feature: 'aero',
       operation: 'turn',
+      operationKind: 'agent-turn',
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      diagnostics: { phase: 'unknown' },
       status: 'succeeded',
       trigger: 'manual',
       surface: 'cli',
@@ -157,6 +160,9 @@ describe('Aero turn outcome', () => {
     expect(turnEvents()).toEqual([['feature.completed', {
       feature: 'aero',
       operation: 'turn',
+      operationKind: 'agent-turn',
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      diagnostics: { phase: 'provider-request', httpStatus: 401 },
       status: 'failed',
       reasonCode: 'INVALID_CREDENTIALS',
       trigger: 'manual',
@@ -217,6 +223,9 @@ describe('Aero turn outcome', () => {
     expect(turnEvents()).toEqual([['feature.completed', {
       feature: 'aero',
       operation: 'turn',
+      operationKind: 'agent-turn',
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      diagnostics: { phase: 'unknown' },
       status: 'succeeded',
       trigger: 'agent',
       surface: 'system',
@@ -269,6 +278,55 @@ describe('Aero turn outcome', () => {
     ])
   })
 
+  it.each([
+    ['401 invalid x-api-key', 'PROVIDER_AUTH', 'provider key or account access'],
+    ['402 insufficient credits', 'PROVIDER_BILLING', 'credit or billing access'],
+  ])('preserves the %s pause across a database reopen, exposes recovery, and permits manual recovery', async (errorMessage, reason, recovery) => {
+    config.providers!.claude!.apiKey = 'sensitive-restart-key'
+    config.agent = { provider: 'claude', model: scripted.model.id }
+    scripted.responses.push({ stopReason: 'error', errorMessage })
+    registry.queueFollowUp('demo', { role: 'user', content: '[system] first run', timestamp: Date.now() })
+    await registry.drainNow('demo')
+
+    // Reopen the real on-disk database and mount the same public API on a new registry.
+    await app.close()
+    db.$client.close()
+    db = createClient(path.join(directory, 'data.db'))
+    migrate(db)
+    registry = new SessionRegistry({ db, client: {} as ApiClient, config })
+    app = Fastify()
+    registerAgentRoutes(app, { db, sessionRegistry: registry })
+    await app.ready()
+    registry.queueFollowUp('demo', { role: 'user', content: '[system] after restart', timestamp: Date.now() })
+    await registry.drainNow('demo')
+    expect(turnEvents()).toHaveLength(1)
+    expect(registry.peekPending('demo')).toHaveLength(0)
+
+    const response = await app.inject({ method: 'GET', url: '/projects/demo/agent/providers' })
+    expect(response.statusCode).toBe(200)
+    const providers = agentProvidersResponseDtoSchema.parse(response.json())
+    const paused = providers.providers.find(provider => provider.id === 'claude')?.backgroundPause
+    expect(paused).toMatchObject({ reason, retryAt: '2026-10-10T12:00:00.000Z' })
+    expect(paused?.recovery).toContain(recovery)
+    expect(paused?.recovery).toContain('send Aero a prompt to retry now')
+    expect(response.body).not.toContain('sensitive-restart-key')
+    expect(response.body).not.toContain(errorMessage)
+    const stored = JSON.stringify(db.select().from(agentProviderCooldowns).all())
+    expect(stored).not.toContain('sensitive-restart-key')
+    expect(stored).not.toContain(errorMessage)
+
+    // A manual request is never blocked by the automatic-work hold.
+    await ask({ prompt: 'The provider account is repaired. Retry now.' }, CLI)
+    expect(turnEvents().map(([, props]) => [props.trigger, props.status])).toEqual([
+      ['agent', 'failed'], ['manual', 'succeeded'],
+    ])
+    const recovered = await app.inject({ method: 'GET', url: '/projects/demo/agent/providers' })
+    expect(recovered.json().providers.find((provider: { id: string }) => provider.id === 'claude').backgroundPause).toBeNull()
+    registry.queueFollowUp('demo', { role: 'user', content: '[system] recovered run', timestamp: Date.now() })
+    await registry.drainNow('demo')
+    expect(turnEvents()).toHaveLength(3)
+  })
+
   it('also pauses background work after an interactive account failure', async () => {
     scripted.responses.push({ stopReason: 'error', errorMessage: '402 insufficient credits' })
     await ask({ prompt: 'Check the report' }, CLI)
@@ -276,6 +334,138 @@ describe('Aero turn outcome', () => {
     await registry.drainNow('demo')
     expect(turnEvents()).toHaveLength(1)
     expect(turnEvents()[0]![1]).toMatchObject({ trigger: 'manual', status: 'failed', reasonCode: 'BILLING' })
+  })
+
+  it('preserves the provider failure and suppresses wakes when its pause cannot be persisted', async () => {
+    db.$client.exec(`CREATE TRIGGER reject_aero_pause BEFORE INSERT ON agent_provider_cooldowns
+      BEGIN SELECT RAISE(FAIL, 'synthetic pause storage unavailable'); END`)
+    scripted.responses.push({ stopReason: 'error', errorMessage: '401 invalid x-api-key' })
+
+    const failed = await app.inject({ method: 'POST', url: '/projects/demo/agent/prompt', payload: { prompt: 'Check the report' }, headers: CLI })
+    expect(failed.statusCode).toBe(200)
+    expect(failed.body).not.toContain('synthetic pause storage unavailable')
+    expect(turnEvents()).toHaveLength(1)
+    expect(turnEvents()[0]![1]).toMatchObject({ status: 'failed', reasonCode: 'INVALID_CREDENTIALS', diagnostics: { phase: 'provider-request', httpStatus: 401 } })
+    expect(db.select().from(agentProviderCooldowns).all()).toHaveLength(0)
+
+    registry.queueFollowUp('demo', { role: 'user', content: '[system] pause storage is still unavailable', timestamp: Date.now() })
+    await registry.drainNow('demo')
+    expect(turnEvents()).toHaveLength(1)
+    expect(registry.peekPending('demo')).toHaveLength(0)
+    const providers = await app.inject({ method: 'GET', url: '/projects/demo/agent/providers' })
+    expect(providers.json().providers.find((provider: { id: string }) => provider.id === 'claude').backgroundPause.reason).toBe('PROVIDER_AUTH')
+
+    await ask({ prompt: 'I repaired the provider. Retry.' }, CLI)
+    registry.queueFollowUp('demo', { role: 'user', content: '[system] recovered run', timestamp: Date.now() })
+    await registry.drainNow('demo')
+    expect(turnEvents().map(([, props]) => [props.trigger, props.status])).toEqual([
+      ['manual', 'failed'], ['manual', 'succeeded'], ['agent', 'succeeded'],
+    ])
+  })
+
+  it('preserves a successful manual result if clearing its durable pause fails', async () => {
+    scripted.responses.push({ stopReason: 'error', errorMessage: '402 insufficient credits' })
+    await ask({ prompt: 'Check the report' }, CLI)
+    db.$client.exec(`CREATE TRIGGER reject_aero_pause_clear BEFORE DELETE ON agent_provider_cooldowns
+      BEGIN SELECT RAISE(FAIL, 'synthetic pause recovery storage unavailable'); END`)
+
+    const recovered = await app.inject({ method: 'POST', url: '/projects/demo/agent/prompt', payload: { prompt: 'Billing is restored. Retry.' }, headers: CLI })
+    expect(recovered.statusCode).toBe(200)
+    expect(recovered.body).not.toContain('synthetic pause recovery storage unavailable')
+    expect(turnEvents().map(([, props]) => props.status)).toEqual(['failed', 'succeeded'])
+    registry.queueFollowUp('demo', { role: 'user', content: '[system] conservatively held until recovery can be saved', timestamp: Date.now() })
+    await registry.drainNow('demo')
+    expect(turnEvents()).toHaveLength(2)
+    expect(db.select().from(agentProviderCooldowns).all()).toHaveLength(1)
+
+    db.$client.exec('DROP TRIGGER reject_aero_pause_clear')
+    await ask({ prompt: 'Storage is repaired. Retry.' }, CLI)
+    registry.queueFollowUp('demo', { role: 'user', content: '[system] recovered run', timestamp: Date.now() })
+    await registry.drainNow('demo')
+    expect(turnEvents().map(([, props]) => props.status)).toEqual(['failed', 'succeeded', 'succeeded', 'succeeded'])
+    expect(db.select().from(agentProviderCooldowns).all()).toHaveLength(0)
+  })
+
+  it.each([false, true])('clears durable and repeated unsaved provider holds only after observing storage (unreadable at retry start: %s)', async (unreadable) => {
+    scripted.responses.push({ stopReason: 'error', errorMessage: '401 invalid x-api-key' })
+    await ask({ prompt: 'First failure' }, CLI)
+    const durable = db.select().from(agentProviderCooldowns).all()
+    expect(durable).toHaveLength(1)
+    db.$client.exec(`CREATE TRIGGER reject_aero_pause_update BEFORE UPDATE ON agent_provider_cooldowns
+      BEGIN SELECT RAISE(FAIL, 'synthetic pause update unavailable'); END`)
+    for (let failure = 0; failure < 2; failure++) {
+      scripted.responses.push({ stopReason: 'error', errorMessage: '402 insufficient credits' })
+      await ask({ prompt: 'Retry before billing is repaired' }, CLI)
+    }
+    expect(db.select().from(agentProviderCooldowns).all()).toEqual(durable)
+
+    if (unreadable) db.$client.exec('ALTER TABLE agent_provider_cooldowns RENAME TO temporarily_unreadable_aero_pauses')
+    scripted.responses.push(async () => {
+      // The request must have observed the hold before succeeding; a store
+      // that returns during the provider call cannot supply that observation.
+      if (unreadable) db.$client.exec('ALTER TABLE temporarily_unreadable_aero_pauses RENAME TO agent_provider_cooldowns')
+      return {}
+    })
+    await ask({ prompt: 'Billing is repaired. Retry.' }, CLI)
+    if (unreadable) {
+      expect(db.select().from(agentProviderCooldowns).all()).toEqual(durable)
+      const stillPaused = await app.inject({ method: 'GET', url: '/projects/demo/agent/providers' })
+      expect(stillPaused.json().providers.find((provider: { id: string }) => provider.id === 'claude').backgroundPause.reason).toBe('PROVIDER_BILLING')
+      registry.queueFollowUp('demo', { role: 'user', content: '[system] storage was unknown when recovery began', timestamp: Date.now() })
+      await registry.drainNow('demo')
+      expect(turnEvents()).toHaveLength(4)
+      await ask({ prompt: 'Storage is available. Retry.' }, CLI)
+    }
+
+    expect(db.select().from(agentProviderCooldowns).all()).toHaveLength(0)
+    const recovered = await app.inject({ method: 'GET', url: '/projects/demo/agent/providers' })
+    expect(recovered.json().providers.find((provider: { id: string }) => provider.id === 'claude').backgroundPause).toBeNull()
+    registry.queueFollowUp('demo', { role: 'user', content: '[system] recovered run', timestamp: Date.now() })
+    await registry.drainNow('demo')
+    expect(turnEvents().map(([, props]) => props.status)).toEqual([
+      'failed', 'failed', 'failed', 'succeeded', ...(unreadable ? ['succeeded'] : []), 'succeeded',
+    ])
+  })
+
+  it('keeps durable restart protection when a newer unsaved account failure arrives during manual recovery', async () => {
+    const now = new Date().toISOString()
+    db.insert(projects).values({ id: 'other', name: 'other', displayName: 'Other', canonicalDomain: 'other.example', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+    registry.getOrCreate('other', { provider: 'claude', modelId: scripted.model.id })
+    scripted.responses.push({ stopReason: 'error', errorMessage: '401 invalid x-api-key' })
+    await ask({ prompt: 'First durable failure' }, CLI)
+    const durable = db.select().from(agentProviderCooldowns).all()
+    expect(durable).toHaveLength(1)
+    db.$client.exec(`CREATE TRIGGER reject_aero_pause_update BEFORE UPDATE ON agent_provider_cooldowns
+      BEGIN SELECT RAISE(FAIL, 'synthetic pause update unavailable'); END`)
+    scripted.responses.push({ stopReason: 'error', errorMessage: '402 insufficient credits' })
+    await ask({ prompt: 'Unsaved billing failure' }, CLI)
+
+    let release!: () => void
+    let started!: () => void
+    const startedPromise = new Promise<void>(resolve => { started = resolve })
+    const responsePromise = new Promise<void>(resolve => { release = resolve })
+    scripted.responses.push(async () => { started(); await responsePromise; return {} })
+    const earlier = ask({ prompt: 'Retry after repair' }, CLI)
+    await startedPromise
+    scripted.responses.push({ stopReason: 'error', errorMessage: '401 invalid x-api-key' })
+    await ask({ prompt: 'Newer unsaved failure' }, CLI, 'other')
+    release()
+    await earlier
+
+    // Frozen time gives every failure the same expiry; both durable and
+    // in-process protection must survive this older successful request.
+    expect(db.select().from(agentProviderCooldowns).all()).toEqual(durable)
+    const stillPaused = await app.inject({ method: 'GET', url: '/projects/demo/agent/providers' })
+    expect(stillPaused.json().providers.find((provider: { id: string }) => provider.id === 'claude').backgroundPause.reason).toBe('PROVIDER_AUTH')
+    registry.queueFollowUp('other', { role: 'user', content: '[system] newer failure must stay paused', timestamp: Date.now() })
+    await registry.drainNow('other')
+    expect(turnEvents().map(([, props]) => props.status)).toEqual(['failed', 'failed', 'failed', 'succeeded'])
+
+    await ask({ prompt: 'Account repaired after the newest failure' }, CLI)
+    expect(db.select().from(agentProviderCooldowns).all()).toHaveLength(0)
+    registry.queueFollowUp('other', { role: 'user', content: '[system] recovered run', timestamp: Date.now() })
+    await registry.drainNow('other')
+    expect(turnEvents().map(([, props]) => props.status)).toEqual(['failed', 'failed', 'failed', 'succeeded', 'succeeded', 'succeeded'])
   })
 
   it('scopes a failure to the credential used at turn start, even if it is replaced in flight', async () => {

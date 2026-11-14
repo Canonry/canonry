@@ -3,6 +3,7 @@ import { describeError } from './errors.js'
 import { notificationEventSchema } from './notification.js'
 import { PROVIDER_NAMES } from './provider.js'
 import { classifyProviderErrorMessage, type ProviderErrorCode } from './provider-errors.js'
+import { retryAfterDelayMs } from './retry.js'
 
 /**
  * Outcome telemetry: what happened when a feature ran, not just that a
@@ -225,6 +226,50 @@ export function bucketDuration(durationMs: number): DurationBucket {
   return '30m_or_more'
 }
 
+/** What was being measured; operation names alone changed meaning in older releases. */
+export const outcomeOperationKindSchema = z.enum(['data-refresh', 'url-coverage', 'url-inspection', 'agent-turn', 'site-audit'])
+export const OutcomeOperationKinds = outcomeOperationKindSchema.enum
+export type OutcomeOperationKind = z.infer<typeof outcomeOperationKindSchema>
+
+/** The active phase, not an inferred root cause. */
+export const outcomePhaseSchema = z.enum(['setup', 'provider-request', 'crawl', 'persistence', 'unknown'])
+export const OutcomePhases = outcomePhaseSchema.enum
+export type OutcomePhase = z.infer<typeof outcomePhaseSchema>
+export const outcomeDiagnosticsSchema = z.object({
+  phase: outcomePhaseSchema,
+  httpStatus: z.number().int().min(100).max(599).optional(),
+  retryCount: z.number().int().min(0).max(1_000_000).optional(),
+  retryAfterBucket: durationBucketSchema.optional(),
+  /** Unresolved units in this operation: URLs for coverage, sections for a refresh. */
+  remainingWork: countValueSchema.optional(),
+}).strict()
+export type OutcomeDiagnostics = z.infer<typeof outcomeDiagnosticsSchema>
+
+/** Pick only bounded structured metadata. Missing retry information remains unknown. */
+export function buildOutcomeDiagnostics(error: unknown, context: {
+  phase: OutcomePhase
+  retryCount?: number
+  remainingWork?: number
+}): OutcomeDiagnostics {
+  try {
+    const record = error && typeof error === 'object' ? error as Record<string, unknown> : {}
+    const cause = record.cause && typeof record.cause === 'object' ? record.cause as Record<string, unknown> : {}
+    const diagnostics: OutcomeDiagnostics = { phase: context.phase }
+    const status = httpStatusOf(record) ?? httpStatusOf(cause)
+    if (status !== undefined && Number.isInteger(status)) diagnostics.httpStatus = status
+    const retryCount = context.retryCount ?? record.retryCount
+    if (typeof retryCount === 'number' && Number.isInteger(retryCount) && retryCount >= 0 && retryCount <= 1_000_000) diagnostics.retryCount = retryCount
+    const delay = retryAfterDelayMs(error)
+    if (delay !== null && Number.isFinite(delay)) diagnostics.retryAfterBucket = bucketDuration(delay)
+    const remaining = context.remainingWork
+    if (remaining !== undefined && Number.isInteger(remaining) && remaining >= 0 && remaining <= MAX_COUNT) diagnostics.remainingWork = remaining
+    return diagnostics
+  } catch {
+    // Error metadata can itself throw (SDK getters/proxies); diagnostics never replace the original outcome.
+    return { phase: context.phase }
+  }
+}
+
 const errorNameSchema = z.string().regex(/^[A-Z_$][\w$]{0,39}$/i)
 const agentSlugSchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,39}$/)
 const providerNameSchema = z.enum(PROVIDER_NAMES)
@@ -263,6 +308,10 @@ export const featureCompletedPropertiesSchema = z
   .object({
     feature: featureNameSchema,
     operation: z.string().regex(/^[a-z][a-z_]{0,31}$/),
+    operationKind: outcomeOperationKindSchema.optional(),
+    /** Fresh random correlation id, never a project, run, account or conversation id. */
+    operationId: z.string().uuid().optional(),
+    diagnostics: outcomeDiagnosticsSchema.optional(),
     status: outcomeStatusSchema,
     trigger: outcomeTriggerSchema.optional(),
     surface: outcomeSurfaceSchema.optional(),
@@ -288,6 +337,7 @@ export const featureCompletedPropertiesSchema = z
     'operation is not one this feature reports',
   )
   .refine(p => p.status === OutcomeStatuses.succeeded || p.reasonCode !== undefined, 'a non-succeeded outcome needs a reasonCode')
+  .refine(p => Object.values(p).filter(value => value !== undefined).length <= 20, 'collector accepts at most 20 properties')
 export type FeatureCompletedProperties = z.infer<typeof featureCompletedPropertiesSchema>
 
 /** How canonry was installed. `source` is a build run from a repository checkout. */
@@ -367,7 +417,7 @@ export function statusClassOf(status: number | undefined | null): StatusClass {
   return '2xx'
 }
 
-const NETWORK_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE', 'UND_ERR_SOCKET'])
+const NETWORK_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE', 'EPROTO', 'UND_ERR_SOCKET'])
 const TIMEOUT_CODES = new Set(['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'])
 
 function httpStatusOf(err: Record<string, unknown>): number | undefined {

@@ -9,6 +9,7 @@ import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import { bingQueryStats, bingUrlInspections, bingCoverageSnapshots, createClient, migrate, projects, runs } from '@canonry/canonry-db'
 import { bingRoutes, __resetBingCrawlIssuesCacheForTest } from '../src/bing.js'
 import type { BingConnectionRecord, BingConnectionStore } from '../src/bing.js'
+import { createOutcomeEmitter, type OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bing-routes-test-'))
@@ -34,10 +35,12 @@ function buildApp() {
   }
 
   const app = Fastify()
+  const events: OutcomeTelemetryEvent[] = []
+  app.decorate('emitOutcome', createOutcomeEmitter(event => events.push(event)))
   app.decorate('db', db)
   app.register(bingRoutes, { bingConnectionStore })
 
-  return { app, db, tmpDir, connections }
+  return { app, db, tmpDir, connections, events }
 }
 
 describe('Bing routes', () => {
@@ -46,6 +49,7 @@ describe('Bing routes', () => {
   let tmpDir: string
   let connections: Map<string, BingConnectionRecord>
   let projectId: string
+  let events: OutcomeTelemetryEvent[]
 
   beforeAll(async () => {
     const ctx = buildApp()
@@ -53,6 +57,7 @@ describe('Bing routes', () => {
     db = ctx.db
     tmpDir = ctx.tmpDir
     connections = ctx.connections
+    events = ctx.events
     await app.ready()
 
     projectId = crypto.randomUUID()
@@ -81,6 +86,7 @@ describe('Bing routes', () => {
     db.delete(bingUrlInspections).run()
     db.delete(bingCoverageSnapshots).run()
     connections.clear()
+    events.length = 0
     __resetBingCrawlIssuesCacheForTest()
 
     const now = new Date().toISOString()
@@ -146,6 +152,25 @@ describe('Bing routes', () => {
     expect(inspectRuns[0]!.status).toBe(RunStatuses.completed)
     expect(inspectRuns[0]!.trigger).toBe(RunTriggers.manual)
     expect(rows[0]!.syncRunId).toBe(inspectRuns[0]!.id)
+    expect(events).toMatchObject([{ event: 'feature.completed', properties: {
+      operationKind: 'url-inspection', operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      status: 'succeeded', counts: { urls: 1 }, diagnostics: { phase: 'persistence', remainingWork: 0 },
+    } }])
+    expect(JSON.stringify(events)).not.toContain('https://example.com/page')
+  })
+
+  it('reports a Bing 400 throttle with its real status and unresolved inspection, without provider text', async () => {
+    const bingModule = await import('@canonry/canonry-integration-bing')
+    const error = new bingModule.BingApiError('private account ThrottleHost', 400, 5, '600')
+    error.retryCount = 3
+    vi.spyOn(bingModule, 'getUrlInfo').mockRejectedValue(error)
+    const response = await app.inject({ method: 'POST', url: '/projects/test-project/bing/inspect-url', payload: { url: 'https://example.com/page' } })
+    expect(response.statusCode).toBe(400)
+    expect(events).toMatchObject([{ event: 'feature.completed', properties: {
+      operationKind: 'url-inspection', status: 'failed', reasonCode: 'RATE_LIMITED',
+      diagnostics: { phase: 'provider-request', httpStatus: 400, retryCount: 3, retryAfterBucket: '5m_to_30m', remainingWork: 1 },
+    } }])
+    expect(JSON.stringify(events)).not.toMatch(/private account|example.com/)
   })
 
   it('derives indexed=true from positive DocumentSize', async () => {

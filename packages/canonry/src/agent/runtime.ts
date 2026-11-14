@@ -14,6 +14,9 @@ import { agentTurnLimitsSchema, MeasurementPortfolioLists, type AgentTurnLimits 
 import { canonryMcpTools, CanonryMcpToolNames } from '../mcp/tool-registry.js'
 import { CANONRY_MCP_TOOLKITS } from '../mcp/toolkits.js'
 import { isStoredPageReadTool, isStoredReadTool, truncateToolResult } from './mcp-to-agent-tool.js'
+import { createLogger } from '../logger.js'
+
+const log = createLogger('AeroTurn')
 
 const DISCOVER = 'aero_list_toolkits'
 /**
@@ -44,6 +47,7 @@ interface PageReference {
 }
 
 interface Runtime {
+  operationId?: string
   allowed: AgentTool[]
   loaded: Set<string>
   limits: AgentTurnLimits
@@ -591,6 +595,8 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
         state.rounds = 0
         state.reason = 'completed'
         state.startedAt = Date.now()
+        state.operationId = randomUUID()
+        log.info('started', { operationId: state.operationId })
         state.finishedAt = undefined
         const reservedMs = Math.min(15_000, Math.max(250, Math.floor(state.limits.timeoutMs / 10)))
         state.timer = setTimeout(() => {
@@ -674,6 +680,11 @@ export function setAeroSystemPrompt(agent: Agent, prompt: string = agent.state.s
 /** Token, cost and tool-error totals of the agent's latest turn. Never streamed to clients. */
 export function aeroTurnUsage(agent: Agent): Readonly<AeroTurnUsage> | undefined {
   return runtimes.get(agent)?.usage
+}
+
+/** Anonymous per-turn correlation for local diagnostics and outcome telemetry; never streamed. */
+export function aeroTurnOperationId(agent: Agent): string | undefined {
+  return runtimes.get(agent)?.operationId
 }
 
 export function aeroTurnStatus(agent: Agent) {
