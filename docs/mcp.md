@@ -375,6 +375,16 @@ Specialist connections remain at `/api/v1/mcp/x/<toolkit>` and `/api/v1/mcp/x/<t
 
 ## Tool Surface
 
+`canonry_seo_trends` requires a saved `profileId` and accepts `days` (30, 90 or
+180, default 180), ending on the latest observation. It reads comparable SEO refreshes with exact observation
+dates, source scope, nullable readings and a server-calculated change basis.
+Domain metrics are provider estimates. Market counts track non-brand query
+assignments across matching markets and search settings. Each point's `runId`
+opens its saved evidence. For ranked-keywords profiles, `keyword` selects one
+search, and the response includes suggested `rankedKeywords` and its organic
+positions. A missing position indicates no usable rank in the saved sample.
+The tool is available to stored-only readers.
+
 The `seo` toolkit exposes provider-neutral saved keyword metrics, ranked keywords, organic competitors (`canonry_seo_competitors`), keyword gaps (`canonry_seo_keyword_gaps`), domain intelligence, market rankings (the site's Google position for its tracked queries by market, with `canonry_seo_market_summary` counting them by outcome), profile management and explicit refreshes. Start with `canonry_seo_context` and `canonry_seo_overview`. A refresh uses `canonry_seo_refresh_intent` followed by `canonry_seo_sync` with an idempotency key. Preparation has no provider side effects; submission requires `seo.run`. Profile writes require `seo.write`. Host financial controls stay internal, and operator receipt tools require separate host authority. Competitor discovery and gaps compare whole domains in project scope for Simple and Advanced portfolios. Discovery does not pin rivals; gap reads preserve explicit comparison domains and locale. `kind=shared` includes outranked searches, `missing` means no target rank in the source comparison, and `outranked` means the rival ranks higher. `rankGap` is target minus rival position, null without both. Both research tools accept `sort` to order all matching saved rows before pagination; a leading minus descends, missing values stay last, and omission retains source order. Sorting is read-only tuning; keep run ID, filters and sort fixed across pages. See [SEO data](seo-data.md).
 
 `canonry_research_run_start` is for one direct context. It accepts the final

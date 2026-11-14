@@ -258,14 +258,12 @@ describe('throttle cooldown', () => {
       return errorResponse(400, THROTTLE_USER_BODY)
     }) as unknown as typeof globalThis.fetch
 
-    await expect(withTimersRun(getUrlInfo('key-a', 'https://a.test/', 'https://a.test/p'))).rejects.toThrow()
+    await expect(withTimersRun(getUrlInfo('key-a', 'https://a.test/', 'https://a.test/p'))).rejects.toMatchObject({ retryCount: 4, status: 400, bingErrorCode: 4 })
     const afterFirst = calls
     expect(afterFirst).toBeGreaterThan(1) // it did retry
 
     // Second call: refused locally, no HTTP issued at all.
-    await expect(withTimersRun(getUrlInfo('key-a', 'https://a.test/', 'https://a.test/q'))).rejects.toThrow(
-      /cooldown/i,
-    )
+    await expect(withTimersRun(getUrlInfo('key-a', 'https://a.test/', 'https://a.test/q'))).rejects.toMatchObject({ retryCount: 0, status: 429, headers: { 'retry-after': '600' } })
     expect(calls).toBe(afterFirst)
   })
 

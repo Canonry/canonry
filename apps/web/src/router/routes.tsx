@@ -16,6 +16,7 @@ import { OnboardingSetupPage } from '../pages/OnboardingSetupPage.js'
 import { NotFoundPage } from '../pages/NotFoundPage.js'
 import { heyClient } from '../api.js'
 import { getApiV1ProjectsQueryKey, getApiV1ProjectsOptions } from '@canonry/canonry-api-client/react-query'
+import { seoTrendDaysSchema, seoTrendKeywordSchema, seoTrendMetricSchema, type SeoTrendDays, type SeoTrendMetric } from '@canonry/canonry-contracts'
 
 // `lazyRouteComponent` (not React.lazy) handles route-level code splitting
 // in TanStack Router. The key advantage over `React.lazy` + `Suspense` is
@@ -76,6 +77,11 @@ type SearchParams = {
   siteHealthRunId?: string
   seoProfileId?: string
   seoRunId?: string
+  seoView?: string
+  /** The displayed SEO trend selection, preserved in evidence links. */
+  seoTrendDays?: SeoTrendDays
+  seoTrendMetric?: SeoTrendMetric
+  seoTrendKeyword?: string
   /** Journeys tab: view, visitor period in days, selected visitor, list filters and page; agent period in hours. */
   journeyView?: string
   journeyDays?: string
@@ -155,6 +161,10 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     siteHealthRunId: typeof search.siteHealthRunId === 'string' ? search.siteHealthRunId : undefined,
     seoProfileId: typeof search.seoProfileId === 'string' ? search.seoProfileId : undefined,
     seoRunId: typeof search.seoRunId === 'string' ? search.seoRunId : undefined,
+    seoView: typeof search.seoView === 'string' ? search.seoView : undefined,
+    seoTrendDays: seoTrendDaysSchema.safeParse(typeof search.seoTrendDays === 'string' ? Number(search.seoTrendDays) : search.seoTrendDays).data,
+    seoTrendMetric: seoTrendMetricSchema.safeParse(search.seoTrendMetric).data,
+    seoTrendKeyword: seoTrendKeywordSchema.safeParse(search.seoTrendKeyword).data,
     seoRegion: typeof search.seoRegion === 'string' && search.seoRegion ? search.seoRegion : undefined,
     seoMarket: typeof search.seoMarket === 'string' && search.seoMarket ? search.seoMarket : undefined,
     seoShow: typeof search.seoShow === 'string' && search.seoShow ? search.seoShow : undefined,

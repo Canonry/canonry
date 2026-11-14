@@ -264,6 +264,8 @@ export class BingApiError extends Error {
   public isThrottle: boolean
   /** Only the retry header is retained; never retain response credentials. */
   public readonly headers: { 'retry-after': string } | undefined
+  /** Retries actually made by the HTTP client; zero when refused locally. */
+  public retryCount = 0
 
   constructor(message: string, status: number, bingErrorCode: number | null = null, retryAfter?: string | null) {
     super(message)

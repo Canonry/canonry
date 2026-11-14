@@ -25,7 +25,7 @@ export const OPERATIONS_GUIDE = {
         "canonry_projects_list",
         "canonry_seo_context",
         "canonry_seo_profiles",
-        "canonry_seo_overview"
+        "canonry_seo_trends"
       ],
       "actions": [
         "canonry_seo_profile_set",
@@ -35,7 +35,7 @@ export const OPERATIONS_GUIDE = {
       "playbooks": [
         "seo-analysis"
       ],
-      "guidance": "Read saved SEO evidence first. Preserve profile, exact domain or host, market, language, plan revision, dataset and collection date. Market rankings (canonry_seo_market_rankings) are the site's Google position for its tracked queries by market, the same queries AI visibility measures; start with canonry_seo_market_summary for counts by outcome, and treat failed or unsearched queries as missing data. SEO traffic and keyword metrics are third-party estimates, separate from Search Console observations and AI citation and mention coverage. Refresh requires explicit approval for the profile and work, a fresh refresh intent and an idempotency key. Hosted financial controls are internal; no credential or billing information belongs in the response."
+      "guidance": "Use canonry_seo_trends for comparable saved refreshes. For ranked-keyword profiles, select one search with keyword and treat a missing sampled position as unavailable. Preserve target, scope, source, locale, observation dates and missing readings. For exact snapshots use canonry_seo_overview or canonry_seo_market_summary. Keep SEO estimates separate from Search Console and AI citation and mention coverage. A refresh needs approval for the profile and work, a fresh intent and an idempotency key. Keep credentials and billing details private."
     },
     "operations": {
       "keywords": [

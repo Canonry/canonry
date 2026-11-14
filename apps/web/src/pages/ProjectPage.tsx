@@ -126,7 +126,6 @@ import { invalidateProjectQueryDomain } from '../queries/query-invalidation.js'
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { getApiV1ProjectsOptions } from '@canonry/canonry-api-client/react-query'
 import { useProjectDashboard } from '../queries/use-project-dashboard.js'
-import { STATIC_VISIBILITY_STALE_MS } from '../queries/query-client.js'
 import { useCompetitorLandscapeRefresh } from '../queries/competitor-landscape-refresh.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useAccount } from '../contexts/account-context.js'
@@ -1130,15 +1129,18 @@ function ProjectPageContent({
   }
   const visibilitySelection = parseVisibilitySelection(projectSearchParams)
   const measurementScoped = isMeasurementScoped(visibilitySelection)
+  const embedProjectTabs = useMemo(() => effectiveEmbedProjectTabs(getEmbedConfig()), [])
+  const queryLimit = useMemo(() => embedQueryLimit(getEmbedConfig()), [])
+  const tab = useMemo(() => resolveProjectPageTab(requestedTab, getEmbedConfig()), [requestedTab])
+  const showVisibilityChecks = tab === 'overview' && !isEmbed()
+  const managedSweeps = isDashboardManagedSweeps()
   const measurementSetupQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementSetupOptions({ client: heyClient, path: { name: projectName } }),
-    // Readiness drives the page-header sweep control on every project tab.
-    // Viewers still need setup state on the three result/configuration tabs
-    // that render Advanced Measurement, and on any scoped URL, where the
-    // context row says whether the tab follows that scope.
+    // The overview needs run readiness and the measurement mode. Portfolio,
+    // Settings and scoped URLs also use setup to resolve measurement context.
     enabled: !isEmbed()
       && Boolean(projectName)
-      && (canWrite || requestedTab === 'portfolio' || requestedTab === 'overview' || requestedTab === 'settings' || measurementScoped),
+      && (tab === 'overview' || tab === 'portfolio' || tab === 'settings' || measurementScoped),
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: 'always',
@@ -1160,7 +1162,8 @@ function ProjectPageContent({
     // The setup response owns live readiness. The direct CDP read remains only
     // as a first-paint fallback while a fixture or cold request has no setup
     // response yet.
-    enabled: !isEmbed()
+    enabled: showVisibilityChecks
+      && !managedSweeps
       && canWrite
       && serverProviderReady === undefined
       && selectionCanUseCdp
@@ -1181,14 +1184,6 @@ function ProjectPageContent({
     configuredApiProviders,
     cdpConfigured,
   })
-  // Read-only embed mode (#716): the effective project-tab allowlist hides
-  // operator surfaces from the embedded client dashboard. Non-embed = all tabs;
-  // an embed without `projectTabs` gets the embed-safe set. The subnav below is
-  // filtered to it; a direct-URL hit on a hidden tab falls back to a visible board.
-  const embedProjectTabs = useMemo(() => effectiveEmbedProjectTabs(getEmbedConfig()), [])
-  // The embedded client Queries tab comes from the agency's grant, not the allowlist.
-  const queryLimit = useMemo(() => embedQueryLimit(getEmbedConfig()), [])
-  const tab = useMemo(() => resolveProjectPageTab(requestedTab, getEmbedConfig()), [requestedTab])
   const competitorDomains = useMemo(() => model.competitors.map(c => c.domain), [model.competitors])
   const competitorAliases = useMemo<Record<string, readonly string[]>>(
     () => Object.fromEntries(model.competitors.map(c => [c.domain, c.aliases ?? []])),
@@ -1272,7 +1267,7 @@ function ProjectPageContent({
 
   const projectLabel = model?.project.displayName || model?.project.name || projectName
   const triggerRunMutation = useTriggerRun()
-  const runPreview = useRunPreview(projectName, sweepConfirmationProject === projectName && !isEmbed() && !isDashboardManagedSweeps())
+  const runPreview = useRunPreview(projectName, showVisibilityChecks && !managedSweeps && sweepConfirmationProject === projectName)
   const portfolioQueriesQuery = useQuery({
     ...getApiV1ProjectsByNameQueriesOptions({ client: heyClient, path: { name: projectName } }),
     enabled: tab === 'portfolio' && Boolean(projectName),
@@ -1285,7 +1280,7 @@ function ProjectPageContent({
     // project wherever it renders, including a deep link.
     enabled: !isEmbed()
       && Boolean(projectName)
-      && (canWrite || isPublicDemo() || tab === 'portfolio' || tab === 'overview' || tab === 'settings'),
+      && (isPublicDemo() || tab === 'portfolio' || tab === 'overview' || tab === 'settings' || (canWrite && measurementScoped)),
     staleTime: 0,
     refetchOnMount: 'always',
   })
@@ -1471,15 +1466,6 @@ function ProjectPageContent({
   // Real sweeps only, to date the sweep before a model or query change. Every
   // one back from the latest, so newer failed runs never leave a gap.
   const recentSweepTimes = useMemo(() => model.visibilitySweeps.map(run => run.createdAt), [model.visibilitySweeps])
-  // Other tabs still expose the admin sweep control. Its readiness needs the
-  // tracked basket, but never answer bodies or historical run detail.
-  const needsHeaderQueries = canWrite && !isEmbed() && !isDashboardManagedSweeps() && tab !== 'overview'
-  const headerQueriesQuery = useQuery({
-    ...getApiV1ProjectsByNameQueriesOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: needsHeaderQueries,
-    staleTime: STATIC_VISIBILITY_STALE_MS,
-    refetchOnWindowFocus: 'always',
-  })
   // Advanced competitor reads are explicit. A market keeps its frozen market
   // identities AND the project pins that the stored-evidence API unions into
   // its denominator. All markets is a separate raw-evidence aggregate, never
@@ -1682,8 +1668,8 @@ function ProjectPageContent({
     r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.running || r.status === RunStatuses.queued),
   )
   // Manual launches use the project roster; schedules may select other providers.
-  const runAdmission = useRunAdmission(projectName, !isEmbed() && !isDashboardManagedSweeps(), 'manual').data
-  const scheduledRunAdmission = useRunAdmission(projectName, !isEmbed(), 'scheduled').data
+  const runAdmission = useRunAdmission(projectName, showVisibilityChecks && !managedSweeps, 'manual').data
+  const scheduledRunAdmission = useRunAdmission(projectName, showVisibilityChecks, 'scheduled').data
   const admissionScopesDiffer = runAdmission && scheduledRunAdmission
     && JSON.stringify(runAdmission) !== JSON.stringify(scheduledRunAdmission)
   const sweepsOnHold = runAdmission?.refused === true
@@ -1707,25 +1693,20 @@ function ProjectPageContent({
   const hasNullLocationEvidence = locationLabelsInEvidence.has('')
   // The authoritative tracked-query set — every query the project tracks,
   // including ones added but not yet run (build-dashboard seeds a "pending"
-  // evidence row for those). This is the same source as the "N queries tracked"
-  // header count, so the manage list and the count never diverge. Sorted for a
-  // stable order in the manage panel.
+  // evidence row for those). Sorted for a stable order in the manage panel.
   const trackedQueries = useMemo(
     () => [...new Set(visibilityEvidence.map(e => e.query))].sort((a, b) => a.localeCompare(b)),
     [visibilityEvidence],
   )
-  const hasTrackedQueries = trackedQueries.length > 0 || model.queryCounts.total > 0 || (headerQueriesQuery.data?.length ?? 0) > 0
+  const hasTrackedQueries = trackedQueries.length > 0 || model.queryCounts.total > 0
   const draftRequiresPublication = measurementSetupQuery.data?.requiresPublication === true
   const hasMeasurementPlanQueries = activeMeasurementPlan !== null
   const hasVisibilityInputs = hasTrackedQueries || hasMeasurementPlanQueries
   const visibilityInputsPending = canWrite
     && !hasVisibilityInputs
     && ((activeMeasurementPlanQuery.data === undefined && activeMeasurementPlanQuery.isPending)
-      || headerQueriesQuery.isLoading || (needsSimpleEvidence && evidenceDashboard.evidenceLoading))
-  const providerReadinessFailed = canWrite && (
-    (measurementSetupQuery.isError && !measurementSetupQuery.isFetching)
-    || (needsHeaderQueries && headerQueriesQuery.isError && !headerQueriesQuery.isFetching)
-  )
+      || (needsSimpleEvidence && evidenceDashboard.evidenceLoading))
+  const providerReadinessFailed = canWrite && measurementSetupQuery.isError && !measurementSetupQuery.isFetching
   const sweepReadinessPending = canWrite
     && !providerReadinessFailed
     && (visibilityInputsPending
@@ -1745,7 +1726,7 @@ function ProjectPageContent({
   // crawl, so the crawl summary reports no scan for a project that has one and
   // the button comes back. Scan history is the list of readable scans and
   // already excludes probes.
-  const mapSiteCandidate = !isEmbed() && tab === 'overview' && sweepSetupRequired && !hasVisibilityInputs
+  const mapSiteCandidate = showVisibilityChecks && !managedSweeps && sweepSetupRequired && !hasVisibilityInputs
   const siteAuditScansQuery = useQuery({
     ...getApiV1ProjectsByNameAgentReadinessRunsOptions({
       client: heyClient,
@@ -1771,7 +1752,7 @@ function ProjectPageContent({
   // after queries or providers are removed.
   const sweepSchedulesQuery = useQuery({
     ...getApiV1ProjectsByNameSchedulesOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: !isEmbed() && !isDashboardManagedSweeps() && Boolean(projectName),
+    enabled: showVisibilityChecks && !managedSweeps && Boolean(projectName),
     retry: false,
   })
   // Only claim a next sweep when one is genuinely coming: a schedule that
@@ -1861,7 +1842,7 @@ function ProjectPageContent({
   // resolved but neither matched the URL's identifier).
 
   async function handleTriggerRun() {
-    if (runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true || sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady) return
+    if (runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true || sweepConfirmationProject !== projectName || !canWrite || !showVisibilityChecks || managedSweeps || triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady) return
     try {
       await triggerRunMutation.mutateAsync({
         projectName,
@@ -2106,8 +2087,8 @@ function ProjectPageContent({
         ) : undefined}
         // Embeds and managed dashboards name neither date. A sweep already under way brings
         // new numbers before the scheduled one, so it names no date either.
-        trackingChangedAt={isEmbed() || isDashboardManagedSweeps() ? undefined : activeMeasurementPlan?.createdAt}
-        nextSweepDate={isEmbed() || isDashboardManagedSweeps() || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined}
+        trackingChangedAt={isEmbed() || managedSweeps ? undefined : activeMeasurementPlan?.createdAt}
+        nextSweepDate={isEmbed() || managedSweeps || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined}
         fallback={overview}
       />
     )
@@ -2280,7 +2261,7 @@ function ProjectPageContent({
               {model.project.canonicalDomain} · {model.contextLabel}
             </p>
           </div>
-          <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
+          <div className={managedSweeps ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
             {overviewRangeLabel !== null ? <p className="text-copy-14 text-muted">{overviewRangeLabel}</p> : null}
           </div>
         </div>
@@ -2297,71 +2278,16 @@ function ProjectPageContent({
               <span className="project-mode-tag-detail">{advancedProjectTag}</span>
             </span>
           ) : null}
-          <div className="project-context-actions" data-project-actions>
-            {isDashboardManagedSweeps() ? (
-              <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />
-            ) : (
-              <>
-                {nextSweepLabel ? <p className="text-copy-14 text-secondary">{nextSweepLabel}</p> : null}
-                {showMapSite ? (
-                  <WriteButton type="button" onClick={openSiteHealth}>
-                    Check Agent Readiness
-                  </WriteButton>
-                ) : showViewPageHealth ? (
-                  <WriteButton type="button" onClick={openSiteHealth}>
-                    View Agent Readiness score
-                  </WriteButton>
-                ) : null}
-                {/* Secondary, not primary. The schedule beside it is what actually
-                    runs the sweep; this is the override for when you can't wait
-                    for it. Deleting the project used to sit here too — an
-                    irreversible action one misclick from the page's most-used
-                    button — and now lives at the bottom of the Settings tab.
-                    Agent Readiness leads with its own Run scan, so that tab
-                    offers no second check to start. */}
-                {tab !== 'agent-readiness' ? <WriteButton
-                  type="button"
-                  variant="outline"
-                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending || (sweepsOnHold && !providerReadinessFailed && !sweepSetupRequired)}
-                  onClick={providerReadinessFailed
-                    ? () => { void Promise.all([measurementSetupQuery.refetch(), ...(needsHeaderQueries ? [headerQueriesQuery.refetch()] : [])]) }
-                    : sweepSetupRequired
-                      ? openAiVisibilitySetup
-                      : event => { sweepOpener.current = event.currentTarget; setSweepConfirmationProject(projectName) }}
-                >
-                  {triggerRunMutation.isPending
-                    ? 'Starting…'
-                    : hasActiveVisibilitySweep
-                      ? 'AI Visibility check running…'
-                      : sweepReadinessPending
-                        ? 'Checking AI engines…'
-                        : providerReadinessFailed
-                          ? 'Retry engine check'
-                        : sweepSetupRequired
-                          ? draftRequiresPublication ? 'Review and publish plan' : 'Set up AI Visibility'
-                          : sweepsOnHold
-                            ? 'AI Visibility checks on hold'
-                            : 'Run AI Visibility check'}
-                </WriteButton> : null}
-              </>
-            )}
-          </div>
+          {showMapSite || showViewPageHealth ? (
+            <div className="project-context-actions" data-project-actions>
+              <WriteButton type="button" onClick={openSiteHealth}>
+                {showMapSite ? 'Check Agent Readiness' : 'View Agent Readiness score'}
+              </WriteButton>
+            </div>
+          ) : null}
         </div>
       )}
 
-      {!isEmbed() && !isDashboardManagedSweeps() && <ProjectSweepConfirmation
-        open={sweepConfirmationProject === projectName}
-        projectLabel={projectLabel}
-        onOpenChange={open => setSweepConfirmationProject(open ? projectName : null)}
-        onConfirm={asyncHandler(handleTriggerRun)}
-        onClosed={() => sweepOpener.current?.focus()}
-        disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady}
-        leftOut={sweepLeavesOut}
-        preview={runPreview.data}
-        previewPending={runPreview.isFetching}
-        previewFailed={runPreview.isError}
-        onRetryPreview={() => { void runPreview.refetch() }}
-      />}
       <ProjectSubnav
         items={projectTabItems}
         overflowItems={projectOverflowTabItems}
@@ -2418,8 +2344,54 @@ function ProjectPageContent({
         />
       ) : tab === 'overview' ? (
         <>
+        {showVisibilityChecks ? (
+          <div role="group" aria-label="AI Visibility checks" className="visibility-checks">
+            {managedSweeps ? <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} /> : (
+              <>
+                {nextSweepLabel ? <p className="text-copy-14 text-secondary">{nextSweepLabel}</p> : null}
+                <WriteButton
+                  type="button"
+                  variant="outline"
+                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending || (sweepsOnHold && !providerReadinessFailed && !sweepSetupRequired)}
+                  onClick={providerReadinessFailed
+                    ? () => { void measurementSetupQuery.refetch() }
+                    : sweepSetupRequired
+                      ? openAiVisibilitySetup
+                      : event => { sweepOpener.current = event.currentTarget; setSweepConfirmationProject(projectName) }}
+                >
+                  {triggerRunMutation.isPending
+                    ? 'Starting…'
+                    : hasActiveVisibilitySweep
+                      ? 'AI Visibility check running…'
+                      : sweepReadinessPending
+                        ? 'Checking AI engines…'
+                        : providerReadinessFailed
+                          ? 'Retry engine check'
+                          : sweepSetupRequired
+                            ? draftRequiresPublication ? 'Review and publish plan' : 'Set up AI Visibility'
+                            : sweepsOnHold
+                              ? 'AI Visibility checks on hold'
+                              : 'Run AI Visibility check'}
+                </WriteButton>
+                <ProjectSweepConfirmation
+                  open={sweepConfirmationProject === projectName}
+                  projectLabel={projectLabel}
+                  onOpenChange={open => setSweepConfirmationProject(open ? projectName : null)}
+                  onConfirm={asyncHandler(handleTriggerRun)}
+                  onClosed={() => sweepOpener.current?.focus()}
+                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady}
+                  leftOut={sweepLeavesOut}
+                  preview={runPreview.data}
+                  previewPending={runPreview.isFetching}
+                  previewFailed={runPreview.isError}
+                  onRetryPreview={() => { void runPreview.refetch() }}
+                />
+              </>
+            )}
+          </div>
+        ) : null}
         {/* Above both overviews and their loading state: a refused or partial sweep is the project's state, whichever portfolio it is. */}
-        {!isEmbed() ? <>
+        {showVisibilityChecks ? <>
           {scheduledRunAdmission ? <RunAdmissionNoticeView admission={scheduledRunAdmission} canFix={canWrite && isAdmin} selection={admissionScopesDiffer || !runAdmission ? 'scheduled' : undefined} /> : null}
           {runAdmission && (admissionScopesDiffer || !scheduledRunAdmission) ? <RunAdmissionNoticeView admission={runAdmission} canFix={canWrite && isAdmin} selection="manual" /> : null}
         </> : null}

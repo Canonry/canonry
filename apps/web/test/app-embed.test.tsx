@@ -1,4 +1,5 @@
 import { test, expect, beforeAll, afterEach } from 'vitest'
+import { within } from '@testing-library/react'
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -281,27 +282,18 @@ test('embed theme applies allowlisted CSS custom properties to the shell', async
 // control that would 403 on click against the read-only project-scoped key,
 // while keeping every read-only view. Not a security boundary (the API key
 // scope is) — purely UI cleanliness. See isEmbed() in src/api.ts.
-test('embed hides the project sweep action that leaks on every tab', async () => {
+test('the embed shows AI Visibility evidence without the operator sweep action', async () => {
   const embed = await renderAt('/projects/project_citypoint', { enabled: true })
   const operator = await renderAt('/projects/project_citypoint')
 
-  // Operator sees the sweep action in the project context row… (the
-  // YAML-export button was removed in favor of the Settings-tab results
-  // downloads + `canonry export`. Deleting the project is no longer here at
-  // all — it moved to the end of the Settings tab, away from the button next
-  // to it.)
-  const operatorDoc = new DOMParser().parseFromString(operator, 'text/html')
-  const embedDoc = new DOMParser().parseFromString(embed, 'text/html')
-  const isSweepAction = (button: Element) => /^(?:Run AI Visibility check|AI Visibility check running…|Starting…)$/.test(button.textContent ?? '')
-  expect([...operatorDoc.querySelectorAll('[data-project-actions] button')].some(isSweepAction)).toBe(true)
-  // …the embed render has no project actions at all, and its page header
-  // carries no button (this renders OUTSIDE the tab switch, so it would
-  // otherwise leak on the default overview embed).
-  expect(embedDoc.querySelector('[data-project-actions]')).toBeNull()
-  expect(embedDoc.querySelectorAll('.page-header button')).toHaveLength(0)
-  // Delete is absent from BOTH headers now, so its absence in the embed is no
-  // longer evidence of anything — assert it left the header instead.
-  expect(operator).not.toContain('Delete project')
+  const operatorPage = document.createElement('div')
+  const embedPage = document.createElement('div')
+  operatorPage.innerHTML = operator
+  embedPage.innerHTML = embed
+  const checks = within(operatorPage).getByRole('group', { name: 'AI Visibility checks' })
+  expect(within(checks).getByRole('button', { name: 'AI Visibility check running…' })).toBeTruthy()
+  expect(within(embedPage).queryByRole('group', { name: 'AI Visibility checks' })).toBeNull()
+  expect(within(embedPage).queryByRole('button', { name: /AI Visibility check/ })).toBeNull()
 
   // A read-only report still renders in the embed, proving we hid controls,
   // not content.
@@ -309,7 +301,7 @@ test('embed hides the project sweep action that leaks on every tab', async () =>
   expect(embed).toContain('AI answers over time')
   // The trend chart is the embed's first card too: no Visibility card above it.
   expect(embed).not.toContain('id="overview-brief-title"')
-  expect(embedDoc.querySelector('.av-card-title')?.textContent).toBe('AI answers over time')
+  expect(embedPage.querySelector('.av-card-title')?.textContent).toBe('AI answers over time')
   expect(embed).toContain('Query evidence')
   expect(embed).toContain('Mention share')
 })

@@ -5,10 +5,10 @@ import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SeoRepository, projects, queries } from '@canonry/canonry-db'
-import { SeoAdapterOutcomes, SeoCapabilities, SeoCompetitorSorts, SeoProviders, SeoKeywordGapKinds, SeoKeywordGapModes, SeoKeywordGapSorts, emptySeoResults, seoCompetitorListSchema, seoKeywordGapListSchema, seoKeywordMetricsListSchema, seoQuoteSchema, seoRunSchema, type SeoAdapter, type SeoMarketRanking } from '@canonry/canonry-contracts'
+import { SeoAdapterOutcomes, SeoCapabilities, SeoCompetitorSorts, SeoProviders, SeoKeywordGapKinds, SeoKeywordGapModes, SeoKeywordGapSorts, agentViewContextSchema, emptySeoResults, seoCompetitorListSchema, seoKeywordGapListSchema, seoKeywordMetricsListSchema, seoQuoteSchema, seoRunSchema, seoTrendsSchema, type SeoAdapter, type SeoMarketRanking } from '@canonry/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import type { ApiRoutesOptions } from '@canonry/canonry-api-routes'
-import { createSeoHarness, seedSeoKey, seoProfileFixture } from '../../api-routes/test/seo-fixture.js'
+import { createSeoHarness, seedSeoEvidence, seedSeoKey, seoProfileFixture } from '../../api-routes/test/seo-fixture.js'
 import { ApiClient } from '../src/client.js'
 import { SEO_CLI_COMMANDS } from '../src/cli-commands/seo.js'
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
@@ -108,6 +108,105 @@ describe('SEO public transport parity', () => {
     const readIntent = await h.api(h.reader).createSeoRefreshIntent('alpha', { profileId: 'us' })
     await expect(h.api(h.reader).syncSeo('alpha', { quoteToken: readIntent.token, idempotencyKey: 'denied' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(h.requested).toEqual([run.id])
+    expect(h.state.executions).toBe(0)
+  })
+
+  it('reads the same saved SEO observations through scoped stored-only HTTP, CLI, MCP and Aero', async () => {
+    const h = await fixture()
+    const api = h.api(h.root)
+    const profileId = 'site'
+    const target = { kind: 'domain', value: 'alpha.com', includeSubdomains: true } as const
+    await api.putSeoProfile('alpha', profileId, { ...seoProfileFixture, capabilities: [SeoCapabilities['domain-intelligence']], targets: [target], keywords: [] })
+    const repository = new SeoRepository(h.db)
+    const now = Date.now()
+    const saveObservation = async (daysAgo: number, organicKeywords: number) => {
+      const observedAt = new Date(now - daysAgo * 86_400_000).toISOString()
+      const intent = await api.createSeoRefreshIntent('alpha', { profileId })
+      const run = await api.syncSeo('alpha', { quoteToken: intent.token, idempotencyKey: `observed-domain-trend-${daysAgo}` })
+      const task = repository.claim(run.id, { ...h.state.policy, accountKey: h.state.accountKey })!
+      repository.settle(task.id, {
+        outcome: SeoAdapterOutcomes.completed, error: null, fetchedAt: observedAt,
+        tasks: [{ remoteTaskId: `domain-report-${daysAgo}`, statusCode: 20000, costMicros: 50 }],
+        results: { ...emptySeoResults(), domainIntelligence: [{
+          target, organicKeywords, top1: 0, top2To3: 0, top4To10: 0, top11To20: 0,
+          estimatedOrganicTraffic: null, estimatedOrganicTrafficValueUsd: null,
+          provenance: { provider: SeoProviders.dataforseo, dataset: 'google-organic-domain', engine: 'google', locationCode: 2840, languageCode: 'en', device: 'unspecified', collectedAt: observedAt, sourceUpdatedAt: null },
+        }] },
+      }, task.leaseOwner!)
+      return { run, observedAt }
+    }
+    const older = await saveObservation(45, 3)
+    const { run, observedAt } = await saveObservation(1, 8)
+
+    const headers = { authorization: `Bearer ${h.reader}`, 'x-canonry-stored-only': '1' }
+    const response = await fetch(`${h.url}/api/v1/projects/alpha/seo/trends?profileId=${profileId}&days=30`, { headers })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('x-canonry-access')).toBe('stored')
+    const expected = seoTrendsSchema.parse(await response.json())
+    expect(expected).toMatchObject({ kind: 'domain', profileId, target, days: 30,
+      points: [{ runId: run.id, observedAt, organicKeywords: 8, inTop10: 0, estimatedOrganicTraffic: null }],
+      changes: { organicKeywords: null, inTop10: null, estimatedOrganicTraffic: null },
+    })
+    const mcp = await h.mcp(h.reader, ['read'], 'stored-only')
+    expect((await mcp.callTool({ name: 'canonry_seo_trends', arguments: { project: 'alpha', profileId, days: 30 } })).structuredContent).toEqual(expected)
+    const denied = await mcp.callTool({ name: 'canonry_seo_trends', arguments: { project: 'beta', profileId, days: 30 } })
+    expect(denied.structuredContent).toMatchObject({ error: { code: 'FORBIDDEN' } })
+    vi.stubEnv('CANONRY_STORED_ONLY', '1')
+    const output = configureCli(h.url, h.reader)
+    const args = ['seo', 'trends', 'alpha', '--profile-id', profileId, '--days', '30']
+    await dispatchRegisteredCommand([...args, '--format', 'json'], 'json', SEO_CLI_COMMANDS)
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(expected)
+    await dispatchRegisteredCommand(args, 'text', SEO_CLI_COMMANDS)
+    expect(output.mock.calls.at(-1)?.[0]).toBe(`${observedAt}\t${run.id}\t8\t0\tUnavailable`)
+    const context = agentViewContextSchema.parse({ view: 'seo', seoProfileId: profileId, seoTrend: { days: 30, metric: 'organicKeywords' } })
+    expect(await readAeroViewEvidence({ client: h.api(h.reader), projectName: 'alpha', basePath: '/canonry/', context })).toMatchObject({
+      trend: {
+        kind: 'domain', profileId, target, days: 30, metric: 'organicKeywords', change: null,
+        points: [{ runId: run.id, observedAt, value: 8 }],
+      },
+      source: { href: '/canonry/projects/alpha/seo-data?seoProfileId=%22site%22&seoTrendDays=30&seoTrendMetric=organicKeywords' },
+    })
+    expect(h.requested).toEqual([older.run.id, run.id])
+    expect(h.state.executions).toBe(0)
+  })
+
+  it('selects the same saved search through ranked trend HTTP, CLI and MCP reads', async () => {
+    const h = await fixture()
+    const profileId = 'default-ranks'
+    const target = { kind: 'domain', value: 'alpha.com', includeSubdomains: true } as const
+    const capability = SeoCapabilities['ranked-keywords']
+    const profile = { ...seoProfileFixture, capabilities: [capability], targets: [target], keywords: [] }
+    await h.api(h.root).putSeoProfile('alpha', profileId, profile)
+    const keyword = 'solar installers near me'
+    for (const [day, rank] of [[4, 19], [1, 7]] as const) {
+      const observedAt = new Date(Date.now() - day * 86_400_000).toISOString()
+      const id = `ranked-${day}`
+      seedSeoEvidence(h.db, {
+        id, projectId: 'alpha', profileId, profile, createdAt: observedAt, finishedAt: observedAt, status: 'completed',
+        tasks: [{
+          request: { capability, target, keywords: [], locationCode: profile.locationCode, languageCode: profile.languageCode, limit: profile.limit, tag: id },
+          results: { ...emptySeoResults(), rankedKeywords: [keyword, 'solar panel maintenance'].map((search, index) => ({
+            target, keyword: search, url: null, rankOrganic: rank + index, rankAbsolute: null, searchVolume: null,
+            estimatedTraffic: null, cpcUsd: null, keywordDifficulty: null, serpFeatures: [],
+            provenance: { provider: SeoProviders.dataforseo, dataset: 'google-ranked-keywords', engine: 'google', locationCode: profile.locationCode, languageCode: profile.languageCode, device: 'unspecified', collectedAt: observedAt, sourceUpdatedAt: null },
+          })) },
+        }],
+      })
+    }
+
+    const query = { profileId, days: 30, keyword: 'solar panel maintenance' } as const
+    const result = await h.api(h.reader).getSeoTrends('alpha', query)
+    expect(result).toMatchObject({ kind: 'ranked', keyword: query.keyword, points: [{ rankOrganic: 20 }, { rankOrganic: 8 }], changes: { rankOrganic: { difference: -12, tone: 'better' } } })
+    const mcp = await h.mcp(h.reader, ['read'], 'stored-only')
+    expect((await mcp.callTool({ name: 'canonry_seo_trends', arguments: { project: 'alpha', ...query } })).structuredContent).toEqual(result)
+    vi.stubEnv('CANONRY_STORED_ONLY', '1')
+    const output = configureCli(h.url, h.reader)
+    const args = ['seo', 'trends', 'alpha', '--profile-id', profileId, '--days', '30', '--keyword', query.keyword]
+    await dispatchRegisteredCommand([...args, '--format', 'json'], 'json', SEO_CLI_COMMANDS)
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(result)
+    await dispatchRegisteredCommand(args, 'text', SEO_CLI_COMMANDS)
+    expect(output.mock.calls.map(([line]) => line)).toContain(`Search: ${query.keyword}`)
+    expect(output.mock.calls.at(-1)?.[0]).toBe(`${result.points.at(-1)?.observedAt}\tranked-1\t8`)
     expect(h.state.executions).toBe(0)
   })
 

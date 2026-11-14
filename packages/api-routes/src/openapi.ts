@@ -20,6 +20,8 @@ import {
   seoMarketRankingFilterSchema,
   seoMarketRankingSortSchema,
   legacyAgentReadinessPath,
+  seoTrendDaysSchema,
+  SEO_TREND_DEFAULT_DAYS,
   operationAccess,
 } from '@canonry/canonry-contracts'
 import {
@@ -980,6 +982,24 @@ const routeCatalog: OpenApiOperation[] = [
       403: errorResponse('Insufficient authority.'),
       404: errorResponse('Project or selected evidence not found.'),
       409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/trends',
+    summary: 'Read trends from saved SEO refreshes',
+    tags: ['seo'],
+    description: 'Stored evidence only. Trends compare compatible domain estimates, tracked market rankings or organic positions for one saved search. The window ends at the latest observation.',
+    parameters: [
+      nameParameter,
+      { name: 'profileId', in: 'query', required: true, description: 'Exact project-scoped SEO profile identifier.', schema: stringSchema },
+      { name: 'days', in: 'query', description: 'Inclusive window in UTC calendar days, ending on the latest comparable refresh observation.', schema: { type: 'integer', enum: [...seoTrendDaysSchema.values], default: SEO_TREND_DEFAULT_DAYS } },
+      { name: 'keyword', in: 'query', description: 'Select a search for a ranked-keywords trend. Omit to use the default saved search.', schema: { type: 'string', minLength: 1, maxLength: 512 } },
+    ],
+    responses: {
+      200: jsonResponse('Comparable SEO observations and their changes.', 'SeoTrends'),
+      400: errorResponse('Invalid SEO trend selection.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected profile not found.'),
     },
   },
   {

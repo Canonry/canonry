@@ -2,17 +2,25 @@ import type { Agent } from '@earendil-works/pi-agent-core'
 import {
   FeatureNames,
   OutcomeStatuses,
+  OutcomeOperationKinds,
+  OutcomePhases,
+  buildOutcomeDiagnostics,
+  extractProviderHttpStatus,
   bucketDuration,
   classifyProviderErrorMessage,
   type FeatureCompletedProperties,
   type OutcomeReasonCode,
   type OutcomeTrigger,
   type ProviderErrorCode,
+  type OutcomePhase,
 } from '@canonry/canonry-contracts'
 import type { OutcomeAttribution } from '@canonry/canonry-api-routes'
 import { outcomeAttribution, outcomeFailure, trackFeatureCompleted } from '../outcome-telemetry.js'
 import { AGENT_PROVIDERS } from './providers.js'
-import { aeroTurnStatus, aeroTurnUsage } from './runtime.js'
+import { aeroTurnOperationId, aeroTurnStatus, aeroTurnUsage } from './runtime.js'
+import { createLogger } from '../logger.js'
+
+const log = createLogger('AeroTurn')
 
 export type AeroTurnStatus = NonNullable<ReturnType<typeof aeroTurnStatus>>
 
@@ -58,12 +66,16 @@ function agentProviderSlug(piAiProvider: string): string | undefined {
  */
 export function trackAeroTurn(agent: Agent, turn: {
   trigger: OutcomeTrigger
+  /** Local log join only; never sent in feature.completed properties. */
+  projectId?: string
   /** The request the turn answered; none for a turn Aero started itself. */
   attribution?: OutcomeAttribution
   /** The status already computed for the turn (the route's), else read from the runtime. */
   status?: AeroTurnStatus
   /** What the caller caught while running or saving the turn; the turn then failed. */
   error?: unknown
+  /** Captured at the owning prompt/save boundary; absent means it was not observed. */
+  phase?: OutcomePhase
 }): void {
   try {
     const status = turn.status ?? aeroTurnStatus(agent)
@@ -86,10 +98,28 @@ export function trackAeroTurn(agent: Agent, turn: {
       }
     }
     const modelProvider = agentProviderSlug(model.provider)
+    const operationId = aeroTurnOperationId(agent)
+    // SDKs sometimes expose only a safe status prefix in the terminal error string.
+    const httpStatus = agent.state.errorMessage ? extractProviderHttpStatus(agent.state.errorMessage) : undefined
+    const diagnostics = buildOutcomeDiagnostics(turn.error ?? (httpStatus ? { status: httpStatus } : undefined), {
+      phase: turn.phase ?? (turn.error === undefined && agent.state.errorMessage ? OutcomePhases['provider-request'] : OutcomePhases.unknown),
+    })
+    const outcome = turnOutcome(turn.error === undefined ? status.reason : 'error', turn.error, agent.state.errorMessage)
+    log.info('completed', {
+      operationId,
+      projectId: turn.projectId,
+      provider: modelProvider,
+      httpStatus: diagnostics.httpStatus,
+      errorCode: outcome.reasonCode,
+      msg: `Aero ${outcome.status}; phase ${diagnostics.phase}.`,
+    })
     trackFeatureCompleted({
       feature: FeatureNames.aero,
       operation: 'turn',
-      ...turnOutcome(turn.error === undefined ? status.reason : 'error', turn.error, agent.state.errorMessage),
+      operationKind: OutcomeOperationKinds['agent-turn'],
+      operationId,
+      diagnostics,
+      ...outcome,
       trigger: turn.trigger,
       ...outcomeAttribution(turn.attribution),
       durationBucket: bucketDuration(status.durationMs),

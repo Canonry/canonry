@@ -7,6 +7,7 @@ export type TrackedRunSourceAction =
   | 'gsc-sync'
   | 'gbp-sync'
   | 'bing-sync'
+  | 'seo-sync'
   | 'google-ads-sync'
   | 'gtm-sync'
   | 'site-audit'
@@ -16,6 +17,7 @@ export type TrackedRunSourceAction =
 export interface TrackedRun {
   runId: string
   projectId: string
+  projectName?: string
   projectLabel?: string
   kind: ApiRun['kind']
   sourceAction: TrackedRunSourceAction
@@ -72,14 +74,22 @@ function parseState(raw: string | null): RunTrackerState {
 
 function persistState() {
   if (typeof window === 'undefined') return
-  window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  try {
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    // The current page can track accepted work even when persistence is unavailable.
+  }
 }
 
 function hydrateState() {
   if (hydrated) return
   hydrated = true
   if (typeof window === 'undefined') return
-  state = parseState(window.sessionStorage.getItem(STORAGE_KEY))
+  try {
+    state = parseState(window.sessionStorage.getItem(STORAGE_KEY))
+  } catch {
+    // Keep the in-memory state if the browser denies storage access.
+  }
 }
 
 function updateState(nextState: RunTrackerState) {
@@ -102,6 +112,7 @@ export function subscribeRunTracker(listener: Listener): () => void {
 }
 
 export function trackRun(run: Pick<ApiRun, 'id' | 'projectId' | 'kind'> & {
+  projectName?: string
   projectLabel?: string
   sourceAction: TrackedRunSourceAction
   lastAnnouncedStatus?: string
@@ -116,6 +127,7 @@ export function trackRun(run: Pick<ApiRun, 'id' | 'projectId' | 'kind'> & {
       [run.id]: {
         runId: run.id,
         projectId: run.projectId,
+        projectName: run.projectName,
         projectLabel: run.projectLabel,
         kind: run.kind,
         sourceAction: run.sourceAction,
@@ -170,10 +182,14 @@ export function removeTrackedBatch(batchId: string) {
 
 export function resetRunTracker() {
   state = { runs: {}, batches: {} }
-  hydrated = false
+  hydrated = true
   batchCounter = 0
   if (typeof window !== 'undefined') {
-    window.sessionStorage.removeItem(STORAGE_KEY)
+    try {
+      window.sessionStorage.removeItem(STORAGE_KEY)
+    } catch {
+      // Clear the in-memory state even when the browser denies storage access.
+    }
   }
   emit()
 }

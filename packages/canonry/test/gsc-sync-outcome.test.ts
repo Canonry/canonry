@@ -107,7 +107,7 @@ describe('search_console sync outcome', () => {
 
     expect(featureCompleted()).toEqual([
       {
-        feature: 'search_console', operation: 'sync', trigger: 'manual', status: 'succeeded',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'sync', trigger: 'manual', status: 'succeeded',
         durationBucket: 'under_1s', counts: { rows: 3, urls: 2 },
       },
       undefined,
@@ -122,7 +122,7 @@ describe('search_console sync outcome', () => {
 
     expect(featureCompleted()).toEqual([
       {
-        feature: 'search_console', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'skipped',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'skipped',
         reasonCode: 'NO_DATA', durationBucket: 'under_1s', counts: { rows: 0, urls: 0 },
       },
       { errorCode: 'NO_DATA' },
@@ -152,7 +152,7 @@ describe('search_console sync outcome', () => {
       await expect(executeGscSync(db, 'run_1', 'proj_gsc', { config: testCase.config })).rejects.toThrow()
       expect(featureCompleted()).toEqual([
         {
-          feature: 'search_console', operation: 'sync', trigger: 'manual', status: 'failed',
+          operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'sync', trigger: 'manual', status: 'failed',
           reasonCode: testCase.reasonCode, errorName: testCase.errorName, durationBucket: 'under_1s',
         },
         { errorCode: testCase.reasonCode },
@@ -174,7 +174,7 @@ describe('search_console inspect outcome', () => {
 
     expect(featureCompleted()).toEqual([
       {
-        feature: 'search_console', operation: 'inspect', trigger: 'scheduled', surface: 'system', status: 'succeeded',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'inspect', trigger: 'scheduled', surface: 'system', status: 'succeeded',
         durationBucket: 'under_1s', counts: { urls: 3, failures: 0, skipped: 0 },
       },
       undefined,
@@ -193,7 +193,7 @@ describe('search_console inspect outcome', () => {
 
     expect(featureCompleted()).toEqual([
       {
-        feature: 'search_console', operation: 'inspect', trigger: 'manual', status: 'partial', reasonCode: 'HTTP_4XX',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'inspect', trigger: 'manual', status: 'partial', reasonCode: 'HTTP_4XX',
         errorName: 'GoogleApiError', durationBucket: 'under_1s', counts: { urls: 2, failures: 1, skipped: 0 },
       },
       { errorCode: 'HTTP_4XX' },
@@ -209,7 +209,7 @@ describe('search_console inspect outcome', () => {
 
     expect(featureCompleted()).toEqual([
       {
-        feature: 'search_console', operation: 'inspect', trigger: 'manual', status: 'partial', reasonCode: 'QUOTA_EXCEEDED',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'inspect', trigger: 'manual', status: 'partial', reasonCode: 'QUOTA_EXCEEDED',
         durationBucket: 'under_1s', counts: { urls: 5, failures: 0, skipped: 1 },
       },
       { errorCode: 'QUOTA_EXCEEDED' },
@@ -225,7 +225,7 @@ describe('search_console inspect outcome', () => {
 
     expect(featureCompleted()).toEqual([
       {
-        feature: 'search_console', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'RATE_LIMITED',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'RATE_LIMITED',
         errorName: 'GoogleApiError', durationBucket: 'under_1s',
       },
       { errorCode: 'RATE_LIMITED' },
@@ -240,7 +240,7 @@ describe('search_console inspect outcome', () => {
 
     expect(featureCompleted()).toEqual([
       {
-        feature: 'search_console', operation: 'inspect', trigger: 'manual', status: 'skipped', reasonCode: 'NO_DATA',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'inspect', trigger: 'manual', status: 'skipped', reasonCode: 'NO_DATA',
         errorName: 'Error', durationBucket: 'under_1s',
       },
       { errorCode: 'NO_DATA' },

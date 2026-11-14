@@ -1347,6 +1347,9 @@ describe('executeSiteAudit', () => {
       expect(durationMs).toEqual(expect.any(Number))
       expect(properties).toEqual({
         status: 'completed',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        operationKind: 'site-audit',
+        diagnostics: { phase: 'persistence' },
         trigger: 'manual',
         domainHash: hashDomain('example.com'),
         complete: true,
@@ -1400,7 +1403,8 @@ describe('executeSiteAudit', () => {
       const audits = byEvent(payloads, 'site_audit.completed')
       expect(audits).toHaveLength(1)
       expect(audits[0]!.errorCode).toBe('INTERNAL')
-      expect(Object.keys(audits[0]!.properties as object).sort()).toEqual(['domainHash', 'durationMs', 'errorName', 'status', 'trigger'])
+      expect(audits[0]!.properties).toMatchObject({ operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), operationKind: 'site-audit', diagnostics: { phase: 'crawl' }, observedPages: 0, observedPageErrors: 0 })
+      expect(Object.keys(audits[0]!.properties as object).sort()).toEqual(['diagnostics', 'domainHash', 'durationMs', 'errorName', 'observedPageErrors', 'observedPages', 'operationId', 'operationKind', 'status', 'trigger'])
       expect(audits[0]!.properties).toMatchObject({ status: 'failed', errorName: 'Error' })
       expect(JSON.stringify(audits[0])).not.toContain('provider connection failed')
       expect(byEvent(payloads, 'activation.completed')).toEqual([])

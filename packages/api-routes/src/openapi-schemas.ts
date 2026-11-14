@@ -27,7 +27,7 @@ import { gbpLocalPostDtoSchema, gbpLocalPostListSchema, gbpLocalPostAttemptSchem
  */
 import { z, type ZodType } from 'zod'
 import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
-import { seoContextSchema, seoStatusSchema, seoProfileSchema, seoProfileListSchema, seoProfileInputSchema, seoQuoteSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, seoRunSchema, seoRunDetailSchema, seoRunListSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoCompetitorListSchema, seoKeywordGapListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoMarketRankingListSchema, seoMarketRankingSummarySchema } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoStatusSchema, seoProfileSchema, seoProfileListSchema, seoProfileInputSchema, seoQuoteSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, seoRunSchema, seoRunDetailSchema, seoRunListSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoCompetitorListSchema, seoKeywordGapListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoMarketRankingListSchema, seoMarketRankingSummarySchema, seoTrendsSchema } from '@canonry/canonry-contracts'
 import { sentimentSummarySchema, sentimentSettingsSchema, sentimentSettingsUpdateSchema, sentimentEvidencePageSchema, sentimentComparisonSchema, sentimentBackfillPreviewSchema, sentimentBackfillRequestSchema, sentimentJobsSchema, sentimentJobSchema } from '@canonry/canonry-contracts'
 import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema } from '@canonry/canonry-contracts'
@@ -392,6 +392,7 @@ const SCHEMA_TABLE = {
   SeoRunDetail: seoRunDetailSchema,
   SeoRunList: seoRunListSchema,
   SeoOverview: seoOverviewSchema,
+  SeoTrends: seoTrendsSchema,
   SeoKeywordMetricsList: seoKeywordMetricsListSchema,
   SeoCompetitorList: seoCompetitorListSchema,
   SeoKeywordGapList: seoKeywordGapListSchema,

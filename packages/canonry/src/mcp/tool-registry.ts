@@ -151,6 +151,7 @@ import {
 } from './schema.js'
 import type { CanonryMcpTier } from './toolkits.js'
 import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
+import { seoTrendsQuerySchema, seoTrendsSchema } from '@canonry/canonry-contracts'
 import { seoContextSchema, seoStatusSchema, seoProfileListSchema, seoProfileSchema, seoQuoteSchema, seoRunSchema, seoRunListSchema, seoRunDetailSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoCompetitorListSchema, seoCompetitorQuerySchema, seoKeywordGapListSchema, seoKeywordGapQuerySchema, seoMarketRankingListSchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoMarketRankingSummarySchema, seoEvidenceQuerySchema, seoProfileInputSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, SEO_RUN_SCOPE, SEO_WRITE_SCOPE } from '@canonry/canonry-contracts'
 
 export type McpToolAccess = 'read' | 'write'
@@ -1395,6 +1396,7 @@ const sentimentBackfillInputSchema = sentimentBackfillRequestSchema.extend({ pro
 
 const seoIdInputSchema = projectInputSchema.extend({ id: z.string().min(1) })
 const seoEvidenceInputSchema = seoEvidenceQuerySchema.extend({ project: projectNameSchema })
+const seoTrendsInputSchema = seoTrendsQuerySchema.extend({ project: projectNameSchema })
 const seoCompetitorInputSchema = seoCompetitorQuerySchema.extend({ project: projectNameSchema })
 const seoKeywordGapInputSchema = seoKeywordGapQuerySchema.extend({ project: projectNameSchema })
 const seoMarketRankingInputSchema = seoMarketRankingQuerySchema.extend({ project: projectNameSchema })
@@ -1515,6 +1517,15 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/seo/overview'],
     handler: (client, input) => { const { project, ...query } = input; return client.getSeoOverview(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_trends', title: 'SEO trends',
+    description: 'Read comparable observations across saved SEO refreshes for one profile. The window is 30, 90 or 180 days (default 180), ending on the latest observation. For ranked-keywords profiles use keyword to select one saved search; a missing position means the sample supplied no rank. Domain traffic is an estimate. Market page-one counts describe the same tracked non-brand query assignments. Use the returned change basis and run IDs. This read performs no provider calls.',
+    access: 'read', tier: 'seo',
+    inputSchema: seoTrendsInputSchema, outputSchema: seoTrendsSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/trends'],
+    handler: (client, { project, ...query }) => client.getSeoTrends(project, query),
   }),
   defineTool({
     name: 'canonry_seo_keyword_metrics', title: 'SEO keyword metrics',

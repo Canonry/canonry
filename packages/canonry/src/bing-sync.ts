@@ -19,10 +19,14 @@ import {
   FeatureNames,
   OutcomeReasonCodes,
   OutcomeStatuses,
+  OutcomeOperationKinds,
+  OutcomePhases,
+  buildOutcomeDiagnostics,
   RunStatuses,
   describeError,
   type BingSiteSnapshotKind,
   type BingSiteSnapshotStatus,
+  type OutcomePhase,
 } from '@canonry/canonry-contracts'
 import {
   BingApiError,
@@ -97,6 +101,9 @@ interface SectionResult {
   ok: boolean
   rows: number
   error?: string
+  deferred?: boolean
+  cause?: unknown
+  phase?: OutcomePhase
 }
 
 /** A throttle that outlasted the client's retries: stop calling Bing for the rest of the run. */
@@ -104,6 +111,14 @@ class BingSyncThrottled extends Error {
   constructor(cause: unknown) {
     super(describeError(cause), { cause })
     this.name = 'BingSyncThrottled'
+  }
+}
+
+/** A section finished storing its reads, but one or more provider requests failed. */
+class BingSectionReadFailure extends Error {
+  constructor(message: string, cause: unknown) {
+    super(message, { cause })
+    this.name = 'BingSectionReadFailure'
   }
 }
 
@@ -193,6 +208,7 @@ export async function executeBingSync(
   opts: BingSyncOptions,
 ): Promise<void> {
   const reportOutcome = startRunOutcome(db, runId, FeatureNames.bing, 'sync')
+  let phase: OutcomePhase = OutcomePhases.setup
   const now = opts.now ?? (() => new Date())
   const sleep: SleepFn = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
   db.update(runs).set({ status: RunStatuses.running, startedAt: now().toISOString() }).where(eq(runs.id, runId)).run()
@@ -223,9 +239,12 @@ export async function executeBingSync(
     /** Every Bing call in the run goes through here: paced, and short-circuited after a throttle. */
     async function call<T>(read: () => Promise<T>): Promise<T> {
       if (throttled) throw new BingSyncThrottled(new Error('Bing throttled this account earlier in the run'))
+      phase = OutcomePhases['provider-request']
       await gate.take(BING_SYNC_SPACING_MS, sleep)
       try {
-        return await read()
+        const result = await read()
+        phase = OutcomePhases.persistence
+        return result
       } catch (err) {
         if (isThrottle(err)) {
           throttled = true
@@ -236,15 +255,30 @@ export async function executeBingSync(
     }
 
     const results: SectionResult[] = []
-    async function section(name: SectionName, work: () => Promise<number>): Promise<void> {
+    async function section(name: SectionName, work: (saved: (rows: number) => void) => Promise<number>): Promise<void> {
+      if (throttled) {
+        results.push({ section: name, ok: false, rows: 0, deferred: true, error: 'Deferred until the account throttle clears' })
+        log.info('section.deferred', { runId, projectId, section: name, reason: 'account-throttled' })
+        return
+      }
+      let savedRows = 0
+      phase = OutcomePhases.persistence
       try {
-        const rows = await work()
+        const rows = await work((rows) => { savedRows = rows })
         results.push({ section: name, ok: true, rows })
         log.info('section.completed', { runId, projectId, section: name, rows })
       } catch (err) {
         const error = describeError(err)
-        results.push({ section: name, ok: false, rows: 0, error })
-        log.warn('section.failed', { runId, projectId, section: name, error, throttled: err instanceof BingSyncThrottled })
+        const providerFailure = err instanceof BingSectionReadFailure || err instanceof BingSyncThrottled
+        results.push({
+          section: name,
+          ok: false,
+          rows: savedRows,
+          error,
+          cause: providerFailure ? err.cause : err,
+          phase: providerFailure ? OutcomePhases['provider-request'] : phase,
+        })
+        log.warn('section.failed', { runId, projectId, section: name, error, savedRows, throttled: err instanceof BingSyncThrottled })
       }
     }
 
@@ -379,7 +413,7 @@ export async function executeBingSync(
       return collected.size
     })
 
-    await section('site', async () => {
+    await section('site', async (saved) => {
       const reads: Array<{ kind: BingSiteSnapshotKind; read: () => Promise<unknown> }> = [
         {
           kind: BingSiteSnapshotKinds['url-submission-quota'],
@@ -478,6 +512,7 @@ export async function executeBingSync(
 
       let failed = 0
       let stored = 0
+      let lastError: unknown
       for (const { kind, read } of reads) {
         let status: BingSiteSnapshotStatus = 'ok'
         let payload: unknown = null
@@ -489,8 +524,12 @@ export async function executeBingSync(
           const unauthorized = err instanceof BingApiError && err.bingErrorCode === BING_NOT_AUTHORIZED
           status = unauthorized ? 'unauthorized' : 'failed'
           error = unauthorized ? 'This Bing key is not allowed to read this setting (owner-only).' : describeError(err)
-          if (!unauthorized) failed += 1
+          if (!unauthorized) {
+            failed += 1
+            lastError = err
+          }
         }
+        phase = OutcomePhases.persistence
         const syncedAt = now().toISOString()
         // A failed read keeps the last good payload: the operator still sees
         // what Bing said, and `status` / `error` say it could not be re-read.
@@ -503,12 +542,15 @@ export async function executeBingSync(
           .onConflictDoUpdate({ target: [bingSiteSnapshots.projectId, bingSiteSnapshots.kind], set: values })
           .run()
         stored += 1
+        saved(stored)
       }
-      if (failed > 0) throw new Error(`${failed} of ${reads.length} Bing site settings could not be read`)
+      if (failed > 0) {
+        throw new BingSectionReadFailure(`${failed} of ${reads.length} Bing site settings could not be read`, lastError)
+      }
       return stored
     })
 
-    await section('keyword-demand', async () => {
+    await section('keyword-demand', async (saved) => {
       const market: BingKeywordMarket = bingKeywordMarket(project.country, project.language)
       const tracked = db.select({ query: queries.query }).from(queries).where(eq(queries.projectId, projectId)).all()
       if (tracked.length === 0) return 0
@@ -568,12 +610,16 @@ export async function executeBingSync(
               .run()
           }
         })
+        saved(written)
       }
-      if (failures > 0) throw new Error(`${failures} of ${due.length} keyword demand reads failed; last: ${describeError(lastError)}`)
+      if (failures > 0) {
+        throw new BingSectionReadFailure(`${failures} of ${due.length} keyword demand reads failed; last: ${describeError(lastError)}`, lastError)
+      }
       return written
     })
 
     const failed = results.filter((r) => !r.ok)
+    const lastFailure = [...failed].reverse().find((r) => !r.deferred)
     const status = failed.length === 0
       ? RunStatuses.completed
       : failed.length === results.length
@@ -582,24 +628,29 @@ export async function executeBingSync(
     const error = failed.length === 0
       ? null
       : `${throttled ? 'Bing throttled this account; stopped early. ' : ''}${failed.map((r) => `${r.section}: ${r.error}`).join('; ')}`.slice(0, 2000)
+    phase = OutcomePhases.persistence
     db.update(runs).set({ status, error, finishedAt: now().toISOString() }).where(eq(runs.id, runId)).run()
 
     const rows = results.reduce((sum, r) => sum + r.rows, 0)
-    log.info('sync.completed', { runId, projectId, status, rows, failedSections: failed.map((r) => r.section) })
+    const deferred = failed.filter((r) => r.deferred).length
+    const counts = { rows, items: results.length, attempts: results.length - deferred, failures: failed.length - deferred, skipped: deferred }
+    log.info('sync.completed', { runId, projectId, status, rows, attemptedSections: counts.attempts, remainingSections: failed.length, deferredSections: deferred, failedSections: failed.filter((r) => !r.deferred).map((r) => r.section) })
     if (status === RunStatuses.completed) {
-      reportOutcome({ status: OutcomeStatuses.succeeded, counts: { rows, items: results.length } })
+      reportOutcome({ status: OutcomeStatuses.succeeded, operationKind: OutcomeOperationKinds['data-refresh'], counts, diagnostics: { phase, remainingWork: 0 } })
     } else {
       reportOutcome({
         status: status === RunStatuses.partial ? OutcomeStatuses.partial : OutcomeStatuses.failed,
-        ...runFailure(new Error(error ?? 'Bing sync failed'), throttled ? OutcomeReasonCodes.RATE_LIMITED : undefined),
-        counts: { rows, items: results.length, failures: failed.length },
+        operationKind: OutcomeOperationKinds['data-refresh'],
+        ...runFailure(lastFailure?.cause ?? new Error(error ?? 'Bing sync failed'), throttled ? OutcomeReasonCodes.RATE_LIMITED : undefined),
+        counts,
+        diagnostics: buildOutcomeDiagnostics(lastFailure?.cause, { phase: lastFailure?.phase ?? OutcomePhases.unknown, remainingWork: failed.length }),
       })
     }
   } catch (err) {
     const message = describeError(err)
     db.update(runs).set({ status: RunStatuses.failed, error: message, finishedAt: now().toISOString() }).where(eq(runs.id, runId)).run()
     log.error('sync.failed', { runId, projectId, error: message })
-    reportOutcome({ status: OutcomeStatuses.failed, ...runFailure(err) })
+    reportOutcome({ status: OutcomeStatuses.failed, operationKind: OutcomeOperationKinds['data-refresh'], ...runFailure(err), diagnostics: buildOutcomeDiagnostics(err, { phase }) })
     throw err
   }
 }

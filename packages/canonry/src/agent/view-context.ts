@@ -1,6 +1,6 @@
 import { Type } from '@earendil-works/pi-ai'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
-import { SeoCapabilities, agentVisibilityEvidence, validationError, visibilityReportRequestSchema, type AgentViewContext } from '@canonry/canonry-contracts'
+import { SEO_TREND_METRICS_BY_KIND, SeoCapabilities, SeoTrendKinds, agentVisibilityEvidence, validationError, visibilityReportRequestSchema, type AgentViewContext } from '@canonry/canonry-contracts'
 import type { ApiClient } from '../client.js'
 import { createLogger } from '../logger.js'
 import { truncateToolResult } from './mcp-to-agent-tool.js'
@@ -12,12 +12,40 @@ export interface AeroViewOptions {
   context?: AgentViewContext
 }
 
+async function readAeroSeoTrend(client: ApiClient, projectName: string, base: string, context: AgentViewContext & { seoProfileId: string; seoTrend: NonNullable<AgentViewContext['seoTrend']> }) {
+  const { days, metric, keyword } = context.seoTrend
+  const { kind, profileId, profileRevision, target, scope, languageCode, locationCode, marketQueryCount, changes, points, keyword: selectedKeyword } =
+    await client.getSeoTrends(projectName, { profileId: context.seoProfileId, days, ...(keyword ? { keyword } : {}) })
+  if (!kind || !SEO_TREND_METRICS_BY_KIND[kind].includes(metric)) throw validationError('The saved SEO profile does not support the selected trend metric.')
+  // TanStack Router parses JSON literals in search params. Quoting keeps IDs and search text intact.
+  const search = new URLSearchParams({ seoProfileId: JSON.stringify(profileId), seoTrendDays: String(days), seoTrendMetric: metric })
+  if (selectedKeyword) search.set('seoTrendKeyword', JSON.stringify(selectedKeyword))
+  return {
+    context,
+    retrievedAt: new Date().toISOString(),
+    source: { label: 'Open SEO trend', href: `${base}/projects/${encodeURIComponent(projectName)}/seo-data?${search}` },
+    trend: {
+      kind, profileId, profileRevision, target, scope, languageCode, locationCode, marketQueryCount,
+      days, metric, ...(kind === SeoTrendKinds.ranked ? { keyword: selectedKeyword ?? null } : {}),
+      change: changes[metric] ?? null,
+      points: points.map(({ runId, observedAt, [metric]: value }) => ({ runId, observedAt, value: value ?? null })),
+    },
+    interpretation: 'Use the saved observations and comparison for the selected metric and date range. Keep the target, scope and locale attached to the results. Null observations are gaps. Use Search Console for directly measured search performance.'
+      + (kind === SeoTrendKinds.ranked ? ' Organic position is for the selected search, and a lower rank number is better. An absent search in a saved sample has unknown position.' : '')
+      + (kind === SeoTrendKinds.market ? ' Page-one counts cover the saved basket of non-brand query and market pairs.' : ''),
+  }
+}
+
 /** Resolve supplied identities through project-scoped public reads before a provider call. */
 export async function readAeroViewEvidence(options: AeroViewOptions): Promise<unknown> {
   const { client, projectName, context } = options
   if (context?.unavailableReason) throw validationError(context.unavailableReason)
   const base = `/${(options.basePath ?? '').replace(/^\/+|\/+$/g, '')}`.replace(/\/$/, '')
   if (context?.view === 'seo') {
+    if (context.seoTrend) {
+      if (!context.seoProfileId) throw validationError('SEO trend context requires an exact SEO profile.')
+      return readAeroSeoTrend(client, projectName, base, { ...context, seoProfileId: context.seoProfileId, seoTrend: context.seoTrend })
+    }
     const overview = await client.getSeoOverview(projectName, { profileId: context.seoProfileId, runId: context.seoRunId })
     // Market rankings on screen: their counts by outcome for the region or market the view is narrowed to.
     const evidence = overview.evidenceRun

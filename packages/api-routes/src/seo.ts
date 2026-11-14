@@ -5,7 +5,7 @@ import { SeoRepository, competitors, currentSeoTaskCondition, currentSeoTasks, p
 import {
   AppError, RunKinds, RunStatuses, RunTriggers, SEO_MARKET_RANKING_MAX_SEARCHES, SEO_PROJECT_MARKET_KEY, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoKeywordGapKinds, SeoKeywordGapModes, SeoMarketRankingSearchStatuses, SeoMarketRankingSorts, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
   compareSeoCompetitorsBy, compareSeoKeywordGapsBy, compareMarketRankingsBy, compareText, countMarketRankings, effectiveDomains, groupMarketRankings, marketRankingRow, matchesMarketRankingFilter, matchesMarketRankingText, matchesMeasurementTargetUrl, normalizeHostname, missingDependency, notFound, queryClassSchema, registrableDomain, seoSearchTextForQuery, validationError,
-  seoProfileInputSchema, seoSyncInputSchema, seoRefreshIntentInputSchema, seoEvidenceQuerySchema, seoCompetitorQuerySchema, seoKeywordGapQuerySchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoReconcileInputSchema,
+  seoProfileInputSchema, seoSyncInputSchema, seoRefreshIntentInputSchema, seoEvidenceQuerySchema, seoCompetitorQuerySchema, seoKeywordGapQuerySchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoReconcileInputSchema, seoTrendsQuerySchema,
   type MeasurementPlanV2, type SeoAdapter, type SeoAdapterRequest, type SeoCapability, type SeoCompetitorList, type SeoCompetitorQuery, type SeoContext, type SeoEvidenceQuery, type SeoKeywordGapList, type SeoKeywordGapQuery, type SeoMarketRanking, type SeoMarketRankingContext, type SeoMarketRankingList, type SeoMarketRankingQuery, type SeoMarketRankingSearchMarket, type SeoMarketRankingSummary, type SeoMarketRankingSummaryQuery, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoQuote, type SeoResults, type SeoRun, type SeoRunDetail, type SeoRunStatus, type SeoScopeSelection, type SeoStatus, type SeoOperatorTask, type SeoReconcileResult,
 } from '@canonry/canonry-contracts'
 import { requireAdminSession, requireScope, requireOperator } from './auth.js'
@@ -14,6 +14,7 @@ import { activeMeasurementPlan } from './measurement-overview.js'
 import { planScopeOptions } from './measurement-scope-options.js'
 import { createPlanPinLookup } from './plan-competitors.js'
 import { readQueryClasses } from './query-class-read.js'
+import { domainTop10, primaryDomainIntelligence, readSeoTrends } from './seo-trends.js'
 
 export interface SeoConnection { id: string; label: string; adapter: SeoAdapter }
 export interface SeoPolicy { maxRunCostMicros: number; accountDailyLimitMicros: number; accountMonthlyLimitMicros: number; projectMonthlyLimitMicros: number }
@@ -565,9 +566,16 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
   })
   app.get<{ Params: Params; Querystring: SeoEvidenceQuery }>('/projects/:name/seo/overview', async request => {
     const project = resolveProject(app.db, request.params.name); const query = queryInput(request.query); const latest = selected(project.id, query); const row = selected(project.id, query, true); const rows = row ? tasks(row.id) : []; const results = resultRows(rows)
-    const primary = row?.profile.targets[0]
-    const domain = primary ? results.domainIntelligence.find(result => result.target.kind === primary.kind && result.target.value === primary.value && result.target.includeSubdomains === primary.includeSubdomains) : null
-    return { status: status(project.id), profiles: profiles(project.id), latestRun: latest ? runSummary(latest) : null, evidenceRunId: row?.id ?? null, evidenceRun: row ? runDto(row, rows.map(task => ({ status: task.status, count: 1 }))) : null, keywordMetricsCount: results.keywordMetrics.length, domainIntelligenceCount: results.domainIntelligence.length, rankedKeywordCount: results.rankedKeywords.length, marketRankingCount: results.marketRankings.length, competitorCount: results.competitors.length, keywordGapCount: results.keywordGaps.length, summary: domain ? { target: domain.target, organicKeywords: domain.organicKeywords, inTop10: domain.top1 !== null && domain.top2To3 !== null && domain.top4To10 !== null ? domain.top1 + domain.top2To3 + domain.top4To10 : null, estimatedOrganicTraffic: domain.estimatedOrganicTraffic, provenance: domain.provenance } : null } satisfies SeoOverview
+    const domain = primaryDomainIntelligence(results.domainIntelligence, row?.profile.targets[0])
+    return { status: status(project.id), profiles: profiles(project.id), latestRun: latest ? runSummary(latest) : null, evidenceRunId: row?.id ?? null, evidenceRun: row ? runDto(row, rows.map(task => ({ status: task.status, count: 1 }))) : null, keywordMetricsCount: results.keywordMetrics.length, domainIntelligenceCount: results.domainIntelligence.length, rankedKeywordCount: results.rankedKeywords.length, marketRankingCount: results.marketRankings.length, competitorCount: results.competitors.length, keywordGapCount: results.keywordGaps.length, summary: domain ? { target: domain.target, organicKeywords: domain.organicKeywords, inTop10: domainTop10(domain), estimatedOrganicTraffic: domain.estimatedOrganicTraffic, provenance: domain.provenance } : null } satisfies SeoOverview
+  })
+  app.get<{ Params: Params; Querystring: { profileId?: string; days?: string; keyword?: string } }>('/projects/:name/seo/trends', async request => {
+    const query = request.query
+    const parsed = seoTrendsQuerySchema.safeParse({ ...query, days: query.days === undefined ? undefined : Number(query.days) })
+    if (!parsed.success) throw validationError('Select an SEO profile, a trend window of 30, 90 or 180 days, and an optional keyword of up to 512 characters.')
+    const project = resolveProject(app.db, request.params.name)
+    const saved = profile(project.id, parsed.data.profileId)
+    return readSeoTrends(app.db, project.id, saved, parsed.data, marketRankingRows)
   })
   for (const [path, key] of [['keyword-metrics', 'keywordMetrics'], ['domain-intelligence', 'domainIntelligence'], ['ranked-keywords', 'rankedKeywords']] as const) app.get<{ Params: Params; Querystring: SeoEvidenceQuery }>(`/projects/:name/seo/${path}`, async request => {
     const query = queryInput(request.query); const row = selected(resolveProject(app.db, request.params.name).id, query, true)

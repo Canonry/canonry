@@ -138,6 +138,7 @@ const DEMO_READ_ROUTES: ReadonlySet<string> = new Set(withLegacyAgentReadinessPa
   '/api/v1/projects/:name/seo/profiles',
   '/api/v1/projects/:name/seo/profiles/:id',
   '/api/v1/projects/:name/seo/overview',
+  '/api/v1/projects/:name/seo/trends',
   '/api/v1/projects/:name/seo/keyword-metrics',
   '/api/v1/projects/:name/seo/domain-intelligence',
   '/api/v1/projects/:name/seo/ranked-keywords',

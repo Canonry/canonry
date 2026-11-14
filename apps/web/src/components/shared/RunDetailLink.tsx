@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { RunKinds, type RunDto } from '@canonry/canonry-contracts'
 import { useDrawer } from '../../hooks/use-drawer.js'
+import { seoRefreshSearch } from '../../lib/project-route.js'
 
 /** SEO results have their own saved-scope workspace; other checks, and an SEO refresh that never started, use the run drawer. */
 export function RunDetailLink({ run, projectName, children, className, label }: {
@@ -17,7 +18,7 @@ export function RunDetailLink({ run, projectName, children, className, label }: 
     return <Link
       to="/projects/$projectName/seo-data"
       params={{ projectName }}
-      search={previous => ({ ...previous, seoRunId: run.id, seoProfileId: undefined, seoRegion: undefined, seoMarket: undefined, seoShow: undefined, seoSort: undefined, seoQ: undefined, runId: undefined, evidenceId: undefined })}
+      search={previous => seoRefreshSearch(previous, run.id)}
       className={className}
       aria-label={label}
     >{children}</Link>

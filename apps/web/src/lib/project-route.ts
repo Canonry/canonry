@@ -30,3 +30,22 @@ export function resolveProjectNameFromPathname(
     dashboard,
   )
 }
+
+export function seoRefreshSearch<T>(previous: T, runId: string) {
+  return {
+    ...previous,
+    seoRunId: runId,
+    seoProfileId: undefined,
+    seoView: undefined,
+    seoTrendDays: undefined,
+    seoTrendMetric: undefined,
+    seoTrendKeyword: undefined,
+    seoRegion: undefined,
+    seoMarket: undefined,
+    seoShow: undefined,
+    seoSort: undefined,
+    seoQ: undefined,
+    runId: undefined,
+    evidenceId: undefined,
+  }
+}

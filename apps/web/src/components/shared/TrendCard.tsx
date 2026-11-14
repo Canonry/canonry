@@ -93,6 +93,8 @@ export interface TrendCardFigure {
   formatExact?: (value: number) => string
   /** Rates and durations take fractional axis ticks; counts never do. */
   allowDecimals?: boolean
+  /** A better rank is a smaller number and belongs higher on the plot. */
+  reverseValueAxis?: boolean
 }
 
 export interface TrendCardGroup {
@@ -170,7 +172,7 @@ export function levelTrendChange(change: TrendChange | null, unit: TrendUnit): T
 }
 
 /** The basis every change in a group shares, to say once in its header; none when they differ. */
-export function sharedLevelBasis(figures: readonly TrendFigure[]): string | undefined {
+export function sharedLevelBasis(figures: ReadonlyArray<Pick<TrendFigure, 'change'>>): string | undefined {
   const names = new Set(figures.map(figure => figure.change ? readingName(figure.change.basis) : null))
   const [name] = [...names]
   return names.size === 1 && name ? `since ${name}` : undefined
@@ -209,11 +211,11 @@ function ChangeLine({ change, hideBasis }: { change?: TrendCardChange; hideBasis
   )
 }
 
-function FigureValue({ figure, active }: { figure: TrendCardFigure; active: boolean }) {
+function FigureValue({ figure, active, compact }: { figure: TrendCardFigure; active: boolean; compact: boolean }) {
   if (figure.stateValue) return <span className="flex min-h-10 items-center text-label-14 text-secondary">{figure.value}</span>
   return (
     <span className="flex flex-wrap items-baseline gap-x-1.5">
-      <span className={`text-heading-32 tabular-nums transition-colors duration-150 ${active ? 'text-primary' : 'text-strong'}`} title={figure.exactValue}>{figure.value}</span>
+      <span className={`${compact ? 'text-heading-20 sm:text-heading-32' : 'text-heading-32'} tabular-nums transition-colors duration-150 ${active ? 'text-primary' : 'text-strong'}`} title={figure.exactValue}>{figure.value}</span>
       {figure.detail && <span className="text-label-13 text-secondary">{figure.detail}</span>}
     </span>
   )
@@ -270,6 +272,11 @@ export function TrendCard({
   refreshing = false,
   chartHeight = 240,
   frame = 'card',
+  showChartData = false,
+  compact = false,
+  minimumReadings = 1,
+  hideSpan = false,
+  basisInNotice = false,
 }: {
   /** Accessible name of the card and of its figure tabs. */
   name: string
@@ -281,7 +288,7 @@ export function TrendCard({
   /** The dates the chart covers, always this and nothing else. */
   span?: string
   /** What one reading is, for the chart's accessible name: "per day", "per scan". */
-  cadence?: 'day' | 'scan' | 'release'
+  cadence?: 'day' | 'scan' | 'release' | 'refresh'
   /** The points' dates are moments (scans): plot them on a time scale and label them in the viewer's timezone, never as UTC days. */
   instants?: boolean
   currentLabel?: string
@@ -300,6 +307,16 @@ export function TrendCard({
   chartHeight?: number
   /** `none` sits inside a section card that already frames it: it bleeds to the card's padding instead of nesting a card. */
   frame?: 'card' | 'none'
+  /** Lets sighted readers open the same exact-value table used by screen readers. */
+  showChartData?: boolean
+  /** Keep up to three simple figures together on a narrow analytics workspace. */
+  compact?: boolean
+  /** Keep exact observations available when the chart needs more points to show a trend. */
+  minimumReadings?: number
+  /** A notice may already display the span. It still labels the chart for assistive technology. */
+  hideSpan?: boolean
+  /** The caller renders the shared comparison basis alongside the readings. */
+  basisInNotice?: boolean
 }) {
   const id = useId().replace(/:/g, '')
   const dayLabel = (value: string) => instants ? formatObservedInstantLabel(observedInstant(value)) : formatChartDateLabel(value)
@@ -308,6 +325,7 @@ export function TrendCard({
   // viewer's timezone like the readings around it.
   const timeTick = (value: number) => formatObservedInstantTick(observedInstant(new Date(value).toISOString()))
   const [hidden, setHidden] = useState<ReadonlySet<Series>>(new Set())
+  const [dataOpen, setDataOpen] = useState(false)
   const animate = !prefersReducedMotion()
   const figures = groups.flatMap(group => group.figures)
   // Only a figure with something to chart is charted, even when it is the one selected.
@@ -320,14 +338,14 @@ export function TrendCard({
   const hasPrevious = Boolean(previous?.available) && rows.some(row => hasValue(row.previous))
   // Either period's readings are worth a chart: a window whose latest sync failed still shows the period before it.
   const drawable = rows.some(row => row.current !== null || (hasPrevious && hasValue(row.previous)))
+  const enoughReadings = minimumReadings <= 1 || recorded(lead ?? { key: '', label: '', value: '' }) >= minimumReadings
   // With nothing to compare against, the current line is the chart and cannot be hidden.
   const showCurrent = !hasPrevious || !hidden.has(SERIES.current)
   const showPrevious = hasPrevious && !hidden.has(SERIES.previous)
   const lineType = recorded(lead ?? { key: '', label: '', value: '' }) < DENSE_POINTS ? 'linear' : 'monotone'
-  const per = cadence === 'day' ? 'per day' : cadence === 'scan' ? 'per scan' : 'per release'
-  const summary = lead
-    ? `${lead.label} ${per}, ${currentLabel ? lowerFirst(currentLabel) : span ?? ''}${hasPrevious ? ' and the previous period' : ''}`
-    : ''
+  const per = `per ${cadence}`
+  const chartScope = currentLabel ? lowerFirst(currentLabel) : span
+  const summary = lead ? `${lead.label} ${per}${chartScope ? `, ${chartScope}` : ''}${hasPrevious ? ' and the previous period' : ''}` : ''
 
   const interactiveKeys = figures.filter(isTrendFigureInteractive).map(figure => figure.key)
   // The tab reached by Tab: the selected one, or the first that charts when the selection cannot.
@@ -385,7 +403,7 @@ export function TrendCard({
             <ChevronDown aria-hidden="true" className={`pointer-events-none absolute right-0 size-3.5 ${active ? 'text-link' : 'text-muted'}`} />
           </span>
         ) : (
-          <span className={`text-label-14-strong ${active ? (mode === 'single' ? 'text-link' : 'text-heading') : 'text-secondary'}`}>{figure.label}</span>
+          <span className={`${compact ? 'text-label-12 sm:text-label-14-strong' : 'text-label-14-strong'} ${active ? (mode === 'single' ? 'text-link' : 'text-heading') : 'text-secondary'}`}>{figure.label}</span>
         )}
         {figure.help && <InfoTooltip text={figure.help} />}
       </div>
@@ -396,7 +414,7 @@ export function TrendCard({
         <div key={figure.slot ?? figure.key} className="flex min-w-0 flex-col px-4 pb-4 pt-3">
           <dt>{label}</dt>
           <dd className="mt-auto pt-1">
-            <FigureValue figure={figure} active={false} />
+            <FigureValue figure={figure} active={false} compact={compact} />
             <ChangeLine change={figure.change} hideBasis={hideBasis} />
             {figure.change && <span className="sr-only">{describeTrendChange(figure.change)}</span>}
           </dd>
@@ -409,7 +427,7 @@ export function TrendCard({
     return (
       <div
         key={figure.slot ?? figure.key}
-        className={`relative flex min-w-0 flex-col px-4 pb-4 pt-3 transition-colors duration-150 ${active && mode === 'single' ? 'bg-surface-active' : interactive ? 'hover:bg-surface-hover' : ''}`}
+        className={`relative flex min-w-0 flex-col ${compact ? 'px-2 pb-2 pt-2 sm:px-4 sm:pb-4 sm:pt-3' : 'px-4 pb-4 pt-3'} transition-colors duration-150 ${active && mode === 'single' ? 'bg-surface-active' : interactive ? 'hover:bg-surface-hover' : ''}`}
       >
         {mode === 'single' && (
           <span
@@ -434,9 +452,9 @@ export function TrendCard({
           aria-label={spoken}
           disabled={mode === 'compare' && (figure.disabled || !interactive)}
           onClick={interactive ? () => onSelect(figure.key) : undefined}
-          className={`mt-auto block w-full rounded-sm pt-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${interactive ? '' : 'cursor-default'} ${figure.disabled ? 'disabled:cursor-not-allowed disabled:opacity-50' : ''}`}
+          className={`${compact ? 'sm:mt-auto' : 'mt-auto'} block w-full rounded-sm pt-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${interactive ? '' : 'cursor-default'} ${figure.disabled ? 'disabled:cursor-not-allowed disabled:opacity-50' : ''}`}
         >
-          <FigureValue figure={figure} active={active} />
+          <FigureValue figure={figure} active={active} compact={compact} />
           <ChangeLine change={figure.change} hideBasis={hideBasis} />
         </button>
       </div>
@@ -447,9 +465,10 @@ export function TrendCard({
     <div className={`${frame === 'card' ? 'overflow-hidden material-base' : '-mx-4'} transition-opacity duration-200 ${refreshing ? 'opacity-60' : ''}`}>
       <div className="flex flex-col lg:flex-row">
         {groups.map((group, index) => {
-          const interactive = group.figures.some(isTrendFigureInteractive)
+          const interactive = (!compact || group.figures.length > 1) && group.figures.some(isTrendFigureInteractive)
           const labelId = `${id}-group-${group.key}`
-          const grid = `grid grid-cols-2 ${SM_COLUMNS[Math.min(group.figures.length, 3)]} ${LG_COLUMNS[Math.min(group.figures.length, 6)]}`
+          const mobileGrid = compact ? ({ 1: 'grid-cols-1', 3: 'grid-cols-3' }[group.figures.length] ?? 'grid-cols-2') : 'grid-cols-2'
+          const grid = `grid ${mobileGrid} ${SM_COLUMNS[Math.min(group.figures.length, 3)]} ${LG_COLUMNS[Math.min(group.figures.length, 6)]}`
           return (
             <div
               key={group.key}
@@ -458,13 +477,13 @@ export function TrendCard({
               className={`min-w-0 lg:basis-0 ${index > 0 ? 'border-t border-default lg:border-l lg:border-t-0' : ''}`}
               style={{ flexGrow: group.figures.length }}
             >
-              {(group.label || group.basis) && (
+              {(group.label || (group.basis && !basisInNotice)) && (
                 <div className="flex flex-wrap items-center justify-between gap-x-3 px-4 pt-3">
                   <span className="flex items-center gap-1.5">
                     <span id={labelId} className="text-label-13 text-secondary">{group.label}</span>
                     {group.help && <InfoTooltip text={group.help} />}
                   </span>
-                  {group.basis && <span className="text-label-13 text-secondary">{group.basis}</span>}
+                  {group.basis && !basisInNotice && <span className="text-label-13 text-secondary">{group.basis}</span>}
                 </div>
               )}
               {interactive ? (
@@ -481,14 +500,13 @@ export function TrendCard({
 
       <div
         id={`${id}-panel`}
-        {...(mode === 'single' && lead ? { role: 'tabpanel', 'aria-labelledby': `${id}-tab-${lead.key}` } : { role: 'region', 'aria-label': `${name} chart` })}
-        className="border-t border-default px-4 pb-3 pt-4"
+        {...(mode === 'single' && lead && interactiveKeys.length > 0 && (!compact || figures.length > 1) ? { role: 'tabpanel', 'aria-labelledby': `${id}-tab-${lead.key}` } : { role: 'region', 'aria-label': `${name} chart` })}
+        className={`border-t border-default px-4 ${compact ? 'py-2' : 'pb-3 pt-4'}`}
       >
-        {notice && <div className="mb-3 text-copy-14 text-secondary">{notice}</div>}
-        {mode === 'compare' ? chart : !lead || !drawable ? (
-          <p className="px-4 py-4 text-copy-13 text-secondary">{emptyChartMessage}</p>
+        {notice && <div className={`${compact ? 'mb-1.5 text-copy-13' : 'mb-3 text-copy-14'} text-secondary`}>{notice}</div>}
+        {mode === 'compare' ? chart : !lead || !drawable || !enoughReadings ? (
+          <p className={`${compact ? 'flex min-h-20 items-center justify-center px-6 text-center text-copy-14' : 'px-4 py-4 text-copy-13'} text-secondary`}>{emptyChartMessage}</p>
         ) : (
-          <>
             <div role="img" aria-label={summary} style={{ height: chartHeight }}>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={[...chartRows]} margin={{ top: 8, right: 0, bottom: 0, left: 4 }}>
@@ -509,6 +527,8 @@ export function TrendCard({
                   )}
                   <YAxis
                     orientation="right"
+                    reversed={lead.reverseValueAxis}
+                    domain={lead.reverseValueAxis ? [1, 'auto'] : undefined}
                     tick={CHART_AXIS_TICK}
                     tickLine={false}
                     axisLine={false}
@@ -535,9 +555,32 @@ export function TrendCard({
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-            <div className="sr-only">
-              <table>
-                <caption>{summary}</caption>
+        )}
+
+        {(mode === 'single' && lead && drawable && (currentLabel || showChartData)) || legendExtra || (span && !hideSpan) || controls ? (
+          <div className={compact ? 'flex flex-wrap items-center justify-between gap-x-4 border-t border-subtle pt-1' : 'mt-2 flex flex-wrap items-center justify-between gap-x-6 gap-y-1'}>
+            {showChartData && lead && drawable && <button type="button" aria-expanded={dataOpen} aria-controls={`${id}-chart-data`} className="min-h-8 rounded-sm text-button-14 text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11" onClick={() => setDataOpen(open => !open)}>Chart data</button>}
+            {(hasPrevious || legendExtra || !compact) && <fieldset className="flex flex-wrap gap-x-5 text-label-13 text-secondary">
+              <legend className="sr-only">{lead ? `${lead.label} series` : `${name} options`}</legend>
+              {mode === 'single' && lead && drawable && currentLabel && previous && (
+                <>
+                  <SeriesToggle label={currentLabel} checked={showCurrent} disabled={!hasPrevious || (showCurrent && !showPrevious)} onChange={() => toggleSeries(SERIES.current)} dash={undefined} />
+                  <SeriesToggle label={hasPrevious ? previous.label : `${previous.label}: no earlier data`} checked={showPrevious} disabled={!hasPrevious || (showPrevious && !showCurrent)} onChange={() => toggleSeries(SERIES.previous)} dash="4 3" />
+                </>
+              )}
+              {legendExtra}
+            </fieldset>}
+            <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
+              {span && !hideSpan && <p className="text-copy-13 text-secondary">{span}</p>}
+              {controls}
+            </div>
+          </div>
+        ) : null}
+
+        {mode === 'single' && lead && drawable && (
+            <div id={`${id}-chart-data`} className={showChartData && dataOpen ? 'border-t border-subtle pt-2' : 'sr-only'}>
+              <table className={showChartData && dataOpen ? 'w-full text-label-13 [&_td]:py-2 [&_td]:text-right [&_td]:tabular-nums [&_th:first-child]:text-left [&_th:not(:first-child)]:text-right [&_tr]:border-b [&_tr]:border-subtle' : undefined}>
+                <caption className={showChartData && dataOpen ? 'sr-only' : undefined}>{summary}</caption>
                 <thead>
                   <tr>
                     <th scope="col">{rows.some(row => row.label) ? 'Release' : 'Date'}</th>
@@ -556,40 +599,7 @@ export function TrendCard({
                 </tbody>
               </table>
             </div>
-          </>
         )}
-
-        {(mode === 'single' && lead && drawable && currentLabel) || legendExtra || span || controls ? (
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
-            <fieldset className="flex flex-wrap gap-x-5 text-label-13 text-secondary">
-              <legend className="sr-only">{lead ? `${lead.label} series` : `${name} options`}</legend>
-              {mode === 'single' && lead && drawable && currentLabel && previous && (
-                <>
-                  <SeriesToggle
-                    label={currentLabel}
-                    checked={showCurrent}
-                    // The last line on the chart stays on.
-                    disabled={!hasPrevious || (showCurrent && !showPrevious)}
-                    onChange={() => toggleSeries(SERIES.current)}
-                    dash={undefined}
-                  />
-                  <SeriesToggle
-                    label={hasPrevious ? previous.label : `${previous.label}: no earlier data`}
-                    checked={showPrevious}
-                    disabled={!hasPrevious || (showPrevious && !showCurrent)}
-                    onChange={() => toggleSeries(SERIES.previous)}
-                    dash="4 3"
-                  />
-                </>
-              )}
-              {legendExtra}
-            </fieldset>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              {span && <p className="text-copy-13 text-secondary">{span}</p>}
-              {controls}
-            </div>
-          </div>
-        ) : null}
       </div>
     </div>
   )

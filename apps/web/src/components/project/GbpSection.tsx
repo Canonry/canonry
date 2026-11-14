@@ -1,7 +1,9 @@
-import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getApiV1ProjectsByNameGoogleConnectionsOptions,
+  getApiV1SettingsOptions,
+  getApiV1ProjectsByNameGbpAccountsOptions,
   getApiV1ProjectsByNameGbpSummaryOptions,
   getApiV1ProjectsByNameGbpLocationsOptions,
   getApiV1ProjectsByNameGbpKeywordsOptions,
@@ -9,6 +11,8 @@ import {
   getApiV1ProjectsByNameGbpPlaceActionsOptions,
   getApiV1ProjectsByNameGbpPlacesOptions,
   postApiV1ProjectsByNameGbpSyncMutation,
+  postApiV1ProjectsByNameGbpLocationsDiscoverMutation,
+  deleteApiV1ProjectsByNameGbpConnectionMutation,
   putApiV1ProjectsByNameGbpLocationsByLocationNameSelectionMutation,
 } from '@canonry/canonry-api-client/react-query'
 import type {
@@ -23,6 +27,7 @@ import {
   formatGbpMetricLabel,
   formatPercent,
   classifyGbpMetric,
+  describeError,
   GBP_CONVERSION_METRICS,
   GBP_REACH_METRICS,
   RatioUnits,
@@ -55,7 +60,10 @@ import {
   formatChartDateTick,
   formatChartDateLabel,
 } from '../shared/ChartPrimitives.js'
-import { fetchInsights, heyClient, isEmbed } from '../../api.js'
+import { fetchInsights, heyClient, isEmbed, isPublicDemo } from '../../api.js'
+import { useAccount } from '../../contexts/account-context.js'
+import { extractErrorMessage } from '../../lib/extract-error-message.js'
+import { startGoogleOAuthPopup } from '../../lib/google-oauth-popup.js'
 import { addToast } from '../../lib/toast-store.js'
 import { getRunTrackerState, subscribeRunTracker, trackRun } from '../../lib/run-tracker-store.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
@@ -68,6 +76,39 @@ const GBP_ATTENTION_TYPES = new Set<InsightType>([
   'gbp-keyword-drop',
 ])
 
+export const GBP_CONNECT_COPY = {
+  connect: 'Connect Google Business Profile',
+  connecting: 'Opening Google…',
+  waiting: 'Finish the Google consent flow in the popup. This section refreshes when it closes.',
+  refreshing: 'Refreshing the Business Profile connection…',
+  credentialsMissing: 'Google OAuth app credentials are not configured yet. Set them on the Settings page first.',
+} as const
+
+/** What a non-administrator sees in place of Connect, as GSC does. */
+export const GBP_MANAGED_EMPTY_COPY = 'Google Business Profile is not connected yet. Your Canonry team can set this up.'
+
+export const GBP_DISCOVER_COPY = {
+  accountLabel: 'Business Profile account',
+  loadingAccounts: 'Loading accounts…',
+  noAccounts: 'No Business Profile accounts are visible to this Google user. It needs manager or owner access on the profile.',
+  trackNew: 'Track new locations',
+  discover: 'Discover locations',
+  discovering: 'Discovering…',
+  refresh: 'Refresh locations',
+  noneDiscovered: 'No locations discovered yet. Choose the account and discover its locations.',
+  noneDiscoveredDefaultAccount: "No locations discovered yet. Discover them from the connection's account.",
+  noneDiscoveredManaged: 'No locations discovered yet. Your Canonry team can discover them.',
+} as const
+
+export const GBP_DISCONNECT_COPY = {
+  disconnect: 'Disconnect',
+  confirmTitle: 'Disconnect Google Business Profile?',
+  confirmBody: "This removes the connection and this project's locations and all synced Business Profile data. Reconnecting starts from discovery again.",
+  confirm: 'Disconnect and clear data',
+  disconnecting: 'Disconnecting…',
+  cancel: 'Cancel',
+} as const
+
 export function GbpSection({ projectName, projectId }: { projectName: string; projectId: string }) {
   const queryClient = useQueryClient()
   // `null` = all tracked locations (aggregate). A locationName scopes every read
@@ -75,6 +116,23 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
   const [scopeLocation, setScopeLocation] = useState<string | null>(null)
   const [expandedLocation, setExpandedLocation] = useState<string | null>(null)
   const [showManage, setShowManage] = useState(false)
+  const [connecting, setConnecting] = useState(false)
+  const [connectNotice, setConnectNotice] = useState<string | null>(null)
+  const [connectError, setConnectError] = useState<string | null>(null)
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
+  const { canWrite, isAdmin } = useAccount()
+  // Setup and disconnect change the install, so they never render in a
+  // read-only embed or the public demo; a viewer sees them switched off.
+  const canManage = !isEmbed() && !isPublicDemo()
+  // Starting the OAuth flow and choosing the account need an administrator:
+  // `GET /settings` requires an admin session and `GET /gbp/accounts` refuses
+  // project-scoped keys, so anyone else would only see those reads fail. This
+  // matches GscSection, which shows a managed empty state instead.
+  const canSetUp = canManage && isAdmin
+  const disconnectButtonRef = useRef<HTMLButtonElement>(null)
+  const connectButtonRef = useRef<HTMLButtonElement>(null)
+  const setupHeadingRef = useRef<HTMLHeadingElement>(null)
+  const focusSetupAfterDisconnect = useRef(false)
 
   const connectionsQuery = useQuery(
     getApiV1ProjectsByNameGoogleConnectionsOptions({ client: heyClient, path: { name: projectName } }),
@@ -162,6 +220,107 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
     onSuccess: () => invalidateGbp(),
   })
 
+  // Whether the shared Google OAuth app is set up decides if Connect can start.
+  const settingsQuery = useQuery({
+    ...getApiV1SettingsOptions({ client: heyClient }),
+    enabled: !connectionsQuery.isLoading && !connected && canSetUp,
+  })
+  const googleConfigured = Boolean(settingsQuery.data?.google?.configured)
+
+  // A connection awaiting its first discovery loads the account picker on its
+  // own; once locations exist, discovery reuses the project's account and the
+  // account list (a live Google call) is not read. Without the picker, a first
+  // discovery sends no account, and the server uses the first visible one,
+  // exactly as `canonry gbp locations discover` does.
+  const awaitingDiscovery = connected && locationsQuery.data !== undefined && locationsQuery.data.locations.length === 0
+  const chooseAccount = awaitingDiscovery && canSetUp
+  const accountsQuery = useQuery({
+    ...getApiV1ProjectsByNameGbpAccountsOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: chooseAccount,
+    retry: false,
+  })
+
+  const discoverMutation = useMutation({
+    ...postApiV1ProjectsByNameGbpLocationsDiscoverMutation(),
+    // No invalidation here: `createQueryClient` refreshes this project's reads
+    // after every successful SDK write, so another refetch would only repeat it.
+    onSuccess: (data) => {
+      setShowManage(true)
+      addToast({
+        title: 'Business Profile locations discovered',
+        detail: `${data.totalDiscovered} ${data.totalDiscovered === 1 ? 'location' : 'locations'} found, ${data.totalSelected} tracked.`,
+        tone: 'neutral',
+        dedupeKey: `gbp-discover:${projectName}`,
+        dedupeMode: 'replace',
+      })
+    },
+  })
+
+  const disconnectMutation = useMutation({
+    ...deleteApiV1ProjectsByNameGbpConnectionMutation(),
+    meta: { skipGlobalErrorToast: true },
+    onSuccess: () => {
+      setConfirmDisconnect(false)
+      setScopeLocation(null)
+      setExpandedLocation(null)
+      setShowManage(false)
+      // The refreshed connections render the setup state; focus moves there.
+      focusSetupAfterDisconnect.current = true
+    },
+  })
+
+  // Keyboard focus would otherwise fall to <body> when the confirmation (and
+  // the whole connected view) unmounts after a disconnect.
+  useEffect(() => {
+    if (connected || !focusSetupAfterDisconnect.current) return
+    const connectButton = connectButtonRef.current
+    // Connect stays disabled until the settings read settles, and a disabled
+    // button cannot take focus; wait for it rather than give up.
+    if (connectButton?.disabled && settingsQuery.isLoading) return
+    const target = connectButton && !connectButton.disabled ? connectButton : setupHeadingRef.current
+    if (!target) return
+    focusSetupAfterDisconnect.current = false
+    target.focus()
+  })
+
+  function cancelDisconnect() {
+    disconnectMutation.reset()
+    setConfirmDisconnect(false)
+    // The confirmation unmounts with Cancel in it; return focus to the control
+    // that opened it, as DESIGN.md asks of a closing disclosure.
+    disconnectButtonRef.current?.focus()
+  }
+
+  // A connection with nothing discovered yet opens the panel that discovers,
+  // once; the operator can still close it.
+  useEffect(() => {
+    if (awaitingDiscovery) setShowManage(true)
+  }, [awaitingDiscovery])
+
+  async function handleConnect() {
+    if (!googleConfigured) {
+      setConnectError(GBP_CONNECT_COPY.credentialsMissing)
+      return
+    }
+    setConnecting(true)
+    setConnectError(null)
+    setConnectNotice(null)
+    try {
+      const opened = await startGoogleOAuthPopup(projectName, 'gbp', () => {
+        setConnectNotice(GBP_CONNECT_COPY.refreshing)
+        void Promise.all([
+          invalidateProjectQueryDomain(queryClient, 'google'),
+          invalidateProjectQueryDomain(queryClient, 'gbp'),
+        ]).finally(() => setConnectNotice(null))
+      })
+      if (opened === 'popup') setConnectNotice(GBP_CONNECT_COPY.waiting)
+    } catch (err) {
+      setConnectError(describeError(err))
+    } finally {
+      setConnecting(false)
+    }
+  }
+
   // If the active scope is no longer a selectable location — it was untracked,
   // or the tracked set shrank below the 2 needed to render the scope selector —
   // fall back to the aggregate view. Otherwise the selector disappears while
@@ -186,9 +345,9 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
   if (connectionsQuery.isLoading) return null
 
   // The "Local Presence" tab is always reachable; when no Google Business
-  // Profile is connected it renders a setup guide (onboarding state), not a
-  // blank page. GBP setup is OAuth + account + location selection, so the
-  // proven path is the CLI; the guide walks the four steps.
+  // Profile is connected it renders a setup state, not a blank page. Connect
+  // starts the shared Google OAuth flow; the CLI steps stay as a second path,
+  // and are the only path where the dashboard cannot change the install.
   if (!gbpConnection) {
     const steps: Array<{ title: string; command: string; note: ReactNode }> = [
       {
@@ -212,31 +371,55 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
         note: <>Schedule it: <code className="rounded bg-bg-elevated/80 px-1 py-0.5 text-label-12-mono text-secondary">canonry schedule set {projectName} --kind gbp-sync --preset daily</code></>,
       },
     ]
+    const stepList = (
+      <ol className="mt-4 space-y-4">
+        {steps.map((step, index) => (
+          <li key={step.title} className="grid grid-cols-[1.5rem_1fr] gap-x-3">
+            <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-mono-800 text-label-12-strong tabular-nums text-neutral" aria-hidden="true">
+              {index + 1}
+            </span>
+            <div className="min-w-0">
+              <p className="text-copy-14-strong text-strong">{step.title}</p>
+              <code className="mt-1.5 inline-block w-fit max-w-full overflow-x-auto rounded bg-bg-elevated/80 px-2 py-1 text-label-12-mono text-neutral">
+                {step.command}
+              </code>
+              <p className="mt-1 text-copy-13 text-muted">{step.note}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    )
     return (
       <section className="page-section">
         <Card className="surface-card">
-          <h2>Connect Google Business Profile</h2>
+          <h2 ref={setupHeadingRef} tabIndex={-1} className="focus:outline-none">Connect Google Business Profile</h2>
           <p className="mt-2 max-w-2xl text-copy-14 text-secondary">
             Track your Google Business Profile and local search performance.
           </p>
+          {canSetUp ? (
+            <>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <WriteButton
+                  ref={connectButtonRef}
+                  type="button"
+                  disabled={connecting || settingsQuery.isLoading}
+                  onClick={() => void handleConnect()}
+                >
+                  {connecting ? GBP_CONNECT_COPY.connecting : GBP_CONNECT_COPY.connect}
+                </WriteButton>
+                {!settingsQuery.isLoading && !googleConfigured ? (
+                  <ToneBadge tone="negative">App credentials missing</ToneBadge>
+                ) : null}
+              </div>
+              {connectNotice ? <p role="status" className="mt-3 text-copy-13 text-secondary">{connectNotice}</p> : null}
+              {connectError ? <p role="alert" className="mt-3 text-copy-13 text-negative-400">{connectError}</p> : null}
+            </>
+          ) : canManage ? (
+            <p className="mt-3 text-copy-14 text-secondary">{GBP_MANAGED_EMPTY_COPY}</p>
+          ) : null}
           <details className="mt-4">
             <summary className="cursor-pointer text-label-14 text-secondary hover:text-primary">Connect using the CLI</summary>
-            <ol className="mt-4 space-y-4">
-              {steps.map((step, index) => (
-                <li key={step.title} className="grid grid-cols-[1.5rem_1fr] gap-x-3">
-                  <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-mono-800 text-label-12-strong tabular-nums text-neutral" aria-hidden="true">
-                    {index + 1}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-copy-14-strong text-strong">{step.title}</p>
-                    <code className="mt-1.5 inline-block w-fit max-w-full overflow-x-auto rounded bg-bg-elevated/80 px-2 py-1 text-label-12-mono text-neutral">
-                      {step.command}
-                    </code>
-                    <p className="mt-1 text-copy-13 text-muted">{step.note}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            {stepList}
           </details>
         </Card>
       </section>
@@ -296,8 +479,49 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
                 {isSyncing ? 'Syncing…' : 'Sync'}
               </WriteButton>
             )}
+            {canManage && (
+              <WriteButton
+                ref={disconnectButtonRef}
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-expanded={confirmDisconnect}
+                aria-controls="gbp-disconnect-confirm"
+                disabled={disconnectMutation.isPending}
+                onClick={() => {
+                  if (confirmDisconnect) cancelDisconnect()
+                  else setConfirmDisconnect(true)
+                }}
+              >
+                {GBP_DISCONNECT_COPY.disconnect}
+              </WriteButton>
+            )}
           </div>
         </div>
+
+        {canManage && confirmDisconnect && (
+          <div id="gbp-disconnect-confirm" role="group" aria-labelledby="gbp-disconnect-title" className="mb-4 rounded-md border border-base bg-bg-elevated/60 p-3">
+            <p id="gbp-disconnect-title" className="text-copy-14-strong text-strong">{GBP_DISCONNECT_COPY.confirmTitle}</p>
+            <p className="mt-1 text-copy-13 text-secondary">{GBP_DISCONNECT_COPY.confirmBody}</p>
+            {disconnectMutation.isError && (
+              <p role="alert" className="mt-2 text-copy-14 text-negative break-words">{extractErrorMessage(disconnectMutation.error)}</p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <WriteButton
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={disconnectMutation.isPending}
+                onClick={() => disconnectMutation.mutate({ client: heyClient, path: { name: projectName } })}
+              >
+                {disconnectMutation.isPending ? GBP_DISCONNECT_COPY.disconnecting : GBP_DISCONNECT_COPY.confirm}
+              </WriteButton>
+              <Button type="button" variant="outline" size="sm" disabled={disconnectMutation.isPending} onClick={cancelDisconnect}>
+                {GBP_DISCONNECT_COPY.cancel}
+              </Button>
+            </div>
+          </div>
+        )}
 
         <p className="mb-4 text-copy-13 text-muted">
           {account ? <>Account <span className="font-mono text-secondary">{account}</span> · </> : null}
@@ -324,7 +548,13 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
 
         {trackedLocations.length === 0 ? (
           <p className="text-copy-14 text-muted">
-            No locations are tracked yet. Open <span className="text-copy-14-strong text-neutral">Manage locations</span> below to track the one(s) for this business.
+            {awaitingDiscovery
+              ? chooseAccount
+                ? GBP_DISCOVER_COPY.noneDiscovered
+                : canManage && canWrite
+                  ? GBP_DISCOVER_COPY.noneDiscoveredDefaultAccount
+                  : GBP_DISCOVER_COPY.noneDiscoveredManaged
+              : <>No locations are tracked yet. Open <span className="text-copy-14-strong text-neutral">Manage locations</span> below to track the one(s) for this business.</>}
           </p>
         ) : (
           <>
@@ -430,8 +660,19 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
           </button>
           {showManage && (
             <div className="mt-3">
+              {canManage && (
+                <GbpDiscoverControl
+                  firstDiscovery={awaitingDiscovery}
+                  chooseAccount={chooseAccount}
+                  accounts={accountsQuery.data?.accounts ?? null}
+                  accountsLoading={accountsQuery.isLoading}
+                  accountsError={accountsQuery.error ? describeError(accountsQuery.error) : null}
+                  pending={discoverMutation.isPending}
+                  onDiscover={(body) => discoverMutation.mutate({ client: heyClient, path: { name: projectName }, body })}
+                />
+              )}
               {locations.length === 0 ? (
-                <p className="text-copy-14 text-muted">No locations discovered. Run <span className="font-mono">canonry gbp locations discover</span>.</p>
+                canManage ? null : <p className="text-copy-14 text-muted">No locations discovered. Run <span className="font-mono">canonry gbp locations discover</span>.</p>
               ) : (
                 <table className="data-table w-full text-label-14">
                   <thead>
@@ -487,6 +728,84 @@ type GbpLodgingSnapshot = GbpLodgingListResponse['lodging'][number]
 type GbpPlaceAction = GbpPlaceActionListResponse['placeActions'][number]
 type GbpPlaceDetails = GbpPlaceDetailsListResponse['places'][number]
 type ProfileCompletenessSummary = GbpSummaryDto['profileCompleteness']
+
+interface GbpAccountOption {
+  name: string
+  accountName: string | null
+}
+
+/**
+ * Discovers the account's locations through `POST /gbp/locations/discover`,
+ * the same call as `canonry gbp locations discover`. The first discovery picks
+ * the account; later ones reuse the project's account, because pointing a
+ * project at another account replaces its data and stays an explicit CLI step
+ * (`--switch-account`). "Track new locations" is the CLI's `--no-select-new`.
+ */
+function GbpDiscoverControl({
+  firstDiscovery,
+  chooseAccount,
+  accounts,
+  accountsLoading,
+  accountsError,
+  pending,
+  onDiscover,
+}: {
+  firstDiscovery: boolean
+  /** Only an administrator can list accounts; others discover the default one. */
+  chooseAccount: boolean
+  accounts: GbpAccountOption[] | null
+  accountsLoading: boolean
+  accountsError: string | null
+  pending: boolean
+  onDiscover: (body: { accountName?: string; selectAllNew: boolean }) => void
+}) {
+  const [chosenAccount, setChosenAccount] = useState('')
+  const [trackNew, setTrackNew] = useState(true)
+  const account = chosenAccount || accounts?.[0]?.name || ''
+  const needsAccount = chooseAccount && !account
+  return (
+    <div className="mb-4 flex flex-wrap items-end gap-3">
+      {chooseAccount && (
+        <div className="min-w-0 max-w-xs flex-1">
+          <label htmlFor="gbp-discover-account" className="mb-1 block text-label-14-strong text-secondary">{GBP_DISCOVER_COPY.accountLabel}</label>
+          {accountsError ? (
+            <p role="alert" className="text-copy-13 text-negative-400">{accountsError}</p>
+          ) : accounts && accounts.length === 0 ? (
+            <p className="text-copy-13 text-secondary">{GBP_DISCOVER_COPY.noAccounts}</p>
+          ) : (
+            <select
+              id="gbp-discover-account"
+              value={account}
+              disabled={accountsLoading || !accounts}
+              onChange={(event) => setChosenAccount(event.target.value)}
+              className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60"
+            >
+              {accountsLoading || !accounts ? <option value="">{GBP_DISCOVER_COPY.loadingAccounts}</option> : null}
+              {(accounts ?? []).map((option) => (
+                <option key={option.name} value={option.name}>
+                  {option.accountName ? `${option.accountName} (${option.name})` : option.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+      <label className="flex min-h-9 items-center gap-2 text-label-14 text-secondary">
+        <input type="checkbox" checked={trackNew} onChange={(event) => setTrackNew(event.target.checked)} />
+        {GBP_DISCOVER_COPY.trackNew}
+      </label>
+      <WriteButton
+        type="button"
+        variant={firstDiscovery ? 'default' : 'outline'}
+        size="sm"
+        disabled={pending || needsAccount}
+        onClick={() => onDiscover(chooseAccount ? { accountName: account, selectAllNew: trackNew } : { selectAllNew: trackNew })}
+      >
+        {pending ? GBP_DISCOVER_COPY.discovering : firstDiscovery ? GBP_DISCOVER_COPY.discover : GBP_DISCOVER_COPY.refresh}
+      </WriteButton>
+    </div>
+  )
+}
 
 function GbpProfileCompleteness({ summary }: { summary: ProfileCompletenessSummary }) {
   if (summary.locationCount === 0) return null

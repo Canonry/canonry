@@ -207,12 +207,12 @@ describe('bing inspect outcome', () => {
     expect(ctx.outcomes).toEqual([
       {
         event: 'feature.completed',
-        properties: { feature: 'bing', operation: 'inspect', status: 'succeeded', durationBucket: 'under_1s', counts: { urls: 1 } },
+        properties: { feature: 'bing', operation: 'inspect', operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), operationKind: 'url-inspection', status: 'succeeded', durationBucket: 'under_1s', counts: { urls: 1 }, diagnostics: { phase: 'persistence', remainingWork: 0 } },
         attribution: CLI_ATTRIBUTION,
       },
       {
         event: 'feature.completed',
-        properties: { feature: 'bing', operation: 'inspect', status: 'failed', reasonCode: 'RATE_LIMITED', errorName: 'BingApiError', durationBucket: 'under_1s' },
+        properties: { feature: 'bing', operation: 'inspect', operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), operationKind: 'url-inspection', status: 'failed', reasonCode: 'RATE_LIMITED', errorName: 'BingApiError', durationBucket: 'under_1s', diagnostics: { phase: 'provider-request', httpStatus: 400, retryCount: 0, remainingWork: 1 } },
         attribution: CLI_ATTRIBUTION,
       },
     ])
@@ -225,8 +225,8 @@ describe('bing inspect outcome', () => {
 
     expect([notConnected.statusCode, noSite.statusCode]).toEqual([400, 400])
     expect(ctx.outcomes.map((event) => event.properties)).toEqual([
-      { feature: 'bing', operation: 'inspect', status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'AppError', durationBucket: 'under_1s' },
-      { feature: 'bing', operation: 'inspect', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND', durationBucket: 'under_1s' },
+      { feature: 'bing', operation: 'inspect', operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), operationKind: 'url-inspection', status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'AppError', durationBucket: 'under_1s', diagnostics: { phase: 'setup', httpStatus: 400 } },
+      { feature: 'bing', operation: 'inspect', operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), operationKind: 'url-inspection', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND', durationBucket: 'under_1s', diagnostics: { phase: 'setup', httpStatus: 400 } },
     ])
   })
 })

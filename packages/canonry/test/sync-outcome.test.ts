@@ -138,7 +138,7 @@ describe('run outcomes', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       'feature.completed',
       {
-        feature: 'search_console', operation: 'inspect', trigger: 'scheduled', surface: 'system',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'inspect', trigger: 'scheduled', surface: 'system',
         status: 'succeeded', durationBucket: 'under_1s', counts: { urls: 3, failures: 0, skipped: 0 },
       },
       undefined,
@@ -153,7 +153,7 @@ describe('run outcomes', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       'feature.completed',
       {
-        feature: 'search_console', operation: 'sync', trigger: 'agent', surface: 'mcp-stdio', agent: 'claude',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'sync', trigger: 'agent', surface: 'mcp-stdio', agent: 'claude',
         status: 'succeeded', durationBucket: 'under_1s', counts: { rows: 4 },
       },
       undefined,
@@ -168,7 +168,7 @@ describe('run outcomes', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       'feature.completed',
       {
-        feature: 'search_console', operation: 'sync', trigger: 'scheduled', surface: 'system',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'sync', trigger: 'scheduled', surface: 'system',
         status: 'succeeded', durationBucket: 'under_1s', counts: { rows: 4 },
       },
       undefined,
@@ -181,7 +181,7 @@ describe('run outcomes', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       'feature.completed',
       {
-        feature: 'search_console', operation: 'sync', trigger: 'scheduled', surface: 'system',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'sync', trigger: 'scheduled', surface: 'system',
         status: 'succeeded', durationBucket: 'under_1s', counts: { rows: 4 },
       },
       undefined,
@@ -194,7 +194,7 @@ describe('run outcomes', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       'feature.completed',
       {
-        feature: 'search_console', operation: 'sync', trigger: 'scheduled', surface: 'system',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'sync', trigger: 'scheduled', surface: 'system',
         status: 'succeeded', durationBucket: 'under_1s', counts: { rows: 4 },
       },
       undefined,
@@ -206,7 +206,7 @@ describe('run outcomes', () => {
     startRunOutcome(db, 'run_manual', 'openai_ads', 'sync')({ status: 'skipped', reasonCode: 'NO_DATA', counts: {} })
     expect(trackEvent).toHaveBeenCalledWith(
       'feature.completed',
-      { feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'skipped', reasonCode: 'NO_DATA', durationBucket: 'under_1s' },
+      { operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'skipped', reasonCode: 'NO_DATA', durationBucket: 'under_1s' },
       { errorCode: 'NO_DATA' },
     )
   })
@@ -217,7 +217,7 @@ describe('run outcomes', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       'feature.completed',
       {
-        feature: 'gbp', operation: 'sync', trigger: 'scheduled', surface: 'system',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'sync', trigger: 'scheduled', surface: 'system',
         status: 'failed', reasonCode: 'NOT_CONNECTED', durationBucket: 'under_1s',
       },
       { errorCode: 'NOT_CONNECTED' },

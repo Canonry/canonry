@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Button } from '../ui/button.js'
 
@@ -17,16 +17,18 @@ export interface ActionMenuItem {
  * `role="menu"` that closes on outside pointerdown, Escape (focus returns to
  * the button), focus leaving, or a choice; arrow keys move between items.
  */
-export function ActionMenu({ label, items, disabled = false, menuLabel }: {
+export function ActionMenu({ label, items, disabled = false, menuLabel, triggerRef }: {
   label: ReactNode
   items: readonly ActionMenuItem[]
   disabled?: boolean
   /** Accessible name of the opened list. */
   menuLabel: string
+  triggerRef?: RefObject<HTMLButtonElement | null>
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
+  const localTrigger = useRef<HTMLButtonElement>(null)
+  const trigger = triggerRef ?? localTrigger
   const menuId = useId()
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export function ActionMenu({ label, items, disabled = false, menuLabel }: {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       setOpen(false)
-      triggerRef.current?.focus()
+      trigger.current?.focus()
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
@@ -46,12 +48,12 @@ export function ActionMenu({ label, items, disabled = false, menuLabel }: {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [open])
+  }, [open, trigger])
 
   return (
     <div className="relative inline-flex" ref={ref}>
       <Button
-        ref={triggerRef}
+        ref={trigger}
         type="button"
         variant="outline"
         size="sm"

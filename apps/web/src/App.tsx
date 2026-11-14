@@ -217,8 +217,9 @@ export function RunNotificationObserver() {
       if (previousStatus === run.status) continue
 
       const project = projects.find((candidate) => candidate.id === run.projectId)
-      if (project) {
-        invalidateQueriesForRunKind(queryClient, run.kind, project.name)
+      const projectName = project?.name ?? trackedRun.projectName
+      if (projectName) {
+        invalidateQueriesForRunKind(queryClient, run.kind, projectName)
       }
 
       if (trackedRun.sourceAction === 'run-all') {
@@ -233,11 +234,9 @@ export function RunNotificationObserver() {
         tone: terminalToneForRun(run.status),
         dedupeKey: `run:${run.id}`,
         dedupeMode: 'replace',
-        cta: {
-          label: 'View run',
-          intent: 'open-run-drawer',
-          runId: run.id,
-        },
+        cta: run.kind === RunKinds['seo-sync'] && projectName
+          ? { label: 'View refresh', intent: 'view-seo-refresh', projectName, runId: run.id }
+          : { label: 'View run', intent: 'open-run-drawer', runId: run.id },
       })
       removeTrackedRun(run.id)
     }
@@ -260,8 +259,9 @@ export function RunNotificationObserver() {
       )
       for (const trackedRun of staleRuns) {
         const project = projects.find((candidate) => candidate.id === trackedRun.projectId)
-        if (project) {
-          invalidateQueriesForRunKind(queryClient, trackedRun.kind, project.name)
+        const projectName = project?.name ?? trackedRun.projectName
+        if (projectName) {
+          invalidateQueriesForRunKind(queryClient, trackedRun.kind, projectName)
         }
         if (trackedRun.sourceAction !== 'run-all') {
           addToast({

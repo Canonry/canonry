@@ -34,7 +34,7 @@ subtle borders, no visual noise.
 | `src/components/project/SiteGraphSigma.tsx` / `site-graph-sigma.ts` | Agent Readiness WebGL map and its Graphology adapter; consumes server-published coordinates only. The map defaults to content links and hides nav/header/footer links; the toggle changes only which edges are DRAWN, never the positions, which the server laid out without them. When `isTemplateDetectionApplied(templateDetection)` is false the toggle is disabled with plain-word copy and nothing is hidden, because the per-link flag proves nothing then. The header strip is ONE line of numbers (`site-map-link-counts`, built by `siteMapLinkCountsLabel`); why the split is worth having, which rule produced it, and any stale-layout warning live in an `InfoTooltip` beside it (`siteMapLinkRuleHelp`), always, in every state, because `applied` means the weaker ubiquity rule that cannot see an editorial link whose wording matches the menu. CUSTOMER-FACING COPY SAYS "links in your page text" and "menu and footer links", never "content link", "template link", "nav", or "chrome": those are our words, and the reader's distinction is WHERE the link was written. The wire vocabulary is unchanged and must stay (`linkKind=content|template|all`, `isTemplate`, `templateDetection`); this split is copy only. Short visible label, detail in a tooltip is the rule across this surface: an InfoTooltip is placed as a SIBLING of a heading, never a child, or its help text joins the heading's accessible name and any `aria-labelledby` landmark that points at it. Agent Readiness tests assert complete independent help literals through mounted controls and real SDK reads. Keep copy and count helpers private unless another production caller needs them; retain compiled style contracts through the shared test-only Tailwind producer. |
 | `src/components/project/PageAuditEvidence.tsx` | Agent Readiness "Findings and fixes": the per-factor technical checks. Every check starts COLLAPSED so the page opens scannable; the `<summary>` row carries factor name, score, and pass/partial/fail, which is everything needed to decide what to open. Native `<details>` is the disclosure primitive here, so the toggle is a real button with browser-managed expanded state and closed content stays out of the tab order. Critical defects render in their OWN always-visible section above the checks, so collapsing hides nothing that demands attention. |
 | `src/components/project/SiteHealthSection.tsx` | Agent Readiness audit scan controls and results (views Map, Pages, Score; see "Agent Readiness" below). Agent integration checks default on and can be disabled for a scan; geographic checks default off. `site-health-check-help.ts` owns the plain-language info-icon copy shared by settings, factor rows, and per-page findings. Help buttons stay outside row/disclosure triggers. Ordinary default selection uses the API scan history's `preferredRunId`, labelled "Latest scan" with the selection rule in an adjacent info icon; explicit historical and route-pinned (`siteHealthRunId`) selections remain pinned, and a scan started from the header is shown once it finishes (completed or partial) until the operator picks another. Technical factor badges use the API's worst-page `status`, separately from the displayed mean score. The page-budget picker's first choice sends no `maxPages`, so the server applies the project's saved `siteAuditMaxPages`, else the full site; never fill in a number client-side, which would bypass the saved budget. When the project saved a smaller budget, a one-off "Full site" choice sends the 50,000 hard limit explicitly (`oneOffFullSiteChoice`). Project Settings edits the saved budget in `SiteHealthScanSettingsSection` (`ProjectEngineSettingsSection.tsx`): admins only when `isDashboardManagedRunKind('site-audit')`, read-only in embeds and the public demo. `updateProject` sends `siteAuditMaxPages` only when the caller sets it, so every other save keeps the stored value. Budget wording comes from `formatSiteAuditPageBudget` / `formatPageCount` in contracts, shared with the CLI. The Pages list asks for `urlVersions=exclude`, so both filters hold pages only; the audit's skipped URL versions appear as one caveat beside the page count (`urlVersionsSkippedHelp`, counting `urlVersionsFound`: the API's `inventorySummary.urlVersions` plus `urlVersionsNotFetched`, the copies the crawl skipped without fetching), never as rows. A row shows its path, and any parameters on a second line, since two addresses can share a path. A URL version can still be opened from the map: the inspector's reasons name its page (`URL version of <path>, not scored`) and the findings panel says why it has no score. A scan that covered more than one site (the crawl summary's `sites` has two or more) adds the site controls, and only then: a Site select first in the Pages filter bar, sent to the server as `site`; another site's row shows its path with the site on a second line, except in a list filtered to one site; the inspector heading and link tables name a page's site only when it differs; Site sections become one closed row per site (`SiteBranch`) whose folders are read with `site`, and a site the scan could not reach says "Not reached"; the Score view adds a "By site" disclosure. Scan settings show a Sites group when the project has owned domains: the main domain checked and disabled, each owned domain a tick starting from the saved `siteAuditDomains`, sent as the run's `sites`. Settings' `SiteHealthScanSettingsSection` saves the ticks as `siteAuditDomains`, only when changed; `scanSiteChoices` in `lib/site-audit-sites.ts` names every site by bare host. |
-| `src/components/project/RunAdmissionNotice.tsx` | The AI Visibility notice for a sweep that is refused, or leaves out providers that keep failing on their accounts, from `GET /projects/:name/run-admission` (`useRunAdmission`, read once by `ProjectPage` above both overviews and their loading state). While refused, the header sweep button reads "AI sweeps on hold" and is disabled, because the API would refuse it; the confirm sheet names the providers a sweep leaves out. Copy states when the hold lifts, never that a sweep will run (a project may have no schedule). The settings action appears only for a rejected key and deep-links to `/settings#provider-<name>`; credit is added in the provider's console. Saving a provider invalidates every project's admission (`invalidateProjectQueryDomain(…, 'runAdmission')`). |
+| `src/components/project/RunAdmissionNotice.tsx` | The AI Visibility notice for a sweep that is refused, or leaves out providers that keep failing on their accounts, from `GET /projects/:name/run-admission` (`useRunAdmission` in `ProjectPage`). The AI Visibility checks row disables the run action when admission refuses it. The confirmation names any providers the sweep leaves out. Copy states when the hold lifts, never that a sweep will run (a project may have no schedule). The settings action appears only for a rejected key and deep-links to `/settings#provider-<name>`; credit is added in the provider's console. Saving a provider invalidates every project's admission (`invalidateProjectQueryDomain(…, 'runAdmission')`). |
 | `src/queries/` | TanStack Query hooks for data fetching |
 | `src/view-models.ts` | Data transformation from API DTOs to display format |
 
@@ -100,14 +100,24 @@ The public demo uses seeded stored evidence and hides execution-configuration
 notices; refresh and profile writes remain unavailable.
 Saved profiles define Simple or Advanced scope; `seoProfileId` selects a profile,
 and `seoRunId` links Activity to a specific refresh. The project context row has
-no separate SEO scope picker. Reads use the generated SDK and pin evidence tables
+no separate SEO scope picker. `seoView` selects an evidence view. Clean links
+open Overview, links to an exact refresh open the Refresh history drawer, and
+existing market investigation links open Market rankings. Reads use the generated SDK and pin evidence tables
 to `overview.evidenceRunId`; the newest job's status can change while the prior
 completed or partial snapshot stays visible. Freshness uses that selected
-`evidenceRun`, never the project-wide last-completed timestamp. Overview Activity,
-Past checks, and run history use `RunDetailLink` to open SEO refreshes through
-`seoRunId`, preserving Advanced context and clearing stale profile/drawer IDs.
-Summary values come from the API,
-including top-ten counts. Evidence pages use the server's total and pagination.
+`evidenceRun`, never the project-wide last-completed timestamp. Project Activity,
+Past checks, run history, and sync completion notifications open SEO refreshes
+through `seoRunId`, preserving Advanced context and clearing stale profile/drawer
+IDs. Refresh history sits beside the shared sync status and can open the saved
+report for a specific refresh. Only active refreshes can be cancelled.
+Overview uses `TrendCard` with `/seo/trends` observations and server changes at
+30, 90, or 180 days. It defaults to top-10 domain rankings when chartable,
+page-one market rankings, or organic position for one selected saved search.
+Missing metrics stay gaps and preserve the range controls. Latest rankings
+opens the saved snapshot without adding a tab. When ranking readings are
+unavailable, chart the source's monthly estimates for one selected search.
+Chart data exposes exact readings, including zero.
+Evidence pages use the server's total and pagination.
 Profile setup stores source, targets, explicit keywords, locale, capabilities,
 and plan revision; its dataset choices intersect source and scope capabilities
 when the API supplies them. Credentials and internal request accounting remain host-only;
@@ -116,8 +126,11 @@ Profile creation requires a configured source with a usable dataset. Unconfigure
 hosts retain saved evidence and show administrator guidance; unavailable Advanced
 scopes show the API's plan recovery instruction. Keyword-only setup
 omits target and ranked-row controls. Editor dismissal restores its opener's
-focus; saving focuses the profile selector. Failed refresh links retain profile
-navigation and require an explicit return to latest data.
+focus. Saving focuses the selected profile's name or chooser. A single profile
+shows its name. The chooser appears with multiple profiles and when a saved link
+needs recovery. Failed refresh links require an explicit return to latest data.
+Data details records current profile settings and saved-run scope, locale, and
+revision. Refresh history retains the details for each saved refresh.
 Access uses the context's `canRun` and `canWrite` independently, with embed/demo
 write gates. Refresh first obtains a bounded intent and reuses the same intent
 and idempotency key after an ambiguous transport failure. Definitive validation
@@ -139,8 +152,9 @@ with missing values last in either direction. Headers toggle ascending/descendin
 show `aria-sort`, and reset to page 1 while retaining the selected refresh and
 gap filter. The prior rows stay mounted during sorting so keyboard focus survives.
 
-The status line reads `Updated <date>` from the evidence run, `Next refresh <date>`
-from the project's `seo-sync` schedule (none when it is missing or paused), and at
+The status line reads `Last refresh <date>` from the evidence run. The refresh
+info icon holds the next enabled `seo-sync` date and explains the refresh action.
+The chart's info icon holds observation dates and comparison context. Show at
 most one caution caveat (`refreshCaveat`): the newest refresh ending without data,
 else the shown refresh's failed searches ("2 searches failed"), else a partial
 refresh, each with its sentence in the tooltip. It hides while a refresh runs.
@@ -581,6 +595,18 @@ one row per setting (a value, or a count that opens to its rows); owner-only
 settings read "Owner key needed", never a failure. Every figure and change is the
 API's; the component counts list rows and lays out, nothing more.
 
+### Local presence setup
+
+`components/project/GbpSection.tsx` onboards Google Business Profile from the
+dashboard through the existing endpoints only: Connect starts the shared Google
+OAuth popup (`lib/google-oauth-popup.ts`, also used by GSC) with type `gbp`;
+a connection with no discovered locations loads `GET /gbp/accounts` and offers
+discovery for the chosen account; later discoveries reuse the project's account,
+and switching accounts stays the CLI's `--switch-account`. "Track new locations"
+is the CLI's `--no-select-new`. Disconnect (`DELETE /gbp/connection`) asks for an
+inline confirmation that names the cleared data. None of these controls render in
+embeds or the public demo, where the CLI steps remain the setup guide.
+
 ### Sitemaps (both engines)
 
 Google's and Bing's sitemap cards are one `SitemapsCard` over the stored
@@ -785,7 +811,7 @@ Base path comes from `window.__CANONRY_CONFIG__.basePath`. Never hardcode `/api/
 
 ### Managed run kinds
 
-`ProjectPage` reads run admission with `selection=manual` for its sweep button
+On AI Visibility, `ProjectPage` reads run admission with `selection=manual` for its sweep button
 and skipped-provider confirmation, and `selection=scheduled` for the schedule
 notice. When those admissions differ, notices name their scope. Held admissions
 refresh at the earliest provider retry deadline and stop polling once clear;
@@ -800,7 +826,7 @@ replace answer-visibility launch controls and empty-state launch instructions
 for every dashboard role, including admins. `ManagedSweepStatus` reads
 `GET /projects/:name/schedule?kind=answer-visibility`; only an enabled schedule
 with a valid `nextRunAt` gets a calendar date in the schedule timezone. The
-answer-visibility header shows `Next sweep: Sep 23` or a concise running or
+AI Visibility checks row shows `Next check: Sep 23` or a concise running or
 unavailable state, without a tooltip, time, or team-ownership copy. Omit the
 Advanced default `Recent measurements` label; preserve explicit historical
 ranges. The component accepts a schedule kind.
@@ -966,7 +992,7 @@ The schedule editor defaults a new schedule to the browser timezone, displays th
 - **Compact topbar** with breadcrumb, health pills, and primary action button.
 - **Page container** (`max-w-6xl`, centered) for all page content.
 - **Aero bar lane.** While the floating Aero bar shows, `RootLayout` adds `main-area-agent-bar` to `.main-area` (the wrapper holding the page): bottom padding plus a matching root `scroll-padding-bottom`, so the bar never covers a control. Product links and the version live in the sidebar and mobile navigation, outside the page. Pages never pad for the bar themselves.
-- Pages use a `page-header` (title + subtitle + optional actions) followed by `page-section` sections. Use `page-section-divider` only when a rule adds separation that an adjacent card or table edge does not already provide. Project pages instead use the project context row: identity lives in the topbar breadcrumb (plus one visually hidden `h1`, visible below md), and the sweep action lives in the row's `[data-project-actions]`. Embeds keep `page-header`.
+- Pages use a `page-header` (title + subtitle + optional actions) followed by `page-section` sections. Use `page-section-divider` only when a rule adds separation that an adjacent card or table edge does not already provide. Project identity lives in the topbar breadcrumb and the project context row, with one `h1` visible below md. Simple and Advanced AI Visibility show the project-wide check and schedule in a shared row below the tab navigation and above measurement results. Embeds keep `page-header`.
 - **After a deploy.** Pages are lazy routes whose code files are named by content hash, and a deploy removes the old ones, so a tab opened before it fails when it opens a page it has not loaded. `ErrorBoundary` recognizes that error (`lib/stale-build.ts`), shows "Canonry was updated" with a Reload button instead of the raw message, and reloads by itself at most once per 30 s. TanStack Router's own once-per-message reload is not enough on its own: it never forgets, and Safari's message names no file. The server answers a missing file under `assets/` with a 404, never the app shell.
 - "/" is named Overview everywhere it appears (sidebar, mobile navigation, breadcrumb root, page title); "Projects" is the project list at `/projects`. The sidebar footer keeps product links, and the version shows once, in the lockup.
 - Overview's "What changed" is contracts `portfolioWhatChangedItems`, the roll-up `canonry overview --all` prints too: each project's rows from its `/overview` `whatChanged` counts (lost mentions and lost citations as separate rows, each query counted once), with runs in progress counted from the polled run list (`isWhatChangedActiveRun`), then one row naming any project whose overview failed (never the all-clear), or one all-clear or awaiting row. The page loads no answer evidence, so it never derives the lost counts. Queuing, starting or failing a run never refetches an overview, whether the run list's poll sees it or the dashboard started it: run triggers refresh run state only, and `isRunStateRead` (`queries/query-invalidation.ts`) leaves `project-overview-slim` out. The key changes only when a sweep completes, and its `placeholderData` (the project's last loaded overview from the cache) keeps the page on screen until the new one lands (`useQueries` gives a changed key a new observer, so `keepPreviousData` would show nothing).

@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { seoTrendDaysSchema, seoTrendKeywordSchema, seoTrendMetricSchema } from './seo.js'
+import { providerErrorCodeSchema } from './provider-errors.js'
 import { visibilityReportRequestSchema, type VisibilityReportResponse } from './visibility-report.js'
 
 /** A turn's displayed selection, never an authorization grant. */
@@ -9,6 +11,12 @@ export const agentViewContextSchema = z.object({
   /** The market-rankings region and market the SEO view is narrowed to. */
   seoRegionKey: z.string().trim().min(1).max(200).optional(),
   seoMarketKey: z.string().trim().min(1).max(200).optional(),
+  /** The active series of a saved SEO history chart. */
+  seoTrend: z.object({
+    days: seoTrendDaysSchema,
+    metric: seoTrendMetricSchema,
+    keyword: seoTrendKeywordSchema.optional(),
+  }).strict().optional(),
   unavailableReason: z.string().trim().min(1).max(512).optional(),
   selection: visibilityReportRequestSchema.optional(),
   page: z.object({
@@ -19,6 +27,11 @@ export const agentViewContextSchema = z.object({
   if (value.seoProfileId && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO profile context requires the SEO view.' })
   if (value.seoRunId && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO run context requires the SEO view.' })
   if ((value.seoRegionKey || value.seoMarketKey) && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO market context requires the SEO view.' })
+  if (value.seoTrend) {
+    if (value.view !== 'seo' || !value.seoProfileId) ctx.addIssue({ code: 'custom', path: ['seoTrend'], message: 'SEO trend context requires an exact SEO profile.' })
+    if (value.seoRunId || value.seoRegionKey || value.seoMarketKey) ctx.addIssue({ code: 'custom', path: ['seoTrend'], message: 'SEO trend context cannot include a saved refresh or market drill-in.' })
+    if (value.seoTrend.keyword && value.seoTrend.metric !== seoTrendMetricSchema.enum.rankOrganic) ctx.addIssue({ code: 'custom', path: ['seoTrend', 'keyword'], message: 'A trend keyword requires the organic position metric.' })
+  }
   if (value.page && value.view !== 'site-health') ctx.addIssue({ code: 'custom', message: 'Page context requires the Agent Readiness view.' })
   if (value.selection && !['visibility', 'property', 'queries'].includes(value.view)) ctx.addIssue({ code: 'custom', message: 'Measurement selection requires a measurement view.' })
 })
@@ -90,6 +103,14 @@ export type { AgentProviderId } from './providers.js'
  */
 export const agentProviderIdSchema = z.enum(['claude', 'openai', 'gemini', 'zai', 'openrouter'])
 
+/** An account problem pauses automatic Aero work, while manual prompts may retry. */
+export const agentProviderBackgroundPauseSchema = z.object({
+  reason: providerErrorCodeSchema.extract(['PROVIDER_AUTH', 'PROVIDER_BILLING']),
+  retryAt: z.iso.datetime(),
+  recovery: z.string(),
+})
+export type AgentProviderBackgroundPause = z.infer<typeof agentProviderBackgroundPauseSchema>
+
 export const agentProviderOptionDtoSchema = z.object({
   /** Stable identifier — what clients pass back as `provider` on the prompt endpoint. */
   id: agentProviderIdSchema,
@@ -104,6 +125,8 @@ export const agentProviderOptionDtoSchema = z.object({
    * Surfaced so the UI can nudge users toward their preferred source of truth.
    */
   keySource: z.enum(['config', 'env']).nullable(),
+  /** Current credential's automatic-work hold; omitted by hosts predating this field. */
+  backgroundPause: agentProviderBackgroundPauseSchema.nullable().optional(),
   /**
    * A short list of models to offer for this provider: the default first,
    * then a few stronger current models. A pinned model outside the list is

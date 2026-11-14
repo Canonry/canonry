@@ -257,11 +257,15 @@ async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: 
       `Bing API key is in a throttle cooldown for another ${Math.ceil(cooling / 1000)}s; ` +
         'the account was still throttled after a full retry budget, so this call was not attempted.',
       429,
+      null,
+      String(Math.ceil(cooling / 1000)),
     )
   }
 
+  let retryCount = 0
+  let retryWaitMs = 0
   try {
-    return await withRetry(() => bingFetchOnce<T>(apiKey, endpoint, opts), {
+    const result = await withRetry(() => bingFetchOnce<T>(apiKey, endpoint, opts), {
       maxRetries: BING_MAX_RETRIES,
       baseDelayMs: BING_RETRY_BASE_DELAY_MS,
       maxDelayMs: BING_RETRY_MAX_DELAY_MS,
@@ -271,6 +275,8 @@ async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: 
       },
       computeDelayMs: (_attempt, err, defaultMs) => retryAfterDelayMs(err) ?? defaultMs,
       onRetry: ({ attempt, err, delayMs }) => {
+        retryCount += 1
+        retryWaitMs += delayMs
         bingClientLog('warn', 'http.retry', {
           endpoint,
           attempt,
@@ -279,11 +285,16 @@ async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: 
         })
       },
     })
+    if (retryCount > 0) bingClientLog('info', 'http.retry-recovered', { endpoint, retryCount, retryWaitMs: Math.round(retryWaitMs) })
+    return result
   } catch (err) {
     // Still throttled after every retry: that is a statement about the ACCOUNT,
     // not about this URL. Continuing to call is what keeps the limit asserted,
     // so the key goes quiet for a while and every caller fails fast meanwhile.
-    if (err instanceof BingApiError && err.isThrottle) openThrottleCooldown(apiKey, err)
+    if (err instanceof BingApiError) {
+      err.retryCount = retryCount
+      if (err.isThrottle) openThrottleCooldown(apiKey, err)
+    }
     throw err
   }
 }
