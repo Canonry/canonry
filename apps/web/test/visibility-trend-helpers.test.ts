@@ -920,14 +920,14 @@ describe('querySetMovePhrase', () => {
 })
 
 describe('providerDisplayName with the server catalog', () => {
-  it('uses the catalog display name for any routed key and keeps the built-in names without one', () => {
-    const catalog = [{ name: 'svc:deep', displayName: 'Deep · Search Service' }, { name: 'svc', displayName: 'Search Service' }, { name: 'openrouter', knownModels: [{ id: 'google/gemini-2.5-flash', displayName: 'Google: Gemini 2.5 Flash' }] }]
-    expect(providerDisplayName('svc:deep', catalog)).toBe('Deep · Search Service')
+  it('uses catalog profile and service names while keeping direct and gateway labels', () => {
+    const catalog = [{ name: 'svc:deep', displayName: 'Deep · Search Service' }, { name: 'svc', displayName: 'Search Service', profiles: [{ id: 'deep', displayName: 'Deep research' }] }, { name: 'openrouter', knownModels: [{ id: 'google/gemini-2.5-flash', displayName: 'Google: Gemini 2.5 Flash' }] }]
+    expect(providerDisplayName('svc:deep', catalog)).toBe('Deep research via Search Service')
     expect(providerDisplayName('svc', catalog)).toBe('Search Service')
     expect(providerDisplayName('openai', catalog)).toBe('OpenAI')
     expect(providerDisplayName('openrouter:google/gemini-2.5-flash', catalog)).toBe('Gemini 2.5 Flash via OpenRouter')
     expect(providerDisplayName('gemini', catalog)).toBe('Gemini')
     expect(providerDisplayName('openrouter:vendor/model', catalog)).toBe('Vendor: Model via OpenRouter')
-    expect(providerDisplayName('svc:deep')).toBe('Svc:deep')
+    expect(providerDisplayName('svc:deep')).toBe('Deep via Svc')
   })
 })

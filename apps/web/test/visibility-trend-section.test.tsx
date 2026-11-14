@@ -234,6 +234,22 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   expect(screen.queryByText(/pools all answers/)).toBeNull()
 })
 
+test('names the engine and collecting service in the same chart legend entry', async () => {
+  const bucket = TWO_BUCKETS[1]!
+  const byProvider = { gemini: provider(0.75, 0.5), 'cloro:gemini': provider(0.5, 0.25), 'exa:standard': provider(0.25, 0.75) }
+  const metrics = { ...metricsDto([{ ...bucket, byProvider }]), byProvider }
+  onTestFinished(mockFetch(url => {
+    if (url.split('?')[0]!.endsWith('/projects/test-project/analytics/metrics')) return jsonResponse(metrics)
+    throw new Error(`Unexpected fetch: ${url}`)
+  }))
+  renderSection()
+
+  const legend = await screen.findByRole('list', { name: 'Engines' })
+  expect(within(legend).getByText('Gemini').closest('li')?.textContent).toBe('Gemini50.0%')
+  expect(within(legend).getByText('Gemini via Cloro').closest('li')?.textContent).toBe('Gemini via Cloro25.0%')
+  expect(within(legend).getByText('Standard via Exa').closest('li')?.textContent).toBe('Standard via Exa75.0%')
+})
+
 test.each(MODEL_EVENT_TIMEZONES)('keeps model names out of the legend and lists each model change in What changed ($timezone)', async ({ timezone, changeDay }) => {
   observeInTimezone(timezone)
   const restore = mockFetch((url) => {

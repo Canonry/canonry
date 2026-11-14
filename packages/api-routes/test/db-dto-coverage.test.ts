@@ -861,7 +861,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
   },
   gaLeadEventsDaily: {
     kind: 'internal-only',
-    reason: 'Typed GA4 attributed lead-event foundation; its public read model lands in the follow-up measurement API PR.',
+    reason: 'Read only as aggregates (measurement analysis lead periods and the /ga/traffic social platform conversions); no row-level DTO.',
   },
   gaSyncCoverage: {
     kind: 'internal-only',

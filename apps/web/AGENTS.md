@@ -192,7 +192,13 @@ with no search-backend controls. Aero and classifiers choose their own models.
 
 Render answer services from `/settings` data (`kind`, `connection`, `selectionKind`, `profiles`, `workflows`), never from a vendor name. `lib/provider-routes.ts` rebuilds route families from the catalog. A routed connection (OpenRouter, an answer service) is never an engine checkbox or a preselected engine; answer-service profiles are opt-in rows, never part of "All configured engines", never the research default, and never count toward setup readiness. Research results show the server's `evidence` and `citationMeasured` as returned, without deriving counts.
 
+In the chart legend and saved answers, show the profile and collecting service together (for example "Standard via Exa"). `providerDisplayName` delegates to the shared `formatAnswerServiceRouteLabel`, which can label stored routes without access to administrator Settings. Keep the stored route key as the series and selection identity.
+
 ### Provider connection settings
+
+`Add provider` puts unconfigured hosted answer services in the collapsed
+`Other providers` disclosure. Searching the catalog or following a provider
+link reveals matching services. Configured connections remain in the main list.
 
 `ProviderConnectionsSection` separates instance connections from project answer
 engines. Its editor reads credential-free saved values and capabilities from

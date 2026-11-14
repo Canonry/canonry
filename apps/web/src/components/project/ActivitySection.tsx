@@ -23,6 +23,7 @@ import {
   SiteTrafficCard,
   SortHeader,
   StackedSeriesChart,
+  type ReferralGroupColumn,
   type SortDir,
 } from './ActivityParts.js'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
@@ -66,7 +67,7 @@ import {
   getApiV1ProjectsByNameGaStatusOptions,
   getApiV1ProjectsByNameGaTrafficOptions,
 } from '@canonry/canonry-api-client/react-query'
-import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficAiLandingPage, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralDailyDto, GA4SessionHistoryEntry } from '../../api.js'
+import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficAiLandingPage, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, ApiGaSocialPlatformPerformance, ApiGaSocialPlatformRow, ApiGaSocialPlatformSource, GA4AiReferralDailyDto, GA4SessionHistoryEntry } from '../../api.js'
 import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -122,6 +123,31 @@ export const ACTIVITY_COPY = {
   platformsTooltip: 'Platforms with sessions in this period. A source no platform matches counts as its own platform.',
   paidSocialTooltip: 'Sessions in GA4\'s Paid Social channel.',
   socialChartLabel: 'Social sessions by platform',
+  socialPlatformTooltip: 'Sessions from social and creator platforms in every GA4 channel, grouped by platform. Tagged ads and creator links count under their platform even when GA4 files them elsewhere, such as fb_ads under Paid Other, so this can be more than the Social channel above. Open a platform to see its sources.',
+  platformPaidTooltip: 'Platform sessions with a paid signal: a GA4 paid channel group, or a paid source or medium such as fb_ads, cpc or paid.',
+  bestConvertingTooltip: 'The ranked platform with the most conversions per 1,000 sessions.',
+  conversionsHelp: (events: readonly string[]) => (events.length > 0
+    ? `Counted GA4 events: ${events.join(', ')}. Each is credited to the source of the session it happened in.`
+    : 'No conversion events are measured for this project.'),
+  perThousandHelp: (minSessions: number) => `Conversions for every 1,000 sessions: what a visit from the platform is worth, before you know its cost per click. Platforms with fewer than ${minSessions.toLocaleString()} sessions are shown but not ranked. Whole site counts every channel.`,
+  rankHelp: (minSessions: number) => `Platforms ordered by conversions per 1,000 sessions, then by conversions. Only platforms with at least ${minSessions.toLocaleString()} sessions are ranked.`,
+  tooFewSessions: (minSessions: number) => `Fewer than ${minSessions.toLocaleString()} sessions, so not ranked`,
+  notRanked: 'Too few sessions',
+  notMeasured: 'Not measured',
+  siteLabel: 'Whole site',
+  siteScope: 'every channel',
+  paidClassTitle: 'A GA4 paid channel group, or a paid source or medium',
+  organicClassTitle: 'No paid signal in the channel group, source or medium',
+  noneRanked: 'None ranked',
+  rateReasons: {
+    'no-data': 'No conversion events are measured for this project yet, so platforms are not ranked.',
+    'sync-not-ready': 'The latest GA4 sessions or conversions sync did not finish, so rates are hidden until both are current.',
+    'channel-leads-unfiltered': 'Conversions cannot follow the host or path filter here, so rates are hidden.',
+    'paid-split-needs-landing-page': 'The paid and organic split needs landing pages GA4 did not report here, so rates are hidden.',
+    'sessions-behind-leads': 'Conversions run past the last stored sessions, so rates are hidden until the GA4 sync catches up.',
+    'sessions-missing-on-lead-days': 'Some days in this period have conversions but no stored sessions, so rates are hidden.',
+    'sessions-before-leads': 'This period starts before conversions were first stored, so rates are hidden. Pick a shorter period.',
+  } satisfies Record<NonNullable<ApiGaSocialPlatformPerformance['conversionRateUnavailableReason']>, string>,
   noAiReferrals: 'No AI referrals in this period.',
   noAiLandingPages: 'No AI landing pages in this period.',
   noSocial: 'No social sessions in this period.',
@@ -334,6 +360,192 @@ function SocialSourceCells({ row }: { row: ApiGaSocialReferral }) {
       </td>
       <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{row.sessions.toLocaleString()}</td>
       <td className="py-1.5 pl-4 text-right text-secondary tabular-nums">{formatPercent(row.share)}</td>
+    </>
+  )
+}
+
+const SOCIAL_PLATFORM_SOURCE_COLUMNS = [
+  { label: 'Source', align: 'left' },
+  { label: 'Medium', align: 'left' },
+  { label: 'Class', align: 'left' },
+  { label: 'Channel', align: 'left' },
+  { label: 'Sessions', align: 'right' },
+  { label: 'Share', align: 'right' },
+  { label: 'Conversions', align: 'right' },
+  { label: 'Per 1,000', align: 'right' },
+] as const
+
+const EMPTY_VALUE = '\u2014'
+
+/** The empty value: a muted dash for sight, its meaning for screen readers. */
+function EmptyValue({ label }: { label: string }) {
+  return <><span aria-hidden="true" className="text-muted" title={label}>{EMPTY_VALUE}</span><span className="sr-only">{label}</span></>
+}
+
+function SocialPlatformSourceCells({ row }: { row: ApiGaSocialPlatformSource }) {
+  return (
+    <>
+      <td className="max-w-[240px] truncate py-1.5 pr-3 text-strong" title={row.source}>{decodeSocialSourceLabel(row.source)}</td>
+      <td className="max-w-[160px] truncate py-1.5 pr-3 text-secondary" title={row.medium}>{decodeSocialSourceLabel(row.medium)}</td>
+      <td
+        className="py-1.5 pr-3 text-secondary"
+        title={row.trafficClass === 'paid' ? ACTIVITY_COPY.paidClassTitle : ACTIVITY_COPY.organicClassTitle}
+      >
+        {row.trafficClass === 'paid' ? 'Paid' : 'Organic'}
+      </td>
+      <td className="max-w-[160px] truncate py-1.5 pr-3 text-secondary" title={`GA4 channel group: ${row.channelGroup}`}>{row.channelGroup}</td>
+      <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{row.sessions.toLocaleString()}</td>
+      <td className="py-1.5 pl-4 text-right text-secondary tabular-nums">{formatPercent(row.share)}</td>
+      <td className="py-1.5 pl-4 text-right text-secondary tabular-nums">
+        {row.conversions === null ? <EmptyValue label={ACTIVITY_COPY.notMeasured} /> : row.conversions.toLocaleString()}
+      </td>
+      <td className="py-1.5 pl-4 text-right text-secondary tabular-nums">{row.conversionsPerThousandSessionsDisplay}</td>
+    </>
+  )
+}
+
+/**
+ * Social and creator platforms with their conversions and rank. Every figure,
+ * the rank and the not-ranked flag come from the API; the table only lays them
+ * out and reorders rows.
+ */
+function SocialPlatformTable({ performance }: { performance: ApiGaSocialPlatformPerformance }) {
+  const columns = useMemo((): ReadonlyArray<ReferralGroupColumn<ApiGaSocialPlatformRow>> => [
+    {
+      key: 'conversions',
+      label: 'Conversions',
+      help: ACTIVITY_COPY.conversionsHelp(performance.countedEventNames),
+      sortValue: (group) => group.conversions,
+      render: (group) => (
+        <td className="py-2 pl-4 text-right text-primary tabular-nums">
+          {group.conversions === null ? <EmptyValue label={ACTIVITY_COPY.notMeasured} /> : group.conversions.toLocaleString()}
+        </td>
+      ),
+    },
+    {
+      key: 'perThousand',
+      label: 'Per 1,000 sessions',
+      help: ACTIVITY_COPY.perThousandHelp(performance.minSessions),
+      // A rate from too few sessions never sorts ahead of a ranked one.
+      sortValue: (group) => (group.enoughSessions ? group.conversionsPerThousandSessions : null),
+      render: (group) => (
+        <td
+          className={`py-2 pl-4 text-right tabular-nums ${group.enoughSessions ? 'text-primary' : 'text-muted'}`}
+          title={group.enoughSessions ? undefined : ACTIVITY_COPY.tooFewSessions(performance.minSessions)}
+        >
+          {group.conversionsPerThousandSessionsDisplay}
+        </td>
+      ),
+    },
+    {
+      key: 'rank',
+      label: 'Rank',
+      help: ACTIVITY_COPY.rankHelp(performance.minSessions),
+      sortValue: (group) => group.rank,
+      firstDir: 'asc',
+      render: (group) => (
+        <td className="py-2 pl-4 text-right tabular-nums">
+          {group.rank !== null
+            ? <span className="text-primary">{group.rank}</span>
+            : !performance.conversionRateAvailable
+              ? <EmptyValue label={ACTIVITY_COPY.notMeasured} />
+              : <span className="text-label-13 text-muted" title={ACTIVITY_COPY.tooFewSessions(performance.minSessions)}>{ACTIVITY_COPY.notRanked}</span>}
+        </td>
+      ),
+    },
+  ], [performance])
+  const site = performance.site
+  const reason = performance.conversionRateUnavailableReason
+
+  return (
+    <>
+      <GroupedReferralTable
+        groups={performance.platforms}
+        groupLabel="Platform"
+        caption="Social and creator platforms by sessions and conversions"
+        childColumns={SOCIAL_PLATFORM_SOURCE_COLUMNS}
+        childRowKey={(row) => `${row.source}:${row.medium}:${row.channelGroup}`}
+        renderChildCells={(row) => <SocialPlatformSourceCells row={row} />}
+        extraColumns={columns}
+        defaultSort={performance.conversionRateAvailable ? { key: 'rank', dir: 'asc' } : undefined}
+        referenceRow={(
+          <tr className="border-t border-subtle text-label-14-strong" data-testid="social-site-average">
+            <td className="py-2 pr-3 text-primary">
+              {ACTIVITY_COPY.siteLabel} <span className="text-label-14 text-secondary">{ACTIVITY_COPY.siteScope}</span>
+            </td>
+            <td className="py-2 pl-4 text-right text-primary tabular-nums">
+              {site.sessions === null ? <EmptyValue label={ACTIVITY_COPY.notMeasured} /> : site.sessions.toLocaleString()}
+            </td>
+            <td />
+            <td />
+            <td />
+            <td className="py-2 pl-4 text-right text-primary tabular-nums">
+              {site.conversions === null ? <EmptyValue label={ACTIVITY_COPY.notMeasured} /> : site.conversions.toLocaleString()}
+            </td>
+            <td className="py-2 pl-4 text-right text-primary tabular-nums">{site.conversionsPerThousandSessionsDisplay}</td>
+            <td />
+          </tr>
+        )}
+      />
+      {reason && <p className="mt-3 text-copy-13 text-secondary">{ACTIVITY_COPY.rateReasons[reason]}</p>}
+    </>
+  )
+}
+
+/** The Social section when the API sends platforms across every GA4 channel. */
+function SocialPlatformSection({ performance }: { performance: ApiGaSocialPlatformPerformance }) {
+  const platforms = performance.platforms
+  const topPlatform = platforms[0] ?? null
+  const best = platforms.find((platform) => platform.rank === 1) ?? null
+  const sourceCount = platforms.reduce((count, platform) => count + platform.sources.length, 0)
+  return (
+    <>
+      <KpiRow
+        label="Social sessions"
+        items={[
+          { label: 'Social sessions', value: performance.sessions.toLocaleString(), detail: `${performance.sharePctDisplay} of all sessions` },
+          { label: 'Platforms', value: String(platforms.length), detail: countOf(sourceCount, 'source'), tooltip: ACTIVITY_COPY.platformsTooltip },
+          {
+            label: 'Paid social',
+            value: performance.paidSessions.toLocaleString(),
+            detail: `${formatPercent(performance.paidShare)} of social`,
+            tooltip: ACTIVITY_COPY.platformPaidTooltip,
+          },
+          {
+            label: 'Top platform',
+            value: topPlatform?.label ?? 'None',
+            detail: topPlatform ? countOf(topPlatform.sessions, 'session') : undefined,
+          },
+          {
+            label: 'Best converting',
+            value: best?.label ?? (performance.conversionRateAvailable ? ACTIVITY_COPY.noneRanked : ACTIVITY_COPY.notMeasured),
+            detail: best ? `${best.conversionsPerThousandSessionsDisplay} per 1,000 sessions` : undefined,
+            tooltip: ACTIVITY_COPY.bestConvertingTooltip,
+          },
+        ]}
+      />
+
+      <DisclosureRows>
+        <DisclosureRow
+          label={ACTIVITY_COPY.socialChartLabel}
+          meta={platforms.length > 0 ? countOf(performance.sessions, 'session') : ACTIVITY_COPY.noneInPeriod}
+        >
+          {platforms.length > 0
+            ? <StackedSeriesChart input={performance.daily} label={ACTIVITY_COPY.socialChartLabel} />
+            : <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noSocial}</p>}
+        </DisclosureRow>
+
+        <DisclosureRow
+          label="Social platforms"
+          meta={platforms.length > 0
+            ? `${countOf(platforms.length, 'platform')} · ${countOf(sourceCount, 'source')}`
+            : ACTIVITY_COPY.noneInPeriod}
+        >
+          {platforms.length > 0
+            ? <SocialPlatformTable performance={performance} />
+            : <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noSocial}</p>}
+        </DisclosureRow>
+      </DisclosureRows>
     </>
   )
 }
@@ -695,6 +907,12 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
   const aiEngines = traffic?.aiEngines ?? []
   const socialPlatforms = traffic?.socialPlatforms ?? []
   const topPlatform = socialPlatforms[0] ?? null
+  // Platforms across every GA4 channel, with conversions; the GA4 Social
+  // channel figures above are the fallback for an older server or a project
+  // whose acquisition rows are not stored yet.
+  const platformPerformance = traffic?.socialPlatformPerformance?.status === 'ready'
+    ? traffic.socialPlatformPerformance
+    : null
   // A row is one landing page under one source, so the count is of rows, not pages.
   const aiLandingRowCount = aiLandingTable.totalRows > 0
     ? `${aiLandingTable.totalRows.toLocaleString()} ${
@@ -840,56 +1058,67 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
           <div className="page-section-divider" />
 
           <section aria-labelledby="social-heading">
-            <SectionHeading id="social-heading" title="Social" tooltip={ACTIVITY_COPY.socialTooltip2} meta={windowLabel} />
-            <KpiRow
-              label="Social sessions"
-              items={[
-                { label: 'Social sessions', value: traffic.socialSessions.toLocaleString(), detail: `${traffic.socialSharePctDisplay} of all sessions` },
-                { label: 'Platforms', value: String(socialPlatforms.length), detail: `${traffic.socialReferrals.length} sources`, tooltip: ACTIVITY_COPY.platformsTooltip },
-                {
-                  label: 'Paid social',
-                  value: (traffic.paidSocialSessions ?? 0).toLocaleString(),
-                  detail: `${formatPercent(traffic.paidSocialShare ?? 0)} of social`,
-                  tooltip: ACTIVITY_COPY.paidSocialTooltip,
-                },
-                {
-                  label: 'Top platform',
-                  value: topPlatform?.label ?? 'None',
-                  detail: topPlatform ? `${topPlatform.sessions.toLocaleString()} sessions` : undefined,
-                },
-              ]}
+            <SectionHeading
+              id="social-heading"
+              title="Social"
+              tooltip={platformPerformance ? ACTIVITY_COPY.socialPlatformTooltip : ACTIVITY_COPY.socialTooltip2}
+              meta={windowLabel}
             />
+            {platformPerformance ? (
+              <SocialPlatformSection performance={platformPerformance} />
+            ) : (
+              <>
+                <KpiRow
+                  label="Social sessions"
+                  items={[
+                    { label: 'Social sessions', value: traffic.socialSessions.toLocaleString(), detail: `${traffic.socialSharePctDisplay} of all sessions` },
+                    { label: 'Platforms', value: String(socialPlatforms.length), detail: `${traffic.socialReferrals.length} sources`, tooltip: ACTIVITY_COPY.platformsTooltip },
+                    {
+                      label: 'Paid social',
+                      value: (traffic.paidSocialSessions ?? 0).toLocaleString(),
+                      detail: `${formatPercent(traffic.paidSocialShare ?? 0)} of social`,
+                      tooltip: ACTIVITY_COPY.paidSocialTooltip,
+                    },
+                    {
+                      label: 'Top platform',
+                      value: topPlatform?.label ?? 'None',
+                      detail: topPlatform ? `${topPlatform.sessions.toLocaleString()} sessions` : undefined,
+                    },
+                  ]}
+                />
 
-            <DisclosureRows>
-              <DisclosureRow
-                label={ACTIVITY_COPY.socialChartLabel}
-                meta={socialPlatforms.length > 0 ? countOf(traffic.socialSessions, 'session') : ACTIVITY_COPY.noneInPeriod}
-              >
-                {socialPlatforms.length > 0
-                  ? <StackedSeriesChart input={traffic.socialPlatformDaily} label={ACTIVITY_COPY.socialChartLabel} />
-                  : <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noSocial}</p>}
-              </DisclosureRow>
+                <DisclosureRows>
+                  <DisclosureRow
+                    label={ACTIVITY_COPY.socialChartLabel}
+                    meta={socialPlatforms.length > 0 ? countOf(traffic.socialSessions, 'session') : ACTIVITY_COPY.noneInPeriod}
+                  >
+                    {socialPlatforms.length > 0
+                      ? <StackedSeriesChart input={traffic.socialPlatformDaily} label={ACTIVITY_COPY.socialChartLabel} />
+                      : <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noSocial}</p>}
+                  </DisclosureRow>
 
-              <DisclosureRow
-                label="Social platforms"
-                meta={socialPlatforms.length > 0
-                  ? `${countOf(socialPlatforms.length, 'platform')} · ${countOf(traffic.socialReferrals.length, 'source')}`
-                  : ACTIVITY_COPY.noneInPeriod}
-              >
-                {socialPlatforms.length > 0 ? (
-                  <GroupedReferralTable
-                    groups={socialPlatforms}
-                    groupLabel="Platform"
-                    caption="Social sessions by platform"
-                    childColumns={SOCIAL_SOURCE_COLUMNS}
-                    childRowKey={(row) => `${row.source}:${row.medium}:${row.channelGroup}`}
-                    renderChildCells={(row) => <SocialSourceCells row={row} />}
-                  />
-                ) : (
-                  <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noSocial}</p>
-                )}
-              </DisclosureRow>
-            </DisclosureRows>
+                  <DisclosureRow
+                    label="Social platforms"
+                    meta={socialPlatforms.length > 0
+                      ? `${countOf(socialPlatforms.length, 'platform')} · ${countOf(traffic.socialReferrals.length, 'source')}`
+                      : ACTIVITY_COPY.noneInPeriod}
+                  >
+                    {socialPlatforms.length > 0 ? (
+                      <GroupedReferralTable
+                        groups={socialPlatforms}
+                        groupLabel="Platform"
+                        caption="Social sessions by platform"
+                        childColumns={SOCIAL_SOURCE_COLUMNS}
+                        childRowKey={(row) => `${row.source}:${row.medium}:${row.channelGroup}`}
+                        renderChildCells={(row) => <SocialSourceCells row={row} />}
+                      />
+                    ) : (
+                      <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noSocial}</p>
+                    )}
+                  </DisclosureRow>
+                </DisclosureRows>
+              </>
+            )}
           </section>
         </>
       )}

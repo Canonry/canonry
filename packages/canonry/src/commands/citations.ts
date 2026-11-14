@@ -1,5 +1,6 @@
 import type { CitationVisibilityResponse } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
 import { SNAPSHOT_CELL_LEGEND, citationGlyph, citedBase, mentionGlyph } from '../snapshot-cell.js'
 
 export async function showCitationVisibility(
@@ -9,7 +10,7 @@ export async function showCitationVisibility(
   const client = createApiClient()
   const data = await client.getCitationVisibility(project)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(data, null, 2))
     return
   }
