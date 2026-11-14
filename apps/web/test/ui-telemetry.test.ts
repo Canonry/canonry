@@ -148,6 +148,7 @@ describe('ui telemetry', () => {
     recordUiApiResult({ method: 'PUT', route: '/api/v1/projects/{name}/google/connections/{type}/property', path: '/api/v1/projects/acme-co/google/connections/ga4/property', status: 200 })
     recordUiApiResult({ method: 'PUT', route: '/api/v1/projects/{name}/google-ads/selection', status: 200 })
     recordUiApiResult({ method: 'PUT', route: '/api/v1/projects/{name}/gtm/selection', status: 200 })
+    recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/gbp/locations/discover', status: 200 })
     recordUiApiResult({ method: 'DELETE', route: '/api/v1/projects/{name}/google/connections/{type}', path: '/api/v1/projects/acme-co/google/connections/gbp', status: 200 })
     expect(actions(sent)).toEqual([
       ['integration.connect_started', 'google'],
@@ -157,6 +158,7 @@ describe('ui telemetry', () => {
       ['integration.connect', 'ga'],
       ['integration.connect', 'google_ads'],
       ['integration.connect', 'gtm'],
+      ['integration.connect', 'gbp'],
       ['integration.disconnect', 'gbp'],
     ])
     expect(JSON.stringify(sent)).not.toContain('acme-co')
