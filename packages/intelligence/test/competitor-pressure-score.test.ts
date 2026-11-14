@@ -211,3 +211,85 @@ describe('competitor pressure is the citation signal only', () => {
     expect(buildOverviewCompetitors(snapshots, [{ domain: 'rival.com' }])[0]!.citationCount).toBe(1)
   })
 })
+
+describe('competitor pressure excludes answers written with no web search (#1161)', () => {
+  // A no-search answer cites nothing by construction, so it must leave the
+  // cited denominators rather than counting as a searched miss — the same
+  // rule the provider scores, visibility score and citation movement
+  // already follow. Rows that predate retrieval recording stay in.
+  it('pressure gauge reads the searched snapshots only', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', citedDomains: ['rival.com'] }),
+      snap({ queryId: 'q2', citedDomains: ['rival.com'] }),
+      snap({ queryId: 'q3', citedDomains: [] }),
+      snap({ queryId: 'q4', citedDomains: [], retrievalStatus: 'not-used' }),
+      snap({ queryId: 'q5', citedDomains: [], retrievalStatus: 'not-used' }),
+    ]
+    const result = buildCompetitorPressureScore(snapshots, ['rival.com'], 1)
+    // 2 of 3 searched snapshots overlap: High, not 2 of 5 (Moderate).
+    expect(result.value).toBe('High')
+    expect(result.delta).toBe('2 overlapping citations')
+    expect(result.excludedNoRetrieval).toBe(2)
+  })
+
+  it('pressure gauge reports no searched answers when every snapshot is not-used', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', citedDomains: [], retrievalStatus: 'not-used' }),
+      snap({ queryId: 'q2', citedDomains: [], retrievalStatus: 'not-used' }),
+    ]
+    const result = buildCompetitorPressureScore(snapshots, ['rival.com'], 1)
+    expect(result.value).toBe('None')
+    expect(result.delta).toBe('No searched answers to score')
+    expect(result.excludedNoRetrieval).toBe(2)
+  })
+
+  it('pressure gauge keeps rows that predate retrieval recording', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', citedDomains: ['rival.com'] }),
+      snap({ queryId: 'q2', citedDomains: [], retrievalStatus: null }),
+    ]
+    const result = buildCompetitorPressureScore(snapshots, ['rival.com'], 1)
+    expect(result.value).toBe('High')
+    expect(result.excludedNoRetrieval).toBeUndefined()
+  })
+
+  it('overview competitors read the searched queries only', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', citedDomains: ['rival.com'] }),
+      snap({ queryId: 'q2', citedDomains: [] }),
+      snap({ queryId: 'q3', citedDomains: [], retrievalStatus: 'not-used' }),
+    ]
+    const result = buildOverviewCompetitors(snapshots, [{ domain: 'rival.com' }])
+    const rival = result[0]!
+    expect(rival.citationCount).toBe(1)
+    // q3 never had a search, so it leaves the denominator: 1 of 2, High.
+    expect(rival.totalQueries).toBe(2)
+    expect(rival.pressureLabel).toBe('High')
+    expect(rival.excludedNoRetrieval).toBe(1)
+    expect(rival.citedQueries).toEqual(['q1'])
+  })
+
+  it('overview competitors keep a query with at least one searched snapshot', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', citedDomains: [], retrievalStatus: 'not-used' }),
+      snap({ queryId: 'q1', citedDomains: ['rival.com'] }),
+      snap({ queryId: 'q2', citedDomains: [], retrievalStatus: 'not-used' }),
+    ]
+    const result = buildOverviewCompetitors(snapshots, [{ domain: 'rival.com' }])
+    const rival = result[0]!
+    expect(rival.citationCount).toBe(1)
+    expect(rival.totalQueries).toBe(1)
+    expect(rival.excludedNoRetrieval).toBe(1)
+  })
+
+  it('overview competitors keep rows that predate retrieval recording', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', citedDomains: ['rival.com'] }),
+      snap({ queryId: 'q2', citedDomains: [], retrievalStatus: null }),
+    ]
+    const result = buildOverviewCompetitors(snapshots, [{ domain: 'rival.com' }])
+    const rival = result[0]!
+    expect(rival.totalQueries).toBe(2)
+    expect(rival.excludedNoRetrieval).toBeUndefined()
+  })
+})

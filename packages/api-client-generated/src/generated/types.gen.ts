@@ -15613,6 +15613,7 @@ export type ProjectOverviewDto = {
         totalQueries: number;
         pressureLabel: 'None' | 'Low' | 'Moderate' | 'High';
         citedQueries: Array<string>;
+        excludedNoRetrieval?: number;
     }>;
     providerScores: Array<{
         provider: string;

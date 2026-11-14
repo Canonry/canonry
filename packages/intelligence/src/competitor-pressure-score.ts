@@ -1,9 +1,16 @@
-import type { ProjectOverviewCompetitorDto, ScoreSummaryDto } from '@canonry/canonry-contracts'
-import { hostMatchesAnyDomain, hostMatchesDomain } from '@canonry/canonry-contracts'
+import type { ProjectOverviewCompetitorDto, RetrievalStatus, ScoreSummaryDto } from '@canonry/canonry-contracts'
+import { hostMatchesAnyDomain, hostMatchesDomain, RetrievalStatuses } from '@canonry/canonry-contracts'
 import { pressureTone } from './score-tones.js'
 
 export interface CompetitorPressureSnapshot {
   queryId: string
+  /**
+   * Whether this answer ran a retrieval step. Null / absent for rows written
+   * before retrieval was recorded: they stay in the cited denominators. The
+   * builders below read it to leave `not-used` answers out of the cited
+   * populations (#1161).
+   */
+  retrievalStatus?: RetrievalStatus | null
   /**
    * The engine's source list. This is the ONLY input to the figures below,
    * because every one of them is named for the citation signal.
@@ -40,6 +47,13 @@ export type CompetitorPressureLabel = 'None' | 'Low' | 'Moderate' | 'High'
  *   ratio >= 0.2 → Moderate
  *   ratio  > 0   → Low
  *   no overlap   → None
+ *
+ * An answer the provider wrote with no retrieval step at all
+ * (`retrievalStatus = 'not-used'`) cites nothing by construction, so it
+ * leaves the cited numerator AND denominator rather than counting as a
+ * searched miss, and is counted in `excludedNoRetrieval`. Rows that predate
+ * retrieval recording (`retrievalStatus` null / absent) are NOT excluded — an
+ * unobserved absence is not an observed one.
  */
 export function buildCompetitorPressureScore(
   snapshots: readonly CompetitorPressureSnapshot[],
@@ -63,13 +77,31 @@ export function buildCompetitorPressureScore(
     }
   }
 
+  const checkedSnapshots = snapshots.filter(snap => snap.retrievalStatus !== RetrievalStatuses['not-used'])
+  const excludedNoRetrieval = snapshots.length - checkedSnapshots.length
+  if (checkedSnapshots.length === 0) {
+    // Every answer in the run was written without a web search: there is no
+    // searched citation to score, so the gauge reads "None" rather than a
+    // ratio that would claim a measured miss.
+    return {
+      label: 'Competitor Pressure',
+      value: 'None',
+      delta: 'No searched answers to score',
+      tone: pressureTone('None'),
+      description: 'Every answer in the latest run was written without a web search, so no searched citation was measured.',
+      tooltip,
+      trend: [],
+      ...(excludedNoRetrieval > 0 ? { excludedNoRetrieval } : {}),
+    }
+  }
+
   let overlapCount = 0
-  for (const snap of snapshots) {
+  for (const snap of checkedSnapshots) {
     if (snap.citedDomains.some(domain => hostMatchesAnyDomain(domain, competitorDomains))) {
       overlapCount++
     }
   }
-  const ratio = overlapCount / snapshots.length
+  const ratio = overlapCount / checkedSnapshots.length
   const label: CompetitorPressureLabel =
     ratio >= 0.5 ? 'High'
     : ratio >= 0.2 ? 'Moderate'
@@ -84,6 +116,9 @@ export function buildCompetitorPressureScore(
     description,
     tooltip,
     trend: [],
+    // Present only when nonzero, so a smaller cited denominator is always
+    // visible next to the rate it shrank.
+    ...(excludedNoRetrieval > 0 ? { excludedNoRetrieval } : {}),
   }
 }
 
@@ -98,17 +133,29 @@ export interface OverviewCompetitorsQueryLookup {
  * every field here is named for the citation signal. Pressure label uses
  * the same bands as the gauge but computed per-competitor against the unique
  * query count. `citedQueries` returns query *text* (for presentation) when a
- * lookup is provided; falls back to queryId when missing.
+ * lookup is provided; falls back to queryId when missing. A query whose
+ * answers were all written with no web search leaves the denominator
+ * (`excludedNoRetrieval`); rows that predate retrieval recording stay in.
  */
 export function buildOverviewCompetitors(
   snapshots: readonly CompetitorPressureSnapshot[],
   competitors: readonly CompetitorRow[],
   queryLookup?: OverviewCompetitorsQueryLookup,
 ): ProjectOverviewCompetitorDto[] {
-  const uniqueQueries = new Set<string>()
+  // A query stays in the cited denominator only when at least one snapshot
+  // for it ran a search (#1161): a query whose answers were all written
+  // with no retrieval step never had a chance to cite, so it leaves the
+  // population rather than counting as a searched miss. Rows that predate
+  // retrieval recording stay in. The count rides in `excludedNoRetrieval`.
+  const allQueryIds = new Set<string>()
+  const checkedQueryIds = new Set<string>()
   for (const snap of snapshots) {
-    if (snap.queryId) uniqueQueries.add(snap.queryId)
+    if (!snap.queryId) continue
+    allQueryIds.add(snap.queryId)
+    if (snap.retrievalStatus === RetrievalStatuses['not-used']) continue
+    checkedQueryIds.add(snap.queryId)
   }
+  const excludedNoRetrieval = allQueryIds.size - checkedQueryIds.size
 
   const renderQuery = (queryId: string): string =>
     queryLookup?.byId.get(queryId) ?? queryId
@@ -116,12 +163,15 @@ export function buildOverviewCompetitors(
   return competitors.map((competitor, index) => {
     const citedQuerySet = new Set<string>()
     for (const snap of snapshots) {
+      // A no-search answer never had a chance to cite; it must not mark its
+      // query either way. Only searched snapshots decide the query.
+      if (snap.retrievalStatus === RetrievalStatuses['not-used']) continue
       if (snap.citedDomains.some(domain => hostMatchesDomain(domain, competitor.domain))) {
         if (snap.queryId) citedQuerySet.add(snap.queryId)
       }
     }
     const citedQueries = [...citedQuerySet].map(renderQuery).sort()
-    const ratio = uniqueQueries.size > 0 ? citedQuerySet.size / uniqueQueries.size : 0
+    const ratio = checkedQueryIds.size > 0 ? citedQuerySet.size / checkedQueryIds.size : 0
     const pressureLabel: CompetitorPressureLabel =
       ratio >= 0.5 ? 'High'
       : ratio >= 0.2 ? 'Moderate'
@@ -134,9 +184,12 @@ export function buildOverviewCompetitors(
       ...(competitor.aliases ? { aliases: [...competitor.aliases] } : {}),
       ...(competitor.autoAliasNames?.length ? { autoAliasNames: [...competitor.autoAliasNames] } : {}),
       citationCount: citedQuerySet.size,
-      totalQueries: uniqueQueries.size,
+      totalQueries: checkedQueryIds.size,
       pressureLabel,
       citedQueries,
+      // Present only when nonzero, so a smaller cited denominator is always
+      // visible next to the rate it shrank.
+      ...(excludedNoRetrieval > 0 ? { excludedNoRetrieval } : {}),
     }
   })
 }
