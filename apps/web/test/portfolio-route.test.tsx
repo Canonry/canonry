@@ -313,7 +313,7 @@ async function renderAt(
   )
   if ((!options.settleReadiness || !settledSetup) && !options.settleSchedule) return renderToStaticMarkup(tree)
 
-  // Header-readiness assertions need the authoritative refetch to settle. Most
+  // Sweep-readiness assertions need the authoritative refetch to settle. Most
   // route snapshots intentionally stay synchronous; this opt-in branch mounts
   // only the tests that make a claim about the post-fetch sweep action.
   const realFetch = globalThis.fetch
@@ -804,7 +804,6 @@ test('the Portfolio route is an explicit non-embed project workspace', async () 
   expect(html).not.toMatch(/href="\/projects\/[^"/]+\/portfolio" class="project-subnav-link/)
   expect(html).toContain('Advanced measurement setup')
   expect(html).toContain('Loading advanced measurement setup')
-  expect(html).toContain('AI Visibility check running')
   expect(html).not.toContain('Portfolio setup')
   expect(html).not.toContain('Coverage and performance')
 })
@@ -1835,17 +1834,12 @@ function forceNoisyFreshVisibility(dashboard: ReturnType<typeof createDashboardF
   dashboard.runs = []
 }
 
-// On a managed instance the sweep is scheduled, so the header states when the
-// next one fires and the manual trigger beside it is the override. The button
-// is deliberately secondary: as the primary it told every reader that running
-// the sweep by hand was the normal way to operate the product.
-test('the header states when the next AI sweep fires', async () => {
+test('AI Visibility shows the scheduled date beside the sweep control', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, { schedule: schedule() })
 
-  expect(within(renderedPage(html)).getByText('Next AI Visibility check Aug 7')).toBeTruthy()
-  // The fixture has a sweep in flight, so the button sits in its busy state.
-  // The point is the vocabulary: every state of this control names the sweep.
-  expect(html).toContain('AI Visibility check running')
+  const checks = within(sweepControls(html))
+  expect(checks.getByText('Next AI Visibility check Aug 7')).toBeTruthy()
+  expect(checks.getByRole('button', { name: 'AI Visibility check running…' }).hasAttribute('disabled')).toBe(true)
   // "Run now" said nothing about WHAT ran, and the page has six other sync
   // kinds. The disabled state already called it a sweep, so the label only
   // admitted what it did once you had clicked it.
@@ -1906,7 +1900,8 @@ test('Check Agent Readiness is the overview primary action and is omitted on Age
   expect(overview).toContain('>Check Agent Readiness<')
   const overviewRow = contextRow(new DOMParser().parseFromString(overview, 'text/html'))
   const overviewActions = [...overviewRow.querySelectorAll('[data-project-actions] button')].map(button => button.textContent)
-  expect(overviewActions).toEqual(expect.arrayContaining(['Check Agent Readiness', 'Set up AI Visibility']))
+  expect(overviewActions).toEqual(['Check Agent Readiness'])
+  expect(within(sweepControls(overview)).getByRole('button', { name: 'Set up AI Visibility' })).toBeTruthy()
 
   const siteHealth = await renderAt('/projects/project_citypoint/agent-readiness', undefined, undefined, unmappedProject)
   expect(siteHealth).not.toContain('>Check Agent Readiness<')
@@ -2006,11 +2001,8 @@ function withAinycSweeps(dashboard: ReturnType<typeof createDashboardFixture>['d
 
 test.each([false, true])('ainyc\'s Simple overview opens on the trend chart, with no Visibility card above it (embed: %s)', async embed => {
   const html = await renderAt('/projects/project_citypoint', embed ? { enabled: true } : undefined, undefined, { configureFixture: withAinycSweeps })
-  const doc = new DOMParser().parseFromString(html, 'text/html')
-
   expectTrendChartFirst(html)
-  // The chart is the first section after the tabs, then the cards in page order.
-  expect(doc.querySelector('nav.project-subnav + section .av-card-title')?.textContent).toBe('AI answers over time')
+  // The trend is the first evidence card, then the other cards in page order.
   const at = (title: string) => html.indexOf(`class="av-card-title">${title}<`)
   const competitive = at('Where competitors are winning')
   expect(at('AI answers over time')).toBeGreaterThan(-1)
@@ -2288,8 +2280,7 @@ test('a running spot check keeps the Run button waiting', async () => {
   })
 
   // The server refuses a sweep while the probe runs, so the button keeps waiting.
-  const doc = new DOMParser().parseFromString(html, 'text/html')
-  expect([...doc.querySelectorAll('[data-project-actions] button')].map(button => button.textContent)).toContain('AI Visibility check running…')
+  expect(within(sweepControls(html)).getByRole('button', { name: 'AI Visibility check running…' }).hasAttribute('disabled')).toBe(true)
 })
 
 test('a frozen visibility baseline remains visible when five newer failed runs fill the recent-run slice', async () => {
@@ -2608,7 +2599,7 @@ test('a project-scoped writer can retry when the project readiness read fails', 
   expect(requests.filter(path => path.startsWith('/api/v1/settings'))).toEqual([])
 })
 
-test('saving the project provider allowlist refreshes server-owned sweep readiness', async () => {
+test('saving the project provider allowlist refreshes server-owned sweep readiness in AI Visibility', async () => {
   const fixture = createDashboardFixture({})
   const project = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
   project.project.providers = ['claude']
@@ -2633,7 +2624,7 @@ test('saving the project provider allowlist refreshes server-owned sweep readine
         answerVisibilityProviderReady: providersUpdated,
       })
     }
-    if (path.endsWith('/settings')) {
+    if (path === '/api/v1/settings') {
       return jsonResponse({
         providers: [{ name: 'gemini', displayName: 'Gemini', configured: true }],
         providerCatalog: [{
@@ -2670,7 +2661,7 @@ test('saving the project provider allowlist refreshes server-owned sweep readine
   const queryClient = createQueryClient()
   queryClient.setDefaultOptions({ queries: { retry: false } })
   onTestFinished(() => queryClient.clear())
-  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/settings'] })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint'] })
   await router.load()
   const page = render(
     <QueryClientProvider client={queryClient}>
@@ -2681,12 +2672,16 @@ test('saving the project provider allowlist refreshes server-owned sweep readine
   )
 
   expect(await page.findByRole('button', { name: 'Set up AI Visibility' })).toBeTruthy()
+  fireEvent.click(await page.findByRole('link', { name: 'Project settings', exact: true }))
   fireEvent.click(await page.findByLabelText('All connected engines'))
-  fireEvent.click(page.getByRole('button', { name: 'Save engines' }))
+  const readsBeforeSave = setupReads
+  await act(async () => { fireEvent.click(page.getByRole('button', { name: 'Save engines' })) })
+  await waitFor(() => expect(savedBody?.providers).toEqual([]))
+  await waitFor(() => expect(setupReads).toBeGreaterThan(readsBeforeSave))
+  const projectSections = within(page.getByRole('navigation', { name: 'Project sections' }))
+  fireEvent.click(projectSections.getByRole('link', { name: 'AI Visibility' }))
 
   expect(await page.findByRole('button', { name: 'Run AI Visibility check' })).toBeTruthy()
-  expect(savedBody?.providers).toEqual([])
-  expect(setupReads).toBeGreaterThanOrEqual(2)
 })
 
 test('window focus refreshes server-owned sweep readiness on a mounted project', async () => {
@@ -2851,11 +2846,10 @@ test('an established schedule stays visible when run prerequisites need repair',
 // Deleting a project destroys every query, run and snapshot. It used to be an
 // icon button in the page header, the same size as and immediately beside the
 // most-clicked button on the page.
-test('deleting the project is not reachable from the page header', async () => {
+test('deleting the project is not reachable from the AI Visibility tab', async () => {
   const html = await renderAt('/projects/project_citypoint')
 
-  expect(projectActions(html).textContent).toContain('AI Visibility check')
-  expect(html).not.toContain('Delete project')
+  expect(within(renderedPage(html)).queryByRole('button', { name: 'Delete project' })).toBeNull()
 })
 
 // The assertion above would also pass if deleting had been removed outright,
@@ -3820,8 +3814,8 @@ function renderedPage(html: string) {
   return container
 }
 
-function projectActions(html: string) {
-  return renderedPage(html).querySelector<HTMLElement>('[data-project-actions]')!
+function sweepControls(html: string) {
+  return within(renderedPage(html)).getByRole('group', { name: 'AI Visibility checks' })
 }
 
 test('managed sweeps unset preserves the operator sweep control and identical opt-out markup', async () => {
@@ -3833,13 +3827,13 @@ test('managed sweeps unset preserves the operator sweep control and identical op
   const original = await renderAt('/projects/project_citypoint', undefined, undefined, options)
   const disabled = await renderAt('/projects/project_citypoint', undefined, undefined, { ...options, managedSweeps: false })
   for (const html of [original, disabled]) {
-    const launch = within(projectActions(html)).getByRole('button', { name: 'Run AI Visibility check' })
+    const launch = within(sweepControls(html)).getByRole('button', { name: 'Run AI Visibility check' })
     expect(launch.hasAttribute('disabled')).toBe(false)
     expect(html).not.toContain('Checks are run by your Canonry team')
   }
 })
 
-test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s header control for admins and viewers', async mode => {
+test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s AI Visibility control for admins and viewers', async mode => {
   for (const accountRole of ['admin', 'viewer'] as const) {
     const html = await renderAt('/projects/project_citypoint', undefined,
       mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined,
@@ -3847,7 +3841,7 @@ test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s heade
         dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.recentRuns = []
       } },
     )
-    const actions = projectActions(html)
+    const actions = sweepControls(html)
     expect(actions.querySelectorAll('button')).toHaveLength(0)
     expect(actions.querySelector('time')?.dateTime).toBe(managedSchedule.nextRunAt)
     expect(actions.textContent).toContain(MANAGED_SWEEPS_NEXT_LABEL)
@@ -3895,19 +3889,20 @@ test.each([
   expect(strips.map(strip => strip.textContent)).toEqual([copy])
 })
 
-test('managed sweeps without a schedule replaces the header action without inventing a date', async () => {
+test('managed sweeps without a schedule shows the unavailable date in AI Visibility', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     managedSweeps: true, configureFixture(dashboard) {
       dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.recentRuns = []
     },
   })
-  const status = projectActions(html).querySelector('[role="status"]')!
+  const checks = within(sweepControls(html))
+  const status = checks.getByRole('status')
   expect(status.textContent).toBe(MANAGED_SWEEPS_UNAVAILABLE_COPY)
   expect(status.querySelector('time')).toBeNull()
-  expect(projectActions(html).querySelector('button')).toBeNull()
+  expect(checks.queryByRole('button')).toBeNull()
 })
 
-test.each(['simple', 'advanced'] as const)('managed %s project header retains queued and running sweep signals', async mode => {
+test.each(['simple', 'advanced'] as const)('managed %s AI Visibility shows queued and running sweep signals', async mode => {
   for (const status of ['queued', 'running'] as const) {
     const html = await renderAt('/projects/project_citypoint', undefined,
       mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined,
@@ -3916,7 +3911,7 @@ test.each(['simple', 'advanced'] as const)('managed %s project header retains qu
         project.recentRuns = [{ ...project.recentRuns[0]!, kind: 'answer-visibility', status }]
       } },
     )
-    const actions = projectActions(html)
+    const actions = sweepControls(html)
     expect(actions.querySelector('[role="status"]')?.textContent).toBe(MANAGED_SWEEPS_RUNNING_COPY)
     expect(actions.querySelector('time')).toBeNull()
     expect(actions.querySelector('button')).toBeNull()
@@ -3936,14 +3931,14 @@ test.each(['simple', 'advanced'] as const)('managed %s settings exposes schedule
   expect(within(section).queryByRole('button', { name: /Set schedule|Edit schedule|Pause|Resume|Remove|Save schedule/ })).toBeNull()
 })
 
-test('managed header does not label an active Agent Readiness audit scan as a sweep', async () => {
+test('managed AI Visibility does not label an active Agent Readiness audit scan as a sweep', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     managedSweeps: true, configureFixture(dashboard) {
       const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
       project.recentRuns = [{ ...project.recentRuns[0]!, kind: 'site-audit', status: 'running' }]
     },
   })
-  expect(projectActions(html).textContent).not.toContain('AI Visibility check running')
+  expect(within(sweepControls(html)).getByRole('status').textContent).toBe(MANAGED_SWEEPS_UNAVAILABLE_COPY)
 })
 
 test('managed sweeps removes Simple empty-state launch instructions', async () => {
@@ -3959,7 +3954,7 @@ test('managed sweeps removes Simple empty-state launch instructions', async () =
 test('legacy managedSweeps alone still leaves Agent Readiness audit scan controls available', async () => {
   const html = await renderAt('/projects/project_citypoint/agent-readiness', undefined, undefined, { managedSweeps: true })
   expect(html).toMatch(/Run scan|Checking scan/)
-  expect(projectActions(html).textContent).toContain(MANAGED_SWEEPS_RUNNING_COPY)
+  expect(within(renderedPage(html)).queryByRole('group', { name: 'AI Visibility checks' })).toBeNull()
 })
 
 test('managed sweeps replaces the global batch sweep control', async () => {
@@ -4019,11 +4014,12 @@ test.each(['', '/agent-readiness', '/settings', '/history'])('unset managed run 
       expect(html).not.toContain('Scans are run by your Canonry team')
       expect(html).not.toContain('Checks are run by your Canonry team')
       if (suffix === '/agent-readiness') {
-        // Agent Readiness leads with its own scan, so the context row offers no AI Visibility check there.
-        expect(within(projectActions(html)).queryByRole('button')).toBeNull()
         expect(within(doc).getByRole('heading', { name: 'Audit scan' })).toBeTruthy()
+      }
+      if (suffix === '') {
+        expect(within(sweepControls(html)).getByRole('button', { name: /AI Visibility check running|Checking AI engines|Set up AI Visibility|Run AI Visibility check/ }).hasAttribute('disabled')).toBe(true)
       } else {
-        expect(within(projectActions(html)).getByRole('button', { name: /AI Visibility check running|Checking AI engines|Set up AI Visibility|Run AI Visibility check/ }).hasAttribute('disabled')).toBe(true)
+        expect(within(doc).queryByRole('group', { name: 'AI Visibility checks' })).toBeNull()
       }
       if (suffix === '/settings') {
         expect(within(doc).getByRole('heading', { name: 'Project settings unavailable' })).toBeTruthy()

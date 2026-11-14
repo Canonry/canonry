@@ -42,6 +42,7 @@ import { trackUiFilterChange } from '../../lib/ui-telemetry.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
 import { Button } from '../ui/button.js'
 import { Drawer } from '../layout/Drawer.js'
+import { ActionMenu } from '../shared/ActionMenu.js'
 import { DataTablePagination, DataTableSearch, MiddleTruncatedText } from '../shared/DataTableControls.js'
 import {
   Bar, BarChart, CartesianGrid, Cell, CHART_AXIS_TICK, CHART_GRID_STROKE, CHART_SERIES_COLORS, CHART_TOOLTIP_STYLE,
@@ -79,6 +80,7 @@ const PAGE_SIZE = 25
 const NUMBER = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 })
 const USD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
 const TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
+const LANGUAGE_NAMES = new Intl.DisplayNames(['en'], { type: 'language', fallback: 'none' })
 const FIELD = 'min-h-11 w-full rounded-md border border-default bg-bg px-3 py-2 text-label-14 text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 // Cells sit on the row's first line, so an opened Details panel never leaves the row label floating mid-row.
 const CELL = 'px-4 py-3 text-right align-top tabular-nums whitespace-nowrap'
@@ -128,6 +130,14 @@ function deviceLabel(device: SeoDevice | 'unspecified'): string {
 /** Where a refresh searched from. Market rankings search from each market's own location, never the profile's one location. */
 function runLocation(run: Pick<SeoRun, 'capabilities' | 'locationCode'>): string {
   return run.capabilities.includes(SeoCapabilities['market-rankings']) ? 'Market locations' : `Location ${run.locationCode}`
+}
+
+function languageLabel(code: string): string {
+  try {
+    return LANGUAGE_NAMES.of(code) ?? code
+  } catch {
+    return code
+  }
 }
 
 /** A refresh's units of work in the reader's words: each market-rankings task is one search. */
@@ -212,6 +222,11 @@ function EmptyEvidence({ title, children, action }: { title: string; children: R
   return <div className="py-12 text-center"><h3 className="text-heading-14 text-heading">{title}</h3><p className="mx-auto mt-2 max-w-lg text-copy-14 text-secondary">{children}</p>{action && <div className="mt-4">{action}</div>}</div>
 }
 
+function supportedReports(connection: SeoContext['connections'][number] | undefined, scope: SeoContext['scopes'][number] | undefined) {
+  if (!connection || !scope?.supported) return []
+  return EVIDENCE_ORDER.filter(capability => connection.capabilities.includes(capability) && (scope.capabilities?.includes(capability) ?? true))
+}
+
 export function SeoDataSection({ projectName }: { projectName: string }) {
   const { isAdmin } = useAccount()
   const search = useSearch({ strict: false }) as { seoProfileId?: string; seoRunId?: string }
@@ -222,6 +237,8 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
   const [editor, setEditor] = useState<{ profile?: SeoProfile; id: string } | null>(null)
   const editorOpener = useRef<HTMLButtonElement | null>(null)
   const profileSelect = useRef<HTMLSelectElement | null>(null)
+  const profileName = useRef<HTMLSpanElement | null>(null)
+  const profileMenu = useRef<HTMLButtonElement | null>(null)
   const profileToFocus = useRef<string | null>(null)
   const requestedProfileId = search.seoProfileId ?? selectedRun.data?.profileId
   const selected = requestedProfileId
@@ -245,48 +262,72 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
   useLayoutEffect(() => {
     if (profileToFocus.current === null || selected?.id !== profileToFocus.current || search.seoRunId || editor) return
     profileToFocus.current = null
-    profileSelect.current?.focus()
+    const control = profileSelect.current ?? profileName.current
+    control?.focus()
   }, [editor, search.seoRunId, selected])
 
   if (context.error) return <ReadError error={context.error} retry={() => { void context.refetch() }} />
   if (profiles.error) return <ReadError error={profiles.error} retry={() => { void profiles.refetch() }} />
   if (!context.data || !profiles.data) return <p role="status" className="py-10 text-copy-14 text-secondary">Loading SEO data…</p>
   const sourceConfigured = context.data.available && context.data.connections.some(connection => connection.capabilities.length > 0)
-  const canConfigure = sourceConfigured && context.data.connections.some(connection => connection.capabilities.some(capability => context.data.scopes.some(scope => scope.capabilities?.includes(capability) ?? true)))
-  const scope = selected && context.data.scopes.find(item => item.kind === selected.scope.kind && item.key === (selected.scope.key ?? null))
+  const reports = new Set(context.data.scopes.flatMap(scope => (
+    context.data.connections.flatMap(connection => supportedReports(connection, scope))
+  )))
+  const marketReport = SeoCapabilities['market-rankings']
+  const canCreateProfile = sourceConfigured && [...reports].some(capability => capability !== marketReport)
+  const marketProfilesAvailable = sourceConfigured && reports.has(marketReport)
+  const canEditProfile = selected && (canCreateProfile || (selected.rankings && marketProfilesAvailable))
   const setupGuide = isAdmin && !isEmbed() && !isPublicDemo()
     ? <Button asChild variant="secondary"><a href="https://github.com/Canonry/canonry/blob/main/docs/seo-data.md#host-configuration" target="_blank" rel="noopener noreferrer">SEO setup guide</a></Button>
     : undefined
-  const profileControls = profiles.data.profiles.length > 0 && <div className="flex w-full min-w-0 flex-wrap items-center gap-x-4 gap-y-1 sm:w-auto">
-    <label className="flex w-full min-w-0 items-center gap-2 sm:w-auto"><span className="text-label-13 text-secondary">Profile</span><select ref={profileSelect} aria-label="SEO profile" value={selected?.id ?? ''} onChange={event => selectProfile(event.currentTarget.value, document.activeElement === event.currentTarget)} className={`${FIELD} min-w-0 sm:min-h-9 sm:w-56`}>
-      {!selected && <option value="" disabled>Profile unavailable</option>}
-      {profiles.data.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-    </select></label>
-    {selected && <p className="break-words text-label-13 text-secondary">{scope?.label ?? selected.scope.key ?? selected.scope.kind} · {selected.rankings ? 'Market locations' : `Location ${selected.locationCode}`} · {selected.languageCode}</p>}
-  </div>
+  const scope = selected && context.data.scopes.find(item => item.kind === selected.scope.kind && item.key === (selected.scope.key ?? null))
   const showWorkspace = selected && (!search.seoRunId || (selectedRun.data?.profileId === selected.id && !selectedRun.error))
+  const showProfileSelect = profiles.data.profiles.length > 1 || !showWorkspace
+  const openProfileEditor = (opener: HTMLButtonElement | null, profile?: SeoProfile) => {
+    editorOpener.current = opener
+    setEditor({ profile, id: profile?.id ?? crypto.randomUUID() })
+  }
+  const profileControls = profiles.data.profiles.length > 0 && <div className="flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 sm:w-auto">
+    {showProfileSelect ? <label className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto sm:max-w-64">
+      <span className="text-label-13 text-secondary">Profile</span>
+      <select ref={profileSelect} aria-label="SEO profile" value={selected?.id ?? ''} onChange={event => selectProfile(event.currentTarget.value, document.activeElement === event.currentTarget)} className={`${FIELD} min-w-0 sm:min-h-9`}>
+        {!selected && <option value="" disabled>Profile unavailable</option>}
+        {profiles.data.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+      </select>
+    </label> : <span ref={profileName} tabIndex={-1} className="min-w-0 flex-1 break-words rounded-sm text-copy-14-strong text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
+      <span className="sr-only">SEO profile: </span>{selected?.name}
+    </span>}
+    {canWrite && (canCreateProfile || canEditProfile) && <div className="ml-auto sm:ml-0">
+      <ActionMenu label="Manage profiles" menuLabel="SEO profile actions" triggerRef={profileMenu} items={[
+        ...(canEditProfile ? [{ key: 'edit', label: 'Edit profile', onSelect: () => openProfileEditor(profileMenu.current, selected) }] : []),
+        ...(canCreateProfile ? [{ key: 'new', label: 'New profile', onSelect: () => openProfileEditor(profileMenu.current) }] : []),
+      ]} />
+    </div>}
+    {selected && selected.scope.kind !== SeoScopeKinds.project && <span className="w-full break-words text-copy-13 text-secondary md:w-auto">{scope?.label ?? selected.scope.key ?? selected.scope.kind}</span>}
+  </div>
 
   return (
     <section aria-label="SEO" className="min-w-0 space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <h2 className="text-heading-20 text-heading">SEO</h2>
-        {canWrite && canConfigure && <div className="flex flex-wrap gap-2">
-          {selected && <Button variant="ghost" className="pointer-coarse:min-h-11" onClick={event => { editorOpener.current = event.currentTarget; setEditor({ profile: selected, id: selected.id }) }}>Edit profile</Button>}
-          <Button variant="secondary" className="pointer-coarse:min-h-11" onClick={event => { editorOpener.current = event.currentTarget; setEditor({ id: crypto.randomUUID() }) }}><Plus aria-hidden="true" className="size-4" />New profile</Button>
-        </div>}
+        {profileControls}
+        {profiles.data.profiles.length === 0 && canWrite && canCreateProfile && <Button variant="secondary" className="ml-auto" onClick={event => openProfileEditor(event.currentTarget)}><Plus aria-hidden="true" className="size-4" />New profile</Button>}
       </div>
 
-      {!showWorkspace && profileControls && <div className="border-y border-subtle py-2">{profileControls}</div>}
       {editor && <SeoProfileEditor key={editor.id} projectName={projectName} context={context.data} profile={editor.profile} id={editor.id} onClose={closeEditor} onSaved={id => selectProfile(id, true)} />}
       {!isPublicDemo() && !context.data.available && profiles.data.profiles.length > 0 && <p role="status" className="rounded-md border border-default px-4 py-3 text-copy-14 text-secondary">{context.data.reason ?? 'Configure an SEO data provider to refresh saved profiles.'}</p>}
-      {search.seoRunId && selectedRun.error ? <div className="space-y-3"><ReadError error={selectedRun.error} retry={() => { void selectedRun.refetch() }} />{selected ? <Button variant="secondary" className="pointer-coarse:min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button> : <p className="text-copy-14 text-secondary">Select a profile to view its latest data.</p>}</div> : search.seoRunId && selectedRun.isPending ? <p role="status" className="py-10 text-copy-14 text-secondary">Loading refresh…</p> : selected && selectedRun.data && selectedRun.data.profileId !== selected.id ? <EmptyEvidence title="Refresh belongs to another profile">Choose the refresh’s profile, or return to the selected profile’s latest data.<Button variant="secondary" className="mt-4 pointer-coarse:min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button></EmptyEvidence> : selected ? <SeoProfileWorkspace key={`${selected.id}:${selected.revision}:${search.seoRunId ?? ''}`} projectName={projectName} profile={selected} context={context.data} profileControls={profileControls} selectedRunId={search.seoRunId} onLatest={() => selectProfile(selected.id)} /> : !canConfigure && profiles.data.profiles.length === 0 ? <EmptyEvidence title={sourceConfigured ? 'SEO scope unavailable' : 'Configure an SEO data provider'} action={!sourceConfigured ? setupGuide : undefined}>{sourceConfigured ? context.data.scopes.find(item => item.reason)?.reason ?? 'No datasets are available for this project’s measurement scopes.' : setupGuide ? 'SEO sources are configured on the Canonry server.' : 'Ask your Canonry administrator to connect an SEO data source.'}</EmptyEvidence> : requestedProfileId ? (
+      {search.seoRunId && selectedRun.error ? <div className="space-y-3"><ReadError error={selectedRun.error} retry={() => { void selectedRun.refetch() }} />{selected ? <Button variant="secondary" className="pointer-coarse:min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button> : <p className="text-copy-14 text-secondary">Select a profile to view its latest data.</p>}</div> : search.seoRunId && selectedRun.isPending ? <p role="status" className="py-10 text-copy-14 text-secondary">Loading refresh…</p> : selected && selectedRun.data && selectedRun.data.profileId !== selected.id ? <EmptyEvidence title="Refresh belongs to another profile">Choose the refresh’s profile, or return to the selected profile’s latest data.<Button variant="secondary" className="mt-4 pointer-coarse:min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button></EmptyEvidence> : selected ? <SeoProfileWorkspace key={`${selected.id}:${selected.revision}:${search.seoRunId ?? ''}`} projectName={projectName} profile={selected} context={context.data} selectedRunId={search.seoRunId} onLatest={() => selectProfile(selected.id)} /> : !canCreateProfile && profiles.data.profiles.length === 0 ? (
+        !sourceConfigured ? <EmptyEvidence title="Configure an SEO data provider" action={setupGuide}>{setupGuide ? 'SEO sources are configured on the Canonry server.' : 'Ask your Canonry administrator to connect an SEO data source.'}</EmptyEvidence>
+          : marketProfilesAvailable ? <EmptyEvidence title="No SEO profiles yet">Set up market rankings with the CLI or API.</EmptyEvidence>
+            : <EmptyEvidence title="SEO scope unavailable">{context.data.scopes.find(item => item.reason)?.reason ?? 'No datasets are available for this project’s measurement scopes.'}</EmptyEvidence>
+      ) : requestedProfileId ? (
         <EmptyEvidence title="Profile unavailable">This saved profile is no longer available. Select another profile to view its data.</EmptyEvidence>
       ) : !editor && <EmptyEvidence title="No SEO data yet">{canWrite ? 'Create a profile to choose the scope, source, and searches to measure.' : 'An SEO profile is needed before data can be collected.'}</EmptyEvidence>}
     </section>
   )
 }
 
-function SeoProfileWorkspace({ projectName, profile, context, profileControls, selectedRunId, onLatest }: { projectName: string; profile: SeoProfile; context: SeoContext; profileControls: ReactNode; selectedRunId?: string; onLatest: () => void }) {
+function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onLatest }: { projectName: string; profile: SeoProfile; context: SeoContext; selectedRunId?: string; onLatest: () => void }) {
   const queryClient = useQueryClient()
   const search = useSearch({ strict: false })
   const navigate = useNavigate()
@@ -297,8 +338,9 @@ function SeoProfileWorkspace({ projectName, profile, context, profileControls, s
   const pendingSync = useRef<SeoSyncInput | null>(null)
   const seenActiveRun = useRef<string | null>(null)
   const path = { name: projectName }
+  const overviewOptions = getApiV1ProjectsByNameSeoOverviewOptions({ client: heyClient, path, query: { profileId: profile.id, runId: selectedRunId } })
   const overview = useQuery({
-    ...getApiV1ProjectsByNameSeoOverviewOptions({ client: heyClient, path, query: { profileId: profile.id, runId: selectedRunId } }),
+    ...overviewOptions,
     refetchInterval: query => isActive(query.state.data?.latestRun) ? 2000 : false,
   })
   const intent = useMutation({ ...postApiV1ProjectsByNameSeoRefreshIntentsMutation({ client: heyClient }), meta: { skipGlobalErrorToast: true } })
@@ -331,13 +373,16 @@ function SeoProfileWorkspace({ projectName, profile, context, profileControls, s
   const busy = intent.isPending || sync.isPending
   const canRun = context.access.canRun && !isEmbed() && !isPublicDemo()
   const connection = context.connections.find(item => item.id === profile.connectionId)
+  const refreshSource = connection?.label ?? 'the configured source'
+  const refreshHelp = profile.capabilities.includes(SeoCapabilities['market-rankings'])
+    ? `Refresh now runs new Google searches through ${refreshSource} for this profile’s tracked queries and markets.`
+    : `Refresh now requests the latest data available from ${refreshSource}. The source may return the same readings until its dataset updates.`
   const scope = context.scopes.find(item => item.kind === profile.scope.kind && item.key === (profile.scope.key ?? null))
   // A project's SEO refresh schedule refreshes every saved profile; a missing schedule (404) means no date.
   const schedule = useQuery({ ...getApiV1ProjectsByNameScheduleOptions({ client: heyClient, path, query: { kind: SchedulableRunKinds['seo-sync'] } }), retry: false })
   const nextRunAt = !schedule.isError && schedule.data?.enabled && schedule.data.nextRunAt ? schedule.data.nextRunAt : null
   const nextRefresh = nextRunAt ? calendarDay(nextRunAt, schedule.data?.timezone ?? 'UTC') : null
-  const updated = evidence?.finishedAt && hasResults(evidence) ? calendarDay(evidence.finishedAt, TIME_ZONE) : null
-  // While a refresh runs the status line is about that refresh, so the shown data's caveat waits for it to finish.
+  const savedDay = evidence?.finishedAt && hasResults(evidence) ? calendarDay(evidence.finishedAt, TIME_ZONE) : null
   const caveat = active ? null : refreshCaveat(latest, evidence)
 
   useEffect(() => {
@@ -368,7 +413,8 @@ function SeoProfileWorkspace({ projectName, profile, context, profileControls, s
         seenActiveRun.current = run.id
         trackRun({ id: run.id, projectId: run.projectId, projectName, projectLabel: projectName, kind: RunKinds['seo-sync'], sourceAction: 'seo-sync', lastAnnouncedStatus: run.status })
       }
-      await queryClient.fetchQuery(getApiV1ProjectsByNameSeoOverviewOptions({ client: heyClient, path, query: { profileId: profile.id } }))
+      queryClient.setQueryData(overviewOptions.queryKey, current => current && (!current.latestRun || current.latestRun === latest) ? { ...current, latestRun: run } : current)
+      void overview.refetch({ cancelRefetch: false })
     } catch (cause) {
       if (extractApiErrorInfo(cause).code === 'VALIDATION_ERROR') pendingSync.current = null
       setError(extractErrorMessage(cause))
@@ -376,30 +422,38 @@ function SeoProfileWorkspace({ projectName, profile, context, profileControls, s
   }
 
   return <div className="space-y-3">
-    <div className="flex flex-wrap items-center justify-between gap-x-5 gap-y-1 border-y border-subtle py-1.5 sm:gap-y-3 sm:py-2">
-      {profileControls}
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-label-13 text-secondary">
-          <div aria-live="polite">{active && latest ? <p className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{latest.cancelRequested ? 'Cancellation requested' : STATUS_LABELS[latest.status]} · {latest.completedTasks} of {latest.taskCount} {taskNoun(latest)} completed</p>
-            : <p>{updated && evidence?.finishedAt ? <>Updated <time dateTime={evidence.finishedAt} title={formatZonedTimestamp(evidence.finishedAt, TIME_ZONE) ?? undefined}>{updated}</time></> : 'No completed refresh'}{nextRefresh && nextRunAt && <> · Next refresh <time dateTime={nextRunAt}>{nextRefresh}</time></>}</p>}</div>
-          {caveat && <InfoTooltip tone="caution" placement="bottom" label={caveat.label} text={caveat.text} />}
-        </div>
+    <div className="flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border-t border-subtle pt-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-copy-13 text-secondary" aria-live="polite">
+        {overview.data && <p>
+          {savedDay && evidence?.finishedAt ? <>{selectedRunId ? 'Viewing saved results from' : 'Results saved'} <time dateTime={evidence.finishedAt} title={formatZonedTimestamp(evidence.finishedAt, TIME_ZONE) ?? undefined}>{savedDay}</time></> : 'No saved results'}
+          {!selectedRunId && nextRefresh && nextRunAt && <> · Next scheduled refresh <time dateTime={nextRunAt}>{nextRefresh}</time></>}
+        </p>}
+        {active && latest && <p className="flex items-center gap-2"><Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />{latest.cancelRequested ? 'Cancellation requested' : STATUS_LABELS[latest.status]} · {latest.completedTasks} of {latest.taskCount} {taskNoun(latest)} completed</p>}
+        {caveat && <InfoTooltip tone="caution" placement="bottom" label={caveat.label} text={caveat.text} />}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
         {latest && <Button ref={historyTrigger} variant="ghost" size="sm" aria-haspopup="dialog" aria-expanded={showingHistory} onClick={() => setHistoryOpen(true)}><History className="size-4" aria-hidden="true" />Refresh history</Button>}
-        {selectedRunId ? <Button variant="secondary" onClick={onLatest}>View latest data</Button> : canRun && <Button disabled={busy || active || !context.available || !connection} onClick={asyncHandler(refresh)}><RefreshCw aria-hidden="true" className={`size-4 ${busy ? 'animate-spin' : ''}`} />{busy ? 'Starting refresh…' : active ? 'Refresh in progress' : pendingSync.current ? 'Retry refresh' : 'Refresh data'}</Button>}
+        {selectedRunId ? <Button variant="secondary" onClick={onLatest}>View latest data</Button> : canRun && <div className="flex items-center gap-2">
+          <Button disabled={busy || active || !overview.data || !context.available || !connection} onClick={asyncHandler(refresh)}>
+            <RefreshCw aria-hidden="true" className={`size-4 ${busy ? 'motion-safe:animate-spin' : ''}`} />
+            {busy ? 'Starting refresh…' : active ? 'Refresh in progress' : pendingSync.current ? 'Retry refresh' : 'Refresh now'}
+          </Button>
+          {connection && <InfoTooltip placement="bottom" text={refreshHelp} />}
+        </div>}
       </div>
     </div>
     {error && <p role="alert" className="rounded-md border border-default p-4 text-copy-14 text-secondary">{error}{pendingSync.current && ' Retry uses the same request, so it will not start a duplicate refresh.'}</p>}
-    {selectedRunId && updated && <p className="text-copy-13 text-secondary">Viewing the saved refresh from {updated}.</p>}
-    {overview.data?.evidenceRun && overview.data.evidenceRun.profileRevision !== profile.revision && <p role="status" className="text-copy-14 text-secondary">Saved data uses profile revision {overview.data.evidenceRun.profileRevision} · {runLocation(overview.data.evidenceRun)} · {overview.data.evidenceRun.languageCode}. The current profile has changed.</p>}
+    {!selectedRunId && evidence && evidence.profileRevision !== profile.revision && <p role="status" className="text-copy-13 text-secondary">Showing results from earlier profile settings.{canRun && context.available && connection && ' Refresh to use the current settings.'}</p>}
     {!isPublicDemo() && scope && !scope.supported && <p role="status" className="text-copy-14 text-secondary">{scope.reason ?? 'This scope is not supported for domain data.'}</p>}
+    {overview.isRefetchError && <ReadError error={overview.error} retry={() => { void overview.refetch() }} />}
     <div>
-      <nav ref={tabs} aria-label="SEO views" className="flex min-w-0 gap-x-5 overflow-x-auto border-b border-subtle sm:flex-wrap">
+      <nav ref={tabs} aria-label="SEO reports" className="flex min-w-0 flex-wrap gap-x-5 border-b border-subtle">
         {views.map(item => {
           const selected = selectedView === item || (selectedView === 'latest-rankings' && item === 'overview')
           return <button key={item} data-seo-view={item} type="button" aria-pressed={selected} className={`min-h-11 shrink-0 border-b-2 whitespace-nowrap text-button-14 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mono-400 ${selected ? 'border-strong text-primary' : 'border-transparent text-secondary hover:text-primary'}`} onClick={() => openView(item)}>{SEO_VIEW_LABELS[item]}</button>
         })}
       </nav>
-      {overview.error ? <div className="pt-4"><ReadError error={overview.error} retry={() => { void overview.refetch() }} /></div>
+      {overview.isLoadingError ? <div className="pt-4"><ReadError error={overview.error} retry={() => { void overview.refetch() }} /></div>
           : overview.isPending ? <p role="status" className="py-8 text-copy-14 text-secondary">Loading saved data…</p>
             : selectedView === 'overview' || selectedView === 'latest-rankings' ? <SeoOverviewPanel projectName={projectName} profileId={profile.id} data={overview.data} active={active} canRun={canRun} nextRefresh={nextRefresh} snapshot={Boolean(selectedRunId) || selectedView === 'latest-rankings'} historical={Boolean(selectedRunId)} onOpen={view => openView(view, true)} />
               : <SeoEvidence key={`${profile.id}:${selectedView}:${overview.data.evidenceRunId ?? 'empty'}`} projectName={projectName} profileId={profile.id} runId={overview.data.evidenceRunId} view={selectedView} active={active} nextRefresh={nextRefresh} />}
@@ -416,7 +470,7 @@ function SeoProfileWorkspace({ projectName, profile, context, profileControls, s
     <details className="group/seo-data border-t border-subtle text-label-14 text-secondary">
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-label-14-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 [&::-webkit-details-marker]:hidden"><ChevronRight className="size-3.5 shrink-0 transition-transform group-open/seo-data:rotate-90" aria-hidden="true" />Data details</summary>
       <div className="space-y-4 pb-3 text-label-13">
-        <p>Current profile source: {isPublicDemo() ? 'Fictional demo data' : connection?.label ?? 'Source unavailable'}. Google; {deviceLabel(profile.rankings?.device ?? 'unspecified')}.</p>
+        <p>Current profile source: {isPublicDemo() ? 'Fictional demo data' : connection?.label ?? 'Source unavailable'}. Google · {deviceLabel(profile.rankings?.device ?? 'unspecified')} · {profile.rankings ? 'Market locations' : `Location ${profile.locationCode}`} · {profile.languageCode}.</p>
         {overview.data?.evidenceRun && <p>Saved evidence: {overview.data.evidenceRun.scope.kind}{overview.data.evidenceRun.scope.key ? ` · ${overview.data.evidenceRun.scope.key}` : ''}{overview.data.evidenceRun.scope.expectedPlanRevision !== undefined ? ` · plan revision ${overview.data.evidenceRun.scope.expectedPlanRevision}` : ''}. {runLocation(overview.data.evidenceRun)} · {overview.data.evidenceRun.languageCode} · profile revision {overview.data.evidenceRun.profileRevision}.</p>}
         <p>These are provider estimates and observed search rankings. Missing values are shown as a dash. Difficulty is a source score out of 100.</p>
         <p>Current profile targets:</p><ul className="space-y-1">{profile.targets.map((target, index) => <li key={index} className="break-words">{target.value} · {target.includeSubdomains ? 'includes subdomains' : 'exact host'}</li>)}</ul>
@@ -468,7 +522,7 @@ function SeoTrendPanel({ projectName, data, days, metric, keyword, selectionPend
       key,
       value: value === null ? '—' : NUMBER.format(value),
       stateValue: value === null,
-      detail: latest && latest !== data.points.at(-1) ? `as of ${calendarDay(latest.observedAt, TIME_ZONE) ?? latest.observedAt}` : undefined,
+      detail: latest && latest !== data.points.at(-1) ? `Last reading ${calendarDay(latest.observedAt, TIME_ZONE) ?? latest.observedAt}` : undefined,
       interactive: true,
       change: levelTrendChange(data.changes[key] ?? null, TrendUnits.count),
       series: data.points.map(point => ({ date: point.observedAt, current: point[key] ?? null })),
@@ -481,7 +535,7 @@ function SeoTrendPanel({ projectName, data, days, metric, keyword, selectionPend
   const defaultMetric = metrics.find(key => data.changes[key] != null) ?? metrics.find(key => data.points.some(point => point[key] != null)) ?? metrics[0]!
   const selected = metric && metrics.includes(metric) ? metric : defaultMetric
   const title = isMarket ? 'Google rankings over time' : isRanked ? 'Ranked search trends' : 'Organic search performance'
-  const scope = [data.target && targetLabel(data.target), 'Google', isMarket ? 'Market locations' : data.locationCode !== null ? `Location ${data.locationCode}` : null, data.languageCode].filter(Boolean).join(' · ')
+  const scope = [data.target && targetLabel(data.target), 'Google', isMarket ? 'Market locations' : null, data.languageCode && languageLabel(data.languageCode)].filter(Boolean).join(' · ')
   const selectedKeyword = (selectionPending ? keyword ?? data.keyword : data.keyword) ?? ''
   const choices = data.rankedKeywords ?? []
   const includeSelectedKeyword = selectedKeyword !== '' && !choices.includes(selectedKeyword)
@@ -517,7 +571,7 @@ function SeoTrendPanel({ projectName, data, days, metric, keyword, selectionPend
     <div className="flex flex-wrap items-start justify-between gap-x-5 gap-y-1 py-2 sm:py-3">
       <div className="min-w-0 space-y-1">
         <h3 className="text-heading-20 text-heading">{title}</h3>
-        <p className="break-words text-copy-13 text-secondary">{scope}</p>
+        <p className="break-words text-copy-13 text-secondary">{scope}{!isMarket && data.locationCode !== null && <> <InfoTooltip placement="bottom" text={`Search location code ${data.locationCode}.`} /></>}</p>
       </div>
       {isRanked && (choices.length > 0 || selectedKeyword) && <label className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-label-13 text-secondary sm:w-auto sm:max-w-96">
         Search to chart
@@ -779,8 +833,8 @@ function SeoEvidenceTable({ projectName, profileId, runId, view, active }: { pro
   if (!runId) return <EmptyEvidence title="No saved data yet">Refresh this profile to collect {CAPABILITY_LABELS[view].toLowerCase()} for its saved scope.</EmptyEvidence>
   return <div className="space-y-3 pt-4">
     {view === SeoCapabilities['keyword-gaps'] && <div className="flex items-center gap-3">
-      <label className="flex items-center gap-3 text-label-14"><span>Show</span><select aria-label="Show search gaps" className={`${FIELD} w-auto`} value={gapKind} onChange={event => { setGapKind(event.target.value as SeoKeywordGapKind | ''); setPage(1) }}><option value="">All comparisons</option><option value={SeoKeywordGapKinds.missing}>Missing</option><option value={SeoKeywordGapKinds.shared}>Shared</option><option value={SeoKeywordGapKinds.outranked}>Competitor ahead</option></select></label>
-      <InfoTooltip text="Missing: the source lists the search for the competitor but not your domain. Shared includes searches where the competitor ranks higher. These are bounded observations from the source’s organic search database, not a live check of every Google result." />
+      <label className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-label-14"><span>Comparison</span><select className={`${FIELD} w-auto max-w-full`} value={gapKind} onChange={event => { setGapKind(event.target.value as SeoKeywordGapKind | ''); setPage(1) }}><option value="">All comparisons</option><option value={SeoKeywordGapKinds.missing}>Missing</option><option value={SeoKeywordGapKinds.shared}>Shared</option><option value={SeoKeywordGapKinds.outranked}>Competitor ahead</option></select></label>
+      <InfoTooltip placement="bottom" text="Missing: the source lists the search for the competitor but not your domain. Shared includes searches where the competitor ranks higher. These are bounded observations from the source’s organic search database, not a live check of every Google result." />
     </div>}
     {view === SeoCapabilities['competitor-discovery'] && <p className="flex items-center gap-1.5 text-label-13 text-secondary">Domains sharing organic searches<InfoTooltip text="Discovery uses this profile’s whole domains, location and language. Suggested domains are not automatically added to tracked competitors. Counts describe the source’s database; the table is limited to this refresh’s saved results." /></p>}
     {selected.error ? <ReadError error={selected.error} retry={() => { void selected.refetch() }} />
@@ -1138,8 +1192,8 @@ function MarketQueries({ projectName, profileId, runId, regionKey, marketKey, to
       <InfoTooltip placement="bottom" text={`Needs work: queries ranking 11 or deeper, ${outside}, or partly checked. Rival ahead: a tracked competitor ranks above the site.`} />
     </div>
     <div className="flex flex-wrap items-center gap-3">
-      <label className="flex min-w-0 items-center gap-3"><span className="text-label-13 text-secondary">Show</span>
-        <select aria-label="Show queries" value={show} onChange={event => onShow(event.target.value as MarketShow)} className={`${FIELD} min-w-0 sm:w-56`}>
+      <label className="flex min-w-0 items-center gap-3"><span className="text-label-13 text-secondary">Ranking filter</span>
+        <select value={show} onChange={event => onShow(event.target.value as MarketShow)} className={`${FIELD} min-w-0 sm:w-56`}>
           {offered.map(option => <option key={option.value} value={option.value}>{option.label} ({NUMBER.format(option.count)})</option>)}
         </select>
       </label>
@@ -1321,45 +1375,66 @@ function SeoRefreshHistory({ projectName, profileId, canRun, selectedRunId, exac
 
 function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved }: { projectName: string; context: SeoContext; profile?: SeoProfile; id: string; onClose: () => void; onSaved: (id: string) => void }) {
   const queryClient = useQueryClient()
+  const marketReport = SeoCapabilities['market-rankings']
+  const availableReports = (connection: SeoContext['connections'][number] | undefined, scope: SeoContext['scopes'][number] | undefined) => (
+    supportedReports(connection, scope).filter(capability => capability !== marketReport || profile?.rankings)
+  )
+  const usableSources = context.connections.filter(connection => context.scopes.some(scope => availableReports(connection, scope).length > 0))
+  const projectScope = context.scopes.find(scope => scope.kind === SeoScopeKinds.project)
+  const [connectionId, setConnectionId] = useState(() => profile?.connectionId ?? (usableSources.find(connection => availableReports(connection, projectScope).length > 0) ?? usableSources[0])?.id ?? '')
+  const [selectedScope, setSelectedScope] = useState(profile ? `${profile.scope.kind}:${profile.scope.key ?? ''}` : `${SeoScopeKinds.project}:`)
+  const source = context.connections.find(connection => connection.id === connectionId)
+  const scope = context.scopes.find(item => `${item.kind}:${item.key ?? ''}` === selectedScope)
+  const availableCapabilities = availableReports(source, scope)
+  const defaultReports = (available: readonly SeoCapability[]): SeoCapability[] => {
+    const preferred = SeoCapabilities['ranked-keywords']
+    const first = available.includes(preferred) ? preferred : available[0]
+    return first ? [first] : []
+  }
   const [name, setName] = useState(profile?.name ?? '')
-  const [connectionId, setConnectionId] = useState(profile?.connectionId ?? context.connections.at(0)?.id ?? '')
-  const [capabilities, setCapabilities] = useState<SeoCapability[]>(profile?.capabilities ?? [SeoCapabilities['ranked-keywords']])
+  const [capabilities, setCapabilities] = useState<SeoCapability[]>(() => profile?.capabilities ?? defaultReports(availableCapabilities))
   const [targets, setTargets] = useState<SeoTarget[]>(profile?.targets ?? [{ kind: SeoTargetKinds.domain, value: '', includeSubdomains: true }])
   const [competitors, setCompetitors] = useState(profile?.competitors?.map(target => target.value).join('\n') ?? '')
   const [keywords, setKeywords] = useState(profile?.keywords.join('\n') ?? '')
   const [locationCode, setLocationCode] = useState(profile?.locationCode.toString() ?? '')
   const [languageCode, setLanguageCode] = useState(profile?.languageCode ?? 'en')
   const [limit, setLimit] = useState(profile?.limit.toString() ?? '100')
-  const [selectedScope, setSelectedScope] = useState(profile ? `${profile.scope.kind}:${profile.scope.key ?? ''}` : `${SeoScopeKinds.project}:`)
   const [error, setError] = useState<string | null>(null)
   const save = useMutation({ ...putApiV1ProjectsByNameSeoProfilesByIdMutation({ client: heyClient }), meta: { skipGlobalErrorToast: true } })
-  const source = context.connections.find(connection => connection.id === connectionId)
-  const scope = context.scopes.find(item => `${item.kind}:${item.key ?? ''}` === selectedScope)
-  const availableCapabilities = source?.capabilities.filter(capability => scope?.capabilities?.includes(capability) ?? true) ?? []
+  const sources = context.connections.filter(connection => connection === source || usableSources.includes(connection))
+  const scopes = context.scopes.filter(item => item === scope || item.supported)
   const selectedCapabilities = capabilities.filter(capability => availableCapabilities.includes(capability))
   const needsGaps = selectedCapabilities.includes(SeoCapabilities['keyword-gaps'])
   const domainResearch = needsGaps || selectedCapabilities.includes(SeoCapabilities['competitor-discovery'])
   const needsTargets = selectedCapabilities.some(capability => capability !== SeoCapabilities['keyword-metrics'])
   const needsRankedLimit = selectedCapabilities.includes(SeoCapabilities['ranked-keywords']) || domainResearch
-  const marketNoteId = useId()
-  const ranksMarkets = selectedCapabilities.includes(SeoCapabilities['market-rankings'])
+  const needsSearches = selectedCapabilities.includes(SeoCapabilities['keyword-metrics'])
+  const ranksMarkets = selectedCapabilities.includes(marketReport)
   // Market rankings keep their own profile, and only a saved market-rankings profile carries their search settings.
-  const blockedByMarkets = (capability: SeoCapability) => capability === SeoCapabilities['market-rankings']
-    ? !profile?.rankings || selectedCapabilities.some(item => item !== SeoCapabilities['market-rankings'])
-    : ranksMarkets
-  const marketNote = availableCapabilities.includes(SeoCapabilities['market-rankings'])
-    ? profile?.rankings ? 'Market rankings use their own profile.' : 'Set up market rankings with the CLI or API.'
-    : null
+  const reportChoices = availableCapabilities.filter(capability => ranksMarkets ? capability === marketReport : capability !== marketReport || selectedCapabilities.length === 0)
+  const marketAvailable = source?.capabilities.includes(marketReport) && (scope?.capabilities?.includes(marketReport) ?? true)
+  const scopeNote = scope?.reason ?? (scope && !scope.supported ? 'SEO reports are unavailable for this scope.' : null)
+  const scopeHelp = profile && !scope ? 'The saved scope is unavailable. Choose a current scope.' : scopeNote
+  const scopeNoteId = useId()
+  const sourceNoteId = useId()
+  const searchSettingsId = useId()
+  const updateReports = (available: SeoCapability[]) => setCapabilities(previous => {
+    const remaining = previous.filter(capability => available.includes(capability))
+    return profile || remaining.length ? remaining : defaultReports(available)
+  })
   const submit = async () => {
     if (!context.access.canWrite || isEmbed() || isPublicDemo() || save.isPending) return
     if (!scope) { setError('Choose a measurement scope.'); return }
+    const searches = keywords.split('\n').map(keyword => keyword.trim()).filter(Boolean)
+    if (needsSearches && searches.length === 0) { setError('Enter at least one search to measure demand.'); return }
+    if (needsTargets && targets.length === 0) { setError('Add at least one domain or host to measure.'); return }
     if (domainResearch && targets.some(target => target.kind !== SeoTargetKinds.domain || !target.includeSubdomains)) { setError('Organic competitors and search gaps require whole-domain targets including subdomains.'); return }
     const input: SeoProfileInput = {
-      name, connectionId, capabilities: selectedCapabilities, targets: needsTargets ? targets : [], keywords: keywords.split('\n').map(keyword => keyword.trim()).filter(Boolean),
+      name, connectionId, capabilities: selectedCapabilities, targets: needsTargets ? targets : [], keywords: searches,
       locationCode: Number(locationCode), languageCode, limit: needsRankedLimit ? Number(limit) : profile?.limit ?? 100,
       scope: { kind: scope.kind, ...(scope.key ? { key: scope.key } : {}), ...(scope.planRevision !== undefined ? { expectedPlanRevision: scope.planRevision } : {}) },
       // Market-rankings settings (locations, depth, device) are kept as saved; the editor does not change them.
-      ...(selectedCapabilities.includes(SeoCapabilities['market-rankings']) && profile?.rankings ? { rankings: profile.rankings } : {}),
+      ...(ranksMarkets && profile?.rankings ? { rankings: profile.rankings } : {}),
       ...(needsGaps ? { competitors: competitors.split('\n').map(value => value.trim()).filter(Boolean).map(value => ({ kind: SeoTargetKinds.domain, value, includeSubdomains: true })) } : {}),
     }
     const parsed = seoProfileInputSchema.safeParse(input)
@@ -1372,26 +1447,43 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
     } catch (cause) { setError(extractErrorMessage(cause)) }
   }
   const updateTarget = (index: number, patch: Partial<SeoTarget>) => setTargets(previous => previous.map((target, targetIndex) => targetIndex === index ? { ...target, ...patch } : target))
-  return <form aria-label={profile ? 'Edit SEO profile' : 'New SEO profile'} className="space-y-5 rounded-md border border-default p-4 sm:p-5" onSubmit={event => { event.preventDefault(); void submit() }}>
-    <div className="flex items-center justify-between gap-3"><h3 className="text-heading-14 text-heading">{profile ? 'Edit profile' : 'New profile'}</h3><Button type="button" variant="ghost" className="size-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11 p-0" aria-label="Close profile editor" onClick={onClose}><X className="size-4" aria-hidden="true" /></Button></div>
+  return <form aria-label={profile ? 'Edit SEO profile' : 'New SEO profile'} className="material-base space-y-5 p-4 sm:p-5" onSubmit={event => { event.preventDefault(); void submit() }}>
+    <div className="flex items-center justify-between gap-3"><h3 className="text-heading-16 text-heading">{profile ? 'Edit profile' : 'New profile'}</h3><Button type="button" variant="ghost" className="size-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11 p-0" aria-label="Close profile editor" onClick={onClose}><X className="size-4" aria-hidden="true" /></Button></div>
+    <label className="block max-w-lg space-y-1.5 text-label-14"><span>Profile name</span><input className={FIELD} required maxLength={120} value={name} onChange={event => setName(event.target.value)} autoFocus /></label>
     <div className="grid gap-4 sm:grid-cols-2">
-      <label className="space-y-1.5 text-label-14"><span>Profile name</span><input className={FIELD} required maxLength={120} value={name} onChange={event => setName(event.target.value)} autoFocus /></label>
-      <label className="space-y-1.5 text-label-14"><span>Source</span><select className={FIELD} required value={connectionId} onChange={event => {
-        const nextSource = context.connections.find(connection => connection.id === event.target.value)
-        setConnectionId(event.target.value)
-        setCapabilities(previous => previous.filter(capability => nextSource?.capabilities.includes(capability)))
-      }}><option value="" disabled>Select a source</option>{context.connections.map(connection => <option key={connection.id} value={connection.id}>{connection.label}</option>)}</select></label>
-      <label className="space-y-1.5 text-label-14 sm:col-span-2"><span>Measurement scope</span><select className={FIELD} required value={scope ? selectedScope : ''} onChange={event => {
-        const nextScope = context.scopes.find(item => `${item.kind}:${item.key ?? ''}` === event.target.value)
-        setSelectedScope(event.target.value)
-        setCapabilities(previous => previous.filter(capability => nextScope?.capabilities?.includes(capability) ?? true))
-      }}><option value="" disabled>Select a scope</option>{context.scopes.map(item => <option key={`${item.kind}:${item.key}`} value={`${item.kind}:${item.key ?? ''}`}>{item.label}</option>)}</select>{scope?.reason ? <span className="block text-label-13 text-secondary">{scope.reason}</span> : scope && !scope.supported && <span className="block text-label-13 text-secondary">Domain data is not supported for this scope.</span>}</label>
+      <div className="min-w-0 space-y-1.5">
+        {scope && scopes.length === 1 ? <dl className="space-y-1"><dt className="text-label-13 text-secondary">Measurement scope</dt><dd className="break-words text-label-14 text-primary">{scope.label}</dd></dl>
+          : <label className="block space-y-1.5 text-label-14"><span>Measurement scope</span><select className={FIELD} required value={scope ? selectedScope : ''} aria-describedby={scopeHelp ? scopeNoteId : undefined} onChange={event => {
+            const nextScope = context.scopes.find(item => `${item.kind}:${item.key ?? ''}` === event.target.value)
+            setSelectedScope(event.target.value)
+            updateReports(availableReports(source, nextScope))
+          }}><option value="" disabled>Choose a scope</option>{scopes.map(item => <option key={`${item.kind}:${item.key}`} value={`${item.kind}:${item.key ?? ''}`}>{item.label}</option>)}</select></label>}
+        {scopeHelp && <p id={scopeNoteId} className="text-copy-13 text-secondary">{scopeHelp}</p>}
+      </div>
+      <div className="min-w-0 space-y-1.5">
+        {source && sources.length === 1 ? <dl className="space-y-1"><dt className="text-label-13 text-secondary">Data source</dt><dd className="break-words text-label-14 text-primary">{source.label}</dd></dl>
+          : <label className="block space-y-1.5 text-label-14"><span>Data source</span><select className={FIELD} required value={source ? connectionId : ''} aria-describedby={profile && !source ? sourceNoteId : undefined} onChange={event => {
+            const nextSource = context.connections.find(connection => connection.id === event.target.value)
+            setConnectionId(event.target.value)
+            updateReports(availableReports(nextSource, scope))
+          }}><option value="" disabled>Choose a source</option>{sources.map(connection => <option key={connection.id} value={connection.id}>{connection.label}</option>)}</select></label>}
+        {profile && !source && <p id={sourceNoteId} className="text-copy-13 text-secondary">The saved data source is unavailable. Choose a configured source.</p>}
+      </div>
     </div>
-    <fieldset><legend className="mb-2 text-label-14">Collect</legend><div className="flex flex-wrap gap-x-6 gap-y-2">{Object.values(SeoCapabilities).map(capability => {
-      const blocked = blockedByMarkets(capability)
-      return <label key={capability} className="flex min-h-11 items-center gap-2 text-label-14"><input type="checkbox" checked={selectedCapabilities.includes(capability)} disabled={!availableCapabilities.includes(capability) || blocked} aria-describedby={blocked && marketNote ? marketNoteId : undefined} onChange={event => setCapabilities(previous => event.target.checked ? [...previous, capability] : previous.filter(item => item !== capability))} />{CAPABILITY_LABELS[capability]}</label>
-    })}</div>{scope?.capabilities && <p className="mt-1 text-copy-13 text-secondary">Available datasets follow this scope and source. Changing scope clears unsupported selections.</p>}{marketNote && <p id={marketNoteId} className="mt-1 text-copy-13 text-secondary">{marketNote}</p>}</fieldset>
-    {needsTargets && <fieldset className="space-y-3"><legend className="mb-2 text-label-14">Targets</legend><p className="text-copy-13 text-secondary">{ranksMarkets ? 'Market rankings report the Google rank of one target: one of this project’s own domains.' : domainResearch ? 'Organic competitors and search gaps compare whole domains, including subdomains.' : 'Domain comparison requires a domain including its subdomains. Exact hosts are supported only by compatible datasets.'}</p>
+    <div className="border-t border-subtle pt-4">
+      <fieldset className="space-y-2">
+        <legend className="text-heading-14 text-heading">Reports to collect</legend>
+        {reportChoices.length ? <div className="grid gap-x-6 sm:grid-cols-2">{reportChoices.map(capability => (
+          <label key={capability} className="flex min-h-11 items-center gap-2 text-label-14"><input type="checkbox" className="size-4 shrink-0 accent-accent" checked={selectedCapabilities.includes(capability)} onChange={event => {
+            const checked = event.currentTarget.checked
+            setCapabilities(previous => checked ? [...previous, capability] : previous.filter(item => item !== capability))
+          }} />{CAPABILITY_LABELS[capability]}</label>
+        ))}</div> : <p className="text-copy-13 text-secondary">{scope && source ? 'No reports can be set up here with this scope and data source.' : 'Choose a scope and data source to see available reports.'}</p>}
+        {marketAvailable && !profile?.rankings && <p className="text-copy-13 text-secondary">Set up market rankings with the CLI or API.</p>}
+        {ranksMarkets && <p className="text-copy-13 text-secondary">Market rankings use their own profile.</p>}
+      </fieldset>
+    </div>
+    {needsTargets && <fieldset className="space-y-3"><legend className="mb-1 text-heading-14 text-heading">Sites to measure</legend><p className="text-copy-13 text-secondary">{ranksMarkets ? 'Choose one of this project’s own domains.' : domainResearch || selectedCapabilities.includes(SeoCapabilities['domain-intelligence']) ? 'Use a domain with its subdomains for domain reports.' : 'Enter a domain or an exact host. Leave out paths and ports.'}</p>
       {targets.map((target, index) => <div key={index} className="grid items-end gap-3 sm:grid-cols-[1fr_13rem_auto]">
         <label className="space-y-1 text-label-14"><span className="sr-only">Target {index + 1}</span><input className={FIELD} value={target.value} placeholder="example.com" aria-label={`Target ${index + 1}`} onChange={event => updateTarget(index, { value: event.target.value })} required maxLength={253} /></label>
         <label className="space-y-1 text-label-14"><span className="sr-only">Target {index + 1} kind</span><select className={FIELD} aria-label={`Target ${index + 1} kind`} value={target.kind} onChange={event => updateTarget(index, { kind: event.target.value as SeoTarget['kind'], includeSubdomains: event.target.value === SeoTargetKinds.domain })}><option value={SeoTargetKinds.domain}>Domain + subdomains</option><option value={SeoTargetKinds.host}>Exact host</option></select></label>
@@ -1400,9 +1492,19 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
       <Button type="button" variant="secondary" className="pointer-coarse:min-h-11" disabled={targets.length >= (ranksMarkets ? 1 : 20)} onClick={() => setTargets(previous => [...previous, { kind: SeoTargetKinds.domain, value: '', includeSubdomains: true }])}>Add target</Button>
     </fieldset>}
     {needsGaps && <label className="block space-y-1.5 text-label-14"><span>Comparison domains</span><textarea className={`${FIELD} min-h-24`} value={competitors} onChange={event => setCompetitors(event.target.value)} placeholder="competitor.com" required /><span className="block text-copy-13 text-secondary">One domain per line, up to 5. Includes subdomains. Each is compared with every target in this profile.</span></label>}
-    {selectedCapabilities.includes(SeoCapabilities['keyword-metrics']) && <label className="block space-y-1.5 text-label-14"><span>Searches</span><textarea className={`${FIELD} min-h-28`} value={keywords} onChange={event => setKeywords(event.target.value)} placeholder="One search per line" /><span className="block text-label-13 text-secondary">Up to 700 searches to measure, each at most 10 words and 80 characters.</span></label>}
-    <div className={`grid gap-4 ${needsRankedLimit ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}><label className="space-y-1.5 text-label-14"><span>Provider location code</span><input className={FIELD} type="number" min={1} step={1} required value={locationCode} onChange={event => setLocationCode(event.target.value)} /><span className="block text-label-13 text-secondary">{ranksMarkets ? 'Used only when the project has no markets or locations.' : 'The source’s location identifier.'}</span></label><label className="space-y-1.5 text-label-14"><span>Language code</span><input className={FIELD} required minLength={2} maxLength={10} value={languageCode} onChange={event => setLanguageCode(event.target.value)} /></label>{needsRankedLimit && <label className="space-y-1.5 text-label-14"><span>{domainResearch ? 'Result limit' : 'Ranked searches per target'}</span><input className={FIELD} type="number" min={1} max={1000} step={1} required value={limit} onChange={event => setLimit(event.target.value)} />{domainResearch && <span className="block text-copy-13 text-secondary">{needsGaps ? 'For each gap comparison, shared and missing searches each have this limit. Other datasets use it per target.' : 'Maximum rows per target and dataset.'}</span>}</label>}</div>
+    {needsSearches && <label className="block space-y-1.5 text-label-14"><span>Searches</span><textarea className={`${FIELD} min-h-28`} value={keywords} onChange={event => setKeywords(event.target.value)} placeholder="One search per line" required /><span className="block text-copy-13 text-secondary">Enter up to 700 searches, with at most 10 words and 80 characters each.</span></label>}
+    <div className="border-t border-subtle pt-4">
+      <fieldset className="space-y-3" aria-describedby={searchSettingsId}>
+        <legend className="text-heading-14 text-heading">Search settings</legend>
+        <p id={searchSettingsId} className="text-copy-13 text-secondary">{ranksMarkets ? 'The profile’s location code applies only when the project has no markets or locations.' : 'Use the location code from your data source and a language code such as en for English.'}</p>
+        <div className={`grid gap-4 ${needsRankedLimit ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+          <label className="space-y-1.5 text-label-14"><span>Provider location code</span><input className={FIELD} type="number" min={1} step={1} required value={locationCode} onChange={event => setLocationCode(event.target.value)} /></label>
+          <label className="space-y-1.5 text-label-14"><span>Language code</span><input className={FIELD} required minLength={2} maxLength={10} value={languageCode} onChange={event => setLanguageCode(event.target.value)} /></label>
+          {needsRankedLimit && <label className="space-y-1.5 text-label-14"><span>{domainResearch ? 'Result limit' : 'Ranked searches per target'}</span><input className={FIELD} type="number" min={1} max={1000} step={1} required value={limit} onChange={event => setLimit(event.target.value)} />{domainResearch && <span className="block text-copy-13 text-secondary">{needsGaps ? 'Each gap comparison uses this limit separately for shared and missing searches.' : 'Maximum rows per target.'}</span>}</label>}
+        </div>
+      </fieldset>
+    </div>
     {error && <p role="alert" className="text-copy-14 text-secondary">{error}</p>}
-    <div className="flex flex-wrap gap-2"><Button type="submit" className="pointer-coarse:min-h-11" disabled={save.isPending || !source || !selectedCapabilities.length}>{save.isPending ? 'Saving…' : 'Save profile'}</Button><Button type="button" variant="ghost" className="pointer-coarse:min-h-11" onClick={onClose}>Cancel</Button></div>
+    <div className="flex flex-wrap gap-2"><Button type="submit" className="pointer-coarse:min-h-11" disabled={save.isPending || !scope?.supported || !source || !selectedCapabilities.length}>{save.isPending ? 'Saving…' : 'Save profile'}</Button><Button type="button" variant="ghost" className="pointer-coarse:min-h-11" onClick={onClose}>Cancel</Button></div>
   </form>
 }
