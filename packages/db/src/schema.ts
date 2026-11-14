@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import type { AgentProviderBackgroundPause } from '@canonry/canonry-contracts'
 import type { AgentJourneyCorrelationBasis, AgentTrustReason, StoredAgentTrust, CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, RunProviderFailure, RunSyncSummary, SiteCrawlIssueEvidence, SiteCrawlSiteDto, SnapshotUsage, VerificationStatus } from '@canonry/canonry-contracts'
 import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, SiteAuditScheduleChecks, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GaSearchLandingStatus, GaSearchLandingWindow, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@canonry/canonry-contracts'
 
@@ -2701,6 +2702,19 @@ export const healthSnapshots = sqliteTable('health_snapshots', {
   index('idx_health_snapshots_project').on(table.projectId),
   index('idx_health_snapshots_run').on(table.runId),
   index('idx_health_snapshots_created').on(table.createdAt),
+])
+
+/** Install-wide Aero account holds, shared across projects and server restarts. */
+export const agentProviderCooldowns = sqliteTable('agent_provider_cooldowns', {
+  /** SHA-256 of provider identity and credential, never the credential itself. */
+  accountKey: text('account_key').primaryKey(),
+  /** Unique failure identity prevents an older successful request clearing a newer hold. */
+  failureId: text('failure_id').notNull(),
+  reason: text('reason').$type<AgentProviderBackgroundPause['reason']>().notNull(),
+  retryAt: integer('retry_at').notNull(),
+}, (table) => [
+  index('idx_agent_provider_cooldowns_retry').on(table.retryAt),
+  check('agent_provider_cooldowns_reason_check', sql`${table.reason} in ('PROVIDER_AUTH', 'PROVIDER_BILLING')`),
 ])
 
 /**

@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq, and, desc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { bingQueryStats, bingUrlInspections, bingCoverageSnapshots, runs } from '@canonry/canonry-db'
-import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@canonry/canonry-contracts'
+import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, OutcomeOperationKinds, OutcomePhases, buildOutcomeDiagnostics, type OutcomePhase } from '@canonry/canonry-contracts'
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
@@ -484,7 +484,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const outcome = startRouteOutcome(app, FeatureNames.bing, 'inspect')
+    const outcome = startRouteOutcome(app, FeatureNames.bing, 'inspect', { operationKind: OutcomeOperationKinds['url-inspection'], projectId: project.id })
     const conn = outcome.guard(OutcomeReasonCodes.NOT_CONNECTED, () => requireConnection(store, project.canonicalDomain))
 
     if (!conn.siteUrl) {
@@ -508,6 +508,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       createdAt: startedAt,
     }).run()
 
+    let phase: OutcomePhase = OutcomePhases['provider-request']
     try {
       const result = await getUrlInfo(conn.apiKey, conn.siteUrl, url)
       bingLog('info', 'inspect-url.result', {
@@ -562,6 +563,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         }
       }
 
+      phase = OutcomePhases.persistence
       app.db.insert(bingUrlInspections).values({
         id,
         projectId: project.id,
@@ -582,7 +584,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         .set({ status: RunStatuses.completed, finishedAt: now })
         .where(eq(runs.id, runId))
         .run()
-      outcome.report({ status: OutcomeStatuses.succeeded, counts: { urls: 1 } })
+      outcome.report({ status: OutcomeStatuses.succeeded, counts: { urls: 1 }, diagnostics: { phase, remainingWork: 0 } })
 
       return {
         id,
@@ -608,6 +610,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       outcome.report({
         status: OutcomeStatuses.failed,
         ...failure,
+        diagnostics: buildOutcomeDiagnostics(e, { phase, remainingWork: 1 }),
         ...(e instanceof BingApiError && e.isThrottle ? { reasonCode: OutcomeReasonCodes.RATE_LIMITED } : {}),
       })
       throw e

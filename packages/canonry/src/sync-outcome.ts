@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { randomUUID } from 'node:crypto'
 import { credentialFailure } from '@canonry/canonry-api-routes'
 import { runs, type DatabaseClient } from '@canonry/canonry-db'
 import { GoogleApiError, GoogleAuthError } from '@canonry/canonry-integration-google'
@@ -11,12 +12,17 @@ import {
   type FeatureName,
   type FeatureOperation,
   type OutcomeCountKey,
+  type OutcomeDiagnostics,
+  type OutcomeOperationKind,
   type OutcomeReasonCode,
   type OutcomeStatus,
   type OutcomeSurface,
   type OutcomeTrigger,
 } from '@canonry/canonry-contracts'
 import { currentOutcomeOrigin, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
+import { createLogger } from './logger.js'
+
+const log = createLogger('RunOutcome')
 
 /** Who started a run: the request that queued it, or the server itself. */
 interface OutcomeOrigin {
@@ -27,6 +33,8 @@ interface OutcomeOrigin {
 
 /** A run's result as reported: a status, a reason and counts, never names, ids or messages. */
 export interface RunOutcome {
+  operationKind?: OutcomeOperationKind
+  diagnostics?: OutcomeDiagnostics
   status: OutcomeStatus
   reasonCode?: OutcomeReasonCode
   errorName?: string
@@ -62,11 +70,17 @@ export function startRunOutcome<F extends FeatureName>(
 ): (outcome: RunOutcome) => void {
   const requested = currentOutcomeOrigin()
   const elapsed = startOutcomeTimer()
+  const operationId = randomUUID()
+  log.info('started', { operationId, runId, feature, operation })
   return (outcome) => {
     try {
+      log.info('completed', { operationId, runId, feature, operation, status: outcome.status })
       trackFeatureCompleted({
         feature,
         operation,
+        operationId,
+        operationKind: outcome.operationKind,
+        diagnostics: outcome.diagnostics,
         ...runOrigin(storedRunTrigger(db, runId), requested),
         status: outcome.status,
         reasonCode: outcome.reasonCode,

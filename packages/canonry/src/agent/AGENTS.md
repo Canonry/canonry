@@ -359,12 +359,25 @@ anyone who is not an install administrator.
 
 `SessionRegistry` also pauses automatic wakes for 24 hours after a provider auth
 or billing failure, shared across projects using that provider and credential.
-The in-process hold skips new wake notifications; stored runs remain available.
+The durable hold in `agent_provider_cooldowns` skips new wake notifications; stored runs remain available.
 Manual prompts bypass it; a successful request begun after the current failure
 can clear it. Each model call tracks its actual credential, including config
 reloads within a turn, and an older in-flight success cannot clear a newer hold.
-A replacement key has its own hold. The `provider.background-paused` log gives the reason, retry
-time, and recovery action. Restarting the server clears these in-process holds.
+A replacement key has its own hold. Only the provider/credential digest, failure
+identity, safe reason and expiry are stored; credentials and raw provider errors
+never enter this table. Restarting the server preserves the hold. The
+`provider.background-paused` log and existing `GET /projects/:name/agent/providers`
+response (`backgroundPause` per provider) give the reason, retry time and recovery
+action; `canonry agent providers <project>` prints the same recovery instructions.
+Null means no active hold for the current credential, not a successful live check;
+older hosts may omit the field. Reading this state never calls the provider.
+Pause storage is best effort: a failed write retains an in-process hold and
+warns that it could not survive restart, without replacing the provider's result.
+Recovery must observe both an unsaved hold and its durable predecessor before
+clearing them; a newer unsaved failure retains the predecessor's restart protection.
+A failed recovery delete preserves the successful manual answer and keeps the
+hold until recovery can be saved. An unreadable store omits `backgroundPause`
+instead of claiming there is no hold.
 
 Aero wakes itself after every `run.completed`. To keep the agent fully usable but
 never self-starting, set `agent.mode: 'prompt-only'` in `~/.canonry/config.yaml`,

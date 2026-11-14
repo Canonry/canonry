@@ -44,6 +44,10 @@ import {
   RunTriggers,
   bucketOnboardingCount,
   describeError,
+  buildOutcomeDiagnostics,
+  OutcomeOperationKinds,
+  OutcomePhases,
+  type OutcomePhase,
 } from '@canonry/canonry-contracts'
 import { resolvePublicHttpTarget, resolveWebhookTarget } from '@canonry/canonry-api-routes'
 import { createLogger } from './logger.js'
@@ -410,6 +414,10 @@ function trackSiteAuditOutcome(db: DatabaseClient, input: {
   crawl?: SiteAuditCrawlOutcome
   /** The exception that failed the audit, described without its message. */
   error?: unknown
+  operationId: string
+  phase: OutcomePhase
+  observedPageCount?: number
+  observedPageErrors?: number
 }): void {
   try {
     const errorCode = input.status === 'cancelled' ? 'RUN_CANCELLED' : input.status === 'failed' ? 'INTERNAL' : undefined
@@ -417,6 +425,10 @@ function trackSiteAuditOutcome(db: DatabaseClient, input: {
       'site_audit.completed',
       {
         ...buildSiteAuditCompletedProps(input),
+        operationId: input.operationId,
+        operationKind: OutcomeOperationKinds['site-audit'],
+        diagnostics: buildOutcomeDiagnostics(input.error, { phase: input.phase }),
+        ...(input.observedPageCount !== undefined ? { observedPages: input.observedPageCount, observedPageErrors: input.observedPageErrors } : {}),
         ...(input.status === 'failed' ? describeRunFailure(input.error) : {}),
       },
       errorCode ? { errorCode } : undefined,
@@ -465,6 +477,8 @@ export async function executeSiteAudit(
     .run()
   if (claim.changes === 0) return
   const startTime = Date.now()
+  const operationId = crypto.randomUUID()
+  let phase: OutcomePhase = OutcomePhases.setup
   const trigger = db.select({ trigger: runs.trigger }).from(runs).where(eq(runs.id, runId)).get()?.trigger ?? null
   let canonicalDomain: string | null = null
 
@@ -869,6 +883,7 @@ export async function executeSiteAudit(
     }
 
     log.info('start', {
+      operationId,
       runId,
       projectId,
       homepageUrl,
@@ -885,6 +900,7 @@ export async function executeSiteAudit(
     // the operator actually chose is what keeps the page budget the one that
     // binds. Setting any fetch-side budget here would pin it and fight that
     // derivation — an explicit value is honoured exactly, even a bad one.
+    phase = OutcomePhases.crawl
     const report: SiteCrawlReport = await runSiteCrawl(crawlRootUrl, {
       mode: 'summary',
       sitemapUrl: opts.sitemapUrl,
@@ -898,13 +914,18 @@ export async function executeSiteAudit(
       ...(additionalRoots.length > 0 ? { additionalRoots } : {}),
       ...(entities ? { entityRegistry: entities.registry } : {}),
       signal: opts.signal,
-      onEvent: persistEvent,
+      onEvent: async (event) => {
+        phase = OutcomePhases.persistence
+        await persistEvent(event)
+        phase = OutcomePhases.crawl
+      },
     })
 
     const crawlSummary = report.summary
     if (crawlSummary.complete && crawlSummary.auditRollup.auditedPages === 0) {
       throw emptyCompleteCrawlError(crawlSummary.rootUrl, crawlSummary.finalRootUrl, crawlSummary.pagesObserved)
     }
+    phase = OutcomePhases.persistence
 
     // Classification must precede layout: the layout excludes template links
     // from its physics and the sampling query orders by the same column. The
@@ -1150,6 +1171,7 @@ export async function executeSiteAudit(
     }
 
     log.info('completed', {
+      operationId,
       runId,
       projectId,
       status: terminalStatus,
@@ -1164,6 +1186,8 @@ export async function executeSiteAudit(
       })),
     })
     trackSiteAuditOutcome(db, {
+      operationId,
+      phase,
       runId,
       projectId,
       status: crawlSummary.complete ? 'completed' : 'partial',
@@ -1200,8 +1224,12 @@ export async function executeSiteAudit(
         finishedAt,
       }).where(and(eq(runs.id, runId), eq(runs.status, 'running'))).run()
     })
-    log.error('failed', { runId, projectId, cancelled, error: message })
+    log.error('failed', { operationId, runId, projectId, phase, cancelled, error: message })
     trackSiteAuditOutcome(db, {
+      operationId,
+      phase,
+      observedPageCount: observedPages.size,
+      observedPageErrors: observedErrorCount(observedPages.values()),
       runId,
       projectId,
       status: cancelled ? 'cancelled' : 'failed',

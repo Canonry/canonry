@@ -1053,12 +1053,12 @@ describe('executeGbpSync outcome telemetry', () => {
       // One trailing-window keyword row plus one per complete month (three).
       expect(outcomes()).toEqual([
         [
-          { feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'succeeded', durationBucket: 'under_1s', counts: { rows: 4, items: 1, failures: 0 } },
+          { operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'succeeded', durationBucket: 'under_1s', counts: { rows: 4, items: 1, failures: 0 } },
           undefined,
         ],
         [
           {
-            feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'skipped', reasonCode: 'PERMISSION_MISSING',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'skipped', reasonCode: 'PERMISSION_MISSING',
             durationBucket: 'under_1s', counts: { items: 1, reviews: 0, skipped: 1, failures: 0 },
           },
           { errorCode: 'PERMISSION_MISSING' },
@@ -1088,12 +1088,12 @@ describe('executeGbpSync outcome telemetry', () => {
       const reviews = outcomes().filter(([properties]) => properties.operation === 'reviews')
       expect(reviews).toEqual([
         [
-          { feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'succeeded', durationBucket: 'under_1s', counts: { items: 1, reviews: 2, skipped: 0, failures: 0 } },
+          { operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'succeeded', durationBucket: 'under_1s', counts: { items: 1, reviews: 2, skipped: 0, failures: 0 } },
           undefined,
         ],
         [
           {
-            feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'failed', reasonCode: 'HTTP_5XX',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'failed', reasonCode: 'HTTP_5XX',
             durationBucket: 'under_1s', counts: { items: 1, reviews: 0, skipped: 0, failures: 1 },
           },
           { errorCode: 'HTTP_5XX' },
@@ -1122,21 +1122,21 @@ describe('executeGbpSync outcome telemetry', () => {
       expect(outcomes()).toEqual([
         [
           {
-            feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PERMISSION_MISSING',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PERMISSION_MISSING',
             errorName: 'GbpApiError', durationBucket: 'under_1s', counts: { rows: 0, items: 0, failures: 1 },
           },
           { errorCode: 'PERMISSION_MISSING' },
         ],
         [
           {
-            feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'QUOTA_EXCEEDED',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'QUOTA_EXCEEDED',
             errorName: 'GbpApiError', durationBucket: 'under_1s',
           },
           { errorCode: 'QUOTA_EXCEEDED' },
         ],
         [
           {
-            feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND',
             errorName: 'Error', durationBucket: 'under_1s',
           },
           { errorCode: 'PROPERTY_NOT_FOUND' },
@@ -1159,7 +1159,7 @@ describe('executeGbpSync outcome telemetry', () => {
 
       expect(outcomes()[0]).toEqual([
         {
-          feature: 'gbp', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'succeeded',
+          operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'succeeded',
           durationBucket: 'under_1s', counts: { rows: 4, items: 1, failures: 0 },
         },
         undefined,

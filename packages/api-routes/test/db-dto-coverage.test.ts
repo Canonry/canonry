@@ -1183,6 +1183,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Aero session state (transcript + queue). Exposed via the agent transcript composite, not as a direct row DTO.',
   },
+  agentProviderCooldowns: {
+    kind: 'internal-only',
+    reason: 'Install-wide credential digests and failure identities are private. The providers composite exposes only safe reason, retry time and recovery action.',
+  },
   agentMemory: {
     kind: 'internal-only',
     reason: 'Aero durable notes. Surfaced via AgentMemoryEntryDto (TS interface only — not a Zod schema, so out of scope for this DTO-shape check).',

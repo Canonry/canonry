@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { seoTrendDaysSchema, seoTrendKeywordSchema, seoTrendMetricSchema } from './seo.js'
+import { providerErrorCodeSchema } from './provider-errors.js'
 import { visibilityReportRequestSchema, type VisibilityReportResponse } from './visibility-report.js'
 
 /** A turn's displayed selection, never an authorization grant. */
@@ -102,6 +103,14 @@ export type { AgentProviderId } from './providers.js'
  */
 export const agentProviderIdSchema = z.enum(['claude', 'openai', 'gemini', 'zai', 'openrouter'])
 
+/** An account problem pauses automatic Aero work, while manual prompts may retry. */
+export const agentProviderBackgroundPauseSchema = z.object({
+  reason: providerErrorCodeSchema.extract(['PROVIDER_AUTH', 'PROVIDER_BILLING']),
+  retryAt: z.iso.datetime(),
+  recovery: z.string(),
+})
+export type AgentProviderBackgroundPause = z.infer<typeof agentProviderBackgroundPauseSchema>
+
 export const agentProviderOptionDtoSchema = z.object({
   /** Stable identifier — what clients pass back as `provider` on the prompt endpoint. */
   id: agentProviderIdSchema,
@@ -116,6 +125,8 @@ export const agentProviderOptionDtoSchema = z.object({
    * Surfaced so the UI can nudge users toward their preferred source of truth.
    */
   keySource: z.enum(['config', 'env']).nullable(),
+  /** Current credential's automatic-work hold; omitted by hosts predating this field. */
+  backgroundPause: agentProviderBackgroundPauseSchema.nullable().optional(),
   /**
    * A short list of models to offer for this provider: the default first,
    * then a few stronger current models. A pinned model outside the list is

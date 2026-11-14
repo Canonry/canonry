@@ -443,10 +443,11 @@ describe('executeBingInspectSitemap', () => {
       })
 
       expect(featureCompleted()).toEqual([
-        {
+        expect.objectContaining({
           feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'succeeded',
-          durationBucket: 'under_1s', counts: { urls: 2, failures: 0, skipped: 0 },
-        },
+          operationKind: 'url-coverage', diagnostics: { phase: 'persistence', remainingWork: 0 },
+          durationBucket: 'under_1s', counts: { urls: 2, attempts: 2, failures: 0, skipped: 0 },
+        }),
         undefined,
       ])
     })
@@ -466,10 +467,11 @@ describe('executeBingInspectSitemap', () => {
       })
 
       expect(featureCompleted()).toEqual([
-        {
+        expect.objectContaining({
           feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'partial', reasonCode: 'RATE_LIMITED',
-          errorName: 'BingApiError', durationBucket: 'under_1s', counts: { urls: 1, failures: 1, skipped: 0 },
-        },
+          operationKind: 'url-coverage', diagnostics: { phase: 'provider-request', httpStatus: 400, retryCount: 0, remainingWork: 1 },
+          errorName: 'BingApiError', durationBucket: 'under_1s', counts: { urls: 1, attempts: 2, failures: 1, skipped: 0 },
+        }),
         { errorCode: 'RATE_LIMITED' },
       ])
     })
@@ -486,10 +488,12 @@ describe('executeBingInspectSitemap', () => {
       })).rejects.toThrow(/failed for every URL/i)
 
       expect(featureCompleted()).toEqual([
-        {
+        expect.objectContaining({
           feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'RATE_LIMITED',
           errorName: 'BingApiError', durationBucket: 'under_1s',
-        },
+          operationKind: 'url-coverage', diagnostics: { phase: 'provider-request', httpStatus: 400, retryCount: 0, remainingWork: 6 },
+          counts: { urls: 0, attempts: 1, failures: 1, skipped: 5 },
+        }),
         { errorCode: 'RATE_LIMITED' },
       ])
     })
@@ -513,13 +517,96 @@ describe('executeBingInspectSitemap', () => {
 
       expect(trackEvent.mock.calls.map((call) => call.slice(1))).toEqual([
         [
-          { feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'Error', durationBucket: 'under_1s' },
+          expect.objectContaining({ feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'Error', durationBucket: 'under_1s', operationKind: 'url-coverage', diagnostics: { phase: 'setup' } }),
           { errorCode: 'NOT_CONNECTED' },
         ],
         [
-          { feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND', errorName: 'Error', durationBucket: 'under_1s' },
+          expect.objectContaining({ feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND', errorName: 'Error', durationBucket: 'under_1s', operationKind: 'url-coverage', diagnostics: { phase: 'setup' } }),
           { errorCode: 'PROPERTY_NOT_FOUND' },
         ],
+      ])
+    })
+
+    it('stops on an exhausted account throttle and resumes with unfinished URLs before refreshing successes', async () => {
+      const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(5) })
+      server = s.server
+      const bingModule = await import('@canonry/canonry-integration-bing')
+      const throttle = new BingApiError('ThrottleHost', 400, 5, '120')
+      throttle.retryCount = 4
+      const read = vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => {
+        if (url.endsWith('/p2')) throw throttle
+        return { Url: url, HttpStatus: 200, DocumentSize: 1000 }
+      })
+      const opts = { sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant }
+
+      const first = await queueRun()
+      await executeBingInspectSitemap(db, first, projectId, opts)
+
+      expect(read.mock.calls.map((call) => call[2])).toEqual([
+        'https://harborline-coatings.example.com/p0', 'https://harborline-coatings.example.com/p1', 'https://harborline-coatings.example.com/p2',
+      ])
+      expect(db.select().from(runs).where(eq(runs.id, first)).get()).toMatchObject({ status: RunStatuses.partial, error: expect.stringContaining('3 of 5') })
+      expect(db.select().from(bingUrlInspections).where(eq(bingUrlInspections.syncRunId, first)).all()).toHaveLength(2)
+      expect(featureCompleted()).toEqual([
+        expect.objectContaining({
+          operationKind: 'url-coverage', status: 'partial', reasonCode: 'RATE_LIMITED',
+          counts: { urls: 2, attempts: 3, failures: 1, skipped: 2 },
+          diagnostics: { phase: 'provider-request', httpStatus: 400, retryCount: 4, retryAfterBucket: '1m_to_5m', remainingWork: 3 },
+        }),
+        { errorCode: 'RATE_LIMITED' },
+      ])
+
+      read.mockClear().mockImplementation(async (_apiKey, _site, url) => ({ Url: url, HttpStatus: 200, DocumentSize: 1000 }))
+      const resumed = await queueRun()
+      await executeBingInspectSitemap(db, resumed, projectId, opts)
+
+      expect(read.mock.calls.slice(0, 3).map((call) => call[2])).toEqual([
+        'https://harborline-coatings.example.com/p2', 'https://harborline-coatings.example.com/p3', 'https://harborline-coatings.example.com/p4',
+      ])
+      expect(db.select().from(runs).where(eq(runs.id, resumed)).get()).toMatchObject({ status: RunStatuses.completed, error: null })
+      expect(db.select().from(bingUrlInspections).all()).toHaveLength(7)
+    })
+
+    it('reports the per-run cap as partial with the exact unfinished work', async () => {
+      const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(1501) })
+      server = s.server
+      const bingModule = await import('@canonry/canonry-integration-bing')
+      vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => ({ Url: url, HttpStatus: 200, DocumentSize: 1000 }))
+      const runId = await queueRun()
+
+      await executeBingInspectSitemap(db, runId, projectId, {
+        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant,
+      })
+
+      expect(db.select().from(runs).where(eq(runs.id, runId)).get()).toMatchObject({ status: RunStatuses.partial, error: expect.stringContaining('1 of 1501') })
+      expect(db.select().from(bingUrlInspections).where(eq(bingUrlInspections.syncRunId, runId)).all()).toHaveLength(1500)
+      expect(featureCompleted()).toEqual([
+        expect.objectContaining({
+          status: 'partial', reasonCode: 'QUOTA_EXCEEDED', operationKind: 'url-coverage',
+          counts: { urls: 1500, attempts: 1500, failures: 0, skipped: 1 },
+          diagnostics: { phase: 'persistence', remainingWork: 1 },
+        }),
+        { errorCode: 'QUOTA_EXCEEDED' },
+      ])
+    })
+
+    it('does not start URL requests when crawl enrichment has already exhausted the account throttle', async () => {
+      const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(3) })
+      server = s.server
+      const bingModule = await import('@canonry/canonry-integration-bing')
+      vi.spyOn(bingModule, 'getCrawlIssues').mockRejectedValue(throttled())
+      const read = vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => ({ Url: url, HttpStatus: 200, DocumentSize: 1000 }))
+      const runId = await queueRun()
+
+      await expect(executeBingInspectSitemap(db, runId, projectId, {
+        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant,
+      })).rejects.toThrow('ThrottleHost')
+
+      expect(read).not.toHaveBeenCalled()
+      expect(db.select().from(bingCoverageSnapshots).all()).toEqual([])
+      expect(featureCompleted()).toEqual([
+        expect.objectContaining({ status: 'failed', reasonCode: 'RATE_LIMITED', counts: { urls: 0, attempts: 0, failures: 0, skipped: 3 } }),
+        { errorCode: 'RATE_LIMITED' },
       ])
     })
   })

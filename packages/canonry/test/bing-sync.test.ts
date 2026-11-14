@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import {
@@ -139,7 +139,7 @@ describe('executeBingSync', () => {
 
     expect(run(runId)).toMatchObject({ status: RunStatuses.completed, error: null })
     expect(trackEvent.mock.calls.filter(([event]) => event === 'feature.completed')).toEqual([
-      ['feature.completed', expect.objectContaining({ feature: 'bing', operation: 'sync', status: 'succeeded' }), undefined],
+      ['feature.completed', expect.objectContaining({ feature: 'bing', operation: 'sync', operationKind: 'data-refresh', status: 'succeeded', counts: { rows: 36, items: 7, attempts: 7, failures: 0, skipped: 0 }, diagnostics: { phase: 'persistence', remainingWork: 0 } }), undefined],
     ])
 
     const traffic = db.select().from(bingTrafficDaily).where(eq(bingTrafficDaily.projectId, projectId)).all()
@@ -221,21 +221,79 @@ describe('executeBingSync', () => {
   it('keeps the last good site setting when a later read fails', async () => {
     mockBing()
     await executeBingSync(db, queueRun(), projectId, { config: buildConfig(), sleep: instantSleep })
-    mockBing((method) => (method === 'GetUrlSubmissionQuota'
-      ? { status: 400, body: '{"ErrorCode":2,"Message":"ERROR!!! InvalidParameter"}' }
-      : undefined))
-    await executeBingSync(db, queueRun(), projectId, { config: buildConfig(), sleep: instantSleep })
+    const bingModule = await import('@canonry/canonry-integration-bing')
+    // The client has exhausted its own retries. Later owner-only reads still
+    // return ignored ErrorCode14 responses; they must not replace this cause.
+    const upstreamFailure = new BingApiError('Bing API error (503): unavailable', 503)
+    upstreamFailure.retryCount = 4
+    const read = vi.spyOn(bingModule, 'getUrlSubmissionQuota').mockRejectedValue(upstreamFailure)
+    try {
+      await executeBingSync(db, queueRun(), projectId, { config: buildConfig(), sleep: instantSleep })
+    } finally {
+      read.mockRestore()
+    }
 
     const quota = db.select().from(bingSiteSnapshots).where(eq(bingSiteSnapshots.kind, 'url-submission-quota')).get()
     expect(quota).toMatchObject({ status: 'failed', payload: { dailyQuota: 100, monthlyQuota: 2700 } })
-    expect(quota?.error).toMatch(/InvalidParameter/)
+    expect(quota?.error).toMatch(/503/)
+    // The partial site section still saved twelve status/payload records;
+    // telemetry must count them alongside the other eighteen refreshed rows.
+    expect(trackEvent.mock.calls.filter(([event]) => event === 'feature.completed').at(-1)).toEqual([
+      'feature.completed',
+      expect.objectContaining({ status: 'partial', reasonCode: 'HTTP_5XX', operationKind: 'data-refresh', counts: { rows: 30, items: 7, attempts: 7, failures: 1, skipped: 0 }, diagnostics: { phase: 'provider-request', httpStatus: 503, retryCount: 4, remainingWork: 1 } }),
+      { errorCode: 'HTTP_5XX' },
+    ])
+  })
+
+  it.each([
+    { context: 'an ignored owner-only response', earlierFailure: false },
+    { context: 'an earlier 503 followed by successful reads', earlierFailure: true },
+  ])('reports a later SQLite write failure after $context', async ({ earlierFailure }) => {
+    mockBing((method) => {
+      if (method === 'GetSiteRoles' || (earlierFailure && method === 'GetConnectedPages')) {
+        return { status: 200, body: '{"d":[]}' }
+      }
+      return undefined
+    })
+    const bingModule = await import('@canonry/canonry-integration-bing')
+    const upstreamFailure = new BingApiError('Bing API error (503): unavailable', 503)
+    upstreamFailure.retryCount = 4
+    const read = earlierFailure
+      ? vi.spyOn(bingModule, 'getUrlSubmissionQuota').mockRejectedValue(upstreamFailure)
+      : undefined
+    // Fail the actual final snapshot insert after the preceding reads have
+    // reached Bing and been stored. No mocked DB method chooses the outcome.
+    db.run(sql`
+      CREATE TRIGGER fail_bing_site_roles BEFORE INSERT ON bing_site_snapshots
+      WHEN NEW.kind = 'site-roles'
+      BEGIN SELECT RAISE(ABORT, 'site snapshot storage unavailable'); END
+    `)
+    const runId = queueRun()
+    try {
+      await executeBingSync(db, runId, projectId, { config: buildConfig(), sleep: instantSleep })
+    } finally {
+      db.run(sql`DROP TRIGGER fail_bing_site_roles`)
+      read?.mockRestore()
+    }
+
+    expect(run(runId)).toMatchObject({ status: RunStatuses.partial, error: 'site: site snapshot storage unavailable' })
+    expect(db.select().from(bingSiteSnapshots).where(eq(bingSiteSnapshots.projectId, projectId)).all()).toHaveLength(11)
+    expect(trackEvent.mock.calls.filter(([event]) => event === 'feature.completed')).toEqual([
+      ['feature.completed', expect.objectContaining({
+        status: 'partial', reasonCode: 'UNKNOWN', errorName: 'SqliteError', operationKind: 'data-refresh',
+        counts: { rows: 35, items: 7, attempts: 7, failures: 1, skipped: 0 },
+        diagnostics: { phase: 'persistence', remainingWork: 1 },
+      }), { errorCode: 'UNKNOWN' }],
+    ])
   })
 
   it('stops calling Bing for the rest of the run once the account is throttled', async () => {
     // A throttle that outlasted the client's retries surfaces as a throttle
     // BingApiError; stub the first read so the test does not wait out real backoff.
     const bingModule = await import('@canonry/canonry-integration-bing')
-    const spy = vi.spyOn(bingModule, 'getRankAndTrafficStats').mockRejectedValue(new BingApiError('Bing API rate limit exceeded', 429))
+    const upstreamFailure = new BingApiError('Bing API rate limit exceeded', 429, null, '120')
+    upstreamFailure.retryCount = 4
+    const spy = vi.spyOn(bingModule, 'getRankAndTrafficStats').mockRejectedValue(upstreamFailure)
     const calls = mockBing()
     const runId = queueRun()
     try {
@@ -248,6 +306,9 @@ describe('executeBingSync', () => {
     expect(calls).toEqual([])
     expect(run(runId).status).toBe(RunStatuses.failed)
     expect(run(runId).error).toMatch(/throttled/i)
+    expect(trackEvent.mock.calls.filter(([event]) => event === 'feature.completed')).toEqual([
+      ['feature.completed', expect.objectContaining({ operationKind: 'data-refresh', errorName: 'BingApiError', counts: { rows: 0, items: 7, attempts: 1, failures: 1, skipped: 6 }, diagnostics: { phase: 'provider-request', httpStatus: 429, retryCount: 4, retryAfterBucket: '1m_to_5m', remainingWork: 7 } }), { errorCode: 'RATE_LIMITED' }],
+    ])
   })
 
   it('refreshes keyword demand only for queries not read in the last week', async () => {
