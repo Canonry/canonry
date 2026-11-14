@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import { within } from '@testing-library/react'
 import { afterEach, beforeAll, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -232,14 +233,14 @@ test.each([
     label: 'Simple overview',
     path: '/projects/project_citypoint',
     advanced: false,
-    parts: [CONTEXT_TITLE_CLASS, 'project-context-domain', 'project-context-actions'],
+    parts: [CONTEXT_TITLE_CLASS, 'project-context-domain'],
     meta: null,
   },
   {
     label: 'Simple Agent Readiness',
     path: '/projects/project_citypoint/agent-readiness',
     advanced: false,
-    parts: [CONTEXT_TITLE_CLASS, 'project-context-domain', 'project-context-actions'],
+    parts: [CONTEXT_TITLE_CLASS, 'project-context-domain'],
     meta: null,
   },
   {
@@ -247,7 +248,7 @@ test.each([
     path: '/projects/project_citypoint',
     advanced: true,
     // The v2 overview's measurement scope slot sits between identity and domain.
-    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-context-actions'],
+    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain'],
     meta: null,
   },
   {
@@ -256,14 +257,13 @@ test.each([
     label: 'Advanced overview with an explicit range',
     path: `/projects/project_citypoint${RANGE_QUERY}`,
     advanced: true,
-    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-context-actions'],
+    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain'],
     meta: null,
   },
-])('the $label context row orders identity, meta and actions', async ({ path, advanced, parts, meta }) => {
+])('the $label context row orders project identity and scope', async ({ path, advanced, parts, meta }) => {
   const { doc } = await renderAt(path, advanced ? { plan: advancedPlan() } : {})
   expect(contextRowParts(doc)).toEqual(parts)
   expect(doc.querySelector('.project-context-meta')?.textContent ?? null).toBe(meta)
-  expect(doc.querySelector('.project-context-actions')?.hasAttribute('data-project-actions')).toBe(true)
 })
 
 test.each([
@@ -332,29 +332,42 @@ test('the project tabs lead with AI Visibility and end with Queries, in sentence
   expect(tabs).toEqual(['AI Visibility', 'Search engines', 'SEO', 'Activity', 'Agent Readiness', 'Journeys', 'Server traffic', 'Queries', 'More'])
 })
 
-// ── Header action ──
+// ── AI Visibility checks ──
 
-/** Every state of the context row's AI Visibility check button. */
 const VISIBILITY_CHECK_ACTION = /^(Starting…|AI Visibility check running…|Checking AI engines…|Retry engine check|Set up AI Visibility|Review and publish plan|AI Visibility checks on hold|Run AI Visibility check)$/
 
-function headerButtons(doc: Document): string[] {
-  return [...doc.querySelectorAll('[data-project-actions] button')].map(button => button.textContent ?? '')
+function renderedRoles(doc: Document) {
+  const container = document.createElement('div')
+  container.innerHTML = doc.body.innerHTML
+  return within(container)
 }
 
-test.each(['', '/activity', '/search-console'])('the context row offers the AI Visibility check on the "%s" tab', async suffix => {
-  const { doc } = await renderAt(`/projects/project_citypoint${suffix}`)
-  const buttons = headerButtons(doc)
-  expect(buttons).toHaveLength(1)
-  expect(buttons[0]).toMatch(VISIBILITY_CHECK_ACTION)
+test.each(['Simple', 'Advanced'])('the %s project offers the check only below the AI Visibility tab', async mode => {
+  const options = { ...(mode === 'Advanced' ? { plan: advancedPlan() } : {}), schedule: visibilitySchedule() }
+  const { doc } = await renderAt('/projects/project_citypoint', options)
+  const page = renderedRoles(doc)
+  const tabs = page.getByRole('navigation', { name: 'Project sections' })
+  expect(within(tabs).getByRole('link', { name: 'AI Visibility', current: 'page' })).toBeTruthy()
+  const checks = page.getByRole('group', { name: 'AI Visibility checks' })
+  expect(checks.contains(page.getByRole('button', { name: VISIBILITY_CHECK_ACTION }))).toBe(true)
+  expect(tabs.compareDocumentPosition(checks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+  for (const suffix of ['/search-console', '/seo-data', '/activity', '/queries', '/portfolio', '/settings']) {
+    const { doc: other } = await renderAt(`/projects/project_citypoint${suffix}`, options)
+    const otherPage = renderedRoles(other)
+    expect(otherPage.getByRole('navigation', { name: 'Project sections' })).toBeTruthy()
+    expect(otherPage.queryByRole('group', { name: 'AI Visibility checks' })).toBeNull()
+    expect(otherPage.queryByRole('button', { name: VISIBILITY_CHECK_ACTION })).toBeNull()
+    expect(nextSweepLabels(other)).toEqual([])
+  }
 })
 
-test('Agent Readiness keeps one primary action, its own scan, with no AI Visibility check in the context row', async () => {
+test('Agent Readiness keeps its own scan action when an AI Visibility check is scheduled', async () => {
   const { doc } = await renderAt('/projects/project_citypoint/agent-readiness', { schedule: visibilitySchedule() })
-  // The row keeps its slot and its schedule note; only the second action is gone.
-  expect(doc.querySelector('[data-project-actions]')).not.toBeNull()
-  expect(headerButtons(doc)).toEqual([])
-  expect(nextSweepLabels(doc)).toEqual(['Next AI Visibility check Sep 22'])
-  expect(doc.body.textContent).toMatch(/Run scan|Checking scan/)
+  const page = renderedRoles(doc)
+  expect(page.getByRole('button', { name: /^(Run scan|Checking scan)$/ })).toBeTruthy()
+  expect(page.queryByRole('button', { name: VISIBILITY_CHECK_ACTION })).toBeNull()
+  expect(nextSweepLabels(doc)).toEqual([])
 })
 
 // ── Next-sweep label ──
@@ -364,17 +377,16 @@ test('the next-sweep label is the calendar date in the schedule timezone, with n
   const { doc } = await renderAt('/projects/project_citypoint', { schedule: visibilitySchedule() })
 
   expect(nextSweepLabels(doc)).toEqual(['Next AI Visibility check Sep 22'])
-  expect([...doc.querySelectorAll('[data-project-actions] p')].map(label => label.textContent)).toEqual(['Next AI Visibility check Sep 22'])
+  const checks = renderedRoles(doc).getByRole('group', { name: 'AI Visibility checks' })
+  expect(within(checks).getByText('Next AI Visibility check Sep 22')).toBeTruthy()
 })
 
 test('an invalid schedule timezone renders no next-sweep label instead of "null" or a clock time', async () => {
   const { doc } = await renderAt('/projects/project_citypoint', { schedule: visibilitySchedule({ timezone: 'Not/A_Zone' }) })
 
   expect(nextSweepLabels(doc)).toEqual([])
-  const actions = doc.querySelector('[data-project-actions]')
-  expect(actions).not.toBeNull()
-  expect(actions!.querySelectorAll('p')).toHaveLength(0)
-  expect(actions!.textContent).not.toContain('null')
+  const checks = renderedRoles(doc).getByRole('group', { name: 'AI Visibility checks' })
+  expect(checks.textContent).not.toContain('null')
 })
 
 // ── Settings ──

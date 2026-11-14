@@ -1957,9 +1957,13 @@
     @apply relative mt-2 mb-4 flex min-w-0 flex-nowrap items-stretch gap-x-1 border-b border-default;
   }
 
-  /* The tab bar already draws the line above a tab's first section; a divider
-     there drew a second one with an empty band between them. */
-  .project-subnav + .page-section-divider {
+  .visibility-checks {
+    @apply mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 sm:justify-end;
+  }
+
+  /* The tab bar supplies the top divider, including above AI Visibility checks. */
+  .project-subnav + .page-section-divider,
+  .visibility-checks + .page-section-divider {
     @apply mt-0 border-t-0 pt-0;
   }
 

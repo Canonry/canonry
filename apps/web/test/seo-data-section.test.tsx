@@ -5,8 +5,8 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { afterEach, expect, test, vi } from 'vitest'
 import { SeoRunStatuses, seoTrendDaysSchema, seoTrendKeywordSchema, seoTrendMetricSchema, type AgentViewContext, type ScheduleDto, type SeoContext, type SeoDomainIntelligence, type SeoKeywordMetrics, type SeoMarketRankingCounts, type SeoMarketRankingRow, type SeoMarketRankingSummary, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword, type SeoRun, type SeoTrends } from '@canonry/canonry-contracts'
 import { SeoDataSection } from '../src/components/project/SeoDataSection.js'
-import { AccountProvider } from '../src/contexts/account-context.js'
 import { AeroViewProvider, useAeroView } from '../src/contexts/aero-view-context.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 
 // These tests own the browser transport/lifecycle boundary. Provider arithmetic
@@ -163,6 +163,20 @@ async function openEvidence(name: string) {
   fireEvent.click(await screen.findByRole('button', { name, exact: true }))
 }
 
+function openDataDetails() {
+  const summary = screen.getByText('Data details', { selector: 'summary' })
+  fireEvent.click(summary)
+  return within(summary.closest('details')!)
+}
+
+async function openProfileEditor(action: 'Edit profile' | 'New profile') {
+  const opener = await screen.findByRole('button', { name: 'Manage profiles' })
+  fireEvent.click(opener)
+  const menu = await screen.findByRole('menu', { name: 'SEO profile actions' })
+  fireEvent.click(within(menu).getByRole('menuitem', { name: action }))
+  return opener
+}
+
 test('SEO opens on comparable ranking trends and keeps detail reads pinned to their profile and refresh', async () => {
   const reads: URL[] = []
   const aeroContexts: AgentViewContext[] = []
@@ -233,7 +247,10 @@ test('SEO opens on comparable ranking trends and keeps detail reads pinned to th
   const advancedTable = await screen.findByRole('table', { name: 'Searches you rank for, from the selected refresh' })
   expect(within(advancedTable).getByText('mot clé français')).not.toBeNull()
   expect(within(advancedTable).queryByText('saved keyword')).toBeNull()
-  expect(screen.getByText('France · fr.example.com · Location 2250 · fr')).not.toBeNull()
+  expect(screen.getByText('France · fr.example.com')).toBeTruthy()
+  const details = openDataDetails()
+  expect(details.getByText('fr.example.com · exact host')).toBeTruthy()
+  expect(details.getByText('Saved evidence: property · property-fr · plan revision 7. Location 2250 · fr · profile revision 1.')).toBeTruthy()
   const advancedRead = reads.find(url => url.pathname.endsWith('/ranked-keywords') && url.searchParams.get('profileId') === 'advanced')!
   expect(advancedRead.searchParams.get('runId')).toBe('saved-advanced')
 })
@@ -263,6 +280,8 @@ test('SEO picks an available organic trend and keeps the range picker when recen
   await mount()
   const timeline = await screen.findByRole('table', { name: /Ranked searches per refresh/ })
   expect(within(timeline).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['488', '521', 'Not recorded'])
+  expect(screen.getByText(/^Results saved/).querySelector('time')?.dateTime).toBe(saved.finishedAt)
+  expect(screen.getByText('Last reading Aug 20')).toBeTruthy()
   const range = screen.getByRole('combobox', { name: 'SEO trend range' })
   range.focus()
   fireEvent.change(range, { target: { value: '30' } })
@@ -341,8 +360,8 @@ test('organic research reads saved evidence and filters gap pages without starti
   expect(within(competitors).getByText('rival.com')).not.toBeNull()
   expect(within(competitors).getByText('0')).not.toBeNull()
   expect(within(competitors).getByLabelText('Not supplied')).not.toBeNull()
-  expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Edit profile' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Refresh now' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Manage profiles' })).toBeNull()
   for (const [label, sort] of [['Competitor', 'domain'], ['Shared searches', 'shared'], ['Avg. position', 'position'], ['Est. organic traffic', 'traffic']]) {
     const button = within(competitors).getByRole('button', { name: label, exact: true })
     for (const [value, direction] of [[sort, 'ascending'], [`-${sort}`, 'descending']]) {
@@ -371,10 +390,10 @@ test('organic research reads saved evidence and filters gap pages without starti
       expect(document.activeElement).toBe(button)
     }
   }
-  fireEvent.change(screen.getByRole('combobox', { name: 'Show search gaps' }), { target: { value: 'missing' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Comparison' }), { target: { value: 'missing' } })
   await screen.findByRole('heading', { name: 'No matching comparisons' })
   expect(Object.fromEntries(reads.at(-1)!.searchParams)).toEqual({ profileId: 'research', runId: 'saved-research', limit: '25', offset: '0', kind: 'missing', sort: '-volume' })
-  fireEvent.change(screen.getByRole('combobox', { name: 'Show search gaps' }), { target: { value: 'shared' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Comparison' }), { target: { value: 'shared' } })
   await screen.findByText('organic comparison')
   expect(reads.at(-1)!.searchParams.get('kind')).toBe('shared')
   expect(reads.at(-1)!.searchParams.get('sort')).toBe('-volume')
@@ -396,7 +415,7 @@ test('research profile editor saves explicit comparison domains and respects nar
     throw new Error(`Unexpected editor request ${request.method} ${url.pathname}`)
   })
   await mount('research')
-  fireEvent.click(await screen.findByRole('button', { name: 'Edit profile' }))
+  await openProfileEditor('Edit profile')
   const form = screen.getByRole('form', { name: 'Edit SEO profile' })
   const comparisons = within(form).getByRole<HTMLTextAreaElement>('textbox', { name: /^Comparison domains/ })
   expect(comparisons.value).toBe('rival.com')
@@ -406,10 +425,10 @@ test('research profile editor saves explicit comparison domains and respects nar
   await waitFor(() => expect(writes).toHaveLength(1))
   expect(writes[0]).toMatchObject({ capabilities: research.capabilities, limit: 50, scope: { kind: 'project' }, competitors: [{ kind: 'domain', value: 'rival.com', includeSubdomains: true }, { kind: 'domain', value: 'second.com', includeSubdomains: true }] })
   await waitFor(() => expect(screen.queryByRole('form')).toBeNull())
-  fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }))
+  await openProfileEditor('Edit profile')
   fireEvent.change(screen.getByRole('combobox', { name: /^Measurement scope/ }), { target: { value: 'property:property-fr' } })
-  expect(screen.getByRole<HTMLInputElement>('checkbox', { name: 'Search gaps' }).disabled).toBe(true)
-  expect(screen.getByRole<HTMLInputElement>('checkbox', { name: 'Organic competitors' }).checked).toBe(false)
+  expect(screen.queryByRole('checkbox', { name: 'Search gaps' })).toBeNull()
+  expect(screen.queryByRole('checkbox', { name: 'Organic competitors' })).toBeNull()
   expect(screen.queryByRole('textbox', { name: /^Comparison domains/ })).toBeNull()
 })
 
@@ -434,14 +453,14 @@ test.each([SeoRunStatuses.completed, SeoRunStatuses.partial, null])('selected pr
   if (status) await openEvidence('Searches you rank for')
   await screen.findByRole('heading', { name: status ? 'No results returned' : 'No SEO results yet' })
   if (status) {
-    const freshness = screen.getByText(/^Updated/)
+    const freshness = screen.getByText(/^Results saved/)
     expect(freshness.querySelector('time')?.getAttribute('datetime')).toBe(selectedFinishedAt)
     expect(freshness.querySelector('time')?.textContent).toMatch(/^Oct 18\b/)
     // A partial refresh with no failed task says so in a caveat, the sentence in its tooltip.
     expect(screen.queryByRole('button', { name: 'Partial results: some tasks returned only part of their results or did not run. Open Refresh history for details.' }) !== null).toBe(status === SeoRunStatuses.partial)
   } else {
-    expect(screen.getByText('No completed refresh')).not.toBeNull()
-    expect(screen.queryByText(/^Updated/)).toBeNull()
+    expect(screen.getByText('No saved results')).not.toBeNull()
+    expect(screen.queryByText(/^Results saved/)).toBeNull()
   }
 })
 
@@ -472,12 +491,12 @@ test.each([
     await screen.findByText('saved keyword')
     expect(screen.getByRole('heading', { name: 'SEO', exact: true })).toBeTruthy()
     if (demo) {
-      expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Refresh now' })).toBeNull()
       expect(screen.queryByText(reason)).toBeNull()
       expect(screen.queryByRole('link', { name: 'SEO setup guide' })).toBeNull()
       expect(screen.getByText(/Fictional demo data/)).toBeTruthy()
     } else {
-      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Refresh data' }).disabled).toBe(true)
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Refresh now' }).disabled).toBe(true)
       expect(screen.getAllByText(reason).length).toBeGreaterThan(0)
     }
   } else {
@@ -490,10 +509,11 @@ test.each([
       expect(screen.queryByRole('link', { name: 'SEO setup guide' })).toBeNull()
     }
     expect(screen.queryByRole('combobox', { name: 'SEO profile' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh now' })).toBeNull()
     expect(screen.queryByRole('table')).toBeNull()
   }
   expect(screen.queryByRole('button', { name: 'New profile' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Manage profiles' })).toBeNull()
 })
 
 test('a configured source with an unavailable Advanced scope shows the plan recovery instruction', async () => {
@@ -511,7 +531,7 @@ test('a configured source with an unavailable Advanced scope shows the plan reco
   expect(screen.queryByRole('button', { name: 'New profile' })).toBeNull()
 })
 
-test.each(['Edit profile', 'New profile'])('%s restores its opener after closing or cancelling the editor', async action => {
+test.each(['Edit profile', 'New profile'] as const)('%s restores its opener after closing or cancelling the editor', async action => {
   vi.stubGlobal('fetch', async (request: Request) => {
     const url = new URL(request.url)
     if (url.pathname.endsWith('/context')) return json(context)
@@ -523,10 +543,9 @@ test.each(['Edit profile', 'New profile'])('%s restores its opener after closing
   })
   await mount()
   await screen.findByRole('button', { name: 'Overview', pressed: true })
-  const opener = screen.getByRole('button', { name: action })
+  expect(screen.queryByRole('combobox', { name: 'SEO profile' })).toBeNull()
   for (const closeAction of ['Close profile editor', 'Cancel']) {
-    opener.focus()
-    fireEvent.click(opener)
+    const opener = await openProfileEditor(action)
     const form = await screen.findByRole('form', { name: action === 'Edit profile' ? 'Edit SEO profile' : 'New SEO profile' })
     await waitFor(() => expect(document.activeElement).toBe(within(form).getByRole('textbox', { name: 'Profile name' })))
     const close = within(form).getByRole('button', { name: closeAction })
@@ -559,22 +578,20 @@ test('profile editing clears unsupported datasets when Advanced scope narrows an
   })
   await mount()
   await screen.findByRole('button', { name: 'Overview', pressed: true })
-  fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }))
+  await openProfileEditor('Edit profile')
   const form = screen.getByRole('form', { name: 'Edit SEO profile' })
   const dataset = (label: string) => within(form).getByRole<HTMLInputElement>('checkbox', { name: label })
   fireEvent.change(within(form).getByRole('combobox', { name: 'Measurement scope' }), { target: { value: 'property:property-fr' } })
-  expect(dataset('Domain comparison').disabled).toBe(true)
-  expect(dataset('Domain comparison').checked).toBe(false)
+  expect(within(form).queryByRole('checkbox', { name: 'Domain comparison' })).toBeNull()
   expect(dataset('Searches you rank for').checked).toBe(true)
   fireEvent.change(within(form).getByRole('combobox', { name: 'Measurement scope' }), { target: { value: 'property:property-docs' } })
-  expect(dataset('Searches you rank for').disabled).toBe(true)
-  expect(dataset('Searches you rank for').checked).toBe(false)
+  expect(within(form).queryByRole('checkbox', { name: 'Searches you rank for' })).toBeNull()
   expect(dataset('Search demand').checked).toBe(true)
   expect(within(form).getByText('This scope supports explicit keyword metrics only.')).not.toBeNull()
   fireEvent.click(within(form).getByRole('button', { name: 'Save profile' }))
   await waitFor(() => expect(writes).toHaveLength(1))
   expect(writes[0]).toMatchObject({ capabilities: ['keyword-metrics'], keywords: ['example keyword'], scope: { kind: 'property', key: 'property-docs', expectedPlanRevision: 7 } })
-  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'SEO profile' })))
+  await waitFor(() => expect(document.activeElement?.textContent).toBe(`SEO profile: ${simple.name}`))
   expect(screen.queryByRole('form', { name: 'Edit SEO profile' })).toBeNull()
 })
 
@@ -607,12 +624,12 @@ test.each(['project', 'path Property'])('a new keyword-only profile for %s saves
     fireEvent.change(within(form).getByRole('combobox', { name: 'Measurement scope' }), { target: { value: 'property:docs' } })
   }
   for (const label of ['Searches you rank for', 'Domain comparison']) {
-    const checkbox = within(form).getByRole<HTMLInputElement>('checkbox', { name: label })
-    if (checkbox.checked) fireEvent.click(checkbox)
+    const checkbox = within(form).queryByRole<HTMLInputElement>('checkbox', { name: label })
+    if (checkbox?.checked) fireEvent.click(checkbox)
   }
   const keywords = within(form).getByRole<HTMLInputElement>('checkbox', { name: 'Search demand' })
   if (!keywords.checked) fireEvent.click(keywords)
-  expect(within(form).queryByRole('group', { name: 'Targets' })).toBeNull()
+  expect(within(form).queryByRole('group', { name: 'Sites to measure' })).toBeNull()
   expect(within(form).queryByRole('spinbutton', { name: 'Ranked searches per target' })).toBeNull()
   fireEvent.change(within(form).getByRole('textbox', { name: /^Searches/ }), { target: { value: 'solar installer\nhome solar cost' } })
   fireEvent.change(within(form).getByRole('spinbutton', { name: /^Provider location code/ }), { target: { value: '2840' } })
@@ -622,12 +639,13 @@ test.each(['project', 'path Property'])('a new keyword-only profile for %s saves
     name: 'Keyword research', capabilities: ['keyword-metrics'], targets: [], keywords: ['solar installer', 'home solar cost'], locationCode: 2840, languageCode: 'en',
     scope: scopeLabel === 'path Property' ? { kind: 'property', key: 'docs', expectedPlanRevision: 7 } : { kind: 'project' },
   })
-  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'SEO profile' })))
+  await waitFor(() => expect(document.activeElement?.textContent).toBe('SEO profile: Keyword research'))
 })
 
-test('an ambiguous refresh retry reuses its intent and identity while saved evidence remains visible', async () => {
+test('an ambiguous refresh retry reuses its identity and a failed status read keeps saved evidence visible', async () => {
   const requests: Array<{ url: URL; body: unknown }> = []
   let syncing = false
+  let statusReadable = true
   let attempts = 0
   const running: SeoRun = { ...saved, id: 'new-refresh', status: 'running', completedTasks: 0, finishedAt: null }
   vi.stubGlobal('fetch', async (request: Request) => {
@@ -636,25 +654,31 @@ test('an ambiguous refresh retry reuses its intent and identity while saved evid
     requests.push({ url, body })
     if (url.pathname.endsWith('/context')) return json(context)
     if (url.pathname.endsWith('/profiles')) return json({ profiles: [simple] })
-    if (url.pathname.endsWith('/overview')) return json(overview(simple, syncing ? running : saved))
+    if (url.pathname.endsWith('/overview')) return statusReadable ? json(overview(simple, syncing ? running : saved))
+      : json({ error: { code: 'INTERNAL_ERROR', message: 'Refresh status unavailable' } }, 503)
     if (url.pathname.endsWith('/trends')) return trendEvidence(url)
     if (url.pathname.endsWith('/refresh-intents')) return json({ token: 'bounded-intent', expiresAt: '2026-10-23T12:00:00Z', profileId: simple.id, profileRevision: 1, taskCount: 3, targets: simple.targets, capabilities: simple.capabilities, availability: 'ready', reason: null })
     if (url.pathname.endsWith('/sync')) {
       attempts += 1
       if (attempts === 1) throw new TypeError('Connection interrupted')
       syncing = true
+      statusReadable = false
       return json(running)
     }
     throw new Error(`Unexpected request ${request.method} ${url.pathname}`)
   })
   await mount()
   await screen.findByRole('heading', { name: 'Organic search performance' })
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh data' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }))
   expect((await screen.findByRole('alert')).textContent).toContain('Connection interrupted')
   fireEvent.click(screen.getByRole('button', { name: 'Retry refresh' }))
-  await screen.findByRole('button', { name: 'Refresh in progress' })
+  expect((await screen.findByText('Refresh status unavailable')).closest('[role="alert"]')).not.toBeNull()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Refresh in progress' }).disabled).toBe(true)
   expect(screen.getByRole('heading', { name: 'Organic search performance' })).not.toBeNull()
   expect(screen.getByText('721')).not.toBeNull()
+  statusReadable = true
+  fireEvent.click(screen.getByRole('button', { name: 'Retry', exact: true }))
+  await waitFor(() => expect(screen.queryByText('Refresh status unavailable')).toBeNull())
   expect(requests.filter(request => request.url.pathname.endsWith('/refresh-intents'))).toHaveLength(1)
   const syncs = requests.filter(request => request.url.pathname.endsWith('/sync'))
   expect(syncs).toHaveLength(2)
@@ -680,8 +704,9 @@ test('read-only access keeps source evidence available, exposes scope refusal, a
   const table = await screen.findByRole('table', { name: 'Searches you rank for, from the selected refresh' })
   expect(within(table).getByText('saved keyword')).not.toBeNull()
   expect(screen.getByText('Exact host cannot be used for domain comparison.')).not.toBeNull()
-  expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Refresh now' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'New profile' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Manage profiles' })).toBeNull()
   fireEvent.click(screen.getByText('Details', { selector: 'summary' }))
   expect(screen.getByText('$2.31', { exact: false })).not.toBeNull()
   // The dataset is named by its kind; the vendor behind the host's source never reaches the client.
@@ -703,7 +728,7 @@ test('an unavailable saved profile never silently falls back to another scope', 
   await screen.findByRole('heading', { name: 'Profile unavailable' })
   await waitFor(() => expect(client.isFetching()).toBe(0))
   expect(reads.some(path => path.endsWith('/overview'))).toBe(false)
-  expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Refresh now' })).toBeNull()
 })
 
 test.each([404, 503])('an unavailable refresh (%s) keeps navigation and waits for explicit recovery before loading latest evidence', async status => {
@@ -748,7 +773,10 @@ test('editing a profile preserves the datasets and locale of its prior saved evi
   expect(within(table).getByText('saved keyword')).not.toBeNull()
   expect(screen.getByRole('button', { name: 'Searches you rank for' }).getAttribute('aria-pressed')).toBe('true')
   expect(screen.queryByRole('button', { name: 'Domain comparison' })).toBeNull()
-  expect(screen.getByRole('status').textContent).toBe('Saved data uses profile revision 1 · Location 2840 · en. The current profile has changed.')
+  expect(screen.getByRole('status').textContent).toContain('Showing results from earlier profile settings.')
+  const details = openDataDetails()
+  expect(details.getByText(/^Current profile source: .*Location 2250 · fr\.$/)).toBeTruthy()
+  expect(details.getByText('Saved evidence: project. Location 2840 · en · profile revision 1.')).toBeTruthy()
 })
 
 test.each(['advanced', 'simple'])('a historical link preserves its refresh identity or refuses a mismatched %s profile', async profileId => {
@@ -773,7 +801,7 @@ test.each(['advanced', 'simple'])('a historical link preserves its refresh ident
     await within(history).findByRole('button', { name: 'View saved data' })
     expect(within(history).getByRole('button', { name: 'View latest data' })).not.toBeNull()
     expect(screen.queryByRole('button', { name: 'Activity', exact: true, hidden: true })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh now' })).toBeNull()
     await waitFor(() => expect(reads.find(url => url.pathname.endsWith('/overview'))?.searchParams.get('runId')).toBe('historic'))
   }
 })
@@ -787,6 +815,32 @@ const marketContext: SeoContext = {
   connections: [{ ...context.connections[0]!, capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence', 'market-rankings'] }],
   scopes: [{ ...context.scopes[0]!, capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence', 'market-rankings'] }],
 }
+
+test.each([false, true])('a market-only source directs profile creation to the CLI or API (saved profile: %s)', async hasProfile => {
+  const capabilities: SeoProfile['capabilities'] = ['market-rankings']
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const path = new URL(request.url).pathname
+    if (path.endsWith('/context')) return json({ ...marketContext, connections: [{ ...marketContext.connections[0], capabilities }], scopes: [{ ...marketContext.scopes[0], capabilities }] })
+    if (path.endsWith('/profiles')) return json({ profiles: hasProfile ? [markets] : [] })
+    if (path.endsWith('/overview')) return json({ ...overview(markets), evidenceRunId: null, evidenceRun: null, latestRun: null })
+    if (path.endsWith('/schedule')) return json({}, 404)
+    throw new Error(`Unexpected market profile request ${request.method} ${path}`)
+  })
+  await mount(hasProfile ? markets.id : null)
+  if (!hasProfile) {
+    expect(await screen.findByText('Set up market rankings with the CLI or API.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'New profile' })).toBeNull()
+    return
+  }
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage profiles' }))
+  const menu = await screen.findByRole('menu', { name: 'SEO profile actions' })
+  expect(within(menu).queryByRole('menuitem', { name: 'New profile' })).toBeNull()
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Edit profile' }))
+  const form = await screen.findByRole('form', { name: 'Edit SEO profile' })
+  expect(within(form).getByRole<HTMLInputElement>('checkbox', { name: 'Market rankings' }).checked).toBe(true)
+})
+
 // The saved refresh ran under revision 1; two of its ten searches failed.
 const marketRun: SeoRun = { ...saved, id: 'saved-markets', profileId: 'markets', status: 'partial', capabilities: ['market-rankings'], scope: markets.scope, taskCount: 10, completedTasks: 8, failedTasks: 2, finishedAt: '2026-10-25T20:00:00Z' }
 const nextRefresh: ScheduleDto = { id: 'seo-schedule', projectId: 'project-id', kind: 'seo-sync', cronExpr: '', recurrence: { everyDays: 14, startDate: '2026-11-08', time: '09:00' }, timezone: 'UTC', enabled: true, providers: [], nextRunAt: '2026-11-08T09:00:00.000Z', createdAt: source.collectedAt, updatedAt: source.collectedAt }
@@ -850,7 +904,7 @@ test('market rankings lead with the refresh, then server counts by outcome and t
     : summary())
   const { router } = await mount('markets')
   await screen.findByRole('heading', { name: 'Google rankings over time' })
-  expect(within(screen.getByRole('region', { name: 'Google rankings over time', exact: true })).getByText('as of Jul 20')).toBeTruthy()
+  expect(within(screen.getByRole('region', { name: 'Google rankings over time', exact: true })).getByText('Last reading Jul 20')).toBeTruthy()
   await openEvidence('Latest rankings')
   const chartData = await screen.findByRole('table', { name: 'Google rank across markets' })
   expect(within(chartData).getByRole('row', { name: 'Not in top 50 4' })).not.toBeNull()
@@ -861,7 +915,7 @@ test('market rankings lead with the refresh, then server counts by outcome and t
   // The caption names what the rank figures leave out, so they reconcile with the total.
   expect(within(figures).getByText('18 queries · 6 partly checked · 2 failed')).not.toBeNull()
   // Freshness, the next scheduled refresh and the failed searches share one line, the sentence behind a caveat.
-  const freshness = screen.getByText(/^Updated/)
+  const freshness = screen.getByText(/^Results saved/)
   expect([...freshness.querySelectorAll('time')].map(time => [time.getAttribute('datetime'), /^(?:Oct 25|Nov 8)\b/.test(time.textContent ?? '')])).toEqual([['2026-10-25T20:00:00Z', true], ['2026-11-08T09:00:00.000Z', true]])
   expect(screen.getByRole('button', { name: '2 searches failed: 2 of 10 searches in this refresh returned no results. Their queries show as Failed.' })).not.toBeNull()
   expect(lastRead('/schedule')).toEqual({ kind: 'seo-sync' })
@@ -906,7 +960,7 @@ test('queries open on what needs work, closest to page 1, and every filter, orde
   const table = await screen.findByRole('table', { name: 'Queries: Needs work' })
   const historyLength = router.history.length
   expect(lastRead('/market-rankings')).toEqual({ profileId: 'markets', runId: 'saved-markets', outcome: 'needs-work', sort: 'rank', limit: '10', offset: '0' })
-  const show = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Show queries' })
+  const show = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Ranking filter' })
   // Not searched has no rows, so it is not offered.
   expect([...show.options].map(option => option.textContent)).toEqual(['Needs work (14)', 'Page 1 (2)', '11-20 (3)', '21-50 (1)', 'Not in top 50 (4)', 'Rival ahead (5)', 'Partly checked (6)', 'Failed (2)', 'All (18)'])
   // A settled result is announced once, politely.
@@ -972,14 +1026,14 @@ test('a saved link reopens the same filter, order and search, and a new filter s
   await mount('markets', undefined, { seoShow: 'rival-ahead', seoSort: '-rank', seoQ: 'harbor' })
   await screen.findByRole('table', { name: 'Queries: Rival ahead' })
   expect(lastRead('/market-rankings')).toEqual({ profileId: 'markets', runId: 'saved-markets', outcome: 'rival-ahead', sort: '-rank', q: 'harbor', limit: '10', offset: '0' })
-  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Show queries' }).value).toBe('rival-ahead')
+  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Ranking filter' }).value).toBe('rival-ahead')
   expect(screen.getByRole<HTMLInputElement>('searchbox', { name: 'Find a query' }).value).toBe('harbor')
   fireEvent.click(screen.getAllByRole('button', { name: 'Next' }).at(-1)!)
   await waitFor(() => expect(lastRead('/market-rankings')).toMatchObject({ outcome: 'rival-ahead', offset: '10' }))
-  fireEvent.change(screen.getByRole('combobox', { name: 'Show queries' }), { target: { value: 'failed' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Ranking filter' }), { target: { value: 'failed' } })
   await waitFor(() => expect(lastRead('/market-rankings')).toMatchObject({ outcome: 'failed', offset: '0' }))
   // Returning to the earlier filter starts over too, rather than reopening its old page.
-  fireEvent.change(screen.getByRole('combobox', { name: 'Show queries' }), { target: { value: 'rival-ahead' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Ranking filter' }), { target: { value: 'rival-ahead' } })
   await waitFor(() => expect(lastRead('/market-rankings')).toMatchObject({ outcome: 'rival-ahead', offset: '0' }))
   expect(screen.getByText('1 to 3 of 25 queries')).not.toBeNull()
 })
@@ -990,7 +1044,7 @@ test('a scope with nothing off page 1 opens on every query', async () => {
   await openEvidence('Market rankings')
   await screen.findByRole('table', { name: 'Queries: All' })
   expect(lastRead('/market-rankings')).toEqual({ profileId: 'markets', runId: 'saved-markets', sort: 'rank', limit: '10', offset: '0' })
-  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Show queries' }).value).toBe('all')
+  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Ranking filter' }).value).toBe('all')
   // A lone market would only repeat the queries, so there is no table of groups to open.
   expect(screen.queryByRole('table', { name: /^Google rank by/ })).toBeNull()
 })
@@ -1004,9 +1058,11 @@ test('market-rankings refresh history counts searches, and editing the profile k
   })
   await mount('markets')
   await screen.findByRole('heading', { name: 'Google rankings over time' })
-  expect(screen.getByText('Entire project · Market locations · en')).not.toBeNull()
   // The saved refresh searched from each market's location, never the profile's one location code.
-  expect(screen.getByText('Saved data uses profile revision 1 · Market locations · en. The current profile has changed.')).not.toBeNull()
+  const dataDetails = openDataDetails()
+  expect(dataDetails.getByText(/^Current profile source: .*Market locations · en\.$/)).toBeTruthy()
+  expect(dataDetails.getByText('Saved evidence: project. Market locations · en · profile revision 1.')).toBeTruthy()
+  expect(screen.getByRole('status').textContent).toContain('Showing results from earlier profile settings.')
 
   const historyButton = screen.getByRole('button', { name: 'Refresh history' })
   fireEvent.click(historyButton)
@@ -1022,22 +1078,21 @@ test('market-rankings refresh history counts searches, and editing the profile k
   fireEvent.click(within(history).getByRole('button', { name: 'Close' }))
   await waitFor(() => expect(document.activeElement).toBe(historyButton))
 
-  fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }))
+  await openProfileEditor('Edit profile')
   const form = screen.getByRole('form', { name: 'Edit SEO profile' })
   // Market rankings keep their own profile and report one target, so other datasets and a second target are unavailable.
-  const demand = within(form).getByRole<HTMLInputElement>('checkbox', { name: 'Search demand' })
-  expect(demand.disabled).toBe(true)
-  expect(document.getElementById(demand.getAttribute('aria-describedby')!)?.textContent).toBe('Market rankings use their own profile.')
-  expect(within(form).getByRole<HTMLInputElement>('checkbox', { name: 'Market rankings' }).disabled).toBe(false)
+  expect(within(form).queryByRole('checkbox', { name: 'Search demand' })).toBeNull()
+  expect(within(form).getByText('Market rankings use their own profile.')).toBeTruthy()
+  expect(within(form).getByRole<HTMLInputElement>('checkbox', { name: 'Market rankings' }).checked).toBe(true)
   expect(within(form).getByRole<HTMLButtonElement>('button', { name: 'Add target' }).disabled).toBe(true)
   fireEvent.change(within(form).getByRole('textbox', { name: 'Profile name' }), { target: { value: 'Markets by metro' } })
   fireEvent.click(within(form).getByRole('button', { name: 'Save profile' }))
   await waitFor(() => expect(writes).toHaveLength(1))
   expect(writes[0]).toMatchObject({ name: 'Markets by metro', capabilities: ['market-rankings'], targets: markets.targets, rankings: markets.rankings })
-  fireEvent.click(screen.getByRole('button', { name: /New profile/ }))
+  await waitFor(() => expect(form.isConnected).toBe(false))
+  await openProfileEditor('New profile')
   const created = screen.getByRole('form', { name: 'New SEO profile' })
   // Market-rankings setup (locations, depth, device) is not in the web editor yet.
-  const marketsBox = within(created).getByRole<HTMLInputElement>('checkbox', { name: 'Market rankings' })
-  expect(marketsBox.disabled).toBe(true)
-  expect(document.getElementById(marketsBox.getAttribute('aria-describedby')!)?.textContent).toBe('Set up market rankings with the CLI or API.')
+  expect(within(created).queryByRole('checkbox', { name: 'Market rankings' })).toBeNull()
+  expect(within(created).getByText('Set up market rankings with the CLI or API.')).toBeTruthy()
 })

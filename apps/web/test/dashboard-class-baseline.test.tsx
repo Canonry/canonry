@@ -205,8 +205,7 @@ test('project route keeps the core metric and evidence class baseline stable', a
   // Operator project pages render the project context row instead of the
   // page header; only embeds keep `.page-header`. The AI Visibility cards are
   // number grids, so the first metric bar is the competitive card's Mention
-  // gaps row, in its tone. The trend chart is the first section after the
-  // tabs, with no Visibility card above it.
+  // gaps row, in its tone. The trend chart is the first evidence section.
   expect({
     pageContainer: classFor(html, '.page-container'),
     pageHeader: classOrNull(html, '.page-header'),
@@ -215,7 +214,7 @@ test('project route keeps the core metric and evidence class baseline stable', a
     projectContextTitle: classFor(html, '.project-context-title'),
     projectContextDomain: classFor(html, '.project-context-domain'),
     projectContextMeta: classOrNull(html, '.project-context-meta'),
-    projectContextActions: classFor(html, '.project-context-actions'),
+    projectContextActions: classOrNull(html, '.project-context-actions'),
     firstSectionDivider: classFor(html, '.page-section-divider'),
     firstSectionCard: classFor(html, 'section.visibility-trend'),
     firstMetricFill: classOrNull(html, '.metric-card-bar-fill'),
@@ -231,7 +230,7 @@ test('project route keeps the core metric and evidence class baseline stable', a
       "pageContainer": "page-container",
       "pageHeader": null,
       "pageTitle": null,
-      "projectContextActions": "project-context-actions",
+      "projectContextActions": null,
       "projectContextDomain": "project-context-domain",
       "projectContextMeta": null,
       "projectContextRow": "project-context-row",
