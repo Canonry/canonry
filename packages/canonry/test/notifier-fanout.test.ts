@@ -58,7 +58,12 @@ const CURRENT_AT = '2026-10-03T00:00:00.000Z'
 const CURRENT_FINISHED_AT = '2026-10-03T00:00:02.000Z'
 const LOCATION = { label: 'florida', city: 'Orlando', region: 'Florida', country: 'US' }
 const MICHIGAN: LocationContext = { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' }
-const MODES = ['Simple', 'Advanced'] as const
+/**
+ * `Planned` runs carry a measurement manifest but no measurement plan version:
+ * they take the project-level comparison with the incomplete-manifest gate.
+ * Sweeps of a schema v2 plan are covered in notifier-advanced.test.ts.
+ */
+const MODES = ['Simple', 'Planned'] as const
 
 /** The stored mention fields of one answer; omitted fields are stored null. */
 interface StoredMention { answerText?: string | null; answerMentioned?: boolean | null; mentionIdentity?: MentionIdentity | null }
@@ -167,7 +172,7 @@ const WINNER_CASES = [
 ] as const
 it.each(MODES.flatMap(mode => WINNER_CASES.flatMap(row => ['winner first', 'loser first'].map(order => ({ mode, order, ...row }))))) (
   '$mode delivers one combined fanout loss: $policy, $order', async ({ mode, order, flFinish, miFinish, winner, loser, winnerFinish }) => {
-    const { db, projectId, seed, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION, MICHIGAN])
+    const { db, projectId, seed, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION, MICHIGAN])
     seed('previous-fl', PREVIOUS_AT, CitationStates['not-cited'])
     seed('previous-mi', PREVIOUS_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { context: MICHIGAN })
     seed('current-fl', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, flFinish)
@@ -188,7 +193,7 @@ it.each(MODES.flatMap(mode => WINNER_CASES.flatMap(row => ['winner first', 'lose
 
 it.each(MODES.flatMap(mode => [RunStatuses.queued, RunStatuses.running].map(status => ({ mode, status }))))(
   '$mode waits for a $status fanout sibling before delivering its eligible loss', async ({ mode, status }) => {
-    const { db, seed, snapshot, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION, MICHIGAN])
+    const { db, seed, snapshot, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION, MICHIGAN])
     seed('previous-fl', PREVIOUS_AT, CitationStates.cited)
     seed('previous-mi', PREVIOUS_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { context: MICHIGAN })
     seed('current-fl', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
@@ -205,7 +210,7 @@ it.each(MODES.flatMap(mode => [RunStatuses.queued, RunStatuses.running].map(stat
 )
 
 it.each(MODES)('%s emits no citation event without a prior group, then uses the stored prior group', async mode => {
-  const { seed, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION, MICHIGAN])
+  const { seed, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION, MICHIGAN])
   seed('current-fl', CURRENT_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
   seed('current-mi', CURRENT_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT, { context: MICHIGAN })
   await complete('current-mi')
@@ -253,7 +258,7 @@ const HISTORY_CASES = [
 
 it.each(MODES.flatMap(mode => HISTORY_CASES.map(row => ({ mode, ...row }))))(
   '$mode ignores stored probes in citation history: $name', async ({ mode, previous, probe, current, event, probes }) => {
-    const { seed, dispatch } = notificationHarness(mode === 'Advanced')
+    const { seed, dispatch } = notificationHarness(mode === 'Planned')
     seed('z-previous', PREVIOUS_AT, previous)
     for (let index = 0; index < probes; index++) {
       seed(`probe-${index}`, `2026-10-02T00:${String(index).padStart(2, '0')}:00.000Z`, probe, RunTriggers.probe)
@@ -266,7 +271,7 @@ it.each(MODES.flatMap(mode => HISTORY_CASES.map(row => ({ mode, ...row }))))(
 const GROUP_CASES = ['pending sibling', 'completed winner', 'previous population', 'current population'] as const
 it.each(MODES.flatMap(mode => GROUP_CASES.map(poison => ({ mode, poison }))))(
   '$mode ignores stored probes in citation groups: $poison', async ({ mode, poison }) => {
-    const { seed, dispatch } = notificationHarness(mode === 'Advanced')
+    const { seed, dispatch } = notificationHarness(mode === 'Planned')
     seed('z-previous', PREVIOUS_AT, CitationStates.cited)
     seed('current', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
     seed(
@@ -285,7 +290,7 @@ it.each(MODES.flatMap(mode => GROUP_CASES.map(poison => ({ mode, poison }))))(
 // Its first sweep after the upgrade must not report its older stored misses
 // moving to `not-measured`, while a measured engine's real loss still fires.
 it.each(MODES)('%s reports no transition into or out of a citation that was not measured', async mode => {
-  const { db, seed, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION], ['run.completed', 'citation.gained', 'citation.lost'])
+  const { db, seed, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION], ['run.completed', 'citation.gained', 'citation.lost'])
   seed('previous', PREVIOUS_AT, CitationStates.cited)
   seed('current', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
   const local = (runId: string, createdAt: string, citationState: CitationState) => ({
@@ -293,14 +298,14 @@ it.each(MODES)('%s reports no transition into or out of a citation that was not 
     location: LOCATION.label, citationState, answerMentioned: true, citedDomains: [],
     // Recorded by the Local adapter: it has no retrieval step.
     retrievalStatus: 'not-applicable' as const,
-    measurementExecutionId: mode === 'Advanced' ? 'roof-local-execution' : null, requestedContext: LOCATION, createdAt,
+    measurementExecutionId: mode === 'Planned' ? 'roof-local-execution' : null, requestedContext: LOCATION, createdAt,
   })
   // The older row stored a miss for Local; the new one stores `not-measured`.
   db.insert(querySnapshots).values([
     local('previous', PREVIOUS_AT, CitationStates['not-cited']),
     local('current', CURRENT_AT, CitationStates['not-measured']),
   ]).run()
-  if (mode === 'Advanced') {
+  if (mode === 'Planned') {
     for (const runId of ['previous', 'current']) {
       db.update(runs).set({ measurementManifest: { schemaVersion: 1, expectedSlots: [
         { executionId: 'roof-execution', queryText: 'roof coating', provider: 'gemini', context: LOCATION },
@@ -348,7 +353,7 @@ const MENTION_CASES: ReadonlyArray<{
 
 it.each(MODES.flatMap(mode => MENTION_CASES.map(row => ({ mode, ...row }))))(
   '$mode mention webhooks: $name', async ({ mode, previous, current, event }) => {
-    const { seed, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION], ALL_RUN_EVENTS)
+    const { seed, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION], ALL_RUN_EVENTS)
     // The citation holds, so only the mention can move.
     seed('previous', PREVIOUS_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { mention: previous })
     seed('current', CURRENT_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT, { mention: current })
@@ -361,7 +366,7 @@ it.each(MODES.flatMap(mode => MENTION_CASES.map(row => ({ mode, ...row }))))(
 )
 
 it.each(MODES)('%s reports a lost citation and a gained mention on one answer as separate events', async mode => {
-  const { seed, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION], ALL_RUN_EVENTS)
+  const { seed, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION], ALL_RUN_EVENTS)
   seed('previous', PREVIOUS_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { mention: { answerText: NAMES_OTHER } })
   seed('current', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT, { mention: { answerText: NAMES_BRAND } })
   await complete()

@@ -28,6 +28,7 @@ import { asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   CitationStates,
   compareText,
+  MentionStates,
   isWhatChangedActiveRun,
   normalizeQueryText,
   OVERVIEW_WHAT_CHANGED_QUERY_LIMIT,
@@ -40,7 +41,7 @@ import {
   type VisibilityReportLocationSelection,
 } from '@canonry/canonry-contracts'
 import { queries, querySnapshots, runs, type DatabaseClient, type projects } from '@canonry/canonry-db'
-import { advancedCitationChange, advancedComparisonBasis, advancedMentionChange } from './advanced-signal-changes.js'
+import { advancedSignalTransitions, type AdvancedSignalTransition } from './advanced-signal-changes.js'
 import { resolveSnapshotAnswerMentioned } from './helpers.js'
 import { readQueryClasses } from './query-class-read.js'
 import { locationMatches } from './visibility-report-reader.js'
@@ -327,51 +328,31 @@ function advancedLostSignals(
   const { current } = advanced
   if (current === null) return nothingLost(null, unavailable('not-measured'))
   const latestCheck = { runIds: [current.id], createdAt: current.createdAt }
-  const basis = advancedComparisonBasis(current, advanced.previous, since)
-  if (basis.state === 'unavailable') return nothingLost(latestCheck, unavailable(basis.reason))
+  // The change webhooks read the same transitions, so What changed never
+  // lists a loss an alert did not report, or the reverse.
+  const changes = advancedSignalTransitions(advanced, since)
+  if (changes.state === 'unavailable') return nothingLost(latestCheck, unavailable(changes.reason))
 
-  const { definition } = current
-  const targets = new Map(definition.targets.map(target => [target.id, target]))
-  const marketLabels = new Map(definition.scopeOptions
-    .filter(option => option.kind === 'market')
-    .map(option => [option.id, option.label]))
-  const edgesByExecution = new Map<string, Array<typeof definition.edges[number]>>()
-  for (const edge of definition.edges) {
-    const edges = edgesByExecution.get(edge.executionId)
-    if (edges) edges.push(edge)
-    else edgesByExecution.set(edge.executionId, [edge])
-  }
-  const currentBySlot = new Map(current.observations.map(observation => [observation.slotId, observation]))
-  const previousBySlot = new Map(basis.previous.observations.map(observation => [observation.slotId, observation]))
-
-  const mentions = new Map<string, LostQuery>()
-  const citations = new Map<string, LostQuery>()
-  for (const slot of definition.slots) {
-    if (!locationMatches(slot.location, location)) continue
-    const now = currentBySlot.get(slot.id)
-    const before = previousBySlot.get(slot.id)
-    // A slot either sweep did not answer has nothing to compare.
-    if (now === undefined || before === undefined) continue
-    for (const edge of edgesByExecution.get(slot.executionId) ?? []) {
-      const target = targets.get(edge.targetKey)
-      if (target === undefined) continue
-      const answer: LostAnswer = {
-        queryKey: slot.queryId ?? `text:${slot.query}`,
-        queryId: slot.queryId,
-        query: slot.query,
-        queryClass: edge.queryClass === 'unknown' ? null : edge.queryClass,
-        provider: slot.provider,
-        location: slot.location,
-        property: { key: target.id, label: target.label },
-        markets: edge.marketKeys.map(key => ({ key, label: marketLabels.get(key) ?? key })),
-      }
-      // The change webhooks read every answer through the same rule. An
-      // unknown mention or citation is never a lost one.
-      if (advancedMentionChange(target, before, now) === 'lost') record(mentions, answer)
-      if (advancedCitationChange(target, before, now) === 'lost') record(citations, answer)
+  const losses = (transitions: ReadonlyArray<AdvancedSignalTransition<string>>, lostState: string): Map<string, LostQuery> => {
+    const lost = new Map<string, LostQuery>()
+    for (const transition of transitions) {
+      if (transition.to !== lostState || !locationMatches(transition.location, location)) continue
+      record(lost, {
+        queryKey: transition.queryId ?? `text:${transition.query}`,
+        queryId: transition.queryId,
+        query: transition.query,
+        queryClass: transition.queryClass,
+        provider: transition.provider,
+        location: transition.location,
+        property: transition.property,
+        markets: transition.markets,
+      })
     }
+    return lost
   }
-  return { latestCheck, comparison: { state: 'available', previousRunIds: [basis.previous.id] }, mentions, citations }
+  const mentions = losses(changes.mention, MentionStates['not-mentioned'])
+  const citations = losses(changes.citation, CitationStates['not-cited'])
+  return { latestCheck, comparison: { state: 'available', previousRunIds: [changes.previousRunId] }, mentions, citations }
 }
 
 function compareNullableText(left: string | null, right: string | null): number {

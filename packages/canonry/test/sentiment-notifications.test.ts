@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { deliverWebhook } from '@canonry/canonry-api-routes'
-import { createClient, migrate, notifications, projects, runs, sentimentAlertRuns, sentimentDefinitions, sentimentJobs } from '@canonry/canonry-db'
+import { createClient, migrate, notifications, projects, runs, sentimentAlertRuns, sentimentCompletionReceipts, sentimentDefinitions, sentimentJobs, sentimentSettings } from '@canonry/canonry-db'
 import type { SentimentUnfavorableAnswer, SentimentWebhookPayload } from '@canonry/canonry-contracts'
 import { Notifier } from '../src/notifier.js'
 
-/** What `SentimentService.newlyUnfavorable` answers per sweep, and the sweeps it was asked about. */
-const verdicts = vi.hoisted(() => ({ scripted: new Map<string, unknown[]>(), reads: [] as string[] }))
+/** What `SentimentService.newlyUnfavorable` answers per sweep (null: sentiment off), and the sweeps it was asked about. */
+const verdicts = vi.hoisted(() => ({ scripted: new Map<string, unknown[] | null>(), reads: [] as string[] }))
 
 // Keep the dispatcher, the settled-sweep read and the SQLite decisions real.
 // Replace destination lookup and HTTP delivery, and script the verdict
@@ -23,7 +23,7 @@ vi.mock('@canonry/canonry-api-routes', async importOriginal => {
     SentimentService: class {
       newlyUnfavorable(_projectId: string, runId: string) {
         verdicts.reads.push(runId)
-        return verdicts.scripted.get(runId) ?? []
+        return verdicts.scripted.has(runId) ? verdicts.scripted.get(runId) : []
       }
     },
   }
@@ -77,14 +77,25 @@ function harness(events: string[] = ['sentiment.unfavorable']) {
       }).run()
     }
   }
+  const notifier = () => new Notifier(db, 'https://canonry.test', {
+    sentimentInstall: () => ({ enabled: true, ready: true, reason: null, model: 'jev-1.13.0' }),
+  })
+  /** The worker's completion receipt for a sweep, and how far it has admitted receipts. */
+  const receipt = (runId: string, sequence: number) => db.insert(sentimentCompletionReceipts).values({
+    sequence, projectId: 'project', runId, completionKey: `${runId}:${sequence}`, completedAt: created, kind: 'answer-visibility', trigger: 'manual',
+  }).run()
+  const reconciledTo = (sequence: number) => db.insert(sentimentSettings).values({
+    projectId: 'project', enabled: true, enablementEpoch: 1, reconciledSequence: sequence, evaluationDefinitionId: 'definition', configuration: {}, updatedAt: created,
+  }).onConflictDoUpdate({ target: sentimentSettings.projectId, set: { reconciledSequence: sequence } }).run()
   return {
     db,
     sweep,
+    receipt,
+    reconciledTo,
     settle: (runId: string) => db.update(sentimentJobs).set({ pendingItems: 0, state: 'completed' }).where(eq(sentimentJobs.id, `${runId}-non-brand`)).run(),
+    notifier,
     // A fresh dispatcher each pass proves the decisions survive restarts.
-    dispatch: () => new Notifier(db, 'https://canonry.test', {
-      sentimentInstall: () => ({ enabled: true, ready: true, reason: null, model: 'jev-1.13.0' }),
-    }).dispatchSentimentAlerts(NOW),
+    dispatch: () => notifier().dispatchSentimentAlerts(NOW),
     sent: () => vi.mocked(deliverWebhook).mock.calls.map(([, payload]) => payload as SentimentWebhookPayload),
     decisions: () => Object.fromEntries(db.select().from(sentimentAlertRuns).all().map(row => [row.runId, row.state])),
   }
@@ -133,7 +144,7 @@ it('decides a sweep nothing subscribed to as skipped, so subscribing later start
 })
 
 it('retries a sweep no webhook accepted on the next pass', async () => {
-  const { sweep, dispatch, sent, decisions } = harness()
+  const { sweep, dispatch, notifier, sent, decisions } = harness()
   sweep('r1', 2)
   await dispatch()
   sweep('r2', 1)
@@ -141,15 +152,70 @@ it('retries a sweep no webhook accepted on the next pass', async () => {
 
   vi.useFakeTimers({ toFake: ['setTimeout'] })
   vi.mocked(deliverWebhook).mockResolvedValue({ status: 500, error: null })
-  const refused = dispatch()
+  // One long-lived notifier, as the server keeps, so the retry can reuse what it read.
+  const refusedNotifier = notifier()
+  const refused = refusedNotifier.dispatchSentimentAlerts(NOW)
   await vi.runAllTimersAsync()
   expect(await refused).toBe(0)
   expect(decisions()).toEqual({ r1: 'baseline' })
 
   vi.mocked(deliverWebhook).mockResolvedValue({ status: 204, error: null })
-  expect(await dispatch()).toBe(1)
+  expect(await refusedNotifier.dispatchSentimentAlerts(NOW)).toBe(1)
   expect(decisions()).toEqual({ r1: 'baseline', r2: 'sent' })
   expect(sent().map(payload => payload.run.id)).toEqual(['r2', 'r2', 'r2', 'r2'])
+  // The retry reuses what the refused pass read instead of reading both sweeps again.
+  expect(verdicts.reads).toEqual(['r2'])
+})
+
+it('holds a sweep read while sentiment is off instead of closing it, and sends it once sentiment is back', async () => {
+  const { sweep, dispatch, sent, decisions } = harness()
+  sweep('r1', 2)
+  await dispatch()
+  sweep('r2', 1)
+  verdicts.scripted.set('r2', null)
+  expect(await dispatch()).toBe(0)
+  expect(decisions()).toEqual({ r1: 'baseline' })
+
+  verdicts.scripted.set('r2', [TURNED])
+  expect(await dispatch()).toBe(1)
+  expect(decisions()).toEqual({ r1: 'baseline', r2: 'sent' })
+  expect(sent().map(payload => payload.run.id)).toEqual(['r2'])
+})
+
+it('decides sweeps in order: a later sweep waits while an earlier one is still being rated', async () => {
+  const { sweep, settle, dispatch, decisions } = harness()
+  sweep('r1', 3)
+  await dispatch()
+  sweep('r2', 2, { open: 1 })
+  sweep('r3', 1)
+  verdicts.scripted.set('r2', [TURNED])
+  verdicts.scripted.set('r3', [])
+  await dispatch()
+  expect(decisions()).toEqual({ r1: 'baseline' })
+  expect(verdicts.reads).toEqual([])
+
+  settle('r2')
+  await dispatch()
+  expect(decisions()).toEqual({ r1: 'baseline', r2: 'sent', r3: 'quiet' })
+  expect(verdicts.reads).toEqual(['r2', 'r3'])
+})
+
+it('waits until the worker has admitted every class of a sweep\'s newest receipt', async () => {
+  const { sweep, receipt, reconciledTo, dispatch, decisions } = harness()
+  sweep('r1', 2)
+  receipt('r1', 1)
+  reconciledTo(1)
+  await dispatch()
+  // Only one class's job exists so far, and it has drained; the receipt is not fully admitted.
+  sweep('r2', 1)
+  receipt('r2', 2)
+  verdicts.scripted.set('r2', [TURNED])
+  await dispatch()
+  expect(decisions()).toEqual({ r1: 'baseline' })
+
+  reconciledTo(2)
+  await dispatch()
+  expect(decisions()).toEqual({ r1: 'baseline', r2: 'sent' })
 })
 
 it('never alerts on a backfill, a probe, or a sweep whose sentiment was admitted before the window', async () => {

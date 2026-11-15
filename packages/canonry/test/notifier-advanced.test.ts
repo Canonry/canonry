@@ -2,9 +2,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { and, eq } from 'drizzle-orm'
 import { deliverWebhook } from '@canonry/canonry-api-routes'
 import type { WebhookPayload } from '@canonry/canonry-contracts'
-import { createClient, migrate, notifications, projects, queries, type DatabaseClient } from '@canonry/canonry-db'
+import { createClient, migrate, notifications, projects, queries, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { measurementPlanV2Fixture, publishPlanV2, seedPlanV2Sweep, type PlanV2Answer } from '../../api-routes/test/measurement-plan-v2-fixture.js'
 import { Notifier } from '../src/notifier.js'
 
@@ -110,4 +111,26 @@ it('sends no change when the sweep cannot be compared with the one before it', a
   seedSweeps('another-model-series')
   await new Notifier(db, 'https://canonry.test').onRunCompleted('run_2', PROJECT_ID)
   expect(vi.mocked(deliverWebhook).mock.calls.map(([, body]) => body)).toEqual([payload('run.completed', [])])
+})
+
+it('sends a partial sweep\'s Property changes once its fill completes, without a second run.completed', async () => {
+  seedSweeps()
+  // Gemini's nearby answer is missing from the partial sweep, then filled.
+  const missing = db.select().from(querySnapshots)
+    .where(and(eq(querySnapshots.runId, 'run_2'), eq(querySnapshots.provider, 'gemini'), eq(querySnapshots.measurementExecutionId, 'exec-nearby'))).get()!
+  db.delete(querySnapshots).where(eq(querySnapshots.id, missing.id)).run()
+  db.update(runs).set({ status: 'partial' }).where(eq(runs.id, 'run_2')).run()
+  const notifier = new Notifier(db, 'https://canonry.test')
+  await notifier.onRunCompleted('run_2', PROJECT_ID)
+  const partial = { ...payload('run.completed', []), run: { id: 'run_2', status: 'partial', finishedAt: SECOND } }
+  expect(vi.mocked(deliverWebhook).mock.calls.map(([, body]) => body)).toEqual([partial])
+
+  db.insert(querySnapshots).values(missing).run()
+  db.update(runs).set({ status: 'completed' }).where(eq(runs.id, 'run_2')).run()
+  await notifier.onRunCompleted('run_2', PROJECT_ID, { origin: 'fill' })
+  expect(vi.mocked(deliverWebhook).mock.calls.map(([, body]) => body)).toEqual([
+    partial,
+    payload('citation.lost', [{ ...HARBOR_OPENAI, from: 'cited', to: 'not-cited' }]),
+    payload('mention.lost', [{ ...HARBOR_OPENAI, from: 'mentioned', to: 'not-mentioned' }]),
+  ])
 })

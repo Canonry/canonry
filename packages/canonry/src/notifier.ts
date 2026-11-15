@@ -1,6 +1,6 @@
 import { deliverReviewEvent, drainReviewDeliveries, dueReviewDeliveryProjects, reviewEventId } from './review-webhook-delivery.js'
 import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
-import { deliverWebhook, measurementRunCompleteness, notProbeRun, readAdvancedSignalTransitions, SentimentService, readQueryClasses, redactNotificationUrl, resolveDestination, resolveSnapshotMentionObservation, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
+import { deliverWebhook, measurementRunCompleteness, notProbeRun, readAdvancedSignalTransitions, SentimentService, readQueryClasses, redactNotificationUrl, resolveDestination, resolveWebhookTarget, snapshotMentionObserver, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
 import type { AdvancedSignalTransition, AdvancedSignalTransitions, SentimentInstallState } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@canonry/canonry-db'
@@ -254,6 +254,12 @@ export class Notifier {
   private sentimentInstall: (() => SentimentInstallState) | null
   /** Set while a {@link dispatchSentimentAlerts} pass runs, so passes never overlap. */
   private sentimentDispatchInFlight = false
+  /**
+   * Answers of sweeps no webhook accepted yet, by run id, so a refused alert
+   * is retried without reading every assessment of two sweeps again. Kept
+   * only while the sweep is undecided and still in the alert window.
+   */
+  private undeliveredSentimentAlerts = new Map<string, SentimentUnfavorableAnswer[]>()
 
   constructor(db: DatabaseClient, serverUrl: string, opts: { allowLoopbackWebhooks?: boolean; sentimentInstall?: () => SentimentInstallState } = {}) {
     this.db = db
@@ -1472,15 +1478,16 @@ export class Notifier {
     // an upgrade into a burst of `not-cited → not-measured` transitions.
     //
     // A mention is read as the timeline and the overview read it
-    // (`resolveSnapshotMentionObservation`: recomputed from the answer text
-    // under the project's current brand names, a `wrong-subject` verdict not
-    // counted). An answer whose mention was never checked has no state either.
+    // (`snapshotMentionObserver`: recomputed from the answer text under the
+    // project's current brand names, a `wrong-subject` verdict not counted).
+    // An answer whose mention was never checked has no state either.
     const citationState = (s: typeof previousSnapshots[number]): CitationState | null => {
       const state = readCitationState(s)
       return isCitationStateMeasured(state) ? state : null
     }
+    const observeMention = snapshotMentionObserver(project)
     const mentionState = (s: typeof previousSnapshots[number]): MentionState | null => {
-      const mentioned = resolveSnapshotMentionObservation(s, project)
+      const mentioned = observeMention(s)
       return mentioned === null ? null : mentioned ? MentionStates.mentioned : MentionStates['not-mentioned']
     }
 
@@ -1495,28 +1502,34 @@ export class Notifier {
       if (mentioned !== null) prevMention.set(key, mentioned)
     }
 
-    // The class each query carries where queries are listed, so a subscriber
-    // can keep branded and non-brand answers apart.
-    const classes = readQueryClasses(this.db, project, currentSnapshots.flatMap(s =>
-      s.queryId != null && s.query != null ? [{ id: s.queryId, query: s.query }] : []))
-
     const citation: SignalTransition[] = []
     const mention: SignalTransition[] = []
+    // Tracked query of each transition, so only queries that changed are classed.
+    const changedQueries = new Map<SignalTransition, { id: string; query: string }>()
     for (const s of currentSnapshots) {
       if (s.queryId == null) continue
       const key = `${s.queryId}:${s.provider}:${s.location ?? ''}`
       const query = s.query ?? s.queryId
-      const queryClass = classes.get(s.queryId) ?? null
-      const change = (from: string | undefined, to: string): SignalTransition | null =>
-        from === undefined || from === to
-          ? null
-          : { query, from, to, provider: s.provider, location: s.location, queryClass }
+      const tracked = { id: s.queryId, query }
+      const change = (from: string | undefined, to: string): SignalTransition | null => {
+        if (from === undefined || from === to) return null
+        const transition: SignalTransition = { query, from, to, provider: s.provider, location: s.location, queryClass: null }
+        changedQueries.set(transition, tracked)
+        return transition
+      }
       const cited = citationState(s)
       const citationChange = cited === null ? null : change(prevCitation.get(key), cited)
       if (citationChange) citation.push(citationChange)
       const mentioned = mentionState(s)
       const mentionChange = mentioned === null ? null : change(prevMention.get(key), mentioned)
       if (mentionChange) mention.push(mentionChange)
+    }
+
+    // The class each query carries where queries are listed, so a subscriber
+    // can keep branded and non-brand answers apart.
+    if (changedQueries.size > 0) {
+      const classes = readQueryClasses(this.db, project, [...changedQueries.values()])
+      for (const [transition, tracked] of changedQueries) transition.queryClass = classes.get(tracked.id) ?? null
     }
 
     return { citation, mention }
@@ -1615,7 +1628,8 @@ export class Notifier {
    * subscribed, so subscribing later starts from new sweeps, `quiet` when no
    * answer turned, and `baseline` for what had settled before the project's
    * first pass. When every delivery fails the sweep stays undecided and the
-   * next pass retries it while its sentiment jobs are inside the window.
+   * next pass retries it while its sentiment jobs are inside the window; so
+   * does a sweep read while sentiment is off, which says nothing about it.
    * Returns how many sweeps were sent.
    */
   async dispatchSentimentAlerts(now = Date.now()): Promise<number> {
@@ -1624,7 +1638,11 @@ export class Notifier {
     let sentRuns = 0
     try {
       const service = new SentimentService(this.db, { install: this.sentimentInstall, previewSecret: crypto.randomUUID() })
-      for (const [projectId, settled] of settledSentimentRuns(this.db, now)) {
+      const settledRuns = settledSentimentRuns(this.db, now)
+      // An undelivered alert whose sweep left the window, or was decided, is dropped.
+      const inWindow = new Set([...settledRuns.values()].flat())
+      for (const runId of this.undeliveredSentimentAlerts.keys()) if (!inWindow.has(runId)) this.undeliveredSentimentAlerts.delete(runId)
+      for (const [projectId, settled] of settledRuns) {
         const { undecided, firstPass } = undecidedSentimentRuns(this.db, projectId, settled)
         if (undecided.length === 0) continue
         if (firstPass) {
@@ -1640,14 +1658,18 @@ export class Notifier {
         const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
         if (!project) continue
         for (const runId of undecided) {
-          let answers: SentimentUnfavorableAnswer[]
-          try {
-            answers = service.newlyUnfavorable(projectId, runId)
-          } catch (error) {
-            // Left undecided: the next pass reads it again.
-            log.error('sentiment-alerts.unreadable', { projectId, runId, error: describeError(error) })
-            continue
+          let answers = this.undeliveredSentimentAlerts.get(runId) ?? null
+          if (answers === null) {
+            try {
+              answers = service.newlyUnfavorable(projectId, runId)
+            } catch (error) {
+              // Left undecided: the next pass reads it again.
+              log.error('sentiment-alerts.unreadable', { projectId, runId, error: describeError(error) })
+              continue
+            }
           }
+          // Sentiment is off: nothing can be read, which is not "nothing turned".
+          if (answers === null) continue
           if (answers.length === 0) {
             recordSentimentAlertRuns(this.db, projectId, [runId], SentimentAlertStates.quiet, now)
             continue
@@ -1668,7 +1690,10 @@ export class Notifier {
           }
           if (accepted) {
             recordSentimentAlertRuns(this.db, projectId, [runId], SentimentAlertStates.sent, now)
+            this.undeliveredSentimentAlerts.delete(runId)
             sentRuns++
+          } else {
+            this.undeliveredSentimentAlerts.set(runId, answers)
           }
         }
       }

@@ -511,8 +511,7 @@ export class SentimentService {
     if (fromRunId === 'previous-rated') fromRunId = this.previousRatedRun(projectId, query, toRunId)
     const from = this.resolve(projectId, { ...query, runId: fromRunId }), to = this.resolve(projectId, { ...query, runId: toRunId })
     const fromItems = this.items(projectId, from.selection, from.source, true), toItems = this.items(projectId, to.selection, to.source, true)
-    const units = (items: DetailedItem[]) => { const byItem = new Map(items.map(item => [item, comparisonUnit(item.input, item.evidence.context)])), byUnit = new Map<string, DetailedItem>(); for (const [item, key] of byItem) if (!byUnit.has(key)) byUnit.set(key, item); return { byItem, byUnit } }
-    const fromUnits = units(fromItems), toUnits = units(toItems)
+    const fromUnits = comparisonUnits(fromItems), toUnits = comparisonUnits(toItems)
     const common = new Set([...fromUnits.byUnit.keys()].filter(key => toUnits.byUnit.has(key)))
     const settings = this.settings(projectId)
     // Scores use the matched units; each period's Rated share still counts every answer in that period.
@@ -554,11 +553,13 @@ export class SentimentService {
    * unfavorable. A class with no compatible previous rated run, or one judged
    * under another evaluator definition, reports nothing; so does an answer
    * whose engine model or evaluator model changed, or whose model provenance is
-   * missing. Disabled sentiment withholds every judgment, so it reports nothing.
+   * missing. Null while sentiment is off for the project or the install:
+   * disabled sentiment withholds every judgment, and nothing read is not the
+   * same as nothing turned.
    */
-  newlyUnfavorable(projectId: string, runId: string): SentimentUnfavorableAnswer[] {
+  newlyUnfavorable(projectId: string, runId: string): SentimentUnfavorableAnswer[] | null {
     const settings = this.settings(projectId)
-    if (!settings.enabled || !settings.installEnabled) return []
+    if (!settings.enabled || !settings.installEnabled) return null
     const run = this.db.select({ measurementPlanVersionId: runs.measurementPlanVersionId }).from(runs).where(and(eq(runs.projectId, projectId), eq(runs.id, runId))).get()
     if (!run) throw notFound('Run', runId)
     const marketLabels = run.measurementPlanVersionId === null ? null : this.marketLabels(run.measurementPlanVersionId)
@@ -575,13 +576,8 @@ export class SentimentService {
       }
       const from = this.resolve(projectId, { ...query, runId: previousRunId }), to = this.resolve(projectId, { ...query, runId })
       if (!to.selection.evaluationDefinitionId || from.selection.evaluationDefinitionId !== to.selection.evaluationDefinitionId) continue
-      const units = (items: DetailedItem[]) => {
-        const byUnit = new Map<string, DetailedItem>()
-        for (const item of items) { const key = comparisonUnit(item.input, item.evidence.context); if (!byUnit.has(key)) byUnit.set(key, item) }
-        return byUnit
-      }
-      const before = units(this.items(projectId, from.selection, from.source, true))
-      for (const [key, now] of units(this.items(projectId, to.selection, to.source, true))) {
+      const before = comparisonUnits(this.items(projectId, from.selection, from.source, true)).byUnit
+      for (const [key, now] of comparisonUnits(this.items(projectId, to.selection, to.source, true)).byUnit) {
         if (now.outcome !== SentimentOutcomes.unfavorable) continue
         const prior = before.get(key)
         if (prior === undefined || !PRIOR_KNOWN_OUTCOMES.has(prior.outcome)) continue
@@ -627,6 +623,16 @@ export class SentimentService {
     }
     return labels
   }
+}
+/**
+ * Each item's comparison unit, and the first item of each unit: what `compare`
+ * scores and `newlyUnfavorable` matches, so the two never pair answers apart.
+ */
+function comparisonUnits(items: DetailedItem[]): { byItem: Map<DetailedItem, string>; byUnit: Map<string, DetailedItem> } {
+  const byItem = new Map(items.map(item => [item, comparisonUnit(item.input, item.evidence.context)]))
+  const byUnit = new Map<string, DetailedItem>()
+  for (const [item, key] of byItem) if (!byUnit.has(key)) byUnit.set(key, item)
+  return { byItem, byUnit }
 }
 /** Frozen execution identity shared by source selection and admitted comparison units. */
 function comparisonUnit(input: Pick<SentimentClassifierInput, 'subject' | 'language' | 'context'>, context = input.context): string {

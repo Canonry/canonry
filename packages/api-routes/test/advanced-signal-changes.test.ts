@@ -2,8 +2,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { RunStatuses } from '@canonry/canonry-contracts'
-import { createClient, migrate, projects, type DatabaseClient } from '@canonry/canonry-db'
+import { canonicalMeasurementPlanJson, compileMeasurementPlan, RunStatuses } from '@canonry/canonry-contracts'
+import { createClient, measurementPlanVersions, migrate, projects, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { readAdvancedSignalTransitions } from '../src/index.js'
 import { measurementPlanV2Fixture, publishPlanV2, seedPlanV2Sweep, type PlanV2Answer } from './measurement-plan-v2-fixture.js'
 
@@ -129,6 +129,28 @@ it.each([
   expect(readAdvancedSignalTransitions(db, PROJECT_ID, 'run_2')).toEqual({ state: 'unavailable', reason })
 })
 
-it('leaves a project without a measurement plan to its project-level changes', () => {
+it('leaves a planless run, or one of a schema v1 revision, to its project-level changes', () => {
   expect(readAdvancedSignalTransitions(db, PROJECT_ID, 'run_2')).toBeNull()
+  const versionId = publishPlanV2(db, PROJECT_ID, measurementPlanV2Fixture(), FIRST)
+  sweep('run_1', versionId, FIRST, { openai: NOTHING_NAMED, gemini: NOTHING_NAMED })
+  // A sweep of an older schema v1 revision completing after the v2 plan was published.
+  const legacyPlan = compileMeasurementPlan({
+    schemaVersion: 1,
+    targets: [{ stableKey: 'harbor', label: 'Harbor Homes', urls: [{ kind: 'host', host: 'northstar.example' }], aliases: ['Harbor Homes'] }],
+    groups: [],
+    targetQuerySelections: [{ targetKey: 'harbor', queryIds: ['q-nearby'] }],
+  }, {
+    canonicalDomain: 'northstar.example', ownedDomains: [], brandNames: ['Northstar'],
+    trackedQueries: [{ id: 'q-nearby', query: 'homes near harbor' }], locations: [], defaultContext: null, expectedSnapshots: 1,
+  })
+  db.insert(measurementPlanVersions).values({
+    id: 'legacy-version', projectId: PROJECT_ID, revision: 0, canonicalJson: canonicalMeasurementPlanJson(legacyPlan), checksum: 'd'.repeat(64), schemaVersion: 1, createdAt: FIRST,
+  }).run()
+  db.insert(runs).values({
+    id: 'legacy-run', projectId: PROJECT_ID, kind: 'answer-visibility', status: 'completed', trigger: 'manual',
+    measurementPlanVersionId: 'legacy-version', createdAt: SECOND, finishedAt: SECOND,
+  }).run()
+  expect(readAdvancedSignalTransitions(db, PROJECT_ID, 'legacy-run')).toBeNull()
+  // The v2 sweep itself is still read per Property.
+  expect(readAdvancedSignalTransitions(db, PROJECT_ID, 'run_1')).toEqual({ state: 'unavailable', reason: 'no-previous-check' })
 })

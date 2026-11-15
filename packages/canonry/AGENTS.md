@@ -435,9 +435,11 @@ the project-level columns describe the project's own brand, not a Property.
 `sentiment.unfavorable` is not run-completion work: verdicts arrive later, so
 `Notifier.dispatchSentimentAlerts` runs on its own timer
 (`startSentimentAlertLoop`, `src/sentiment-alerts.ts`) over sweeps whose
-automatic sentiment jobs have settled, reads `SentimentService.newlyUnfavorable`
-(api-routes, the `sentiment compare` matching), and records one
-`sentiment_alert_runs` decision per sweep. It needs the server's sentiment
+automatic sentiment jobs have settled (and whose receipt the worker has fully
+admitted), in sweep order, reads `SentimentService.newlyUnfavorable`
+(api-routes, the `sentiment compare` matching; null while sentiment is off,
+which leaves the sweep undecided), and records one `sentiment_alert_runs`
+decision per sweep. It needs the server's sentiment
 install reader (`sentimentInstall` on the `Notifier`); without it the pass sends
 nothing. `insight.critical` and
 `insight.high` fire when the intelligence engine generates critical- or
