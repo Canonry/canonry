@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -24,6 +24,30 @@ import { adsRoutes } from '../src/ads.js'
 import type { AdsConnectionConfigEntryLike, AdsOperator, AdsReader, VerifiedAdsAccount } from '../src/ads.js'
 import type { AdsOperatorEntityResult } from '../src/ads.js'
 import type { OutcomeTelemetryInput } from '../src/outcome-telemetry.js'
+
+/**
+ * The reconciliation sweep runs on `setInterval` and reads the clock. Sweep
+ * tests fake both and step time explicitly, so a busy machine (the whole suite
+ * at once) cannot push a real timer past a test's window. Call this before
+ * building the app: the sweep's interval starts when the app is ready.
+ */
+function useSweepClock(): void {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+  onTestFinished(() => { vi.useRealTimers() })
+}
+
+/** Steps the fake clock until `check` passes, failing after `maxMs` of fake time. */
+async function advanceUntil(check: () => void, { stepMs = 5, maxMs = 10_000 } = {}): Promise<void> {
+  for (let elapsedMs = 0; ; elapsedMs += stepMs) {
+    try {
+      check()
+      return
+    } catch (error) {
+      if (elapsedMs >= maxMs) throw error
+    }
+    await vi.advanceTimersByTimeAsync(stepMs)
+  }
+}
 
 const NOW = '2026-06-10T00:00:00.000Z'
 
@@ -2425,6 +2449,7 @@ describe('ads routes', () => {
   it('sweeps a stale pending receipt with the leased inspection-only reconciler', async () => {
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    useSweepClock()
     ctx = buildApp({ adsReconcileSweepIntervalMs: 5, adsReconcilePendingStaleMs: 1 })
     await ctx.app.ready()
     const projectId = ctx.seedProject()
@@ -2438,17 +2463,18 @@ describe('ads routes', () => {
       .where(eq(adsOperations.operationKey, operationKey)).run()
     ctx.operatorCalls.length = 0
 
-    await vi.waitFor(() => {
+    await advanceUntil(() => {
       const receipt = ctx.db.select().from(adsOperations)
         .where(eq(adsOperations.operationKey, operationKey)).get()
       expect(receipt).toMatchObject({ state: 'succeeded', reconcileAttempts: 1 })
-    }, { timeout: 500, interval: 10 })
+    })
     expect(ctx.operatorCalls).toEqual([{ method: 'getCampaign', input: undefined }])
   })
 
   it('marks an uncheckpointed create unknown once and does not sweep it repeatedly', async () => {
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    useSweepClock()
     ctx = buildApp({ adsReconcileSweepIntervalMs: 5, adsReconcilePendingStaleMs: 1 })
     await ctx.app.ready()
     const projectId = ctx.seedProject()
@@ -2467,7 +2493,7 @@ describe('ads routes', () => {
     }).where(eq(adsOperations.operationKey, operationKey)).run()
     ctx.operatorCalls.length = 0
 
-    await vi.waitFor(() => {
+    await advanceUntil(() => {
       const receipt = ctx.db.select().from(adsOperations)
         .where(eq(adsOperations.operationKey, operationKey)).get()
       expect(receipt).toMatchObject({
@@ -2475,8 +2501,8 @@ describe('ads routes', () => {
         errorCode: 'ADS_RECONCILIATION_UNCHECKPOINTED_CREATE',
         reconcileAttempts: 1,
       })
-    }, { timeout: 500, interval: 10 })
-    await new Promise((resolve) => setTimeout(resolve, 25))
+    })
+    await vi.advanceTimersByTimeAsync(25)
     expect(ctx.db.select().from(adsOperations)
       .where(eq(adsOperations.operationKey, operationKey)).get()).toMatchObject({
       state: 'unknown', reconcileAttempts: 1,
@@ -2487,18 +2513,14 @@ describe('ads routes', () => {
   it('backs off inconclusive sweeps, quarantines at the attempt cap, and reuses exact account verification', async () => {
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    // Backoff is `base * 2^(attempts-1)`, and the checks below prove a NEGATIVE:
+    // no further attempt within a window. On real timers a busy runner pushed
+    // the sleep past the next attempt; the faked clock makes each window exact.
+    useSweepClock()
     ctx = buildApp({
       currentStatus: 'active',
       adsReconcileSweepIntervalMs: 5,
       adsReconcilePendingStaleMs: 1,
-      // Backoff is `base * 2^(attempts-1)`, and the assertions below prove a
-      // NEGATIVE — that no further attempt happened during a real-time sleep.
-      // A negative like that is only as reliable as the gap between the sleep
-      // and the next scheduled attempt. At base 50 those gaps were 25ms and
-      // 50ms, which ordinary CI scheduling jitter crosses: a `setTimeout(25)`
-      // on a contended runner routinely lands past 50ms, the next attempt
-      // fires, and the assertion fails on a machine slower than the author's.
-      // At base 400 the same sleeps sit 375ms and 750ms clear of the window.
       adsReconcileBackoffBaseMs: 400,
       adsReconcileMaxAttempts: 3,
     })
@@ -2515,31 +2537,31 @@ describe('ads routes', () => {
     }).where(eq(adsOperations.operationKey, operationKey)).run()
     ctx.operatorCalls.length = 0
 
-    await vi.waitFor(() => {
+    await advanceUntil(() => {
       expect(ctx.db.select().from(adsOperations)
         .where(eq(adsOperations.operationKey, operationKey)).get()).toMatchObject({
         state: 'unknown', reconcileAttempts: 1,
       })
-    }, { timeout: 500, interval: 5 })
-    await new Promise((resolve) => setTimeout(resolve, 25))
+    })
+    await vi.advanceTimersByTimeAsync(25)
     expect(ctx.db.select().from(adsOperations)
       .where(eq(adsOperations.operationKey, operationKey)).get()).toMatchObject({
       reconcileAttempts: 1,
     })
 
-    await vi.waitFor(() => {
+    await advanceUntil(() => {
       expect(ctx.db.select().from(adsOperations)
         .where(eq(adsOperations.operationKey, operationKey)).get()).toMatchObject({
         state: 'unknown', reconcileAttempts: 2,
       })
-    }, { timeout: 2000, interval: 5 })
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+    await vi.advanceTimersByTimeAsync(50)
     expect(ctx.db.select().from(adsOperations)
       .where(eq(adsOperations.operationKey, operationKey)).get()).toMatchObject({
       reconcileAttempts: 2,
     })
 
-    await vi.waitFor(() => {
+    await advanceUntil(() => {
       expect(ctx.db.select().from(adsOperations)
         .where(eq(adsOperations.operationKey, operationKey)).get()).toMatchObject({
         state: 'unknown',
@@ -2547,8 +2569,8 @@ describe('ads routes', () => {
         errorCode: 'ADS_RECONCILIATION_QUARANTINED',
         leaseOwner: null,
       })
-    }, { timeout: 3000, interval: 5 })
-    await new Promise((resolve) => setTimeout(resolve, 75))
+    })
+    await vi.advanceTimersByTimeAsync(75)
     expect(ctx.db.select().from(adsOperations)
       .where(eq(adsOperations.operationKey, operationKey)).get()).toMatchObject({
       reconcileAttempts: 3,
@@ -2603,6 +2625,7 @@ describe('ads routes', () => {
   it('does not let older credential-less receipts starve a bounded reconciliation sweep', async () => {
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    useSweepClock()
     ctx = buildApp({
       adsReconcileSweepIntervalMs: 5,
       adsReconcilePendingStaleMs: 1,
@@ -2644,11 +2667,11 @@ describe('ads routes', () => {
     }).run()
     await ctx.app.ready()
 
-    await vi.waitFor(() => {
+    await advanceUntil(() => {
       const connected = ctx.db.select().from(adsOperations)
         .where(eq(adsOperations.id, 'op_connected')).get()
       expect(connected).toMatchObject({ state: 'succeeded', reconcileAttempts: 1 })
-    }, { timeout: 500, interval: 10 })
+    })
 
     const disconnected = ctx.db.select().from(adsOperations)
       .where(eq(adsOperations.id, 'op_disconnected')).get()
@@ -3100,6 +3123,7 @@ describe('ads outcome telemetry', () => {
   })
 
   it('reports the background sweep as scheduled, including a receipt it quarantines without a read', async () => {
+    useSweepClock()
     await start({ adsReconcileSweepIntervalMs: 5, adsReconcilePendingStaleMs: 1, adsReconcileMaxAttempts: 2 })
     await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_sweep/pause', payload: { operationKey: 'outcome:sweep' } })
     await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_dead/pause', payload: { operationKey: 'outcome:exhausted' } })
@@ -3108,7 +3132,7 @@ describe('ads outcome telemetry', () => {
     ctx.db.update(adsOperations).set({ state: 'unknown', reconcileAttempts: 2, errorCode: 'upstream_error', updatedAt: '2020-01-01T00:00:00.000Z' })
       .where(eq(adsOperations.operationKey, 'outcome:exhausted')).run()
 
-    await vi.waitFor(() => expect(of('reconcile')).toHaveLength(2), { timeout: 1000, interval: 5 })
+    await advanceUntil(() => expect(of('reconcile')).toHaveLength(2))
     expect(of('reconcile')).toEqual(expect.arrayContaining([
       { feature: 'openai_ads', operation: 'reconcile', status: 'succeeded', trigger: 'scheduled', durationBucket: 'under_1s' },
       { feature: 'openai_ads', operation: 'reconcile', status: 'failed', trigger: 'scheduled', reasonCode: 'QUARANTINED', durationBucket: 'under_1s' },
