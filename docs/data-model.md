@@ -392,7 +392,7 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | **journey_visits** | 30-minute visits of those visitors: requests within 30 days after an AI visit, and the rest of a visit already kept. A late request that becomes a visit's first rewrites its `landing_path` and entry. `entry_class` is `ai` / `search` / `social` / `paid` / `referral` / `direct`, with `entry_name`, `entry_host`, `paid`, `landing_path`, `request_count` and `page_count`. A request from a different outside source starts a new visit; a same-site, sign-in, payment or booking-engine referer is a step inside one. A background data call never opens a visit or becomes its first request. FK: sourceId → traffic_sources (cascade). |
 | **journey_events** | The requests in each visit: time, method, path (query cut to `utm_*`, secret-like segments such as tokens, UUIDs and emails masked), status, `kind` (`page`, or `data` for JSON and API calls) and `ai_touch` (the request started or renewed the lookback; only page requests are AI touches). Visit times and counts are recomputed from these rows after every write. Unique `(project_id, source_id, source_event_id)` makes every traffic write path idempotent. Journey rows are deleted 180 days after their time by the daily traffic sweep, which also removes visitors left with no visits. FK: visitId → journey_visits (cascade). |
 
-### Experimental Sentiment
+### Sentiment
 
 | Table | Purpose |
 | --- | --- |

@@ -21,7 +21,7 @@ function summary(): SentimentSummary {
     configured: true, queries: [], breakdowns: [] }
 }
 function settings(configure = false): SentimentSettings {
-  return { installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 2, evaluationDefinitionId: 'definition-a', actions: { configure, backfill: configure }, experimental: true, disclosure: 'Experimental sentiment' }
+  return { installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 2, evaluationDefinitionId: 'definition-a', actions: { configure, backfill: configure }, experimental: false, disclosure: 'Sentiment data disclosure' }
 }
 function SentimentSection(props: Omit<ComponentProps<typeof SentimentScopeProvider>, 'children'>) {
   return <SentimentScopeProvider {...props}><SentimentControls /><SentimentHeadlines /></SentimentScopeProvider>
@@ -168,7 +168,7 @@ describe('sentiment presentation', () => {
       expect(within(details).getByText(SENTIMENT_COPY.details.interval)).toBeTruthy()
       expect(within(details).getByText('23.0% to 88.0%')).toBeTruthy()
       expect(within(details).getByRole('button', { name: summary().score.limitation, hidden: true })).toBeTruthy()
-      expect(screen.queryByText('Experimental sentiment')).toBeNull()
+      expect(screen.queryByText('Sentiment data disclosure')).toBeNull()
       expect(screen.queryByText('Coverage and method')).toBeNull()
       expect(document.body.textContent).not.toContain('0.23')
     } finally { page.close() }
@@ -352,9 +352,9 @@ describe('sentiment presentation', () => {
     const page = renderScope(<><SentimentHeadlines /><SentimentControls /></>, { configure: true })
     try {
       const manage = await screen.findByRole('button', { name: 'Manage sentiment' })
-      expect(screen.queryByText('Experimental sentiment')).toBeNull()
+      expect(screen.queryByText('Sentiment data disclosure')).toBeNull()
       fireEvent.click(manage)
-      expect(await screen.findByText('Experimental sentiment')).toBeTruthy()
+      expect(await screen.findByText('Sentiment data disclosure')).toBeTruthy()
     } finally { page.close() }
   })
   it.each(['typesafe', 'openrouter'] as const)('identifies the %s sentiment evaluator independently of the measured answer model', async evaluatorProvider => {

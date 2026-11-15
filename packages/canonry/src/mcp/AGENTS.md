@@ -168,7 +168,7 @@ agent toolkit. API/CLI implement the same operations. New requires a UUID for
 retry identity. The native agent excludes new/resume/delete; HTTP enforces
 instance-administrator authority on reads and writes alike.
 
-Experimental sentiment adds nine monitoring tools: settings, configure, summary,
+Sentiment adds nine monitoring tools: settings, configure, summary,
 evidence, compare, backfill preview, backfill submit, jobs and job detail. Schemas
 reuse contracts, and outputs use the tolerant readers in `contracts/src/sentiment-read.ts`
 (the `canonry_logs_list` precedent), so a newer engine's field, state or outcome never

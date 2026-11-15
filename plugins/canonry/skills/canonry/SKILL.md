@@ -1,6 +1,6 @@
 ---
 name: canonry
-description: "Navigate Canonry through connected MCP tools or the `cnry` CLI to inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Use this optional host-native skill for CLI workflows and detailed references; connected MCP users can operate through canonry_help without installing a local runtime or skill."
+description: "Navigate Canonry through connected MCP tools or the `cnry` CLI to get started, inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Use this optional host-native skill for CLI workflows and detailed references; connected MCP users can operate through canonry_help without installing a local runtime or skill."
 ---
 
 <!-- Generated from docs/agent-operations/v1.md by pnpm guide:sync. Do not edit. -->
@@ -15,8 +15,8 @@ prerequisite or a permission mechanism.
 
 Read the initialization guidance, then call `canonry_help` with an `intent`:
 `status`, `diagnose`, `operations`, `prospecting`, `measurement`, `integrations`,
-`seo`, `reports`, or a short task
-description. Select an accessible project with `canonry_projects_list` before
+`seo`, `reports`, `start`, or a short task
+description. Use `start` when the user is new or unsure what to ask. Select an accessible project with `canonry_projects_list` before
 using its exact name in project tools. Inspect each listed tool's input schema;
 help suggests tool names, not invented arguments or authorization.
 
@@ -81,6 +81,11 @@ guide plus links to host-native references. It does not replace runtime help.
 
 **Status:** read the stored overview and freshness first. Say when evidence is
 missing instead of silently creating it.
+
+**Start:** for a new user or one unsure what to ask, read
+`canonry_project_setup` and follow its `nextAction`, then the `getting-started`
+playbook. It walks the loop from setup to monthly reports, says who does each
+step, and lists questions the user can ask at each stage.
 
 **Setup:** Agent Readiness needs no answer-engine provider; AI Visibility does.
 Use `canonry_project_setup` to read stored prerequisites and the suggested next step.
@@ -294,6 +299,7 @@ catalog and remains usable without fetching this document.
 
 Read only references relevant to the requested task. They are not required for MCP operation.
 
+- [Getting started: the first-run loop and questions to ask](../aero/references/getting-started.md)
 - [CLI commands and JSON return shapes](references/canonry-cli.md)
 - [Interpreting stored evidence and regressions](references/aeo-analysis.md)
 - [Indexing workflow after inspection and approval](references/indexing.md)

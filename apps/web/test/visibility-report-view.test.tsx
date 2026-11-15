@@ -521,7 +521,7 @@ describe('shared production visibility view', () => {
     const evidenceReads: URL[] = []
     const restore = mockFetch(url => {
       const request = new URL(url)
-      if (request.pathname.endsWith('/settings')) return jsonResponse({ installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: false, backfill: false }, experimental: true, disclosure: 'Experimental sentiment' })
+      if (request.pathname.endsWith('/settings')) return jsonResponse({ installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: false, backfill: false }, experimental: false, disclosure: 'Experimental sentiment' })
       if (request.pathname.endsWith('/evidence')) { evidenceReads.push(request); return jsonResponse({ state: 'complete', selection: dto.selection, items: [], nextCursor: null }) }
       return jsonResponse({ ...dto, selection: { ...dto.selection, queryClass: request.searchParams.get('queryClass') } })
     })
@@ -572,7 +572,7 @@ describe('shared production visibility view', () => {
     }
     const restore = mockFetch(url => {
       const request = new URL(url)
-      if (request.pathname.endsWith('/settings')) return jsonResponse({ installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: false, backfill: false }, experimental: true, disclosure: 'Experimental sentiment' })
+      if (request.pathname.endsWith('/settings')) return jsonResponse({ installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: false, backfill: false }, experimental: false, disclosure: 'Experimental sentiment' })
       return jsonResponse({ ...dto, selection: { ...dto.selection, queryClass: request.searchParams.get('queryClass') } })
     })
     const client = createQueryClient()
@@ -592,7 +592,7 @@ describe('shared production visibility view', () => {
   })
 
   describe('Advanced overview sentiment', () => {
-    const sentimentSettings = { installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: true, backfill: true }, experimental: true, disclosure: 'Experimental sentiment' }
+    const sentimentSettings = { installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: true, backfill: true }, experimental: false, disclosure: 'Experimental sentiment' }
     function sentimentDto(queryClass: string | null): SentimentSummary {
       const aggregate = aggregateSentiment(Array.from({ length: 10 }, (_, index) => ({ assessmentId: `a${index}`, sourceSnapshotId: `s${index}`, outcome: 'favorable' as const })))
       return { ...aggregate, reason: null, configured: true, evaluationDefinition: createSentimentEvaluationDefinition(), breakdowns: [], queries: [], selection: { mode: 'advanced', scope: 'project', queryClass: queryClass === 'non-brand' ? 'non-brand' : 'branded', runId: 'run-older', revision: null, evaluationDefinitionId: 'definition' } }

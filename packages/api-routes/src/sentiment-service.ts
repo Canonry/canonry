@@ -48,7 +48,7 @@ type AttemptCursor = { kind: 'attempt-page'; projectId: string; jobId: string; a
 type AttemptRow = typeof sentimentAttempts.$inferSelect
 type JobTally = { counts: SentimentCounts; selected: number }
 type Aggregate = { summary: Omit<SentimentSummary, 'queries'>; queries: SentimentQueryRow[]; total: number; next: RowKey | null }
-const DISCLOSURE = 'Experimental English sentiment classification. Enabling sends each stored answer\'s text to TypeSafe with the frozen subject identity (name, aliases, qualified aliases and URLs), the tracked query text and query class, the answer engine with its requested and served models, the location, and internal query, subject, Property, group and market identifiers.'
+const DISCLOSURE = 'English sentiment classification. Enabling sends each stored answer\'s text to TypeSafe with the frozen subject identity (name, aliases, qualified aliases and URLs), the tracked query text and query class, the answer engine with its requested and served models, the location, and internal query, subject, Property, group and market identifiers.'
 const FULL_ROWS: RowDetail = { include: new Set(['assessments', 'locations']), limit: null, after: null }
 /** Every query row without per-engine or location detail; that detail stays on the paged summary read. */
 const COMPACT_ROWS: RowDetail = { include: new Set(), limit: null, after: null }
@@ -89,7 +89,7 @@ export class SentimentService {
       completionBoundary: row?.completionBoundary ?? 0,
       evaluationDefinitionId: row?.evaluationDefinitionId ?? null,
       // A project that is still on can always be switched off, even while the install switch is off.
-      actions: { configure: administrator && (install.enabled || Boolean(row?.enabled)), backfill: administrator && ready && Boolean(row?.enabled) }, experimental: true, disclosure: install.provider === 'openrouter' ? DISCLOSURE.replace('to TypeSafe', 'to OpenRouter for the pinned TypeSafe Jev evaluator') : DISCLOSURE,
+      actions: { configure: administrator && (install.enabled || Boolean(row?.enabled)), backfill: administrator && ready && Boolean(row?.enabled) }, experimental: false, disclosure: install.provider === 'openrouter' ? DISCLOSURE.replace('to TypeSafe', 'to OpenRouter for the pinned TypeSafe Jev evaluator') : DISCLOSURE,
     }
   }
   configure(projectId: string, value: unknown, actor = 'system'): SentimentSettings {

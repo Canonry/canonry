@@ -223,7 +223,7 @@ Expected — each provider has independent knowledge. Focus on the ones that mat
 **Never say:** "Deploy this and re-run canonry to see if it worked."
 **Always say:** "This positions the site correctly. Canonry will tell us if/when that pays off."
 
-## Experimental sentiment
+## Sentiment
 
 Sentiment is a branded figure: read `canonry sentiment <project> --query-class branded
 --format json` for the favorable share. Non-brand answers name the brand almost only to

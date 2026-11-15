@@ -1132,7 +1132,7 @@ same policy. See `api-routes/src/doctor/AGENTS.md`.
 
 ### Sentiment CLI
 
-`src/commands/sentiment.ts` and `src/cli-commands/sentiment.ts` expose the experimental
+`src/commands/sentiment.ts` and `src/cli-commands/sentiment.ts` expose the
 stored sentiment surface through typed ApiClient/SDK calls. `sentiment <project>`
 reads one page of the summary (`--query-limit`, `--query-cursor`; per-engine and
 location detail with `--include assessments,locations`); subcommands are settings,

@@ -1,6 +1,6 @@
 ---
 name: aero
-description: "Diagnose AEO regressions and interpret Canonry AI visibility, SEO data, Advanced multi-property portfolios, and Agent Readiness evidence. Use when prioritizing keyword or organic ranking opportunities, explaining mention or citation changes, comparing Properties or markets, diagnosing page findings, preparing reports, or analyzing a completed `cnry` sweep or Agent Readiness audit scan. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations."
+description: "Diagnose AEO regressions and interpret Canonry AI visibility, SEO data, Advanced multi-property portfolios, and Agent Readiness evidence. Use when prioritizing keyword or organic ranking opportunities, explaining mention or citation changes, comparing Properties or markets, diagnosing page findings, preparing reports, or analyzing a completed `cnry` sweep or Agent Readiness audit scan. Preserves measurement scope, missing-data states, and comparison limits. For a new user, or one unsure what to ask, read references/getting-started.md. Use the canonry skill for setup and operations."
 metadata:
   homepage: https://canonry.ai
   repository: https://github.com/Canonry/canonry
@@ -23,6 +23,10 @@ covering that work; an existing explicit authorization remains valid.
 
 ## Choose the evidence scope
 
+- **New user or no results yet:** read `references/getting-started.md`
+  (slug `getting-started`) when the user is new, the project has no completed
+  scan or check, or the user asks what to do or ask next. Follow
+  `canonry_project_setup`'s `nextAction` for first-run steps.
 - **SEO data:** read `references/seo-analysis.md` before prioritizing keywords,
   organic rankings, or domain comparisons. In built-in Aero, discover it with
   `list_skill_docs`, then call `read_skill_doc` with `slug: "seo-analysis"`.
@@ -115,7 +119,7 @@ covering that work; an existing explicit authorization remains valid.
   unknown indexability never means a canonical points elsewhere. Report pages
   failing and pages partial separately, and never call a factor partial when
   pages fail it.
-- **Sentiment (experimental):** questions about how answers describe a
+- **Sentiment:** questions about how answers describe a
   Property or the brand (praise, criticism, complaints, tone, reputation) are
   sentiment questions. Load the `monitoring` toolkit and read
   `canonry_sentiment`; mention and citation tools do not measure it. One
@@ -137,7 +141,7 @@ covering that work; an existing explicit authorization remains valid.
   quote `sentiment.overall` from the project overview, which pools them. An
   absent subject is not unfavorable, an unrated or partial result is not "no
   criticism", and partial values are provisional. Say the ratings are
-  model-classified and experimental. A trend needs two different rated runs:
+  model-classified. A trend needs two different rated runs:
   pass `fromRunId: previous-rated` and the current `toRunId` to
   `canonry_sentiment_compare`. If no compatible rated predecessor exists,
   say there is no trend yet. Preserve population-change and incomplete-target
@@ -289,6 +293,10 @@ A real (non-probe) sweep is appropriate when the user explicitly asks to refresh
   and monthly documents instead.
 - The closing next step is a recommendation, not an offer. "Start with the
   Properties at zero coverage" beats "want me to drill into one?".
+- One exception: when the user says they are new or asks what they can ask,
+  follow the next step with one line, "You can also ask:", naming two or three
+  questions from the `references/getting-started.md` table. Stop once they ask
+  their own questions.
 
 ## References
 
@@ -300,6 +308,7 @@ Detailed playbooks live alongside this file. Read them on demand when the task m
 | `references/portfolio-analysis.md` | Interpreting Simple or Advanced portfolios, ranking Properties or markets, or comparing measurement runs |
 | `references/site-health.md` | Diagnosing Agent Readiness site/page scores, crawl completeness, internal links, or changes between scans |
 | `references/agent-operations.md` | Checking shared scope, evidence, comparison, or permission rules; generated from the canonical operations guide |
+| `references/getting-started.md` | The user is new, the project has no results yet, or the user asks what to do or ask next |
 | `references/orchestration.md` | Planning a multi-step or recurring workflow (baseline, weekly review, content-gap analysis) |
 | `references/regression-playbook.md` | A query lost a mention (primary) or a citation (secondary) and you need to triage and respond |
 | `references/aeo-discovery.md` | Expanding a tracked-query basket, auditing competitive surface, or responding to `aeo-discover-probe.completed` |

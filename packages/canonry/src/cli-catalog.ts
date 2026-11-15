@@ -215,7 +215,7 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
   },
   "sentiment": {
     "section": "Monitoring",
-    "summary": "Inspect and manage experimental sentiment measurement"
+    "summary": "Inspect and manage sentiment measurement"
   },
   "ga": {
     "section": "Integrations",

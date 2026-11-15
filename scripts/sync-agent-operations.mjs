@@ -38,7 +38,13 @@ export function renderAgentOperations(source) {
   const { skill, nativeReferences, ...runtime } = data
   const generated = '// Generated from docs/agent-operations/v1.md by pnpm guide:sync. Do not edit.\n'
     + `export const OPERATIONS_GUIDE = ${JSON.stringify({ ...runtime, markdown }, null, 2)} as const\n`
-  const native = nativeReferences.map(([file, label]) => `- [${label}](${file})`).join('\n')
+  const native = nativeReferences.map(([file, label]) => {
+    // An unquoted ': ' in a YAML flow sequence turns the label into a mapping.
+    if (typeof file !== 'string' || typeof label !== 'string') {
+      throw new Error(`nativeReferences entries must be [file, label] strings; quote labels that contain ': ' (${JSON.stringify(file)})`)
+    }
+    return `- [${label}](${file})`
+  }).join('\n')
   const skillMarkdown = `---\nname: ${skill.name}\ndescription: ${JSON.stringify(skill.description)}\n---\n\n`
     + '<!-- Generated from docs/agent-operations/v1.md by pnpm guide:sync. Do not edit. -->\n\n'
     + markdown + '\n## Optional host-native references\n\nRead only references relevant to the requested task. They are not required for MCP operation.\n\n'

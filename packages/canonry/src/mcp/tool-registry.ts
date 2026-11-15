@@ -1586,7 +1586,7 @@ const rawCanonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_sentiment_settings', title: 'Read sentiment readiness and settings',
-    description: 'Read experimental sentiment configuration, evaluator identity, readiness and action permissions. No provider calls or credentials. Install administrators alone can configure or submit backfills.',
+    description: 'Read sentiment configuration, evaluator identity, readiness and action permissions. No provider calls or credentials. Install administrators alone can configure or submit backfills.',
     access: 'read', tier: 'monitoring', inputSchema: projectInputSchema, outputSchema: sentimentSettingsReadSchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment/settings'],
     handler: (client, input) => client.getSentimentSettings(input.project),

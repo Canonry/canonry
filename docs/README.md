@@ -53,7 +53,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`wordpress-setup.md`](wordpress-setup.md) | current | operators | WordPress REST + Application Password setup, staging diffs, and manual handoff workflows |
 | [`cloudflare-traffic-setup.md`](cloudflare-traffic-setup.md) | current | operators | Cloudflare Queue-pull server-side traffic: token scopes, queue + HTTP pull consumer, request-volume sizing, asset-exclusion and fail-open routes |
 | [`server-side-traffic.md`](../skills/canonry/references/server-side-traffic.md) | current | operators | Cloudflare direct-push or Queue-pull and Cloud Run, WordPress, and Vercel pull-source setup, smoke tests, rollback, and troubleshooting |
-| [`sentiment.md`](sentiment.md) | experimental | operators, contributors | Sentiment configuration, permissions, and measurement scope |
+| [`sentiment.md`](sentiment.md) | current | operators, contributors | Sentiment configuration, permissions, and measurement scope |
 
 ## Implementation Records
 
