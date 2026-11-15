@@ -8,11 +8,12 @@ import { canonryMcpTools } from '../src/mcp/tool-registry.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const moduleUrl = new URL('../../../scripts/sync-agent-operations.mjs', import.meta.url).href
-interface MirroredReference { source: string; target: string; description: string }
-const { renderAgentOperations, syncAgentOperations, AERO_MIRRORED_REFERENCES, renderMirroredReference, syncMirroredReferences } = await import(moduleUrl) as {
+interface MirroredReference { source: string; target: string; description?: string; into?: 'canonry' }
+const { renderAgentOperations, syncAgentOperations, AERO_MIRRORED_REFERENCES, CANONRY_MIRRORED_REFERENCES, renderMirroredReference, syncMirroredReferences } = await import(moduleUrl) as {
   renderAgentOperations(source: string): { generated: string; skillMarkdown: string; aeroReferenceMarkdown: string }
   syncAgentOperations(root: string, checkOnly: boolean): string[]
   AERO_MIRRORED_REFERENCES: MirroredReference[]
+  CANONRY_MIRRORED_REFERENCES: MirroredReference[]
   renderMirroredReference(reference: MirroredReference, body: string): string
   syncMirroredReferences(root: string, checkOnly: boolean, references?: MirroredReference[]): string[]
 }
@@ -83,6 +84,31 @@ it('mirrors Canonry references Aero needs into its own references folder', () =>
     // Every mirrored reference is listed in the Canonry skill and in Aero's table.
     expect(fs.readFileSync(path.join(root, 'skills/canonry/SKILL.md'), 'utf8')).toContain(`(references/${path.basename(reference.source)})`)
     expect(fs.readFileSync(path.join(root, 'skills/aero/SKILL.md'), 'utf8')).toContain(`\`references/${path.basename(reference.target)}\``)
+  }
+})
+
+it('copies the Aero playbooks the Canonry skill links to, so a Canonry-only install has every linked file', () => {
+  expect(CANONRY_MIRRORED_REFERENCES.length).toBeGreaterThan(0)
+  for (const reference of CANONRY_MIRRORED_REFERENCES) {
+    const body = fs.readFileSync(path.join(root, reference.source), 'utf8')
+    const mirrored = fs.readFileSync(path.join(root, reference.target), 'utf8')
+    expect(mirrored).toBe(renderMirroredReference(reference, body))
+    // No Aero frontmatter; a note says where the playbooks it names live.
+    expect(mirrored.startsWith(`<!-- Generated from ${reference.source} by pnpm guide:sync. Do not edit. -->`)).toBe(true)
+    expect(mirrored).toContain('cnry skills install aero')
+    expect(mirrored.endsWith(body.replace(/^---\n[\s\S]*?\n---\n+/, ''))).toBe(true)
+    expect(mirrored).not.toContain('\nname: getting-started\n')
+  }
+  // `cnry skills install canonry` copies only skills/canonry, so every relative link must stay inside it.
+  const skillDir = path.join(root, 'skills/canonry')
+  const skill = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8')
+  const links = [...skill.matchAll(/\]\(([^)\s]+)\)/g)].map(match => match[1]!)
+    .filter(href => !/^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith('#'))
+  expect(links).toContain('references/getting-started.md')
+  for (const href of links) {
+    const resolved = path.resolve(skillDir, href.split('#')[0]!)
+    expect(resolved.startsWith(skillDir + path.sep), href).toBe(true)
+    expect(fs.existsSync(resolved), href).toBe(true)
   }
 })
 

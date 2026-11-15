@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
-const { AERO_MIRRORED_REFERENCES } = await import(new URL('../../../scripts/sync-agent-operations.mjs', import.meta.url).href) as {
-  AERO_MIRRORED_REFERENCES: Array<{ source: string }>
+const { MIRRORED_REFERENCES } = await import(new URL('../../../scripts/sync-agent-operations.mjs', import.meta.url).href) as {
+  MIRRORED_REFERENCES: Array<{ source: string }>
 }
 const pluginRoot = path.join(repoRoot, 'plugins', 'canonry')
 const managedSkills = ['aero', 'canonry']
@@ -104,8 +104,8 @@ function createPluginScratch(): PluginScratch {
     const guidePath = path.join(root, 'docs/agent-operations/v1.md')
     fs.mkdirSync(path.dirname(guidePath), { recursive: true })
     fs.copyFileSync(path.join(repoRoot, 'docs/agent-operations/v1.md'), guidePath)
-    // The sync also mirrors these Canonry references into Aero's folder.
-    for (const { source } of AERO_MIRRORED_REFERENCES) {
+    // The sync also mirrors references between the Canonry and Aero folders.
+    for (const { source } of MIRRORED_REFERENCES) {
       fs.mkdirSync(path.dirname(path.join(root, source)), { recursive: true })
       fs.copyFileSync(path.join(repoRoot, source), path.join(root, source))
     }
