@@ -37,7 +37,7 @@ Steps:
 
 ## Workflow 2: Regression Response
 
-Trigger: A stored comparison shows a decline or a `citation.lost` notification arrives.
+Trigger: A stored comparison shows a decline, or a `mention.lost` or `citation.lost` notification arrives.
 
 Steps:
 1. `cnry overview <project> --format json` → read current class-specific coverage and scoped mention share. Its `whatChanged` already lists what the latest check lost: `lostMentions` first, then `lostCitations`, each query once with the engines and locations (and for Advanced the Properties and markets) that lost it. These are the dashboard's What changed counts, so start from them instead of recounting. Check `comparison` first: when it is `unavailable`, nothing was compared and a 0 is unknown. When `truncated` is true, `queries` lists only the first 25 of `queryCount`. Then `cnry analytics <project> --feature gaps --format json` (`mentionGap[]` / `notMentioned[]`) and `cnry citations visibility <project> --format json` for the per-query × engine drilldown (which signal actually dropped on which provider; a `not-measured` citation never dropped).

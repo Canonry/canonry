@@ -590,7 +590,7 @@ test('AppError is an instance of Error', () => {
 describe('notificationEventSchema', () => {
 
 test('notificationEventSchema accepts valid events', () => {
-  for (const event of ['citation.lost', 'citation.gained', 'run.completed', 'run.failed']) {
+  for (const event of ['citation.lost', 'citation.gained', 'mention.lost', 'mention.gained', 'run.completed', 'run.failed']) {
     expect(notificationEventSchema.parse(event)).toBe(event)
   }
 })

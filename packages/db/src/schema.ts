@@ -3232,6 +3232,22 @@ export const unrecognizedAgentNotifyState = sqliteTable('unrecognized_agent_noti
   primaryKey({ columns: [table.projectId, table.agentName] }),
 ])
 
+// One row per sweep a project has decided on for the `sentiment.unfavorable`
+// alert, written once the sweep's automatic sentiment work settled, so each
+// sweep alerts at most once. state: sent (a webhook accepted it), skipped
+// (nothing subscribed), quiet (no answer newly unfavorable), or baseline
+// (settled before the project's first alert pass). A sweep no webhook
+// accepted has no row and is retried while its sentiment jobs are recent.
+export const sentimentAlertRuns = sqliteTable('sentiment_alert_runs', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
+  state: text('state').notNull(),
+  recordedAt: text('recorded_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.runId] }),
+  index('idx_sentiment_alert_runs_run').on(table.runId),
+])
+
 // The traffic classification rules stored traffic was last reclassified
 // under, as a fingerprint. The engine compares it at startup and reclassifies
 // stored unrecognized and unknown traffic once per change. One row: 'default'.

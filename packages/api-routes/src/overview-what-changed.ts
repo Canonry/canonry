@@ -40,9 +40,10 @@ import {
   type VisibilityReportLocationSelection,
 } from '@canonry/canonry-contracts'
 import { queries, querySnapshots, runs, type DatabaseClient, type projects } from '@canonry/canonry-db'
+import { advancedCitationChange, advancedComparisonBasis, advancedMentionChange } from './advanced-signal-changes.js'
 import { resolveSnapshotAnswerMentioned } from './helpers.js'
 import { readQueryClasses } from './query-class-read.js'
-import { locationMatches, pairContinuity, type VisibilityReportPreviousRunInput, type VisibilityReportRunInput } from './visibility-report-reader.js'
+import { locationMatches } from './visibility-report-reader.js'
 import type { OverviewAdvancedSweeps } from './visibility-report.js'
 
 type RunRow = typeof runs.$inferSelect
@@ -313,34 +314,6 @@ type SignalRow = {
   [K in keyof typeof SNAPSHOT_SIGNAL_COLUMNS]: typeof querySnapshots.$inferSelect[K]
 }
 
-type AdvancedBasis =
-  | { state: 'available'; previous: VisibilityReportRunInput }
-  | { state: 'unavailable'; reason: UnavailableReason }
-
-/** The visibility report's run-level comparison rules, in its order, plus the overview's window. */
-function advancedBasis(
-  current: VisibilityReportRunInput,
-  previous: VisibilityReportPreviousRunInput | null,
-  since: string | null,
-): AdvancedBasis {
-  if (previous === null) return { state: 'unavailable', reason: 'no-previous-check' }
-  if ('unreadable' in previous) return { state: 'unavailable', reason: 'unreadable' }
-  // A schema v1 predecessor has no frozen v2 definition to compare with.
-  if ('incomparable' in previous) return { state: 'unavailable', reason: 'definition-changed' }
-  if (since !== null && previous.run.createdAt < since) return { state: 'unavailable', reason: 'no-previous-check' }
-  switch (pairContinuity(previous.run, current)) {
-    case 'comparable':
-      break
-    case 'model-changed':
-      return { state: 'unavailable', reason: 'model-changed' }
-    case 'definition-changed':
-    case 'legacy-unknown':
-      return { state: 'unavailable', reason: 'definition-changed' }
-  }
-  if (current.state === 'partial' || previous.run.state === 'partial') return { state: 'unavailable', reason: 'partial-run' }
-  return { state: 'available', previous: previous.run }
-}
-
 function advancedLostSignals(
   advanced: OverviewAdvancedSweeps,
   latestSweep: readonly RunRow[],
@@ -354,7 +327,7 @@ function advancedLostSignals(
   const { current } = advanced
   if (current === null) return nothingLost(null, unavailable('not-measured'))
   const latestCheck = { runIds: [current.id], createdAt: current.createdAt }
-  const basis = advancedBasis(current, advanced.previous, since)
+  const basis = advancedComparisonBasis(current, advanced.previous, since)
   if (basis.state === 'unavailable') return nothingLost(latestCheck, unavailable(basis.reason))
 
   const { definition } = current
@@ -392,20 +365,10 @@ function advancedLostSignals(
         property: { key: target.id, label: target.label },
         markets: edge.marketKeys.map(key => ({ key, label: marketLabels.get(key) ?? key })),
       }
-      // An unknown mention (no answer text, or the Property's identity
-      // unresolved) is not a lost one, and an aliasless Property has none.
-      if (target.mentionEligible
-        && before.mentionedTargetKeys.includes(target.id)
-        && now.mentionComplete !== false
-        && !now.mentionedTargetKeys.includes(target.id)
-        && !(now.unknownMentionTargetKeys ?? []).includes(target.id)) {
-        record(mentions, answer)
-      }
-      // A citation read from an incomplete source capture is unknown either way.
-      if (before.citationComplete && before.citedTargetKeys.includes(target.id)
-        && now.citationComplete && !now.citedTargetKeys.includes(target.id)) {
-        record(citations, answer)
-      }
+      // The change webhooks read every answer through the same rule. An
+      // unknown mention or citation is never a lost one.
+      if (advancedMentionChange(target, before, now) === 'lost') record(mentions, answer)
+      if (advancedCitationChange(target, before, now) === 'lost') record(citations, answer)
     }
   }
   return { latestCheck, comparison: { state: 'available', previousRunIds: [basis.previous.id] }, mentions, citations }

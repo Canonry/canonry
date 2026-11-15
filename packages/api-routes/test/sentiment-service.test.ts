@@ -986,3 +986,79 @@ describe('previous-rated within a scope rated only elsewhere', () => {
     expect(service.compare('p', sentimentSelectionSchema.parse({ queryClass: 'non-brand', scope: 'property', scopeKey: 'harbor' }), 'previous-rated', 'current').from.selection.runId).toBe('history-4')
   })
 })
+
+describe('answers sentiment newly rates unfavorable', () => {
+  /**
+   * `q-0` names Acme (branded); `q-1` and `q-2` do not (non-brand). A class
+   * is compared only with a sweep that rated one of its answers, so each
+   * class keeps a favorable answer unless a case names it.
+   */
+  const BASKET = ['Acme reviews', 'best services', 'top services']
+  /** One Simple sweep, admitted in both classes, each answer rated by query id (favorable unless named). */
+  function rated(runId: string, createdAt: string, outcomes: Record<string, SentimentOutcome>, servedModel?: string) {
+    simple(runId, BASKET)
+    db.update(runs).set({ createdAt }).where(eq(runs.id, runId)).run()
+    if (servedModel) db.update(querySnapshots).set({ servedModel }).where(eq(querySnapshots.runId, runId)).run()
+    admit(runId); admit(runId, 'non-brand')
+    finish(snapshotId => ({ outcome: outcomes[snapshotId.slice(runId.length + 1)] ?? 'favorable' }))
+  }
+  const turned = (queryIndex: 0 | 1 | 2, previousOutcome: SentimentOutcome) => ({
+    query: BASKET[queryIndex], queryId: `q-${queryIndex}`, queryClass: queryIndex === 0 ? 'branded' : 'non-brand',
+    provider: 'openai', location: null, previousRunId: 'older', previousOutcome, conclusion: [ANSWER], complaint: null,
+  })
+
+  it.each([
+    { name: 'a favorable branded answer turned unfavorable', before: { 'q-0': 'favorable' }, after: { 'q-0': 'unfavorable' }, expected: [turned(0, 'favorable')] },
+    { name: 'answers in both classes turned', before: { 'q-0': 'mixed', 'q-1': 'factual' }, after: { 'q-0': 'unfavorable', 'q-1': 'unfavorable' }, expected: [turned(0, 'mixed'), turned(1, 'factual')] },
+    { name: 'an answer that did not name the brand before', before: { 'q-1': 'subject-not-mentioned' }, after: { 'q-1': 'unfavorable' }, expected: [turned(1, 'subject-not-mentioned')] },
+    { name: 'an answer that stays unfavorable', before: { 'q-0': 'unfavorable' }, after: { 'q-0': 'unfavorable' }, expected: [] },
+    { name: 'an answer whose previous verdict is unknown', before: { 'q-1': 'input-too-large' }, after: { 'q-1': 'unfavorable' }, expected: [] },
+    { name: 'an answer that turned favorable', before: { 'q-0': 'unfavorable' }, after: { 'q-0': 'favorable' }, expected: [] },
+  ] satisfies Array<{ name: string; before: Record<string, SentimentOutcome>; after: Record<string, SentimentOutcome>; expected: unknown[] }>)('$name', ({ before, after, expected }) => {
+    service.configure('p', { enabled: true })
+    rated('older', '2026-01-01T00:00:00.000Z', before)
+    rated('current', '2026-01-02T00:00:00.000Z', after)
+    expect(service.newlyUnfavorable('p', 'current')).toEqual(expected)
+  })
+
+  it('reports nothing without a previous rated sweep, or while sentiment is off', () => {
+    service.configure('p', { enabled: true })
+    rated('older', '2026-01-01T00:00:00.000Z', {})
+    expect(service.newlyUnfavorable('p', 'older')).toEqual([])
+    rated('current', '2026-01-02T00:00:00.000Z', { 'q-0': 'unfavorable' })
+    expect(service.newlyUnfavorable('p', 'current')).toEqual([turned(0, 'favorable')])
+    install.enabled = false
+    expect(service.newlyUnfavorable('p', 'current')).toEqual([])
+  })
+
+  it('reports nothing for an answer whose engine served another model', () => {
+    service.configure('p', { enabled: true })
+    rated('older', '2026-01-01T00:00:00.000Z', {})
+    rated('current', '2026-01-02T00:00:00.000Z', { 'q-0': 'unfavorable' }, 'openai-served-next')
+    expect(service.newlyUnfavorable('p', 'current')).toEqual([])
+  })
+
+  it('names the Property and its markets on a custom portfolio', () => {
+    service.configure('p', { enabled: true })
+    const frozen = measurementPlanV2Fixture({
+      reportingScopes: [{ stableKey: 'coast', label: 'Coast', kind: 'market', groupKey: 'regional', usageEdges: [{ executionNodeKey: 'exec-nearby', targetKey: 'harbor', queryId: 'q-nearby' }] }],
+    })
+    db.insert(measurementPlanVersions).values({ id: 'plan-1', projectId: 'p', revision: 1, canonicalJson: canonicalMeasurementPlanV2Json(frozen), checksum: 'plan-1', schemaVersion: 2, compiledChecksum: frozen.compiledChecksum, createdAt: NOW }).run()
+    /** One whole-plan sweep; Harbor's non-brand answer from OpenAI is rated `harborNearby`, everything else favorable. */
+    const sweep = (runId: string, createdAt: string, harborNearby: SentimentOutcome) => {
+      db.insert(runs).values({ id: runId, projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: 'plan-1', measurementManifest: buildMeasurementPlanV2Manifest(frozen), measurementExecutionIdentity: { schemaVersion: 1, language: 'en', providers: ['openai', 'gemini'], models: {}, checksum: 'identity' }, createdAt }).run()
+      for (const node of frozen.executionNodes) for (const provider of ['openai', 'gemini']) {
+        db.insert(querySnapshots).values({ id: `${runId}-${node.stableKey}-${provider}`, runId, measurementExecutionId: node.stableKey, queryText: node.queryText, provider, model: `${provider}-requested`, servedModel: `${provider}-served`, answerText: 'Harbor Homes and Bayside Homes are both near Northstar.', citationState: 'cited', createdAt }).run()
+      }
+      admit(runId); admit(runId, 'non-brand')
+      finish((snapshotId, subjectId) => ({ outcome: snapshotId === `${runId}-exec-nearby-openai` && subjectId === 'harbor' ? harborNearby : 'favorable' }))
+    }
+    sweep('older', '2026-01-01T00:00:00.000Z', 'favorable')
+    sweep('current', '2026-01-02T00:00:00.000Z', 'unfavorable')
+    expect(service.newlyUnfavorable('p', 'current')).toEqual([{
+      query: 'homes near harbor', queryId: 'q-nearby', queryClass: 'non-brand', provider: 'openai', location: HARBOR_CONTEXT.label,
+      property: { key: 'harbor', label: 'Harbor Homes' }, markets: [{ key: 'coast', label: 'Coast' }],
+      previousRunId: 'older', previousOutcome: 'favorable', conclusion: ['Harbor Homes and Bayside Homes are both near Northstar.'], complaint: null,
+    }])
+  })
+})

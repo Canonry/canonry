@@ -1097,6 +1097,26 @@ export function readOverviewVisibility(
   return readReport(db, project, rawQuery, { includeHistory: false, includeAdvancedPrevious: true })
 }
 
+/**
+ * One Advanced sweep and the eligible whole-plan sweep before it, read as the
+ * overview reads them, for a caller that compares the two outside a report
+ * (the change webhooks). Null when the project has no active plan; `legacy`
+ * when its active plan is schema v1, which freezes no Property definition.
+ * Throws a validation error when the run is not an eligible Advanced sweep
+ * (a probe, a planless run, or a run of a schema v1 revision).
+ */
+export function readAdvancedSweepPair(
+  db: DatabaseClient,
+  projectId: string,
+  runId: string,
+): OverviewAdvancedSweeps | null {
+  const active = activeMeasurementPlan(db, projectId)
+  if (active === null) return null
+  if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return { plan: 'legacy' }
+  const input = advancedReaderInput(db, projectId, active, parseQuery({ mode: 'advanced', runId }), false, true)
+  return { plan: 'v2', current: input.runs.find(run => run.id === runId) ?? null, previous: input.previous ?? null }
+}
+
 function readReport(
   db: DatabaseClient,
   project: { id: string; displayName: string; canonicalDomain: string },

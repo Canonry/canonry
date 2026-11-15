@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 import { HEALTH_NO_LONGER_URGENT } from '@canonry/canonry-contracts'
-import type { HealthWebhookPayload, RatingWebhookPayload, ReviewWebhookPayload, SiteHealthIssueWebhookPayload, UnrecognizedAgentWebhookPayload, WebhookPayload } from '@canonry/canonry-contracts'
+import type { HealthWebhookPayload, RatingWebhookPayload, ReviewWebhookPayload, SentimentWebhookPayload, SiteHealthIssueWebhookPayload, UnrecognizedAgentWebhookPayload, WebhookPayload } from '@canonry/canonry-contracts'
 import { AlertSeverities, AlertFieldLabels, CANONRY_ALERT_CATEGORY, toAlertView } from '../src/notifications/alert.js'
 import {
   DESTINATION_ADAPTERS,
@@ -552,4 +552,34 @@ test('a Site Health alert names each new problem, how many pages it newly reache
   const single = toAlertView({ ...payload, scanComplete: true, issues: [payload.issues[1]!] })
   expect(single.title).toBe('harborline: Multiple H1 tags on 1 page')
   expect(single.body).toBe('A site audit found problems that were not reported before.\nMultiple H1 tags: 1 page new, 9 in all, e.g. https://harborline.test/homes/')
+})
+
+test('a sentiment alert names each answer that turned, its class and Property, and the evidence read for each class', () => {
+  const answer = {
+    queryId: 'q-nearby', provider: 'openai', location: 'Harbor', previousRunId: 'run_1', previousOutcome: 'favorable', complaint: null,
+  }
+  const payload: SentimentWebhookPayload = {
+    source: 'canonry',
+    event: 'sentiment.unfavorable',
+    project: { name: 'northstar', canonicalDomain: 'northstar.example' },
+    run: { id: 'run_2', status: 'completed', finishedAt: '2026-11-10T12:00:00.000Z' },
+    answers: [
+      { ...answer, query: 'homes near harbor', queryClass: 'non-brand', property: { key: 'harbor', label: 'Harbor Homes' }, markets: [], conclusion: ['Harbor Homes is overpriced.'] },
+      { ...answer, query: 'northstar reviews', queryClass: 'branded', provider: 'gemini', previousOutcome: 'mixed', property: { key: 'harbor', label: 'Harbor Homes' }, markets: [], conclusion: [] },
+    ],
+    dashboardUrl: 'https://canonry.test/projects/northstar',
+  }
+  expect(toAlertView(payload)).toEqual({
+    severity: AlertSeverities.warning,
+    category: CANONRY_ALERT_CATEGORY,
+    title: 'northstar: 2 answers turned unfavorable',
+    body: '• openai: homes near harbor (Harbor Homes) · non-brand, was favorable: "Harbor Homes is overpriced."\n• gemini: northstar reviews (Harbor Homes) · branded, was mixed',
+    fields: [{
+      label: AlertFieldLabels.next,
+      value: 'cnry sentiment evidence northstar --run-id run_2 --query-class branded --outcome unfavorable\ncnry sentiment evidence northstar --run-id run_2 --query-class non-brand --outcome unfavorable',
+    }],
+    url: 'https://canonry.test/projects/northstar',
+    footer: 'northstar.example',
+    timestamp: '2026-11-10T12:00:00.000Z',
+  })
 })

@@ -1,17 +1,19 @@
 import { deliverReviewEvent, drainReviewDeliveries, dueReviewDeliveryProjects, reviewEventId } from './review-webhook-delivery.js'
 import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
-import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
+import { deliverWebhook, measurementRunCompleteness, notProbeRun, readAdvancedSignalTransitions, SentimentService, readQueryClasses, redactNotificationUrl, resolveDestination, resolveSnapshotMentionObservation, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
+import type { AdvancedSignalTransition, AdvancedSignalTransitions, SentimentInstallState } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@canonry/canonry-db'
-import type { CitationState, GbpReviewAlertState, HealthAlertCopy, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload, UnrecognizedAgentWebhookPayload } from '@canonry/canonry-contracts'
-import { CitationStates, HEALTH_NO_LONGER_URGENT, businessProfileReviewsCover, isCitationStateMeasured, isNegativeReviewRating, readCitationState, resolveNegativeReviewMaxStars } from '@canonry/canonry-contracts'
+import type { CitationState, GbpReviewAlertState, MentionState, HealthAlertCopy, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload, UnrecognizedAgentWebhookPayload } from '@canonry/canonry-contracts'
+import { CitationStates, HEALTH_NO_LONGER_URGENT, MentionStates, businessProfileReviewsCover, isCitationStateMeasured, isNegativeReviewRating, readCitationState, resolveNegativeReviewMaxStars } from '@canonry/canonry-contracts'
 import { RunKinds, RunStatuses } from '@canonry/canonry-contracts'
-import type { RunCompletionOrigin, SiteHealthIssueWebhookPayload } from '@canonry/canonry-contracts'
+import type { RunCompletionOrigin, SentimentUnfavorableAnswer, SentimentWebhookPayload, SiteHealthIssueWebhookPayload } from '@canonry/canonry-contracts'
 import type { AnalysisResult, Insight } from '@canonry/canonry-intelligence'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 import { isWithinAlertWindow } from './gbp-reviews.js'
 import { projectsWithRecentUnrecognizedAgents, recordUnrecognizedAgentDecisions, undecidedUnrecognizedAgents, UnrecognizedAgentNotifyStates } from './unrecognized-agent-alerts.js'
+import { recordSentimentAlertRuns, SentimentAlertStates, settledSentimentRuns, undecidedSentimentRuns } from './sentiment-alerts.js'
 import { newSiteHealthIssues, readSiteHealthNotifyState, readSiteHealthScan, settledSiteHealthKeys, writeSiteHealthNotifyState } from './site-health-alerts.js'
 import { CHECK_RUNTIME_ERROR_SUFFIX, CheckNotificationPolicies, CheckStatuses, compareText, describeError, notificationEventSchema, statusClassOf, type CheckNotificationPolicy, type OutcomeReasonCode, type StatusClass } from '@canonry/canonry-contracts'
 import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
@@ -231,7 +233,10 @@ export const SITE_LIVENESS_MIN_PASS_GAP_MS = 4 * 60_000
  */
 export const SITE_LIVENESS_MAX_PASS_GAP_MS = 45 * 60_000
 
-type AnyWebhookPayload = WebhookPayload | InsightWebhookPayload | ReviewWebhookPayload | RatingWebhookPayload | UnrecognizedAgentWebhookPayload | SiteHealthIssueWebhookPayload
+/** One answer whose citation or mention changed since the previous sweep. */
+type SignalTransition = WebhookPayload['transitions'][number] & { location: string | null }
+
+type AnyWebhookPayload = WebhookPayload | InsightWebhookPayload | ReviewWebhookPayload | RatingWebhookPayload | UnrecognizedAgentWebhookPayload | SiteHealthIssueWebhookPayload | SentimentWebhookPayload
 
 export class Notifier {
   private db: DatabaseClient
@@ -245,11 +250,16 @@ export class Notifier {
   private reviewDispatchInFlight = new Set<string>()
   /** Set while a {@link dispatchUnrecognizedAgentAlerts} pass runs, so passes never overlap. */
   private unrecognizedAgentDispatchInFlight = false
+  /** The sentiment install's readiness; without it no sentiment alert is read. */
+  private sentimentInstall: (() => SentimentInstallState) | null
+  /** Set while a {@link dispatchSentimentAlerts} pass runs, so passes never overlap. */
+  private sentimentDispatchInFlight = false
 
-  constructor(db: DatabaseClient, serverUrl: string, opts: { allowLoopbackWebhooks?: boolean } = {}) {
+  constructor(db: DatabaseClient, serverUrl: string, opts: { allowLoopbackWebhooks?: boolean; sentimentInstall?: () => SentimentInstallState } = {}) {
     this.db = db
     this.serverUrl = serverUrl
     this.allowLoopbackWebhooks = opts.allowLoopbackWebhooks === true
+    this.sentimentInstall = opts.sentimentInstall ?? null
   }
 
   /** Called after a run completes (success, partial, or failed). */
@@ -285,8 +295,9 @@ export class Notifier {
       return
     }
 
-    // Compute transitions by comparing to previous run
-    const transitions = this.computeTransitions(runId, projectId)
+    // Compute transitions by comparing to previous run. Citation and mention
+    // are compared apart: neither is read from the other.
+    const transitions = this.computeTransitions(runId, project)
 
     // Determine which events occurred
     const events: NotificationEvent[] = []
@@ -302,11 +313,15 @@ export class Notifier {
       events.push('run.failed')
     }
 
-    const lostTransitions = transitions.filter(t => t.to === CitationStates['not-cited'] && t.from === CitationStates.cited)
-    const gainedTransitions = transitions.filter(t => t.to === CitationStates.cited && t.from === CitationStates['not-cited'])
+    const lostTransitions = transitions.citation.filter(t => t.to === CitationStates['not-cited'] && t.from === CitationStates.cited)
+    const gainedTransitions = transitions.citation.filter(t => t.to === CitationStates.cited && t.from === CitationStates['not-cited'])
+    const lostMentions = transitions.mention.filter(t => t.to === MentionStates['not-mentioned'])
+    const gainedMentions = transitions.mention.filter(t => t.to === MentionStates.mentioned)
 
     if (lostTransitions.length > 0) events.push('citation.lost')
     if (gainedTransitions.length > 0) events.push('citation.gained')
+    if (lostMentions.length > 0) events.push('mention.lost')
+    if (gainedMentions.length > 0) events.push('mention.gained')
 
     // Send webhooks for each notification config
     for (const notif of notifs) {
@@ -321,9 +336,13 @@ export class Notifier {
 
       // Send one webhook per matching event
       for (const event of matchingEvents) {
+        // `run.completed` / `run.failed` keep carrying the citation changes,
+        // the shape their subscribers were built against.
         const relevantTransitions = event === 'citation.lost' ? lostTransitions
           : event === 'citation.gained' ? gainedTransitions
-          : transitions
+            : event === 'mention.lost' ? lostMentions
+              : event === 'mention.gained' ? gainedMentions
+                : transitions.citation
 
         const payload: WebhookPayload = {
           source: 'canonry',
@@ -1275,9 +1294,12 @@ export class Notifier {
     return { reviews: reviewsToSend.length, ratingDrops: ratingsToSend.length, delivered }
   }
 
-  private computeTransitions(runId: string, projectId: string): Array<{
-    query: string; from: string; to: string; provider: string; location: string | null
-  }> {
+  private computeTransitions(runId: string, project: typeof projects.$inferSelect): {
+    citation: SignalTransition[]
+    mention: SignalTransition[]
+  } {
+    const none = { citation: [], mention: [] }
+    const projectId = project.id
     // Multi-location `--all-locations` sweeps fan out into N runs sharing the
     // same `createdAt`. Each run-completion event independently triggers this
     // code path; we need exactly one webhook per group regardless of async
@@ -1311,7 +1333,7 @@ export class Notifier {
     // is single-server (one PM2 process); if that changes, the gate should
     // promote to a DB-backed marker table.
     const thisRun = this.db.select().from(runs).where(eq(runs.id, runId)).get()
-    if (!thisRun) return []
+    if (!thisRun) return none
 
     // A plan run that fell short of its manifest measured only part of the
     // set. Diffing it against a complete previous run would report a citation
@@ -1324,7 +1346,7 @@ export class Notifier {
         executed: completeness.executed,
         expected: completeness.expected,
       })
-      return []
+      return none
     }
 
     // Siblings at the same (project, kind, createdAt). The `kind` filter
@@ -1344,7 +1366,7 @@ export class Notifier {
 
     // Gate (a): wait for the rest of the fan-out to finish.
     const stillPending = groupSiblings.some(r => r.status === 'queued' || r.status === 'running')
-    if (stillPending) return []
+    if (stillPending) return none
 
     // Gate (b): determine the winner among completed/partial siblings.
     // `finishedAt` is written atomically with `status` in the job runner's
@@ -1353,7 +1375,7 @@ export class Notifier {
     const completedPartialSiblings = groupSiblings.filter(
       r => r.status === 'completed' || r.status === 'partial',
     )
-    if (completedPartialSiblings.length === 0) return []
+    if (completedPartialSiblings.length === 0) return none
     const winner = completedPartialSiblings.reduce((best, candidate) => {
       const candFinish = candidate.finishedAt ?? ''
       const bestFinish = best.finishedAt ?? ''
@@ -1361,22 +1383,22 @@ export class Notifier {
       if (candFinish < bestFinish) return best
       return candidate.id > best.id ? candidate : best
     })
-    if (winner.id !== runId) return []
+    if (winner.id !== runId) return none
+
+    // A sweep of a custom portfolio compares each Property from the frozen
+    // plan, as the overview's What changed does. The project-level columns
+    // read below describe the project's own brand and domain, not a Property.
+    if (thisRun.measurementPlanVersionId !== null) {
+      const advanced = this.advancedTransitions(runId, projectId)
+      if (advanced !== null) return advanced
+    }
 
     // Walk backward to find the previous distinct-createdAt group containing
     // at least one completed/partial run. RECENT_FETCH_LIMIT bounds the
     // backward walk; scaling it by project location count handles projects
     // with N>2 configured locations where an 8-row limit could be exhausted
     // by two fan-out groups alone.
-    const projectLocations = this.db
-      .select({ locations: projects.locations })
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .get()
-    const locationCount = Math.max(
-      1,
-      (projectLocations?.locations ?? []).length,
-    )
+    const locationCount = Math.max(1, project.locations.length)
     const RECENT_FETCH_LIMIT = Math.max(8, locationCount * 4)
     const recentRuns = this.db
       .select()
@@ -1395,11 +1417,11 @@ export class Notifier {
 
     const groups = groupRunsByCreatedAt(recentRuns)
     const currentGroupIdx = groups.findIndex(g => g[0]?.createdAt === thisRun.createdAt)
-    if (currentGroupIdx < 0) return []  // unexpected, but defensive
+    if (currentGroupIdx < 0) return none  // unexpected, but defensive
     const currentGroup = groups[currentGroupIdx] ?? []
     const previousGroup = groups[currentGroupIdx + 1] ?? []
 
-    if (currentGroup.length === 0 || previousGroup.length === 0) return []
+    if (currentGroup.length === 0 || previousGroup.length === 0) return none
 
     const currentRunIds = currentGroup.map(r => r.id)
     const previousRunIds = previousGroup.map(r => r.id)
@@ -1412,6 +1434,9 @@ export class Notifier {
         location: querySnapshots.location,
         citationState: querySnapshots.citationState,
         retrievalStatus: querySnapshots.retrievalStatus,
+        answerText: querySnapshots.answerText,
+        answerMentioned: querySnapshots.answerMentioned,
+        mentionIdentity: querySnapshots.mentionIdentity,
       })
       .from(querySnapshots)
       .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
@@ -1425,6 +1450,9 @@ export class Notifier {
         location: querySnapshots.location,
         citationState: querySnapshots.citationState,
         retrievalStatus: querySnapshots.retrievalStatus,
+        answerText: querySnapshots.answerText,
+        answerMentioned: querySnapshots.answerMentioned,
+        mentionIdentity: querySnapshots.mentionIdentity,
       })
       .from(querySnapshots)
       .where(inArray(querySnapshots.runId, previousRunIds))
@@ -1442,33 +1470,89 @@ export class Notifier {
     // citation was not measured (the engine returns no sources) has no state
     // to move from or to. Comparing raw rows would turn the first sweep after
     // an upgrade into a burst of `not-cited → not-measured` transitions.
-    const prevMap = new Map<string, CitationState>()
+    //
+    // A mention is read as the timeline and the overview read it
+    // (`resolveSnapshotMentionObservation`: recomputed from the answer text
+    // under the project's current brand names, a `wrong-subject` verdict not
+    // counted). An answer whose mention was never checked has no state either.
+    const citationState = (s: typeof previousSnapshots[number]): CitationState | null => {
+      const state = readCitationState(s)
+      return isCitationStateMeasured(state) ? state : null
+    }
+    const mentionState = (s: typeof previousSnapshots[number]): MentionState | null => {
+      const mentioned = resolveSnapshotMentionObservation(s, project)
+      return mentioned === null ? null : mentioned ? MentionStates.mentioned : MentionStates['not-mentioned']
+    }
+
+    const prevCitation = new Map<string, CitationState>()
+    const prevMention = new Map<string, MentionState>()
     for (const s of previousSnapshots) {
       if (s.queryId == null) continue
-      const state = readCitationState(s)
-      if (!isCitationStateMeasured(state)) continue
-      prevMap.set(`${s.queryId}:${s.provider}:${s.location ?? ''}`, state)
+      const key = `${s.queryId}:${s.provider}:${s.location ?? ''}`
+      const cited = citationState(s)
+      if (cited !== null) prevCitation.set(key, cited)
+      const mentioned = mentionState(s)
+      if (mentioned !== null) prevMention.set(key, mentioned)
     }
 
-    const transitions: Array<{ query: string; from: string; to: string; provider: string; location: string | null }> = []
+    // The class each query carries where queries are listed, so a subscriber
+    // can keep branded and non-brand answers apart.
+    const classes = readQueryClasses(this.db, project, currentSnapshots.flatMap(s =>
+      s.queryId != null && s.query != null ? [{ id: s.queryId, query: s.query }] : []))
+
+    const citation: SignalTransition[] = []
+    const mention: SignalTransition[] = []
     for (const s of currentSnapshots) {
       if (s.queryId == null) continue
-      const state = readCitationState(s)
-      if (!isCitationStateMeasured(state)) continue
       const key = `${s.queryId}:${s.provider}:${s.location ?? ''}`
-      const prevState = prevMap.get(key)
-      if (prevState && prevState !== state) {
-        transitions.push({
-          query: s.query ?? s.queryId,
-          from: prevState,
-          to: state,
-          provider: s.provider,
-          location: s.location,
-        })
-      }
+      const query = s.query ?? s.queryId
+      const queryClass = classes.get(s.queryId) ?? null
+      const change = (from: string | undefined, to: string): SignalTransition | null =>
+        from === undefined || from === to
+          ? null
+          : { query, from, to, provider: s.provider, location: s.location, queryClass }
+      const cited = citationState(s)
+      const citationChange = cited === null ? null : change(prevCitation.get(key), cited)
+      if (citationChange) citation.push(citationChange)
+      const mentioned = mentionState(s)
+      const mentionChange = mentioned === null ? null : change(prevMention.get(key), mentioned)
+      if (mentionChange) mention.push(mentionChange)
     }
 
-    return transitions
+    return { citation, mention }
+  }
+
+  /**
+   * The per-Property changes of a custom-portfolio sweep, or null when the
+   * project has no schema v2 plan to read them from, in which case its
+   * changes are the project-level ones.
+   */
+  private advancedTransitions(runId: string, projectId: string): { citation: SignalTransition[]; mention: SignalTransition[] } | null {
+    let read: AdvancedSignalTransitions | null
+    try {
+      read = readAdvancedSignalTransitions(this.db, projectId, runId)
+    } catch (error) {
+      // Sending the project-level columns instead would report the project's
+      // brand as if it were a Property, so an unreadable sweep sends nothing.
+      log.error('transitions.advanced-unreadable', { runId, error: describeError(error) })
+      return { citation: [], mention: [] }
+    }
+    if (read === null) return null
+    if (read.state === 'unavailable') {
+      log.info('transitions.advanced-not-comparable', { runId, reason: read.reason })
+      return { citation: [], mention: [] }
+    }
+    const wire = (t: AdvancedSignalTransition<string>): SignalTransition => ({
+      query: t.query,
+      from: t.from,
+      to: t.to,
+      provider: t.provider,
+      location: t.location,
+      queryClass: t.queryClass,
+      property: t.property,
+      markets: t.markets,
+    })
+    return { citation: read.citation.map(wire), mention: read.mention.map(wire) }
   }
 
   /** True only when the destination accepted the payload. Callers that record "already said" must not count an attempt. */
@@ -1521,6 +1605,77 @@ export class Notifier {
       this.unrecognizedAgentDispatchInFlight = false
     }
     return sentNames
+  }
+
+  /**
+   * Send `sentiment.unfavorable` for sweeps whose automatic sentiment work has
+   * settled: one message per sweep listing the answers sentiment newly rates
+   * unfavorable (`SentimentService.newlyUnfavorable`). A sweep is decided
+   * once: `sent` when a webhook accepted it, `skipped` when nothing
+   * subscribed, so subscribing later starts from new sweeps, `quiet` when no
+   * answer turned, and `baseline` for what had settled before the project's
+   * first pass. When every delivery fails the sweep stays undecided and the
+   * next pass retries it while its sentiment jobs are inside the window.
+   * Returns how many sweeps were sent.
+   */
+  async dispatchSentimentAlerts(now = Date.now()): Promise<number> {
+    if (this.sentimentInstall === null || this.sentimentDispatchInFlight) return 0
+    this.sentimentDispatchInFlight = true
+    let sentRuns = 0
+    try {
+      const service = new SentimentService(this.db, { install: this.sentimentInstall, previewSecret: crypto.randomUUID() })
+      for (const [projectId, settled] of settledSentimentRuns(this.db, now)) {
+        const { undecided, firstPass } = undecidedSentimentRuns(this.db, projectId, settled)
+        if (undecided.length === 0) continue
+        if (firstPass) {
+          recordSentimentAlertRuns(this.db, projectId, undecided, SentimentAlertStates.baseline, now)
+          continue
+        }
+        const subscribed = this.db.select().from(notifications).where(eq(notifications.projectId, projectId)).all()
+          .filter(n => n.enabled && n.config.url && (n.config.events as string[]).includes('sentiment.unfavorable'))
+        if (subscribed.length === 0) {
+          recordSentimentAlertRuns(this.db, projectId, undecided, SentimentAlertStates.skipped, now)
+          continue
+        }
+        const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
+        if (!project) continue
+        for (const runId of undecided) {
+          let answers: SentimentUnfavorableAnswer[]
+          try {
+            answers = service.newlyUnfavorable(projectId, runId)
+          } catch (error) {
+            // Left undecided: the next pass reads it again.
+            log.error('sentiment-alerts.unreadable', { projectId, runId, error: describeError(error) })
+            continue
+          }
+          if (answers.length === 0) {
+            recordSentimentAlertRuns(this.db, projectId, [runId], SentimentAlertStates.quiet, now)
+            continue
+          }
+          const run = this.db.select().from(runs).where(eq(runs.id, runId)).get()
+          if (!run) continue
+          const payload: SentimentWebhookPayload = {
+            source: 'canonry',
+            event: 'sentiment.unfavorable',
+            project: { name: project.name, canonicalDomain: project.canonicalDomain },
+            run: { id: run.id, status: run.status, finishedAt: run.finishedAt },
+            answers,
+            dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
+          }
+          let accepted = false
+          for (const notif of subscribed) {
+            if (await this.sendWebhook(notif.config.url!, payload, notif.id, projectId, notif.webhookSecret ?? null)) accepted = true
+          }
+          if (accepted) {
+            recordSentimentAlertRuns(this.db, projectId, [runId], SentimentAlertStates.sent, now)
+            sentRuns++
+          }
+        }
+      }
+    } finally {
+      this.sentimentDispatchInFlight = false
+    }
+    return sentRuns
   }
 
   /**

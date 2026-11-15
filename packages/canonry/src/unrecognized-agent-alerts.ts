@@ -3,6 +3,7 @@ import type { DatabaseClient } from '@canonry/canonry-db'
 import { unrecognizedAgentEventsHourly, unrecognizedAgentNotifyState } from '@canonry/canonry-db'
 import type { UnrecognizedAgentWebhookPayload } from '@canonry/canonry-contracts'
 import { describeError } from '@canonry/canonry-contracts'
+import { startAlertLoop } from './alert-loop.js'
 import { createLogger } from './logger.js'
 
 const log = createLogger('UnrecognizedAgentAlerts')
@@ -105,14 +106,5 @@ export function recordUnrecognizedAgentDecisions(db: DatabaseClient, projectId: 
 
 /** Run `dispatch` every `intervalMs`; passes never overlap. */
 export function startUnrecognizedAgentAlertLoop(dispatch: () => Promise<number>, intervalMs = UNRECOGNIZED_AGENT_ALERT_INTERVAL_MS): () => void {
-  let running = false
-  const timer = setInterval(() => {
-    if (running) return
-    running = true
-    void dispatch()
-      .catch((err: unknown) => { log.warn('unrecognized-agent-alerts.dispatch-failed', { error: describeError(err) }) })
-      .finally(() => { running = false })
-  }, intervalMs)
-  timer.unref?.()
-  return () => clearInterval(timer)
+  return startAlertLoop(dispatch, intervalMs, err => { log.warn('unrecognized-agent-alerts.dispatch-failed', { error: describeError(err) }) })
 }

@@ -43,6 +43,7 @@ erDiagram
   query_snapshots ||--o{ sentiment_work_items : "assesses subjects"
   sentiment_work_items ||--o| sentiment_results : "stores once"
   sentiment_work_items ||--o{ sentiment_attempts : "records dispatches"
+  runs ||--o| sentiment_alert_runs : "alerted once"
 
   runs ||--o{ query_snapshots : contains
   runs ||--o{ run_fills : "completed by"
@@ -402,6 +403,7 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | **sentiment_work_items** | One leased work identity per project, snapshot, source-text hash, subject hash, and evaluator definition. Exact frozen inputs and usage edges, durable retry time, attempt count, and dispatch priority (automatic before backfill); indexed by (run_id, snapshot_id) for snapshot cascades. |
 | **sentiment_results** | One stored result per assessment work item. Composite foreign keys prevent cross-project source/result links and cascade evidence cleanup with source deletion. |
 | **sentiment_attempts** | Each external dispatch, requested/returned model, reported or unknown usage, safe failure, and estimated rate-limit tokens. Reported tokens also enter `llm_usage_events` as provider `typesafe`. Result uniqueness does not guarantee exactly-once remote billing after a crash. |
+| **sentiment_alert_runs** | One row per sweep a project has decided on for the `sentiment.unfavorable` alert (migration 224), PK `(projectId, runId)`, both cascading: `sent` (a webhook accepted it), `skipped` (nothing subscribed), `quiet` (no answer newly unfavorable) or `baseline` (settled before the project's first alert pass). Written only by `Notifier.dispatchSentimentAlerts` once the sweep's automatic sentiment jobs have no pending, retrying or running assessment. A sweep no webhook accepted has no row and is retried while its jobs are under 7 days old. |
 | **sentiment_dispatch_state** | One install-wide row: the provider rate-limit or credential pause, next dispatch time, rate-limit streak and a one-way credential fingerprint (never the key). |
 
 Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside database transactions. Migration 164 creates the tables, supporting composite indexes, and an immutable-definition update trigger; it does not enable projects or admit historical work.

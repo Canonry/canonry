@@ -212,7 +212,7 @@ Canonry ships a built-in AI agent (Aero) backed by `@earendil-works/pi-agent-cor
 - **Native loop:** `packages/canonry/src/agent/` (`session.ts`, `session-registry.ts`, `tools.ts`, `agent-routes.ts`).
 - **Persistence.** Operator conversations persist across restarts. `agent_sessions` holds the active conversation and `agent_conversations` holds archived ones. Enabled viewer sessions are separate and in memory.
 - **Proactive operation.** `RunCoordinator` queues operator follow-ups after eligible runs. Probe runs do not wake Aero.
-- **External agents:** `canonry agent attach <project> --url <webhook-url>` registers a webhook for `run.completed`, `insight.critical`, `insight.high`, `citation.gained`.
+- **External agents:** `canonry agent attach <project> --url <webhook-url>` registers a webhook for `run.completed`, `insight.critical`, `insight.high`, `citation.gained`, `mention.gained`.
 
 The agent layer is a consumer of the same CLI/API surface — nothing in it is privileged. Per AGENTS.md, "If an AI agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug."
 

@@ -227,6 +227,21 @@ export function resolveSnapshotAnswerMentioned(
   return resolveSnapshotMentionResult(snapshot, project).mentioned
 }
 
+/**
+ * The answer's mention as `resolveSnapshotAnswerMentioned` reads it, or null
+ * when it was never checked: no stored answer text and no stored verdict. A
+ * reader that compares two answers (a change alert) needs that distinction,
+ * because an unchecked answer read as "not mentioned" would report a lost
+ * mention that was never observed.
+ */
+export function resolveSnapshotMentionObservation(
+  snapshot: SnapshotMentionInput,
+  project: SnapshotVisibilityProject,
+): boolean | null {
+  if (!snapshot.answerText && typeof snapshot.answerMentioned !== 'boolean') return null
+  return resolveSnapshotMentionResult(snapshot, project).mentioned
+}
+
 export function resolveSnapshotVisibilityState(
   snapshot: SnapshotMentionInput,
   project: SnapshotVisibilityProject,
