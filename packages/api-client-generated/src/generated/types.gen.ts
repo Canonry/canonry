@@ -1263,7 +1263,7 @@ export type SentimentSettings = {
         configure: boolean;
         backfill: boolean;
     };
-    experimental: true;
+    experimental: boolean;
     disclosure: string;
 };
 

@@ -1715,7 +1715,7 @@ test('cached competitor history remains visible when its background refresh fail
   const disabledSentimentSettings = sentimentSettingsSchema.parse({
     installEnabled: false, enabled: false, ready: false, readinessReasons: ['Sentiment is disabled in install configuration.'],
     model: 'jev-1.13.0', enablementEpoch: 0, completionBoundary: 0,
-    evaluationDefinitionId: null, actions: { configure: false, backfill: false }, experimental: true, disclosure: 'Sentiment quality has not completed independent evaluation.',
+    evaluationDefinitionId: null, actions: { configure: false, backfill: false }, experimental: false, disclosure: 'Sentiment quality has not completed independent evaluation.',
   })
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {

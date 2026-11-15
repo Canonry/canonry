@@ -16,8 +16,10 @@ New public API/CLI capabilities should get MCP parity by default. If a capabilit
 
 Connected agents start with initialization guidance and `canonry_help`, not a
 skill installation. Call `canonry_help({intent: "status"})`, or use `diagnose`,
-`measurement`, `integrations`, `reports`, or a short task description. The
-default response is a compact route, not the full catalog:
+`prospecting`, `measurement`, `integrations`, `reports`, `seo`, `operations`,
+`start`, or a short task description. Use `start` when the user is new or unsure
+what to ask: it routes to the first-run setup read and the `getting-started`
+playbook. The default response is a compact route, not the full catalog:
 
 Operation boundaries are visible without executing a tool. REST responses carry
 `x-canonry-access: stored|live|write`, CLI help and the machine catalog show the
@@ -52,7 +54,7 @@ When a newer canonry is published, both stdio and hosted MCP tell the agent with
   "scope": "read-only",
   "workflow": "status",
   "next": ["canonry_projects_list", "canonry_project_overview"],
-  "workflows": ["status", "diagnose", "measurement", "integrations", "reports"],
+  "workflows": ["seo", "operations", "status", "diagnose", "prospecting", "measurement", "integrations", "reports", "start"],
   "approvalBoundary": ["provider reads", "sweeps", "writes"],
   "operationsGuideUrl": "https://github.com/Canonry/canonry/blob/main/docs/agent-operations/v1.md"
 }
@@ -660,7 +662,7 @@ Toolkits (loaded on demand):
 
 | Toolkit | What's in it | When to load |
 | --- | --- | --- |
-| `monitoring` | experimental sentiment settings/summary/evidence/compare/backfill preview/jobs, administrator configure/backfill submit, runs list/latest/get, the next manual sweep preview (`canonry_run_preview`: planned answers and provider holds, no spending), project history, timeline, snapshots list/diff, insights list/get, health latest/history, content targets/sources/gaps, content dismissal list/dismiss/restore, `canonry_organic_evidence` (GSC + GA4 + server AI evidence ladder), Agent Readiness audit scans, scores, pages, findings and link-graph reads (`canonry_agent_readiness_*`) | Investigating regressions, comparing runs, reviewing insights/health, checking Agent Readiness, surfacing content opportunities, generating client-facing reports |
+| `monitoring` | sentiment settings/summary/evidence/compare/backfill preview/jobs, administrator configure/backfill submit, runs list/latest/get, the next manual sweep preview (`canonry_run_preview`: planned answers and provider holds, no spending), project history, timeline, snapshots list/diff, insights list/get, health latest/history, content targets/sources/gaps, content dismissal list/dismiss/restore, `canonry_organic_evidence` (GSC + GA4 + server AI evidence ladder), Agent Readiness audit scans, scores, pages, findings and link-graph reads (`canonry_agent_readiness_*`) | Investigating regressions, comparing runs, reviewing insights/health, checking Agent Readiness, surfacing content opportunities, generating client-facing reports |
 | `setup` | project export/upsert, first-run setup status (`canonry_project_setup`), sitemap Target discovery, measurement setup/overview, draft get + paginated Targets/assignments/groups, guarded draft actions, query sets/templates, measurement-plan get/history/compile/diff/publish/deactivate, revision-pinned measurement report, queries list/add/remove/replace/generate, legacy keyword aliases, competitors list/add/remove plus `canonry_competitors_aliases_set` (curated answer-text names) and the answer-derived auto-alias tools (`canonry_competitors_auto_aliases_detect`, `_apply`, `canonry_competitors_aliases_block`, `_unblock`), schedule get/list/set/delete plus `canonry_schedule_preview` (the next occurrence of proposed timing), answer-engine provider connections (`canonry_provider_settings_get`, `canonry_provider_settings_update`, `canonry_provider_disconnect`, `canonry_provider_test`, `canonry_providers_reload`), notification event names, telemetry status, insight dismiss, backlinks domains | Onboarding a project, discovering and publishing its Target measurement plan, reviewing stored Target evidence, editing queries/competitors/schedules, reviewing, testing or disconnecting a provider connection, reviewing notification capability, and checking safe setup state |
 | `gsc` | google connections list, GSC performance, per-query totals, inspections, coverage, coverage history, sitemaps, sitemap submission, deindexed | Indexing, coverage, sitemap analysis and submission from Google Search Console |
 | `bing` | `canonry_bing_coverage`: stored index counts and URL inspections for a connected Bing site; no Bing call or sync | Reviewing indexed, not indexed, and unknown URL evidence from Bing Webmaster Tools |
@@ -828,7 +830,7 @@ The silent `report.ai-referral-bursts` doctor diagnostic carries these limits in
 its details, counts `candidateGroups`, and warns only when candidate bursts
 exist; it never claims a verified 3x warning.
 
-### Experimental sentiment
+### Sentiment
 
 Load `monitoring` for `canonry_sentiment_settings`, `canonry_sentiment`,
 `canonry_sentiment_evidence`, `canonry_sentiment_compare`,

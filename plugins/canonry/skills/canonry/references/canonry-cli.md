@@ -205,7 +205,7 @@ The native MCP tool `canonry_project_update` accepts the same partial request.
 
 `spec.aliases: string[]` on the project (set via `cnry apply`, `cnry project update <name> --add-alias <name>`, or the dashboard) widens the mention detector. Use it when the answer text says "Meta" but the canonical brand is "Facebook", or for a product or former name ("AcmeCloud Pro"). Matching ignores case, spacing and punctuation, so "AcmeCloud" already matches "Acme Cloud"; it is the same answer-text scan that powers `answerMentioned`.
 
-`spec.qualifiedAliases: string[]` (experimental sentiment only; `--add-qualified-alias` / `--remove-qualified-alias` on update, `--qualified-alias` on create) marks aliases the sentiment evaluator is told are the brand's own names, with their exact spelling, for example a former name or a spaced spelling of one. Each must already be an alias, must not be a spelling of the display name, needs a brand key of at least four characters, and must not be a competitor's name (its domain label or a curated competitor alias); a rejected entry is a 400 naming the reason. It changes neither `answerMentioned` nor query classes. An omitted field keeps the stored list (minus names that no longer qualify: a removed alias, a spelling of the display name, or a competitor's name) and `[]` clears it. Adding a competitor drops a qualified alias it shares a brand key with. It applies to runs dispatched afterward only; recorded answers are not rescored.
+`spec.qualifiedAliases: string[]` (sentiment only; `--add-qualified-alias` / `--remove-qualified-alias` on update, `--qualified-alias` on create) marks aliases the sentiment evaluator is told are the brand's own names, with their exact spelling, for example a former name or a spaced spelling of one. Each must already be an alias, must not be a spelling of the display name, needs a brand key of at least four characters, and must not be a competitor's name (its domain label or a curated competitor alias); a rejected entry is a 400 naming the reason. It changes neither `answerMentioned` nor query classes. An omitted field keeps the stored list (minus names that no longer qualify: a removed alias, a spelling of the display name, or a competitor's name) and `[]` clears it. Adding a competitor drops a qualified alias it shares a brand key with. It applies to runs dispatched afterward only; recorded answers are not rescored.
 
 ## Surgical Reads — `cnry get`
 
@@ -2057,7 +2057,7 @@ Compact reference for the composite / keyed commands agents read most (shapes ca
 | `cnry ads geo search <p> --query <text>` | `AdsGeoSearchResponse{ count, query, results[] }` @ `contracts/ads.ts`; each location has `{ id, type, canonicalName, countryCode, name, regionCode }`. | ✅ one result / line as `{project, query, …location}` |
 | `cnry ads conversions pixels <p>` / `event-settings <p>` | `{ pixels[] }` / `{ eventSettings[] }` @ `contracts/ads.ts`. Event settings include the conversion event, attribution window, source IDs/details, archive state, and version. | ✅ one pixel/event setting / line as `{project, …row}` |
 
-## Experimental sentiment
+## Sentiment
 
 ```bash
 canonry sentiment settings <project> --format json

@@ -83,7 +83,7 @@ Let your agent run ChatGPT Ads: sync campaigns and daily results, create and edi
 - **[Publish and index](skills/canonry/references/indexing.md)** — WordPress drafts, JSON-LD, and sitemap and URL submissions to Google and Bing.
 - **[Schedules and webhooks](skills/canonry/references/canonry-cli.md#scheduling--notifications)** — Rerun checks on a schedule and send alerts to Discord, Slack, or your systems.
 - **[Backlinks](skills/canonry/references/canonry-cli.md#backlinks-common-crawl)** — Common Crawl link data, queried locally with DuckDB.
-- **[Sentiment](docs/sentiment.md)** — Experimental, off by default. Rates branded answers as favorable, mixed, or unfavorable.
+- **[Sentiment](docs/sentiment.md)** — Off by default. Rates branded answers as favorable, mixed, or unfavorable.
 - **And more** — browse the [documentation index](docs/README.md).
 
 **An example job for your connected agent:**
@@ -317,6 +317,7 @@ See the [deployment guide](docs/deployment.md) for reverse proxies, daemon mode,
 
 ## Documentation
 
+- **New to Canonry:** [Getting started: the first-run loop and questions to ask](skills/aero/references/getting-started.md)
 - **Operate Canonry:** [CLI reference](skills/canonry/references/canonry-cli.md) · [Agent Plugin](docs/plugins.md) · [MCP](docs/mcp.md)
 - **Use built-in Aero:** [Setup and analysis workflows](skills/aero/SKILL.md)
 - **Understand the system:** [Architecture](docs/architecture.md) · [Data model](docs/data-model.md)

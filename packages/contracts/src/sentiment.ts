@@ -238,7 +238,8 @@ export const sentimentSettingsSchema = z.object({
   installEnabled: z.boolean(), enabled: z.boolean(), ready: z.boolean(), readinessReasons: z.array(z.string()), model: z.string(),
   enablementEpoch: count, completionBoundary: count,
   evaluationDefinitionId: id.nullable(), actions: z.object({ configure: z.boolean(), backfill: z.boolean() }).strict(),
-  experimental: z.literal(true), disclosure: z.string(),
+  // Kept for older clients. Sentiment is no longer labelled experimental, so the server sends false.
+  experimental: z.boolean(), disclosure: z.string(),
 }).strict()
 export type SentimentSettings = z.infer<typeof sentimentSettingsSchema>
 export const sentimentBackfillSelectionSchema = sentimentSelectionBaseSchema.extend({ runIds: runIds.optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional() }).superRefine(exclusiveSentimentRuns)

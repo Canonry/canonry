@@ -171,7 +171,7 @@ const loadToolkitInputSchema = z.object({
 })
 
 const helpInputSchema = z.object({
-  intent: z.string().max(200).optional().describe('Workflow (status, diagnose, prospecting, measurement, integrations, reports) or a short task description.'),
+  intent: z.string().max(200).optional().describe('Workflow (status, diagnose, prospecting, measurement, integrations, reports, seo, operations, start) or a short task description. Use start for a new user.'),
   includeCatalog: z.boolean().optional().describe('Include full toolkit details. Omit for a compact, actionable route.'),
   playbook: z.string().regex(PLAYBOOK_SLUG).optional().describe('Slug from a help result\'s `playbooks`, such as "regression-playbook". Returns that analyst playbook in full instead of a route.'),
 })

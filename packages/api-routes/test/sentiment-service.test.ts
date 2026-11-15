@@ -587,6 +587,13 @@ describe('sentiment service reads', () => {
     for (const sent of ['answer\'s text', 'subject identity', 'qualified aliases', 'tracked query text', 'query class', 'answer engine', 'requested and served models', 'location', 'identifiers']) expect(disclosure).toContain(sent)
     expect(disclosure).not.toContain('\u2014')
   })
+
+  it('no longer labels sentiment experimental, keeping the field for older clients', () => {
+    const settings = service.settings('p')
+    expect(settings.experimental).toBe(false)
+    expect(settings.disclosure).not.toMatch(/experimental/i)
+    expect(settings.disclosure.startsWith('English sentiment classification.')).toBe(true)
+  })
 })
 
 /** The HTTP routes over the same database and preview secret, so a cursor moves between the service and HTTP. */

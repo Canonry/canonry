@@ -1723,7 +1723,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: { 200: jsonResponse('Secret-free configuration and effective permissions.', 'SentimentSettings'), 404: errorResponse('Project not found.') },
   },
   {
-    method: 'put', path: '/api/v1/projects/{name}/sentiment/settings', summary: 'Configure experimental project sentiment', tags: ['sentiment'], parameters: [nameParameter],
+    method: 'put', path: '/api/v1/projects/{name}/sentiment/settings', summary: 'Configure project sentiment', tags: ['sentiment'], parameters: [nameParameter],
     description: 'Install administrators only. Enabling processes future eligible completions; historical backfill is explicit. Stance-only evaluator definitions are immutable and comparisons preserve their identity. TypeSafe credentials remain local install configuration.',
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SentimentSettingsUpdate' } } } },
     responses: { 200: jsonResponse('Updated project configuration.', 'SentimentSettings'), 400: errorResponse('Invalid configuration or install unavailable.'), 403: errorResponse('Install administrator required.'), 404: errorResponse('Project not found.') },

@@ -970,7 +970,7 @@ export const getApiV1ProjectsByNameSentimentSettings = <ThrowOnError extends boo
 });
 
 /**
- * Configure experimental project sentiment
+ * Configure project sentiment
  *
  * Install administrators only. Enabling processes future eligible completions; historical backfill is explicit. Stance-only evaluator definitions are immutable and comparisons preserve their identity. TypeSafe credentials remain local install configuration.
  */
