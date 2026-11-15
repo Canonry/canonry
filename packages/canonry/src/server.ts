@@ -316,6 +316,7 @@ import {
   executeGtmMarketingSync,
 } from "./google-marketing-sync.js";
 import { assessConversionTrackingIntegrity } from "@canonry/canonry-intelligence";
+import { PACKAGE_VERSION } from "./package-version.js";
 
 const log = createLogger("Server");
 
@@ -3306,6 +3307,7 @@ export async function createServer(opts: {
     // Powers the `canonry.version.current` doctor check. Non-blocking.
     getUpdateStatus: () => getServerUpdateStatus(),
     allowLoopbackWebhooks,
+    appVersion: PACKAGE_VERSION,
     // Wall-clock budget for one incremental Vercel drain. This is the only lever
     // that decides whether a source catches up or falls further behind, and it
     // was previously reachable only from tests, so a source losing ground could
