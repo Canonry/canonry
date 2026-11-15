@@ -299,7 +299,7 @@ catalog and remains usable without fetching this document.
 
 Read only references relevant to the requested task. They are not required for MCP operation.
 
-- [Getting started: the first-run loop and questions to ask](../aero/references/getting-started.md)
+- [Getting started: the first-run loop and questions to ask](references/getting-started.md)
 - [CLI commands and JSON return shapes](references/canonry-cli.md)
 - [Interpreting stored evidence and regressions](references/aeo-analysis.md)
 - [Indexing workflow after inspection and approval](references/indexing.md)

@@ -143,10 +143,11 @@ engine accounts.
 - **AI visibility.** Show `canonry_run_preview` so the user sees the number of
   requests, get approval, then call `canonry_run_trigger` (CLI:
   `cnry run <project> --wait`). The price depends on the operator's engine
-  plans. With several locations, pass `allLocations: true` (CLI:
-  `--all-locations`); the preview counts only the default location, so
-  multiply its requests by the number of locations. The first check runs once
-  and creates no schedule.
+  plans. On a Simple project with several locations, pass `allLocations: true`
+  (CLI: `--all-locations`); the preview counts only the default location, so
+  multiply its requests by the number of locations. An Advanced plan sets each
+  location itself: its preview already covers them, and it rejects
+  `allLocations`. The first check runs once and creates no schedule.
 - Before reading numbers, confirm the run finished (`canonry_run_get`). A
   partial run is a capture failure, not a low reading. Read a few branded
   answers to confirm each mention is about this business.

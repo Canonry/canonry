@@ -90,14 +90,42 @@ export const AERO_MIRRORED_REFERENCES = [
   },
 ]
 
+// Aero references the Canonry skill links to. `cnry skills install canonry`
+// installs that skill alone, so a link into ../aero would be dead; each one is
+// copied into the Canonry references folder without Aero's frontmatter. The
+// Aero reference is the source.
+export const CANONRY_MIRRORED_REFERENCES = [
+  {
+    source: 'skills/aero/references/getting-started.md',
+    target: 'skills/canonry/references/getting-started.md',
+    into: 'canonry',
+  },
+]
+
+export const MIRRORED_REFERENCES = [...AERO_MIRRORED_REFERENCES, ...CANONRY_MIRRORED_REFERENCES]
+
+const CANONRY_MIRROR_PREFACE = [
+  '> This copy ships with the Canonry skill. The playbooks it names by slug, and',
+  '> the Aero skill it refers to, ship with the Aero skill: add them with',
+  '> `cnry skills install aero`, or read one over MCP with',
+  '> `canonry_help({playbook: "<slug>"})`.',
+  '',
+  '',
+].join('\n')
+
 export function renderMirroredReference(reference, body) {
+  if (reference.into === 'canonry') {
+    return `<!-- Generated from ${reference.source} by pnpm guide:sync. Do not edit. -->\n\n`
+      + CANONRY_MIRROR_PREFACE
+      + body.replace(/^---\n[\s\S]*?\n---\n+/, '')
+  }
   const slug = path.basename(reference.target, '.md')
   return `---\nname: ${slug}\ndescription: ${JSON.stringify(reference.description)}\n---\n\n`
     + `<!-- Generated from ${reference.source} by pnpm guide:sync. Do not edit. -->\n\n`
     + body
 }
 
-export function syncMirroredReferences(root = repoRoot, checkOnly = false, references = AERO_MIRRORED_REFERENCES) {
+export function syncMirroredReferences(root = repoRoot, checkOnly = false, references = MIRRORED_REFERENCES) {
   const failures = []
   for (const reference of references) {
     const expected = renderMirroredReference(reference, fs.readFileSync(path.join(root, reference.source), 'utf8'))
