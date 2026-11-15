@@ -1434,10 +1434,11 @@ cnry gbp locations discover <project> [--account accounts/{n}] [--switch-account
 cnry gbp locations <project> [--selected-only]     # list discovered locations + selection state
 cnry gbp locations select   <project> --location locations/{n}
 cnry gbp locations deselect <project> --location locations/{n}
-                                                   # only SELECTED locations are synced; deselect also removes
+                                                   # only SELECTED locations are synced; deselect also deletes
                                                    # that location's stored reviews, rating history and stats
-                                                   # (selecting again re-fetches them). The list and select flag a
-                                                   # location whose website is not one of the project's domains
+                                                   # (selecting again fetches current data only). The list and
+                                                   # select flag a location whose website is not one of the
+                                                   # project's domains; discover leaves such a location unselected
 cnry gbp sync <project> [--location locations/{n}] [--days N] [--months N] [--wait]
                                                    # fires the gbp-sync run: daily metrics + keyword impressions
                                                    # + place-action links + lodging snapshot per selected location;

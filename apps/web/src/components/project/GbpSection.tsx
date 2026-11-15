@@ -723,13 +723,6 @@ interface GbpAccountOption {
 }
 
 /**
- * Discovers the account's locations through `POST /gbp/locations/discover`,
- * the same call as `canonry gbp locations discover`. The first discovery picks
- * the account; later ones reuse the project's account, because pointing a
- * project at another account replaces its data and stays an explicit CLI step
- * (`--switch-account`). "Track new locations" is the CLI's `--no-select-new`.
- */
-/**
  * One row of Manage locations. Untracking also removes the location's stored
  * reviews, rating history and stats, and a location flagged as another
  * business's website should not be tracked by accident, so both go through an
@@ -793,7 +786,7 @@ function ManagedLocationRow({
 
   const title = untracking ? `Untrack ${location.displayName}?` : `Track ${location.displayName} in this project?`
   const detail = untracking
-    ? 'Its stored reviews, rating history and stats are removed from this project. Tracking it again fetches them.'
+    ? 'Its stored reviews, rating history and stats are removed from this project. Tracking it again fetches current data only; removed history does not come back.'
     : `Its website${location.websiteDomain ? `, ${location.websiteDomain},` : ''} is not one of this project's domains. Its reviews, review alerts and stats would count in this project.`
 
   return (
@@ -861,7 +854,12 @@ function ManagedLocationRow({
                 {error && <p role="alert" className="mt-2 text-copy-14 text-negative">{error}</p>}
               </div>
             ) : (
-              <p role="alert" className="text-copy-14 text-negative">{error}</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <p role="alert" className="text-copy-14 text-negative">{error}</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => setError(null)}>
+                  Dismiss
+                </Button>
+              </div>
             )}
           </td>
         </tr>
@@ -870,6 +868,13 @@ function ManagedLocationRow({
   )
 }
 
+/**
+ * Discovers the account's locations through `POST /gbp/locations/discover`,
+ * the same call as `canonry gbp locations discover`. The first discovery picks
+ * the account; later ones reuse the project's account, because pointing a
+ * project at another account replaces its data and stays an explicit CLI step
+ * (`--switch-account`). "Track new locations" is the CLI's `--no-select-new`.
+ */
 function GbpDiscoverControl({
   firstDiscovery,
   chooseAccount,

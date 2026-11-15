@@ -8,8 +8,8 @@ import {
   forbidden, quotaExceeded, providerError, escapeLikePattern, AppError,
   hostMatchesDomain,
   effectiveDomains,
+  gbpWebsiteHost,
   gbpWebsiteMatchesProject,
-  registrableDomain,
   hostOf,
   type GoogleConnectionType,
   gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema, gbpSyncRequestSchema,
@@ -484,6 +484,23 @@ function gscErrorToAppError(err: unknown, context: string): AppError {
 
   return providerError(`${context}: ${describeError(err)}`)
 }
+
+/**
+ * Every synced Business Profile table keyed by project and location. Disconnect
+ * and an account switch clear them for a project, and a deselect for one
+ * location. A test fails when a table with a location column is missing here.
+ */
+export const GBP_LOCATION_DATA_TABLES = [
+  gbpDailyMetrics,
+  gbpKeywordImpressions,
+  gbpKeywordMonthly,
+  gbpPlaceActions,
+  gbpLodgingSnapshots,
+  gbpAttributesSnapshots,
+  gbpPlaceDetails,
+  gbpReviews,
+  gbpReviewRatings,
+] as const
 
 export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptions) {
   // State signing is the only thing keeping an attacker from forging an OAuth
@@ -2225,7 +2242,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       openingDate: row.openingDate ?? null,
       selected: Boolean(row.selected),
       websiteMatchesProject: gbpWebsiteMatchesProject(row.websiteUri, projectDomains),
-      websiteDomain: registrableDomain(row.websiteUri) || null,
+      websiteDomain: gbpWebsiteHost(row.websiteUri),
       syncedAt: row.syncedAt ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -2248,34 +2265,24 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   // switch (where the old account's data must not linger). These data tables
   // cascade only on PROJECT deletion, so they have to be cleared explicitly.
   function clearGbpProjectData(tx: Pick<DatabaseClient, 'delete'>, projectId: string): void {
-    tx.delete(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, projectId)).run()
-    tx.delete(gbpKeywordImpressions).where(eq(gbpKeywordImpressions.projectId, projectId)).run()
-    tx.delete(gbpKeywordMonthly).where(eq(gbpKeywordMonthly.projectId, projectId)).run()
-    tx.delete(gbpPlaceActions).where(eq(gbpPlaceActions.projectId, projectId)).run()
-    tx.delete(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, projectId)).run()
-    tx.delete(gbpAttributesSnapshots).where(eq(gbpAttributesSnapshots.projectId, projectId)).run()
-    tx.delete(gbpPlaceDetails).where(eq(gbpPlaceDetails.projectId, projectId)).run()
-    tx.delete(gbpReviews).where(eq(gbpReviews.projectId, projectId)).run()
-    tx.delete(gbpReviewRatings).where(eq(gbpReviewRatings.projectId, projectId)).run()
+    for (const table of GBP_LOCATION_DATA_TABLES) {
+      tx.delete(table).where(eq(table.projectId, projectId)).run()
+    }
     tx.delete(gbpLocations).where(eq(gbpLocations.projectId, projectId)).run()
   }
 
   // Clear one location's synced data from a project, keeping the location row.
   // Deselecting a location calls this, so data from a location tracked by
   // mistake (for example another business on the same Google account) leaves
-  // the project's reviews, stats and reports. Selecting it again re-fetches the
-  // same windows a sync keeps, and its reviews start from a silent baseline
-  // because the rating rows that mark one are cleared too.
+  // the project's reviews, stats and reports. Selecting it again fetches the
+  // current sync windows only: rating history, older snapshots, older keyword
+  // months and reviews Google no longer returns do not come back. Its reviews
+  // start from a silent baseline because the rating rows that mark one are
+  // cleared too.
   function clearGbpLocationData(tx: Pick<DatabaseClient, 'delete'>, projectId: string, locationName: string): void {
-    tx.delete(gbpDailyMetrics).where(and(eq(gbpDailyMetrics.projectId, projectId), eq(gbpDailyMetrics.locationName, locationName))).run()
-    tx.delete(gbpKeywordImpressions).where(and(eq(gbpKeywordImpressions.projectId, projectId), eq(gbpKeywordImpressions.locationName, locationName))).run()
-    tx.delete(gbpKeywordMonthly).where(and(eq(gbpKeywordMonthly.projectId, projectId), eq(gbpKeywordMonthly.locationName, locationName))).run()
-    tx.delete(gbpPlaceActions).where(and(eq(gbpPlaceActions.projectId, projectId), eq(gbpPlaceActions.locationName, locationName))).run()
-    tx.delete(gbpLodgingSnapshots).where(and(eq(gbpLodgingSnapshots.projectId, projectId), eq(gbpLodgingSnapshots.locationName, locationName))).run()
-    tx.delete(gbpAttributesSnapshots).where(and(eq(gbpAttributesSnapshots.projectId, projectId), eq(gbpAttributesSnapshots.locationName, locationName))).run()
-    tx.delete(gbpPlaceDetails).where(and(eq(gbpPlaceDetails.projectId, projectId), eq(gbpPlaceDetails.locationName, locationName))).run()
-    tx.delete(gbpReviews).where(and(eq(gbpReviews.projectId, projectId), eq(gbpReviews.locationName, locationName))).run()
-    tx.delete(gbpReviewRatings).where(and(eq(gbpReviewRatings.projectId, projectId), eq(gbpReviewRatings.locationName, locationName))).run()
+    for (const table of GBP_LOCATION_DATA_TABLES) {
+      tx.delete(table).where(and(eq(table.projectId, projectId), eq(table.locationName, locationName))).run()
+    }
   }
 
   // The account a project currently tracks, derived from its locations (they
@@ -2292,7 +2299,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
   // POST /projects/:name/gbp/locations/discover
   // Re-discover locations from Google and upsert them. New rows get
-  // `selected = body.selectAllNew`. Existing rows keep their selected state.
+  // `selected = body.selectAllNew`, except a location whose website is not one
+  // of the project's domains, which stays unselected until someone tracks it.
+  // Existing rows keep their selected state.
   // Account selection is per project: an explicit `accountName` discovers that
   // account's locations; omitting it reuses the account the project already
   // tracks (falling back to the first visible account on the first discover).
@@ -2314,6 +2323,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       throw validationError(parsed.error.issues[0]?.message ?? 'Invalid discover request')
     }
     const { selectAllNew, accountName: requestedAccount, switchAccount } = parsed.data
+    const projectDomains = projectDomainsOf(project)
 
     const { accessToken } = await getValidToken(
       store, project.canonicalDomain, 'gbp', googleClientId, googleClientSecret,
@@ -2414,7 +2424,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
             placeId: remote.metadata?.placeId ?? null,
             mapsUri: remote.metadata?.mapsUri ?? null,
             ...profile,
-            selected: selectAllNew,
+            selected: selectAllNew && gbpWebsiteMatchesProject(remote.websiteUri ?? null, projectDomains) !== false,
             createdAt: now,
             updatedAt: now,
           }).run()
