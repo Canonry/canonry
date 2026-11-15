@@ -7,7 +7,10 @@ import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, auditLog, writeNegativeReviewMaxStars } from '@canonry/canonry-db'
 import { AppError, gbpReviewListResponseSchema, type GoogleConnectionType } from '@canonry/canonry-contracts'
-import { googleRoutes } from '../src/google.js'
+import { GBP_LOCATION_DATA_TABLES, googleRoutes } from '../src/google.js'
+import * as db from '@canonry/canonry-db'
+import { getTableColumns, getTableName, is } from 'drizzle-orm'
+import { SQLiteTable } from 'drizzle-orm/sqlite-core'
 
 interface StoredConnection {
   domain: string
@@ -186,7 +189,7 @@ describe('GBP routes (Phase 1)', () => {
       mockGoogleResponses({
         accounts: [{ name: 'accounts/123', accountName: 'Hotel Group' }],
         locations: [
-          { name: 'locations/1', title: 'Hotel One', websiteUri: 'https://one.example.com', categories: { primaryCategory: { displayName: 'Hotel' } } },
+          { name: 'locations/1', title: 'Hotel One', websiteUri: 'https://one.hotels.example.com', categories: { primaryCategory: { displayName: 'Hotel' } } },
           { name: 'locations/2', title: 'Hotel Two', categories: { primaryCategory: { displayName: 'Resort' } } },
         ],
       })
@@ -203,6 +206,26 @@ describe('GBP routes (Phase 1)', () => {
       expect(body.totalSelected).toBe(2)
       expect(body.locations.map(l => l.locationName).sort()).toEqual(['locations/1', 'locations/2'])
       expect(body.locations.every(l => l.selected)).toBe(true)
+    })
+
+    it('leaves a new location on another business\'s website unselected, even with selectAllNew', async () => {
+      ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
+      mockGoogleResponses({
+        accounts: [{ name: 'accounts/123' }],
+        locations: [
+          { name: 'locations/1', title: 'Hotel One', websiteUri: 'https://www.hotels.example.com/' },
+          { name: 'locations/2', title: 'Other Business', websiteUri: 'https://other-business.example/' },
+          { name: 'locations/3', title: 'No Website' },
+        ],
+      })
+
+      const res = await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: { selectAllNew: true } })
+
+      const body = res.json() as { totalSelected: number; locations: Array<{ locationName: string; selected: boolean; websiteMatchesProject: boolean | null }> }
+      const state = Object.fromEntries(body.locations.map(l => [l.locationName, [l.selected, l.websiteMatchesProject]]))
+      expect(state).toEqual({ 'locations/1': [true, true], 'locations/2': [false, false], 'locations/3': [true, null] })
+      expect(body.totalSelected).toBe(2)
     })
 
     it('persists the Maps placeId + mapsUri from location metadata (#648)', async () => {
@@ -574,6 +597,16 @@ describe('GBP routes (Phase 1)', () => {
 
       const selected = await setSelection('hotels', 'locations/2', true)
       expect(selected.json()).toMatchObject({ selected: true, websiteMatchesProject: false, websiteDomain: 'other-business.example' })
+    })
+
+    it('clears every table keyed by location: a new one must join GBP_LOCATION_DATA_TABLES', () => {
+      const tablesWithLocation = Object.values(db)
+        .filter((value): value is SQLiteTable => is(value, SQLiteTable))
+        .filter(table => 'locationName' in getTableColumns(table) && 'projectId' in getTableColumns(table))
+        .map(table => getTableName(table))
+        .filter(name => name !== 'gbp_locations')
+        .sort()
+      expect(GBP_LOCATION_DATA_TABLES.map(table => getTableName(table)).sort()).toEqual(tablesWithLocation)
     })
 
     it('returns 404 for an unknown location', async () => {

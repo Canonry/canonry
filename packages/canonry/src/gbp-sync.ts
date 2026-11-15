@@ -322,7 +322,14 @@ export async function executeGbpSync(
           const insertNow = reviewNow.toISOString()
           // Range-replace the per-sync surfaces for this location in one
           // transaction so a re-sync never leaves stale or duplicate rows.
-          db.transaction((tx) => {
+          const written = db.transaction((tx) => {
+            // A deselect during the Google calls above has cleared this
+            // location's data; writing now would put it back.
+            const stillSelected = tx.select({ id: gbpLocations.id }).from(gbpLocations)
+              .where(and(eq(gbpLocations.id, loc.id), eq(gbpLocations.selected, true)))
+              .get()
+            if (!stillSelected) return false
+
             tx.delete(gbpDailyMetrics)
               .where(and(eq(gbpDailyMetrics.projectId, projectId), eq(gbpDailyMetrics.locationName, loc.locationName)))
               .run()
@@ -503,7 +510,12 @@ export async function executeGbpSync(
               })
               .where(eq(gbpLocations.id, loc.id))
               .run()
+            return true
           })
+          if (!written) {
+            log.info('location.deselected-during-sync', { runId, location: loc.locationName })
+            return
+          }
           okCount++
           rowsWritten += metricRows.length + keywordRows.length + placeActionRows.length
             + monthlyKeywordResults.reduce((total, month) => total + month.rows.length, 0)

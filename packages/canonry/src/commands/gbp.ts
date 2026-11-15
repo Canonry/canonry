@@ -164,8 +164,8 @@ export async function gbpLocationDeselect(
     return
   }
   console.log(
-    `Deselected ${opts.location} ("${updated.displayName}"). Future syncs skip it, and its stored reviews and stats ` +
-    'were removed from this project. Selecting it again fetches them again.',
+    `Deselected ${opts.location} ("${updated.displayName}"). Future syncs skip it, and its stored reviews, rating history ` +
+    'and stats were removed from this project. Selecting it again fetches current data only; removed history does not come back.',
   )
 }
 

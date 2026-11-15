@@ -546,6 +546,28 @@ test("flags another business's website, and tracking it asks first; a location o
   await waitFor(() => expect(puts.at(-1)).toEqual({ path: expect.stringMatching(/locations%2F456\/selection$/), body: { selected: true } }))
 })
 
+test('a failed direct Track shows the error with a Dismiss control', async () => {
+  const restoreFetch = mockFetch((url, init) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/selection') && init?.method === 'PUT') {
+      return jsonResponse({ error: { code: 'FORBIDDEN', message: 'Insufficient scope' } }, 403)
+    }
+    const read = connectedGbpRead(urlPath, [makeLocation({ selected: false, websiteMatchesProject: true, websiteDomain: 'harborline.example.com' })])
+    if (read) return read
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection()
+  fireEvent.click(await screen.findByRole('button', { name: /Manage locations/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Track' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert.textContent).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
 const settingsResponse = (configured: boolean) =>
   jsonResponse({ providers: [], providerCatalog: [], google: { configured }, bing: { configured: false } })
 

@@ -3064,11 +3064,11 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_gbp_location_select',
     title: 'Toggle GBP location selection',
-    description: 'Mark a Google Business Profile location as selected or deselected for sync. Deselecting also removes that location\'s stored reviews, rating history and stats from the project; selecting it again re-fetches them. Locations carry websiteMatchesProject: false when their website is not one of the project\'s domains, usually another business on the same Google account.',
+    description: 'Mark a Google Business Profile location as selected or deselected for sync. Deselecting also deletes that location\'s stored reviews, rating history and stats from the project; selecting it again fetches current data only, so removed history does not come back. Locations carry websiteMatchesProject: false when their website is not one of the project\'s domains, usually another business on the same Google account.',
     access: 'write',
     tier: 'gbp',
     inputSchema: gbpLocationSelectionInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['PUT /api/v1/projects/{name}/gbp/locations/{locationName}/selection'],
     handler: (client, input) => client.setGbpLocationSelection(input.project, input.locationName, input.selected),
   }),
