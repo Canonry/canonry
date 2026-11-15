@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { GbpReviewOrigin } from './gbp.js'
+import type { QueryClass } from './query-class.js'
 
 export const REDACTED_NOTIFICATION_URL_PROTOCOL = 'redacted:'
 
@@ -21,8 +22,22 @@ export function isRedactedNotificationUrl(url: string): boolean {
 }
 
 export const notificationEventSchema = z.enum([
+  /**
+   * The project's domain dropped out of, or appeared in, an answer's source
+   * links since the previous sweep. An answer from an engine that returns no
+   * sources (`not-measured`) never moves in or out of either state.
+   */
   'citation.lost',
   'citation.gained',
+  /**
+   * The project's brand or domain dropped out of, or appeared in, an answer's
+   * prose since the previous sweep. Independent of the citation events: an
+   * answer can gain a mention while losing its citation. An answer whose
+   * mention was never checked (no stored answer text and no stored verdict)
+   * never moves in or out of either state.
+   */
+  'mention.lost',
+  'mention.gained',
   'run.completed',
   'run.failed',
   'insight.critical',
@@ -86,8 +101,46 @@ export const notificationEventSchema = z.enum([
    * it, so the problem is reported again if it comes back.
    */
   'site-health.issue.new',
+  /**
+   * Sentiment found an answer newly unfavorable about the brand (or, on a
+   * custom portfolio, a Property): rated `unfavorable` now, where the same
+   * query, engine, location and subject had a known verdict that was not
+   * unfavorable in the previous rated sweep of its class. Sent once per sweep,
+   * after that sweep's automatic sentiment work settles, so an answer that
+   * stays unfavorable is reported once. Both query classes are covered and
+   * each answer names its class. A sweep judged by another evaluator
+   * definition, or an answer whose engine or evaluator model changed, is no
+   * like-for-like change and sends nothing; so do backfills, and the sweeps
+   * that settled before a project's first pass.
+   */
+  'sentiment.unfavorable',
 ])
 export type NotificationEvent = z.infer<typeof notificationEventSchema>
+
+/**
+ * One line per event, shown wherever a webhook's events are chosen (`canonry
+ * notify events`, the dashboard's webhook form). Keyed by every event, so a new
+ * event cannot ship without one.
+ */
+export const NOTIFICATION_EVENT_DESCRIPTIONS: Readonly<Record<NotificationEvent, string>> = {
+  'citation.lost': "A query's answer stopped citing the project's domain in its sources",
+  'citation.gained': "A query's answer started citing the project's domain in its sources",
+  'mention.lost': "A query's answer stopped mentioning the project's brand or domain in its text",
+  'mention.gained': "A query's answer started mentioning the project's brand or domain in its text",
+  'run.completed': 'An AEO sweep completed successfully',
+  'run.failed': 'An AEO sweep failed',
+  'insight.critical': 'A critical-severity insight was generated',
+  'insight.high': 'A high-severity insight was generated',
+  'health.degraded': 'A scheduled health check found the measurement degraded, daily data stopped arriving, or the website stopped answering (sent when a check starts failing or gets worse, not every pass)',
+  'health.recovered': 'A degraded health check is passing again, or a website that was paged as down answers again',
+  'health.urgent': 'An urgent problem started: the website is down, GA4 or Search Console data is stale, or a sync keeps failing. A webhook that lists this receives only the health events it lists, so it is not sent routine warnings',
+  'health.urgent-resolved': 'The urgent problems that were reported have cleared (the website check and the scheduled health pass each send their own)',
+  'review.negative': "A new or edited Google review at or below the project's negative-review threshold, 3 stars by default (Business Profile reviews, or the public listing when Google has not enabled review access)",
+  'review.rating-dropped': "A location's public Google rating fell (sent for locations without Business Profile review access)",
+  'traffic.agent.discovered': 'A bot or agent no Canonry rule recognizes showed up in server-side traffic (first seen in the last 7 days, at least 3 hits, after the first week of recorded traffic), once per name',
+  'sentiment.unfavorable': "Sentiment rated an answer about the brand (or a Property) unfavorable where the previous rated sweep's matching answer was not; an answer that stays unfavorable is reported once",
+  'site-health.issue.new': 'An Agent Readiness audit scan found a critical page problem (no H1, several H1s, no title, a page naming another property) on pages where it was not reported before; a problem that stays unfixed is reported once',
+}
 
 export const notificationDtoSchema = z.object({
   id: z.string(),
@@ -198,6 +251,20 @@ export interface WebhookPayload {
   event: NotificationEvent
   project: { name: string; canonicalDomain: string }
   run: { id: string; status: string; finishedAt: string | null }
+  /**
+   * Answers whose signal changed since the previous sweep, one per query,
+   * engine and location. On `mention.lost` / `mention.gained`, `from` and `to`
+   * are `mentioned` / `not-mentioned`. On every other event they are citation
+   * states (`cited` / `not-cited`): `run.completed` and `run.failed` carry the
+   * citation changes, as they always have.
+   *
+   * On a custom portfolio (an active schema v2 measurement plan) each
+   * transition is one Property's answer, read from the frozen plan as the
+   * overview's What changed reads it, and carries `property` and `markets`. A
+   * sweep that cannot be compared with the one before it (a different plan
+   * definition, engines or models, or either sweep partial) sends no
+   * transitions there.
+   */
   transitions: Array<{
     query: string
     from: string
@@ -210,6 +277,16 @@ export interface WebhookPayload {
      * canonry post-#480 when the underlying snapshot carries a location.
      */
     location?: string | null
+    /**
+     * `branded` or `non-brand`: a branded query names the project, so its
+     * answers say little about the category. Null when the query has no
+     * single class (an unclassifiable query, or assignments that disagree).
+     */
+    queryClass?: QueryClass | null
+    /** Custom portfolios only: the Property whose mention or citation changed. */
+    property?: { key: string; label: string }
+    /** Custom portfolios only: the frozen reporting markets of that Property's assignments of this query. */
+    markets?: Array<{ key: string; label: string }>
   }>
   dashboardUrl: string
 }
@@ -258,6 +335,42 @@ export interface SiteHealthIssueWebhookPayload {
   /** Whether the scan reached every page it found. A partial scan can miss pages. */
   scanComplete: boolean
   issues: SiteHealthIssueAlert[]
+  dashboardUrl: string
+}
+
+/** One answer sentiment newly rates unfavorable, in a `sentiment.unfavorable` payload. */
+export interface SentimentUnfavorableAnswer {
+  query: string
+  queryId: string
+  /** Sentiment is a branded figure: a non-brand answer names the brand to recommend it, so read its verdict as an exception. */
+  queryClass: 'branded' | 'non-brand'
+  provider: string
+  location: string | null
+  /** Custom portfolios only: the Property the verdict is about. On a Simple project the subject is the project's brand. */
+  property?: { key: string; label: string }
+  /** Custom portfolios only: the frozen reporting markets of that Property's assignments of this query. */
+  markets?: Array<{ key: string; label: string }>
+  /** The sweep the answer was compared with: the previous rated sweep of its class. */
+  previousRunId: string
+  /** The verdict on the matching answer there, e.g. `favorable`, `mixed` or `factual`. */
+  previousOutcome: string
+  /** The sentences the evaluator based the verdict on, quoted from the answer. */
+  conclusion: string[]
+  /** The complaint the evaluator found in the answer, quoted, when it found one. */
+  complaint: string[] | null
+}
+
+/**
+ * Answers a sweep's sentiment newly rates unfavorable. Carries the sweep's
+ * `run` like the run events; the verdicts arrive after it completes.
+ */
+export interface SentimentWebhookPayload {
+  source: 'canonry'
+  event: 'sentiment.unfavorable'
+  project: { name: string; canonicalDomain: string }
+  run: { id: string; status: string; finishedAt: string | null }
+  /** Ordered by query, engine, location and Property. */
+  answers: SentimentUnfavorableAnswer[]
   dashboardUrl: string
 }
 

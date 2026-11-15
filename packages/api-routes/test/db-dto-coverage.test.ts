@@ -1235,6 +1235,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Which unrecognized agent names already had a traffic.agent.discovered decision; notifier bookkeeping, never returned.',
   },
+  sentimentAlertRuns: {
+    kind: 'internal-only',
+    reason: 'Which sweeps already had a sentiment.unfavorable decision, so each sweep alerts once; notifier bookkeeping, never returned. The verdicts themselves are served by GET /projects/:name/sentiment/evidence and /sentiment/compare.',
+  },
   aiUserFetchLikelyFakeHourly: {
     kind: 'internal-only',
     reason: 'Hourly likely fake agent totals consumed as source totals24h and agent journey coverage counts, not directly mapped to a DTO.',

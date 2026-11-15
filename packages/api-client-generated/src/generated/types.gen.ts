@@ -13832,7 +13832,7 @@ export type NotificationDto = {
     url: string;
     urlDisplay: string;
     urlHost: string;
-    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new'>;
+    events: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
     enabled: boolean;
     source?: string;
     webhookSecret?: string;
@@ -14527,7 +14527,7 @@ export type ProjectConfig = {
             id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
         }>;
         google?: {
             gsc?: {
@@ -14612,7 +14612,7 @@ export type ProjectConfigExport = {
             id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
         }>;
         google?: {
             gsc?: {

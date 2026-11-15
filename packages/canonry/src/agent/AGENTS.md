@@ -502,7 +502,7 @@ correctly and used about twice the tool calls.
 
 `canonry agent attach <project> --url <webhook-url>` registers an agent
 webhook subscribing to `run.completed`, `insight.critical`, `insight.high`,
-`citation.gained`. Idempotent — skipped if one already exists on the project.
+`citation.gained`, `mention.gained`. Idempotent — skipped if one already exists on the project.
 `canonry agent detach <project>` removes it. The event list is `AGENT_WEBHOOK_EVENTS` in `src/agent-webhook.ts`.
 
 ## Agent file rules

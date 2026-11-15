@@ -123,12 +123,12 @@ import {
   googleAdsMetricsWindowSchema,
   canonicalizeGtmAccountId,
   canonicalizeGtmResourceSelection,
-  type NotificationEvent,
   runListFilterQuerySchema,
 } from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import type { ApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
+import { AGENT_WEBHOOK_EVENTS } from '../agent-webhook.js'
 import {
   dedupeGscSitemapUrls,
   resolveDiscoveredGscSitemapUrls,
@@ -1350,13 +1350,6 @@ const technicalAeoRunInputSchema = z.object({
   includeAgentSkills: siteAuditRunRequestSchema.shape.includeAgentSkills.removeDefault().optional().describe('Check discoverable actions, forms, and agent integrations by default. Set false to disable.'),
   sites: siteAuditRunRequestSchema.shape.sites.describe('Owned domains this scan covers besides the main domain, which every scan covers, at most 20. Each must be one of the project\'s owned domains. Omitted uses the project\'s saved siteAuditDomains (set with canonry_project_update); [] scans the main domain only. The page budget is shared across every site.'),
 })
-
-const AGENT_WEBHOOK_EVENTS = [
-  notificationEventSchema.enum['run.completed'],
-  notificationEventSchema.enum['insight.critical'],
-  notificationEventSchema.enum['insight.high'],
-  notificationEventSchema.enum['citation.gained'],
-] satisfies NotificationEvent[]
 
 // Query rows are compact and paged, so an ordinary project's summary fits an MCP result.
 const sentimentInputSchema = sentimentSelectionSchema.safeExtend({

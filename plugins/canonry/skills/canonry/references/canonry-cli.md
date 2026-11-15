@@ -807,7 +807,7 @@ cnry schedule enable <project>
 cnry schedule disable <project>
 cnry schedule remove <project>
 
-cnry notify add <project> --webhook <url> --events citation.lost,citation.gained
+cnry notify add <project> --webhook <url> --events mention.lost,mention.gained,citation.lost,citation.gained
 cnry notify events                             # list all available event types
 cnry notify list <project>
 cnry notify remove <project> <id>
@@ -815,6 +815,10 @@ cnry notify test <project> <id>
 ```
 
 Use `cnry notify events --target server` for the connected server's current event catalog.
+
+`mention.lost` / `mention.gained` fire when the project's brand or domain leaves or enters an answer's text since the previous sweep; `citation.lost` / `citation.gained` fire when its domain leaves or enters the answer's source links. The two move independently, so subscribe to both to see every AI visibility change. Each transition names the query, engine, location and `queryClass` (`branded`, `non-brand`, or null); mention transitions read `mentioned` / `not-mentioned`, citation transitions `cited` / `not-cited`. An answer whose mention was never checked, or whose citation was not measured (an engine with no sources), sends neither. On an Advanced project each transition is one Property's answer and adds `property` and `markets`, compared with the comparable previous sweep exactly as `cnry overview`'s What changed compares it: a sweep with different engines, models or plan definition, or a partial one, sends no transitions. `run.completed` keeps carrying the citation transitions only.
+
+`sentiment.unfavorable` fires when sentiment rates an answer unfavorable where the previous rated sweep's matching answer (same query, engine, location and subject) had a known verdict that was not: `favorable`, `mixed`, `factual`, `subject-not-mentioned` or `wrong-subject`. It is sent once per sweep, after that sweep's automatic sentiment work settles (verdicts arrive minutes after `run.completed`), listing each answer's query, `queryClass`, engine, location, `previousOutcome` and the evaluator's quoted `conclusion` and `complaint`, plus `property` and `markets` on an Advanced project. An answer that stays unfavorable is reported once; backfills, probes, answers whose engine or evaluator model changed, and a class judged by another evaluator definition send nothing. Non-brand verdicts are exceptions to read, not a share. Follow up with `cnry sentiment evidence <project> --run-id <id> --query-class <class> --outcome unfavorable`.
 
 `insight.critical` and `insight.high` fire when the intelligence engine generates critical- or high-severity insights after a sweep completes.
 
@@ -2000,7 +2004,7 @@ cnry agent detach <project>                            # remove the agent webhoo
 cnry agent detach <project> --format json              # JSON output
 ```
 
-**Agent webhooks** fire on `run.completed`, `insight.critical`, `insight.high`, and `citation.gained`. The attach/detach pair is idempotent per project (one agent webhook per project, matched by source tag).
+**Agent webhooks** fire on `run.completed`, `insight.critical`, `insight.high`, `citation.gained`, and `mention.gained`. The attach/detach pair is idempotent per project (one agent webhook per project, matched by source tag).
 
 ## Output Formats
 

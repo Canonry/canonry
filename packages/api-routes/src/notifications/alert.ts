@@ -7,6 +7,7 @@ import type {
   NotificationEvent,
   RatingWebhookPayload,
   ReviewWebhookPayload,
+  SentimentWebhookPayload,
   SiteHealthIssueWebhookPayload,
   UnrecognizedAgentWebhookPayload,
   WebhookPayload,
@@ -85,6 +86,7 @@ export type AnyNotificationPayload =
   | RatingWebhookPayload
   | UnrecognizedAgentWebhookPayload
   | SiteHealthIssueWebhookPayload
+  | SentimentWebhookPayload
 
 const HEALTH_EVENTS: ReadonlySet<NotificationEvent> = new Set([
   'health.degraded', 'health.recovered', 'health.urgent', 'health.urgent-resolved',
@@ -232,7 +234,8 @@ function runView(payload: WebhookPayload | InsightWebhookPayload): AlertView {
   if (transitions.length > 0) {
     fields.push({
       label: `${AlertFieldLabels.changes} (${transitions.length})`,
-      value: bulletList(transitions.map(t => `${t.provider}: ${t.from} → ${t.to} — ${t.query}`)),
+      // On a custom portfolio the same query can change for two Properties, so each line names its Property.
+      value: bulletList(transitions.map(t => `${t.provider}: ${t.from} → ${t.to} — ${t.query}${t.property ? ` (${t.property.label})` : ''}`)),
     })
   }
   if (insights.length > 0) {
@@ -389,6 +392,37 @@ function siteHealthView(payload: SiteHealthIssueWebhookPayload): AlertView {
   }
 }
 
+/**
+ * Answers a sweep's sentiment newly rates unfavorable. Each line names the
+ * engine, the query, its class and the Property, what the answer was before,
+ * and the evaluator's first quoted sentence, so the channel shows what was
+ * said without opening the dashboard.
+ */
+function sentimentView(payload: SentimentWebhookPayload): AlertView {
+  const { project, answers } = payload
+  const line = (answer: SentimentWebhookPayload['answers'][number]) => {
+    const subject = answer.property ? ` (${answer.property.label})` : ''
+    const quote = answer.conclusion[0] ? `: "${answer.conclusion[0]}"` : ''
+    return `${answer.provider}: ${answer.query}${subject} · ${answer.queryClass}, was ${answer.previousOutcome}${quote}`
+  }
+  return {
+    severity: AlertSeverities.warning,
+    category: CANONRY_ALERT_CATEGORY,
+    title: `${project.name}: ${answers.length} answer${answers.length === 1 ? '' : 's'} turned unfavorable`,
+    body: bulletList(answers.map(line)),
+    // Evidence reads one query class at a time, so each class present gets its own command.
+    fields: [{
+      label: AlertFieldLabels.next,
+      value: [...new Set(answers.map(answer => answer.queryClass))].sort()
+        .map(queryClass => `cnry sentiment evidence ${project.name} --run-id ${payload.run.id} --query-class ${queryClass} --outcome unfavorable`)
+        .join('\n'),
+    }],
+    url: payload.dashboardUrl,
+    footer: project.canonicalDomain,
+    ...(payload.run.finishedAt ? { timestamp: payload.run.finishedAt } : {}),
+  }
+}
+
 /** Project any notification payload onto the neutral view. */
 export function toAlertView(payload: AnyNotificationPayload): AlertView {
   if (isHealth(payload)) return healthView(payload)
@@ -396,5 +430,6 @@ export function toAlertView(payload: AnyNotificationPayload): AlertView {
   if (payload.event === 'review.rating-dropped') return ratingView(payload as RatingWebhookPayload)
   if (payload.event === 'traffic.agent.discovered') return unrecognizedAgentView(payload as UnrecognizedAgentWebhookPayload)
   if (payload.event === 'site-health.issue.new') return siteHealthView(payload as SiteHealthIssueWebhookPayload)
+  if (payload.event === 'sentiment.unfavorable') return sentimentView(payload as SentimentWebhookPayload)
   return runView(payload as WebhookPayload | InsightWebhookPayload)
 }

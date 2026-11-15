@@ -6,7 +6,6 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
-  canonicalMeasurementPlanV2Json,
   projectOverviewDtoSchema,
   RunKinds,
   RunStatuses,
@@ -17,8 +16,6 @@ import {
 } from '@canonry/canonry-contracts'
 import {
   createClient,
-  measurementPlans,
-  measurementPlanVersions,
   migrate,
   projects,
   queries,
@@ -27,8 +24,7 @@ import {
   type DatabaseClient,
 } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
-import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
-import { HARBOR_CONTEXT, measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
+import { measurementPlanV2Fixture, publishPlanV2, seedPlanV2Sweep } from './measurement-plan-v2-fixture.js'
 
 /**
  * Overview's "What changed" (`whatChanged` on GET /projects/:name/overview):
@@ -435,68 +431,27 @@ describe('What changed: Advanced projects', () => {
   })
 
   function publish(frozenPlan: MeasurementPlanV2): string {
-    const versionId = crypto.randomUUID()
-    db.insert(measurementPlanVersions).values({
-      id: versionId,
-      projectId: PROJECT_ID,
-      revision: 1,
-      canonicalJson: canonicalMeasurementPlanV2Json(frozenPlan),
-      checksum: 'c'.repeat(64),
-      schemaVersion: 2,
-      compiledChecksum: frozenPlan.compiledChecksum,
-      createdAt: FIRST,
-    }).run()
-    db.insert(measurementPlans).values({ projectId: PROJECT_ID, activeVersionId: versionId, createdAt: FIRST, updatedAt: FIRST }).run()
-    return versionId
+    return publishPlanV2(db, PROJECT_ID, frozenPlan, FIRST)
   }
 
   type NearbyAnswers = Record<'openai' | 'gemini', { answerText: string; cited: boolean }>
 
   /** One whole-plan sweep. The branded `exec-brand` query names only the project brand, never a Property. */
   function sweep(id: string, input: { versionId: string; frozenPlan: MeasurementPlanV2; createdAt: string; nearby: NearbyAnswers; models?: string }) {
-    const manifest = buildMeasurementPlanV2Manifest(input.frozenPlan)
-    db.insert(runs).values({
-      id,
+    seedPlanV2Sweep(db, {
       projectId: PROJECT_ID,
-      kind: RunKinds['answer-visibility'],
-      status: RunStatuses.completed,
-      trigger: RunTriggers.manual,
-      measurementPlanVersionId: input.versionId,
-      measurementManifest: { schemaVersion: 1, expectedSlots: manifest.expectedSlots },
-      measurementExecutionIdentity: {
-        schemaVersion: 1,
-        providers: ['gemini', 'openai'],
-        models: { gemini: 'pin-gemini', openai: 'pin-openai' },
-        checksum: input.models ?? 'stable-model-series',
-      },
+      runId: id,
+      versionId: input.versionId,
+      plan: input.frozenPlan,
       createdAt: input.createdAt,
-      finishedAt: input.createdAt,
-    }).run()
-    for (const slot of manifest.expectedSlots) {
-      const answer = slot.executionId === 'exec-nearby'
-        ? input.nearby[slot.provider as keyof NearbyAnswers]
-        : { answerText: 'Northstar is reliable.', cited: false }
-      db.insert(querySnapshots).values({
-        id: crypto.randomUUID(),
-        runId: id,
-        queryId: null,
-        queryText: slot.queryText,
-        provider: slot.provider,
-        servedModel: `${slot.provider}-served`,
-        citationState: answer.cited ? 'cited' : 'not-cited',
-        answerMentioned: true,
-        answerText: answer.answerText,
-        citedDomains: [],
-        citedUrls: answer.cited ? [HARBOR_URL] : [],
-        captureStatus: 'complete',
-        recommendedCompetitors: [],
-        location: HARBOR_CONTEXT.label,
-        measurementExecutionId: slot.executionId,
-        requestedContext: HARBOR_CONTEXT,
-        supportedContext: { status: 'applied', resolved: HARBOR_CONTEXT },
-        createdAt: input.createdAt,
-      }).run()
-    }
+      ...(input.models === undefined ? {} : { models: input.models }),
+      answer: slot => {
+        const answer = slot.executionId === 'exec-nearby'
+          ? input.nearby[slot.provider as keyof NearbyAnswers]
+          : { answerText: 'Northstar is reliable.', cited: false }
+        return { answerText: answer.answerText, citedUrls: answer.cited ? [HARBOR_URL] : [] }
+      },
+    })
   }
 
   /** OpenAI named and cited Harbor Homes; Gemini named no Property. */

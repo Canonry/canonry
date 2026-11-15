@@ -3,12 +3,12 @@ import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql, type SQL } 
 import { rankCriticizedProperties,
   aggregateSentiment, AppError, compareText, canonicalSentimentJson, createSentimentEvaluationDefinition, hasCurrentSentimentTemplate,
   emptySentimentCounts, notFound, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_INTERVAL_LIMITATION, SENTIMENT_QUERY_PAGE_DEFAULT, SentimentOutcomes, sentimentEvaluatorProvider,
-  sentimentBackfillSelectionSchema, storedSentimentClassifierInputSchema, storedSentimentClassifierOutputSchema,
+  sentimentBackfillSelectionSchema, sentimentSelectionSchema, storedSentimentClassifierInputSchema, parseStoredMeasurementPlanAnyVersion, storedSentimentClassifierOutputSchema,
   storedSentimentEvaluationDefinitionSchema, sentimentJobSchema, sentimentOutcomeSchema, sentimentSettingsUpdateSchema,
   validationError, type SentimentBackfillPreview, type SentimentBackfillSelection, type SentimentClassifierInput,
   type SentimentComparison, type SentimentCounts, type SentimentEvidenceItem, type SentimentHeadline, type SentimentJob, type SentimentOutcome,
   type SentimentQuerySummary, type SentimentResolvedSelection, type SentimentSelection, type SentimentEvidenceSelection,
-  type SentimentSettings, type SentimentSummary, type SentimentOverview, type SentimentOverallHeadline, type SentimentSummaryInclude, type SentimentJobSummary, type SentimentEvaluatorProvider,
+  type SentimentSettings, type SentimentSummary, type SentimentUnfavorableAnswer, type SentimentOverview, type SentimentOverallHeadline, type SentimentSummaryInclude, type SentimentJobSummary, type SentimentEvaluatorProvider,
 } from '@canonry/canonry-contracts'
 import {
   measurementPlanVersions, querySnapshots, runs, sentimentAttempts, sentimentDefinitions, sentimentJobItems, sentimentJobs,
@@ -55,6 +55,15 @@ const COMPACT_ROWS: RowDetail = { include: new Set(), limit: null, after: null }
 /** Operational states stay readable while sentiment is off; every classified or abstained outcome is withheld. */
 const OPERATIONAL_OUTCOMES: ReadonlySet<SentimentOutcome> = new Set([SentimentOutcomes.pending, SentimentOutcomes.running, SentimentOutcomes['waiting-to-retry'], SentimentOutcomes.failed, SentimentOutcomes.canceled])
 const PREVIOUS_RATED_CANDIDATE_LIMIT = 50
+/**
+ * Verdicts an answer can newly turn unfavorable from: a judgment, or an answer
+ * the evaluator found does not discuss the subject. A verdict that is unknown
+ * (not yet classified, failed, abstained, or ambiguous) is no baseline.
+ */
+const PRIOR_KNOWN_OUTCOMES: ReadonlySet<SentimentOutcome> = new Set([
+  SentimentOutcomes.favorable, SentimentOutcomes.mixed, SentimentOutcomes.factual,
+  SentimentOutcomes['subject-not-mentioned'], SentimentOutcomes['wrong-subject'],
+])
 /** The outcomes that rate an answer for the Rated share. */
 const RATED_OUTCOMES: ReadonlySet<SentimentOutcome> = new Set([SentimentOutcomes.favorable, SentimentOutcomes.mixed, SentimentOutcomes.unfavorable])
 
@@ -535,6 +544,88 @@ export class SentimentService {
     const intervalFrom = fromSummary.score.interval, intervalTo = toSummary.score.interval
     const verdict = refusalReasons.length || !intervalFrom || !intervalTo ? null : intervalTo.low > intervalFrom.high ? 'improved' : intervalTo.high < intervalFrom.low ? 'declined' : 'no-clear-change'
     return { from: fromSummary, to: toSummary, verdict, favorableRateDelta: verdict && fromSummary.score.favorableRate !== null && toSummary.score.favorableRate !== null ? toSummary.score.favorableRate - fromSummary.score.favorableRate : null, refusalReasons: [...new Set(refusalReasons)], commonUnits: common.size, excludedFrom: expectedFrom - fromSummary.coverage.selected, excludedTo: expectedTo - toSummary.coverage.selected, changedScope, method: 'wilson-independent-v1', limitation: SENTIMENT_INTERVAL_LIMITATION }
+  }
+  /**
+   * The answers of `runId` that sentiment newly rates unfavorable, what the
+   * `sentiment.unfavorable` webhook sends. Each class is compared with its
+   * previous rated run, matched by comparison unit (query, engine, location and
+   * subject) exactly as `compare` matches them: an answer rated unfavorable now
+   * counts when its matching answer there had a known verdict that was not
+   * unfavorable. A class with no compatible previous rated run, or one judged
+   * under another evaluator definition, reports nothing; so does an answer
+   * whose engine model or evaluator model changed, or whose model provenance is
+   * missing. Disabled sentiment withholds every judgment, so it reports nothing.
+   */
+  newlyUnfavorable(projectId: string, runId: string): SentimentUnfavorableAnswer[] {
+    const settings = this.settings(projectId)
+    if (!settings.enabled || !settings.installEnabled) return []
+    const run = this.db.select({ measurementPlanVersionId: runs.measurementPlanVersionId }).from(runs).where(and(eq(runs.projectId, projectId), eq(runs.id, runId))).get()
+    if (!run) throw notFound('Run', runId)
+    const marketLabels = run.measurementPlanVersionId === null ? null : this.marketLabels(run.measurementPlanVersionId)
+    const answers: SentimentUnfavorableAnswer[] = []
+    for (const queryClass of ['branded', 'non-brand'] as const) {
+      const query = sentimentSelectionSchema.parse({ queryClass })
+      let previousRunId: string
+      try {
+        previousRunId = this.previousRatedRun(projectId, query, runId)
+      } catch (error) {
+        // No compatible rated predecessor (or nothing of this class to rate): nothing turned.
+        if (error instanceof AppError) continue
+        throw error
+      }
+      const from = this.resolve(projectId, { ...query, runId: previousRunId }), to = this.resolve(projectId, { ...query, runId })
+      if (!to.selection.evaluationDefinitionId || from.selection.evaluationDefinitionId !== to.selection.evaluationDefinitionId) continue
+      const units = (items: DetailedItem[]) => {
+        const byUnit = new Map<string, DetailedItem>()
+        for (const item of items) { const key = comparisonUnit(item.input, item.evidence.context); if (!byUnit.has(key)) byUnit.set(key, item) }
+        return byUnit
+      }
+      const before = units(this.items(projectId, from.selection, from.source, true))
+      for (const [key, now] of units(this.items(projectId, to.selection, to.source, true))) {
+        if (now.outcome !== SentimentOutcomes.unfavorable) continue
+        const prior = before.get(key)
+        if (prior === undefined || !PRIOR_KNOWN_OUTCOMES.has(prior.outcome)) continue
+        const was = prior.input.context, is = now.input.context
+        if (!was.requestedModel || !was.servedModel || was.requestedModel !== is.requestedModel || was.servedModel !== is.servedModel) continue
+        if (prior.returnedModel && now.returnedModel && prior.returnedModel !== now.returnedModel) continue
+        const context = now.evidence.context
+        const marketKeys = [...new Set(now.edges.flatMap(edge => edge.marketKeys))]
+        answers.push({
+          query: context.queryText,
+          queryId: context.queryId,
+          queryClass: context.queryClass,
+          provider: context.provider,
+          location: context.location,
+          ...(marketLabels === null ? {} : {
+            property: { key: now.input.subject.id, label: now.input.subject.displayName },
+            markets: marketKeys.map(market => ({ key: market, label: marketLabels.get(market) ?? market }))
+              .sort((left, right) => compareText(left.label, right.label) || compareText(left.key, right.key)),
+          }),
+          previousRunId,
+          previousOutcome: prior.outcome,
+          conclusion: now.evidence.conclusion.map(sentence => sentence.text),
+          complaint: now.evidence.complaint?.map(sentence => sentence.text) ?? null,
+        })
+      }
+    }
+    return answers.sort((left, right) => compareText(left.query, right.query)
+      || compareText(left.provider, right.provider)
+      || compareText(left.location ?? '', right.location ?? '')
+      || compareText(left.property?.label ?? '', right.property?.label ?? '')
+      || compareText(left.queryClass, right.queryClass))
+  }
+  /** Market labels of one frozen plan version; a schema v1 or unreadable version has none. */
+  private marketLabels(versionId: string): Map<string, string> {
+    const labels = new Map<string, string>()
+    const version = this.db.select({ canonicalJson: measurementPlanVersions.canonicalJson }).from(measurementPlanVersions).where(eq(measurementPlanVersions.id, versionId)).get()
+    if (!version) return labels
+    try {
+      const plan = parseStoredMeasurementPlanAnyVersion(version.canonicalJson)
+      if (plan.schemaVersion === 2) for (const scope of plan.reportingScopes ?? []) labels.set(scope.stableKey, scope.label)
+    } catch {
+      // An unreadable version names no market; each market then reads as its key.
+    }
+    return labels
   }
 }
 /** Frozen execution identity shared by source selection and admitted comparison units. */

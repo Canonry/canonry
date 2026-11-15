@@ -283,6 +283,7 @@ import { SCHEDULE_SPREAD_MS, Scheduler, ensureDefaultHealthSchedule } from "./sc
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
 import { startReviewDeliveryLoop } from "./review-webhook-delivery.js";
 import { startUnrecognizedAgentAlertLoop } from "./unrecognized-agent-alerts.js";
+import { startSentimentAlertLoop } from "./sentiment-alerts.js";
 import { startTrafficReclassification } from "./traffic-reclassify.js";
 import { startProviderBatchPoller } from "./provider-batch-poller.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
@@ -1247,7 +1248,9 @@ export async function createServer(opts: {
   // the same value as webhook create/test (api-routes), so a hook that was
   // accepted is not refused later when an event fires.
   const allowLoopbackWebhooks = process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== "0";
-  const notifier = new Notifier(opts.db, serverUrl, { allowLoopbackWebhooks });
+  // Read on every use, so a config.yaml change applies without a restart.
+  const sentimentInstall = () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model, provider: configuration.provider }; };
+  const notifier = new Notifier(opts.db, serverUrl, { allowLoopbackWebhooks, sentimentInstall });
   const intelligenceService = new IntelligenceService(opts.db);
   // Build the Aero ApiClient from the in-memory server config rather than
   // loadConfig() so tests that set CANONRY_CONFIG_DIR after spawning the
@@ -2023,6 +2026,7 @@ export async function createServer(opts: {
   let stopSiteLiveness: (() => void) | null = null;
   let stopReviewDeliveries: (() => void) | null = null;
   let stopUnrecognizedAgentAlerts: (() => void) | null = null;
+  let stopSentimentAlerts: (() => void) | null = null;
   let stopTrafficReclassification: (() => void) | null = null;
   let stopProviderBatchPoller: (() => void) | null = null;
   let stopInstallState: (() => void) | null = null;
@@ -3239,7 +3243,7 @@ export async function createServer(opts: {
     db: opts.db,
     claimScheduledSync,
     sentiment: {
-      install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model, provider: configuration.provider }; },
+      install: sentimentInstall,
       previewSecret: opts.config.apiKey,
       estimate: input => { const built = buildJevSentimentRequest(input); return built.estimate?.inputTokens ?? 0; },
     },
@@ -4369,6 +4373,9 @@ export async function createServer(opts: {
       // New bots and agents in traffic alert on their own schedule; every
       // source type writes them, including direct push, which never syncs.
       stopUnrecognizedAgentAlerts = startUnrecognizedAgentAlertLoop(() => notifier.dispatchUnrecognizedAgentAlerts());
+      // Sentiment verdicts arrive after a sweep completes, so answers that
+      // turned unfavorable alert on their own schedule once a sweep settles.
+      stopSentimentAlerts = startSentimentAlertLoop(() => notifier.dispatchSentimentAlerts());
       // When the classification rules changed since the last pass, reclassify
       // stored traffic under them once, shortly after startup.
       stopTrafficReclassification = startTrafficReclassification({ db: opts.db });
@@ -4414,6 +4421,8 @@ export async function createServer(opts: {
     stopReviewDeliveries = null;
     stopUnrecognizedAgentAlerts?.();
     stopUnrecognizedAgentAlerts = null;
+    stopSentimentAlerts?.();
+    stopSentimentAlerts = null;
     stopTrafficReclassification?.();
     stopTrafficReclassification = null;
     stopProviderBatchPoller?.();
