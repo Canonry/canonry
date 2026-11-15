@@ -1,6 +1,6 @@
 import dns from 'node:dns/promises'
 import { afterEach, test, expect, vi } from 'vitest'
-import { deliverWebhook, resolveWebhookTarget } from '../src/webhooks.js'
+import { deliverWebhook, resolveWebhookTarget, webhookUserAgent } from '../src/webhooks.js'
 import { startRecordingSite, type RecordingSite } from './recording-site-fixture.js'
 
 let receiver: RecordingSite | undefined
@@ -127,6 +127,17 @@ test('deliverWebhook reports a receiver that took the request and hung up as sen
 
   expect(result).toMatchObject({ status: 0, requestSent: true })
   expect(receiver.requests).toHaveLength(1)
+})
+
+test('deliverWebhook names the host version in its User-Agent, and never a made-up one', async () => {
+  receiver = await startRecordingSite((_request, response) => response.writeHead(204).end())
+  const target = await loopbackTarget(receiver.port)
+
+  await deliverWebhook(target, { event: 'run.completed' }, null, { userAgent: webhookUserAgent('7.111.0') })
+  await deliverWebhook(target, { event: 'run.completed' }, null)
+
+  expect(receiver.requests.map(request => request.headers['user-agent'])).toEqual(['Canonry/7.111.0', 'Canonry'])
+  expect(webhookUserAgent(null)).toBe('Canonry')
 })
 
 test('deliverWebhook passes on how long a rate-limited receiver asked to wait', async () => {

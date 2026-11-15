@@ -6,7 +6,7 @@ import type { NotificationEvent, NotificationDto } from '@canonry/canonry-contra
 import { notificationEventSchema, validationError, notFound, deliveryFailed } from '@canonry/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { redactNotificationUrl } from './notification-redaction.js'
-import { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
+import { deliverWebhook, resolveWebhookTarget, webhookUserAgent } from './webhooks.js'
 import { toAlertView } from './notifications/alert.js'
 import { resolveDestination } from './notifications/destinations.js'
 import {
@@ -36,6 +36,8 @@ const VALID_EVENTS: readonly NotificationEvent[] = notificationEventSchema.optio
 export interface NotificationRoutesOptions {
   /** Allow webhook URLs that resolve to loopback addresses. Defaults to false. */
   allowLoopbackWebhooks?: boolean
+  /** The running Canonry package version, sent in the test delivery's User-Agent. */
+  appVersion?: string
 }
 
 export async function notificationRoutes(app: FastifyInstance, opts: NotificationRoutesOptions = {}) {
@@ -188,7 +190,7 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
 
     const targetLabel = redactNotificationUrl(config.url).urlDisplay
     request.log.info(`[Notification test] POST ${targetLabel} (${destination.destination})`)
-    const delivery = await deliverWebhook(urlCheck.target, body as never, signingSecret)
+    const delivery = await deliverWebhook(urlCheck.target, body as never, signingSecret, { userAgent: webhookUserAgent(opts.appVersion) })
     const { status, error } = delivery
     request.log.info(`[Notification test] Response: HTTP ${status} from ${targetLabel}`)
     // Succeeded only when the destination answered 2xx; the route still answers 200 otherwise.

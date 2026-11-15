@@ -1,6 +1,6 @@
 import { deliverReviewEvent, drainReviewDeliveries, dueReviewDeliveryProjects, reviewEventId } from './review-webhook-delivery.js'
 import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
-import { deliverWebhook, measurementRunCompleteness, notProbeRun, readAdvancedSignalTransitions, SentimentService, readQueryClasses, redactNotificationUrl, resolveDestination, resolveWebhookTarget, snapshotMentionObserver, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
+import { deliverWebhook, webhookUserAgent, measurementRunCompleteness, notProbeRun, readAdvancedSignalTransitions, SentimentService, readQueryClasses, redactNotificationUrl, resolveDestination, resolveWebhookTarget, snapshotMentionObserver, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
 import type { AdvancedSignalTransition, AdvancedSignalTransitions, SentimentInstallState } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@canonry/canonry-db'
@@ -17,6 +17,7 @@ import { recordSentimentAlertRuns, SentimentAlertStates, settledSentimentRuns, u
 import { newSiteHealthIssues, readSiteHealthNotifyState, readSiteHealthScan, settledSiteHealthKeys, writeSiteHealthNotifyState } from './site-health-alerts.js'
 import { CHECK_RUNTIME_ERROR_SUFFIX, CheckNotificationPolicies, CheckStatuses, compareText, describeError, notificationEventSchema, statusClassOf, type CheckNotificationPolicy, type OutcomeReasonCode, type StatusClass } from '@canonry/canonry-contracts'
 import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
+import { PACKAGE_VERSION } from './package-version.js'
 
 const log = createLogger('Notifier')
 
@@ -1798,7 +1799,7 @@ export class Notifier {
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const response = await deliverWebhook(targetCheck.target, body as never, signingSecret)
+        const response = await deliverWebhook(targetCheck.target, body as never, signingSecret, { userAgent: webhookUserAgent(PACKAGE_VERSION) })
 
         if (response.status >= 200 && response.status < 300) {
           log.info('webhook.delivered', { event: payload.event, url: targetLabel, httpStatus: response.status })
