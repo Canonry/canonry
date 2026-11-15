@@ -107,7 +107,9 @@ export const notificationEventSchema = z.enum([
    * query, engine, location and subject had a known verdict that was not
    * unfavorable in the previous rated sweep of its class. Sent once per sweep,
    * after that sweep's automatic sentiment work settles, so an answer that
-   * stays unfavorable is reported once. Both query classes are covered and
+   * stays unfavorable is reported once. Sweeps are reported in order: one
+   * waits until every earlier sweep's sentiment has settled, and a sweep
+   * that settles while sentiment is off waits until it is back on. Both query classes are covered and
    * each answer names its class. A sweep judged by another evaluator
    * definition, or an answer whose engine or evaluator model changed, is no
    * like-for-like change and sends nothing; so do backfills, and the sweeps
@@ -262,7 +264,8 @@ export interface WebhookPayload {
    * transition is one Property's answer, read from the frozen plan as the
    * overview's What changed reads it, and carries `property` and `markets`. A
    * sweep that cannot be compared with the one before it (a different plan
-   * definition, engines or models, or either sweep partial) sends no
+   * definition, engines or models, either sweep partial, or a spot check,
+   * which the report never compares with a whole-plan sweep) sends no
    * transitions there.
    */
   transitions: Array<{

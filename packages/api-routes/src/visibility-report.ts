@@ -792,6 +792,8 @@ function advancedReaderInput(
   includeHistory: boolean,
   /** Read the predecessor even without history: the overview compares it for What changed. */
   includePrevious = includeHistory,
+  /** Reconstruct the selected run's evidence (answer bodies, sources); a reader that only compares signals skips it. */
+  selectedEvidence = true,
 ): VisibilityReportReaderInput {
   if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) throw new Error('Expected a v2 active plan')
   const allVersionRows = db.select().from(measurementPlanVersions)
@@ -850,7 +852,7 @@ function advancedReaderInput(
     )
   }
   const materializedSources = includeHistory ? sourceCandidates : selectedSource === undefined ? [] : [selectedSource]
-  const candidates = materializedSources.map(candidate => materialize(candidate, candidate.run.id === selectedSource?.run.id))
+  const candidates = materializedSources.map(candidate => materialize(candidate, selectedEvidence && candidate.run.id === selectedSource?.run.id))
   const selectedDefinition = candidates.find(candidate => candidate.id === selectedSource?.run.id)?.definition
   const previousInput = (): VisibilityReportPreviousRunInput | null => {
     // A missing or scoped selection is never compared (the reader checks both
@@ -1113,7 +1115,8 @@ export function readAdvancedSweepPair(
   const active = activeMeasurementPlan(db, projectId)
   if (active === null) return null
   if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return { plan: 'legacy' }
-  const input = advancedReaderInput(db, projectId, active, parseQuery({ mode: 'advanced', runId }), false, true)
+  // Signals only: the comparison reads observations, never answer bodies or sources.
+  const input = advancedReaderInput(db, projectId, active, parseQuery({ mode: 'advanced', runId }), false, true, false)
   return { plan: 'v2', current: input.runs.find(run => run.id === runId) ?? null, previous: input.previous ?? null }
 }
 

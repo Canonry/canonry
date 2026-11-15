@@ -1117,8 +1117,8 @@ export type { WebhookDeliveryResult } from './webhooks.js'
 export { webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from './connection-telemetry.js'
 // Audit rows written by a host route, so they carry the same request context.
 export { auditFromRequest, notProbeRun, writeAuditLog } from './helpers.js'
-// The read-time mention of one stored answer, null when it was never checked; the notifier compares two.
-export { resolveSnapshotMentionObservation } from './helpers.js'
+// The read-time mention of stored answers, null when never checked; the notifier compares two.
+export { snapshotMentionObserver } from './helpers.js'
 // Per-Property mention and citation changes of one Advanced sweep, read through the overview's rule.
 export { readAdvancedSignalTransitions, type AdvancedSignalTransition, type AdvancedSignalTransitions } from './advanced-signal-changes.js'
 // The class of each tracked query, as query lists report it.

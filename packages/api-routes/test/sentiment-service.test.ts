@@ -1021,14 +1021,18 @@ describe('answers sentiment newly rates unfavorable', () => {
     expect(service.newlyUnfavorable('p', 'current')).toEqual(expected)
   })
 
-  it('reports nothing without a previous rated sweep, or while sentiment is off', () => {
+  it('reports nothing without a previous rated sweep, and cannot read while sentiment is off', () => {
     service.configure('p', { enabled: true })
     rated('older', '2026-01-01T00:00:00.000Z', {})
     expect(service.newlyUnfavorable('p', 'older')).toEqual([])
     rated('current', '2026-01-02T00:00:00.000Z', { 'q-0': 'unfavorable' })
     expect(service.newlyUnfavorable('p', 'current')).toEqual([turned(0, 'favorable')])
+    // Off is "nothing read", never "nothing turned": the alert holds the sweep instead of closing it.
     install.enabled = false
-    expect(service.newlyUnfavorable('p', 'current')).toEqual([])
+    expect(service.newlyUnfavorable('p', 'current')).toBeNull()
+    install.enabled = true
+    service.configure('p', { enabled: false })
+    expect(service.newlyUnfavorable('p', 'current')).toBeNull()
   })
 
   it('reports nothing for an answer whose engine served another model', () => {

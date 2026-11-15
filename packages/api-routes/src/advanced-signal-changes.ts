@@ -12,15 +12,18 @@
  * An answer whose state is unknown on a signal moves neither in nor out of it.
  */
 
-import type { DatabaseClient } from '@canonry/canonry-db'
+import { and, eq } from 'drizzle-orm'
+import { measurementPlanVersions, runs, type DatabaseClient } from '@canonry/canonry-db'
 import {
   CitationStates,
+  MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   compareText,
   MentionStates,
   type CitationState,
   type MentionState,
   type OverviewWhatChangedComparisonDto,
   type QueryClass,
+  visibilityReportPopulationClassSchema,
 } from '@canonry/canonry-contracts'
 import {
   pairContinuity,
@@ -33,7 +36,7 @@ import { readAdvancedSweepPair, type OverviewAdvancedSweeps } from './visibility
 
 export type AdvancedUnavailableReason = Extract<OverviewWhatChangedComparisonDto, { state: 'unavailable' }>['reason']
 
-export type AdvancedComparisonBasis =
+type AdvancedComparisonBasis =
   | { state: 'available'; previous: VisibilityReportRunInput }
   | { state: 'unavailable'; reason: AdvancedUnavailableReason }
 
@@ -43,7 +46,7 @@ export type AdvancedComparisonBasis =
  * models, neither sweep partial). `since` is a reader's window: an earlier
  * sweep before it is not a previous check.
  */
-export function advancedComparisonBasis(
+function advancedComparisonBasis(
   current: VisibilityReportRunInput,
   previous: VisibilityReportPreviousRunInput | null,
   since: string | null,
@@ -66,7 +69,7 @@ export function advancedComparisonBasis(
   return { state: 'available', previous: previous.run }
 }
 
-export type SignalChange = 'lost' | 'gained' | null
+type SignalChange = 'lost' | 'gained' | null
 
 /**
  * One Property's mention on one answer: null when it is unknown. An aliasless
@@ -97,7 +100,7 @@ function change(before: boolean | null, now: boolean | null): SignalChange {
 }
 
 /** How one Property's mention moved between two answers of the same slot. */
-export function advancedMentionChange(
+function advancedMentionChange(
   target: VisibilityReportTargetInput,
   before: VisibilityReportObservationInput,
   now: VisibilityReportObservationInput,
@@ -106,7 +109,7 @@ export function advancedMentionChange(
 }
 
 /** How one Property's citation moved between two answers of the same slot. */
-export function advancedCitationChange(
+function advancedCitationChange(
   target: VisibilityReportTargetInput,
   before: VisibilityReportObservationInput,
   now: VisibilityReportObservationInput,
@@ -149,12 +152,14 @@ function compareTransitions(left: AdvancedSignalTransition<string>, right: Advan
 /**
  * Every Property answer whose mention or citation moved between the sweep the
  * pair holds and the comparable sweep before it, one per slot and Property
- * however many assignments link them.
+ * however many assignments link them. `since` is a reader's window: a
+ * previous sweep before it is no previous check. The overview's What changed
+ * keeps the losses; the change webhooks send both directions.
  */
-export function advancedSignalTransitions(sweeps: Extract<OverviewAdvancedSweeps, { plan: 'v2' }>): AdvancedSignalTransitions {
+export function advancedSignalTransitions(sweeps: Extract<OverviewAdvancedSweeps, { plan: 'v2' }>, since: string | null = null): AdvancedSignalTransitions {
   const { current } = sweeps
   if (current === null) return { state: 'unavailable', reason: 'not-measured' }
-  const basis = advancedComparisonBasis(current, sweeps.previous, null)
+  const basis = advancedComparisonBasis(current, sweeps.previous, since)
   if (basis.state === 'unavailable') return basis
 
   const { definition } = current
@@ -195,7 +200,7 @@ export function advancedSignalTransitions(sweeps: Extract<OverviewAdvancedSweeps
         queryId: slot.queryId,
         provider: slot.provider,
         location: slot.location,
-        queryClass: onlyClass === undefined || onlyClass === 'unknown' ? null : onlyClass,
+        queryClass: onlyClass === undefined || onlyClass === visibilityReportPopulationClassSchema.enum.unknown ? null : onlyClass,
         property: { key: target.id, label: target.label },
         markets: marketKeys
           .map(key => ({ key, label: marketLabels.get(key) ?? key }))
@@ -223,17 +228,24 @@ export function advancedSignalTransitions(sweeps: Extract<OverviewAdvancedSweeps
 }
 
 /**
- * The per-Property changes one run made, when it is a sweep of an active
- * schema v2 plan. Null when the project has no active plan, or an active
- * schema v1 plan, which freezes no Property to compare: such a project's
- * changes are the project-level ones. Throws when the run is not an eligible
- * Advanced sweep.
+ * The per-Property changes one run made, when it is a sweep of a schema v2
+ * plan revision and the project's active plan is schema v2. Null otherwise
+ * (a planless run, a run of a schema v1 revision, no active plan, or an
+ * active schema v1 plan): nothing freezes a Property to compare, so the run's
+ * changes are the project-level ones. Throws only when a v2 sweep's stored
+ * evidence cannot be read.
  */
 export function readAdvancedSignalTransitions(
   db: DatabaseClient,
   projectId: string,
   runId: string,
 ): AdvancedSignalTransitions | null {
+  const run = db.select({ versionId: runs.measurementPlanVersionId }).from(runs)
+    .where(and(eq(runs.projectId, projectId), eq(runs.id, runId))).get()
+  if (!run?.versionId) return null
+  const version = db.select({ schemaVersion: measurementPlanVersions.schemaVersion }).from(measurementPlanVersions)
+    .where(and(eq(measurementPlanVersions.projectId, projectId), eq(measurementPlanVersions.id, run.versionId))).get()
+  if (version?.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return null
   const sweeps = readAdvancedSweepPair(db, projectId, runId)
   if (sweeps === null || sweeps.plan === 'legacy') return null
   return advancedSignalTransitions(sweeps)
