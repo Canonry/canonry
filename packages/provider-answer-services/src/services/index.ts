@@ -1,5 +1,6 @@
 import type { AnswerServiceDefinition } from '../core/types.js'
 import { exaAnswerService } from './exa/index.js'
+import { goanyapiAnswerService } from './goanyapi/index.js'
 import { parallelResponsesService } from './parallel/index.js'
 
 /**
@@ -9,5 +10,6 @@ import { parallelResponsesService } from './parallel/index.js'
  */
 export const ANSWER_SERVICES: readonly AnswerServiceDefinition[] = [
   exaAnswerService,
+  goanyapiAnswerService,
   parallelResponsesService,
 ]
