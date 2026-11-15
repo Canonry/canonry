@@ -7935,6 +7935,8 @@ export type GbpLocationDto = {
     openStatus: string | null;
     openingDate: string | null;
     selected: boolean;
+    websiteMatchesProject?: boolean | null;
+    websiteDomain?: string | null;
     syncedAt: string | null;
     createdAt: string;
     updatedAt: string;
@@ -7964,6 +7966,8 @@ export type GbpLocationListResponse = {
         openStatus: string | null;
         openingDate: string | null;
         selected: boolean;
+        websiteMatchesProject?: boolean | null;
+        websiteDomain?: string | null;
         syncedAt: string | null;
         createdAt: string;
         updatedAt: string;

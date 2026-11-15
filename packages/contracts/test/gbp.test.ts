@@ -4,6 +4,7 @@ import {
   classifyGbpMetric,
   GBP_CONVERSION_METRICS,
   GBP_REACH_METRICS,
+  gbpWebsiteMatchesProject,
 } from '../src/gbp.js'
 
 describe('formatGbpMetricLabel', () => {
@@ -51,4 +52,33 @@ describe('classifyGbpMetric', () => {
     expect(classifyGbpMetric('SOMETHING_UNKNOWN')).toBe('other')
   })
 
+})
+
+describe('gbpWebsiteMatchesProject', () => {
+  const domains = ['hotels.example.com', 'hotels-booking.example']
+
+  it('matches the project domain, its www and other subdomains, and owned domains', () => {
+    expect(gbpWebsiteMatchesProject('https://hotels.example.com/', domains)).toBe(true)
+    expect(gbpWebsiteMatchesProject('http://www.hotels.example.com/rooms?x=1', domains)).toBe(true)
+    expect(gbpWebsiteMatchesProject('https://book.hotels-booking.example', domains)).toBe(true)
+    expect(gbpWebsiteMatchesProject('HTTPS://WWW.HOTELS.EXAMPLE.COM', domains)).toBe(true)
+  })
+
+  it('compares registrable domains, so a sibling subdomain of the project domain matches', () => {
+    expect(gbpWebsiteMatchesProject('https://shop.example.com/', ['www.example.com'])).toBe(true)
+  })
+
+  it('flags another business\'s website', () => {
+    expect(gbpWebsiteMatchesProject('https://gjelina-like-hotel.example/', domains)).toBe(false)
+    expect(gbpWebsiteMatchesProject('https://hotels.example.org/', domains)).toBe(false)
+    // A host that merely contains the project domain is not on it.
+    expect(gbpWebsiteMatchesProject('https://hotels.example.com.evil.example/', domains)).toBe(false)
+  })
+
+  it('is null without a website or a recognizable domain', () => {
+    expect(gbpWebsiteMatchesProject(null, domains)).toBeNull()
+    expect(gbpWebsiteMatchesProject(undefined, domains)).toBeNull()
+    expect(gbpWebsiteMatchesProject('   ', domains)).toBeNull()
+    expect(gbpWebsiteMatchesProject('not a url', domains)).toBeNull()
+  })
 })

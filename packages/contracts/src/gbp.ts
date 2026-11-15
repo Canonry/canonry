@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { percent } from './ratio-unit.js'
+import { hostMatchesDomain, registrableDomain } from './url-normalize.js'
 
 // One GBP account the OAuth user can access. `name` is the resource name
 // ("accounts/{n}") used to list that account's locations; the rest are
@@ -53,11 +54,35 @@ export const gbpLocationDtoSchema = z.object({
   openStatus: z.string().nullable(),
   openingDate: z.string().nullable(),
   selected: z.boolean(),
+  // Whether the location's website is on one of the project's domains.
+  // Null when Google returned no website or it has no recognizable domain.
+  // `false` usually means the location belongs to another business on the same
+  // Google account; tracking it mixes that business's reviews and stats into
+  // this project. Optional so an older server's response still parses.
+  websiteMatchesProject: z.boolean().nullable().optional(),
+  // The website's registrable domain for display (`gjelinahotel.com`), or null.
+  websiteDomain: z.string().nullable().optional(),
   syncedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
 export type GbpLocationDto = z.infer<typeof gbpLocationDtoSchema>
+
+/**
+ * Whether a Business Profile website belongs to one of the project's domains:
+ * the same registrable domain (so `www.` and other subdomains match), or the
+ * same host when the domain has no public suffix. Null when there is no
+ * website or it has no recognizable domain.
+ */
+export function gbpWebsiteMatchesProject(
+  websiteUri: string | null | undefined,
+  projectDomains: readonly string[],
+): boolean | null {
+  if (websiteUri == null || websiteUri.trim() === '') return null
+  const site = registrableDomain(websiteUri)
+  if (site === '') return null
+  return projectDomains.some(domain => site === registrableDomain(domain) || hostMatchesDomain(websiteUri, domain))
+}
 
 export const gbpLocationListResponseSchema = z.object({
   locations: z.array(gbpLocationDtoSchema),
