@@ -39,13 +39,27 @@ pnpm run dev:web            # Run web dashboard in dev mode
 ## Project Structure
 
 ```
-packages/canonry/         Single publishable npm package (CLI + server + bundled SPA)
-packages/api-routes/      Shared Fastify route plugins
-packages/contracts/       DTOs, enums, config schema
-packages/db/              Drizzle ORM schema + migrations (SQLite)
-packages/provider-*/      Provider adapters (Gemini, OpenAI, Claude, local)
-apps/web/                 Vite SPA source (bundled into packages/canonry/assets/)
+packages/canonry/                 Single publishable npm package: CLI, server, MCP adapter, built-in Aero agent, bundled SPA
+packages/api-routes/              Shared Fastify route plugins and the OpenAPI spec
+packages/api-client-generated/    Typed SDK generated from the OpenAPI spec (`pnpm gen`)
+packages/contracts/               DTOs, enums, config schema, error codes, shared utilities
+packages/config/                  Typed environment parsing
+packages/db/                      Drizzle ORM schema, SQLite client, migrations
+packages/intelligence/            Insight and health analysis over snapshots
+packages/provider-*/              Answer-engine adapters (Gemini, OpenAI, Claude, Perplexity, OpenRouter, Muse, local, CDP, answer services)
+packages/integration-*/           Third-party integrations (Google, GA4, Business Profile, Bing, Cloudflare, Vercel, Cloud Run, WordPress, ads, sentiment, ...)
+packages/wordpress-traffic-logger-plugin/  PHP plugin that sends WordPress traffic events to Canonry
+apps/web/                         Vite SPA source (bundled into packages/canonry/assets/)
+apps/api/                         Cloud Run REST entry point over packages/api-routes
+apps/mcp-gateway/                 Remote MCP gateway, deployed separately from Canonry instances
+skills/                           Canonical agent skills (`canonry`, `aero`) and their references
+plugins/                          Claude Code and Codex plugins, mirrored from skills/ by `pnpm plugin:sync`
+docs/                             Architecture, data model, setup guides, testing (start at docs/README.md)
+evals/                            Offline evaluation corpora and scorers
+scripts/, eslint-rules/           Build, sync and smoke scripts; custom lint rules
 ```
+
+`docs/CODEMAP.md` indexes key source files, and each package's `AGENTS.md` holds its rules.
 
 `@canonry/canonry` is the application package. All other packages are private workspace dependencies under `@canonry` and are bundled by tsup at build time.
 
