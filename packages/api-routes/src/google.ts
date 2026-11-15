@@ -7,6 +7,9 @@ import {
   validationError, notFound, normalizeProjectDomain, parseWindow,
   forbidden, quotaExceeded, providerError, escapeLikePattern, AppError,
   hostMatchesDomain,
+  effectiveDomains,
+  gbpWebsiteMatchesProject,
+  registrableDomain,
   hostOf,
   type GoogleConnectionType,
   gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema, gbpSyncRequestSchema,
@@ -2196,7 +2199,12 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     return providerError(`${context}: ${err.message}`, { reason: err.reason ?? undefined, status: err.status })
   }
 
-  function rowToDto(row: typeof gbpLocations.$inferSelect): GbpLocationDto {
+  /** The domains a location's website is checked against: canonical plus owned. */
+  function projectDomainsOf(project: { canonicalDomain: string; ownedDomains?: string[] | null }): string[] {
+    return effectiveDomains({ canonicalDomain: project.canonicalDomain, ownedDomains: project.ownedDomains ?? [] })
+  }
+
+  function rowToDto(row: typeof gbpLocations.$inferSelect, projectDomains: readonly string[]): GbpLocationDto {
     return {
       id: row.id,
       projectId: row.projectId,
@@ -2216,15 +2224,18 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       openStatus: row.openStatus ?? null,
       openingDate: row.openingDate ?? null,
       selected: Boolean(row.selected),
+      websiteMatchesProject: gbpWebsiteMatchesProject(row.websiteUri, projectDomains),
+      websiteDomain: registrableDomain(row.websiteUri) || null,
       syncedAt: row.syncedAt ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     }
   }
 
-  function listSelectionResponse(projectId: string): GbpLocationListResponse {
-    const rows = app.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all()
-    const dtos = rows.map(rowToDto)
+  function listSelectionResponse(project: { id: string; canonicalDomain: string; ownedDomains?: string[] | null }): GbpLocationListResponse {
+    const rows = app.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, project.id)).all()
+    const projectDomains = projectDomainsOf(project)
+    const dtos = rows.map((row) => rowToDto(row, projectDomains))
     return {
       locations: dtos,
       totalDiscovered: dtos.length,
@@ -2247,6 +2258,24 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     tx.delete(gbpReviews).where(eq(gbpReviews.projectId, projectId)).run()
     tx.delete(gbpReviewRatings).where(eq(gbpReviewRatings.projectId, projectId)).run()
     tx.delete(gbpLocations).where(eq(gbpLocations.projectId, projectId)).run()
+  }
+
+  // Clear one location's synced data from a project, keeping the location row.
+  // Deselecting a location calls this, so data from a location tracked by
+  // mistake (for example another business on the same Google account) leaves
+  // the project's reviews, stats and reports. Selecting it again re-fetches the
+  // same windows a sync keeps, and its reviews start from a silent baseline
+  // because the rating rows that mark one are cleared too.
+  function clearGbpLocationData(tx: Pick<DatabaseClient, 'delete'>, projectId: string, locationName: string): void {
+    tx.delete(gbpDailyMetrics).where(and(eq(gbpDailyMetrics.projectId, projectId), eq(gbpDailyMetrics.locationName, locationName))).run()
+    tx.delete(gbpKeywordImpressions).where(and(eq(gbpKeywordImpressions.projectId, projectId), eq(gbpKeywordImpressions.locationName, locationName))).run()
+    tx.delete(gbpKeywordMonthly).where(and(eq(gbpKeywordMonthly.projectId, projectId), eq(gbpKeywordMonthly.locationName, locationName))).run()
+    tx.delete(gbpPlaceActions).where(and(eq(gbpPlaceActions.projectId, projectId), eq(gbpPlaceActions.locationName, locationName))).run()
+    tx.delete(gbpLodgingSnapshots).where(and(eq(gbpLodgingSnapshots.projectId, projectId), eq(gbpLodgingSnapshots.locationName, locationName))).run()
+    tx.delete(gbpAttributesSnapshots).where(and(eq(gbpAttributesSnapshots.projectId, projectId), eq(gbpAttributesSnapshots.locationName, locationName))).run()
+    tx.delete(gbpPlaceDetails).where(and(eq(gbpPlaceDetails.projectId, projectId), eq(gbpPlaceDetails.locationName, locationName))).run()
+    tx.delete(gbpReviews).where(and(eq(gbpReviews.projectId, projectId), eq(gbpReviews.locationName, locationName))).run()
+    tx.delete(gbpReviewRatings).where(and(eq(gbpReviewRatings.projectId, projectId), eq(gbpReviewRatings.locationName, locationName))).run()
   }
 
   // The account a project currently tracks, derived from its locations (they
@@ -2400,7 +2429,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       })
     })
 
-    return listSelectionResponse(project.id)
+    return listSelectionResponse(project)
   })
 
   // GET /projects/:name/gbp/accounts — accounts the OAuth user can access, so
@@ -2448,7 +2477,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     Querystring: { selected?: string }
   }>('/projects/:name/gbp/locations', async (request) => {
     const project = resolveProject(app.db, request.params.name)
-    const response = listSelectionResponse(project.id)
+    const response = listSelectionResponse(project)
     const filter = request.query.selected
     if (filter === 'true' || filter === 'false') {
       const want = filter === 'true'
@@ -2481,17 +2510,20 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const now = new Date().toISOString()
     app.db.transaction((tx) => {
       tx.update(gbpLocations).set({ selected, updatedAt: now }).where(eq(gbpLocations.id, existing.id)).run()
+      // Also on a repeat deselect, so data left by an earlier deselect is cleared.
+      if (!selected) clearGbpLocationData(tx, project.id, locationName)
       writeAuditLog(tx, {
         projectId: project.id,
         actor: 'api',
         action: selected ? 'gbp.location.selected' : 'gbp.location.deselected',
         entityType: 'gbp_location',
         entityId: locationName,
+        ...(selected ? {} : { diff: { clearedLocationData: true } }),
       })
     })
 
     const refreshed = app.db.select().from(gbpLocations).where(eq(gbpLocations.id, existing.id)).get()!
-    return rowToDto(refreshed)
+    return rowToDto(refreshed, projectDomainsOf(project))
   }))
 
   // DELETE /projects/:name/gbp/connection
