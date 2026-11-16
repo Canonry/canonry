@@ -30,7 +30,7 @@
 
 ### Built for Agents
 
-Everything runs on one REST API. The dashboard, CLI, MCP server, and plugins all call it, so your agent can read and do everything you see.
+Everything runs on one REST API. The dashboard, CLI, MCP server, and plugins all call it, so your agent can read and do everything you see (and more!).
 
 - **REST API:** every dashboard number has a typed endpoint under `/api/v1`. The full OpenAPI spec is at `GET /api/v1/openapi.json`. [API →](#self-hosting-and-api)
 - **CLI:** the same calls as `cnry <command> --format json`, for scripts and shell agents. [CLI →](skills/canonry/references/canonry-cli.md)
