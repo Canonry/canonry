@@ -35,10 +35,11 @@ describe('socialMonitorPlatformSchema', () => {
 })
 
 describe('socialMentionSearchInputSchema', () => {
-  it('fills the default limit and an empty domain list', () => {
+  it('fills the default limit and empty domain and community lists', () => {
     expect(socialMentionSearchInputSchema.parse({ queries: [' acme '] })).toEqual({
       queries: ['acme'],
       domains: [],
+      communities: [],
       limit: SOCIAL_MENTION_SEARCH_DEFAULT_LIMIT,
     })
     expect(SOCIAL_MENTION_SEARCH_DEFAULT_LIMIT).toBe(25)
@@ -52,9 +53,28 @@ describe('socialMentionSearchInputSchema', () => {
     }
   })
 
-  it('requires at least one non-blank query', () => {
-    expect(socialMentionSearchInputSchema.safeParse({ queries: [] }).success).toBe(false)
+  it('accepts a domain-only search with no queries', () => {
+    expect(socialMentionSearchInputSchema.parse({ domains: ['acme.example'] })).toEqual({
+      queries: [],
+      domains: ['acme.example'],
+      communities: [],
+      limit: SOCIAL_MENTION_SEARCH_DEFAULT_LIMIT,
+    })
+  })
+
+  it('rejects a search with neither a query nor a domain, and blank terms', () => {
+    const empty = socialMentionSearchInputSchema.safeParse({ queries: [], domains: [] })
+    expect(empty.success).toBe(false)
+    expect(empty.error?.issues.map(issue => issue.message)).toEqual(['A social search needs at least one query or domain'])
+    expect(socialMentionSearchInputSchema.safeParse({}).success).toBe(false)
     expect(socialMentionSearchInputSchema.safeParse({ queries: ['  '] }).success).toBe(false)
+    expect(socialMentionSearchInputSchema.safeParse({ domains: ['  '] }).success).toBe(false)
+  })
+
+  it('carries the community restriction through to the adapter input', () => {
+    expect(socialMentionSearchInputSchema.parse({ queries: ['acme'], communities: [' seo ', 'marketing'] }).communities)
+      .toEqual(['seo', 'marketing'])
+    expect(socialMentionSearchInputSchema.safeParse({ queries: ['acme'], communities: [''] }).success).toBe(false)
   })
 
   it('keeps a valid since instant and rejects a non-ISO one', () => {
@@ -89,6 +109,17 @@ describe('socialMentionResultSchema', () => {
     expect(parsed).toEqual(mention)
     expect(parsed.shares).toBeNull()
     expect(parsed.comments).toBe(0)
+  })
+
+  it('round-trips a post found by a domain-only search with a null matched query', () => {
+    const domainOnly = { ...mention, matchedQuery: null }
+    expect(socialMentionResultSchema.parse(domainOnly)).toEqual(domainOnly)
+  })
+
+  it('rejects an empty or absent matched query', () => {
+    expect(socialMentionResultSchema.safeParse({ ...mention, matchedQuery: '' }).success).toBe(false)
+    const { matchedQuery: _omitted, ...withoutMatchedQuery } = mention
+    expect(socialMentionResultSchema.safeParse(withoutMatchedQuery).success).toBe(false)
   })
 
   it('rejects negative counts, a twitter platform and a missing external id', () => {

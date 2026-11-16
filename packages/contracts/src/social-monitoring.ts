@@ -19,15 +19,26 @@ export const SOCIAL_MENTION_SEARCH_MAX_LIMIT = 100
 /**
  * One search an adapter runs against its platform. `queries` are the terms to
  * search for (brand names, keywords); `domains` are the project's domains, used
- * to find posts that link to the site. `limit` caps results per query.
+ * to find posts that link to the site. A search needs at least one of the two:
+ * domains alone run a domain-only (link) search. `limit` caps results per
+ * query or domain.
  */
 export const socialMentionSearchInputSchema = z.object({
-  queries: z.array(z.string().trim().min(1)).min(1),
+  queries: z.array(z.string().trim().min(1)).default([]),
   domains: z.array(z.string().trim().min(1)).default([]),
+  /**
+   * Restrict the search to these communities (subreddits on Reddit); empty
+   * searches the whole platform. Adapters for platforms without communities
+   * ignore it.
+   */
+  communities: z.array(z.string().trim().min(1)).default([]),
   /** Only posts at or after this instant. Absent: the platform's own window. */
   since: z.string().datetime({ offset: true }).optional(),
   limit: z.number().int().min(1).max(SOCIAL_MENTION_SEARCH_MAX_LIMIT).default(SOCIAL_MENTION_SEARCH_DEFAULT_LIMIT),
-})
+}).refine(
+  input => input.queries.length > 0 || input.domains.length > 0,
+  { message: 'A social search needs at least one query or domain' },
+)
 export type SocialMentionSearchInput = z.infer<typeof socialMentionSearchInputSchema>
 export type SocialMentionSearchInputRequest = z.input<typeof socialMentionSearchInputSchema>
 
@@ -36,15 +47,20 @@ const engagementCountSchema = z.number().int().min(0).nullable()
 
 /**
  * One post an adapter found, normalized across platforms. `(platform,
- * externalId)` identifies it, so a post seen by two runs is stored once.
+ * externalId)` identifies it on its platform, and a project stores it once
+ * however many of its runs see it.
  */
 export const socialMentionResultSchema = z.object({
   platform: socialMonitorPlatformSchema,
   /** The platform's own post id. */
   externalId: z.string().min(1),
   externalUrl: z.string().url(),
-  /** The search term from `SocialMentionSearchInput.queries` that found this post. */
-  matchedQuery: z.string().min(1),
+  /**
+   * The search term from `SocialMentionSearchInput.queries` that found this
+   * post; null when a domain-only (link) search found it. Never invent a query
+   * for a post no term matched.
+   */
+  matchedQuery: z.string().min(1).nullable(),
   authorHandle: z.string().nullable(),
   authorName: z.string().nullable(),
   authorFollowers: engagementCountSchema,
@@ -69,8 +85,10 @@ export const socialMentionResultSchema = z.object({
 export type SocialMentionResult = z.infer<typeof socialMentionResultSchema>
 
 /**
- * Credentials and endpoint for one platform, read from `~/.canonry/config.yaml`
- * like `ProviderConfig`. Never part of a project config file.
+ * Install-level app credentials and endpoint for one platform, read once from
+ * `~/.canonry/config.yaml` like `ProviderConfig` and `GoogleAdsConfigEntry`,
+ * and shared by every project. Never part of a project config file. Platforms
+ * that authorize per project add a `SocialMonitorProjectGrant`.
  */
 export interface SocialMonitorConfig {
   platform: SocialMonitorPlatform
@@ -82,6 +100,22 @@ export interface SocialMonitorConfig {
   clientSecret?: string
   /** Override of the platform API base URL. */
   baseUrl?: string
+}
+
+/**
+ * A project-level grant for a platform that authorizes per project (OAuth, e.g.
+ * LinkedIn Company Pages), modelled on `GoogleAdsConnectionConfigEntry`.
+ * Stored in `config.yaml` keyed by `projectId`, never in SQLite: the SQLite
+ * `social_connections` table holds metadata only.
+ */
+export interface SocialMonitorProjectGrant {
+  platform: SocialMonitorPlatform
+  /** The immutable `projects.id` the grant belongs to. */
+  projectId: string
+  accessToken?: string
+  refreshToken?: string | null
+  tokenExpiresAt?: string | null
+  scopes?: string[]
 }
 
 export interface SocialMonitorHealthcheckResult {
@@ -96,13 +130,19 @@ export interface SocialMonitorAdapter {
   displayName: string
   /** Checks the config locally; must not call the platform. */
   validateConfig(config: SocialMonitorConfig): SocialMonitorHealthcheckResult
-  healthcheck(config: SocialMonitorConfig): Promise<SocialMonitorHealthcheckResult>
+  /** `grant` is present only for platforms that use project-level grants. */
+  healthcheck(config: SocialMonitorConfig, grant?: SocialMonitorProjectGrant): Promise<SocialMonitorHealthcheckResult>
   /**
    * Runs one search. Each result's `linkedUrls` lists the links in the post
    * that point at `input.domains`, as full URLs; an empty array, never absent,
-   * when it links to none.
+   * when it links to none. `grant` is present only for platforms that use
+   * project-level grants.
    */
-  searchMentions(input: SocialMentionSearchInput, config: SocialMonitorConfig): Promise<SocialMentionResult[]>
+  searchMentions(
+    input: SocialMentionSearchInput,
+    config: SocialMonitorConfig,
+    grant?: SocialMonitorProjectGrant,
+  ): Promise<SocialMentionResult[]>
 }
 
 /**
@@ -114,7 +154,10 @@ export interface SocialMonitorAdapter {
 export const socialMonitorPlatformSettingsSchema = z.object({
   /** Search terms on top of the ones the run derives from the project. */
   searchTerms: z.array(z.string().trim().min(1)).optional(),
-  /** Restrict the search to these communities (subreddits on Reddit). */
+  /**
+   * Restrict the search to these communities (subreddits on Reddit). Maps to
+   * `SocialMentionSearchInput.communities`.
+   */
   communities: z.array(z.string().trim().min(1)).optional(),
   limit: z.number().int().min(1).max(SOCIAL_MENTION_SEARCH_MAX_LIMIT).optional(),
 }).strict()
