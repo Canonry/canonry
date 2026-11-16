@@ -8,7 +8,6 @@ import {
   migrate,
   MIGRATION_VERSIONS,
   projects,
-  queries,
   runs,
   socialConnections,
   socialMentions,
@@ -60,22 +59,19 @@ function socialPlatformsColumn(db: DatabaseClient) {
     .find(entry => entry.name === 'social_platforms')
 }
 
-function seedProjectRunQuery(db: DatabaseClient, projectId: string): { runId: string; queryId: string } {
+function seedProjectRun(db: DatabaseClient, projectId: string): { runId: string } {
   insertLegacyProject(db, { id: projectId, createdAt: NOW })
   const runId = `${projectId}-run`
-  const queryId = `${projectId}-query`
   insertLegacyRow(db, 'runs', { id: runId, project_id: projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', created_at: NOW })
-  insertLegacyRow(db, 'queries', { id: queryId, project_id: projectId, query: 'best bike shop', created_at: NOW })
-  return { runId, queryId }
+  return { runId }
 }
 
-function mention(id: string, refs: { projectId: string; runId: string; queryId: string | null }, platform: 'x' | 'reddit' | 'linkedin', externalId: string) {
+function mention(id: string, refs: { projectId: string; runId: string }, platform: 'x' | 'reddit' | 'linkedin', externalId: string) {
   return {
     id,
     projectId: refs.projectId,
     runId: refs.runId,
     platform,
-    queryId: refs.queryId,
     externalId,
     externalUrl: `https://example.com/${platform}/${externalId}`,
     matchedQuery: 'spoketuneworks',
@@ -101,17 +97,20 @@ describe('social monitoring tables (v225)', () => {
 
     expect(indexes(db, 'social_mentions')).toEqual([
       { name: 'idx_social_mentions_project_platform_external', unique: 1, columns: ['project_id', 'platform', 'external_id'] },
-      { name: 'idx_social_mentions_query', unique: 0, columns: ['query_id'] },
       { name: 'idx_social_mentions_run', unique: 0, columns: ['run_id'] },
     ])
     expect(indexes(db, 'social_connections')).toEqual([
       { name: 'idx_social_connections_platform_project', unique: 1, columns: ['platform', 'project_id'] },
     ])
 
-    expect(db.all(sql.raw(`PRAGMA foreign_key_list('social_mentions')`))).toEqual(expect.arrayContaining([
-      expect.objectContaining({ table: 'runs', from: 'project_id', to: 'project_id', on_delete: 'CASCADE' }),
-      expect.objectContaining({ table: 'runs', from: 'run_id', to: 'id', on_delete: 'CASCADE' }),
-    ]))
+    const foreignKeys = (db.all(sql.raw(`PRAGMA foreign_key_list('social_mentions')`)) as Array<{ table: string; from: string; to: string; on_delete: string }>)
+      .map(fk => ({ table: fk.table, from: fk.from, to: fk.to, onDelete: fk.on_delete }))
+      .sort((x, y) => `${x.table}.${x.from}`.localeCompare(`${y.table}.${y.from}`))
+    expect(foreignKeys).toEqual([
+      { table: 'projects', from: 'project_id', to: 'id', onDelete: 'CASCADE' },
+      { table: 'runs', from: 'project_id', to: 'project_id', onDelete: 'CASCADE' },
+      { table: 'runs', from: 'run_id', to: 'id', onDelete: 'CASCADE' },
+    ])
 
     expect(socialPlatformsColumn(db)).toMatchObject({ type: 'TEXT', notnull: 1, dflt_value: `'[]'` })
     insertLegacyProject(db, { id: 'project-1', createdAt: NOW })
@@ -121,8 +120,8 @@ describe('social monitoring tables (v225)', () => {
 
   it('defaults the JSON columns and leaves what a platform may not expose null', () => {
     const db = tempDb()
-    const { runId, queryId } = seedProjectRunQuery(db, 'project-1')
-    db.insert(socialMentions).values(mention('mention-1', { projectId: 'project-1', runId, queryId }, 'reddit', 't3_abc')).run()
+    const { runId } = seedProjectRun(db, 'project-1')
+    db.insert(socialMentions).values(mention('mention-1', { projectId: 'project-1', runId }, 'reddit', 't3_abc')).run()
     expect(db.select().from(socialMentions).get()).toMatchObject({
       authorHandle: null,
       authorName: null,
@@ -153,11 +152,29 @@ describe('social monitoring tables (v225)', () => {
 
   it('round-trips the project URLs a post links to', () => {
     const db = tempDb()
-    const { runId, queryId } = seedProjectRunQuery(db, 'project-1')
+    const { runId } = seedProjectRun(db, 'project-1')
     const linkedUrls = ['https://spoketuneworks.example/pricing', 'https://spoketuneworks.example/blog/tune-up']
-    db.insert(socialMentions).values({ ...mention('mention-1', { projectId: 'project-1', runId, queryId }, 'x', '1800'), linkedUrls }).run()
+    db.insert(socialMentions).values({ ...mention('mention-1', { projectId: 'project-1', runId }, 'x', '1800'), linkedUrls }).run()
     expect(db.select({ linkedUrls: socialMentions.linkedUrls, matchedQuery: socialMentions.matchedQuery }).from(socialMentions).get())
       .toEqual({ linkedUrls, matchedQuery: 'spoketuneworks' })
+  })
+
+  it('keeps a post found by a domain-only search with a null matched query', () => {
+    const db = tempDb()
+    const { runId } = seedProjectRun(db, 'project-1')
+    db.insert(socialMentions).values({ ...mention('domain-only', { projectId: 'project-1', runId }, 'reddit', 't3_link'), matchedQuery: null }).run()
+    expect(db.select({ id: socialMentions.id, matchedQuery: socialMentions.matchedQuery }).from(socialMentions).all())
+      .toEqual([{ id: 'domain-only', matchedQuery: null }])
+  })
+
+  it('has no tracked-query link column', () => {
+    const db = tempDb()
+    expect(columnNames(db, 'social_mentions')).toEqual([
+      'id', 'project_id', 'run_id', 'platform', 'external_id', 'external_url', 'matched_query',
+      'author_handle', 'author_name', 'author_followers', 'content_title', 'content_text', 'linked_urls',
+      'sentiment', 'likes', 'shares', 'comments', 'community', 'hashtags', 'metadata', 'posted_at', 'created_at',
+    ])
+    expect('queryId' in socialMentions).toBe(false)
   })
 
   it('stores no secret column for a connection', () => {
@@ -175,14 +192,13 @@ describe('social monitoring tables (v225)', () => {
     expect(tableExists(db, 'social_mentions')).toBe(false)
     expect(tableExists(db, 'social_connections')).toBe(false)
     expect(socialPlatformsColumn(db)).toBeUndefined()
-    const { runId, queryId } = seedProjectRunQuery(db, 'legacy-project')
+    const { runId } = seedProjectRun(db, 'legacy-project')
 
     migrate(db)
 
     expect(db.select({ id: projects.id, socialPlatforms: projects.socialPlatforms }).from(projects).all())
       .toEqual([{ id: 'legacy-project', socialPlatforms: [] }])
     expect(db.select({ id: runs.id }).from(runs).all()).toEqual([{ id: runId }])
-    expect(db.select({ id: queries.id }).from(queries).all()).toEqual([{ id: queryId }])
     expect(db.select().from(socialMentions).all()).toEqual([])
     expect(db.select().from(socialConnections).all()).toEqual([])
 
@@ -213,10 +229,10 @@ describe('social monitoring tables (v225)', () => {
   it('stores a post once per project, while other projects and platforms keep their own copies', () => {
     const db = tempDb()
     enableForeignKeys(db)
-    const a = seedProjectRunQuery(db, 'project-a')
-    const b = seedProjectRunQuery(db, 'project-b')
-    const refsA = { projectId: 'project-a', runId: a.runId, queryId: a.queryId }
-    const refsB = { projectId: 'project-b', runId: b.runId, queryId: b.queryId }
+    const a = seedProjectRun(db, 'project-a')
+    const b = seedProjectRun(db, 'project-b')
+    const refsA = { projectId: 'project-a', runId: a.runId }
+    const refsB = { projectId: 'project-b', runId: b.runId }
 
     db.insert(socialMentions).values(mention('a-reddit', refsA, 'reddit', 'post-1')).run()
     db.insert(socialMentions).values(mention('a-x', refsA, 'x', 'post-1')).run()
@@ -237,10 +253,10 @@ describe('social monitoring tables (v225)', () => {
   it('rejects a mention that pairs one project with another project\'s run', () => {
     const db = tempDb()
     enableForeignKeys(db)
-    const a = seedProjectRunQuery(db, 'project-a')
-    const b = seedProjectRunQuery(db, 'project-b')
+    seedProjectRun(db, 'project-a')
+    const b = seedProjectRun(db, 'project-b')
 
-    expect(() => db.insert(socialMentions).values(mention('crossed', { projectId: 'project-a', runId: b.runId, queryId: a.queryId }, 'reddit', 'post-1')).run())
+    expect(() => db.insert(socialMentions).values(mention('crossed', { projectId: 'project-a', runId: b.runId }, 'reddit', 'post-1')).run())
       .toThrow(/FOREIGN KEY/)
     expect(db.select().from(socialMentions).all()).toEqual([])
   })
@@ -263,10 +279,10 @@ describe('social monitoring tables (v225)', () => {
   it('removes mentions with their run, keeping other runs\' mentions', () => {
     const db = tempDb()
     enableForeignKeys(db)
-    const { runId, queryId } = seedProjectRunQuery(db, 'project-1')
+    const { runId } = seedProjectRun(db, 'project-1')
     insertLegacyRow(db, 'runs', { id: 'other-run', project_id: 'project-1', kind: 'answer-visibility', status: 'completed', trigger: 'manual', created_at: NOW })
-    db.insert(socialMentions).values(mention('from-run', { projectId: 'project-1', runId, queryId }, 'reddit', 'post-1')).run()
-    db.insert(socialMentions).values(mention('from-other-run', { projectId: 'project-1', runId: 'other-run', queryId }, 'reddit', 'post-2')).run()
+    db.insert(socialMentions).values(mention('from-run', { projectId: 'project-1', runId }, 'reddit', 'post-1')).run()
+    db.insert(socialMentions).values(mention('from-other-run', { projectId: 'project-1', runId: 'other-run' }, 'reddit', 'post-2')).run()
 
     db.delete(runs).where(eq(runs.id, runId)).run()
 
@@ -276,10 +292,10 @@ describe('social monitoring tables (v225)', () => {
   it('removes mentions and connections with their project, keeping other projects\' rows', () => {
     const db = tempDb()
     enableForeignKeys(db)
-    const a = seedProjectRunQuery(db, 'project-a')
-    const b = seedProjectRunQuery(db, 'project-b')
-    db.insert(socialMentions).values(mention('a-mention', { projectId: 'project-a', runId: a.runId, queryId: a.queryId }, 'reddit', 'post-a')).run()
-    db.insert(socialMentions).values(mention('b-mention', { projectId: 'project-b', runId: b.runId, queryId: b.queryId }, 'reddit', 'post-b')).run()
+    const a = seedProjectRun(db, 'project-a')
+    const b = seedProjectRun(db, 'project-b')
+    db.insert(socialMentions).values(mention('a-mention', { projectId: 'project-a', runId: a.runId }, 'reddit', 'post-a')).run()
+    db.insert(socialMentions).values(mention('b-mention', { projectId: 'project-b', runId: b.runId }, 'reddit', 'post-b')).run()
     db.insert(socialConnections).values({ id: 'a-connection', platform: 'reddit', projectId: 'project-a', scopes: ['read'], createdAt: NOW, updatedAt: NOW }).run()
     db.insert(socialConnections).values({ id: 'b-connection', platform: 'reddit', projectId: 'project-b', createdAt: NOW, updatedAt: NOW }).run()
 
@@ -287,17 +303,5 @@ describe('social monitoring tables (v225)', () => {
 
     expect(db.select({ id: socialMentions.id }).from(socialMentions).all()).toEqual([{ id: 'b-mention' }])
     expect(db.select({ id: socialConnections.id }).from(socialConnections).all()).toEqual([{ id: 'b-connection' }])
-  })
-
-  it('clears query_id when the query is deleted, keeping the mention', () => {
-    const db = tempDb()
-    enableForeignKeys(db)
-    const { runId, queryId } = seedProjectRunQuery(db, 'project-1')
-    db.insert(socialMentions).values(mention('mention-1', { projectId: 'project-1', runId, queryId }, 'reddit', 'post-1')).run()
-
-    db.delete(queries).where(eq(queries.id, queryId)).run()
-
-    expect(db.select({ id: socialMentions.id, queryId: socialMentions.queryId, runId: socialMentions.runId }).from(socialMentions).all())
-      .toEqual([{ id: 'mention-1', queryId: null, runId }])
   })
 })

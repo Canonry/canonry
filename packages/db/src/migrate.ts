@@ -5683,10 +5683,9 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         run_id           TEXT NOT NULL,
         platform         TEXT NOT NULL,
-        query_id         TEXT REFERENCES queries(id) ON DELETE SET NULL,
         external_id      TEXT NOT NULL,
         external_url     TEXT NOT NULL,
-        matched_query    TEXT NOT NULL,
+        matched_query    TEXT,
         author_handle    TEXT,
         author_name      TEXT,
         author_followers INTEGER,
@@ -5705,7 +5704,6 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         FOREIGN KEY (project_id, run_id) REFERENCES runs(project_id, id) ON DELETE CASCADE
       )`,
       `CREATE INDEX IF NOT EXISTS idx_social_mentions_run ON social_mentions(run_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_social_mentions_query ON social_mentions(query_id)`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_social_mentions_project_platform_external ON social_mentions(project_id, platform, external_id)`,
       `CREATE TABLE IF NOT EXISTS social_connections (
         id                TEXT PRIMARY KEY,

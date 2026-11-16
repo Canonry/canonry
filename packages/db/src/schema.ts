@@ -4533,8 +4533,10 @@ export const sentimentAttempts = sqliteTable('sentiment_attempts', {
  * stored once per project however many of its runs see it, and two projects can
  * each keep their own copy. Column names follow `SocialMentionResult` in
  * contracts. The composite run key keeps `project_id` and `run_id` a matched
- * pair; the row goes with its run or its project, and a deleted query only
- * clears `query_id`.
+ * pair; the row goes with its run or its project. `matched_query` keeps the
+ * search term that found the post. A link to a tracked query is deferred until
+ * a caller needs one, and then needs a key that checks the query belongs to the
+ * same project.
  *
  * Identity and capture facts are non-null; what a platform may not expose
  * (author, follower count, engagement counts, a title, a community) is null
@@ -4545,13 +4547,11 @@ export const socialMentions = sqliteTable('social_mentions', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   runId: text('run_id').notNull(),
   platform: text('platform').$type<SocialMonitorPlatform>().notNull(),
-  /** The tracked query whose search found the post; null when none did or it was deleted. */
-  queryId: text('query_id').references(() => queries.id, { onDelete: 'set null' }),
   /** The platform's own post id. */
   externalId: text('external_id').notNull(),
   externalUrl: text('external_url').notNull(),
-  /** The search term that found the post. */
-  matchedQuery: text('matched_query').notNull(),
+  /** The search term that found the post; null for a post found by a domain-only search, never an invented query. */
+  matchedQuery: text('matched_query'),
   authorHandle: text('author_handle'),
   authorName: text('author_name'),
   authorFollowers: integer('author_followers'),
@@ -4574,18 +4574,21 @@ export const socialMentions = sqliteTable('social_mentions', {
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_social_mentions_run').on(table.runId),
-  index('idx_social_mentions_query').on(table.queryId),
   uniqueIndex('idx_social_mentions_project_platform_external').on(table.projectId, table.platform, table.externalId),
   foreignKey({ columns: [table.projectId, table.runId], foreignColumns: [runs.projectId, runs.id] }).onDelete('cascade'),
 ])
 
 /**
  * Which social platforms a project has connected, one row per platform and
- * project. Metadata only: no secret is stored here. Per root AGENTS.md
- * "Authentication Storage", tokens and API keys live in
- * `~/.canonry/config.yaml`, bound to `projects.id` like Google Ads and GTM
- * connections (`GoogleAdsConnectionConfigEntry` in `packages/canonry/src/config.ts`).
- * `token_expires_at` is not a secret and stays here so reads need no config.
+ * project. SQLite holds connection metadata only: no secret is stored here.
+ * Per root AGENTS.md "Authentication Storage", secrets live in
+ * `~/.canonry/config.yaml` at two levels: install-level app credentials once
+ * per platform, shared by every project (`SocialMonitorConfig` in contracts),
+ * and, for platforms that authorize per project, project-level grants keyed by
+ * `projectId` (`SocialMonitorProjectGrant` in contracts). These are the same
+ * two levels as `GoogleAdsConfigEntry` and its `connections[]` in
+ * `packages/canonry/src/config.ts`. `token_expires_at` is not a secret and
+ * stays here so reads need no config.
  */
 export const socialConnections = sqliteTable('social_connections', {
   id: text('id').primaryKey(),

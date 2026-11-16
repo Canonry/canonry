@@ -35,7 +35,6 @@ erDiagram
   projects ||--o{ health_snapshots : has
   projects ||--o{ social_mentions : "monitors"
   runs ||--o{ social_mentions : finds
-  queries |o--o{ social_mentions : "optionally found by"
   projects ||--o{ social_connections : "authenticates"
 
   projects ||--o| sentiment_settings : "opts in"
@@ -416,8 +415,8 @@ Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside 
 
 | Table | Purpose |
 |-------|---------|
-| **social_mentions** | One social post a social monitoring run found (migration 225), with columns named after contracts `SocialMentionResult`: platform, the platform's post id and URL, `matched_query` (the search term that found it), author, title and text, `linked_urls` (the project URLs the post links to; link data, not a mention), nullable sentiment, `likes`/`shares`/`comments`, `community` (a subreddit on Reddit), `hashtags` and `metadata` (platform-specific fields such as a platform score). Author, follower and engagement fields are null when the platform does not expose them, never zero. Unique: `(projectId, platform, externalId)`, so each project keeps its own copy of a post. FK: projectId → projects (cascade); `(projectId, runId)` → `runs(project_id, id)` (cascade; the pair must match); queryId → queries (set null) |
-| **social_connections** | Which social platforms a project has connected (migration 225): `token_expires_at`, `scopes` and `metadata` only. No secret is stored in SQLite; tokens and API keys live in `~/.canonry/config.yaml`, bound to the project id like Google Ads and GTM connections. Unique: `(platform, projectId)`. FK: projectId → projects (cascade) |
+| **social_mentions** | One social post a social monitoring run found (migration 225), with columns named after contracts `SocialMentionResult`: platform, the platform's post id and URL, `matched_query` (the search term that found it; null for a post found by a domain-only search, never an invented query), author, title and text, `linked_urls` (the project URLs the post links to; link data, not a mention), nullable sentiment, `likes`/`shares`/`comments`, `community` (a subreddit on Reddit), `hashtags` and `metadata` (platform-specific fields such as a platform score). Author, follower and engagement fields are null when the platform does not expose them, never zero. Unique: `(projectId, platform, externalId)`, so each project keeps its own copy of a post. FK: projectId → projects (cascade); `(projectId, runId)` → `runs(project_id, id)` (cascade; the pair must match). No tracked-query link: it is deferred until a caller needs one, and then needs a key that checks the query belongs to the same project |
+| **social_connections** | Which social platforms a project has connected (migration 225): `token_expires_at`, `scopes` and `metadata` only. SQLite holds connection metadata only; secrets live in `~/.canonry/config.yaml` per root AGENTS.md "Authentication Storage": install-level app credentials once per platform (`SocialMonitorConfig` in contracts) and, for platforms that authorize per project, project-level grants keyed by `projectId` (`SocialMonitorProjectGrant` in contracts), the same two levels as `GoogleAdsConfigEntry` and its `connections[]` in `packages/canonry/src/config.ts`. Unique: `(platform, projectId)`. FK: projectId → projects (cascade) |
 
 ### Intelligence
 
